@@ -27,6 +27,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::ParquetVariantArrayExt;
+use crate::array::TYPED_VALUE_SLOT_NAME;
+use crate::array::VALUE_SLOT_NAME;
 use crate::vtable::ParquetVariant;
 
 impl OperationsVTable<ParquetVariant> for ParquetVariant {
@@ -146,7 +148,11 @@ fn scalar_from_shredded_field_scalar(
     }
 
     let field = field_scalar.as_struct();
-    scalar_from_field_scalars(metadata, field.field("value"), field.field("typed_value"))
+    scalar_from_field_scalars(
+        metadata,
+        field.field(VALUE_SLOT_NAME),
+        field.field(TYPED_VALUE_SLOT_NAME),
+    )
 }
 
 fn scalar_from_field_scalars(
@@ -369,6 +375,9 @@ mod tests {
     use crate::ParquetVariant;
     use crate::ParquetVariantArrayExt;
     use crate::ParquetVariantData;
+    use crate::array::METADATA_SLOT_NAME;
+    use crate::array::TYPED_VALUE_SLOT_NAME;
+    use crate::array::VALUE_SLOT_NAME;
     use crate::operations::parquet_variant_to_scalar;
 
     fn binary_view_array(values: &[&[u8]]) -> ArrowArrayRef {
@@ -525,8 +534,8 @@ mod tests {
     fn test_scalar_at_matches_arrow_try_value_perfectly_shredded_primitive() -> VortexResult<()> {
         let struct_array = StructArray::try_new(
             vec![
-                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-                Arc::new(Field::new("typed_value", DataType::Int32, false)),
+                Arc::new(Field::new(METADATA_SLOT_NAME, DataType::BinaryView, false)),
+                Arc::new(Field::new(TYPED_VALUE_SLOT_NAME, DataType::Int32, false)),
             ]
             .into(),
             vec![
@@ -560,9 +569,9 @@ mod tests {
         let typed_value = Arc::new(Int32Array::from(vec![None, Some(20), None]));
         let struct_array = StructArray::try_new(
             vec![
-                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-                Arc::new(Field::new("value", DataType::BinaryView, true)),
-                Arc::new(Field::new("typed_value", DataType::Int32, true)),
+                Arc::new(Field::new(METADATA_SLOT_NAME, DataType::BinaryView, false)),
+                Arc::new(Field::new(VALUE_SLOT_NAME, DataType::BinaryView, true)),
+                Arc::new(Field::new(TYPED_VALUE_SLOT_NAME, DataType::Int32, true)),
             ]
             .into(),
             vec![metadata, value, typed_value],
@@ -579,7 +588,12 @@ mod tests {
         // elements cannot be missing.
         // Source: https://github.com/apache/parquet-format/blob/master/VariantShredding.md
         let element_struct = StructArray::try_new(
-            vec![Arc::new(Field::new("typed_value", DataType::Int32, false))].into(),
+            vec![Arc::new(Field::new(
+                TYPED_VALUE_SLOT_NAME,
+                DataType::Int32,
+                false,
+            ))]
+            .into(),
             vec![Arc::new(Int32Array::from(vec![10, 20, 30]))],
             None,
         )?;
@@ -597,9 +611,9 @@ mod tests {
 
         let struct_array = StructArray::try_new(
             vec![
-                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+                Arc::new(Field::new(METADATA_SLOT_NAME, DataType::BinaryView, false)),
                 Arc::new(Field::new(
-                    "typed_value",
+                    TYPED_VALUE_SLOT_NAME,
                     typed_value.data_type().clone(),
                     false,
                 )),
@@ -668,7 +682,12 @@ mod tests {
         let (metadata, value) = builder.finish();
 
         let shredded_a = StructArray::try_new(
-            vec![Arc::new(Field::new("typed_value", DataType::Int32, false))].into(),
+            vec![Arc::new(Field::new(
+                TYPED_VALUE_SLOT_NAME,
+                DataType::Int32,
+                false,
+            ))]
+            .into(),
             vec![Arc::new(Int32Array::from(vec![7]))],
             None,
         )?;
@@ -685,10 +704,10 @@ mod tests {
 
         let struct_array = StructArray::try_new(
             vec![
-                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-                Arc::new(Field::new("value", DataType::BinaryView, true)),
+                Arc::new(Field::new(METADATA_SLOT_NAME, DataType::BinaryView, false)),
+                Arc::new(Field::new(VALUE_SLOT_NAME, DataType::BinaryView, true)),
                 Arc::new(Field::new(
-                    "typed_value",
+                    TYPED_VALUE_SLOT_NAME,
                     typed_value.data_type().clone(),
                     false,
                 )),

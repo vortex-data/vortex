@@ -23,6 +23,9 @@ use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::Variant;
+use crate::arrays::variant::rebuild_variant_array_from_slots;
 use crate::optimizer::kernels::ArrayKernels;
 use crate::optimizer::kernels::ReduceParentFn;
 
@@ -168,7 +171,12 @@ fn try_optimize_recursive(
     }
 
     if any_slot_optimized {
-        current_array = current_array.with_slots(new_slots)?;
+        current_array = if current_array.is::<Variant>() {
+            rebuild_variant_array_from_slots(&current_array.as_::<Variant>(), new_slots)?
+                .into_array()
+        } else {
+            current_array.with_slots(new_slots)?
+        };
         any_optimizations = true;
     }
 

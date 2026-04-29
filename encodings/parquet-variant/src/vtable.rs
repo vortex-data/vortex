@@ -37,6 +37,7 @@ use crate::array::ParquetVariantArrayExt;
 use crate::array::ParquetVariantData;
 use crate::array::SLOT_NAMES;
 use crate::array::TYPED_VALUE_SLOT;
+use crate::array::TYPED_VALUE_SLOT_NAME;
 use crate::array::VALIDITY_SLOT;
 use crate::array::VALUE_SLOT;
 use crate::array::validate_parts;
@@ -220,7 +221,9 @@ impl VTable for ParquetVariant {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let canonical = if array.typed_value_array().is_some() {
-            VariantArray::try_new_derived(array.as_ref().clone().into_array(), "typed_value")?
+            let core_storage = array.as_ref().clone().into_array();
+            let source_encoding_id = core_storage.encoding_id();
+            VariantArray::try_new_derived(core_storage, source_encoding_id, TYPED_VALUE_SLOT_NAME)?
         } else {
             VariantArray::try_new(array.as_ref().clone().into_array(), None)?
         };
@@ -274,6 +277,7 @@ mod tests {
 
     use crate::ParquetVariant;
     use crate::array::ParquetVariantArrayExt;
+    use crate::array::TYPED_VALUE_SLOT_NAME;
 
     fn serialize(array: &ArrayRef) -> (SerializedArray, ArrayContext) {
         let session = VortexSession::empty().with::<ArraySession>();
@@ -390,9 +394,12 @@ mod tests {
         let typed_value = buffer![10i32, 20, 30].into_array();
         let pv = ParquetVariant::try_new(Validity::NonNullable, metadata, None, Some(typed_value))
             .unwrap();
-        let canonical = VariantArray::try_new_derived(pv.into_array(), "typed_value")
-            .unwrap()
-            .into_array();
+        let core_storage = pv.into_array();
+        let source_encoding_id = core_storage.encoding_id();
+        let canonical =
+            VariantArray::try_new_derived(core_storage, source_encoding_id, TYPED_VALUE_SLOT_NAME)
+                .unwrap()
+                .into_array();
 
         let (parts, _) = serialize(&canonical);
         assert_eq!(parts.nchildren(), 1);

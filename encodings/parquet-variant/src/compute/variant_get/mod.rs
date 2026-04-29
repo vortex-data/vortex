@@ -115,10 +115,11 @@ fn force_nullable_result(result: ArrayRef) -> VortexResult<ArrayRef> {
         core_storage.value_array().cloned(),
         core_storage.typed_value_array().cloned(),
     )?;
-    let rebuilt = if let Some(slot_name) = variant.derived_shredded_slot_name() {
-        VariantArray::try_new_derived(nullable_core_storage.into_array(), slot_name)?
+    let nullable_core_storage = nullable_core_storage.into_array();
+    let rebuilt = if let Some((source_encoding_id, slot_name)) = variant.derived_shredded_source() {
+        VariantArray::try_new_derived(nullable_core_storage, source_encoding_id, slot_name)?
     } else {
-        VariantArray::try_new(nullable_core_storage.into_array(), variant.shredded())?
+        VariantArray::try_new(nullable_core_storage, variant.shredded())?
     };
     Ok(rebuilt.into_array())
 }

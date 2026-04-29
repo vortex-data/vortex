@@ -221,7 +221,8 @@ impl VTable for ExecutingDerivedCoreStorage {
             .clone();
         let core_storage = make_derived_core_storage(typed_value)?;
         Ok(ExecutionResult::done(
-            VariantArray::try_new_derived(core_storage, "typed_value")?.into_array(),
+            VariantArray::try_new_derived(core_storage, DerivedCoreStorage.id(), "typed_value")?
+                .into_array(),
         ))
     }
 }
@@ -250,7 +251,10 @@ fn make_derived_variant_with_sliced_shredded() -> VortexResult<ArrayRef> {
         SliceArray::new(PrimitiveArray::from_iter(10i32..20).into_array(), 2..6).into_array();
     let core_storage = make_derived_core_storage(typed_value)?;
 
-    Ok(VariantArray::try_new_derived(core_storage, "typed_value")?.into_array())
+    Ok(
+        VariantArray::try_new_derived(core_storage, DerivedCoreStorage.id(), "typed_value")?
+            .into_array(),
+    )
 }
 
 fn make_derived_variant_with_executing_core_storage() -> VortexResult<ArrayRef> {
@@ -258,13 +262,20 @@ fn make_derived_variant_with_executing_core_storage() -> VortexResult<ArrayRef> 
         SliceArray::new(PrimitiveArray::from_iter(10i32..20).into_array(), 2..6).into_array();
     let core_storage = make_executing_derived_core_storage(typed_value)?;
 
-    Ok(VariantArray::try_new_derived(core_storage, "typed_value")?.into_array())
+    Ok(VariantArray::try_new_derived(
+        core_storage,
+        ExecutingDerivedCoreStorage.id(),
+        "typed_value",
+    )?
+    .into_array())
 }
 
 #[test]
 fn derived_variant_reconstructs_shredded_through_nested_variant() -> VortexResult<()> {
     let inner = make_derived_variant_with_sliced_shredded()?;
-    let outer = VariantArray::try_new_derived(inner.clone(), "typed_value")?.into_array();
+    let outer =
+        VariantArray::try_new_derived(inner.clone(), DerivedCoreStorage.id(), "typed_value")?
+            .into_array();
     let outer = outer.as_opt::<Variant>().unwrap();
     let inner = inner.as_opt::<Variant>().unwrap();
 

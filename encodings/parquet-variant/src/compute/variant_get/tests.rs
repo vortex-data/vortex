@@ -46,6 +46,9 @@ use vortex_mask::Mask;
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
 use crate::ParquetVariantData;
+use crate::array::METADATA_SLOT_NAME;
+use crate::array::TYPED_VALUE_SLOT_NAME;
+use crate::array::VALUE_SLOT_NAME;
 
 #[fixture]
 fn ctx() -> ExecutionCtx {
@@ -564,7 +567,12 @@ fn variant_get_on_canonical_variant_preserves_parquet_core_and_shredded_child(
     let (metadata, value) = builder.finish();
 
     let shredded_a = StructArray::try_new(
-        vec![Arc::new(Field::new("typed_value", DataType::Int32, false))].into(),
+        vec![Arc::new(Field::new(
+            TYPED_VALUE_SLOT_NAME,
+            DataType::Int32,
+            false,
+        ))]
+        .into(),
         vec![Arc::new(Int32Array::from(vec![7]))],
         None,
     )?;
@@ -581,10 +589,10 @@ fn variant_get_on_canonical_variant_preserves_parquet_core_and_shredded_child(
 
     let struct_array = StructArray::try_new(
         vec![
-            Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-            Arc::new(Field::new("value", DataType::BinaryView, true)),
+            Arc::new(Field::new(METADATA_SLOT_NAME, DataType::BinaryView, false)),
+            Arc::new(Field::new(VALUE_SLOT_NAME, DataType::BinaryView, true)),
             Arc::new(Field::new(
-                "typed_value",
+                TYPED_VALUE_SLOT_NAME,
                 typed_value.data_type().clone(),
                 false,
             )),

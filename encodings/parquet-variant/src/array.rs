@@ -41,7 +41,16 @@ pub(crate) const VALUE_SLOT: usize = 2;
 /// The typed value array for strongly-typed Parquet variant data.
 pub(crate) const TYPED_VALUE_SLOT: usize = 3;
 pub(crate) const NUM_SLOTS: usize = 4;
-pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = ["validity", "metadata", "value", "typed_value"];
+pub(crate) const VALIDITY_SLOT_NAME: &str = "validity";
+pub(crate) const METADATA_SLOT_NAME: &str = "metadata";
+pub(crate) const VALUE_SLOT_NAME: &str = "value";
+pub(crate) const TYPED_VALUE_SLOT_NAME: &str = "typed_value";
+pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = [
+    VALIDITY_SLOT_NAME,
+    METADATA_SLOT_NAME,
+    VALUE_SLOT_NAME,
+    TYPED_VALUE_SLOT_NAME,
+];
 
 /// Array storage for Arrow's canonical `arrow.parquet.variant` extension type.
 ///
@@ -181,13 +190,13 @@ impl ParquetVariantData {
         let value_nullable = storage
             .fields()
             .iter()
-            .find(|field| field.name() == "value")
+            .find(|field| field.name() == VALUE_SLOT_NAME)
             .map(|field| field.is_nullable())
             .unwrap_or(false);
         let typed_value_nullable = storage
             .fields()
             .iter()
-            .find(|field| field.name() == "typed_value")
+            .find(|field| field.name() == TYPED_VALUE_SLOT_NAME)
             .map(|field| field.is_nullable())
             .unwrap_or(false);
         let validity = arrow_variant
@@ -215,10 +224,17 @@ impl ParquetVariantData {
 
         let has_typed_value = typed_value.is_some();
         let pv = ParquetVariant::try_new(validity, metadata, value, typed_value)?;
+        let core_storage = pv.into_array();
         if has_typed_value {
-            Ok(VariantArray::try_new_derived(pv.into_array(), "typed_value")?.into_array())
+            let source_encoding_id = core_storage.encoding_id();
+            Ok(VariantArray::try_new_derived(
+                core_storage,
+                source_encoding_id,
+                TYPED_VALUE_SLOT_NAME,
+            )?
+            .into_array())
         } else {
-            Ok(VariantArray::try_new(pv.into_array(), None)?.into_array())
+            Ok(VariantArray::try_new(core_storage, None)?.into_array())
         }
     }
 }
@@ -284,7 +300,7 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
 
         let metadata_arrow = metadata.clone().execute_arrow(None, ctx)?;
         fields.push(Arc::new(Field::new(
-            "metadata",
+            METADATA_SLOT_NAME,
             metadata_arrow.data_type().clone(),
             false,
         )));
@@ -293,7 +309,7 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
         if let Some(value) = self.value_array() {
             let value_arrow = value.clone().execute_arrow(None, ctx)?;
             fields.push(Arc::new(Field::new(
-                "value",
+                VALUE_SLOT_NAME,
                 value_arrow.data_type().clone(),
                 value.dtype().is_nullable(),
             )));
@@ -303,7 +319,7 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
         if let Some(typed_value) = self.typed_value_array() {
             let tv_arrow = typed_value.clone().execute_arrow(None, ctx)?;
             fields.push(Arc::new(Field::new(
-                "typed_value",
+                TYPED_VALUE_SLOT_NAME,
                 tv_arrow.data_type().clone(),
                 typed_value.dtype().is_nullable(),
             )));
@@ -349,11 +365,15 @@ mod tests {
     use vortex_array::dtype::PType;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
     use crate::ParquetVariant;
     use crate::ParquetVariantData;
+    use crate::array::METADATA_SLOT_NAME;
     use crate::array::ParquetVariantArrayExt;
+    use crate::array::TYPED_VALUE_SLOT_NAME;
+    use crate::array::VALUE_SLOT_NAME;
 
     fn assert_arrow_variant_storage_roundtrip(struct_array: StructArray) -> VortexResult<()> {
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
@@ -433,8 +453,8 @@ mod tests {
         let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
 
         let struct_fields: Fields = vec![
-            Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-            Arc::new(Field::new("typed_value", DataType::Int32, false)),
+            Arc::new(Field::new(METADATA_SLOT_NAME, DataType::BinaryView, false)),
+            Arc::new(Field::new(TYPED_VALUE_SLOT_NAME, DataType::Int32, false)),
         ]
         .into();
         let struct_array =
@@ -474,8 +494,8 @@ mod tests {
 
         let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
         let struct_fields: Fields = vec![
-            Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-            Arc::new(Field::new("typed_value", DataType::Int32, false)),
+            Arc::new(Field::new(METADATA_SLOT_NAME, DataType::BinaryView, false)),
+            Arc::new(Field::new(TYPED_VALUE_SLOT_NAME, DataType::Int32, false)),
         ]
         .into();
         let struct_array =
@@ -483,7 +503,12 @@ mod tests {
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         let inner = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
-        let outer = VariantArray::try_new_derived(inner.clone(), "typed_value")?.into_array();
+        let inner_variant = inner.as_::<Variant>();
+        let (source_encoding_id, slot_name) = inner_variant
+            .derived_shredded_source()
+            .vortex_expect("inner variant should derive shredded");
+        let outer = VariantArray::try_new_derived(inner.clone(), source_encoding_id, slot_name)?
+            .into_array();
         let outer = outer.as_opt::<Variant>().unwrap();
         let inner = inner.as_opt::<Variant>().unwrap();
 
@@ -505,8 +530,8 @@ mod tests {
 
         let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
         let struct_fields: Fields = vec![
-            Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-            Arc::new(Field::new("typed_value", DataType::Int32, false)),
+            Arc::new(Field::new(METADATA_SLOT_NAME, DataType::BinaryView, false)),
+            Arc::new(Field::new(TYPED_VALUE_SLOT_NAME, DataType::Int32, false)),
         ]
         .into();
         let struct_array =
@@ -541,7 +566,10 @@ mod tests {
         let struct_arr = variant_arr.inner();
 
         assert_eq!(struct_arr.num_columns(), 2);
-        assert_eq!(struct_arr.column_names(), &["metadata", "value"]);
+        assert_eq!(
+            struct_arr.column_names(),
+            &[METADATA_SLOT_NAME, VALUE_SLOT_NAME]
+        );
 
         Ok(())
     }
@@ -565,7 +593,7 @@ mod tests {
         assert_eq!(struct_arr.num_columns(), 3);
         assert_eq!(
             struct_arr.column_names(),
-            &["metadata", "value", "typed_value"]
+            &[METADATA_SLOT_NAME, VALUE_SLOT_NAME, TYPED_VALUE_SLOT_NAME]
         );
 
         Ok(())
@@ -588,8 +616,8 @@ mod tests {
 
         let struct_array = StructArray::try_new(
             vec![
-                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-                Arc::new(Field::new("typed_value", DataType::Int32, false)),
+                Arc::new(Field::new(METADATA_SLOT_NAME, DataType::BinaryView, false)),
+                Arc::new(Field::new(TYPED_VALUE_SLOT_NAME, DataType::Int32, false)),
             ]
             .into(),
             vec![metadata, typed_value],
@@ -607,9 +635,9 @@ mod tests {
 
         let struct_array = StructArray::try_new(
             vec![
-                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-                Arc::new(Field::new("value", DataType::BinaryView, true)),
-                Arc::new(Field::new("typed_value", DataType::Int32, false)),
+                Arc::new(Field::new(METADATA_SLOT_NAME, DataType::BinaryView, false)),
+                Arc::new(Field::new(VALUE_SLOT_NAME, DataType::BinaryView, true)),
+                Arc::new(Field::new(TYPED_VALUE_SLOT_NAME, DataType::Int32, false)),
             ]
             .into(),
             vec![metadata, value, typed_value],
@@ -625,8 +653,8 @@ mod tests {
         let value = binary_view_array([b"\x10", b"\x00", b"\x11"]);
         let struct_array = StructArray::try_new(
             vec![
-                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-                Arc::new(Field::new("value", DataType::BinaryView, true)),
+                Arc::new(Field::new(METADATA_SLOT_NAME, DataType::BinaryView, false)),
+                Arc::new(Field::new(VALUE_SLOT_NAME, DataType::BinaryView, true)),
             ]
             .into(),
             vec![metadata, value],

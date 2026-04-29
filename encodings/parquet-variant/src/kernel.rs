@@ -115,6 +115,8 @@ mod tests {
     use vortex_mask::Mask;
 
     use crate::ParquetVariantData;
+    use crate::array::METADATA_SLOT_NAME;
+    use crate::array::TYPED_VALUE_SLOT_NAME;
 
     fn make_unshredded_array() -> VortexResult<ArrayRef> {
         let mut builder = VariantArrayBuilder::new(4);
@@ -301,8 +303,8 @@ mod tests {
 
         let struct_array = StructArray::try_new(
             vec![
-                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-                Arc::new(Field::new("typed_value", DataType::Int32, false)),
+                Arc::new(Field::new(METADATA_SLOT_NAME, DataType::BinaryView, false)),
+                Arc::new(Field::new(TYPED_VALUE_SLOT_NAME, DataType::Int32, false)),
             ]
             .into(),
             vec![metadata, typed_value],

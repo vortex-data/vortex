@@ -8,6 +8,9 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::Variant;
+use crate::arrays::variant::rebuild_variant_array_from_slots;
 
 /// Options for normalizing an array.
 pub struct NormalizeOptions<'a> {
@@ -83,7 +86,12 @@ impl ArrayRef {
         }
 
         if any_slot_changed {
-            normalized = normalized.with_slots(normalized_slots)?;
+            normalized = if normalized.is::<Variant>() {
+                rebuild_variant_array_from_slots(&normalized.as_::<Variant>(), normalized_slots)?
+                    .into_array()
+            } else {
+                normalized.with_slots(normalized_slots)?
+            };
         }
 
         Ok(normalized)

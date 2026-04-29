@@ -5286,6 +5286,8 @@ pub vortex_array::arrays::variant::VariantMetadata::Derived
 
 pub vortex_array::arrays::variant::VariantMetadata::Derived::slot_name: alloc::string::String
 
+pub vortex_array::arrays::variant::VariantMetadata::Derived::source_encoding_id: vortex_array::ArrayId
+
 pub vortex_array::arrays::variant::VariantMetadata::Inline
 
 pub vortex_array::arrays::variant::VariantMetadata::Inline::shredded_dtype: vortex_array::dtype::DType
@@ -5394,7 +5396,7 @@ pub trait vortex_array::arrays::variant::VariantArrayExt: vortex_array::TypedArr
 
 pub fn vortex_array::arrays::variant::VariantArrayExt::core_storage(&self) -> &vortex_array::ArrayRef
 
-pub fn vortex_array::arrays::variant::VariantArrayExt::derived_shredded_slot_name(&self) -> core::option::Option<&str>
+pub fn vortex_array::arrays::variant::VariantArrayExt::derived_shredded_source(&self) -> core::option::Option<(vortex_array::ArrayId, &str)>
 
 pub fn vortex_array::arrays::variant::VariantArrayExt::shredded(&self) -> core::option::Option<vortex_array::ArrayRef>
 
@@ -5404,7 +5406,7 @@ impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Variant>> vortex_array
 
 pub fn T::core_storage(&self) -> &vortex_array::ArrayRef
 
-pub fn T::derived_shredded_slot_name(&self) -> core::option::Option<&str>
+pub fn T::derived_shredded_source(&self) -> core::option::Option<(vortex_array::ArrayId, &str)>
 
 pub fn T::shredded(&self) -> core::option::Option<vortex_array::ArrayRef>
 
@@ -17878,7 +17880,7 @@ pub fn vortex_array::scalar_fn::internal::row_count::RowCount::child_name(&self,
 
 pub fn vortex_array::scalar_fn::internal::row_count::RowCount::coerce_args(&self, options: &Self::Options, args: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
-pub fn vortex_array::scalar_fn::internal::row_count::RowCount::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::internal::row_count::RowCount::execute(&self, _options: &Self::Options, _args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -19112,7 +19114,7 @@ pub fn vortex_array::scalar_fn::internal::row_count::RowCount::child_name(&self,
 
 pub fn vortex_array::scalar_fn::internal::row_count::RowCount::coerce_args(&self, options: &Self::Options, args: &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
-pub fn vortex_array::scalar_fn::internal::row_count::RowCount::deserialize(&self, _metadata: &[u8], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+pub fn vortex_array::scalar_fn::internal::row_count::RowCount::deserialize(&self, metadata: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::internal::row_count::RowCount::execute(&self, _options: &Self::Options, _args: &dyn vortex_array::scalar_fn::ExecutionArgs, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -22456,7 +22458,7 @@ impl vortex_array::Array<vortex_array::arrays::Variant>
 
 pub fn vortex_array::Array<vortex_array::arrays::Variant>::try_new(core_storage: vortex_array::ArrayRef, shredded: core::option::Option<vortex_array::ArrayRef>) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_array::Array<vortex_array::arrays::Variant>::try_new_derived(core_storage: vortex_array::ArrayRef, slot_name: impl core::convert::AsRef<str>) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::Array<vortex_array::arrays::Variant>::try_new_derived(core_storage: vortex_array::ArrayRef, source_encoding_id: vortex_array::ArrayId, slot_name: impl core::convert::AsRef<str>) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::Array<vortex_array::arrays::dict::Dict>
 

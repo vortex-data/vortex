@@ -12,15 +12,19 @@
 //! validity delegate to it.
 //!
 //! `shredded` is a same-length auxiliary child that exposes a more concrete structure when one is
-//! available. It may either be stored inline or be derived from `core_storage`.
+//! available. It may either be stored inline or be derived from an encoding-qualified child inside
+//! `core_storage`.
 //!
 //! Canonical variants always keep two physical slots: slot 0 stores `core_storage`, and slot 1 is
 //! used only for inline `shredded`. Derived `shredded` children are accessor-only and are
-//! delegated to a named child of `core_storage`.
+//! delegated to a slot name owned by a specific source encoding. Slot names are local to each
+//! encoding and must not be treated as globally unique.
 //!
 //! That delegation is defined over the logical `core_storage` value, not just its top-level
 //! slots. If `core_storage` is wrapped by row-preserving encodings such as slice, filter, take,
 //! or masked validity, the delegated `shredded` child is reconstructed through the same wrapper.
+//! The local slot name is only resolved once lookup reaches the recorded source encoding, and
+//! lookup stops there if that source does not expose the slot.
 //!
 //! ## Canonicalization
 //!
@@ -42,6 +46,7 @@ pub(super) use self::array::SLOT_NAMES;
 pub use self::array::VariantArrayExt;
 pub use self::array::VariantMetadata;
 pub(crate) use self::array::rebuild_variant_array;
+pub(crate) use self::array::rebuild_variant_array_from_slots;
 pub(crate) use self::array::try_derived_shredded_from_core_storage;
 pub use self::vtable::Variant;
 pub use self::vtable::VariantArray;
