@@ -91,7 +91,10 @@ pub trait BoolArrayExt: TypedArrayRef<Bool> {
     }
 
     fn validity(&self) -> Validity {
-        child_to_validity(self.as_ref().slots()[VALIDITY_SLOT].as_ref(), self.nullability())
+        child_to_validity(
+            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.nullability(),
+        )
     }
 
     fn to_bit_buffer(&self) -> BitBuffer {

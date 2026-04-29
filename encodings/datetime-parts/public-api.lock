@@ -152,6 +152,62 @@ pub fn vortex_datetime_parts::DateTimePartsMetadata::clear(&mut self)
 
 pub fn vortex_datetime_parts::DateTimePartsMetadata::encoded_len(&self) -> usize
 
+pub struct vortex_datetime_parts::DateTimePartsParts
+
+pub vortex_datetime_parts::DateTimePartsParts::days: vortex_array::array::erased::ArrayRef
+
+pub vortex_datetime_parts::DateTimePartsParts::seconds: vortex_array::array::erased::ArrayRef
+
+pub vortex_datetime_parts::DateTimePartsParts::subseconds: vortex_array::array::erased::ArrayRef
+
+pub struct vortex_datetime_parts::DateTimePartsSlots
+
+pub vortex_datetime_parts::DateTimePartsSlots::days: vortex_array::array::erased::ArrayRef
+
+pub vortex_datetime_parts::DateTimePartsSlots::seconds: vortex_array::array::erased::ArrayRef
+
+pub vortex_datetime_parts::DateTimePartsSlots::subseconds: vortex_array::array::erased::ArrayRef
+
+impl vortex_datetime_parts::DateTimePartsSlots
+
+pub const vortex_datetime_parts::DateTimePartsSlots::COUNT: usize
+
+pub const vortex_datetime_parts::DateTimePartsSlots::DAYS: usize
+
+pub const vortex_datetime_parts::DateTimePartsSlots::NAMES: [&'static str; 3]
+
+pub const vortex_datetime_parts::DateTimePartsSlots::SECONDS: usize
+
+pub const vortex_datetime_parts::DateTimePartsSlots::SUBSECONDS: usize
+
+pub fn vortex_datetime_parts::DateTimePartsSlots::from_slots(slots: alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> Self
+
+pub fn vortex_datetime_parts::DateTimePartsSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
+pub struct vortex_datetime_parts::DateTimePartsSlotsView<'a>
+
+pub vortex_datetime_parts::DateTimePartsSlotsView::days: &'a vortex_array::array::erased::ArrayRef
+
+pub vortex_datetime_parts::DateTimePartsSlotsView::seconds: &'a vortex_array::array::erased::ArrayRef
+
+pub vortex_datetime_parts::DateTimePartsSlotsView::subseconds: &'a vortex_array::array::erased::ArrayRef
+
+impl<'a> vortex_datetime_parts::DateTimePartsSlotsView<'a>
+
+pub fn vortex_datetime_parts::DateTimePartsSlotsView<'a>::from_slots(slots: &'a [core::option::Option<vortex_array::array::erased::ArrayRef>]) -> Self
+
+pub fn vortex_datetime_parts::DateTimePartsSlotsView<'a>::to_owned(&self) -> vortex_datetime_parts::DateTimePartsSlots
+
+impl<'a> core::clone::Clone for vortex_datetime_parts::DateTimePartsSlotsView<'a>
+
+pub fn vortex_datetime_parts::DateTimePartsSlotsView<'a>::clone(&self) -> vortex_datetime_parts::DateTimePartsSlotsView<'a>
+
+impl<'a> core::fmt::Debug for vortex_datetime_parts::DateTimePartsSlotsView<'a>
+
+pub fn vortex_datetime_parts::DateTimePartsSlotsView<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<'a> core::marker::Copy for vortex_datetime_parts::DateTimePartsSlotsView<'a>
+
 pub struct vortex_datetime_parts::TemporalParts
 
 pub vortex_datetime_parts::TemporalParts::days: vortex_array::array::erased::ArrayRef
@@ -160,21 +216,33 @@ pub vortex_datetime_parts::TemporalParts::seconds: vortex_array::array::erased::
 
 pub vortex_datetime_parts::TemporalParts::subseconds: vortex_array::array::erased::ArrayRef
 
-pub trait vortex_datetime_parts::DateTimePartsArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_datetime_parts::DateTimeParts>
+pub trait vortex_datetime_parts::DateTimePartsArraySlotsExt: vortex_array::array::typed::TypedArrayRef<vortex_datetime_parts::DateTimeParts>
 
-pub fn vortex_datetime_parts::DateTimePartsArrayExt::days(&self) -> &vortex_array::array::erased::ArrayRef
+pub fn vortex_datetime_parts::DateTimePartsArraySlotsExt::days(&self) -> &vortex_array::array::erased::ArrayRef
 
-pub fn vortex_datetime_parts::DateTimePartsArrayExt::seconds(&self) -> &vortex_array::array::erased::ArrayRef
+pub fn vortex_datetime_parts::DateTimePartsArraySlotsExt::seconds(&self) -> &vortex_array::array::erased::ArrayRef
 
-pub fn vortex_datetime_parts::DateTimePartsArrayExt::subseconds(&self) -> &vortex_array::array::erased::ArrayRef
+pub fn vortex_datetime_parts::DateTimePartsArraySlotsExt::slots_view(&self) -> vortex_datetime_parts::DateTimePartsSlotsView<'_>
 
-impl<T: vortex_array::array::typed::TypedArrayRef<vortex_datetime_parts::DateTimeParts>> vortex_datetime_parts::DateTimePartsArrayExt for T
+pub fn vortex_datetime_parts::DateTimePartsArraySlotsExt::subseconds(&self) -> &vortex_array::array::erased::ArrayRef
+
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_datetime_parts::DateTimeParts>> vortex_datetime_parts::DateTimePartsArraySlotsExt for T
 
 pub fn T::days(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn T::seconds(&self) -> &vortex_array::array::erased::ArrayRef
 
+pub fn T::slots_view(&self) -> vortex_datetime_parts::DateTimePartsSlotsView<'_>
+
 pub fn T::subseconds(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub trait vortex_datetime_parts::DateTimePartsOwnedExt
+
+pub fn vortex_datetime_parts::DateTimePartsOwnedExt::into_parts(self) -> vortex_datetime_parts::DateTimePartsParts
+
+impl vortex_datetime_parts::DateTimePartsOwnedExt for vortex_array::array::typed::Array<vortex_datetime_parts::DateTimeParts>
+
+pub fn vortex_array::array::typed::Array<vortex_datetime_parts::DateTimeParts>::into_parts(self) -> vortex_datetime_parts::DateTimePartsParts
 
 pub fn vortex_datetime_parts::initialize(session: &vortex_session::VortexSession)
 
