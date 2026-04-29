@@ -40,9 +40,6 @@ impl CastReduce for ListView {
         let Some(target_element_type) = dtype.as_list_element_opt() else {
             return Ok(None);
         };
-
-        // Cast the elements to the target element type.
-        let new_elements = array.elements().cast((**target_element_type).clone())?;
         let Some(validity) = array
             .validity()?
             .try_cast_nullability(dtype.nullability(), array.len())?
@@ -50,6 +47,8 @@ impl CastReduce for ListView {
             return Ok(None);
         };
 
+        // Cast the elements to the target element type.
+        let new_elements = array.elements().cast((**target_element_type).clone())?;
         Ok(Some(build_with_validity(array, new_elements, validity)))
     }
 }
