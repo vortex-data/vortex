@@ -662,9 +662,36 @@ main {
   margin: 0 0 0.4rem;
   font-size: 0.95rem;
   font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 .chart-card-title a { color: var(--fg); }
 .chart-card-title a:hover { color: var(--accent); }
+
+/* Downsampled-payload badge. Rendered both server-side (when the inline
+ * payload was downsampled) and client-side (after the lazy fetch
+ * completes). The `hidden` attribute hides it when no downsampling
+ * occurred; JS toggles it via `removeAttribute("hidden")`. */
+.chart-badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--code-bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  cursor: help;
+}
+.chart-badge[hidden] { display: none; }
+.chart-badge--downsampled {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
 
 .chart-grid {
   width: 100%;

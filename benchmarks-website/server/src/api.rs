@@ -31,10 +31,10 @@ use crate::error::ApiError;
 use crate::slug::ChartKey;
 use crate::slug::GroupKey;
 
-/// Default cap on the number of commits returned per chart.
+/// Default cap on the number of commits returned per chart when no `?n=` is
+/// supplied. The HTML routes override this with their own per-page defaults
+/// (see [`crate::html`]).
 pub const DEFAULT_COMMIT_WINDOW: u32 = 100;
-/// Hard server-side ceiling on `?n=NNN`.
-pub const MAX_COMMIT_WINDOW: u32 = 1000;
 
 /// Canonical group ordering, ported from the v2 site's hard-coded list at
 /// `origin/ct/vfvb:benchmarks-website/index.html`. Group names not in this
@@ -90,7 +90,11 @@ impl Default for CommitWindow {
 impl CommitWindow {
     /// Parse the `?n=...` query string parameter. `None` and malformed values
     /// fall back to [`CommitWindow::default`]. `"all"` (any case) means
-    /// unbounded. Numeric values are clamped to `[1, MAX_COMMIT_WINDOW]`.
+    /// unbounded. Numeric values are floored to `1` so `?n=0` becomes
+    /// `?n=1`; there is no upper bound — large histories are kept as-is.
+    /// Any further reduction in rendered point count happens client-side
+    /// (see `static/chart-init.js` for the LTTB pass on the visible
+    /// commit range).
     pub fn parse(raw: Option<&str>) -> Self {
         let Some(s) = raw else {
             return Self::default();
@@ -102,7 +106,7 @@ impl CommitWindow {
         trimmed
             .parse::<u32>()
             .ok()
-            .map(|v| v.clamp(1, MAX_COMMIT_WINDOW))
+            .map(|v| v.max(1))
             .and_then(NonZeroU32::new)
             .map(Self::Last)
             .unwrap_or_default()
@@ -276,7 +280,7 @@ pub struct ChartLink {
     pub slug: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ChartResponse {
     pub display_name: String,
     pub unit: &'static str,
@@ -296,7 +300,7 @@ pub struct ChartResponse {
 /// engine + format, while `compression_*` and `random_access_times` only
 /// carry format. Vector-search series have neither and are omitted from the
 /// map entirely.
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Clone, Serialize)]
 pub struct SeriesTag {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub engine: Option<String>,
@@ -313,7 +317,7 @@ pub struct FilterUniverse {
     pub formats: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct CommitPoint {
     pub sha: String,
     pub timestamp: String,
@@ -1644,13 +1648,18 @@ mod tests {
     }
 
     #[test]
-    fn commit_window_parse_clamps() {
+    fn commit_window_parse_floors_zero_but_keeps_large_values() {
+        // Large values are kept as-is — full history is no longer clamped
+        // server-side. Visual downsampling happens client-side in
+        // `static/chart-init.js`, on the currently visible commit range.
         let CommitWindow::Last(n) = CommitWindow::parse(Some("99999")) else {
             panic!()
         };
-        assert_eq!(n.get(), MAX_COMMIT_WINDOW);
+        assert_eq!(n.get(), 99_999);
+
+        // 0 floors to 1 since the underlying type is `NonZeroU32`.
         let CommitWindow::Last(n) = CommitWindow::parse(Some("0")) else {
-            panic!("clamp of 0 should round to 1")
+            panic!("floor of 0 should round to 1")
         };
         assert_eq!(n.get(), 1);
     }
