@@ -29,6 +29,52 @@
   var DEFAULT_VISIBLE = 100; // initial visible window (last 100 of fetched)
 
   // -----------------------------------------------------------------------
+  // Global filter state (engine/format chips at the top of the page).
+  //
+  // - `globalFilter.engines` / `.formats` are arrays. Empty = "all visible";
+  //   non-empty = explicit allowlist for that dimension.
+  // - Per-card overrides: when the user clicks a legend item on one chart,
+  //   that series goes into the card's `__bench_overrides` set so the global
+  //   filter no longer touches it. This is the "global sets baseline,
+  //   per-chart click is an override" rule from the spec.
+  // -----------------------------------------------------------------------
+  var globalFilter = readFilterState();
+
+  function readFilterState() {
+    var fallback = { engines: [], formats: [] };
+    var node = document.getElementById("bench-filter-state");
+    if (!node) return fallback;
+    try {
+      var parsed = JSON.parse(node.textContent);
+      return {
+        engines: Array.isArray(parsed.engines) ? parsed.engines.slice() : [],
+        formats: Array.isArray(parsed.formats) ? parsed.formats.slice() : [],
+      };
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  // A series is hidden by the engine filter only if the filter is non-empty
+  // AND the series carries an engine tag AND that engine isn't in the list.
+  // Series without an engine tag (e.g. compression-time `format:op` series)
+  // are unaffected by the engine filter — symmetric for format. This keeps
+  // the chip semantics intuitive: "Engine: duckdb only" doesn't nuke charts
+  // that have no engine dimension.
+  function seriesPassesFilter(meta) {
+    if (!meta) meta = {};
+    if (globalFilter.engines.length && meta.engine
+        && globalFilter.engines.indexOf(meta.engine) === -1) {
+      return false;
+    }
+    if (globalFilter.formats.length && meta.format
+        && globalFilter.formats.indexOf(meta.format) === -1) {
+      return false;
+    }
+    return true;
+  }
+
+  // -----------------------------------------------------------------------
   // Palette + helpers
   // -----------------------------------------------------------------------
   var palette = [
@@ -254,12 +300,14 @@
 
   function buildDatasets(payload) {
     var raw = payload.series || {};
+    var meta = payload.series_meta || {};
     var names = Object.keys(raw).sort();
     var values = names.map(function (name) {
       return Array.isArray(raw[name]) ? raw[name].slice() : [];
     });
 
     return names.map(function (name, i) {
+      var seriesMeta = meta[name] || {};
       return {
         label: name,
         data: values[i],
@@ -273,6 +321,10 @@
         pointHoverRadius: 5,
         pointHitRadius: 8,
         pointStyle: "cross",
+        // Custom field (Chart.js ignores unknown keys). Used by the global
+        // filter to decide which datasets to hide/show in bulk.
+        benchMeta: { engine: seriesMeta.engine, format: seriesMeta.format },
+        hidden: !seriesPassesFilter(seriesMeta),
       };
     });
   }
@@ -295,6 +347,10 @@
 
     var state = canvas.__bench_state || { y: "linear", scope: DEFAULT_VISIBLE };
     canvas.__bench_state = state;
+    // Series labels the user has explicitly toggled on this card. Once a
+    // label lands here, the global filter no longer drives that series's
+    // hidden-state on this card — only direct legend clicks do.
+    if (!canvas.__bench_overrides) canvas.__bench_overrides = {};
 
     var labels = (payload.commits || []).map(function (c) { return shortSha(c.sha); });
     var datasets = buildDatasets(payload);
@@ -344,7 +400,23 @@
           },
         },
         plugins: {
-          legend: { position: legendPosition },
+          legend: {
+            position: legendPosition,
+            // Default onClick toggles `chart.data.datasets[i].hidden`. Wrap
+            // it so we also remember that the user explicitly diverged from
+            // the global filter for this card.
+            onClick: function (e, item, legend) {
+              var ci = legend.chart;
+              var ds = ci.data.datasets[item.datasetIndex];
+              var label = ds && ds.label;
+              if (label && ci.canvas && ci.canvas.__bench_overrides) {
+                ci.canvas.__bench_overrides[label] = true;
+              }
+              var visibility = ci.isDatasetVisible(item.datasetIndex);
+              ci.setDatasetVisibility(item.datasetIndex, !visibility);
+              ci.update();
+            },
+          },
           tooltip: {
             enabled: false,
             external: externalTooltipHandler(canvas, host),
@@ -707,6 +779,120 @@
   }
 
   // -----------------------------------------------------------------------
+  // Global filter bar wiring.
+  //
+  // Chips live in `.global-filter-bar`. Click a non-"all" chip to toggle
+  // that engine/format in/out of the active set; click "all" to clear the
+  // filter for that dimension. After every change we:
+  //   1. Re-paint the chips.
+  //   2. Walk every chart on the page and re-apply the filter (skipping
+  //      series the user has explicitly overridden on that card).
+  //   3. Sync the URL with `history.replaceState` so a refresh / share
+  //      preserves the view.
+  // -----------------------------------------------------------------------
+  function applyGlobalFilterToChart(card) {
+    var canvas = card.querySelector("canvas");
+    var chart = canvas && canvas.__bench_chart;
+    if (!chart) return;
+    var overrides = canvas.__bench_overrides || {};
+    var datasets = chart.data.datasets || [];
+    for (var i = 0; i < datasets.length; i++) {
+      var ds = datasets[i];
+      if (overrides[ds.label]) continue;
+      var hidden = !seriesPassesFilter(ds.benchMeta);
+      // Use the dataset.hidden field directly so the legend stays in sync;
+      // setDatasetVisibility writes into a separate visibility map.
+      ds.hidden = hidden;
+    }
+    chart.update("none");
+  }
+
+  function applyGlobalFilterEverywhere() {
+    document.querySelectorAll(".chart-card[data-chart-index]").forEach(function (card) {
+      applyGlobalFilterToChart(card);
+    });
+  }
+
+  function syncFilterChipsUi() {
+    var bar = document.querySelector('[data-role="global-filter-bar"]');
+    if (!bar) return;
+    bar.querySelectorAll(".filter-chip").forEach(function (chip) {
+      var dim = chip.getAttribute("data-filter");
+      var value = chip.getAttribute("data-value");
+      var list = dim === "engine" ? globalFilter.engines : globalFilter.formats;
+      var active;
+      if (value === "*") {
+        active = list.length === 0;
+      } else {
+        active = list.length === 0 || list.indexOf(value) !== -1;
+      }
+      chip.classList.toggle("filter-chip--active", active);
+      chip.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
+
+  function syncFilterUrl() {
+    if (!window.history || !window.history.replaceState) return;
+    var url = new URL(window.location.href);
+    if (globalFilter.engines.length) {
+      url.searchParams.set("engine", globalFilter.engines.join(","));
+    } else {
+      url.searchParams.delete("engine");
+    }
+    if (globalFilter.formats.length) {
+      url.searchParams.set("format", globalFilter.formats.join(","));
+    } else {
+      url.searchParams.delete("format");
+    }
+    window.history.replaceState(null, "", url.toString());
+  }
+
+  // Toggle one chip's value in/out of the active list. The "all" chip clears
+  // the dimension. Clicking the only-active chip in a non-empty list also
+  // clears the dimension (so you can't end up with "engine=" matching
+  // nothing).
+  function toggleFilterValue(dim, value) {
+    var key = dim === "engine" ? "engines" : "formats";
+    if (value === "*") {
+      globalFilter[key] = [];
+      return;
+    }
+    var list = globalFilter[key];
+    if (list.length === 0) {
+      // Switching from "all visible" to "only this one".
+      globalFilter[key] = [value];
+      return;
+    }
+    var idx = list.indexOf(value);
+    if (idx === -1) {
+      list.push(value);
+    } else {
+      list.splice(idx, 1);
+      if (list.length === 0) {
+        // Toggling off the last chip in a non-empty list returns to "all".
+      }
+    }
+  }
+
+  function initGlobalFilterBar() {
+    var bar = document.querySelector('[data-role="global-filter-bar"]');
+    if (bar) {
+      bar.addEventListener("click", function (e) {
+        var chip = e.target.closest(".filter-chip");
+        if (!chip || !bar.contains(chip)) return;
+        var dim = chip.getAttribute("data-filter");
+        var value = chip.getAttribute("data-value");
+        if (!dim || !value) return;
+        toggleFilterValue(dim, value);
+        syncFilterChipsUi();
+        applyGlobalFilterEverywhere();
+        syncFilterUrl();
+      });
+      syncFilterChipsUi();
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // Header controls
   // -----------------------------------------------------------------------
   function effectiveTheme() {
@@ -816,6 +1002,7 @@
 
   function init() {
     initHeaderControls();
+    initGlobalFilterBar();
     initDetailsToggle();
     initOpenCharts();
   }

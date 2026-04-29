@@ -898,6 +898,215 @@ async fn empty_landing_page_renders() -> Result<()> {
     Ok(())
 }
 
+/// Landing page renders the global filter bar with chip rows for engine and
+/// format, sourced from the seeded data — no hard-coding.
+#[tokio::test]
+async fn landing_page_renders_global_filter_bar() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let body = client.get(server.url("/")).send().await?.text().await?;
+
+    assert!(
+        body.contains(r#"data-role="global-filter-bar""#),
+        "filter bar must be rendered on /"
+    );
+    assert!(
+        body.contains(r#"data-filter="engine""#),
+        "engine row must be rendered"
+    );
+    assert!(
+        body.contains(r#"data-filter="format""#),
+        "format row must be rendered"
+    );
+    // Engines + formats from the seed fixture must appear as chips.
+    assert!(body.contains(r#"data-value="datafusion""#));
+    assert!(body.contains(r#"data-value="duckdb""#));
+    assert!(body.contains(r#"data-value="vortex-file-compressed""#));
+    assert!(body.contains(r#"data-value="parquet""#));
+    // Both rows have an "all" reset chip.
+    assert!(body.matches(r#"data-value="*""#).count() >= 2);
+    // No filter active by default → both "all" chips are active.
+    assert!(body.contains(r#"class="filter-chip filter-chip--all filter-chip--active""#));
+    // Embedded filter state JSON for the client to pick up.
+    assert!(body.contains(r#"id="bench-filter-state""#));
+
+    insta_settings().bind(|| {
+        insta::assert_snapshot!("landing_page_filter_bar", filter_bar_section(&body));
+    });
+    Ok(())
+}
+
+/// Landing page honours `?engine=`/`?format=` and reflects them as the
+/// active chip set + initial filter-state JSON, so a refresh preserves view.
+#[tokio::test]
+async fn landing_page_honours_filter_query_params() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let body = client
+        .get(server.url("/?engine=duckdb&format=vortex-file-compressed"))
+        .send()
+        .await?
+        .text()
+        .await?;
+
+    assert!(
+        body.contains(r#"{"engines":["duckdb"],"formats":["vortex-file-compressed"]}"#),
+        "filter state JSON should reflect query params"
+    );
+    // The "all" chip for engine should NOT be active when an engine filter
+    // is applied. The duckdb chip MUST be active; the datafusion chip must
+    // NOT be.
+    let engine_section = filter_section(&body, "engine");
+    assert!(
+        engine_section.contains(r#"data-value="duckdb""#)
+            && extract_chip(&engine_section, "duckdb").contains("filter-chip--active"),
+        "duckdb chip should be active"
+    );
+    assert!(
+        !extract_chip(&engine_section, "datafusion").contains("filter-chip--active"),
+        "datafusion chip should NOT be active when engine=duckdb"
+    );
+    assert!(
+        !extract_chip(&engine_section, "*").contains("filter-chip--active"),
+        "engine 'all' chip should NOT be active when engine=duckdb"
+    );
+    Ok(())
+}
+
+/// Permalink pages don't render the filter bar but still embed the
+/// filter-state JSON so chart-init.js applies the filter on hydration.
+#[tokio::test]
+async fn permalink_pages_embed_filter_state() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let chart_slug = pick_chart_slug(&server, |s| s.starts_with("TPC-H")).await?;
+    let group_slug = pick_group_slug(&server, |s| s.starts_with("TPC-H")).await?;
+
+    let chart_body = client
+        .get(server.url(&format!("/chart/{chart_slug}?engine=duckdb&format=parquet")))
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert!(
+        chart_body.contains(r#"id="bench-filter-state""#),
+        "chart permalink must embed filter state"
+    );
+    assert!(
+        chart_body.contains(r#"{"engines":["duckdb"],"formats":["parquet"]}"#),
+        "chart permalink must echo the query-param filter state"
+    );
+
+    let group_body = client
+        .get(server.url(&format!("/group/{group_slug}?engine=duckdb")))
+        .send()
+        .await?
+        .text()
+        .await?;
+    assert!(
+        group_body.contains(r#"{"engines":["duckdb"],"formats":[]}"#),
+        "group permalink must echo the query-param filter state"
+    );
+    Ok(())
+}
+
+/// Chart payload exposes per-series engine/format tags so the global filter
+/// has the metadata it needs to drive bulk hide/show.
+#[tokio::test]
+async fn chart_payload_includes_series_meta() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let slug = pick_chart_slug(&server, |s| s.starts_with("TPC-H")).await?;
+    let client = reqwest::Client::new();
+    let body: Value = client
+        .get(server.url(&format!("/api/chart/{slug}")))
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    let meta = body["series_meta"]
+        .as_object()
+        .context("series_meta must be present for query measurements")?;
+    let row = meta
+        .get("datafusion:vortex-file-compressed")
+        .context("expected series tag")?;
+    assert_eq!(row["engine"].as_str(), Some("datafusion"));
+    assert_eq!(row["format"].as_str(), Some("vortex-file-compressed"));
+
+    // Compression-time series carry a format tag but no engine.
+    let comp_slug = pick_chart_slug(&server, |s| s == "Compression").await?;
+    let comp_body: Value = client
+        .get(server.url(&format!("/api/chart/{comp_slug}")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let comp_meta = comp_body["series_meta"]
+        .as_object()
+        .context("series_meta must be present for compression times")?;
+    let row = comp_meta
+        .get("vortex-file-compressed:encode")
+        .context("expected encode series tag")?;
+    assert!(row["engine"].is_null() || row.get("engine").is_none());
+    assert_eq!(row["format"].as_str(), Some("vortex-file-compressed"));
+    Ok(())
+}
+
+/// Pull just the `<section class="global-filter-bar">…</section>` substring
+/// for snapshotting. Keeps the snapshot focused on the chip markup and stable
+/// against changes elsewhere on the page.
+fn filter_bar_section(body: &str) -> String {
+    let needle = r#"<section class="global-filter-bar""#;
+    let Some(start) = body.find(needle) else {
+        return "<missing filter bar>".to_string();
+    };
+    let tail = &body[start..];
+    let Some(end) = tail.find("</section>") else {
+        return tail.to_string();
+    };
+    let end = end + "</section>".len();
+    tail[..end].to_string()
+}
+
+/// Pull the `<div class="global-filter-row">` containing chips for one
+/// dimension (`"engine"` or `"format"`).
+fn filter_section(body: &str, dim: &str) -> String {
+    let bar = filter_bar_section(body);
+    let needle = format!(r#"data-filter="{dim}""#);
+    let Some(_) = bar.find(&needle) else {
+        return String::new();
+    };
+    // Walk back to the enclosing `<div class="global-filter-row">`.
+    let row_open = r#"<div class="global-filter-row">"#;
+    let row_close = "</div>";
+    bar.split(row_open)
+        .find(|chunk| chunk.contains(&needle))
+        .and_then(|chunk| chunk.split(row_close).next())
+        .map(str::to_string)
+        .unwrap_or_default()
+}
+
+/// Pull a single chip's opening tag for assertions.
+fn extract_chip(section: &str, value: &str) -> String {
+    let needle = format!(r#"data-value="{value}""#);
+    let Some(idx) = section.find(&needle) else {
+        return String::new();
+    };
+    let head = &section[..idx];
+    let chip_start = head.rfind("<button").unwrap_or(0);
+    let tail = &section[chip_start..];
+    let chip_end = tail.find('>').map(|p| p + 1).unwrap_or(tail.len());
+    tail[..chip_end].to_string()
+}
+
 #[tokio::test]
 async fn static_assets_are_served() -> Result<()> {
     let server = Server::start().await?;

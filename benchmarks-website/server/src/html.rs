@@ -73,7 +73,7 @@ const CHART_INIT_JS: &[u8] = include_bytes!("../static/chart-init.js");
 const STYLE_CSS: &[u8] = include_bytes!("../static/style.css");
 const VORTEX_BLACK_SVG: &[u8] = include_bytes!("../../public/vortex_black_nobg.svg");
 const VORTEX_WHITE_SVG: &[u8] = include_bytes!("../../public/vortex_white_nobg.svg");
-const STATIC_ASSET_VERSION: &str = "bench-v3-ui-8";
+const STATIC_ASSET_VERSION: &str = "bench-v3-ui-9";
 
 /// HTML routes mounted under `/`.
 pub fn router() -> Router<AppState> {
@@ -92,15 +92,24 @@ pub fn router() -> Router<AppState> {
         .route("/vortex_white_nobg.svg", get(serve_vortex_white_svg))
 }
 
-/// Query string for HTML routes. Only `?n=` is consumed server-side, as a
-/// power-user override on the per-chart fetch size. Other v2/legacy params
-/// are accepted but ignored — the per-chart toolbar is the source of truth
-/// for runtime state.
+/// Query string for HTML routes. `?n=` overrides the per-chart fetch size;
+/// `?engine=` and `?format=` carry the global filter bar's selection so a
+/// shared link or refresh preserves which engines/formats are visible. The
+/// per-chart toolbar (Y axis, scope slider) remains local-only — its state
+/// is intentionally not in the URL.
 #[derive(Debug, Default, Deserialize)]
 pub struct UiQuery {
     /// Override for the per-chart fetch size. Defaults to `PER_CHART_FETCH_N`.
     /// Accepts `25|50|100|250|all`.
     pub n: Option<String>,
+    /// Comma-separated list of engines to keep visible across every chart.
+    /// Empty / unset means no engine filter is active. Unknown engines are
+    /// preserved verbatim so a stale URL still survives a chip-universe
+    /// expansion.
+    pub engine: Option<String>,
+    /// Comma-separated list of formats to keep visible across every chart.
+    /// Same shape as `engine`.
+    pub format: Option<String>,
 }
 
 impl UiQuery {
@@ -114,15 +123,49 @@ impl UiQuery {
             }
         }
     }
+
+    /// Parse `?engine=`/`?format=` into a deduplicated, trimmed [`FilterState`].
+    /// Empty entries (e.g. trailing commas) are dropped; an entirely empty
+    /// param means "no filter active" and is encoded as an empty `Vec`.
+    fn filter_state(&self) -> FilterState {
+        FilterState {
+            engines: parse_csv(self.engine.as_deref()),
+            formats: parse_csv(self.format.as_deref()),
+        }
+    }
+}
+
+/// Parsed filter selection from `?engine=` / `?format=`.
+///
+/// An empty `Vec` means "all chips active" (no filter); a non-empty `Vec`
+/// is the explicit allowlist for that dimension.
+#[derive(Debug, Default, Clone, serde::Serialize)]
+pub struct FilterState {
+    pub engines: Vec<String>,
+    pub formats: Vec<String>,
+}
+
+fn parse_csv(raw: Option<&str>) -> Vec<String> {
+    let Some(raw) = raw else { return Vec::new() };
+    let mut seen = std::collections::BTreeSet::new();
+    raw.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .filter(|s| seen.insert(s.to_string()))
+        .map(str::to_string)
+        .collect()
 }
 
 async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Response {
     let window = ui.fetch_window();
-    let groups = match db::run_blocking(&state.db, move |conn| {
-        collect_landing_groups(conn, &window)
+    let filter = ui.filter_state();
+    let result = db::run_blocking(&state.db, move |conn| {
+        let groups = collect_landing_groups(conn, &window)?;
+        let universe = api::collect_filter_universe(conn)?;
+        Ok::<_, anyhow::Error>((groups, universe))
     })
-    .await
-    {
+    .await;
+    let (groups, universe) = match result {
         Ok(g) => g,
         Err(err) => {
             tracing::error!(error = ?err, "landing: collect_landing_groups failed");
@@ -137,7 +180,7 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
     render_page(
         "bench.vortex.dev",
         "Vortex benchmarks (v3 alpha)",
-        landing_body(&groups),
+        landing_body(&groups, &universe, &filter),
         scripts,
     )
     .into_response()
@@ -240,10 +283,14 @@ async fn chart_page(
 
     let title = format!("{} — bench.vortex.dev", chart.display_name);
     let subtitle = chart.display_name.clone();
+    let filter = ui.filter_state();
     render_page(
         &title,
         &subtitle,
-        chart_body(&chart, &slug, &payload_json),
+        html! {
+            (filter_state_script(&filter))
+            (chart_body(&chart, &slug, &payload_json))
+        },
         PageScripts::Chart,
     )
     .into_response()
@@ -276,7 +323,17 @@ async fn group_page(
     };
     let title = format!("{} — bench.vortex.dev", group.name);
     let subtitle = group.name.clone();
-    render_page(&title, &subtitle, group_body(&group), PageScripts::Chart).into_response()
+    let filter = ui.filter_state();
+    render_page(
+        &title,
+        &subtitle,
+        html! {
+            (filter_state_script(&filter))
+            (group_body(&group))
+        },
+        PageScripts::Chart,
+    )
+    .into_response()
 }
 
 /// Which scripts the page wants pulled in.
@@ -415,9 +472,14 @@ fn moon_icon() -> Markup {
     }
 }
 
-fn landing_body(groups: &[LandingGroup]) -> Markup {
+fn landing_body(
+    groups: &[LandingGroup],
+    universe: &api::FilterUniverse,
+    filter: &FilterState,
+) -> Markup {
     if groups.is_empty() {
         return html! {
+            (filter_state_script(filter))
             p.empty { "No data ingested yet." }
         };
     }
@@ -426,6 +488,8 @@ fn landing_body(groups: &[LandingGroup]) -> Markup {
     // `<script id="chart-data-N">` agree across groups.
     let mut idx_iter = 0usize..total_charts;
     html! {
+        (filter_state_script(filter))
+        (filter_bar(universe, filter))
         @for (group_idx, group) in groups.iter().enumerate() {
             section.group-details data-group-name=(group.name) {
                 details.group-disclosure open[group_idx == 0] {
@@ -679,6 +743,79 @@ fn format_time_ns(ns: f64) -> String {
     }
 }
 
+/// Sticky page-level filter bar: two rows of toggle chips that hide/show
+/// series across every chart on the page by `engine` or `format`. Per-chart
+/// legend toggles still work and override this baseline for that card —
+/// driven from `chart-init.js`.
+///
+/// Chip universes are sourced from [`api::collect_filter_universe`] so a new
+/// engine or format showing up in ingest automatically grows the bar; nothing
+/// is hard-coded.
+fn filter_bar(universe: &api::FilterUniverse, filter: &FilterState) -> Markup {
+    let engines_active = !filter.engines.is_empty();
+    let formats_active = !filter.formats.is_empty();
+    html! {
+        section.global-filter-bar aria-label="Global filters" data-role="global-filter-bar" {
+            div.global-filter-row {
+                span.global-filter-label { "Engine" }
+                button.filter-chip.filter-chip--all
+                    type="button"
+                    data-filter="engine"
+                    data-value="*"
+                    .filter-chip--active[!engines_active]
+                    aria-pressed=(!engines_active) {
+                    "all"
+                }
+                @for engine in &universe.engines {
+                    @let active = !engines_active || filter.engines.iter().any(|e| e == engine);
+                    button.filter-chip
+                        type="button"
+                        data-filter="engine"
+                        data-value=(engine)
+                        .filter-chip--active[active]
+                        aria-pressed=(active) {
+                        (engine)
+                    }
+                }
+            }
+            div.global-filter-row {
+                span.global-filter-label { "Format" }
+                button.filter-chip.filter-chip--all
+                    type="button"
+                    data-filter="format"
+                    data-value="*"
+                    .filter-chip--active[!formats_active]
+                    aria-pressed=(!formats_active) {
+                    "all"
+                }
+                @for format in &universe.formats {
+                    @let active = !formats_active || filter.formats.iter().any(|f| f == format);
+                    button.filter-chip
+                        type="button"
+                        data-filter="format"
+                        data-value=(format)
+                        .filter-chip--active[active]
+                        aria-pressed=(active) {
+                        (format)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Embed the active filter state as a small JSON payload the client picks up
+/// on hydration. Cheaper to read than re-parsing `location.search` and
+/// guarantees the server- and client-side decoders agree.
+fn filter_state_script(filter: &FilterState) -> Markup {
+    let json = serde_json::to_string(filter).unwrap_or_else(|_| "{}".into());
+    html! {
+        script id="bench-filter-state" type="application/json" {
+            (PreEscaped(escape_json_for_script(&json)))
+        }
+    }
+}
+
 /// Render the per-chart toolbar. `idx` namespaces input ids so multiple
 /// charts on the same page don't collide on `<input id="...">`.
 ///
@@ -834,10 +971,30 @@ mod tests {
     fn fetch_window_respects_n_override() {
         let ui = UiQuery {
             n: Some("25".into()),
+            ..Default::default()
         };
         match ui.fetch_window() {
             CommitWindow::Last(n) => assert_eq!(n.get(), 25),
             CommitWindow::All => panic!(),
         }
+    }
+
+    #[test]
+    fn filter_state_parses_csv_and_dedupes() {
+        let ui = UiQuery {
+            engine: Some("duckdb, datafusion ,duckdb".into()),
+            format: Some(",, vortex-file-compressed ,".into()),
+            ..Default::default()
+        };
+        let f = ui.filter_state();
+        assert_eq!(f.engines, vec!["duckdb", "datafusion"]);
+        assert_eq!(f.formats, vec!["vortex-file-compressed"]);
+    }
+
+    #[test]
+    fn filter_state_default_is_empty() {
+        let f = UiQuery::default().filter_state();
+        assert!(f.engines.is_empty());
+        assert!(f.formats.is_empty());
     }
 }
