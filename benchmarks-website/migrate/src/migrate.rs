@@ -74,6 +74,11 @@ pub struct MigrationSummary {
     pub commit_warnings: u64,
     pub skipped_no_value: u64,
     pub skipped_intentional: u64,
+    /// Per-`Skip` reason counts. Lets future agents see at a glance
+    /// which categories the classifier is throwing away records under,
+    /// so a regression that pushes data into the wrong `Skip` variant
+    /// jumps out of the run summary.
+    pub skipped_by_reason: BTreeMap<&'static str, u64>,
     pub commits_inserted: u64,
     pub deduped: u64,
     /// Number of records dropped by dedup whose `value_ns` (or
@@ -317,8 +322,12 @@ fn apply_v2_record(
 
     let bin = match classifier::classify_outcome(record) {
         classifier::Outcome::Bin(b) => b,
-        classifier::Outcome::Skip(_) => {
+        classifier::Outcome::Skip(reason) => {
             summary.skipped_intentional += 1;
+            *summary
+                .skipped_by_reason
+                .entry(skip_reason_name(reason))
+                .or_insert(0) += 1;
             return;
         }
         classifier::Outcome::Unknown => {
@@ -821,6 +830,23 @@ fn build_list_int64(values: Vec<Vec<i64>>) -> ListArray {
     )
 }
 
+/// Stable, machine-friendly name for each [`classifier::Skip`] variant.
+///
+/// Used as a histogram bucket key in [`MigrationSummary::skipped_by_reason`].
+/// Names are kept short and stable so the summary text stays diffable
+/// across runs.
+fn skip_reason_name(s: classifier::Skip) -> &'static str {
+    match s {
+        classifier::Skip::DerivedRatio => "DerivedRatio",
+        classifier::Skip::Throughput => "Throughput",
+        classifier::Skip::SkippedSuite => "SkippedSuite",
+        classifier::Skip::UnsupportedShape => "UnsupportedShape",
+        classifier::Skip::NoValue => "NoValue",
+        classifier::Skip::Deprecated => "Deprecated",
+        classifier::Skip::HistoricalMemory => "HistoricalMemory",
+    }
+}
+
 /// Print the summary in a human-readable form. Returned by the CLI.
 impl std::fmt::Display for MigrationSummary {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -851,6 +877,16 @@ impl std::fmt::Display for MigrationSummary {
             self.uncategorized,
             100.0 * self.uncategorized_fraction()
         )?;
+        if !self.skipped_by_reason.is_empty() {
+            writeln!(f, "Skip histogram (by reason):")?;
+            // Sort largest first so a regression that shifts records
+            // into an unexpected bucket is easy to spot.
+            let mut by_reason: Vec<_> = self.skipped_by_reason.iter().collect();
+            by_reason.sort_by(|a, b| b.1.cmp(a.1).then(a.0.cmp(b.0)));
+            for (reason, n) in by_reason {
+                writeln!(f, "  {reason:>20} : {n}")?;
+            }
+        }
         if !self.uncategorized_prefixes.is_empty() {
             let mut top: Vec<_> = self.uncategorized_prefixes.iter().collect();
             top.sort_by(|a, b| b.1.cmp(a.1));
