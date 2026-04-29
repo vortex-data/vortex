@@ -52,6 +52,21 @@
     return s.length > max ? s.slice(0, max - 1) + "…" : s;
   }
 
+  function firstLine(s) {
+    if (typeof s !== "string") return "";
+    var nl = s.indexOf("\n");
+    return nl >= 0 ? s.slice(0, nl) : s;
+  }
+
+  // Vortex commits to `develop` are squash-merged from PRs; the squash subject
+  // ends with `(#NNNN)`. Returning just the number lets callers build either a
+  // PR or commit URL.
+  function parsePrNumber(message) {
+    if (typeof message !== "string") return null;
+    var m = message.match(/\(#(\d+)\)/);
+    return m ? m[1] : null;
+  }
+
   function escapeHtml(s) {
     return String(s)
       .replace(/&/g, "&amp;")
@@ -144,9 +159,9 @@
   // previous implementation flipped it to `auto` when visible; the cursor
   // would land on the tooltip, fire mouseout on the canvas, the tooltip
   // would hide, the cursor would re-enter the canvas, and the cycle would
-  // repeat at event-loop frequency. The cost of `pointer-events: none` is
-  // that the github-link in the tooltip footer is no longer clickable, but
-  // the chart-card title already links to the permalink.
+  // repeat at event-loop frequency. Clicks on a data point are handled by
+  // the chart's `onClick` (opens the PR or commit URL in a new tab), so the
+  // tooltip itself never needs to be interactive.
   // -----------------------------------------------------------------------
   function externalTooltipHandler(canvas, host) {
     return function (context) {
@@ -195,13 +210,16 @@
         + escapeHtml(shortDate(commit.timestamp))
         + "</div>";
 
-      var msg = commit.message ? truncate(commit.message, 120) : "";
-      var footerHtml = (msg || commit.url)
-        ? '<div class="tt-footer">'
-          + (msg ? '<div class="tt-msg">' + escapeHtml(msg) + "</div>" : "")
-          + (commit.url ? '<div class="tt-msg">'
-              + escapeHtml(commit.url.replace(/^https?:\/\//, "")) + "</div>" : "")
-          + "</div>"
+      // Show short SHA + first-line commit message, truncated. The full URL
+      // (or PR URL) is wired up via the chart's onClick handler, so we don't
+      // render it as text here.
+      var msg = truncate(firstLine(commit.message || ""), 80);
+      var footerLine = commit.sha
+        ? (msg ? escapeHtml(shortSha(commit.sha)) + " · " + escapeHtml(msg)
+                : escapeHtml(shortSha(commit.sha)))
+        : escapeHtml(msg);
+      var footerHtml = footerLine
+        ? '<div class="tt-footer"><div class="tt-msg">' + footerLine + "</div></div>"
         : "";
 
       host.innerHTML = titleHtml + '<div class="tt-rows">' + rows + "</div>" + footerHtml;
@@ -298,6 +316,21 @@
         // the column. Combined with `pointer-events: none` on the tooltip
         // host, this is the flicker fix.
         interaction: { mode: "index", intersect: false, axis: "x" },
+        onClick: function (event, _activeElements, chart) {
+          var points = chart.getElementsAtEventForMode(
+            event, "nearest", { intersect: false, axis: "x" }, true,
+          );
+          if (!points.length) return;
+          var idx = points[0].index;
+          var commits = (canvas.__bench_payload || {}).commits || [];
+          var commit = commits[idx];
+          if (!commit) return;
+          var pr = parsePrNumber(commit.message);
+          var url = pr
+            ? "https://github.com/vortex-data/vortex/pull/" + pr
+            : commit.url;
+          if (url) window.open(url, "_blank", "noopener");
+        },
         scales: {
           y: {
             type: state.y === "log" ? "logarithmic" : "linear",
@@ -315,6 +348,13 @@
           tooltip: {
             enabled: false,
             external: externalTooltipHandler(canvas, host),
+            // Order rows top-to-bottom by current y-value descending so the
+            // tooltip matches the visual stack of the lines at the hovered x.
+            itemSort: function (a, b) {
+              var av = a.parsed && Number.isFinite(a.parsed.y) ? a.parsed.y : -Infinity;
+              var bv = b.parsed && Number.isFinite(b.parsed.y) ? b.parsed.y : -Infinity;
+              return bv - av;
+            },
           },
           // chartjs-plugin-zoom config — wheel-zoom is disabled because we
           // want wheel-pan instead (handled by the canvas wheel listener
