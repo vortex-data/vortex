@@ -20,6 +20,7 @@ use vortex_error::VortexResult;
 
 use crate::RunEndData;
 use crate::ops::find_slice_end_index;
+
 impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndData
 where
     R::Native: NativePType,
@@ -147,7 +148,13 @@ mod tests {
             )
         };
 
-        RunEnd::try_new_offset_length(ends_slice, values_slice, offset, array.len())
+        RunEnd::try_new_offset_length(
+            ends_slice,
+            values_slice,
+            offset,
+            array.len(),
+            &mut SESSION.create_execution_ctx(),
+        )
     }
 
     #[test]

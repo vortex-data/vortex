@@ -409,10 +409,11 @@ impl FSST {
             Array::from_parts_unchecked(ArrayParts::new(FSST, dtype, len, data).with_slots(slots))
         })
     }
-    
+
     /// Legacy deserialization path (2 buffers): the codes were stored as a full
     /// `VarBinArray` child. We decompose the VarBinArray into its bytes (stored in
     /// FSSTData) and offsets/validity (stored in slots).
+    #[allow(clippy::too_many_arguments)]
     fn deserialize_legacy(
         &self,
         dtype: &DType,

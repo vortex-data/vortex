@@ -65,7 +65,6 @@ impl FilterKernel for RunEnd {
                         values,
                         0,
                         mask_values.true_count(),
-                        ctx,
                     )
                     .into_array(),
                 ))
