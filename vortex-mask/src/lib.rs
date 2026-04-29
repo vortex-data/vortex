@@ -606,7 +606,6 @@ impl Mask {
     }
 
     /// Limit the mask to the first `limit` true values
-    #[allow(clippy::ref_patterns)] // ref needed to borrow inner value while preserving self for early return
     pub fn limit(self, limit: usize) -> Self {
         // Early return optimization: if we're asking for more true values than the total
         // length of the mask, then even if all values were true, we couldn't exceed the
@@ -615,12 +614,12 @@ impl Mask {
             return self;
         }
 
-        match self {
+        match &self {
             Mask::AllTrue(len) => {
                 Self::from_iter([Self::new_true(limit), Self::new_false(len - limit)])
             }
             Mask::AllFalse(_) => self,
-            Mask::Values(ref mask_values) => {
+            Mask::Values(mask_values) => {
                 if limit >= mask_values.true_count() {
                     return self;
                 }
