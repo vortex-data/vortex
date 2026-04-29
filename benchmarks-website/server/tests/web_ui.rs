@@ -458,10 +458,22 @@ async fn chart_card_carries_per_chart_toolbar() -> Result<()> {
 
     let card_count = body.matches(r#"<section class="chart-card""#).count();
     let toolbar_count = body.matches(r#"class="toolbar toolbar--card""#).count();
+    let strip_count = body.matches(r#"data-role="range-strip""#).count();
     assert!(card_count > 0, "landing page must render chart cards");
     assert_eq!(
         toolbar_count, card_count,
         "every chart-card must contain a toolbar--card ({card_count} cards / {toolbar_count} toolbars)"
+    );
+    assert_eq!(
+        strip_count, card_count,
+        "every chart-card must carry a range-strip below the canvas \
+         ({card_count} cards / {strip_count} strips)"
+    );
+    assert!(
+        body.contains(r#"data-role="range-window""#)
+            && body.contains(r#"data-role="range-handle-left""#)
+            && body.contains(r#"data-role="range-handle-right""#),
+        "range-strip must include a draggable window and two resize handles"
     );
     assert!(
         !body.contains(r#"data-mode="#),
