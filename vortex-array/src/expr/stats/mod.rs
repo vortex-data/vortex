@@ -173,7 +173,10 @@ impl Stat {
             Self::Min if matches!(data_type, DType::Null) => return None,
             Self::Min => data_type.clone(),
             Self::NullCount => DType::Primitive(PType::U64, NonNullable),
-            Self::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
+            Self::UncompressedSizeInBytes => {
+                return aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+                    .return_dtype(&EmptyOptions, data_type);
+            }
             Self::NaNCount => {
                 return aggregate_fn::fns::nan_count::NanCount
                     .return_dtype(&EmptyOptions, data_type);
