@@ -383,7 +383,176 @@
 
     canvas.__bench_chart = chart;
     attachWheelPan(canvas, chart);
+    bindRangeStrip(card, chart);
     return chart;
+  }
+
+  // -----------------------------------------------------------------------
+  // Range scrollbar strip — the thin track below each canvas. Spans the full
+  // commit history; the highlighted "window" matches the chart's currently
+  // visible x-range and can be dragged or its edges resized to pan/zoom.
+  // -----------------------------------------------------------------------
+  function bindRangeStrip(card, chart) {
+    var strip = card.querySelector('[data-role="range-strip"]');
+    if (!strip || strip.__bench_bound) return;
+    strip.__bench_bound = true;
+    var win = strip.querySelector('[data-role="range-window"]');
+    var leftHandle = strip.querySelector('[data-role="range-handle-left"]');
+    var rightHandle = strip.querySelector('[data-role="range-handle-right"]');
+    if (!win || !leftHandle || !rightHandle) return;
+
+    var canvas = card.querySelector("canvas");
+
+    function commitCount() {
+      return (chart.data.labels || []).length;
+    }
+
+    function visibleBounds() {
+      var n = commitCount();
+      if (n <= 0) return { min: 0, max: 0 };
+      var maxIdx = n - 1;
+      var sx = chart.options.scales.x || {};
+      var min = Number.isFinite(sx.min) ? sx.min : 0;
+      var max = Number.isFinite(sx.max) ? sx.max : maxIdx;
+      min = Math.max(0, Math.min(maxIdx, min));
+      max = Math.max(min, Math.min(maxIdx, max));
+      return { min: min, max: max };
+    }
+
+    function render() {
+      var n = commitCount();
+      if (n <= 0) {
+        win.style.left = "0%";
+        win.style.width = "100%";
+        return;
+      }
+      var b = visibleBounds();
+      var span = Math.max(1, n - 1);
+      var leftPct = (b.min / span) * 100;
+      var widthPct = ((b.max - b.min) / span) * 100;
+      // A minimum visible width keeps the handles grabbable when zoomed in
+      // tight on a single commit.
+      if (widthPct < 1.5) widthPct = 1.5;
+      if (leftPct + widthPct > 100) leftPct = 100 - widthPct;
+      win.style.left = leftPct + "%";
+      win.style.width = widthPct + "%";
+    }
+
+    function setRange(newMin, newMax) {
+      var n = commitCount();
+      if (n <= 0) return;
+      var maxIdx = n - 1;
+      var minRange = 1; // matches plugin `limits.x.minRange = 4` loosely; allow tighter via strip
+      newMin = Math.max(0, Math.min(maxIdx - minRange, newMin));
+      newMax = Math.max(newMin + minRange, Math.min(maxIdx, newMax));
+      chart.options.scales.x.min = newMin;
+      chart.options.scales.x.max = newMax;
+      // Track scope on the canvas so the toolbar slider stays consistent
+      // when the user later drags it.
+      if (canvas && canvas.__bench_state) {
+        canvas.__bench_state.scope = Math.round(newMax - newMin + 1);
+      }
+      chart.update("none");
+      // Mirror the new scope onto the slider for visual consistency. The
+      // slider's min/max keep the value clamped.
+      var slider = card.querySelector('[data-role="scope-slider"]');
+      if (slider) {
+        var v = Math.round(newMax - newMin + 1);
+        var lo = parseInt(slider.min, 10) || 1;
+        var hi = parseInt(slider.max, 10) || n;
+        slider.value = Math.max(lo, Math.min(hi, v));
+      }
+      render();
+    }
+
+    function pxToIndex(px, trackWidth) {
+      var n = commitCount();
+      if (n <= 1 || trackWidth <= 0) return 0;
+      var pct = Math.max(0, Math.min(1, px / trackWidth));
+      return pct * (n - 1);
+    }
+
+    var dragState = null;
+
+    function onPointerDown(e) {
+      if (e.button !== undefined && e.button !== 0) return;
+      var role = e.target.getAttribute && e.target.getAttribute("data-role");
+      var rect = strip.getBoundingClientRect();
+      var trackWidth = rect.width;
+      var b = visibleBounds();
+      var idxAtCursor = pxToIndex(e.clientX - rect.left, trackWidth);
+
+      var mode;
+      if (role === "range-handle-left") mode = "resize-left";
+      else if (role === "range-handle-right") mode = "resize-right";
+      else if (role === "range-window") mode = "pan";
+      else {
+        // Click on bare track: jump the window so its centre lands at the
+        // cursor, then begin a pan drag.
+        var width = b.max - b.min;
+        var newMin = idxAtCursor - width / 2;
+        setRange(newMin, newMin + width);
+        b = visibleBounds();
+        mode = "pan";
+      }
+      dragState = {
+        mode: mode,
+        rect: rect,
+        startX: e.clientX,
+        startMin: b.min,
+        startMax: b.max,
+        pointerId: e.pointerId,
+      };
+      try { strip.setPointerCapture(e.pointerId); } catch (err) {}
+      e.preventDefault();
+      strip.classList.add("chart-range-strip--dragging");
+    }
+
+    function onPointerMove(e) {
+      if (!dragState) return;
+      var n = commitCount();
+      if (n <= 1) return;
+      var trackWidth = dragState.rect.width;
+      var dxPx = e.clientX - dragState.startX;
+      var dxIdx = (dxPx / Math.max(1, trackWidth)) * (n - 1);
+      if (dragState.mode === "pan") {
+        setRange(dragState.startMin + dxIdx, dragState.startMax + dxIdx);
+      } else if (dragState.mode === "resize-left") {
+        setRange(dragState.startMin + dxIdx, dragState.startMax);
+      } else if (dragState.mode === "resize-right") {
+        setRange(dragState.startMin, dragState.startMax + dxIdx);
+      }
+    }
+
+    function onPointerUp(e) {
+      if (!dragState) return;
+      try { strip.releasePointerCapture(dragState.pointerId); } catch (err) {}
+      dragState = null;
+      strip.classList.remove("chart-range-strip--dragging");
+    }
+
+    strip.addEventListener("pointerdown", onPointerDown);
+    strip.addEventListener("pointermove", onPointerMove);
+    strip.addEventListener("pointerup", onPointerUp);
+    strip.addEventListener("pointercancel", onPointerUp);
+
+    // Bidirectional: chart -> strip. The zoom plugin fires `onPan`/`onZoom`
+    // during user gestures (drag-pan, drag-rect-zoom). Hook those to refresh.
+    // Programmatic state changes (toolbar slider, wheel-pan) re-render the
+    // strip explicitly via `canvas.__bench_strip_render`.
+    var zoomOpts = chart.options.plugins && chart.options.plugins.zoom;
+    if (zoomOpts) {
+      if (zoomOpts.zoom) {
+        zoomOpts.zoom.onZoom = function () { render(); };
+        zoomOpts.zoom.onZoomComplete = function () { render(); };
+      }
+      if (zoomOpts.pan) {
+        zoomOpts.pan.onPan = function () { render(); };
+        zoomOpts.pan.onPanComplete = function () { render(); };
+      }
+    }
+    canvas.__bench_strip_render = render;
+    render();
   }
 
   // Wheel = horizontal pan. Chart.js zoom plugin doesn't support wheel-pan
@@ -403,6 +572,7 @@
       // positive x moves the visible window toward older commits, while
       // negative x moves back toward newer commits.
       chart.pan({ x: dx * 0.5 }, undefined, "none");
+      if (canvas.__bench_strip_render) canvas.__bench_strip_render();
     }, { passive: false });
   }
 
@@ -430,6 +600,7 @@
     chart.options.scales.x.max = range.max;
     chart.update("none");
     syncToolbarUi(card, "scope", String(scopeValue));
+    if (canvas.__bench_strip_render) canvas.__bench_strip_render();
   }
 
   function applyY(card, yValue) {
