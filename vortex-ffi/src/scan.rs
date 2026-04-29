@@ -257,7 +257,7 @@ pub unsafe extern "C-unwind" fn vx_scan_dtype(
 ) -> *const vx_dtype {
     try_or(err, ptr::null(), || {
         let scan = vx_scan::as_ref(scan);
-        let VxScan::Pending(ref scan) = *scan else {
+        let VxScan::Pending(scan) = scan else {
             vortex_bail!("dtype unavailable: scan already started");
         };
         Ok(vx_dtype::new_ref(scan.dtype()))

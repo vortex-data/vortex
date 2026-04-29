@@ -81,7 +81,7 @@ impl FooterDeserializer {
     }
 
     pub fn deserialize(&mut self) -> VortexResult<DeserializeStep> {
-        let postscript = if let Some(ref postscript) = self.postscript {
+        let postscript = if let Some(postscript) = &self.postscript {
             postscript
         } else {
             self.postscript = Some(self.parse_postscript(&self.buffer)?);

@@ -373,13 +373,13 @@ impl FileSource for VortexSource {
     fn fmt_extra(&self, t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                if let Some(ref predicate) = self.vortex_predicate {
+                if let Some(predicate) = &self.vortex_predicate {
                     write!(f, ", predicate: {predicate}")?;
                 }
             }
             // Use TreeRender style key=value formatting to display the predicate
             DisplayFormatType::TreeRender => {
-                if let Some(ref predicate) = self.vortex_predicate {
+                if let Some(predicate) = &self.vortex_predicate {
                     writeln!(f, "predicate={}", fmt_sql(predicate.as_ref()))?;
                 };
             }
