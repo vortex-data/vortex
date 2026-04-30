@@ -10334,6 +10334,7 @@ dependencies = [
  "vortex-cuda",
  "vortex-cuda-macros",
  "vortex-error",
+ "vortex-fsst",
  "vortex-nvcomp",
 ]
 
