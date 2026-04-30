@@ -4,7 +4,11 @@ pub mod vortex_geo::extension
 
 pub struct vortex_geo::extension::GeoMetadata
 
-pub vortex_geo::extension::GeoMetadata::crs: alloc::string::String
+pub vortex_geo::extension::GeoMetadata::crs: core::option::Option<alloc::string::String>
+
+impl vortex_geo::extension::GeoMetadata
+
+pub fn vortex_geo::extension::GeoMetadata::crs(&self) -> &str
 
 impl core::clone::Clone for vortex_geo::extension::GeoMetadata
 
@@ -81,6 +85,28 @@ pub fn vortex_geo::extension::WellKnownBinary::serialize_metadata(&self, metadat
 pub fn vortex_geo::extension::WellKnownBinary::unpack_native<'a>(_ext_dtype: &'a vortex_array::dtype::extension::typed::ExtDType<Self>, storage_value: &'a vortex_array::scalar::scalar_value::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
 pub fn vortex_geo::extension::WellKnownBinary::validate_dtype(ext_dtype: &vortex_array::dtype::extension::typed::ExtDType<Self>) -> vortex_error::VortexResult<()>
+
+pub struct vortex_geo::extension::WellKnownBinaryData
+
+impl vortex_geo::extension::WellKnownBinaryData
+
+pub fn vortex_geo::extension::WellKnownBinaryData::geo_metadata(&self) -> &vortex_geo::extension::GeoMetadata
+
+pub fn vortex_geo::extension::WellKnownBinaryData::wkb_values(&self) -> &vortex_array::array::erased::ArrayRef
+
+impl core::clone::Clone for vortex_geo::extension::WellKnownBinaryData
+
+pub fn vortex_geo::extension::WellKnownBinaryData::clone(&self) -> vortex_geo::extension::WellKnownBinaryData
+
+impl core::convert::TryFrom<vortex_array::array::typed::Array<vortex_array::arrays::extension::vtable::Extension>> for vortex_geo::extension::WellKnownBinaryData
+
+pub type vortex_geo::extension::WellKnownBinaryData::Error = vortex_error::VortexError
+
+pub fn vortex_geo::extension::WellKnownBinaryData::try_from(ext: vortex_array::arrays::extension::vtable::ExtensionArray) -> core::result::Result<Self, Self::Error>
+
+impl core::fmt::Debug for vortex_geo::extension::WellKnownBinaryData
+
+pub fn vortex_geo::extension::WellKnownBinaryData::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_geo::extension::Wkb<'a>(_)
 
