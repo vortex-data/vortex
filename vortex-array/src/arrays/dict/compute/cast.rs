@@ -13,19 +13,12 @@ use crate::arrays::dict::DictArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::scalar_fn::fns::cast::CastReduce;
-use crate::validity::Validity;
 
 impl CastReduce for Dict {
     fn cast(array: ArrayView<'_, Dict>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Can have un-reference null values making the cast of values fail without a possible mask.
         // TODO(joe): optimize this, could look at accessible values and fill_null not those?
-        if !dtype.is_nullable()
-            && array.values().dtype().is_nullable()
-            && !matches!(
-                array.values().validity()?,
-                Validity::NonNullable | Validity::AllValid
-            )
-        {
+        if !dtype.is_nullable() && !array.values().validity()?.no_nulls() {
             return Ok(None);
         }
         // Cast the dictionary values to the target type

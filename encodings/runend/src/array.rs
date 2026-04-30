@@ -256,12 +256,9 @@ impl RunEnd {
         values: ArrayRef,
         offset: usize,
         length: usize,
-        ctx: &mut ExecutionCtx,
     ) -> RunEndArray {
         let dtype = values.dtype().clone();
-        let slots = vec![Some(ends.clone()), Some(values.clone())];
-        RunEndData::validate_parts(&ends, &values, offset, length, ctx)
-            .vortex_expect("RunEndArray validation failed");
+        let slots = vec![Some(ends), Some(values)];
         let data = unsafe { RunEndData::new_unchecked(offset) };
         unsafe {
             Array::from_parts_unchecked(
@@ -277,6 +274,7 @@ impl RunEnd {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<RunEndArray> {
         let len = RunEndData::logical_len_from_ends(&ends, ctx)?;
+        RunEndData::validate_parts(&ends, &values, 0, len, ctx)?;
         let dtype = values.dtype().clone();
         let slots = vec![Some(ends), Some(values)];
         let data = RunEndData::new(0);
@@ -289,7 +287,9 @@ impl RunEnd {
         values: ArrayRef,
         offset: usize,
         length: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<RunEndArray> {
+        RunEndData::validate_parts(&ends, &values, offset, length, ctx)?;
         let dtype = values.dtype().clone();
         let slots = vec![Some(ends), Some(values)];
         let data = RunEndData::new(offset);
@@ -469,20 +469,15 @@ impl ValidityVTable<RunEnd> for RunEnd {
         Ok(match array.values().validity()? {
             Validity::NonNullable | Validity::AllValid => Validity::AllValid,
             Validity::AllInvalid => Validity::AllInvalid,
-            Validity::Array(values_validity) => {
-                // TODO(ctx): trait fixes - ValidityVTable::validity has a fixed signature.
-                let mut ctx = LEGACY_SESSION.create_execution_ctx();
-                Validity::Array(unsafe {
-                    RunEnd::new_unchecked(
-                        array.ends().clone(),
-                        values_validity,
-                        array.offset(),
-                        array.len(),
-                        &mut ctx,
-                    )
-                    .into_array()
-                })
-            }
+            Validity::Array(values_validity) => Validity::Array(unsafe {
+                RunEnd::new_unchecked(
+                    array.ends().clone(),
+                    values_validity,
+                    array.offset(),
+                    array.len(),
+                )
+                .into_array()
+            }),
         })
     }
 }
@@ -515,8 +510,9 @@ pub(super) fn run_end_canonicalize(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::VarBinViewArray;
@@ -524,13 +520,18 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::RunEnd;
 
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
     #[test]
     fn test_runend_constructor() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let arr = RunEnd::new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
@@ -551,7 +552,7 @@ mod tests {
 
     #[test]
     fn test_runend_utf8() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = VarBinViewArray::from_iter_str(["a", "b", "c"]).into_array();
         let arr = RunEnd::new(buffer![2u32, 5, 10].into_array(), values, &mut ctx);
         assert_eq!(arr.len(), 10);
@@ -565,7 +566,7 @@ mod tests {
 
     #[test]
     fn test_runend_dict() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let dict_values = VarBinViewArray::from_iter_str(["x", "y", "z"]).into_array();
         let dict_codes = buffer![0u32, 1, 2].into_array();
         let dict = DictArray::try_new(dict_codes, dict_values).unwrap();

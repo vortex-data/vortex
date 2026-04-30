@@ -24,11 +24,11 @@ pub fn vortex_runend::RunEnd::encode(array: vortex_array::array::erased::ArrayRe
 
 pub fn vortex_runend::RunEnd::new(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_runend::RunEndArray
 
-pub unsafe fn vortex_runend::RunEnd::new_unchecked(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, offset: usize, length: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_runend::RunEndArray
+pub unsafe fn vortex_runend::RunEnd::new_unchecked(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, offset: usize, length: usize) -> vortex_runend::RunEndArray
 
 pub fn vortex_runend::RunEnd::try_new(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_runend::RunEndArray>
 
-pub fn vortex_runend::RunEnd::try_new_offset_length(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, offset: usize, length: usize) -> vortex_error::VortexResult<vortex_runend::RunEndArray>
+pub fn vortex_runend::RunEnd::try_new_offset_length(ends: vortex_array::array::erased::ArrayRef, values: vortex_array::array::erased::ArrayRef, offset: usize, length: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_runend::RunEndArray>
 
 impl core::clone::Clone for vortex_runend::RunEnd
 

@@ -18,12 +18,53 @@ use crate::dtype::DecimalType;
 use crate::dtype::NativeDecimalType;
 use crate::match_each_decimal_value_type;
 use crate::scalar_fn::fns::cast::CastKernel;
+use crate::scalar_fn::fns::cast::CastReduce;
+
+impl CastReduce for Decimal {
+    fn cast(array: ArrayView<'_, Decimal>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        // Only nullability changes within the same decimal dtype are reducible without execution.
+        // Precision/scale changes need the kernel.
+        let DType::Decimal(to_decimal_dtype, to_nullability) = dtype else {
+            return Ok(None);
+        };
+        let DType::Decimal(from_decimal_dtype, _) = array.dtype() else {
+            vortex_panic!(
+                "DecimalArray must have decimal dtype, got {:?}",
+                array.dtype()
+            );
+        };
+
+        if from_decimal_dtype != to_decimal_dtype {
+            return Ok(None);
+        }
+
+        let Some(new_validity) = array
+            .validity()?
+            .trivial_cast_nullability(*to_nullability, array.len())?
+        else {
+            return Ok(None);
+        };
+
+        // SAFETY: validity has the same length, only its nullability tag changes.
+        unsafe {
+            Ok(Some(
+                DecimalArray::new_unchecked_handle(
+                    array.buffer_handle().clone(),
+                    array.values_type(),
+                    *to_decimal_dtype,
+                    new_validity,
+                )
+                .into_array(),
+            ))
+        }
+    }
+}
 
 impl CastKernel for Decimal {
     fn cast(
         array: ArrayView<'_, Decimal>,
         dtype: &DType,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // Early return if not casting to decimal
         let DType::Decimal(to_decimal_dtype, to_nullability) = dtype else {
@@ -62,7 +103,7 @@ impl CastKernel for Decimal {
         // Cast the validity to the new nullability
         let new_validity = array
             .validity()?
-            .cast_nullability(*to_nullability, array.len())?;
+            .cast_nullability(*to_nullability, array.len(), ctx)?;
 
         // If the target needs a wider physical type, upcast the values
         let target_values_type = DecimalType::smallest_decimal_value_type(to_decimal_dtype);
