@@ -14368,10 +14368,6 @@ impl core::cmp::PartialEq for vortex_array::scalar::ScalarValue
 
 pub fn vortex_array::scalar::ScalarValue::eq(&self, &vortex_array::scalar::ScalarValue) -> bool
 
-impl core::cmp::PartialOrd for vortex_array::scalar::ScalarValue
-
-pub fn vortex_array::scalar::ScalarValue::partial_cmp(&self, &Self) -> core::option::Option<core::cmp::Ordering>
-
 impl core::convert::From<&[u8]> for vortex_array::scalar::ScalarValue
 
 pub fn vortex_array::scalar::ScalarValue::from(&[u8]) -> Self

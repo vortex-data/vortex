@@ -3,7 +3,6 @@
 
 //! Core [`ScalarValue`] type definition.
 
-use std::cmp::Ordering;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
@@ -108,22 +107,6 @@ impl ScalarValue {
             }
             DType::Variant(_) => Self::Variant(Box::new(Scalar::null(DType::Null))),
         })
-    }
-}
-
-impl PartialOrd for ScalarValue {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        match (self, other) {
-            (ScalarValue::Bool(a), ScalarValue::Bool(b)) => a.partial_cmp(b),
-            (ScalarValue::Primitive(a), ScalarValue::Primitive(b)) => a.partial_cmp(b),
-            (ScalarValue::Decimal(a), ScalarValue::Decimal(b)) => a.partial_cmp(b),
-            (ScalarValue::Utf8(a), ScalarValue::Utf8(b)) => a.partial_cmp(b),
-            (ScalarValue::Binary(a), ScalarValue::Binary(b)) => a.partial_cmp(b),
-            (ScalarValue::Tuple(a), ScalarValue::Tuple(b)) => a.partial_cmp(b),
-            (ScalarValue::Variant(a), ScalarValue::Variant(b)) => a.partial_cmp(b),
-            // (ScalarValue::Extension(a), ScalarValue::Extension(b)) => a.partial_cmp(b),
-            _ => None,
-        }
     }
 }
 
