@@ -23,7 +23,7 @@ pub struct AnyTensor;
 /// The matched variant of a tensor-like extension type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TensorMatch<'a> {
-    /// A [`FixedShapeTensor`](crate::fixed_shape::FixedShapeTensor) extension type.
+    /// A [`FixedShapeTensor`](crate::fixed_shape_tensor::FixedShapeTensor) extension type.
     FixedShapeTensor(FixedShapeTensorMatcherMetadata<'a>),
 
     /// A [`Vector`](crate::vector::Vector) extension type.

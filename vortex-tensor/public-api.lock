@@ -84,139 +84,139 @@ pub fn vortex_tensor::encodings::turboquant::turboquant_encode(input: vortex_arr
 
 pub unsafe fn vortex_tensor::encodings::turboquant::turboquant_encode_unchecked(ext: vortex_array::array::view::ArrayView<'_, vortex_array::arrays::extension::vtable::Extension>, config: &vortex_tensor::encodings::turboquant::TurboQuantConfig, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub mod vortex_tensor::fixed_shape
+pub mod vortex_tensor::fixed_shape_tensor
 
-pub struct vortex_tensor::fixed_shape::AnyFixedShapeTensor
+pub struct vortex_tensor::fixed_shape_tensor::AnyFixedShapeTensor
 
-impl vortex_array::dtype::extension::matcher::Matcher for vortex_tensor::fixed_shape::AnyFixedShapeTensor
+impl vortex_array::dtype::extension::matcher::Matcher for vortex_tensor::fixed_shape_tensor::AnyFixedShapeTensor
 
-pub type vortex_tensor::fixed_shape::AnyFixedShapeTensor::Match<'a> = vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+pub type vortex_tensor::fixed_shape_tensor::AnyFixedShapeTensor::Match<'a> = vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>
 
-pub fn vortex_tensor::fixed_shape::AnyFixedShapeTensor::try_match<'a>(ext_dtype: &'a vortex_array::dtype::extension::erased::ExtDTypeRef) -> core::option::Option<Self::Match>
+pub fn vortex_tensor::fixed_shape_tensor::AnyFixedShapeTensor::try_match<'a>(ext_dtype: &'a vortex_array::dtype::extension::erased::ExtDTypeRef) -> core::option::Option<Self::Match>
 
-pub struct vortex_tensor::fixed_shape::FixedShapeTensor
+pub struct vortex_tensor::fixed_shape_tensor::FixedShapeTensor
 
-impl core::clone::Clone for vortex_tensor::fixed_shape::FixedShapeTensor
+impl core::clone::Clone for vortex_tensor::fixed_shape_tensor::FixedShapeTensor
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensor::clone(&self) -> vortex_tensor::fixed_shape::FixedShapeTensor
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::clone(&self) -> vortex_tensor::fixed_shape_tensor::FixedShapeTensor
 
-impl core::cmp::Eq for vortex_tensor::fixed_shape::FixedShapeTensor
+impl core::cmp::Eq for vortex_tensor::fixed_shape_tensor::FixedShapeTensor
 
-impl core::cmp::PartialEq for vortex_tensor::fixed_shape::FixedShapeTensor
+impl core::cmp::PartialEq for vortex_tensor::fixed_shape_tensor::FixedShapeTensor
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensor::eq(&self, other: &vortex_tensor::fixed_shape::FixedShapeTensor) -> bool
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::eq(&self, other: &vortex_tensor::fixed_shape_tensor::FixedShapeTensor) -> bool
 
-impl core::default::Default for vortex_tensor::fixed_shape::FixedShapeTensor
+impl core::default::Default for vortex_tensor::fixed_shape_tensor::FixedShapeTensor
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensor::default() -> vortex_tensor::fixed_shape::FixedShapeTensor
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::default() -> vortex_tensor::fixed_shape_tensor::FixedShapeTensor
 
-impl core::fmt::Debug for vortex_tensor::fixed_shape::FixedShapeTensor
+impl core::fmt::Debug for vortex_tensor::fixed_shape_tensor::FixedShapeTensor
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensor::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl core::hash::Hash for vortex_tensor::fixed_shape::FixedShapeTensor
+impl core::hash::Hash for vortex_tensor::fixed_shape_tensor::FixedShapeTensor
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensor::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 
-impl core::marker::StructuralPartialEq for vortex_tensor::fixed_shape::FixedShapeTensor
+impl core::marker::StructuralPartialEq for vortex_tensor::fixed_shape_tensor::FixedShapeTensor
 
-impl vortex_array::dtype::extension::vtable::ExtVTable for vortex_tensor::fixed_shape::FixedShapeTensor
+impl vortex_array::dtype::extension::vtable::ExtVTable for vortex_tensor::fixed_shape_tensor::FixedShapeTensor
 
-pub type vortex_tensor::fixed_shape::FixedShapeTensor::Metadata = vortex_tensor::fixed_shape::FixedShapeTensorMetadata
+pub type vortex_tensor::fixed_shape_tensor::FixedShapeTensor::Metadata = vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata
 
-pub type vortex_tensor::fixed_shape::FixedShapeTensor::NativeValue<'a> = &'a vortex_array::scalar::scalar_value::ScalarValue
+pub type vortex_tensor::fixed_shape_tensor::FixedShapeTensor::NativeValue<'a> = &'a vortex_array::scalar::scalar_value::ScalarValue
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensor::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::deserialize_metadata(&self, metadata: &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensor::id(&self) -> vortex_array::dtype::extension::ExtId
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensor::least_supertype(ext_dtype: &vortex_array::dtype::extension::typed::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::least_supertype(ext_dtype: &vortex_array::dtype::extension::typed::ExtDType<Self>, other: &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensor::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::serialize_metadata(&self, metadata: &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensor::unpack_native<'a>(_ext_dtype: &'a vortex_array::dtype::extension::typed::ExtDType<Self>, storage_value: &'a vortex_array::scalar::scalar_value::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::unpack_native<'a>(_ext_dtype: &'a vortex_array::dtype::extension::typed::ExtDType<Self>, storage_value: &'a vortex_array::scalar::scalar_value::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensor::validate_dtype(ext_dtype: &vortex_array::dtype::extension::typed::ExtDType<Self>) -> vortex_error::VortexResult<()>
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::validate_dtype(ext_dtype: &vortex_array::dtype::extension::typed::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
-pub struct vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+pub struct vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>
 
-impl vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'_>
+impl vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'_>
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'_>::element_ptype(&self) -> vortex_array::dtype::ptype::PType
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'_>::element_ptype(&self) -> vortex_array::dtype::ptype::PType
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'_>::flat_list_size(&self) -> u32
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'_>::flat_list_size(&self) -> u32
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'_>::metadata(&self) -> &vortex_tensor::fixed_shape::FixedShapeTensorMetadata
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'_>::metadata(&self) -> &vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata
 
-impl<'a> core::clone::Clone for vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+impl<'a> core::clone::Clone for vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>::clone(&self) -> vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>::clone(&self) -> vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>
 
-impl<'a> core::cmp::Eq for vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+impl<'a> core::cmp::Eq for vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>
 
-impl<'a> core::cmp::PartialEq for vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+impl<'a> core::cmp::PartialEq for vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>::eq(&self, other: &vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>) -> bool
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>::eq(&self, other: &vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>) -> bool
 
-impl<'a> core::fmt::Debug for vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+impl<'a> core::fmt::Debug for vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl<'a> core::marker::Copy for vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+impl<'a> core::marker::Copy for vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>
 
-impl<'a> core::marker::StructuralPartialEq for vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>
+impl<'a> core::marker::StructuralPartialEq for vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>
 
-pub struct vortex_tensor::fixed_shape::FixedShapeTensorMetadata
+pub struct vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata
 
-impl vortex_tensor::fixed_shape::FixedShapeTensorMetadata
+impl vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::dim_names(&self) -> core::option::Option<&[alloc::string::String]>
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::dim_names(&self) -> core::option::Option<&[alloc::string::String]>
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::logical_shape(&self) -> &[usize]
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::logical_shape(&self) -> &[usize]
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::ndim(&self) -> usize
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::ndim(&self) -> usize
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::new(shape: alloc::vec::Vec<usize>) -> Self
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::new(shape: alloc::vec::Vec<usize>) -> Self
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::permutation(&self) -> core::option::Option<&[usize]>
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::permutation(&self) -> core::option::Option<&[usize]>
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::physical_shape(&self) -> impl core::iter::traits::iterator::Iterator<Item = usize> + '_
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::physical_shape(&self) -> impl core::iter::traits::iterator::Iterator<Item = usize> + '_
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::strides(&self) -> impl core::iter::traits::iterator::Iterator<Item = usize> + '_
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::strides(&self) -> impl core::iter::traits::iterator::Iterator<Item = usize> + '_
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::with_dim_names(self, names: alloc::vec::Vec<alloc::string::String>) -> vortex_error::VortexResult<Self>
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::with_dim_names(self, names: alloc::vec::Vec<alloc::string::String>) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::with_permutation(self, permutation: alloc::vec::Vec<usize>) -> vortex_error::VortexResult<Self>
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::with_permutation(self, permutation: alloc::vec::Vec<usize>) -> vortex_error::VortexResult<Self>
 
-impl core::clone::Clone for vortex_tensor::fixed_shape::FixedShapeTensorMetadata
+impl core::clone::Clone for vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::clone(&self) -> vortex_tensor::fixed_shape::FixedShapeTensorMetadata
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::clone(&self) -> vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata
 
-impl core::cmp::Eq for vortex_tensor::fixed_shape::FixedShapeTensorMetadata
+impl core::cmp::Eq for vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata
 
-impl core::cmp::PartialEq for vortex_tensor::fixed_shape::FixedShapeTensorMetadata
+impl core::cmp::PartialEq for vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::eq(&self, other: &vortex_tensor::fixed_shape::FixedShapeTensorMetadata) -> bool
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::eq(&self, other: &vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata) -> bool
 
-impl core::fmt::Debug for vortex_tensor::fixed_shape::FixedShapeTensorMetadata
+impl core::fmt::Debug for vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl core::fmt::Display for vortex_tensor::fixed_shape::FixedShapeTensorMetadata
+impl core::fmt::Display for vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-impl core::hash::Hash for vortex_tensor::fixed_shape::FixedShapeTensorMetadata
+impl core::hash::Hash for vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata
 
-pub fn vortex_tensor::fixed_shape::FixedShapeTensorMetadata::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
+pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 
-impl core::marker::StructuralPartialEq for vortex_tensor::fixed_shape::FixedShapeTensorMetadata
+impl core::marker::StructuralPartialEq for vortex_tensor::fixed_shape_tensor::FixedShapeTensorMetadata
 
 pub mod vortex_tensor::matcher
 
 pub enum vortex_tensor::matcher::TensorMatch<'a>
 
-pub vortex_tensor::matcher::TensorMatch::FixedShapeTensor(vortex_tensor::fixed_shape::FixedShapeTensorMatcherMetadata<'a>)
+pub vortex_tensor::matcher::TensorMatch::FixedShapeTensor(vortex_tensor::fixed_shape_tensor::FixedShapeTensorMatcherMetadata<'a>)
 
 pub vortex_tensor::matcher::TensorMatch::Vector(vortex_tensor::vector::VectorMatcherMetadata)
 
