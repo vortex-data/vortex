@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod metadata;
 mod operations;
 mod rules;
 mod validity;
@@ -27,8 +28,10 @@ use crate::arrays::variant::SHREDDED_SLOT;
 use crate::arrays::variant::SLOT_NAMES;
 use crate::arrays::variant::VariantMetadata;
 use crate::arrays::variant::try_derived_shredded_from_core_storage;
+use crate::arrays::variant::vtable::metadata::DerivedSlotProto;
+use crate::arrays::variant::vtable::metadata::Shredded;
+use crate::arrays::variant::vtable::metadata::VariantMetadataProto;
 use crate::arrays::variant::vtable::rules::PARENT_RULES;
-use crate::arrays::variant::vtable::variant_metadata_proto::Shredded;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
@@ -70,36 +73,6 @@ pub type VariantArray = Array<Variant>;
 /// [`VariantMetadata`].
 #[derive(Clone, Debug)]
 pub struct Variant;
-
-#[derive(Clone, prost::Message)]
-struct VariantMetadataProto {
-    #[prost(oneof = "variant_metadata_proto::Shredded", tags = "1, 2")]
-    pub shredded: Option<Shredded>,
-}
-
-/// Serialized reference to a derived `shredded` child.
-///
-/// `slot_name` is local to `source_encoding_id`; it is not a global child name.
-#[derive(Clone, prost::Message)]
-struct DerivedSlotProto {
-    #[prost(string, tag = "1")]
-    pub source_encoding_id: String,
-    #[prost(string, tag = "2")]
-    pub slot_name: String,
-}
-
-mod variant_metadata_proto {
-    use prost::Oneof;
-    use vortex_proto::dtype as pb;
-
-    #[derive(Clone, Oneof)]
-    pub enum Shredded {
-        #[prost(message, tag = "1")]
-        InlineDtype(pb::DType),
-        #[prost(message, tag = "2")]
-        DerivedSlot(super::DerivedSlotProto),
-    }
-}
 
 impl VTable for Variant {
     type ArrayData = VariantMetadata;
