@@ -8,6 +8,7 @@ mod constant;
 mod decimal;
 mod dict;
 mod fixed_size_list;
+mod geo;
 mod list;
 mod list_view;
 mod primitive;
@@ -29,12 +30,16 @@ use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
+use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::struct_::StructArrayExt;
+use vortex::array::extension::datetime::AnyTemporal;
 use vortex::buffer::BitChunks;
 use vortex::encodings::runend::RunEnd;
 use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex_geo::extension::WellKnownBinary;
+use vortex_geo::extension::WellKnownBinaryData;
 
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::VectorRef;
@@ -174,9 +179,14 @@ fn new_array_exporter_with_flatten(
         Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(array, cache, ctx),
         Canonical::Struct(array) => struct_::new_exporter(array, cache, ctx),
         Canonical::Extension(ext) => {
-            if let Ok(temporal_array) = TemporalArray::try_from(ext) {
-                return temporal::new_exporter(temporal_array, ctx);
+            if ext.ext_dtype().is::<AnyTemporal>() {
+                return temporal::new_exporter(TemporalArray::try_from(ext)?, ctx);
             }
+
+            if ext.ext_dtype().is::<WellKnownBinary>() {
+                return geo::new_wkb_exporter(WellKnownBinaryData::try_from(ext)?, ctx);
+            }
+
             vortex_bail!("no non-temporal extension exporter")
         }
         Canonical::Variant(_) => {

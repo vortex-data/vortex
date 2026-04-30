@@ -42,8 +42,11 @@ mod e2e_test;
 
 // A global runtime for Vortex operations within DuckDB.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::default().with_handle(RUNTIME.handle());
+    vortex_geo::initialize(&session);
+    session
+});
 
 /// Initialize the Vortex extension by registering the extension functions.
 /// Note: This also registers extension options. If you want to register options

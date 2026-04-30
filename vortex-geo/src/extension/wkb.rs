@@ -5,17 +5,61 @@ use std::fmt::Display;
 use std::ops::Deref;
 
 use prost::Message;
+use vortex_array::ArrayRef;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::dtype::extension::ExtId;
 use vortex_array::dtype::extension::ExtVTable;
 use vortex_array::scalar::ScalarValue;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use wkb::reader::GeometryType;
 
 use crate::extension::GeoMetadata;
 
+/// A typed handle to an [`ExtensionArray`] that contains WKB-encoded data.
+///
+/// You can construct this safely using `WellKnownBinaryData::try_from(ExtensionArray)`.
+#[derive(Debug, Clone)]
+pub struct WellKnownBinaryData {
+    ext: ExtensionArray,
+}
+
+impl WellKnownBinaryData {
+    /// A reference to the array that holds the Well-Known Binary scalar values.
+    pub fn wkb_values(&self) -> &ArrayRef {
+        self.ext.storage_array()
+    }
+
+    /// A reference to the [geospatial metadata][GeoMetadata].
+    pub fn geo_metadata(&self) -> &GeoMetadata {
+        self.ext
+            .dtype()
+            .as_extension()
+            .metadata::<WellKnownBinary>()
+    }
+}
+
+impl TryFrom<ExtensionArray> for WellKnownBinaryData {
+    type Error = VortexError;
+
+    fn try_from(ext: ExtensionArray) -> Result<Self, Self::Error> {
+        if !ext.ext_dtype().is::<WellKnownBinary>() {
+            vortex_bail!("array extension dtype {} is not a WKB", ext.ext_dtype());
+        }
+
+        Ok(Self { ext })
+    }
+}
+
+/// An [extension type][ExtVTable] for OGC Well-known Binary (WKB) data format.
+///
+/// This is one of the most common formats for sharing of geometry data between analytic systems,
+/// used by DuckDB, PostGIS and GeoParquet.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct WellKnownBinary;
 
@@ -39,7 +83,6 @@ impl<'a> Wkb<'a> {
 
 impl<'a> Display for Wkb<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // TODO(aduffy): make this more useful
         let geometry_kind = match self.0.geometry_type() {
             GeometryType::Point => "point",
             GeometryType::LineString => "linestring",
@@ -50,6 +93,7 @@ impl<'a> Display for Wkb<'a> {
             GeometryType::GeometryCollection => "geometrycollection",
             _ => "unknown",
         };
+        // TODO(aduffy): make this more useful
         write!(f, "WKB({geometry_kind})")
     }
 }

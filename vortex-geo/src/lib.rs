@@ -75,7 +75,7 @@ mod tests {
 
         let dtype = ExtDType::<WellKnownBinary>::try_new(
             GeoMetadata {
-                crs: "EPSG:4326".to_string(),
+                crs: Some("EPSG:4326".to_string()),
             },
             DType::Binary(Nullability::NonNullable),
         )?;

@@ -10457,6 +10457,7 @@ dependencies = [
  "cc",
  "custom-labels",
  "futures",
+ "geo-types",
  "itertools 0.14.0",
  "jiff",
  "kanal",
@@ -10471,9 +10472,11 @@ dependencies = [
  "url",
  "vortex",
  "vortex-array",
+ "vortex-geo",
  "vortex-runend",
  "vortex-sequence",
  "vortex-utils",
+ "wkb",
  "zip",
 ]
 
