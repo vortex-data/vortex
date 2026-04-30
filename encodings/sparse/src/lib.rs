@@ -9,12 +9,12 @@ use std::hash::Hasher;
 
 use kernel::PARENT_KERNELS;
 use prost::Message as _;
+use vortex_array::AnyCanonical;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
-use vortex_array::AnyCanonical;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
@@ -22,9 +22,9 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::arrays::Primitive;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::buffer::BufferHandle;
@@ -35,6 +35,8 @@ use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
+use vortex_array::require_child;
+use vortex_array::require_opt_child;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::operators::Operator;
@@ -81,28 +83,6 @@ pub(crate) struct SparseParts {
     pub fill_value: Scalar,
     pub dtype: DType,
     pub len: usize,
-}
-
-impl SparseParts {
-    /// Resolve patches by subtracting the offset from indices.
-    pub fn resolve_patches(mut self) -> VortexResult<Self> {
-        if self.patches.offset() != 0 {
-            let offset_scalar =
-                Scalar::from(self.patches.offset()).cast(self.patches.indices().dtype())?;
-            let indices = self.patches.indices().binary(
-                ConstantArray::new(offset_scalar, self.patches.indices().len()).into_array(),
-                Operator::Sub,
-            )?;
-            self.patches = Patches::new(
-                self.patches.array_len(),
-                0,
-                indices,
-                self.patches.values().clone(),
-                None,
-            )?;
-        }
-        Ok(self)
-    }
 }
 
 pub(crate) trait SparseOwnedExt {
@@ -278,25 +258,48 @@ impl VTable for Sparse {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        // Resolve offset first: wrap indices in Binary(indices, offset, Sub) and rebuild
+        // with offset=0. Uses slot children (not data) since the executor may have
+        // updated slots via reduce_parent/execute_parent.
+        let array = if array.patches().offset() != 0 {
+            let offset = array.patches().offset();
+            let indices = array.patch_indices();
+            let offset_scalar = Scalar::from(offset).cast(indices.dtype())?;
+            let resolved_indices = indices.binary(
+                ConstantArray::new(offset_scalar, indices.len()).into_array(),
+                Operator::Sub,
+            )?;
+            let patches = Patches::new(
+                array.len(),
+                0,
+                resolved_indices,
+                array.patch_values().clone(),
+                None,
+            )?;
+            Sparse::try_new_from_patches(patches, array.fill_scalar().clone())?
+        } else {
+            array
+        };
+
         // Require children to be executed through the scheduler,
         // enabling cross-step optimization via reduce_parent rules.
-        let array = vortex_array::require_child!(
+        let array = require_child!(
             array, array.patch_indices(), SparseSlots::PATCH_INDICES => Primitive
         );
-        let array = vortex_array::require_child!(
+        let array = require_child!(
             array, array.patch_values(), SparseSlots::PATCH_VALUES => AnyCanonical
         );
-        vortex_array::require_opt_child!(
+        require_opt_child!(
             array,
             array.patch_chunk_offsets(),
             SparseSlots::PATCH_CHUNK_OFFSETS => Primitive
         );
 
-        let parts = array.into_parts()?.resolve_patches()?;
+        let parts = array.into_parts()?;
+        // TODO(joe): remove ctx from execute_sparse since all slots should be canonical.
         execute_sparse(parts, ctx).map(ExecutionResult::done)
     }
 }
-
 
 #[derive(Clone, Debug)]
 pub struct SparseData {
