@@ -82,14 +82,12 @@ struct CTableLocalData final : LocalTableFunctionState {
     unique_ptr<CData> ffi_data;
 };
 
-double c_table_scan_progress(ClientContext &context,
-                             const FunctionData *bind_data,
-                             const GlobalTableFunctionState *global_state) {
+double table_scan_progress(ClientContext &,
+                           const FunctionData *bind_data,
+                           const GlobalTableFunctionState *global_state) {
     auto &bind = bind_data->Cast<CTableBindData>();
-    duckdb_client_context c_ctx = reinterpret_cast<duckdb_client_context>(&context);
-    void *const c_bind_data = bind.ffi_data->DataPtr();
     void *const c_global_state = global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
-    return bind.info.vtab.table_scan_progress(c_ctx, c_bind_data, c_global_state);
+    return bind.info.vtab.table_scan_progress(c_global_state);
 }
 
 static Value &UnwrapValue(duckdb_value value) {
@@ -140,8 +138,7 @@ unique_ptr<BaseStatistics> base_stats(duckdb_column_statistics &stats, LogicalTy
     return out.ToUnique();
 }
 
-unique_ptr<BaseStatistics>
-c_statistics(ClientContext &context, const FunctionData *bind_data, column_t column_index) {
+unique_ptr<BaseStatistics> statistics(ClientContext &, const FunctionData *bind_data, column_t column_index) {
     if (IsVirtualColumn(column_index)) {
         return {};
     }
@@ -149,9 +146,8 @@ c_statistics(ClientContext &context, const FunctionData *bind_data, column_t col
     const auto &bind = bind_data->Cast<CTableBindData>();
     void *const ffi_bind = bind.ffi_data->DataPtr();
 
-    duckdb_client_context c_ctx = reinterpret_cast<duckdb_client_context>(&context);
     duckdb_column_statistics statistics = {};
-    if (!bind.info.vtab.statistics(c_ctx, ffi_bind, column_index, &statistics)) {
+    if (!bind.info.vtab.statistics(ffi_bind, column_index, &statistics)) {
         return {};
     }
 
@@ -243,43 +239,25 @@ unique_ptr<GlobalTableFunctionState> c_init_global(ClientContext &context, Table
     return make_uniq<CTableGlobalData>(std::move(cdata));
 }
 
-unique_ptr<LocalTableFunctionState> c_init_local(ExecutionContext &context,
-                                                 TableFunctionInitInput &input,
-                                                 GlobalTableFunctionState *global_state) {
+unique_ptr<LocalTableFunctionState>
+init_local(ExecutionContext &, TableFunctionInitInput &input, GlobalTableFunctionState *global_state) {
     const auto &bind = input.bind_data->Cast<CTableBindData>();
     void *const ffi_global = global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
 
-    duckdb_vx_tfunc_init_input ffi_input = {
-        .bind_data = bind.ffi_data->DataPtr(),
-        .column_ids = input.column_ids.data(),
-        .column_ids_count = input.column_ids.size(),
-        .projection_ids = input.projection_ids.data(),
-        .projection_ids_count = input.projection_ids.size(),
-        .filters = reinterpret_cast<duckdb_vx_table_filter_set>(input.filters.get()),
-        .client_context = reinterpret_cast<duckdb_client_context>(&context),
-    };
-
-    duckdb_vx_error error_out = nullptr;
-    duckdb_vx_data ffi_local_data = bind.info.vtab.init_local(&ffi_input, ffi_global, &error_out);
-    if (error_out) {
-        throw BinderException(IntoErrString(error_out));
-    }
-
+    duckdb_vx_data ffi_local_data = bind.info.vtab.init_local(ffi_global);
     auto cdata = unique_ptr<CData>(reinterpret_cast<CData *>(ffi_local_data));
     return make_uniq<CTableLocalData>(std::move(cdata));
 }
 
-void c_function(ClientContext &context, TableFunctionInput &input, DataChunk &output) {
+void function(ClientContext &, TableFunctionInput &input, DataChunk &output) {
     const auto &bind = input.bind_data->Cast<CTableBindData>();
 
-    duckdb_client_context ffi_ctx = reinterpret_cast<duckdb_client_context>(&context);
-    void *const ffi_bind = bind.ffi_data->DataPtr();
     void *const ffi_global = input.global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
     void *const ffi_local = input.local_state->Cast<CTableLocalData>().ffi_data->DataPtr();
 
     duckdb_data_chunk chunk = reinterpret_cast<duckdb_data_chunk>(&output);
     duckdb_vx_error error_out = nullptr;
-    bind.info.vtab.function(ffi_ctx, ffi_bind, ffi_global, ffi_local, chunk, &error_out);
+    bind.info.vtab.function(ffi_global, ffi_local, chunk, &error_out);
     if (error_out) {
         throw InvalidInputException(IntoErrString(error_out));
     }
@@ -366,11 +344,10 @@ TablePartitionInfo get_partition_info(ClientContext &, TableFunctionPartitionInp
  */
 OperatorPartitionData get_partition_data(ClientContext &, TableFunctionGetPartitionInput &input) {
     auto &bind = input.bind_data->Cast<CTableBindData>();
-    void *const ffi_bind = bind.ffi_data->DataPtr();
     void *const ffi_global = input.global_state->Cast<CTableGlobalData>().ffi_data->DataPtr();
     void *const ffi_local = input.local_state->Cast<CTableLocalData>().ffi_data->DataPtr();
     duckdb_vx_partition_data partition_data;
-    bind.info.vtab.get_partition_data(ffi_bind, ffi_global, ffi_local, &partition_data);
+    bind.info.vtab.get_partition_data(ffi_global, ffi_local, &partition_data);
 
     OperatorPartitionData out(partition_data.partition_index);
 
@@ -410,7 +387,7 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const d
 
     const DatabaseWrapper &wrapper = *reinterpret_cast<DatabaseWrapper *>(ffi_db);
     DatabaseInstance &db = *wrapper.database->instance;
-    TableFunction tf(vtab->name, {}, c_function, c_bind, c_init_global, c_init_local);
+    TableFunction tf(vtab->name, {}, function, c_bind, c_init_global, init_local);
 
     tf.projection_pushdown = true;
     tf.filter_pushdown = true;
@@ -422,8 +399,8 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const d
     tf.get_partition_info = get_partition_info;
     tf.get_partition_data = get_partition_data;
     tf.to_string = c_to_string;
-    tf.table_scan_progress = c_table_scan_progress;
-    tf.statistics = c_statistics;
+    tf.table_scan_progress = table_scan_progress;
+    tf.statistics = statistics;
 
     tf.late_materialization = true;
     // Columns that uniquely identify a row for deferred re-fetch in a multi

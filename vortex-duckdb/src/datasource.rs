@@ -254,10 +254,6 @@ impl ColumnStatisticsAggregate {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Blanket TableFunction implementation for any DataSourceTableFunction
-// ---------------------------------------------------------------------------
-
 impl<T: DataSourceTableFunction> TableFunction for T {
     type BindData = DataSourceBindData;
     type GlobalState = DataSourceGlobal;
@@ -398,10 +394,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         })
     }
 
-    fn init_local(
-        _init: &TableInitInput<Self>,
-        global: &Self::GlobalState,
-    ) -> VortexResult<Self::LocalState> {
+    fn init_local(global: &Self::GlobalState) -> Self::LocalState {
         unsafe {
             use custom_labels::sys;
 
@@ -417,17 +410,15 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             CURRENT_LABELSET.set(key, value);
         }
 
-        Ok(DataSourceLocal {
+        DataSourceLocal {
             iterator: global.iterator.clone(),
             exporter: None,
             partition_index: 0,
             file_index: 0,
-        })
+        }
     }
 
     fn scan(
-        _client_context: &ClientContextRef,
-        _bind_data: &Self::BindData,
         local_state: &mut Self::LocalState,
         global_state: &Self::GlobalState,
         chunk: &mut DataChunkRef,
@@ -501,11 +492,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         Ok(())
     }
 
-    fn table_scan_progress(
-        _client_context: &ClientContextRef,
-        _bind_data: &Self::BindData,
-        global_state: &Self::GlobalState,
-    ) -> f64 {
+    fn table_scan_progress(global_state: &Self::GlobalState) -> f64 {
         progress(&global_state.bytes_read, &global_state.bytes_total)
     }
 
@@ -532,11 +519,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
     /// Get column-wise statistics. Available only if we're reading a single
     /// file.
-    fn statistics(
-        _client_context: &ClientContextRef,
-        bind_data: &Self::BindData,
-        column_index: usize,
-    ) -> Option<ColumnStatistics> {
+    fn statistics(bind_data: &Self::BindData, column_index: usize) -> Option<ColumnStatistics> {
         let children = bind_data.data_source.children();
         // Otherwise we'd have to open all files eagerly which is a performance
         // regression. Duckdb's Parquet reader only gets metadata for multiple
@@ -566,7 +549,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
     }
 
     fn partition_data(
-        _bind_data: &Self::BindData,
         global_init_data: &Self::GlobalState,
         local_init_data: &mut Self::LocalState,
     ) -> PartitionData {
@@ -585,10 +567,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helper functions
-// ---------------------------------------------------------------------------
 
 /// Extracts DuckDB column names and logical types from a Vortex struct DType.
 fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>> {

@@ -40,26 +40,13 @@ pub(crate) unsafe extern "C-unwind" fn init_global_callback<T: TableFunction>(
 
 /// Native callback for the local initialization of a table function.
 pub(crate) unsafe extern "C-unwind" fn init_local_callback<T: TableFunction>(
-    init_input: *const cpp::duckdb_vx_tfunc_init_input,
     global_init_data: *mut c_void,
-    error_out: *mut cpp::duckdb_vx_error,
 ) -> cpp::duckdb_vx_data {
-    let init_input = TableInitInput::new(
-        unsafe { init_input.as_ref() }.vortex_expect("init_input null pointer"),
-    );
-
     let global_init_data = unsafe { global_init_data.cast::<T::GlobalState>().as_ref() }
         .vortex_expect("global_init_data null pointer");
 
-    match T::init_local(&init_input, global_init_data) {
-        Ok(init_data) => Data::from(Box::new(init_data)).as_ptr(),
-        Err(e) => {
-            // Set the error in the error output.
-            let msg = e.to_string();
-            unsafe { error_out.write(cpp::duckdb_vx_error_create(msg.as_ptr().cast(), msg.len())) };
-            ptr::null_mut::<cpp::duckdb_vx_data_>().cast()
-        }
-    }
+    let init_data = T::init_local(global_init_data);
+    Data::from(Box::new(init_data)).as_ptr()
 }
 
 /// A typed wrapper for the input to a table function's initialization.

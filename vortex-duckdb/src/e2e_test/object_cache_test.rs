@@ -11,6 +11,7 @@ use vortex::error::vortex_err;
 use crate::cpp::DUCKDB_TYPE;
 use crate::duckdb::BindInputRef;
 use crate::duckdb::BindResultRef;
+use crate::duckdb::Cardinality;
 use crate::duckdb::ClientContextRef;
 use crate::duckdb::ColumnStatistics;
 use crate::duckdb::DataChunkRef;
@@ -66,17 +67,11 @@ impl TableFunction for TestTableFunction {
         })
     }
 
-    fn table_scan_progress(
-        _client_context: &ClientContextRef,
-        _bind_data: &Self::BindData,
-        _global_state: &Self::GlobalState,
-    ) -> f64 {
+    fn table_scan_progress(_global_state: &Self::GlobalState) -> f64 {
         100.0
     }
 
     fn scan(
-        _client_context: &ClientContextRef,
-        _bind_data: &Self::BindData,
         _local_state: &mut Self::LocalState,
         _global_state: &Self::GlobalState,
         chunk: &mut DataChunkRef,
@@ -100,15 +95,11 @@ impl TableFunction for TestTableFunction {
         Ok(TestGlobalState)
     }
 
-    fn init_local(
-        _init: &TableInitInput<Self>,
-        _global: &Self::GlobalState,
-    ) -> VortexResult<Self::LocalState> {
-        Ok(TestLocalState)
+    fn init_local(_global: &Self::GlobalState) -> Self::LocalState {
+        TestLocalState
     }
 
     fn partition_data(
-        _bind_data: &Self::BindData,
         _global_init_data: &Self::GlobalState,
         _local_init_data: &mut Self::LocalState,
     ) -> PartitionData {
@@ -119,15 +110,22 @@ impl TableFunction for TestTableFunction {
         }
     }
 
-    fn statistics(
-        _client_context: &ClientContextRef,
-        _bind_data: &Self::BindData,
-        _column_index: usize,
-    ) -> Option<ColumnStatistics> {
+    fn statistics(_bind_data: &Self::BindData, _column_index: usize) -> Option<ColumnStatistics> {
         None
     }
 
     fn to_string(_bind_data: &Self::BindData, _map: &mut crate::duckdb::DuckdbStringMapRef) {}
+
+    fn pushdown_complex_filter(
+        _bind_data: &mut Self::BindData,
+        _expr: &crate::duckdb::ExpressionRef,
+    ) -> VortexResult<bool> {
+        Ok(false)
+    }
+
+    fn cardinality(_bind_data: &Self::BindData) -> Cardinality {
+        Cardinality::Unknown
+    }
 }
 
 use crate::duckdb::Database;
