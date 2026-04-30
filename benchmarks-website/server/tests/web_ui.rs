@@ -990,6 +990,70 @@ async fn permalink_pages_inline_full_raw_history() -> Result<()> {
     Ok(())
 }
 
+/// The landing page caps the open-by-default group's inline JSON at
+/// `LANDING_INLINE_N` (= 100) commits regardless of `?n=`. Power users get
+/// the unbounded view via the `/api/chart/{slug}?n=all` refetch
+/// `chart-init.js` triggers when they zoom past the inlined window. Sending
+/// the full history inline would balloon the cold landing HTML — for the
+/// open-by-default chart with one big history every kilobyte is paid by
+/// every cold landing-page hit.
+#[tokio::test]
+async fn landing_first_group_caps_inline_commits() -> Result<()> {
+    // 250 commits is comfortably above the 100-commit landing inline cap so
+    // the cap actually kicks in. `seed_long_history` only seeds the
+    // Random-Access group; with the canonical group ordering Random Access
+    // sorts first on the landing page, so its chart-data-0 carries the
+    // open-by-default payload.
+    let server = Server::start().await?;
+    seed_long_history(&server, 250).await?;
+
+    let client = reqwest::Client::new();
+    let body = client.get(server.url("/")).send().await?.text().await?;
+
+    let payload = extract_chart_data(&body, 0)
+        .context("the open-by-default first group must inline its chart payload")?;
+    let commits = payload["commits"]
+        .as_array()
+        .context("inline commits array")?;
+    assert!(
+        commits.len() <= 100,
+        "landing chart-data-0 must cap inline commits at LANDING_INLINE_N=100, \
+         got {}",
+        commits.len(),
+    );
+    // Sanity check: the cap actually fired on this fixture (≥ 100 commits
+    // seeded). Without this we'd silently regress to "always small fixture".
+    assert_eq!(
+        commits.len(),
+        100,
+        "with 250 seeded commits the inline payload should be exactly the \
+         100-commit cap; got {}",
+        commits.len(),
+    );
+
+    // ?n=all on the URL still parses without panicking and still applies the
+    // inline cap — the page-level `?n` is intentionally ignored for the
+    // inline payloads, so a power user with `?n=all` in the bookmark gets
+    // the same compact landing HTML and relies on chart-init.js to refetch
+    // a wider window.
+    let body_all = client
+        .get(server.url("/?n=all"))
+        .send()
+        .await?
+        .text()
+        .await?;
+    let payload_all = extract_chart_data(&body_all, 0).context("inline payload present")?;
+    assert_eq!(
+        payload_all["commits"]
+            .as_array()
+            .context("inline commits array")?
+            .len(),
+        100,
+        "?n=all on the landing page must NOT bypass the inline cap"
+    );
+    Ok(())
+}
+
 /// The wire payload no longer carries a `raw_commit_count` field — visual
 /// downsampling moved to the client, so the server has no opinion on
 /// rendered point count.

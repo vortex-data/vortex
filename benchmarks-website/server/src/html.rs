@@ -80,7 +80,13 @@ const CHART_INIT_JS: &[u8] = include_bytes!("../static/chart-init.js");
 const STYLE_CSS: &[u8] = include_bytes!("../static/style.css");
 const VORTEX_BLACK_SVG: &[u8] = include_bytes!("../../public/vortex_black_nobg.svg");
 const VORTEX_WHITE_SVG: &[u8] = include_bytes!("../../public/vortex_white_nobg.svg");
-const STATIC_ASSET_VERSION: &str = "bench-v3-ui-15";
+const STATIC_ASSET_VERSION: &str = "bench-v3-ui-16";
+
+/// Commits to inline for the open-by-default group. The chart's
+/// initial visible window is ~100 commits; bigger windows just bloat
+/// the cold-page HTML. Users who zoom out trigger a refetch with
+/// `?n=all` via `chart-init.js`.
+const LANDING_INLINE_N: u32 = 100;
 
 /// HTML routes mounted under `/`.
 pub fn router() -> Router<AppState> {
@@ -164,10 +170,15 @@ fn parse_csv(raw: Option<&str>) -> Vec<String> {
 }
 
 async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Response {
-    let window = ui.fetch_window();
+    // The landing page intentionally ignores `?n=` for the inline payloads —
+    // they are always capped at [`LANDING_INLINE_N`] commits (see
+    // [`collect_landing_groups`]) so the cold HTML stays small. Power users
+    // with `?n=all` in the URL still get the unbounded view: `chart-init.js`
+    // refetches via `/api/chart/{slug}?n=all` when they zoom past the
+    // inlined range.
     let filter = ui.filter_state();
     let result = db::run_blocking(&state.db, move |conn| {
-        let groups = collect_landing_groups(conn, &window)?;
+        let groups = collect_landing_groups(conn)?;
         let universe = api::collect_filter_universe(conn)?;
         Ok::<_, anyhow::Error>((groups, universe))
     })
@@ -218,13 +229,22 @@ struct LandingGroup {
 /// Build a landing-page view: every group, with the first group's payloads
 /// inlined and the rest left as shells. Groups whose discovery query
 /// returns no data are dropped, but a group whose charts simply have no data
-/// inside the requested window is preserved as a shell so the user can see
+/// inside the inlined window is preserved as a shell so the user can see
 /// it (and the lazy-fetch retry path can populate it on toggle).
-fn collect_landing_groups(conn: &Connection, window: &CommitWindow) -> Result<Vec<LandingGroup>> {
+///
+/// Inline payloads are always capped at [`LANDING_INLINE_N`] commits — the
+/// chart's initial visible range is ~100 commits anyway, and the bytes
+/// saved on the cold-page HTML matter much more than a slightly different
+/// fully-zoomed view that the user only sees if they zoom out (at which
+/// point `chart-init.js` refetches `?n=all` from the API).
+fn collect_landing_groups(conn: &Connection) -> Result<Vec<LandingGroup>> {
     let groups = api::collect_groups(conn)?;
     if groups.is_empty() {
         return Ok(Vec::new());
     }
+    let inline_window = CommitWindow::Last(
+        std::num::NonZeroU32::new(LANDING_INLINE_N).expect("LANDING_INLINE_N is non-zero"),
+    );
     let mut out = Vec::with_capacity(groups.len());
     for (i, group) in groups.into_iter().enumerate() {
         let inlined = if i == 0 {
@@ -234,7 +254,7 @@ fn collect_landing_groups(conn: &Connection, window: &CommitWindow) -> Result<Ve
             let mut v = Vec::with_capacity(group.charts.len());
             for link in &group.charts {
                 let key = ChartKey::from_slug(&link.slug)?;
-                let payload = api::chart_payload(conn, &key, window)?;
+                let payload = api::chart_payload(conn, &key, &inline_window)?;
                 v.push(payload.map(|chart| NamedChartResponse {
                     name: link.name.clone(),
                     slug: link.slug.clone(),

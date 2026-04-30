@@ -40,6 +40,13 @@
   var PAN_THROTTLE_MS = 50;      // pan/zoom throttle — looser than slider
   var FETCH_N = "all";           // lazy-fetch the entire raw history
   var DEFAULT_VISIBLE = 100;     // initial visible window (last 100 of fetched)
+  // Mirror of `LANDING_INLINE_N` in `server/src/html.rs`. The first group's
+  // inline JSON is capped at this many commits to keep the cold landing
+  // page small. When the user zooms wider than what's inlined we lazy-fetch
+  // `?n=all` and replace the payload in place. If you change this, update
+  // the server too — the comparison `commits.length >= LANDING_INLINE_N`
+  // is what tells us the inline payload was potentially trimmed.
+  var LANDING_INLINE_N = 100;
   // Hard cap on how many points a single series can render at once. When
   // the visible commit range has more raw non-null points than this, we
   // LTTB-downsample to exactly this number; below it we render raw. So
@@ -617,6 +624,120 @@
     chart.update("none");
     syncSliderFromRange(card, visibleCommits);
     syncDownsampleBadge(card, keptCommits, visibleCommits, anyDownsampled);
+    // If the user has zoomed out to cover everything we have inlined and the
+    // server might have more commits, fetch the full history in the
+    // background. The `__bench_full_loaded` / `__bench_full_fetch_pending`
+    // flags dedupe so this fires once per chart even when called every
+    // pan frame.
+    maybeRefetchFullPayload(card, min, max, n);
+  }
+
+  // -----------------------------------------------------------------------
+  // Lazy-upgrade an inline-trimmed payload to the full history.
+  //
+  // The landing page inlines at most `LANDING_INLINE_N` commits per chart
+  // (server: `html.rs::LANDING_INLINE_N`) so the cold HTML body stays small.
+  // The first time the user zooms wide enough to ask for everything we have
+  // loaded we replace the payload with the unbounded view from
+  // `/api/chart/{slug}?n=all`. The chart's pan/zoom limits and the toolbar
+  // slider's max grow to match, so subsequent zoom-out passes can scroll
+  // back through the older commits the inline payload didn't include.
+  // -----------------------------------------------------------------------
+  function maybeRefetchFullPayload(card, min, max, loadedCount) {
+    var canvas = card.querySelector("canvas");
+    if (!canvas) return;
+    if (!canvas.__bench_inline_trimmed) return;
+    if (canvas.__bench_full_loaded || canvas.__bench_full_fetch_pending) return;
+    // Trigger only when the visible range covers (effectively) every loaded
+    // commit. Anything narrower means the user hasn't asked for "more"
+    // yet — there's no reason to spend bandwidth on a refetch they don't
+    // need.
+    if (loadedCount <= 0) return;
+    var coversAll = (max - min + 1) >= loadedCount;
+    if (!coversAll) return;
+    canvas.__bench_full_fetch_pending = true;
+    var slug = card.getAttribute("data-chart-slug");
+    if (!slug) {
+      canvas.__bench_full_fetch_pending = false;
+      return;
+    }
+    var url = "/api/chart/" + encodeURIComponent(slug)
+      + "?n=" + encodeURIComponent(FETCH_N);
+    fetch(url, { headers: { "accept": "application/json" } })
+      .then(function (r) {
+        if (r.status === 404) return null;
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (full) {
+        if (!full) return;
+        replaceChartPayload(card, full);
+        canvas.__bench_full_loaded = true;
+        canvas.__bench_inline_trimmed = false;
+      })
+      .catch(function (err) {
+        // Quiet — the inline payload is still rendered, the user just
+        // can't zoom past it. Surface to the console for debugging.
+        if (window && window.console) {
+          window.console.warn("bench: full history refetch failed", err);
+        }
+      })
+      .then(function () {
+        canvas.__bench_full_fetch_pending = false;
+      });
+  }
+
+  // Swap the chart's labels + datasets to a freshly fetched, unbounded
+  // payload while keeping the user's currently visible commit window
+  // anchored on the *newest* commit. The pan/zoom limits and toolbar
+  // slider bounds are extended to the new total commit count.
+  function replaceChartPayload(card, payload) {
+    var canvas = card.querySelector("canvas");
+    var chart = canvas && canvas.__bench_chart;
+    if (!chart || !payload) return;
+    canvas.__bench_payload = payload;
+    var newLabels = (payload.commits || []).map(function (c) {
+      return shortSha(c.sha);
+    });
+    var newDatasets = buildDatasets(payload);
+    // Re-apply per-card legend overrides + global filter to the new datasets,
+    // matching the visibility state the user had before the refetch.
+    var overrides = canvas.__bench_overrides || {};
+    for (var i = 0; i < newDatasets.length; i++) {
+      var ds = newDatasets[i];
+      if (overrides[ds.label]) {
+        // Honour any explicit legend toggle the user had made already.
+        var prev = chart.data.datasets.find(function (p) {
+          return p.label === ds.label;
+        });
+        if (prev) ds.hidden = !!prev.hidden;
+      }
+    }
+    chart.data.labels = newLabels;
+    chart.data.datasets = newDatasets;
+    var newMaxIdx = Math.max(0, newLabels.length - 1);
+    var zoomLimits = chart.options.plugins
+      && chart.options.plugins.zoom
+      && chart.options.plugins.zoom.limits
+      && chart.options.plugins.zoom.limits.x;
+    if (zoomLimits) {
+      zoomLimits.max = newMaxIdx;
+    }
+    syncSliderBounds(card, newLabels.length);
+    // Keep the user's "scope" (number of visible commits) but anchor the
+    // window on the newest commit so they don't drift backwards in time
+    // unexpectedly. Without this anchoring, the visible range would still
+    // be `[0, oldN-1]` — i.e., the *oldest* `oldN` commits of the new
+    // payload — which is the opposite of what the user wanted when they
+    // zoomed out.
+    var sx = chart.options.scales.x;
+    var prevMin = Number.isFinite(sx.min) ? sx.min : 0;
+    var prevMax = Number.isFinite(sx.max) ? sx.max : 0;
+    var prevVisible = Math.max(1, prevMax - prevMin + 1);
+    sx.max = newMaxIdx;
+    sx.min = Math.max(0, newMaxIdx - (prevVisible - 1));
+    rebuildVisibleAndUpdate(card, chart, sx.min, sx.max);
+    if (canvas.__bench_strip_render) canvas.__bench_strip_render();
   }
 
   // Mirror the chart's current visible commit count onto the toolbar
@@ -664,9 +785,16 @@
 
   // -----------------------------------------------------------------------
   // Per-card construction. State lives on the canvas:
-  //   canvas.__bench_chart   — Chart.js instance
-  //   canvas.__bench_payload — last-fetched ChartResponse (raw)
-  //   canvas.__bench_state   — { y, scope } (per-chart toolbar state)
+  //   canvas.__bench_chart            — Chart.js instance
+  //   canvas.__bench_payload          — last-fetched ChartResponse (raw)
+  //   canvas.__bench_state            — { y, scope } (per-chart toolbar state)
+  //   canvas.__bench_inline_trimmed   — true if the payload came from an
+  //                                     inline `<script id="chart-data-N">`
+  //                                     and may have been capped at
+  //                                     LANDING_INLINE_N commits server-side
+  //   canvas.__bench_full_loaded      — true once a `?n=all` refetch has
+  //                                     replaced the payload
+  //   canvas.__bench_full_fetch_pending — in-flight refetch flag (dedupe)
   // -----------------------------------------------------------------------
   function constructChart(card) {
     var idx = card.getAttribute("data-chart-index");
@@ -674,9 +802,19 @@
     if (!canvas || typeof Chart === "undefined") return null;
     if (canvas.__bench_chart) return canvas.__bench_chart;
 
+    var payloadFromInline = !canvas.__bench_payload;
     var payload = canvas.__bench_payload || readInlinePayload(idx);
     if (!payload) return null;
     canvas.__bench_payload = payload;
+    // Server caps inline payloads at LANDING_INLINE_N commits. Reaching that
+    // count means there might be more on the server; if we got fewer, we
+    // have the whole history already and never need to refetch.
+    if (canvas.__bench_full_loaded === undefined) {
+      var inlineN = (payload.commits || []).length;
+      canvas.__bench_inline_trimmed =
+        payloadFromInline && inlineN >= LANDING_INLINE_N;
+      canvas.__bench_full_loaded = !canvas.__bench_inline_trimmed;
+    }
 
     var state = canvas.__bench_state || { y: "linear", scope: DEFAULT_VISIBLE };
     canvas.__bench_state = state;
