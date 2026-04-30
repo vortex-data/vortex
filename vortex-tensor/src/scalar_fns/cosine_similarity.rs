@@ -53,7 +53,7 @@ use crate::utils::validate_binary_tensor_float_inputs;
 /// optimized readthrough path may intentionally differ slightly from decoding both sides to dense
 /// coordinates and recomputing cosine from scratch.
 ///
-/// [`FixedShapeTensor`]: crate::fixed_shape::FixedShapeTensor
+/// [`FixedShapeTensor`]: crate::fixed_shape_tensor::FixedShapeTensor
 /// [`Vector`]: crate::vector::Vector
 /// [`L2Denorm`]: crate::scalar_fns::l2_denorm::L2Denorm
 #[derive(Clone)]
