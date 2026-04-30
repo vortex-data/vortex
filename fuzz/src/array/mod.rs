@@ -69,7 +69,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::FUZZ_ARRAY_LEN_RANGE;
+use crate::FUZZ_ARRAY_MAX_LEN;
 use crate::SESSION;
 use crate::error::Backtrace;
 use crate::error::VortexFuzzError;
@@ -177,7 +177,7 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
             u,
             &ArbitraryArrayConfig {
                 dtype: None,
-                len: FUZZ_ARRAY_LEN_RANGE,
+                len: 0..=FUZZ_ARRAY_MAX_LEN,
             },
         )?
         .0;

@@ -13,6 +13,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::arbitrary::ArbitraryArray;
+use crate::arrays::arbitrary::ArbitraryArrayConfig;
 use crate::arrays::arbitrary::ArbitraryWith;
 use crate::arrays::arbitrary::random_validity;
 use crate::dtype::DType;
@@ -39,7 +40,7 @@ impl ArbitraryDictArray {
         // Generate values array with the given dtype
         let values = ArbitraryArray::arbitrary_with_config(
             u,
-            &crate::arrays::arbitrary::ArbitraryArrayConfig {
+            &ArbitraryArrayConfig {
                 dtype: Some(dtype.clone()),
                 len: values_len..=values_len,
             },

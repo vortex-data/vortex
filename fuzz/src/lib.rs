@@ -34,7 +34,7 @@ pub use gpu::FuzzCompressGpu;
 #[cfg(feature = "cuda")]
 pub use gpu::run_compress_gpu;
 
-pub const FUZZ_ARRAY_LEN_RANGE: RangeInclusive<usize> = 0..=16_384;
+pub const FUZZ_ARRAY_MAX_LEN: usize = 16_384;
 
 // Runtime initialization - platform-specific
 #[cfg(not(target_arch = "wasm32"))]
