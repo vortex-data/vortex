@@ -1,3 +1,8 @@
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
+
 use crate::dtype::DType;
 use crate::stream::ArrayStream;
 use futures::Stream;
@@ -21,10 +26,7 @@ impl<S: ArrayStream> ArrayStream for InstrumentedArrayStream<S> {
 impl<S: Stream> Stream for InstrumentedArrayStream<S> {
     type Item = S::Item;
 
-    fn poll_next(
-        self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         self.project().stream.poll_next(cx)
     }
 }
