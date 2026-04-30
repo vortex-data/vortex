@@ -3,8 +3,6 @@
 
 #![expect(clippy::use_debug)]
 
-use std::ops::RangeInclusive;
-
 mod array;
 pub mod compress;
 pub mod error;

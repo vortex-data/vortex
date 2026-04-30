@@ -9,6 +9,7 @@ use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
+use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
 use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -49,7 +50,7 @@ impl ArbitraryRunEndArray {
             let ends = PrimitiveArray::from_iter(Vec::<u64>::new()).into_array();
             let values = ArbitraryArray::arbitrary_with_config(
                 u,
-                &vortex_array::arrays::arbitrary::ArbitraryArrayConfig {
+                &ArbitraryArrayConfig {
                     dtype: Some(dtype.clone()),
                     len: 0..=0,
                 },
@@ -63,7 +64,7 @@ impl ArbitraryRunEndArray {
         // Generate arbitrary values for each run
         let values = ArbitraryArray::arbitrary_with_config(
             u,
-            &vortex_array::arrays::arbitrary::ArbitraryArrayConfig {
+            &ArbitraryArrayConfig {
                 dtype: Some(dtype.clone()),
                 len: num_runs..=num_runs,
             },
