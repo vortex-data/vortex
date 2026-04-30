@@ -9,27 +9,25 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * JVM-wide holder for one or more Vortex {@link Session}s used by Spark readers and
- * writers. The Rust side multiplexes every session onto one shared current-thread runtime,
- * so sharing a single Java handle per JVM amortises session construction across every
- * Spark task.
+ * JVM-wide holder for one or more Vortex {@link Session}s used by Spark readers and writers. The Rust side multiplexes
+ * every session onto one shared current-thread runtime, so sharing a single Java handle per JVM amortises session
+ * construction across every Spark task.
  *
  * <p>Three levels of customisation:
  *
  * <ol>
- *   <li><b>Default:</b> call {@link #get()} — returns a lazily-initialised singleton that
- *       lives for the life of the JVM. No configuration required.
- *   <li><b>Driver-side override:</b> call {@link #setDefault(Session)} with a custom
- *       session before any Spark action. Effective on the driver JVM only.
- *   <li><b>Executor-friendly override:</b> pass option {@code vortex.session.provider}
- *       with the fully-qualified name of a {@link VortexSessionProvider} implementation
- *       (no-arg constructor). Spark ships the class name to every executor, which
- *       instantiates the provider once per JVM and caches the returned session. Use this
- *       when you need the same custom session on the driver and on executors.
+ *   <li><b>Default:</b> call {@link #get()} — returns a lazily-initialised singleton that lives for the life of the
+ *       JVM. No configuration required.
+ *   <li><b>Driver-side override:</b> call {@link #setDefault(Session)} with a custom session before any Spark action.
+ *       Effective on the driver JVM only.
+ *   <li><b>Executor-friendly override:</b> pass option {@code vortex.session.provider} with the fully-qualified name of
+ *       a {@link VortexSessionProvider} implementation (no-arg constructor). Spark ships the class name to every
+ *       executor, which instantiates the provider once per JVM and caches the returned session. Use this when you need
+ *       the same custom session on the driver and on executors.
  * </ol>
  *
- * <p>Native resources are released by {@code VortexCleaner} when the JVM shuts down;
- * sessions held here are strongly referenced for the JVM's lifetime.
+ * <p>Native resources are released by {@code VortexCleaner} when the JVM shuts down; sessions held here are strongly
+ * referenced for the JVM's lifetime.
  */
 public final class VortexSparkSession {
     /** Options key used to select a {@link VortexSessionProvider} by class name. */
@@ -55,8 +53,8 @@ public final class VortexSparkSession {
     }
 
     /**
-     * Resolve the session to use for a given set of Spark format options. Honours the
-     * {@value #PROVIDER_OPTION} key; falls back to {@link #get()} otherwise.
+     * Resolve the session to use for a given set of Spark format options. Honours the {@value #PROVIDER_OPTION} key;
+     * falls back to {@link #get()} otherwise.
      */
     public static Session get(Map<String, String> options) {
         String providerClass = options == null ? null : options.get(PROVIDER_OPTION);
@@ -67,9 +65,8 @@ public final class VortexSparkSession {
     }
 
     /**
-     * Replace the default session. Intended for driver-side customisation before any
-     * Spark action runs. Does not propagate to executors — use
-     * {@link VortexSessionProvider} for that.
+     * Replace the default session. Intended for driver-side customisation before any Spark action runs. Does not
+     * propagate to executors — use {@link VortexSessionProvider} for that.
      */
     public static void setDefault(Session session) {
         Objects.requireNonNull(session, "session");

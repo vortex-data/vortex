@@ -201,6 +201,10 @@ impl ZonedLayout {
         usize::try_from(self.children.child_row_count(1)).vortex_expect("Invalid number of zones")
     }
 
+    pub fn zone_len(&self) -> usize {
+        self.zone_len
+    }
+
     /// Returns an array of stats that exist in the layout's data, must be sorted.
     pub fn present_stats(&self) -> &Arc<[Stat]> {
         &self.present_stats

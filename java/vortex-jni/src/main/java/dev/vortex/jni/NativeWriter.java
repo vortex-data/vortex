@@ -13,10 +13,7 @@ public final class NativeWriter {
 
     private NativeWriter() {}
 
-    /**
-     * Open a writer at {@code uri} that accepts batches matching the Arrow schema at
-     * {@code arrowSchemaAddress}.
-     */
+    /** Open a writer at {@code uri} that accepts batches matching the Arrow schema at {@code arrowSchemaAddress}. */
     public static native long create(
             long sessionPointer, String uri, long arrowSchemaAddress, Map<String, String> options);
 

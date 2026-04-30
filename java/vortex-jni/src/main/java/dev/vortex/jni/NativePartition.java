@@ -18,8 +18,8 @@ public final class NativePartition {
     public static native void rowCount(long pointer, long[] out);
 
     /**
-     * Consume the partition into the {@code FFI_ArrowArrayStream} at {@code streamAddress}.
-     * The partition pointer is invalidated by this call.
+     * Consume the partition into the {@code FFI_ArrowArrayStream} at {@code streamAddress}. The partition pointer is
+     * invalidated by this call.
      *
      * @param sessionPointer native session pointer used for execution context
      * @param partitionPointer partition pointer to consume

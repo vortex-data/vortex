@@ -3,7 +3,9 @@
 
 package dev.vortex.spark;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.ArrowType;
 import dev.vortex.spark.write.SparkToArrowSchema;
@@ -14,9 +16,7 @@ import org.apache.spark.sql.types.StructType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/**
- * Unit tests for VortexDataSourceV2 basic functionality.
- */
+/** Unit tests for VortexDataSourceV2 basic functionality. */
 public final class VortexDataSourceBasicTest {
 
     @Test

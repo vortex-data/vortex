@@ -16,9 +16,8 @@ import org.apache.arrow.vector.types.pojo.Schema;
 /**
  * A lazy handle to a set of {@link Partition partitions}.
  *
- * <p>Once a scan has produced its last partition it is effectively exhausted; native
- * resources are released automatically via {@link VortexCleaner} when the scan becomes
- * unreachable.
+ * <p>Once a scan has produced its last partition it is effectively exhausted; native resources are released
+ * automatically via {@link VortexCleaner} when the scan becomes unreachable.
  */
 public final class Scan implements Iterator<Partition> {
     private final Session session;
@@ -39,8 +38,7 @@ public final class Scan implements Iterator<Partition> {
     }
 
     /**
-     * Arrow schema produced by this scan. Must be called before the first call to
-     * {@link #hasNext()}/{@link #next()}.
+     * Arrow schema produced by this scan. Must be called before the first call to {@link #hasNext()}/{@link #next()}.
      */
     public Schema arrowSchema(BufferAllocator allocator) {
         try (ArrowSchema schema = ArrowSchema.allocateNew(allocator)) {

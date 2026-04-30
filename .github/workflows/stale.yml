@@ -2,7 +2,7 @@ name: Close inactive PRs
 on:
   schedule:
     - cron: "30 1 * * *"
-  workflow_dispatch:
+  workflow_dispatch: { }
 
 jobs:
   close-issues:

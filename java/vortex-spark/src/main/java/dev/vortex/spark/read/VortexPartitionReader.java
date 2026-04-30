@@ -26,9 +26,9 @@ import org.apache.spark.sql.vectorized.ColumnarBatch;
 /**
  * Per-{@link VortexFilePartition} columnar reader.
  *
- * <p>Opens a single Vortex {@link Session}, {@link DataSource} and {@link Scan} spanning
- * all of {@link VortexFilePartition#paths()} and streams every Vortex partition's record
- * batches through the {@link PartitionReader} interface.
+ * <p>Opens a single Vortex {@link Session}, {@link DataSource} and {@link Scan} spanning all of
+ * {@link VortexFilePartition#paths()} and streams every Vortex partition's record batches through the
+ * {@link PartitionReader} interface.
  */
 final class VortexPartitionReader implements PartitionReader<ColumnarBatch> {
     private final VortexFilePartition spark;

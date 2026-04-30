@@ -65,3 +65,43 @@ jobs:
           run: bash scripts/bench-taskset.sh cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
+
+  bench-codspeed-cuda:
+    if: github.repository == 'vortex-data/vortex'
+    strategy:
+      matrix:
+        include:
+          - { shard: 1, name: "Bitpacked", benches: "bitpacked_cuda" }
+          - { shard: 2, name: "Dynamic dispatch", benches: "dynamic_dispatch_cuda" }
+          - { shard: 3, name: "Standalone kernels", benches: "alp_cuda date_time_parts_cuda dict_cuda for_cuda runend_cuda throughput_cuda" }
+          - { shard: 4, name: "NVIDIA kernels", benches: "filter_cuda zstd_cuda" }
+    name: "Benchmark with Codspeed (CUDA Shard #${{ matrix.shard }} - ${{ matrix.name }})"
+    timeout-minutes: 30
+    runs-on: runs-on=${{ github.run_id }}/family=g5/image=ubuntu24-gpu-x64/tag=bench-codspeed-cuda-${{ matrix.shard }}
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Display NVIDIA SMI details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+          nvidia-smi -q -d Memory
+      - name: Install Codspeed
+        uses: taiki-e/cache-cargo-install-action@66c9585ef5ca780ee69399975a5e911f47905995
+        with:
+          tool: cargo-codspeed
+      - name: Build benchmarks
+        run: cargo codspeed build -m walltime -p vortex-cuda --profile bench
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@d872884a306dd4853acf0f584f4b706cf0cc72a2
+        env:
+          CARGO_MANIFEST_DIR: ${{ github.workspace }}/vortex-cuda
+        with:
+          run: cargo codspeed run $(printf -- '--bench %s ' ${{ matrix.benches }})
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          mode: "walltime"

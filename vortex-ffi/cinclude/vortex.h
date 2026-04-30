@@ -490,6 +490,16 @@ typedef struct vx_file vx_file;
 typedef struct vx_partition vx_partition;
 
 /**
+ * A typed scalar value.
+ *
+ * A `vx_scalar` represents a single value with an associated `DType`.
+ * Its value is either null or a `ScalarValue`. Null values are allowed only
+ * when the associated `DType` allows nulls. Non-null values are represented
+ * by `ScalarValue` and interpreted using the `DType`.
+ */
+typedef struct vx_scalar vx_scalar;
+
+/**
  * A scan is a single traversal of a data source with projections and
  * filters. A scan can be consumed only once.
  */
@@ -1106,6 +1116,40 @@ void vx_expression_free(vx_expression *ptr);
 vx_expression *vx_expression_root(void);
 
 /**
+ * Create a literal expression from a scalar.
+ *
+ * Literal expressions are useful for constants in expression trees, especially scan
+ * predicates. For example, a caller can compare a column expression to a scalar
+ * threshold and pass the resulting predicate to `vx_data_source_scan`.
+ *
+ * Example:
+ *
+ * vx_error* error = NULL;
+ * const vx_data_source* data_source = ...;
+ *
+ * vx_expression* root = vx_expression_root();
+ * vx_expression* age = vx_expression_get_item("age", root);
+ *
+ * vx_scalar* threshold_scalar = vx_scalar_new_u8(50, false);
+ * vx_expression* threshold = vx_expression_literal(threshold_scalar, &error);
+ * vx_scalar_free(threshold_scalar);
+ *
+ * vx_expression* predicate = vx_expression_binary(VX_OPERATOR_GTE, age, threshold);
+ * vx_scan_options options = {};
+ * options.filter = predicate;
+ *
+ * vx_scan* scan = vx_data_source_scan(data_source, &options, NULL, &error);
+ *
+ * vx_scan_free(scan);
+ * vx_expression_free(predicate);
+ * vx_expression_free(threshold);
+ * vx_expression_free(age);
+ * vx_expression_free(root);
+ *
+ */
+vx_expression *vx_expression_literal(const vx_scalar *scalar, vx_error **err);
+
+/**
  * Create an expression that selects (includes) specific fields from a child
  * expression. Child expression must have a DTYPE_STRUCT dtype. Errors in
  * vx_array_apply if the child expression doesn't have a specified field.
@@ -1251,6 +1295,237 @@ vx_array_iterator *vx_file_scan(const vx_session *session,
  * The logger will only be installed on the first call.
  */
 void vx_set_log_level(vx_log_level level);
+
+/**
+ * Free an owned [`vx_scalar`] object.
+ */
+void vx_scalar_free(vx_scalar *ptr);
+
+/**
+ * Clone a borrowed scalar handle.
+ *
+ * The input scalar handle is not consumed. The returned scalar handle must be
+ * released with vx_scalar_free. Returns NULL when given a NULL scalar handle.
+ */
+vx_scalar *vx_scalar_clone(const vx_scalar *scalar);
+
+/**
+ * Return the data type of a scalar.
+ *
+ * The returned data type handle borrows storage from the scalar handle, so its
+ * lifetime is bound to the scalar handle. It MUST NOT be freed separately.
+ * Returns NULL when given a NULL scalar handle.
+ */
+const vx_dtype *vx_scalar_dtype(const vx_scalar *scalar);
+
+/**
+ * Return whether the scalar is a typed null value.
+ *
+ * Returns false when given a NULL scalar handle.
+ */
+bool vx_scalar_is_null(const vx_scalar *scalar);
+
+/**
+ * Create a boolean scalar.
+ */
+vx_scalar *vx_scalar_new_bool(bool value, bool is_nullable);
+
+/**
+ * Create an unsigned 8-bit integer scalar.
+ */
+vx_scalar *vx_scalar_new_u8(uint8_t value, bool is_nullable);
+
+/**
+ * Create an unsigned 16-bit integer scalar.
+ */
+vx_scalar *vx_scalar_new_u16(uint16_t value, bool is_nullable);
+
+/**
+ * Create an unsigned 32-bit integer scalar.
+ */
+vx_scalar *vx_scalar_new_u32(uint32_t value, bool is_nullable);
+
+/**
+ * Create an unsigned 64-bit integer scalar.
+ */
+vx_scalar *vx_scalar_new_u64(uint64_t value, bool is_nullable);
+
+/**
+ * Create a signed 8-bit integer scalar.
+ */
+vx_scalar *vx_scalar_new_i8(int8_t value, bool is_nullable);
+
+/**
+ * Create a signed 16-bit integer scalar.
+ */
+vx_scalar *vx_scalar_new_i16(int16_t value, bool is_nullable);
+
+/**
+ * Create a signed 32-bit integer scalar.
+ */
+vx_scalar *vx_scalar_new_i32(int32_t value, bool is_nullable);
+
+/**
+ * Create a signed 64-bit integer scalar.
+ */
+vx_scalar *vx_scalar_new_i64(int64_t value, bool is_nullable);
+
+/**
+ * Create a 32-bit floating point scalar.
+ */
+vx_scalar *vx_scalar_new_f32(float value, bool is_nullable);
+
+/**
+ * Create a 64-bit floating point scalar.
+ */
+vx_scalar *vx_scalar_new_f64(double value, bool is_nullable);
+
+/**
+ * Create a 16-bit floating point scalar.
+ *
+ * The value is read from raw half-precision bits because C has no portable
+ * half-precision floating point ABI.
+ */
+vx_scalar *vx_scalar_new_f16_bits(uint16_t bits, bool is_nullable);
+
+/**
+ * Create a UTF-8 scalar.
+ *
+ * The byte range is copied into the scalar. A NULL data pointer is allowed only
+ * for an empty byte range. Invalid UTF-8 returns NULL and writes the error
+ * output.
+ */
+vx_scalar *vx_scalar_new_utf8(const char *ptr, size_t len, bool is_nullable, vx_error **err);
+
+/**
+ * Create a binary scalar.
+ *
+ * The byte range is copied into the scalar. A NULL data pointer is allowed only
+ * for an empty byte range. Passing a NULL data pointer for a non-empty byte
+ * range returns NULL and writes the error output.
+ */
+vx_scalar *vx_scalar_new_binary(const uint8_t *ptr, size_t len, bool is_nullable, vx_error **err);
+
+/**
+ * Create a typed null scalar.
+ *
+ * The data type handle is borrowed, not consumed. The returned scalar uses a
+ * nullable copy of that logical type, regardless of the input type's top-level
+ * nullability. A NULL data type handle returns NULL and writes the error output.
+ */
+vx_scalar *vx_scalar_new_null(const vx_dtype *dtype, vx_error **err);
+
+/**
+ * Create a decimal scalar.
+ *
+ * The unscaled value is provided as a signed 8-bit integer. Decimal precision
+ * and scale define the logical decimal type. Invalid decimal metadata or value
+ * overflow returns NULL and writes the error output.
+ */
+vx_scalar *
+vx_scalar_new_decimal_i8(int8_t value, uint8_t precision, int8_t scale, bool is_nullable, vx_error **err);
+
+/**
+ * Create a decimal scalar.
+ *
+ * The unscaled value is provided as a signed 16-bit integer. Decimal precision
+ * and scale define the logical decimal type. Invalid decimal metadata or value
+ * overflow returns NULL and writes the error output.
+ */
+vx_scalar *
+vx_scalar_new_decimal_i16(int16_t value, uint8_t precision, int8_t scale, bool is_nullable, vx_error **err);
+
+/**
+ * Create a decimal scalar.
+ *
+ * The unscaled value is provided as a signed 32-bit integer. Decimal precision
+ * and scale define the logical decimal type. Invalid decimal metadata or value
+ * overflow returns NULL and writes the error output.
+ */
+vx_scalar *
+vx_scalar_new_decimal_i32(int32_t value, uint8_t precision, int8_t scale, bool is_nullable, vx_error **err);
+
+/**
+ * Create a decimal scalar.
+ *
+ * The unscaled value is provided as a signed 64-bit integer. Decimal precision
+ * and scale define the logical decimal type. Invalid decimal metadata or value
+ * overflow returns NULL and writes the error output.
+ */
+vx_scalar *
+vx_scalar_new_decimal_i64(int64_t value, uint8_t precision, int8_t scale, bool is_nullable, vx_error **err);
+
+/**
+ * Create a decimal scalar.
+ *
+ * The unscaled value is read from a 16-byte little-endian signed integer
+ * buffer. Decimal precision and scale define the logical decimal type.
+ * Invalid decimal metadata or value overflow returns NULL and writes the error
+ * output.
+ */
+vx_scalar *vx_scalar_new_decimal_i128_le(const uint8_t *bytes16,
+                                         uint8_t precision,
+                                         int8_t scale,
+                                         bool is_nullable,
+                                         vx_error **err);
+
+/**
+ * Create a decimal scalar.
+ *
+ * The unscaled value is read from a 32-byte little-endian signed integer
+ * buffer. Decimal precision and scale define the logical decimal type.
+ * Invalid decimal metadata or value overflow returns NULL and writes the error
+ * output.
+ */
+vx_scalar *vx_scalar_new_decimal_i256_le(const uint8_t *bytes32,
+                                         uint8_t precision,
+                                         int8_t scale,
+                                         bool is_nullable,
+                                         vx_error **err);
+
+/**
+ * Create a list scalar.
+ *
+ * The element data type handle is borrowed, not consumed. Child scalar handles
+ * are cloned into the list value, so the caller keeps ownership of the handle
+ * array and each scalar in it. A NULL child handle array is allowed only for an
+ * empty list. Child values are validated against the element logical type.
+ */
+vx_scalar *vx_scalar_new_list(const vx_dtype *element_dtype,
+                              const vx_scalar *const *elements,
+                              size_t len,
+                              bool is_nullable,
+                              vx_error **err);
+
+/**
+ * Create a fixed-size list scalar.
+ *
+ * The element data type handle is borrowed, not consumed. The number of child
+ * scalars becomes the fixed-size list width and must fit in a 32-bit unsigned
+ * integer. Child scalar handles are cloned into the list value, so the caller
+ * keeps ownership of the handle array and each scalar in it. A NULL child
+ * handle array is allowed only for an empty list. Child values are validated
+ * against the element logical type.
+ */
+vx_scalar *vx_scalar_new_fixed_size_list(const vx_dtype *element_dtype,
+                                         const vx_scalar *const *elements,
+                                         size_t len,
+                                         bool is_nullable,
+                                         vx_error **err);
+
+/**
+ * Create a struct scalar.
+ *
+ * The struct data type handle is borrowed, not consumed. Field scalar handles
+ * are cloned into the struct value, so the caller keeps ownership of the handle
+ * array and each scalar in it. Field count and field logical types are validated
+ * against the struct logical type. A NULL field handle array is allowed only for
+ * an empty struct value.
+ */
+vx_scalar *vx_scalar_new_struct(const vx_dtype *struct_dtype,
+                                const vx_scalar *const *fields,
+                                size_t len,
+                                vx_error **err);
 
 /**
  * Free an owned [`vx_scan`] object.

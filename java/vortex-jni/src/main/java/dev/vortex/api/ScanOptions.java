@@ -10,8 +10,7 @@ import org.immutables.value.Value;
 /**
  * Scan configuration passed to {@link DataSource#scan(ScanOptions)}.
  *
- * <p>All fields are optional. A call to {@link #of()} returns a default that reads every
- * row and column.
+ * <p>All fields are optional. A call to {@link #of()} returns a default that reads every row and column.
  */
 @Value.Immutable
 public interface ScanOptions {
@@ -29,8 +28,8 @@ public interface ScanOptions {
     OptionalLong rowRangeEnd();
 
     /**
-     * Sorted ascending row indices that should be included in (or excluded from) the scan,
-     * depending on {@link #selectionMode()}.
+     * Sorted ascending row indices that should be included in (or excluded from) the scan, depending on
+     * {@link #selectionMode()}.
      */
     Optional<long[]> selectionIndices();
 

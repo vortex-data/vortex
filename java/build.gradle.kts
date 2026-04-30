@@ -6,6 +6,7 @@ import net.ltgt.gradle.errorprone.errorprone
 plugins {
     id("com.diffplug.spotless") version "8.4.0"
     id("com.palantir.git-version") version "5.0.0"
+    id("com.palantir.java-format") version "2.90.0"
     id("net.ltgt.errorprone") version "5.1.0" apply false
     id("com.google.protobuf") version "0.10.0" apply false
     id("com.vanniktech.maven.publish") version "0.36.0" apply false
@@ -39,8 +40,13 @@ allprojects {
 
         spotless {
             java {
-                palantirJavaFormat()
+                palantirJavaFormat().formatJavadoc(true)
                 licenseHeaderFile("${rootProject.projectDir}/.spotless/java-license-header.txt")
+                removeUnusedImports()
+                forbidWildcardImports()
+                importOrder("")
+                trimTrailingWhitespace()
+                leadingTabsToSpaces(4)
                 targetExclude("**/generated/**")
                 targetExcludeIfContentContains("// spotless:disabled")
             }

@@ -160,7 +160,7 @@ impl VTable for ALP {
             })
             .transpose()?;
 
-        let slots = ALPData::make_slots(&encoded, &patches);
+        let slots = ALPData::make_slots(&encoded, patches.as_ref());
         let data = ALPData::new(
             Exponents {
                 e: u8::try_from(metadata.exp_e)?,
@@ -371,7 +371,7 @@ impl ALP {
     pub fn new(encoded: ArrayRef, exponents: Exponents, patches: Option<Patches>) -> ALPArray {
         let dtype = ALPData::logical_dtype(&encoded).vortex_expect("ALP encoded dtype");
         let len = encoded.len();
-        let slots = ALPData::make_slots(&encoded, &patches);
+        let slots = ALPData::make_slots(&encoded, patches.as_ref());
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(ALP, dtype, len, ALPData::new(exponents, patches))
@@ -387,7 +387,7 @@ impl ALP {
     ) -> VortexResult<ALPArray> {
         let dtype = ALPData::logical_dtype(&encoded)?;
         let len = encoded.len();
-        let slots = ALPData::make_slots(&encoded, &patches);
+        let slots = ALPData::make_slots(&encoded, patches.as_ref());
         let data = ALPData::new(exponents, patches);
         Array::try_from_parts(ArrayParts::new(ALP, dtype, len, data).with_slots(slots))
     }
@@ -401,7 +401,7 @@ impl ALP {
     ) -> ALPArray {
         let dtype = ALPData::logical_dtype(&encoded).vortex_expect("ALP encoded dtype");
         let len = encoded.len();
-        let slots = ALPData::make_slots(&encoded, &patches);
+        let slots = ALPData::make_slots(&encoded, patches.as_ref());
         let data = unsafe { ALPData::new_unchecked(exponents, patches) };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(ALP, dtype, len, data).with_slots(slots))
@@ -410,7 +410,7 @@ impl ALP {
 }
 
 impl ALPData {
-    fn make_slots(encoded: &ArrayRef, patches: &Option<Patches>) -> Vec<Option<ArrayRef>> {
+    fn make_slots(encoded: &ArrayRef, patches: Option<&Patches>) -> Vec<Option<ArrayRef>> {
         let (patch_indices, patch_values, patch_chunk_offsets) = match patches {
             Some(p) => (
                 Some(p.indices().clone()),

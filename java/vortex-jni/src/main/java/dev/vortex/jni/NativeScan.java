@@ -12,8 +12,8 @@ public final class NativeScan {
     private NativeScan() {}
 
     /**
-     * Create a new scan from a data source. The scan is lazy: no I/O happens until
-     * {@link #nextPartition(long)} is called.
+     * Create a new scan from a data source. The scan is lazy: no I/O happens until {@link #nextPartition(long)} is
+     * called.
      *
      * @param dataSourcePointer pointer from {@link NativeDataSource#open}
      * @param projectionPointer native expression pointer, or 0 for "all columns"
@@ -21,8 +21,8 @@ public final class NativeScan {
      * @param rowRangeBegin inclusive start of the row range, 0 for "unbounded"
      * @param rowRangeEnd exclusive end of the row range, 0 for "unbounded"
      * @param selectionIndices sorted row indices; may be null
-     * @param selectionInclude {@code 0} (all), {@code 1} (include {@code selectionIndices}),
-     *     {@code 2} (exclude {@code selectionIndices})
+     * @param selectionInclude {@code 0} (all), {@code 1} (include {@code selectionIndices}), {@code 2} (exclude
+     *     {@code selectionIndices})
      * @param limit max rows to return, or {@code 0} for "no limit"
      * @param ordered true to preserve row order across partitions
      */

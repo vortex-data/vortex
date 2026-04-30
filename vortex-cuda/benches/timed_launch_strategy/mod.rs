@@ -31,6 +31,7 @@ impl LaunchStrategy for TimedLaunchStrategy {
 
     fn on_complete(&self, events: &CudaKernelEvents, _len: usize) -> VortexResult<()> {
         // NOTE: as long as the duration < 584 years this cast is safe.
+        #[allow(clippy::cast_possible_truncation)]
         let elapsed_nanos = events.duration()?.as_nanos() as u64;
         self.total_time_ns
             .fetch_add(elapsed_nanos, Ordering::Relaxed);

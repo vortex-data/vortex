@@ -32,7 +32,7 @@ impl CastReduce for Pco {
         if array.dtype().eq_ignore_nullability(dtype) {
             // Create a new validity with the target nullability
             let unsliced_validity =
-                child_to_validity(&array.slots()[0], array.dtype().nullability());
+                child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
             let new_validity =
                 unsliced_validity.cast_nullability(dtype.nullability(), array.len())?;
 

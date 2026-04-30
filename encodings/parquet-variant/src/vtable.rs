@@ -80,7 +80,7 @@ impl VTable for ParquetVariant {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let _ = data;
-        let validity = child_to_validity(&slots[VALIDITY_SLOT], dtype.nullability());
+        let validity = child_to_validity(slots[VALIDITY_SLOT].as_ref(), dtype.nullability());
         let metadata = slots[METADATA_SLOT]
             .as_ref()
             .ok_or_else(|| vortex_err!("ParquetVariantArray metadata slot"))?;

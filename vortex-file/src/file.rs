@@ -12,7 +12,9 @@ use std::sync::Arc;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::Columnar;
+use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
@@ -20,6 +22,7 @@ use vortex_array::dtype::FieldPath;
 use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
+use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
@@ -117,7 +120,11 @@ impl VortexFile {
         ))
     }
 
-    /// Returns true if the expression will never match any rows in the file.
+    /// Returns `true` if file-level statistics prove the expression cannot
+    /// match any rows in this file.
+    ///
+    /// Row-count-aware pruning predicates are evaluated with the file's total
+    /// row count as their scope.
     pub fn can_prune(&self, filter: &Expression) -> VortexResult<bool> {
         let Some((stats, fields)) = self
             .footer
@@ -162,16 +169,18 @@ impl VortexFile {
             return Ok(false);
         };
 
+        // Apply the predicate, then substitute any row_count placeholders in the resulting array
+        // tree with a ConstantArray carrying the file-level row count.
+        let applied = file_stats.apply(&predicate)?;
+        let row_count_replacement =
+            ConstantArray::new(self.footer.row_count(), applied.len()).into_array();
+        let applied = substitute_row_count(applied, &row_count_replacement)?;
+
         let mut ctx = self.session.create_execution_ctx();
-        Ok(
-            match file_stats
-                .apply(&predicate)?
-                .execute::<Columnar>(&mut ctx)?
-            {
-                Columnar::Constant(s) => s.scalar().as_bool().value() == Some(true),
-                Columnar::Canonical(_) => false,
-            },
-        )
+        Ok(match applied.execute::<Columnar>(&mut ctx)? {
+            Columnar::Constant(s) => s.scalar().as_bool().value() == Some(true),
+            Columnar::Canonical(_) => false,
+        })
     }
 
     pub fn splits(&self) -> VortexResult<Vec<Range<u64>>> {

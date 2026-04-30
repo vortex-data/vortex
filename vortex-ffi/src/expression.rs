@@ -10,11 +10,13 @@ use std::sync::Arc;
 
 use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
+use vortex::error::vortex_ensure;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::get_item;
 use vortex::expr::is_null;
 use vortex::expr::list_contains;
+use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
 use vortex::expr::root;
@@ -23,6 +25,9 @@ use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::operators::Operator;
 
+use crate::error::try_or;
+use crate::error::vx_error;
+use crate::scalar::vx_scalar;
 use crate::to_field_names;
 
 // Expressions are Arc'ed inside
@@ -60,6 +65,47 @@ crate::box_wrapper!(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn vx_expression_root() -> *mut vx_expression {
     vx_expression::new(root())
+}
+
+/// Create a literal expression from a scalar.
+///
+/// Literal expressions are useful for constants in expression trees, especially scan
+/// predicates. For example, a caller can compare a column expression to a scalar
+/// threshold and pass the resulting predicate to `vx_data_source_scan`.
+///
+/// Example:
+///
+/// vx_error* error = NULL;
+/// const vx_data_source* data_source = ...;
+///
+/// vx_expression* root = vx_expression_root();
+/// vx_expression* age = vx_expression_get_item("age", root);
+///
+/// vx_scalar* threshold_scalar = vx_scalar_new_u8(50, false);
+/// vx_expression* threshold = vx_expression_literal(threshold_scalar, &error);
+/// vx_scalar_free(threshold_scalar);
+///
+/// vx_expression* predicate = vx_expression_binary(VX_OPERATOR_GTE, age, threshold);
+/// vx_scan_options options = {};
+/// options.filter = predicate;
+///
+/// vx_scan* scan = vx_data_source_scan(data_source, &options, NULL, &error);
+///
+/// vx_scan_free(scan);
+/// vx_expression_free(predicate);
+/// vx_expression_free(threshold);
+/// vx_expression_free(age);
+/// vx_expression_free(root);
+///
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_expression_literal(
+    scalar: *const vx_scalar,
+    err: *mut *mut vx_error,
+) -> *mut vx_expression {
+    try_or(err, ptr::null_mut(), || {
+        vortex_ensure!(!scalar.is_null(), "scalar literal is null");
+        Ok(vx_expression::new(lit(vx_scalar::as_ref(scalar).clone())))
+    })
 }
 
 /// Create an expression that selects (includes) specific fields from a child
@@ -305,7 +351,8 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
-    use vortex::expr::lit;
+    use vortex::dtype::Nullability;
+    use vortex::scalar::Scalar;
 
     use crate::array::vx_array;
     use crate::array::vx_array_apply;
@@ -318,9 +365,12 @@ mod tests {
     use crate::expression::vx_expression_free;
     use crate::expression::vx_expression_get_item;
     use crate::expression::vx_expression_list_contains;
+    use crate::expression::vx_expression_literal;
     use crate::expression::vx_expression_or;
     use crate::expression::vx_expression_root;
     use crate::expression::vx_expression_select;
+    use crate::scalar::vx_scalar_free;
+    use crate::scalar::vx_scalar_new_i32;
 
     #[test]
     #[cfg_attr(miri, ignore)]
@@ -392,6 +442,52 @@ mod tests {
 
             vx_array_free(array);
             vx_expression_free(root);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_literal() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array =
+            PrimitiveArray::new(buffer![1i32, 2i32, 3i32], Validity::NonNullable).into_array();
+
+        unsafe {
+            let array = vx_array::new(Arc::new(array));
+
+            let value = 2i32;
+            let scalar = vx_scalar_new_i32(value, false);
+            assert!(!scalar.is_null());
+
+            let mut error = ptr::null_mut();
+            let expr = vx_expression_literal(scalar, &raw mut error);
+            assert!(error.is_null());
+            assert!(!expr.is_null());
+            vx_scalar_free(scalar);
+
+            let applied = vx_array_apply(array, expr, &raw mut error);
+            assert!(error.is_null());
+            assert!(!applied.is_null());
+
+            {
+                let applied = vx_array::as_ref(applied);
+                let expected = Scalar::primitive(value, Nullability::NonNullable);
+                assert_eq!(applied.len(), 3);
+                assert_eq!(applied.execute_scalar(0, &mut ctx).unwrap(), expected);
+                assert_eq!(applied.execute_scalar(2, &mut ctx).unwrap(), expected);
+            }
+
+            vx_array_free(applied);
+            vx_expression_free(expr);
+
+            {
+                let mut error = ptr::null_mut();
+                assert!(vx_expression_literal(ptr::null(), &raw mut error).is_null());
+                assert!(!error.is_null());
+                vx_error_free(error);
+            }
+
+            vx_array_free(array);
         }
     }
 
@@ -536,7 +632,11 @@ mod tests {
         unsafe {
             let root = vx_expression_root();
             let array = vx_array::new(Arc::new(array.into_array()));
-            let expression_value = vx_expression::new(lit(1));
+            let value = vx_scalar_new_i32(1, false);
+            let mut error = ptr::null_mut();
+            let expression_value = vx_expression_literal(value, &raw mut error);
+            assert!(error.is_null());
+            vx_scalar_free(value);
 
             let expression = vx_expression_list_contains(root, expression_value);
             assert!(!expression.is_null());

@@ -34,7 +34,7 @@ impl CastReduce for Zstd {
             (Nullability::NonNullable, Nullability::Nullable) => {
                 // nonnull => null, trivial cast by altering the validity
                 let unsliced_validity =
-                    child_to_validity(&array.slots()[0], array.dtype().nullability());
+                    child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
                 Ok(Some(
                     Zstd::try_new(
                         dtype.clone(),
@@ -53,7 +53,7 @@ impl CastReduce for Zstd {
             (Nullability::Nullable, Nullability::NonNullable) => {
                 // null => non-null works if there are no nulls in the sliced range
                 let unsliced_validity =
-                    child_to_validity(&array.slots()[0], array.dtype().nullability());
+                    child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
                 let has_nulls = !matches!(
                     unsliced_validity.slice(array.slice_start()..array.slice_stop())?,
                     Validity::AllValid | Validity::NonNullable

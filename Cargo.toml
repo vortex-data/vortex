@@ -120,14 +120,13 @@ chrono = "0.4.42"
 clap = "4.5"
 criterion = "0.8"
 crossterm = "0.29"
-cudarc = { version = "0.18.2", features = [
+cudarc = { version = "0.19.0", features = [
     # The NSight Compute version available on lambda.ai hosts does not inject a symbol for
     # several functions that cudarc expects to load when this is set to "cuda-12080". We
     # don't use any CUDA 12.8 specific features currently so this is fine.
     "cuda-12050",
 ] }
 custom-labels = "0.4.4"
-daachorse = "1.0.0"
 dashmap = "6.1.0"
 datafusion = { version = "53", default-features = false, features = ["sql"] }
 datafusion-catalog = { version = "53" }
@@ -227,7 +226,7 @@ serde_json = "1.0.138"
 serde_test = "1.0.176"
 sha2 = "0.11.0"
 simdutf8 = "0.1.5"
-similar = "2.7.0"
+similar = "3.0.0"
 sketches-ddsketch = "0.4.0"
 smol = "2.0.2"
 static_assertions = "1.1"
@@ -347,10 +346,17 @@ mem_forget = "deny"
 multiple_crate_versions = "allow"
 needless_range_loop = "allow"
 or_fun_call = "deny"
+ref_option = "deny"
+ref_option_ref = "deny"
 panic = "deny"
 # panic_in_result_fn = "deny" -- we cannot disable this for tests to use assertions
 clone_on_ref_ptr = "deny"
 redundant_clone = "deny"
+redundant_static_lifetimes = "deny"
+ref_binding_to_reference = "deny"
+ref_patterns = "deny"
+repeat_vec_with_capacity = "deny"
+reserve_after_initialization = "deny"
 same_name_method = "deny"
 tests_outside_test_module = "deny"
 # todo = "deny"

@@ -22,6 +22,7 @@ use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
 use crate::array::ArrayId;
+use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::list::ListArrayExt;
@@ -148,7 +149,7 @@ impl VTable for List {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         let metadata = ListMetadata::decode(metadata)?;
         let validity = if children.len() == 2 {
             Validity::from(dtype.nullability())
@@ -176,7 +177,7 @@ impl VTable for List {
 
         let data = ListData::try_build(elements.clone(), offsets.clone(), validity.clone())?;
         let slots = ListData::make_slots(&elements, &offsets, &validity, len);
-        Ok(crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

@@ -3,7 +3,11 @@
 
 package dev.vortex.spark;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -13,21 +17,27 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.apache.spark.sql.*;
+import org.apache.spark.sql.Dataset;
+import org.apache.spark.sql.Row;
+import org.apache.spark.sql.RowFactory;
+import org.apache.spark.sql.SaveMode;
+import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Integration test for Vortex DataSource write and read functionality.
- * <p>
- * This test verifies that:
- * 1. Spark DataFrames can be written as Vortex files
- * 2. Multiple partitions create multiple files
- * 3. Data can be read back correctly
- * 4. Schema is preserved during write/read
+ *
+ * <p>This test verifies that: 1. Spark DataFrames can be written as Vortex files 2. Multiple partitions create multiple
+ * files 3. Data can be read back correctly 4. Schema is preserved during write/read
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public final class VortexDataSourceWriteTest {
@@ -391,10 +401,7 @@ public final class VortexDataSourceWriteTest {
         assertFalse(findVortexFiles(outputPath).isEmpty(), "TimestampNTZ write should create Vortex files");
     }
 
-    /**
-     * Creates a test DataFrame with monotonically increasing integers
-     * and their string representations.
-     */
+    /** Creates a test DataFrame with monotonically increasing integers and their string representations. */
     private Dataset<Row> createTestDataFrame(int numRows) {
         // Create DataFrame with monotonically increasing integers
         return spark.range(0, numRows)
@@ -418,9 +425,7 @@ public final class VortexDataSourceWriteTest {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Finds all Vortex files in the given directory.
-     */
+    /** Finds all Vortex files in the given directory. */
     private List<Path> findVortexFiles(Path directory) throws IOException {
         if (!Files.exists(directory)) {
             return List.of();
@@ -434,9 +439,7 @@ public final class VortexDataSourceWriteTest {
         }
     }
 
-    /**
-     * Verifies that two schemas are equal.
-     */
+    /** Verifies that two schemas are equal. */
     private void assertSchemaEquals(StructType expected, StructType actual) {
         assertEquals(expected.fields().length, actual.fields().length, "Schemas should have same number of fields");
 
@@ -456,9 +459,7 @@ public final class VortexDataSourceWriteTest {
         }
     }
 
-    /**
-     * Verifies that the data content of two DataFrames is identical.
-     */
+    /** Verifies that the data content of two DataFrames is identical. */
     private void verifyDataContent(Dataset<Row> expected, Dataset<Row> actual) {
         // Sort both DataFrames by id to ensure consistent ordering
         Dataset<Row> expectedSorted = expected.orderBy("id");

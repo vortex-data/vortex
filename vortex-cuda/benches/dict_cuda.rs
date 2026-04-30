@@ -6,8 +6,10 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
-mod common;
+mod bench_config;
+mod timed_launch_strategy;
 
+use std::fmt::Debug;
 use std::mem::size_of;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -32,7 +34,7 @@ use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-use crate::common::TimedLaunchStrategy;
+use crate::timed_launch_strategy::TimedLaunchStrategy;
 
 const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M")];
 
@@ -48,7 +50,7 @@ fn make_dict_array_typed<V, C>(len: usize, dict_size: usize) -> DictArray
 where
     V: NativePType + From<u32>,
     C: NativePType + TryFrom<usize>,
-    <C as TryFrom<usize>>::Error: std::fmt::Debug,
+    <C as TryFrom<usize>>::Error: Debug,
 {
     // Dictionary values
     let values: Vec<V> = (0..dict_size)
@@ -71,7 +73,7 @@ fn benchmark_dict_typed<V, C>(c: &mut Criterion, config: &DictBenchConfig)
 where
     V: NativePType + DeviceRepr + From<u32>,
     C: NativePType + DeviceRepr + TryFrom<usize>,
-    <C as TryFrom<usize>>::Error: std::fmt::Debug,
+    <C as TryFrom<usize>>::Error: Debug,
 {
     let mut group = c.benchmark_group("dict_cuda");
 
@@ -159,11 +161,7 @@ fn benchmark_dict(c: &mut Criterion) {
 
 criterion::criterion_group! {
     name = benches;
-    config = Criterion::default().without_plots()
-        .sample_size(10)
-        .warm_up_time(Duration::from_nanos(1))
-        .measurement_time(Duration::from_nanos(1))
-        .nresamples(10);
+    config = bench_config::cuda_bench_config();
     targets = benchmark_dict
 }
 

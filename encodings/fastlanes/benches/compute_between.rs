@@ -83,50 +83,10 @@ mod primitive {
     use vortex_array::dtype::NativePType;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;
     use vortex_array::scalar_fn::fns::between::StrictComparison::NonStrict;
-    use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
     use crate::generate_primitive_array;
-
-    #[divan::bench(
-        types = [i32, i64, u32, u64, f32, f64],
-        args = BENCH_ARGS,
-    )]
-    fn old_raw_prim_test_between<T>(bencher: Bencher, len: usize)
-    where
-        T: NumCast + NativePType,
-        vortex_array::scalar::Scalar: From<T>,
-    {
-        let min = T::from_usize(5561).vortex_expect("");
-        let max = T::from_usize(6032).vortex_expect("");
-        let mut rng = StdRng::seed_from_u64(0);
-        let arr = generate_primitive_array::<T>(&mut rng, len);
-
-        bencher
-            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
-            .bench_refs(|(arr, ctx)| {
-                let gte = arr
-                    .clone()
-                    .into_array()
-                    .binary(
-                        ConstantArray::new(min, arr.len()).into_array(),
-                        Operator::Gte,
-                    )
-                    .vortex_expect("");
-                let lt = arr
-                    .clone()
-                    .into_array()
-                    .binary(
-                        ConstantArray::new(max, arr.len()).into_array(),
-                        Operator::Lt,
-                    )
-                    .vortex_expect("");
-                gte.binary(lt, Operator::And)
-                    .vortex_expect("")
-                    .execute::<RecursiveCanonical>(ctx)
-            })
-    }
 
     #[divan::bench(
         types = [i32, i64, u32, u64, f32, f64],
@@ -176,49 +136,10 @@ mod bitpack {
     use vortex_array::dtype::NativePType;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;
     use vortex_array::scalar_fn::fns::between::StrictComparison::NonStrict;
-    use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
     use crate::generate_bit_pack_primitive_array;
-
-    #[divan::bench(
-        types = [i16, i32, i64],
-        args = BENCH_ARGS,
-    )]
-    fn old_bp_prim_test_between<T>(bencher: Bencher, len: usize)
-    where
-        T: NumCast + NativePType,
-        vortex_array::scalar::Scalar: From<T>,
-    {
-        let min = T::from_usize(5561).vortex_expect("");
-        let max = T::from_usize(6032).vortex_expect("");
-        let mut rng = StdRng::seed_from_u64(0);
-        let arr = generate_bit_pack_primitive_array::<T>(&mut rng, len);
-
-        bencher
-            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
-            .bench_refs(|(arr, ctx)| {
-                let gte = arr
-                    .clone()
-                    .binary(
-                        ConstantArray::new(min, arr.len()).into_array(),
-                        Operator::Gte,
-                    )
-                    .vortex_expect("");
-                let lt = arr
-                    .clone()
-                    .binary(
-                        ConstantArray::new(max, arr.len()).into_array(),
-                        Operator::Lt,
-                    )
-                    .vortex_expect("");
-                gte.binary(lt, Operator::And)
-                    .unwrap()
-                    .execute::<RecursiveCanonical>(ctx)
-                    .unwrap()
-            })
-    }
 
     #[divan::bench(
         types = [i16, i32, i64],
@@ -267,49 +188,10 @@ mod alp {
     use vortex_array::dtype::NativePType;
     use vortex_array::scalar_fn::fns::between::BetweenOptions;
     use vortex_array::scalar_fn::fns::between::StrictComparison::NonStrict;
-    use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_error::VortexExpect;
 
     use crate::BENCH_ARGS;
     use crate::generate_alp_bit_pack_primitive_array;
-
-    #[divan::bench(
-        types = [f32, f64],
-        args = BENCH_ARGS,
-    )]
-    fn old_alp_prim_test_between<T>(bencher: Bencher, len: usize)
-    where
-        T: NumCast + NativePType,
-        vortex_array::scalar::Scalar: From<T>,
-    {
-        let min = T::from_usize(5561).vortex_expect("");
-        let max = T::from_usize(6032).vortex_expect("");
-        let mut rng = StdRng::seed_from_u64(0);
-        let arr = generate_alp_bit_pack_primitive_array::<T>(&mut rng, len);
-
-        bencher
-            .with_inputs(|| (&arr, LEGACY_SESSION.create_execution_ctx()))
-            .bench_refs(|(arr, ctx)| {
-                let gte = arr
-                    .clone()
-                    .binary(
-                        ConstantArray::new(min, arr.len()).into_array(),
-                        Operator::Gte,
-                    )
-                    .vortex_expect("");
-                let lt = arr
-                    .clone()
-                    .binary(
-                        ConstantArray::new(max, arr.len()).into_array(),
-                        Operator::Lt,
-                    )
-                    .vortex_expect("");
-                gte.binary(lt, Operator::And)
-                    .unwrap()
-                    .execute::<RecursiveCanonical>(ctx)
-                    .unwrap()
-            })
-    }
 
     #[divan::bench(
         types = [f32, f64],

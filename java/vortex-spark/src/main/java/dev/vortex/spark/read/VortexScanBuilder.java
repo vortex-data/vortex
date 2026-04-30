@@ -16,17 +16,13 @@ import org.apache.spark.sql.connector.read.SupportsPushDownRequiredColumns;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 
-/**
- * Spark V2 {@link ScanBuilder} for table scans over Vortex files.
- */
+/** Spark V2 {@link ScanBuilder} for table scans over Vortex files. */
 public final class VortexScanBuilder implements ScanBuilder, SupportsPushDownRequiredColumns {
     private final ImmutableList.Builder<String> paths;
     private final List<Column> columns;
     private final Map<String, String> formatOptions;
 
-    /**
-     * Creates a new VortexScanBuilder with empty paths and columns.
-     */
+    /** Creates a new VortexScanBuilder with empty paths and columns. */
     public VortexScanBuilder(Map<String, String> formatOptions) {
         this.paths = ImmutableList.builder();
         this.columns = new ArrayList<>();
@@ -98,10 +94,9 @@ public final class VortexScanBuilder implements ScanBuilder, SupportsPushDownReq
 
     /**
      * Prunes the columns to only include those specified in the required schema.
-     * <p>
-     * This method clears the current column list and replaces it with columns
-     * derived from the required schema. Currently only supports top-level schema
-     * pruning - deeply nested schema pruning is not yet implemented.
+     *
+     * <p>This method clears the current column list and replaces it with columns derived from the required schema.
+     * Currently only supports top-level schema pruning - deeply nested schema pruning is not yet implemented.
      *
      * @param requiredSchema the schema specifying which columns are required
      */

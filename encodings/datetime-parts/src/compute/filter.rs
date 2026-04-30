@@ -9,7 +9,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::DateTimeParts;
-use crate::array::DateTimePartsArrayExt;
+use crate::array::DateTimePartsArraySlotsExt;
 impl FilterReduce for DateTimeParts {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
