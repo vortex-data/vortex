@@ -12,13 +12,20 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::ExtensionArray;
 use vortex::array::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::extension::ExtId;
+use vortex::dtype::session::DTypeSessionExt;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
+use vortex::session::VortexSession;
 
+use crate::SESSION;
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
 use crate::classes::array_class;
@@ -26,6 +33,83 @@ use crate::classes::chunked_array_class;
 use crate::classes::table_class;
 use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
+
+/// Convert a Python `pyarrow` array (including `pa.ExtensionArray`) into a Vortex array.
+///
+/// Arrow's C ABI strips extension identity from the array layer — it lives on `Field`
+/// metadata, and a leaf `pa.ExtensionArray` has no enclosing field. We recover it from the
+/// Python object via `extension_name` and `__arrow_ext_serialize__`.
+pub trait FromPyArrowArray: Sized {
+    /// Convert a Python `pyarrow` array to a Vortex array.
+    fn from_pyarrow(py_array: &Bound<'_, PyAny>, nullable: bool) -> PyResult<Self>;
+
+    /// Like [`Self::from_pyarrow`], but consults `session` to resolve `pa.ExtensionType`
+    /// arrays back into `DType::Extension`.
+    fn from_pyarrow_with_session(
+        py_array: &Bound<'_, PyAny>,
+        nullable: bool,
+        _session: &VortexSession,
+    ) -> PyResult<Self> {
+        Self::from_pyarrow(py_array, nullable)
+    }
+}
+
+impl FromPyArrowArray for ArrayRef {
+    fn from_pyarrow(py_array: &Bound<'_, PyAny>, nullable: bool) -> PyResult<Self> {
+        Self::from_pyarrow_with_session(py_array, nullable, &LEGACY_SESSION)
+    }
+
+    fn from_pyarrow_with_session(
+        py_array: &Bound<'_, PyAny>,
+        nullable: bool,
+        session: &VortexSession,
+    ) -> PyResult<Self> {
+        let ext_info = extract_extension_info(py_array)?;
+        let array_data = ArrowArrayData::from_pyarrow(&py_array.as_borrowed())?;
+        let storage =
+            ArrayRef::from_arrow_with_session(make_array(array_data).as_ref(), nullable, session)
+                .map_err(PyVortexError::from)?;
+        match ext_info {
+            None => Ok(storage),
+            Some((name, meta)) => {
+                Ok(wrap_with_extension(storage, &name, &meta, session)
+                    .map_err(PyVortexError::from)?)
+            }
+        }
+    }
+}
+
+/// `__arrow_ext_serialize__` returns raw bytes; we pass them straight to the plugin.
+/// Base64 is only the encoding used in the Arrow Field-metadata string channel — going
+/// directly Python → registry skips that hop.
+fn extract_extension_info(py_array: &Bound<'_, PyAny>) -> PyResult<Option<(String, Vec<u8>)>> {
+    let py = py_array.py();
+    let py_type = py_array.getattr(intern!(py, "type"))?;
+    let Ok(name) = py_type.getattr(intern!(py, "extension_name")) else {
+        return Ok(None);
+    };
+    let ext_name: String = name.extract()?;
+    let ext_meta_bytes: Vec<u8> = py_type
+        .call_method0(intern!(py, "__arrow_ext_serialize__"))?
+        .extract()?;
+    Ok(Some((ext_name, ext_meta_bytes)))
+}
+
+fn wrap_with_extension(
+    storage: ArrayRef,
+    ext_name: &str,
+    ext_meta_bytes: &[u8],
+    session: &VortexSession,
+) -> VortexResult<ArrayRef> {
+    let ext_id = ExtId::new(ext_name);
+    let dtypes = session.dtypes();
+    let plugin = dtypes
+        .registry()
+        .find(&ext_id)
+        .ok_or_else(|| vortex_err!("extension `{ext_name}` is not registered on the session"))?;
+    let ext_dtype = plugin.deserialize(ext_meta_bytes, storage.dtype().clone())?;
+    Ok(ExtensionArray::try_new(ext_dtype, storage)?.into_array())
+}
 
 /// Convert an Arrow object to a Vortex array.
 pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArrayRef> {
@@ -35,9 +119,9 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
     let table = table_class(py)?;
 
     if obj.is_instance(pa_array)? {
-        let arrow_array = ArrowArrayData::from_pyarrow(&obj.as_borrowed()).map(make_array)?;
-        let is_nullable = arrow_array.is_nullable();
-        let enc_array = ArrayRef::from_arrow(arrow_array.as_ref(), is_nullable)?;
+        let bound = obj.to_owned();
+        let nullable = bound.getattr(intern!(py, "null_count"))?.extract::<i64>()? > 0;
+        let enc_array = ArrayRef::from_pyarrow_with_session(&bound, nullable, &SESSION)?;
         Ok(PyArrayRef::from(enc_array))
     } else if obj.is_instance(chunked_array)? {
         let chunks: Vec<Bound<PyAny>> = obj.getattr(intern!(py, "chunks"))?.extract()?;
