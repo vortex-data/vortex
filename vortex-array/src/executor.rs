@@ -23,6 +23,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 
@@ -421,14 +422,15 @@ impl Executable for ArrayRef {
             }
         }
 
-        let kernels = ctx
-            .session()
-            .get_opt::<ArrayKernels>()
-            .map(|v| v.map(|i| i.clone()));
+        let tmp_session = ctx.session().clone();
+        let kernels = tmp_session.get_opt::<ArrayKernels>();
+
 
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
-            if let Some(executed_parent) = execute_parent_for_child(&array, child, slot_idx, kernels, ctx)? {
+            if let Some(executed_parent) =
+                execute_parent_for_child(&array, child, slot_idx, kernels.as_ref(), ctx)?
+            {
                 ctx.log(format_args!(
                     "execute_parent: slot[{}]({}) rewrote {} -> {}",
                     slot_idx,
@@ -539,13 +541,10 @@ fn execute_parent_for_child(
     parent: &ArrayRef,
     child: &ArrayRef,
     slot_idx: usize,
-    kernels: Option<&ArrayKernels>,
+    kernels: Option<&Ref<ArrayKernels>>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    if let Some(kernels) = ctx
-        .session()
-        .get_opt::<ArrayKernels>()
-        .map(|v| v.deref().clone())
+    if let Some(kernels) = kernels
         && let Some(plugins) =
             kernels.find_execute_parent(parent.encoding_id(), child.encoding_id())
     {
@@ -561,11 +560,25 @@ fn execute_parent_for_child(
 
 /// Try execute_parent on each occupied slot of the array.
 fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
+    let tmp_session = ctx.session().clone();
+    let kernels = tmp_session.get_opt::<ArrayKernels>();
+
     for (slot_idx, slot) in array.slots().iter().enumerate() {
         let Some(child) = slot else { continue };
-        if let Some(result) = execute_parent_for_child(array, child, slot_idx, ctx)? {
-            result.statistics().inherit_from(array.statistics());
-            return Ok(Some(result));
+        if let Some(executed_parent) =
+            execute_parent_for_child(&array, child, slot_idx, kernels.as_ref(), ctx)?
+        {
+            ctx.log(format_args!(
+                "execute_parent: slot[{}]({}) rewrote {} -> {}",
+                slot_idx,
+                child.encoding_id(),
+                array,
+                executed_parent
+            ));
+            executed_parent
+                .statistics()
+                .inherit_from(array.statistics());
+            return Ok(Some(executed_parent));
         }
     }
     Ok(None)
