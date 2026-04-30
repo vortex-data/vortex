@@ -7170,8 +7170,8 @@ dependencies = [
 
 [[package]]
 name = "public-api"
-version = "0.50.3"
-source = "git+https://github.com/joseph-isaacs/cargo-public-api.git?branch=main#9402395536d0acdfbdf90d1ee6ceef21da4c091a"
+version = "0.51.0"
+source = "git+https://github.com/vortex-data/cargo-public-api.git?branch=main#ca28f3faff19f9c4cd838fb121fd7212953fdb19"
 dependencies = [
  "hashbag",
  "rustdoc-types",
@@ -8020,9 +8020,9 @@ dependencies = [
 
 [[package]]
 name = "rustdoc-types"
-version = "0.56.0"
+version = "0.57.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27bf787c529efe523ed9eb6dcdbaa5954d34329f08d5c243fce928441826ca90"
+checksum = "7e6919c49bdd9cca072b3b502d16c073d0a4d3b7283ff6e0c86a5f6e6b07bbfe"
 dependencies = [
  "serde",
  "serde_derive",
