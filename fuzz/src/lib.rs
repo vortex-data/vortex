@@ -3,6 +3,8 @@
 
 #![expect(clippy::use_debug)]
 
+use std::ops::RangeInclusive;
+
 mod array;
 pub mod compress;
 pub mod error;
@@ -31,6 +33,8 @@ pub use fsst_like::run_fsst_like_fuzz;
 pub use gpu::FuzzCompressGpu;
 #[cfg(feature = "cuda")]
 pub use gpu::run_compress_gpu;
+
+pub const FUZZ_ARRAY_LEN_RANGE: RangeInclusive<usize> = 0..=16_384;
 
 // Runtime initialization - platform-specific
 #[cfg(not(target_arch = "wasm32"))]

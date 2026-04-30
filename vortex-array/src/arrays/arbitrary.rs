@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
+use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use arbitrary::Arbitrary;
+use arbitrary::Error::IncorrectFormat;
 use arbitrary::Result;
 use arbitrary::Unstructured;
 use vortex_buffer::BitBuffer;
@@ -41,10 +43,44 @@ use crate::validity::Validity;
 #[derive(Clone, Debug)]
 pub struct ArbitraryArray(pub ArrayRef);
 
+/// Trait for generating arbitrary values with a caller-provided configuration.
+pub trait ArbitraryWith<'a, C>: Sized {
+    /// Generate an arbitrary value using the provided configuration.
+    fn arbitrary_with_config(u: &mut Unstructured<'a>, config: &C) -> Result<Self>;
+}
+
+/// Configuration for arbitrary array generation.
+#[derive(Clone, Debug)]
+pub struct ArbitraryArrayConfig {
+    /// Fixed dtype, or `None` to generate one from [`Unstructured`].
+    pub dtype: Option<DType>,
+    /// Inclusive range for the total array length.
+    pub len: RangeInclusive<usize>,
+}
+
 impl<'a> Arbitrary<'a> for ArbitraryArray {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
         let dtype = u.arbitrary()?;
         Self::arbitrary_with(u, None, &dtype)
+    }
+}
+
+impl<'a> ArbitraryWith<'a, ArbitraryArrayConfig> for ArbitraryArray {
+    fn arbitrary_with_config(
+        u: &mut Unstructured<'a>,
+        config: &ArbitraryArrayConfig,
+    ) -> Result<Self> {
+        if config.len.is_empty() {
+            return Err(IncorrectFormat);
+        }
+
+        let dtype = match &config.dtype {
+            Some(dtype) => dtype.clone(),
+            None => u.arbitrary()?,
+        };
+        let len = u.int_in_range(config.len.clone())?;
+
+        random_array(u, &dtype, Some(len)).map(ArbitraryArray)
     }
 }
 
