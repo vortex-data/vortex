@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_buffer::Buffer;
 use vortex_buffer::buffer;
+use vortex_session::VortexSession;
 
+use crate::Canonical;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::accessor::ArrayAccessor;
 use crate::arrays::Chunked;
@@ -20,13 +22,19 @@ use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::dict_test::gen_dict_primitive_chunks;
 use crate::arrays::struct_::StructArrayExt;
 use crate::assert_arrays_eq;
+use crate::builders::builder_with_capacity;
 #[expect(deprecated)]
 use crate::canonical::ToCanonical as _;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::PType::I32;
+use crate::executor::execute_into_builder;
+use crate::session::ArraySession;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 fn chunked_array() -> ChunkedArray {
     ChunkedArray::try_new(
@@ -42,15 +50,13 @@ fn chunked_array() -> ChunkedArray {
 
 #[test]
 fn builder_kernel_path_canonicalizes_primitive_chunks() {
-    use crate::builders::builder_with_capacity;
-    use crate::executor::execute_into_builder;
+    let mut ctx = SESSION.create_execution_ctx();
 
     let array = chunked_array().into_array();
     let dtype = array.dtype().clone();
     let len = array.len();
 
     let builder = builder_with_capacity(&dtype, len);
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Clone the array into the builder path — the test also holds `array` so refcount > 1 on
     // entry, which previously caused `take_slot_unchecked` to silently keep slots populated.
     let mut builder = execute_into_builder(array.clone(), builder, &mut ctx).unwrap();
@@ -65,8 +71,7 @@ fn builder_kernel_path_canonicalizes_primitive_chunks() {
 
 #[test]
 fn builder_kernel_nested_chunked_of_chunked() {
-    use crate::builders::builder_with_capacity;
-    use crate::executor::execute_into_builder;
+    let mut ctx = SESSION.create_execution_ctx();
 
     let inner_1 = ChunkedArray::try_new(
         vec![buffer![1u64, 2].into_array(), buffer![3u64].into_array()],
@@ -90,7 +95,6 @@ fn builder_kernel_nested_chunked_of_chunked() {
     let dtype = outer.dtype().clone();
     let len = outer.len();
     let builder = builder_with_capacity(&dtype, len);
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mut builder = execute_into_builder(outer, builder, &mut ctx).unwrap();
     let output = builder.finish();
 
@@ -99,18 +103,16 @@ fn builder_kernel_nested_chunked_of_chunked() {
 
 #[test]
 fn builder_kernel_path_repeated_shared_chunked_dict_execution() {
-    use crate::builders::builder_with_capacity;
-    use crate::executor::execute_into_builder;
+    let mut expected_ctx = SESSION.create_execution_ctx();
 
     let array = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
     let keep_alive = array.clone();
     let dtype = array.dtype().clone();
     let len = array.len();
 
-    let mut expected_ctx = LEGACY_SESSION.create_execution_ctx();
     let expected = array
         .clone()
-        .execute::<crate::Canonical>(&mut expected_ctx)
+        .execute::<Canonical>(&mut expected_ctx)
         .unwrap()
         .into_array();
 
@@ -142,20 +144,20 @@ fn execute_path_repeated_shared_chunked_dict_execution() {
     let expected_source = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
     let mut expected_ctx = LEGACY_SESSION.create_execution_ctx();
     let expected = expected_source
-        .execute::<crate::Canonical>(&mut expected_ctx)
+        .execute::<Canonical>(&mut expected_ctx)
         .unwrap()
         .into_array();
 
     let mut first_ctx = LEGACY_SESSION.create_execution_ctx();
     let first = array
         .clone()
-        .execute::<crate::Canonical>(&mut first_ctx)
+        .execute::<Canonical>(&mut first_ctx)
         .unwrap()
         .into_array();
 
     let mut second_ctx = LEGACY_SESSION.create_execution_ctx();
     let second = array
-        .execute::<crate::Canonical>(&mut second_ctx)
+        .execute::<Canonical>(&mut second_ctx)
         .unwrap()
         .into_array();
 
@@ -167,8 +169,7 @@ fn execute_path_repeated_shared_chunked_dict_execution() {
 
 #[test]
 fn execute_path_nested_chunked_dict_of_dict_into_canonical() {
-    use crate::builders::builder_with_capacity;
-
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let inner_1 = gen_dict_primitive_chunks::<u32, u16>(8, 3, 2);
     let inner_2 = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
     let outer = ChunkedArray::try_new(
@@ -180,7 +181,6 @@ fn execute_path_nested_chunked_dict_of_dict_into_canonical() {
     let keep_alive = outer.clone();
 
     let expected = {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let mut builder = builder_with_capacity(outer.dtype(), outer.len());
         inner_1
             .append_to_builder(builder.as_mut(), &mut ctx)
@@ -191,18 +191,13 @@ fn execute_path_nested_chunked_dict_of_dict_into_canonical() {
         builder.finish()
     };
 
-    let mut first_ctx = LEGACY_SESSION.create_execution_ctx();
     let first = outer
         .clone()
-        .execute::<crate::Canonical>(&mut first_ctx)
+        .execute::<Canonical>(&mut ctx)
         .unwrap()
         .into_array();
 
-    let mut second_ctx = LEGACY_SESSION.create_execution_ctx();
-    let second = outer
-        .execute::<crate::Canonical>(&mut second_ctx)
-        .unwrap()
-        .into_array();
+    let second = outer.execute::<Canonical>(&mut ctx).unwrap().into_array();
 
     drop(keep_alive);
 

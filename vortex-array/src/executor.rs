@@ -254,7 +254,7 @@ impl ArrayRef {
                         "AppendChild({i}): appending {} into builder",
                         child
                     ));
-                    // TODO(perf): replace with a builder kernel registry so we don't
+                    // TODO(joe)[7674]: replace with a builder kernel registry so we don't
                     // need to go through the VTable append_to_builder indirection.
                     child.append_to_builder(
                         current_builder
