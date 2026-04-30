@@ -14,6 +14,7 @@ use crate::dtype::DType;
 
 mod adapter;
 mod ext;
+mod instrumented;
 
 /// A stream of array chunks along with a DType.
 ///

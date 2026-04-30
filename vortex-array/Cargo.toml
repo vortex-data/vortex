@@ -66,6 +66,7 @@ tabled = { workspace = true, optional = true, default-features = false, features
 ] }
 termtree = { workspace = true }
 tracing = { workspace = true }
+tracing-futures = { workspace = true }
 uuid = { workspace = true }
 vortex-array-macros = { workspace = true }
 vortex-buffer = { workspace = true, features = ["arrow"] }

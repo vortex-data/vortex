@@ -4,6 +4,7 @@
 use std::future::Future;
 
 use futures::TryStreamExt;
+use tracing::Span;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -11,6 +12,7 @@ use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::stream::ArrayStream;
 use crate::stream::SendableArrayStream;
+use crate::stream::instrumented::instrument_array_stream;
 
 pub trait ArrayStreamExt: ArrayStream {
     /// Box the [`ArrayStream`] so that it can be sent between threads.
@@ -37,6 +39,13 @@ pub trait ArrayStreamExt: ArrayStream {
                 Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
             }
         }
+    }
+
+    fn instrument(self, span: Span) -> impl ArrayStream
+    where
+        Self: Sized,
+    {
+        instrument_array_stream(self, span)
     }
 }
 
