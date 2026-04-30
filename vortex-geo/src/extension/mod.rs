@@ -14,13 +14,16 @@ pub use wkb::*;
 /// the GeoArrow standard.
 #[derive(Clone, PartialEq, Eq, Hash, prost::Message)]
 pub struct GeoMetadata {
-    #[prost(string, tag = "1")]
-    pub crs: String,
+    #[prost(optional, string, tag = "1")]
+    pub crs: Option<String>,
 }
 
 impl Display for GeoMetadata {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Geometry(crs={})", self.crs)
+        match self.crs.as_ref() {
+            Some(crs) => write!(f, "Geometry(crs={crs})"),
+            None => write!(f, "Geometry(unreferenced)"),
+        }
     }
 }
 
@@ -33,7 +36,7 @@ mod tests {
     #[test]
     fn test_metadata() {
         let meta = GeoMetadata {
-            crs: "EPSG:4326".to_string(),
+            crs: Some("EPSG:4326".to_string()),
         };
 
         assert_eq!(meta.to_string(), "Geometry(crs=EPSG:4326)");

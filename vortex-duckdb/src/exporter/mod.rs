@@ -9,6 +9,7 @@ mod constant;
 mod decimal;
 mod dict;
 mod fixed_size_list;
+mod geo;
 mod list;
 mod list_view;
 mod primitive;

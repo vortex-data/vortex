@@ -188,18 +188,17 @@ fn progress(bytes_read: &AtomicU64, bytes_total: &AtomicU64) -> f64 {
 
 impl ColumnStatistics {
     fn from(stats: &ColumnStatisticsAggregate, dtype: DType) -> Self {
-        let min = stats.min.as_ref().map(|value| {
-            let value = value.clone();
-            Scalar::try_new(dtype.clone(), Some(value))
-                .vortex_expect("scalar dtype and value are incompatible")
-                .try_to_duckdb_scalar()
-                .vortex_expect("can't convert Scalar to duckdb Value")
-        });
-        let max = stats.max.as_ref().map(|value| {
+        let min = stats.min.as_ref().and_then(|value| {
             Scalar::try_new(dtype.clone(), Some(value.clone()))
                 .vortex_expect("scalar dtype and value are incompatible")
                 .try_to_duckdb_scalar()
-                .vortex_expect("can't convert Scalar to duckdb Value")
+                .ok()
+        });
+        let max = stats.max.as_ref().and_then(|value| {
+            Scalar::try_new(dtype.clone(), Some(value.clone()))
+                .vortex_expect("scalar dtype and value are incompatible")
+                .try_to_duckdb_scalar()
+                .ok()
         });
 
         let max_string_length = stats
