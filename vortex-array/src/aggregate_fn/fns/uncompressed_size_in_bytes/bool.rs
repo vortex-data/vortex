@@ -4,6 +4,8 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use super::packed_bit_buffer_size_in_bytes;
+use super::validity_uncompressed_size_in_bytes;
 use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 
@@ -11,8 +13,8 @@ pub(super) fn bool_uncompressed_size_in_bytes(
     array: &BoolArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<u64> {
-    let value_size = super::packed_bit_buffer_size_in_bytes(array.len())?;
-    let validity_size = super::validity_uncompressed_size_in_bytes(
+    let value_size = packed_bit_buffer_size_in_bytes(array.len())?;
+    let validity_size = validity_uncompressed_size_in_bytes(
         array
             .as_ref()
             .validity()?

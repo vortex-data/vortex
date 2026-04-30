@@ -6,6 +6,7 @@ use std::mem::size_of;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use super::validity_uncompressed_size_in_bytes;
 use crate::ExecutionCtx;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
@@ -32,7 +33,7 @@ pub(super) fn varbinview_uncompressed_size_in_bytes(
     }
 
     size = size
-        .checked_add(super::validity_uncompressed_size_in_bytes(
+        .checked_add(validity_uncompressed_size_in_bytes(
             array
                 .as_ref()
                 .validity()?

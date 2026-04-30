@@ -5,7 +5,7 @@ mod bool;
 mod decimal;
 mod extension;
 mod fixed_size_list;
-mod list;
+mod list_view;
 mod null;
 mod primitive;
 mod struct_;
@@ -15,7 +15,7 @@ use bool::bool_uncompressed_size_in_bytes;
 use decimal::decimal_uncompressed_size_in_bytes;
 use extension::extension_uncompressed_size_in_bytes;
 use fixed_size_list::fixed_size_list_uncompressed_size_in_bytes;
-use list::list_uncompressed_size_in_bytes;
+use list_view::list_view_uncompressed_size_in_bytes;
 use null::null_uncompressed_size_in_bytes;
 use primitive::primitive_uncompressed_size_in_bytes;
 use struct_::struct_uncompressed_size_in_bytes;
@@ -201,7 +201,7 @@ fn canonical_uncompressed_size_in_bytes(
         Canonical::Primitive(array) => primitive_uncompressed_size_in_bytes(array, ctx),
         Canonical::Decimal(array) => decimal_uncompressed_size_in_bytes(array, ctx),
         Canonical::VarBinView(array) => varbinview_uncompressed_size_in_bytes(array, ctx),
-        Canonical::List(array) => list_uncompressed_size_in_bytes(array, ctx),
+        Canonical::List(array) => list_view_uncompressed_size_in_bytes(array, ctx),
         Canonical::FixedSizeList(array) => fixed_size_list_uncompressed_size_in_bytes(array, ctx),
         Canonical::Struct(array) => struct_uncompressed_size_in_bytes(array, ctx),
         Canonical::Extension(array) => extension_uncompressed_size_in_bytes(array, ctx),

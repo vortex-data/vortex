@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use super::validity_uncompressed_size_in_bytes;
 use crate::ExecutionCtx;
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::DecimalArrayExt;
@@ -22,7 +23,7 @@ pub(super) fn decimal_uncompressed_size_in_bytes(
             .map_err(|e| vortex_err!("Failed to convert decimal byte width to u64: {e}"))?,
         )
         .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
-    let validity_size = super::validity_uncompressed_size_in_bytes(
+    let validity_size = validity_uncompressed_size_in_bytes(
         array
             .as_ref()
             .validity()?
