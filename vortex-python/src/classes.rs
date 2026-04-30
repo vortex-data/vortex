@@ -52,6 +52,12 @@ pub fn table_class(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
     TYPE.import(py, "pyarrow", "Table")
 }
 
+/// Returns the pyarrow.ExtensionType class
+pub fn extension_type_class(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
+    static TYPE: PyOnceLock<Py<PyType>> = PyOnceLock::new();
+    TYPE.import(py, "pyarrow", "ExtensionType")
+}
+
 /// Returns the pyarrow.Decimal class
 pub fn decimal_class(py: Python<'_>) -> PyResult<&Bound<'_, PyType>> {
     static TYPE: PyOnceLock<Py<PyType>> = PyOnceLock::new();

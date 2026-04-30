@@ -30,6 +30,7 @@ use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
 use crate::classes::array_class;
 use crate::classes::chunked_array_class;
+use crate::classes::extension_type_class;
 use crate::classes::table_class;
 use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
@@ -69,13 +70,10 @@ impl FromPyArrowArray for ArrayRef {
         let storage =
             ArrayRef::from_arrow_with_session(make_array(array_data).as_ref(), nullable, session)
                 .map_err(PyVortexError::from)?;
-        match ext_info {
-            None => Ok(storage),
-            Some((name, meta)) => {
-                Ok(wrap_with_extension(storage, &name, &meta, session)
-                    .map_err(PyVortexError::from)?)
-            }
-        }
+        let Some((name, meta)) = ext_info else {
+            return Ok(storage);
+        };
+        Ok(wrap_with_extension(storage, &name, &meta, session).map_err(PyVortexError::from)?)
     }
 }
 
@@ -85,10 +83,10 @@ impl FromPyArrowArray for ArrayRef {
 fn extract_extension_info(py_array: &Bound<'_, PyAny>) -> PyResult<Option<(String, Vec<u8>)>> {
     let py = py_array.py();
     let py_type = py_array.getattr(intern!(py, "type"))?;
-    let Ok(name) = py_type.getattr(intern!(py, "extension_name")) else {
+    if !py_type.is_instance(extension_type_class(py)?)? {
         return Ok(None);
-    };
-    let ext_name: String = name.extract()?;
+    }
+    let ext_name: String = py_type.getattr(intern!(py, "extension_name"))?.extract()?;
     let ext_meta_bytes: Vec<u8> = py_type
         .call_method0(intern!(py, "__arrow_ext_serialize__"))?
         .extract()?;
@@ -120,8 +118,19 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
 
     if obj.is_instance(pa_array)? {
         let bound = obj.to_owned();
-        let nullable = bound.getattr(intern!(py, "null_count"))?.extract::<i64>()? > 0;
-        let enc_array = ArrayRef::from_pyarrow_with_session(&bound, nullable, &SESSION)?;
+        let ext_info = extract_extension_info(&bound)?;
+        let arrow_array = ArrowArrayData::from_pyarrow(&obj.as_borrowed()).map(make_array)?;
+        let storage = ArrayRef::from_arrow_with_session(
+            arrow_array.as_ref(),
+            arrow_array.is_nullable(),
+            &SESSION,
+        )?;
+        let enc_array = match ext_info {
+            None => storage,
+            Some((name, meta)) => {
+                wrap_with_extension(storage, &name, &meta, &SESSION).map_err(PyVortexError::from)?
+            }
+        };
         Ok(PyArrayRef::from(enc_array))
     } else if obj.is_instance(chunked_array)? {
         let chunks: Vec<Bound<PyAny>> = obj.getattr(intern!(py, "chunks"))?.extract()?;
