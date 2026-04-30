@@ -7,8 +7,8 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_array::dtype::extension::Matcher;
 
-use crate::types::fixed_shape::AnyFixedShapeTensor;
-use crate::types::fixed_shape::FixedShapeTensorMatcherMetadata;
+use crate::types::fixed_shape_tensor::AnyFixedShapeTensor;
+use crate::types::fixed_shape_tensor::FixedShapeTensorMatcherMetadata;
 use crate::types::vector::AnyVector;
 use crate::types::vector::VectorMatcherMetadata;
 
