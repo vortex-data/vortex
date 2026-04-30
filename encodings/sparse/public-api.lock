@@ -32,15 +32,13 @@ pub fn vortex_sparse::Sparse::buffer_name(vortex_array::array::view::ArrayView<'
 
 pub fn vortex_sparse::Sparse::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &[vortex_array::buffer::BufferHandle], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
 
-pub fn vortex_sparse::Sparse::execute(array: vortex_array::array::typed::Array<Self>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+pub fn vortex_sparse::Sparse::execute(array: vortex_array::array::typed::Array<Self>, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
 
 pub fn vortex_sparse::Sparse::execute_parent(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::array::erased::ArrayRef, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub fn vortex_sparse::Sparse::id(&self) -> vortex_array::array::ArrayId
 
 pub fn vortex_sparse::Sparse::nbuffers(vortex_array::array::view::ArrayView<'_, Self>) -> usize
-
-pub fn vortex_sparse::Sparse::reduce(array: vortex_array::array::view::ArrayView<'_, Self>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 pub fn vortex_sparse::Sparse::reduce_parent(array: vortex_array::array::view::ArrayView<'_, Self>, parent: &vortex_array::array::erased::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
