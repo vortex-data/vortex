@@ -73,7 +73,7 @@ impl VTable for ByteBool {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let validity = child_to_validity(&slots[VALIDITY_SLOT], dtype.nullability());
+        let validity = child_to_validity(slots[VALIDITY_SLOT].as_ref(), dtype.nullability());
         ByteBoolData::validate(data.buffer(), &validity, dtype, len)
     }
 
@@ -186,7 +186,7 @@ impl Display for ByteBoolData {
 pub trait ByteBoolArrayExt: TypedArrayRef<ByteBool> {
     fn validity(&self) -> Validity {
         child_to_validity(
-            &self.as_ref().slots()[VALIDITY_SLOT],
+            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
             self.as_ref().dtype().nullability(),
         )
     }

@@ -105,7 +105,7 @@ impl VTable for BitPacked {
     ) -> VortexResult<()> {
         let slots = BitPackedSlotsView::from_slots(slots);
 
-        let validity = child_to_validity(&slots.validity_child.cloned(), dtype.nullability());
+        let validity = child_to_validity(slots.validity_child, dtype.nullability());
         let patches = match (slots.patch_indices, slots.patch_values) {
             (Some(indices), Some(values)) => {
                 let patch_offset = data

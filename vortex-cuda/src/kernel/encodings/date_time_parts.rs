@@ -22,7 +22,7 @@ use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::encodings::datetime_parts::DateTimeParts;
-use vortex::encodings::datetime_parts::DateTimePartsArrayExt;
+use vortex::encodings::datetime_parts::DateTimePartsArraySlotsExt;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;

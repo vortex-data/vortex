@@ -181,7 +181,7 @@ fn execute_canonical(
     mask_array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let validity = child_to_validity(&Some(mask_array), Nullability::Nullable);
+    let validity = child_to_validity(Some(&mask_array), Nullability::Nullable);
     let canonical = input.execute::<Canonical>(ctx)?;
     Ok(mask_validity_canonical(canonical, validity, ctx)?.into_array())
 }

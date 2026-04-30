@@ -559,7 +559,7 @@ impl Executable for CanonicalValidity {
         match array.execute::<Canonical>(ctx)? {
             n @ Canonical::Null(_) => Ok(CanonicalValidity(n)),
             Canonical::Bool(b) => {
-                let validity = child_to_validity(&b.slots()[0], b.dtype().nullability());
+                let validity = child_to_validity(b.slots()[0].as_ref(), b.dtype().nullability());
                 let len = b.len();
                 let BoolDataParts { bits, offset, len } = b.into_data().into_parts(len);
                 Ok(CanonicalValidity(Canonical::Bool(
@@ -678,7 +678,7 @@ impl Executable for RecursiveCanonical {
         match array.execute::<Canonical>(ctx)? {
             n @ Canonical::Null(_) => Ok(RecursiveCanonical(n)),
             Canonical::Bool(b) => {
-                let validity = child_to_validity(&b.slots()[0], b.dtype().nullability());
+                let validity = child_to_validity(b.slots()[0].as_ref(), b.dtype().nullability());
                 let len = b.len();
                 let BoolDataParts { bits, offset, len } = b.into_data().into_parts(len);
                 Ok(RecursiveCanonical(Canonical::Bool(

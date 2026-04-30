@@ -21734,7 +21734,7 @@ impl<V> vortex_array::ValidityVTable<V> for vortex_array::ValidityVTableFromChil
 
 pub fn vortex_array::ValidityVTableFromChild::validity(array: vortex_array::ArrayView<'_, V>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 
-pub fn vortex_array::vtable::child_to_validity(child: &core::option::Option<vortex_array::ArrayRef>, nullability: vortex_array::dtype::Nullability) -> vortex_array::validity::Validity
+pub fn vortex_array::vtable::child_to_validity(child: core::option::Option<&vortex_array::ArrayRef>, nullability: vortex_array::dtype::Nullability) -> vortex_array::validity::Validity
 
 pub fn vortex_array::vtable::patches_child(patches: &vortex_array::patches::Patches, idx: usize) -> vortex_array::ArrayRef
 
@@ -25730,7 +25730,7 @@ impl vortex_array::VortexSessionExecute for vortex_session::VortexSession
 
 pub fn vortex_session::VortexSession::create_execution_ctx(&self) -> vortex_array::ExecutionCtx
 
-pub fn vortex_array::child_to_validity(child: &core::option::Option<vortex_array::ArrayRef>, nullability: vortex_array::dtype::Nullability) -> vortex_array::validity::Validity
+pub fn vortex_array::child_to_validity(child: core::option::Option<&vortex_array::ArrayRef>, nullability: vortex_array::dtype::Nullability) -> vortex_array::validity::Validity
 
 pub fn vortex_array::patches_child(patches: &vortex_array::patches::Patches, idx: usize) -> vortex_array::ArrayRef
 

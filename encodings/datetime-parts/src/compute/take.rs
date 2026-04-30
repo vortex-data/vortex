@@ -16,7 +16,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::DateTimeParts;
-use crate::array::DateTimePartsArrayExt;
+use crate::array::DateTimePartsArraySlotsExt;
 fn take_datetime_parts(
     array: ArrayView<DateTimeParts>,
     indices: &ArrayRef,

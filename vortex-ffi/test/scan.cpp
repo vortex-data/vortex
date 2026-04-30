@@ -637,6 +637,98 @@ TEST_CASE("Project single field", "[projection]") {
     }
 }
 
+TEST_CASE("Filter with literal expression", "[filter]") {
+    vx_expression *root = vx_expression_root();
+    defer {
+        vx_expression_free(root);
+    };
+
+    vx_expression *age_field = vx_expression_get_item("age", root);
+    REQUIRE(age_field != nullptr);
+    defer {
+        vx_expression_free(age_field);
+    };
+
+    uint8_t threshold = 50;
+    vx_scalar *threshold_scalar = vx_scalar_new_u8(threshold, false);
+    REQUIRE(threshold_scalar != nullptr);
+    defer {
+        vx_scalar_free(threshold_scalar);
+    };
+
+    vx_error *literal_error = nullptr;
+    vx_expression *threshold_expr = vx_expression_literal(threshold_scalar, &literal_error);
+    require_no_error(literal_error);
+    REQUIRE(threshold_expr != nullptr);
+    defer {
+        vx_expression_free(threshold_expr);
+    };
+
+    vx_expression *filter = vx_expression_binary(VX_OPERATOR_GTE, age_field, threshold_expr);
+    REQUIRE(filter != nullptr);
+    defer {
+        vx_expression_free(filter);
+    };
+
+    vx_scan_options opts = {};
+    opts.filter = filter;
+    const vx_array *array = scan_with_options(opts);
+    defer {
+        vx_array_free(array);
+    };
+
+    REQUIRE(vx_array_len(array) == SAMPLE_ROWS - threshold);
+
+    vx_error *error = nullptr;
+    const vx_array *filtered_age = vx_array_get_field(array, 0, &error);
+    require_no_error(error);
+    REQUIRE(filtered_age != nullptr);
+    defer {
+        vx_array_free(filtered_age);
+    };
+
+    for (size_t i = 0; i < vx_array_len(filtered_age); ++i) {
+        REQUIRE(vx_array_get_u8(filtered_age, i) == static_cast<uint8_t>(threshold + i));
+    }
+}
+
+TEST_CASE("Project UTF-8 literal expression", "[projection]") {
+    constexpr auto value = "constant"sv;
+    vx_error *scalar_error = nullptr;
+    vx_scalar *literal_scalar = vx_scalar_new_utf8(value.data(), value.size(), false, &scalar_error);
+    require_no_error(scalar_error);
+    REQUIRE(literal_scalar != nullptr);
+    defer {
+        vx_scalar_free(literal_scalar);
+    };
+
+    vx_error *literal_error = nullptr;
+    vx_expression *literal_expr = vx_expression_literal(literal_scalar, &literal_error);
+    require_no_error(literal_error);
+    REQUIRE(literal_expr != nullptr);
+    defer {
+        vx_expression_free(literal_expr);
+    };
+
+    vx_scan_options opts = {};
+    opts.projection = literal_expr;
+    const vx_array *array = scan_with_options(opts);
+    defer {
+        vx_array_free(array);
+    };
+
+    REQUIRE(vx_array_len(array) == SAMPLE_ROWS);
+
+    for (size_t i : {size_t {0}, SAMPLE_ROWS - 1}) {
+        const vx_string *actual = vx_array_get_utf8(array, static_cast<uint32_t>(i));
+        REQUIRE(actual != nullptr);
+        defer {
+            vx_string_free(actual);
+        };
+        REQUIRE(to_string_view(actual) == value);
+    }
+}
+
 void compare_schemas(const UniqueSchema &left, const UniqueSchema &right) {
     REQUIRE(std::string_view {left->format} == std::string_view {right->format});
     REQUIRE(left->n_children == right->n_children);

@@ -221,7 +221,7 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            &self.as_ref().slots()[VALIDITY_SLOT],
+            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
             self.as_ref().dtype().nullability(),
         )
     }
