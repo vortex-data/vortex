@@ -189,6 +189,8 @@ fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
         selection,
         ordered,
         limit,
+        partition_selection: Selection::All,
+        partition_range: None,
     })
 }
 

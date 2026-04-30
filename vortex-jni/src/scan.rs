@@ -111,6 +111,8 @@ fn build_scan_request(
         selection,
         ordered,
         limit,
+        partition_selection: Selection::All,
+        partition_range: None,
     })
 }
 
