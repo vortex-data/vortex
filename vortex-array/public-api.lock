@@ -7346,7 +7346,7 @@ impl<K: arrow_array::types::ArrowDictionaryKeyType> vortex_array::arrow::FromArr
 
 pub fn vortex_array::arrays::dict::DictArray::from_arrow(array: &arrow_array::array::dictionary_array::DictionaryArray<K>, nullable: bool) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_array::arrays::dict::DictArray::from_arrow_with_session(array: A, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::arrays::dict::DictArray::from_arrow_with_session(array: &arrow_array::array::dictionary_array::DictionaryArray<K>, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl<O: arrow_array::array::list_array::OffsetSizeTrait + vortex_array::dtype::NativePType> vortex_array::arrow::FromArrowArray<&arrow_array::array::list_view_array::GenericListViewArray<O>> for vortex_array::ArrayRef
 

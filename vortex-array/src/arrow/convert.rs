@@ -528,9 +528,17 @@ impl FromArrowArray<&ArrowNullArray> for ArrayRef {
 
 impl<K: ArrowDictionaryKeyType> FromArrowArray<&DictionaryArray<K>> for DictArray {
     fn from_arrow(array: &DictionaryArray<K>, nullable: bool) -> VortexResult<Self> {
+        Self::from_arrow_with_session(array, nullable, &LEGACY_SESSION)
+    }
+
+    fn from_arrow_with_session(
+        array: &DictionaryArray<K>,
+        nullable: bool,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
         let keys = AnyDictionaryArray::keys(array);
-        let keys = ArrayRef::from_arrow(keys, keys.is_nullable())?;
-        let values = ArrayRef::from_arrow(array.values().as_ref(), nullable)?;
+        let keys = ArrayRef::from_arrow_with_session(keys, keys.is_nullable(), session)?;
+        let values = ArrayRef::from_arrow_with_session(array.values().as_ref(), nullable, session)?;
         // SAFETY: we assume that Arrow has checked the invariants on construction.
         Ok(unsafe { DictArray::new_unchecked(keys, values) })
     }
@@ -578,11 +586,11 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             DataType::LargeListView(_) => {
                 Self::from_arrow_with_session(array.as_list_view::<i64>(), nullable, session)
             }
-            // Remaining arrays don't carry child Fields we honor here.
-            // Note: Dictionary recurses into `values()` via `from_arrow` (no session), so an
-            // extension Field nested inside a struct/list-typed dictionary value would be
-            // silently dropped. Vortex uses Dictionary almost exclusively for primitive
-            // values, so this is acceptable in practice — fix when a real case appears.
+            DataType::Dictionary(key_type, _) => {
+                Ok(dict_from_arrow_with_session(array, key_type, nullable, session)?.into_array())
+            }
+            // Other arrays don't carry child Fields, so the session-aware path is
+            // equivalent to the legacy one.
             _ => Self::from_arrow(array, nullable),
         }
     }
@@ -749,6 +757,55 @@ fn wrap_extension_if_field_has_metadata(
     }
 }
 
+fn dict_from_arrow_with_session(
+    array: &dyn ArrowArray,
+    key_type: &DataType,
+    nullable: bool,
+    session: &VortexSession,
+) -> VortexResult<DictArray> {
+    match key_type {
+        DataType::Int8 => {
+            DictArray::from_arrow_with_session(array.as_dictionary::<Int8Type>(), nullable, session)
+        }
+        DataType::Int16 => DictArray::from_arrow_with_session(
+            array.as_dictionary::<Int16Type>(),
+            nullable,
+            session,
+        ),
+        DataType::Int32 => DictArray::from_arrow_with_session(
+            array.as_dictionary::<Int32Type>(),
+            nullable,
+            session,
+        ),
+        DataType::Int64 => DictArray::from_arrow_with_session(
+            array.as_dictionary::<Int64Type>(),
+            nullable,
+            session,
+        ),
+        DataType::UInt8 => DictArray::from_arrow_with_session(
+            array.as_dictionary::<UInt8Type>(),
+            nullable,
+            session,
+        ),
+        DataType::UInt16 => DictArray::from_arrow_with_session(
+            array.as_dictionary::<UInt16Type>(),
+            nullable,
+            session,
+        ),
+        DataType::UInt32 => DictArray::from_arrow_with_session(
+            array.as_dictionary::<UInt32Type>(),
+            nullable,
+            session,
+        ),
+        DataType::UInt64 => DictArray::from_arrow_with_session(
+            array.as_dictionary::<UInt64Type>(),
+            nullable,
+            session,
+        ),
+        key_dt => vortex_bail!("Unsupported dictionary key type: {key_dt}"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -758,6 +815,7 @@ mod tests {
     use arrow_array::BooleanArray;
     use arrow_array::Date32Array;
     use arrow_array::Date64Array;
+    use arrow_array::DictionaryArray;
     use arrow_array::FixedSizeListArray as ArrowFixedSizeListArray;
     use arrow_array::Float32Array;
     use arrow_array::Float64Array;
@@ -794,6 +852,7 @@ mod tests {
     use arrow_array::new_null_array;
     use arrow_array::types::ArrowPrimitiveType;
     use arrow_array::types::Float16Type;
+    use arrow_array::types::Int8Type;
     use arrow_buffer::BooleanBuffer;
     use arrow_buffer::Buffer as ArrowBuffer;
     use arrow_buffer::OffsetBuffer;
@@ -802,10 +861,16 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Fields;
     use arrow_schema::Schema;
+    use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
+    use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
+    use base64::Engine;
+    use base64::prelude::BASE64_STANDARD;
+    use vortex_session::VortexSession;
 
     use crate::ArrayRef;
     use crate::IntoArray;
     use crate::arrays::Decimal;
+    use crate::arrays::Dict;
     use crate::arrays::FixedSizeList;
     use crate::arrays::List;
     use crate::arrays::ListView;
@@ -813,6 +878,7 @@ mod tests {
     use crate::arrays::Struct;
     use crate::arrays::VarBin;
     use crate::arrays::VarBinView;
+    use crate::arrays::dict::DictArraySlotsExt;
     use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
     use crate::arrays::list::ListArrayExt;
     use crate::arrays::listview::ListViewArrayExt;
@@ -822,8 +888,13 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::extension::ExtDType;
+    use crate::dtype::session::DTypeSession;
+    use crate::dtype::session::DTypeSessionExt;
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
+    use crate::extension::tests::divisible_int::DivisibleInt;
+    use crate::extension::tests::divisible_int::Divisor;
 
     // Test primitive array conversions
     #[test]
@@ -1896,5 +1967,52 @@ mod tests {
         );
 
         ArrayRef::from_arrow(null_struct_array_with_non_nullable_field.as_ref(), true).unwrap();
+    }
+
+    /// Dictionary value with a struct field carrying registered extension metadata recovers
+    /// the extension dtype when converted via the session-aware path.
+    #[test]
+    fn dictionary_struct_value_recovers_extension_through_session() {
+        let session = VortexSession::empty().with::<DTypeSession>();
+        session.dtypes().register(DivisibleInt);
+
+        let div_field = Field::new("div", DataType::UInt64, false).with_metadata(
+            [
+                (
+                    EXTENSION_TYPE_NAME_KEY.to_owned(),
+                    "test.divisible_int".to_owned(),
+                ),
+                (
+                    EXTENSION_TYPE_METADATA_KEY.to_owned(),
+                    BASE64_STANDARD.encode(7u64.to_le_bytes()),
+                ),
+            ]
+            .into(),
+        );
+        let values = StructArray::new(
+            Fields::from(vec![div_field]),
+            vec![Arc::new(UInt64Array::from(vec![7_u64, 14]))],
+            None,
+        );
+        let dict = DictionaryArray::<Int8Type>::try_new(
+            Int8Array::from(vec![Some(0), Some(1), Some(0)]),
+            Arc::new(values),
+        )
+        .unwrap();
+
+        let vortex_array =
+            ArrayRef::from_arrow_with_session(&dict as &dyn ArrowArray, false, &session).unwrap();
+        let vortex_dict = vortex_array.as_::<Dict>();
+
+        let expected_ext = DType::Extension(
+            ExtDType::<DivisibleInt>::try_new(
+                Divisor(7),
+                DType::Primitive(PType::U64, Nullability::NonNullable),
+            )
+            .unwrap()
+            .erased(),
+        );
+        let expected_values = DType::struct_([("div", expected_ext)], Nullability::NonNullable);
+        assert_eq!(vortex_dict.values().dtype(), &expected_values);
     }
 }
