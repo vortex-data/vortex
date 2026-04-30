@@ -71,11 +71,13 @@ fn sparse_array_for_validity(patches: &Patches, fill_value: &Scalar, len: usize)
     .vortex_expect("rebuilding SparseArray for validity")
 }
 
-pub(super) fn execute_sparse(
-    parts: SparseParts,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let SparseParts { patches, fill_value, dtype, len } = parts;
+pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    let SparseParts {
+        patches,
+        fill_value,
+        dtype,
+        len,
+    } = parts;
 
     if patches.num_patches() == 0 {
         return Ok(ConstantArray::new(fill_value, len).into_array());
@@ -87,9 +89,7 @@ pub(super) fn execute_sparse(
             assert!(fill_value.is_null());
             NullArray::new(len).into_array()
         }
-        DType::Bool(..) => {
-            execute_sparse_bools(&patches, &fill_value, ctx)?
-        }
+        DType::Bool(..) => execute_sparse_bools(&patches, &fill_value, ctx)?,
         DType::Primitive(ptype, ..) => {
             match_each_native_ptype!(ptype, |P| {
                 execute_sparse_primitives::<P>(&patches, &fill_value, ctx)?
@@ -98,7 +98,7 @@ pub(super) fn execute_sparse(
         DType::Struct(struct_fields, ..) => execute_sparse_struct(
             struct_fields,
             fill_value.as_struct(),
-            &dtype,
+            dtype.nullability(),
             &patches,
             len,
             ctx,
@@ -132,15 +132,17 @@ pub(super) fn execute_sparse(
         DType::List(values_dtype, nullability) => {
             let validity_arr = sparse_array_for_validity(&patches, &fill_value, len);
             execute_sparse_lists(
-                &patches, &validity_arr, &fill_value,
-                Arc::clone(values_dtype), *nullability, ctx,
+                &patches,
+                &validity_arr,
+                &fill_value,
+                Arc::clone(values_dtype),
+                *nullability,
+                ctx,
             )?
         }
         DType::FixedSizeList(.., nullability) => {
             let validity_arr = sparse_array_for_validity(&patches, &fill_value, len);
-            execute_sparse_fixed_size_list(
-                &patches, &validity_arr, &fill_value, *nullability, ctx,
-            )?
+            execute_sparse_fixed_size_list(&patches, &validity_arr, &fill_value, *nullability, ctx)?
         }
         DType::Extension(_ext_dtype) => todo!(),
         DType::Variant(_) => vortex_bail!("Sparse canonicalization does not support Variant"),
@@ -159,14 +161,8 @@ fn execute_sparse_lists(
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let indices = resolved
-        .indices()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
-    let values = resolved
-        .values()
-        .clone()
-        .execute::<ListViewArray>(ctx)?;
+    let indices = resolved.indices().clone().execute::<PrimitiveArray>(ctx)?;
+    let values = resolved.values().clone().execute::<ListViewArray>(ctx)?;
     let fill_list = fill_value.as_list();
 
     let len = validity_array.len();
@@ -174,8 +170,7 @@ fn execute_sparse_lists(
     let total_canonical_values = values.elements().len() + fill_list.len() * n_filled;
 
     let arr = validity_array.as_ref();
-    let validity =
-        Validity::from_mask(arr.validity()?.execute_mask(arr.len(), ctx)?, nullability);
+    let validity = Validity::from_mask(arr.validity()?.execute_mask(arr.len(), ctx)?, nullability);
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         match_smallest_offset_type!(total_canonical_values, |O| {
@@ -258,10 +253,7 @@ fn execute_sparse_fixed_size_list(
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let indices = resolved
-        .indices()
-        .clone()
-        .execute::<PrimitiveArray>(ctx)?;
+    let indices = resolved.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = resolved
         .values()
         .clone()
@@ -270,8 +262,7 @@ fn execute_sparse_fixed_size_list(
     let len = validity_array.len();
 
     let arr = validity_array.as_ref();
-    let validity =
-        Validity::from_mask(arr.validity()?.execute_mask(arr.len(), ctx)?, nullability);
+    let validity = Validity::from_mask(arr.validity()?.execute_mask(arr.len(), ctx)?, nullability);
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         execute_sparse_fixed_size_list_inner::<I>(
