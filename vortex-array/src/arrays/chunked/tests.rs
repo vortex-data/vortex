@@ -103,7 +103,7 @@ fn builder_kernel_nested_chunked_of_chunked() {
 
 #[test]
 fn builder_kernel_path_repeated_shared_chunked_dict_execution() {
-    let mut expected_ctx = SESSION.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
 
     let array = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
     let keep_alive = array.clone();
@@ -112,21 +112,19 @@ fn builder_kernel_path_repeated_shared_chunked_dict_execution() {
 
     let expected = array
         .clone()
-        .execute::<Canonical>(&mut expected_ctx)
+        .execute::<Canonical>(&mut ctx)
         .unwrap()
         .into_array();
 
-    let mut first_ctx = LEGACY_SESSION.create_execution_ctx();
     let first = {
         let builder = builder_with_capacity(&dtype, len);
-        let mut builder = execute_into_builder(array.clone(), builder, &mut first_ctx).unwrap();
+        let mut builder = execute_into_builder(array.clone(), builder, &mut ctx).unwrap();
         builder.finish()
     };
 
-    let mut second_ctx = LEGACY_SESSION.create_execution_ctx();
     let second = {
         let builder = builder_with_capacity(&dtype, len);
-        let mut builder = execute_into_builder(array, builder, &mut second_ctx).unwrap();
+        let mut builder = execute_into_builder(array, builder, &mut ctx).unwrap();
         builder.finish()
     };
 
@@ -138,28 +136,23 @@ fn builder_kernel_path_repeated_shared_chunked_dict_execution() {
 
 #[test]
 fn execute_path_repeated_shared_chunked_dict_execution() {
+    let mut ctx = SESSION.create_execution_ctx();
     let array = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
     let keep_alive = array.clone();
 
     let expected_source = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
-    let mut expected_ctx = LEGACY_SESSION.create_execution_ctx();
     let expected = expected_source
-        .execute::<Canonical>(&mut expected_ctx)
+        .execute::<Canonical>(&mut ctx)
         .unwrap()
         .into_array();
 
-    let mut first_ctx = LEGACY_SESSION.create_execution_ctx();
     let first = array
         .clone()
-        .execute::<Canonical>(&mut first_ctx)
+        .execute::<Canonical>(&mut ctx)
         .unwrap()
         .into_array();
 
-    let mut second_ctx = LEGACY_SESSION.create_execution_ctx();
-    let second = array
-        .execute::<Canonical>(&mut second_ctx)
-        .unwrap()
-        .into_array();
+    let second = array.execute::<Canonical>(&mut ctx).unwrap().into_array();
 
     drop(keep_alive);
 
@@ -169,7 +162,7 @@ fn execute_path_repeated_shared_chunked_dict_execution() {
 
 #[test]
 fn execute_path_nested_chunked_dict_of_dict_into_canonical() {
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let inner_1 = gen_dict_primitive_chunks::<u32, u16>(8, 3, 2);
     let inner_2 = gen_dict_primitive_chunks::<u32, u16>(8, 3, 3);
     let outer = ChunkedArray::try_new(
@@ -372,6 +365,7 @@ pub fn pack_nested_structs() {
 
 #[test]
 pub fn pack_nested_lists() {
+    let mut ctx = SESSION.create_execution_ctx();
     let l1 = ListArray::try_new(
         buffer![1, 2, 3, 4].into_array(),
         buffer![0, 3].into_array(),
@@ -398,17 +392,11 @@ pub fn pack_nested_lists() {
     let canon_values = chunked_list.unwrap().as_array().to_listview();
 
     assert_eq!(
-        l1.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap(),
-        canon_values
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
+        l1.execute_scalar(0, &mut ctx).unwrap(),
+        canon_values.execute_scalar(0, &mut ctx).unwrap()
     );
     assert_eq!(
-        l2.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap(),
-        canon_values
-            .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
-            .unwrap()
+        l2.execute_scalar(0, &mut ctx).unwrap(),
+        canon_values.execute_scalar(1, &mut ctx).unwrap()
     );
 }
