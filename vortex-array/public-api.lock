@@ -19582,9 +19582,9 @@ pub fn vortex_array::validity::Validity::to_array(&self, len: usize) -> vortex_a
 
 pub fn vortex_array::validity::Validity::to_mask(&self, length: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_mask::Mask>
 
-pub fn vortex_array::validity::Validity::try_cast_nullability(self, nullability: vortex_array::dtype::Nullability, len: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::validity::Validity>>
+pub fn vortex_array::validity::Validity::trivial_cast_nullability(self, nullability: vortex_array::dtype::Nullability, len: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::validity::Validity>>
 
-pub fn vortex_array::validity::Validity::try_into_non_nullable(self, len: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::validity::Validity>>
+pub fn vortex_array::validity::Validity::trivial_into_non_nullable(self, len: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::validity::Validity>>
 
 pub fn vortex_array::validity::Validity::union_nullability(self, nullability: vortex_array::dtype::Nullability) -> Self
 
