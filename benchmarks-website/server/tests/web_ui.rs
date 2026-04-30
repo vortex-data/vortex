@@ -8,10 +8,12 @@
 //! point, then snapshots the rendered HTML for each route plus a chart slug
 //! round-trip.
 
+use std::io::Read as _;
 use std::net::SocketAddr;
 
 use anyhow::Context as _;
 use anyhow::Result;
+use flate2::read::GzDecoder;
 use serde_json::Value;
 use serde_json::json;
 use tempfile::TempDir;
@@ -1370,5 +1372,104 @@ async fn static_assets_are_served() -> Result<()> {
         let bytes = resp.bytes().await?;
         assert!(!bytes.is_empty(), "GET {path}: body must not be empty");
     }
+    Ok(())
+}
+
+/// Every response — landing HTML, chart JSON, bundled JS — flows through
+/// `tower-http`'s `CompressionLayer` so a client advertising
+/// `Accept-Encoding: gzip` gets a gzipped (or brotli) body. The
+/// reqwest dev-dependency is built without `gzip`/`brotli` features, so the
+/// transport hands us the compressed bytes verbatim and we can both inspect
+/// the `content-encoding` response header and decompress the body manually
+/// to confirm it matches the uncompressed snapshot.
+#[tokio::test]
+async fn responses_are_compressed_when_client_accepts_gzip() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+
+    // 1. Landing HTML.
+    let plain_body = client.get(server.url("/")).send().await?.text().await?;
+    let resp = client
+        .get(server.url("/"))
+        .header(reqwest::header::ACCEPT_ENCODING, "gzip")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let encoding = resp
+        .headers()
+        .get(reqwest::header::CONTENT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert_eq!(
+        encoding, "gzip",
+        "GET / with Accept-Encoding: gzip should respond with gzip"
+    );
+    let compressed = resp.bytes().await?;
+    assert!(
+        compressed.len() < plain_body.len(),
+        "compressed body ({} B) should be smaller than plain body ({} B)",
+        compressed.len(),
+        plain_body.len(),
+    );
+    let mut decoded = String::new();
+    GzDecoder::new(&compressed[..]).read_to_string(&mut decoded)?;
+    assert_eq!(
+        decoded, plain_body,
+        "gzipped landing body should decompress to the uncompressed body"
+    );
+
+    // 2. Bundled JS — the heaviest static asset; gzip is the whole point.
+    let plain_js = client
+        .get(server.url("/static/chart.umd.js"))
+        .send()
+        .await?
+        .bytes()
+        .await?;
+    let js_resp = client
+        .get(server.url("/static/chart.umd.js"))
+        .header(reqwest::header::ACCEPT_ENCODING, "gzip")
+        .send()
+        .await?;
+    assert_eq!(js_resp.status(), 200);
+    let js_encoding = js_resp
+        .headers()
+        .get(reqwest::header::CONTENT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert_eq!(
+        js_encoding, "gzip",
+        "/static/chart.umd.js must compress so the cold load isn't dominated by ~200KB of JS"
+    );
+    let compressed_js = js_resp.bytes().await?;
+    let mut decoded_js = Vec::new();
+    GzDecoder::new(&compressed_js[..]).read_to_end(&mut decoded_js)?;
+    assert_eq!(
+        decoded_js,
+        plain_js.as_ref(),
+        "decompressed chart.umd.js should match the unencoded body byte-for-byte"
+    );
+
+    // 3. Brotli is also offered when the client prefers it.
+    let br_resp = client
+        .get(server.url("/"))
+        .header(reqwest::header::ACCEPT_ENCODING, "br")
+        .send()
+        .await?;
+    assert_eq!(br_resp.status(), 200);
+    let br_encoding = br_resp
+        .headers()
+        .get(reqwest::header::CONTENT_ENCODING)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert_eq!(
+        br_encoding, "br",
+        "GET / with Accept-Encoding: br should respond with brotli"
+    );
+
     Ok(())
 }
