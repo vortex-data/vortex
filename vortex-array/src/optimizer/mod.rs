@@ -90,7 +90,7 @@ fn try_optimize(
             let Some(child) = slot else { continue };
 
             // Session kernels take precedence over the child encoding's static PARENT_RULES.
-            if let Some(ref array_ref) = array_ref
+            if let Some(array_ref) = &array_ref
                 && let Some(plugins) =
                     array_ref.find_reduce_parent(current_array.encoding_id(), child.encoding_id())
             {
