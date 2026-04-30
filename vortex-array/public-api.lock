@@ -4662,14 +4662,6 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Struct
 
 pub fn vortex_array::arrays::Struct::slice(vortex_array::ArrayView<'_, Self>, core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::scalar_fn::fns::cast::CastKernel for vortex_array::arrays::Struct
-
-pub fn vortex_array::arrays::Struct::cast(vortex_array::ArrayView<'_, vortex_array::arrays::Struct>, &vortex_array::dtype::DType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::Struct
-
-pub fn vortex_array::arrays::Struct::cast(vortex_array::ArrayView<'_, vortex_array::arrays::Struct>, &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
 impl vortex_array::scalar_fn::fns::mask::MaskReduce for vortex_array::arrays::Struct
 
 pub fn vortex_array::arrays::Struct::mask(vortex_array::ArrayView<'_, vortex_array::arrays::Struct>, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -6781,14 +6773,6 @@ pub fn vortex_array::arrays::Struct::take(vortex_array::ArrayView<'_, vortex_arr
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::Struct
 
 pub fn vortex_array::arrays::Struct::slice(vortex_array::ArrayView<'_, Self>, core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::scalar_fn::fns::cast::CastKernel for vortex_array::arrays::Struct
-
-pub fn vortex_array::arrays::Struct::cast(vortex_array::ArrayView<'_, vortex_array::arrays::Struct>, &vortex_array::dtype::DType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::Struct
-
-pub fn vortex_array::arrays::Struct::cast(vortex_array::ArrayView<'_, vortex_array::arrays::Struct>, &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::mask::MaskReduce for vortex_array::arrays::Struct
 
@@ -13586,19 +13570,13 @@ impl vortex_array::optimizer::kernels::ArrayKernels
 
 pub fn vortex_array::optimizer::kernels::ArrayKernels::empty() -> Self
 
-<<<<<<< HEAD
+pub fn vortex_array::optimizer::kernels::ArrayKernels::find_execute_parent(&self, vortex_session::registry::Id, vortex_session::registry::Id) -> core::option::Option<alloc::sync::Arc<[vortex_array::optimizer::kernels::ExecuteParentFn]>>
+
 pub fn vortex_array::optimizer::kernels::ArrayKernels::find_reduce_parent(&self, vortex_session::registry::Id, vortex_session::registry::Id) -> core::option::Option<alloc::sync::Arc<[vortex_array::optimizer::kernels::ReduceParentFn]>>
 
-pub fn vortex_array::optimizer::kernels::ArrayKernels::register_reduce_parent<I: core::iter::traits::collect::IntoIterator<Item = vortex_array::optimizer::kernels::ReduceParentFn>>(&self, vortex_session::registry::Id, vortex_session::registry::Id, I)
-=======
-pub fn vortex_array::optimizer::kernels::ArrayKernels::find_execute_parent(&self, parent: vortex_session::registry::Id, child: vortex_session::registry::Id) -> core::option::Option<alloc::sync::Arc<[vortex_array::optimizer::kernels::ExecuteParentFn]>>
+pub fn vortex_array::optimizer::kernels::ArrayKernels::register_execute_parent(&self, vortex_session::registry::Id, vortex_session::registry::Id, &[vortex_array::optimizer::kernels::ExecuteParentFn])
 
-pub fn vortex_array::optimizer::kernels::ArrayKernels::find_reduce_parent(&self, parent: vortex_session::registry::Id, child: vortex_session::registry::Id) -> core::option::Option<alloc::sync::Arc<[vortex_array::optimizer::kernels::ReduceParentFn]>>
-
-pub fn vortex_array::optimizer::kernels::ArrayKernels::register_execute_parent<I: core::iter::traits::collect::IntoIterator<Item = vortex_array::optimizer::kernels::ExecuteParentFn>>(&self, parent: vortex_session::registry::Id, child: vortex_session::registry::Id, fns: I)
-
-pub fn vortex_array::optimizer::kernels::ArrayKernels::register_reduce_parent<I: core::iter::traits::collect::IntoIterator<Item = vortex_array::optimizer::kernels::ReduceParentFn>>(&self, parent: vortex_session::registry::Id, child: vortex_session::registry::Id, fns: I)
->>>>>>> cf0b114e3 (Make struct cast implementation pluggable)
+pub fn vortex_array::optimizer::kernels::ArrayKernels::register_reduce_parent(&self, vortex_session::registry::Id, vortex_session::registry::Id, &[vortex_array::optimizer::kernels::ReduceParentFn])
 
 impl core::default::Default for vortex_array::optimizer::kernels::ArrayKernels
 
@@ -13622,13 +13600,9 @@ impl<S: vortex_session::SessionExt> vortex_array::optimizer::kernels::ArrayKerne
 
 pub fn S::kernels(&self) -> vortex_session::Ref<'_, vortex_array::optimizer::kernels::ArrayKernels>
 
-<<<<<<< HEAD
-pub type vortex_array::optimizer::kernels::ReduceParentFn = fn(&vortex_array::ArrayRef, &vortex_array::ArrayRef, usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-=======
-pub type vortex_array::optimizer::kernels::ExecuteParentFn = fn(child: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub type vortex_array::optimizer::kernels::ExecuteParentFn = fn(&vortex_array::ArrayRef, &vortex_array::ArrayRef, usize, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-pub type vortex_array::optimizer::kernels::ReduceParentFn = fn(child: &vortex_array::ArrayRef, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
->>>>>>> cf0b114e3 (Make struct cast implementation pluggable)
+pub type vortex_array::optimizer::kernels::ReduceParentFn = fn(&vortex_array::ArrayRef, &vortex_array::ArrayRef, usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub mod vortex_array::optimizer::rules
 
@@ -16258,10 +16232,6 @@ impl vortex_array::scalar_fn::fns::cast::CastKernel for vortex_array::arrays::Pr
 
 pub fn vortex_array::arrays::Primitive::cast(vortex_array::ArrayView<'_, vortex_array::arrays::Primitive>, &vortex_array::dtype::DType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
-impl vortex_array::scalar_fn::fns::cast::CastKernel for vortex_array::arrays::Struct
-
-pub fn vortex_array::arrays::Struct::cast(vortex_array::ArrayView<'_, vortex_array::arrays::Struct>, &vortex_array::dtype::DType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
 impl vortex_array::scalar_fn::fns::cast::CastKernel for vortex_array::arrays::VarBin
 
 pub fn vortex_array::arrays::VarBin::cast(vortex_array::ArrayView<'_, vortex_array::arrays::VarBin>, &vortex_array::dtype::DType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -16309,10 +16279,6 @@ pub fn vortex_array::arrays::ListView::cast(vortex_array::ArrayView<'_, vortex_a
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::Primitive
 
 pub fn vortex_array::arrays::Primitive::cast(vortex_array::ArrayView<'_, vortex_array::arrays::Primitive>, &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-
-impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::Struct
-
-pub fn vortex_array::arrays::Struct::cast(vortex_array::ArrayView<'_, vortex_array::arrays::Struct>, &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::CastReduce for vortex_array::arrays::VarBin
 
@@ -19594,9 +19560,9 @@ pub fn vortex_array::validity::Validity::to_array(&self, usize) -> vortex_array:
 
 pub fn vortex_array::validity::Validity::to_mask(&self, usize, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_mask::Mask>
 
-pub fn vortex_array::validity::Validity::trivial_cast_nullability(self, vortex_array::dtype::Nullability, usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::validity::Validity>>
-
 pub fn vortex_array::validity::Validity::trivial_into_non_nullable(self, usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::validity::Validity>>
+
+pub fn vortex_array::validity::Validity::trivially_cast_nullability(self, vortex_array::dtype::Nullability, usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::validity::Validity>>
 
 pub fn vortex_array::validity::Validity::union_nullability(self, vortex_array::dtype::Nullability) -> Self
 

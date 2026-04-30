@@ -15,7 +15,6 @@
 use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
-use std::ops::Deref;
 use std::sync::LazyLock;
 
 use vortex_error::VortexExpect;
