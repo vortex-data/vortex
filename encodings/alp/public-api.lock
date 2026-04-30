@@ -394,6 +394,10 @@ pub fn vortex_alp::ALPArrayExt::patches(&self) -> core::option::Option<vortex_ar
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_alp::ALP>> vortex_alp::ALPArrayExt for T
 
+pub fn T::exponents(&self) -> vortex_alp::Exponents
+
+pub fn T::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
+
 pub trait vortex_alp::ALPArrayOwnedExt
 
 pub fn vortex_alp::ALPArrayOwnedExt::into_parts(self) -> (vortex_array::array::erased::ArrayRef, vortex_alp::Exponents, core::option::Option<vortex_array::patches::Patches>)
@@ -415,6 +419,16 @@ pub fn vortex_alp::ALPArraySlotsExt::patch_values(&self) -> core::option::Option
 pub fn vortex_alp::ALPArraySlotsExt::slots_view(&self) -> vortex_alp::ALPSlotsView<'_>
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_alp::ALP>> vortex_alp::ALPArraySlotsExt for T
+
+pub fn T::encoded(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::patch_chunk_offsets(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn T::patch_indices(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn T::patch_values(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn T::slots_view(&self) -> vortex_alp::ALPSlotsView<'_>
 
 pub trait vortex_alp::ALPFloat: vortex_alp::alp::private::Sealed + num_traits::float::Float + core::fmt::Display + vortex_array::dtype::ptype::NativePType
 
@@ -476,6 +490,32 @@ pub const f32::SWEET: Self
 
 pub fn f32::as_int(self) -> Self::ALPInt
 
+pub fn f32::decode(&[Self::ALPInt], vortex_alp::Exponents) -> alloc::vec::Vec<Self>
+
+pub fn f32::decode_buffer(vortex_buffer::buffer_mut::BufferMut<Self::ALPInt>, vortex_alp::Exponents) -> vortex_buffer::buffer_mut::BufferMut<Self>
+
+pub fn f32::decode_into(&[Self::ALPInt], vortex_alp::Exponents, &mut [Self])
+
+pub fn f32::decode_single(Self::ALPInt, vortex_alp::Exponents) -> Self
+
+pub fn f32::decode_slice_inplace(&mut [Self::ALPInt], vortex_alp::Exponents)
+
+pub fn f32::encode(&[Self], core::option::Option<vortex_alp::Exponents>) -> (vortex_alp::Exponents, vortex_buffer::buffer::Buffer<Self::ALPInt>, vortex_buffer::buffer::Buffer<u64>, vortex_buffer::buffer::Buffer<Self>, vortex_buffer::buffer_mut::BufferMut<u64>)
+
+pub fn f32::encode_above(Self, vortex_alp::Exponents) -> Self::ALPInt
+
+pub fn f32::encode_below(Self, vortex_alp::Exponents) -> Self::ALPInt
+
+pub fn f32::encode_single(Self, vortex_alp::Exponents) -> core::option::Option<Self::ALPInt>
+
+pub fn f32::encode_single_unchecked(Self, vortex_alp::Exponents) -> Self::ALPInt
+
+pub fn f32::estimate_encoded_size(&[Self::ALPInt], &[Self]) -> usize
+
+pub fn f32::fast_round(self) -> Self
+
+pub fn f32::find_best_exponents(&[Self]) -> vortex_alp::Exponents
+
 pub fn f32::from_int(Self::ALPInt) -> Self
 
 impl vortex_alp::ALPFloat for f64
@@ -494,6 +534,32 @@ pub const f64::SWEET: Self
 
 pub fn f64::as_int(self) -> Self::ALPInt
 
+pub fn f64::decode(&[Self::ALPInt], vortex_alp::Exponents) -> alloc::vec::Vec<Self>
+
+pub fn f64::decode_buffer(vortex_buffer::buffer_mut::BufferMut<Self::ALPInt>, vortex_alp::Exponents) -> vortex_buffer::buffer_mut::BufferMut<Self>
+
+pub fn f64::decode_into(&[Self::ALPInt], vortex_alp::Exponents, &mut [Self])
+
+pub fn f64::decode_single(Self::ALPInt, vortex_alp::Exponents) -> Self
+
+pub fn f64::decode_slice_inplace(&mut [Self::ALPInt], vortex_alp::Exponents)
+
+pub fn f64::encode(&[Self], core::option::Option<vortex_alp::Exponents>) -> (vortex_alp::Exponents, vortex_buffer::buffer::Buffer<Self::ALPInt>, vortex_buffer::buffer::Buffer<u64>, vortex_buffer::buffer::Buffer<Self>, vortex_buffer::buffer_mut::BufferMut<u64>)
+
+pub fn f64::encode_above(Self, vortex_alp::Exponents) -> Self::ALPInt
+
+pub fn f64::encode_below(Self, vortex_alp::Exponents) -> Self::ALPInt
+
+pub fn f64::encode_single(Self, vortex_alp::Exponents) -> core::option::Option<Self::ALPInt>
+
+pub fn f64::encode_single_unchecked(Self, vortex_alp::Exponents) -> Self::ALPInt
+
+pub fn f64::estimate_encoded_size(&[Self::ALPInt], &[Self]) -> usize
+
+pub fn f64::fast_round(self) -> Self
+
+pub fn f64::find_best_exponents(&[Self]) -> vortex_alp::Exponents
+
 pub fn f64::from_int(Self::ALPInt) -> Self
 
 pub trait vortex_alp::ALPRDArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_alp::ALPRD>
@@ -509,6 +575,16 @@ pub fn vortex_alp::ALPRDArrayExt::right_bit_width(&self) -> u8
 pub fn vortex_alp::ALPRDArrayExt::right_parts(&self) -> &vortex_array::array::erased::ArrayRef
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_alp::ALPRD>> vortex_alp::ALPRDArrayExt for T
+
+pub fn T::left_parts(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::left_parts_dictionary(&self) -> &vortex_buffer::buffer::Buffer<u16>
+
+pub fn T::left_parts_patches(&self) -> core::option::Option<vortex_array::patches::Patches>
+
+pub fn T::right_bit_width(&self) -> u8
+
+pub fn T::right_parts(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub trait vortex_alp::ALPRDArrayOwnedExt
 
@@ -536,6 +612,8 @@ impl vortex_alp::ALPRDFloat for f32
 
 pub type f32::UINT = u32
 
+pub const f32::BITS: usize
+
 pub fn f32::from_bits(Self::UINT) -> Self
 
 pub fn f32::from_u16(u16) -> Self::UINT
@@ -547,6 +625,8 @@ pub fn f32::to_u16(Self::UINT) -> u16
 impl vortex_alp::ALPRDFloat for f64
 
 pub type f64::UINT = u64
+
+pub const f64::BITS: usize
 
 pub fn f64::from_bits(Self::UINT) -> Self
 

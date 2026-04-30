@@ -228,6 +228,14 @@ pub fn vortex_datetime_parts::DateTimePartsArraySlotsExt::subseconds(&self) -> &
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_datetime_parts::DateTimeParts>> vortex_datetime_parts::DateTimePartsArraySlotsExt for T
 
+pub fn T::days(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::seconds(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::slots_view(&self) -> vortex_datetime_parts::DateTimePartsSlotsView<'_>
+
+pub fn T::subseconds(&self) -> &vortex_array::array::erased::ArrayRef
+
 pub trait vortex_datetime_parts::DateTimePartsOwnedExt
 
 pub fn vortex_datetime_parts::DateTimePartsOwnedExt::into_parts(self) -> vortex_datetime_parts::DateTimePartsParts

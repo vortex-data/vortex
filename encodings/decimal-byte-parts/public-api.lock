@@ -138,6 +138,8 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsArrayExt::msp(&self) -> &vorte
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_decimal_byte_parts::DecimalByteParts>> vortex_decimal_byte_parts::DecimalBytePartsArrayExt for T
 
+pub fn T::msp(&self) -> &vortex_array::array::erased::ArrayRef
+
 pub fn vortex_decimal_byte_parts::initialize(&vortex_session::VortexSession)
 
 pub type vortex_decimal_byte_parts::DecimalBytePartsArray = vortex_array::array::typed::Array<vortex_decimal_byte_parts::DecimalByteParts>

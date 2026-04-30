@@ -112,6 +112,10 @@ pub fn vortex_zigzag::ZigZagArrayExt::ptype(&self) -> vortex_array::dtype::ptype
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_zigzag::ZigZag>> vortex_zigzag::ZigZagArrayExt for T
 
+pub fn T::encoded(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::ptype(&self) -> vortex_array::dtype::ptype::PType
+
 pub fn vortex_zigzag::zigzag_decode(vortex_array::arrays::primitive::vtable::PrimitiveArray) -> vortex_array::arrays::primitive::vtable::PrimitiveArray
 
 pub fn vortex_zigzag::zigzag_encode(vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>) -> vortex_error::VortexResult<vortex_zigzag::ZigZagArray>

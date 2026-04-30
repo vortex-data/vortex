@@ -756,6 +756,8 @@ pub fn vortex_layout::layouts::table::TableStrategy::with_validity_strategy(self
 
 impl vortex_layout::LayoutStrategy for vortex_layout::layouts::table::TableStrategy
 
+pub fn vortex_layout::layouts::table::TableStrategy::buffered_bytes(&self) -> u64
+
 pub fn vortex_layout::layouts::table::TableStrategy::write_stream<'life0, 'life1, 'async_trait>(&'life0 self, vortex_array::ArrayContext, vortex_layout::segments::SegmentSinkRef, vortex_layout::sequence::SendableSequentialStream, vortex_layout::sequence::SequencePointer, &'life1 vortex_session::VortexSession) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_layout::LayoutRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 
 pub mod vortex_layout::layouts::zoned
@@ -1368,6 +1370,8 @@ pub fn vortex_layout::sequence::SequentialArrayStreamExt::sequenced(self, vortex
 
 impl<S: vortex_array::stream::ArrayStream> vortex_layout::sequence::SequentialArrayStreamExt for S
 
+pub fn S::sequenced(self, vortex_layout::sequence::SequencePointer) -> vortex_layout::sequence::SendableSequentialStream where Self: core::marker::Sized + core::marker::Send + 'static
+
 pub trait vortex_layout::sequence::SequentialStream: futures_core::stream::Stream<Item = vortex_error::VortexResult<(vortex_layout::sequence::SequenceId, vortex_array::array::erased::ArrayRef)>>
 
 pub fn vortex_layout::sequence::SequentialStream::dtype(&self) -> &vortex_array::dtype::DType
@@ -1385,6 +1389,8 @@ pub trait vortex_layout::sequence::SequentialStreamExt: vortex_layout::sequence:
 pub fn vortex_layout::sequence::SequentialStreamExt::sendable(self) -> vortex_layout::sequence::SendableSequentialStream where Self: core::marker::Sized + core::marker::Send + 'static
 
 impl<S: vortex_layout::sequence::SequentialStream> vortex_layout::sequence::SequentialStreamExt for S
+
+pub fn S::sendable(self) -> vortex_layout::sequence::SendableSequentialStream where Self: core::marker::Sized + core::marker::Send + 'static
 
 pub type vortex_layout::sequence::SendableSequentialStream = core::pin::Pin<alloc::boxed::Box<(dyn vortex_layout::sequence::SequentialStream + core::marker::Send)>>
 
@@ -1419,6 +1425,8 @@ pub trait vortex_layout::session::LayoutSessionExt: vortex_session::SessionExt
 pub fn vortex_layout::session::LayoutSessionExt::layouts(&self) -> vortex_session::Ref<'_, vortex_layout::session::LayoutSession>
 
 impl<S: vortex_session::SessionExt> vortex_layout::session::LayoutSessionExt for S
+
+pub fn S::layouts(&self) -> vortex_session::Ref<'_, vortex_layout::session::LayoutSession>
 
 pub type vortex_layout::session::LayoutRegistry = vortex_session::registry::Registry<vortex_layout::LayoutEncodingRef>
 
@@ -1915,6 +1923,8 @@ pub fn vortex_layout::layouts::repartition::RepartitionStrategy::buffered_bytes(
 pub fn vortex_layout::layouts::repartition::RepartitionStrategy::write_stream<'life0, 'life1, 'async_trait>(&'life0 self, vortex_array::ArrayContext, vortex_layout::segments::SegmentSinkRef, vortex_layout::sequence::SendableSequentialStream, vortex_layout::sequence::SequencePointer, &'life1 vortex_session::VortexSession) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_layout::LayoutRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 
 impl vortex_layout::LayoutStrategy for vortex_layout::layouts::table::TableStrategy
+
+pub fn vortex_layout::layouts::table::TableStrategy::buffered_bytes(&self) -> u64
 
 pub fn vortex_layout::layouts::table::TableStrategy::write_stream<'life0, 'life1, 'async_trait>(&'life0 self, vortex_array::ArrayContext, vortex_layout::segments::SegmentSinkRef, vortex_layout::sequence::SendableSequentialStream, vortex_layout::sequence::SequencePointer, &'life1 vortex_session::VortexSession) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_layout::LayoutRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 

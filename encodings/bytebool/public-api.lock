@@ -66,7 +66,7 @@ pub fn vortex_bytebool::ByteBool::slice(vortex_array::array::view::ArrayView<'_,
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastKernel for vortex_bytebool::ByteBool
 
-pub fn vortex_bytebool::ByteBool::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_bytebool::ByteBool::cast(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::dtype::DType, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_bytebool::ByteBool
 
@@ -117,5 +117,7 @@ pub trait vortex_bytebool::ByteBoolArrayExt: vortex_array::array::typed::TypedAr
 pub fn vortex_bytebool::ByteBoolArrayExt::validity(&self) -> vortex_array::validity::Validity
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_bytebool::ByteBool>> vortex_bytebool::ByteBoolArrayExt for T
+
+pub fn T::validity(&self) -> vortex_array::validity::Validity
 
 pub type vortex_bytebool::ByteBoolArray = vortex_array::array::typed::Array<vortex_bytebool::ByteBool>

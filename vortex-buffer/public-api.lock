@@ -144,6 +144,8 @@ pub unsafe fn vortex_buffer::trusted_len::TrustedLenExt::trusted_len(self) -> vo
 
 impl<I: core::iter::traits::iterator::Iterator> vortex_buffer::trusted_len::TrustedLenExt for I
 
+pub unsafe fn I::trusted_len(self) -> vortex_buffer::trusted_len::TrustedLenAdapter<Self>
+
 pub macro vortex_buffer::bitbuffer!
 
 pub macro vortex_buffer::bitbuffer_mut!
@@ -1007,6 +1009,10 @@ pub fn vortex_buffer::AlignedBuf::copy_to_aligned(&mut self, usize, vortex_buffe
 pub fn vortex_buffer::AlignedBuf::copy_to_const_aligned<const A: usize>(&mut self, usize) -> vortex_buffer::ConstByteBuffer<A>
 
 impl<B: bytes::buf::buf_impl::Buf> vortex_buffer::AlignedBuf for B
+
+pub fn B::copy_to_aligned(&mut self, usize, vortex_buffer::Alignment) -> vortex_buffer::ByteBuffer
+
+pub fn B::copy_to_const_aligned<const A: usize>(&mut self, usize) -> vortex_buffer::ConstByteBuffer<A>
 
 pub fn vortex_buffer::get_bit(&[u8], usize) -> bool
 

@@ -188,7 +188,7 @@ pub fn vortex_fastlanes::BitPacked::slice(vortex_array::array::view::ArrayView<'
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastKernel for vortex_fastlanes::BitPacked
 
-pub fn vortex_fastlanes::BitPacked::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_fastlanes::BitPacked::cast(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::dtype::DType, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fastlanes::BitPacked
 
@@ -584,6 +584,20 @@ pub fn vortex_fastlanes::BitPackedArrayExt::validity(&self) -> vortex_array::val
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::BitPacked>> vortex_fastlanes::BitPackedArrayExt for T
 
+pub fn T::bit_width(&self) -> u8
+
+pub fn T::offset(&self) -> u16
+
+pub fn T::packed(&self) -> &vortex_array::buffer::BufferHandle
+
+pub fn T::packed_slice<T: vortex_array::dtype::ptype::NativePType + fastlanes::bitpacking::BitPacking>(&self) -> &[T]
+
+pub fn T::patches(&self) -> core::option::Option<vortex_array::patches::Patches>
+
+pub fn T::unpacked_chunks<T: vortex_fastlanes::unpack_iter::BitPacked>(&self) -> vortex_error::VortexResult<vortex_fastlanes::unpack_iter::BitUnpackedChunks<T>>
+
+pub fn T::validity(&self) -> vortex_array::validity::Validity
+
 pub trait vortex_fastlanes::BitPackedArraySlotsExt: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::BitPacked>
 
 pub fn vortex_fastlanes::BitPackedArraySlotsExt::patch_chunk_offsets(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
@@ -598,6 +612,16 @@ pub fn vortex_fastlanes::BitPackedArraySlotsExt::validity_child(&self) -> core::
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::BitPacked>> vortex_fastlanes::BitPackedArraySlotsExt for T
 
+pub fn T::patch_chunk_offsets(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn T::patch_indices(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn T::patch_values(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn T::slots_view(&self) -> vortex_fastlanes::bitpacking::array::BitPackedSlotsView<'_>
+
+pub fn T::validity_child(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
 pub trait vortex_fastlanes::FoRArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::FoR>
 
 pub fn vortex_fastlanes::FoRArrayExt::encoded(&self) -> &vortex_array::array::erased::ArrayRef
@@ -605,6 +629,10 @@ pub fn vortex_fastlanes::FoRArrayExt::encoded(&self) -> &vortex_array::array::er
 pub fn vortex_fastlanes::FoRArrayExt::reference_scalar(&self) -> &vortex_array::scalar::Scalar
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::FoR>> vortex_fastlanes::FoRArrayExt for T
+
+pub fn T::encoded(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::reference_scalar(&self) -> &vortex_array::scalar::Scalar
 
 pub trait vortex_fastlanes::RLEArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::RLE>
 
@@ -619,6 +647,16 @@ pub fn vortex_fastlanes::RLEArrayExt::values_idx_offset(&self, usize, &mut vorte
 pub fn vortex_fastlanes::RLEArrayExt::values_idx_offsets(&self) -> &vortex_array::array::erased::ArrayRef
 
 impl<T: vortex_array::array::typed::TypedArrayRef<vortex_fastlanes::RLE>> vortex_fastlanes::RLEArrayExt for T
+
+pub fn T::indices(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::offset(&self) -> usize
+
+pub fn T::values(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::values_idx_offset(&self, usize, &mut vortex_array::executor::ExecutionCtx) -> usize
+
+pub fn T::values_idx_offsets(&self) -> &vortex_array::array::erased::ArrayRef
 
 pub fn vortex_fastlanes::delta_compress(&vortex_array::arrays::primitive::vtable::PrimitiveArray, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<(vortex_array::arrays::primitive::vtable::PrimitiveArray, vortex_array::arrays::primitive::vtable::PrimitiveArray)>
 
