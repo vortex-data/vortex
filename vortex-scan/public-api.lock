@@ -8,7 +8,7 @@ impl vortex_scan::row_mask::RowMask
 
 pub fn vortex_scan::row_mask::RowMask::mask(&self) -> &vortex_mask::Mask
 
-pub fn vortex_scan::row_mask::RowMask::new(row_offset: u64, mask: vortex_mask::Mask) -> Self
+pub fn vortex_scan::row_mask::RowMask::new(u64, vortex_mask::Mask) -> Self
 
 pub fn vortex_scan::row_mask::RowMask::row_range(&self) -> core::ops::range::Range<u64>
 
@@ -18,7 +18,7 @@ pub fn vortex_scan::row_mask::RowMask::clone(&self) -> vortex_scan::row_mask::Ro
 
 impl core::fmt::Debug for vortex_scan::row_mask::RowMask
 
-pub fn vortex_scan::row_mask::RowMask::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_scan::row_mask::RowMask::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub mod vortex_scan::selection
 
@@ -36,9 +36,9 @@ pub vortex_scan::selection::Selection::IncludeRoaring(roaring::treemap::RoaringT
 
 impl vortex_scan::selection::Selection
 
-pub fn vortex_scan::selection::Selection::row_count(&self, total_rows: u64) -> u64
+pub fn vortex_scan::selection::Selection::row_count(&self, u64) -> u64
 
-pub fn vortex_scan::selection::Selection::row_mask(&self, range: &core::ops::range::Range<u64>) -> vortex_scan::row_mask::RowMask
+pub fn vortex_scan::selection::Selection::row_mask(&self, &core::ops::range::Range<u64>) -> vortex_scan::row_mask::RowMask
 
 impl core::clone::Clone for vortex_scan::selection::Selection
 
@@ -50,7 +50,7 @@ pub fn vortex_scan::selection::Selection::default() -> vortex_scan::selection::S
 
 impl core::fmt::Debug for vortex_scan::selection::Selection
 
-pub fn vortex_scan::selection::Selection::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_scan::selection::Selection::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_scan::ScanRequest
 
@@ -76,31 +76,31 @@ pub fn vortex_scan::ScanRequest::default() -> Self
 
 impl core::fmt::Debug for vortex_scan::ScanRequest
 
-pub fn vortex_scan::ScanRequest::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_scan::ScanRequest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub trait vortex_scan::DataSource: 'static + core::marker::Send + core::marker::Sync
 
 pub fn vortex_scan::DataSource::byte_size(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
-pub fn vortex_scan::DataSource::deserialize_partition(&self, data: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_scan::PartitionRef>
+pub fn vortex_scan::DataSource::deserialize_partition(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_scan::PartitionRef>
 
 pub fn vortex_scan::DataSource::dtype(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_scan::DataSource::field_statistics<'life0, 'life1, 'async_trait>(&'life0 self, field_path: &'life1 vortex_array::dtype::field::FieldPath) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_array::stats::stats_set::StatsSet>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+pub fn vortex_scan::DataSource::field_statistics<'life0, 'life1, 'async_trait>(&'life0 self, &'life1 vortex_array::dtype::field::FieldPath) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_array::stats::stats_set::StatsSet>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 
 pub fn vortex_scan::DataSource::row_count(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
-pub fn vortex_scan::DataSource::scan<'life0, 'async_trait>(&'life0 self, scan_request: vortex_scan::ScanRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::DataSourceScanRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
+pub fn vortex_scan::DataSource::scan<'life0, 'async_trait>(&'life0 self, vortex_scan::ScanRequest) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::DataSourceScanRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait
 
 pub fn vortex_scan::DataSource::serialize(&self) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
 pub trait vortex_scan::DataSourceOpener: 'static
 
-pub fn vortex_scan::DataSourceOpener::open<'life0, 'life1, 'async_trait>(&'life0 self, uri: alloc::string::String, session: &'life1 vortex_session::VortexSession) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::DataSourceRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
+pub fn vortex_scan::DataSourceOpener::open<'life0, 'life1, 'async_trait>(&'life0 self, alloc::string::String, &'life1 vortex_session::VortexSession) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = vortex_error::VortexResult<vortex_scan::DataSourceRef>> + core::marker::Send + 'async_trait)>> where Self: 'async_trait, 'life0: 'async_trait, 'life1: 'async_trait
 
 pub trait vortex_scan::DataSourceRemote: 'static
 
-pub fn vortex_scan::DataSourceRemote::deserialize_data_source(&self, data: &[u8], session: &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_scan::DataSourceRef>
+pub fn vortex_scan::DataSourceRemote::deserialize_data_source(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_scan::DataSourceRef>
 
 pub trait vortex_scan::DataSourceScan: 'static + core::marker::Send
 
@@ -108,7 +108,7 @@ pub fn vortex_scan::DataSourceScan::dtype(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_scan::DataSourceScan::partition_count(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<usize>>
 
-pub fn vortex_scan::DataSourceScan::partitions(self: alloc::boxed::Box<Self>) -> vortex_scan::PartitionStream
+pub fn vortex_scan::DataSourceScan::partitions(alloc::boxed::Box<Self>) -> vortex_scan::PartitionStream
 
 pub trait vortex_scan::Partition: 'static + core::marker::Send
 
@@ -116,7 +116,7 @@ pub fn vortex_scan::Partition::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_scan::Partition::byte_size(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 
-pub fn vortex_scan::Partition::execute(self: alloc::boxed::Box<Self>) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_scan::Partition::execute(alloc::boxed::Box<Self>) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_scan::Partition::row_count(&self) -> core::option::Option<vortex_array::expr::stats::precision::Precision<u64>>
 

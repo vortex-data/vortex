@@ -68,6 +68,7 @@ pub fn public_api() -> anyhow::Result<()> {
         let api = public_api::Builder::from_rustdoc_json(&json_path)
             .omit_blanket_impls(true)
             .omit_auto_trait_impls(true)
+            .omit_param_names(true)
             .build()?;
 
         // Insert blank lines between items to reduce git conflicts.
