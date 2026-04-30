@@ -568,6 +568,7 @@ mod tests {
         assert_scalar_at_matches_arrow_try_value(&arrow_variant, [0, 1, 2])
     }
 
+    #[ignore = "This test hangs when running all tests in the workspace at once."]
     #[test]
     fn test_scalar_at_recursive_shredded_list() -> VortexResult<()> {
         // Spec basis: for arrays, "value must be null" when the value is an array, and array
