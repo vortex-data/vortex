@@ -58,18 +58,6 @@ pub struct ArbitraryArrayConfig {
     pub len: RangeInclusive<usize>,
 }
 
-// impl<'a> Arbitrary<'a> for ArbitraryArray {
-//     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-//         Self::arbitrary_with_config(
-//             u,
-//             &ArbitraryArrayConfig {
-//                 dtype: None,
-//                 len: 0..=FUZZ_ARRAY_MAX_LEN,
-//             },
-//         )
-//     }
-// }
-
 impl<'a> ArbitraryWith<'a, ArbitraryArrayConfig> for ArbitraryArray {
     fn arbitrary_with_config(
         u: &mut Unstructured<'a>,
