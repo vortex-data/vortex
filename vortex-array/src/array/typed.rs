@@ -280,6 +280,14 @@ impl<V: VTable> Array<V> {
         &self.downcast_inner().data
     }
 
+    /// Try to fetch a mut ref to the inner ArrayData.
+    pub fn data_mut(&mut self) -> Option<&mut V::ArrayData> {
+        let m = self.inner.inner_mut();
+        let inner = Arc::get_mut(m)?;
+        let array_inner = inner.as_any_mut().downcast_mut::<ArrayInner<V>>();
+        Some(&mut array_inner?.data)
+    }
+
     /// Returns the full typed array construction parts if this handle owns the allocation.
     pub fn try_into_parts(self) -> Result<ArrayParts<V>, Self> {
         let Self { inner, _phantom } = self;
