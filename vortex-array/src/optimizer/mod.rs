@@ -15,8 +15,6 @@
 //! - [`ArrayOptimizer::optimize_recursive`] applies the session-aware optimizer to the root and
 //!   every descendant.
 
-use std::sync::Arc;
-
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::SessionExt;
@@ -24,7 +22,6 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::optimizer::kernels::ArrayKernels;
-use crate::optimizer::kernels::ReduceParentFn;
 
 pub mod kernels;
 pub mod rules;
@@ -65,26 +62,13 @@ impl ArrayOptimizer for ArrayRef {
     }
 }
 
-/// Resolve a session-registered [`ReduceParentFn`] for the `(parent, child)` pair.
-///
-/// The returned [`Arc`] is owned so the caller can drop the [`ArrayKernels`] borrow before
-/// invoking the function.
-fn plugin_reduce_parent(
-    session: &VortexSession,
-    parent: &ArrayRef,
-    child: &ArrayRef,
-) -> Option<Arc<[ReduceParentFn]>> {
-    session
-        .get_opt::<ArrayKernels>()
-        .and_then(|s| s.find_reduce_parent(parent.encoding_id(), child.encoding_id()))
-}
-
 fn try_optimize(
     array: &ArrayRef,
     session: Option<&VortexSession>,
 ) -> VortexResult<Option<ArrayRef>> {
     let mut current_array = array.clone();
     let mut any_optimizations = false;
+    let array_ref = session.and_then(|s| s.get_opt::<ArrayKernels>());
 
     // Apply reduction rules to the current array until no more rules apply.
     let mut loop_counter = 0;
@@ -106,8 +90,9 @@ fn try_optimize(
             let Some(child) = slot else { continue };
 
             // Session kernels take precedence over the child encoding's static PARENT_RULES.
-            if let Some(session) = session
-                && let Some(plugins) = plugin_reduce_parent(session, &current_array, child)
+            if let Some(array_ref) = &array_ref
+                && let Some(plugins) =
+                    array_ref.find_reduce_parent(current_array.encoding_id(), child.encoding_id())
             {
                 for plugin in plugins.as_ref() {
                     if let Some(new_array) = plugin(child, &current_array, slot_idx)? {

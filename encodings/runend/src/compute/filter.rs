@@ -158,13 +158,14 @@ mod tests {
     /// Filter unwrap one layer at a time so RunEnd's FilterKernel can fire.
     #[test]
     fn filter_sliced_run_end_preserves_encoding() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
         // 4 runs of 32 each = 128 rows. Large enough that FilterKernel takes
         // the run-preserving path (true_count >= 25).
         let values: Vec<i32> = [10, 20, 30, 40]
             .iter()
             .flat_map(|&v| std::iter::repeat_n(v, 32))
             .collect();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = RunEnd::encode(PrimitiveArray::from_iter(values).into_array(), &mut ctx)?;
 
         // Slice off the first 16 rows. Slice(RunEnd), 112 rows, 4 runs.

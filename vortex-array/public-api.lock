@@ -21946,6 +21946,8 @@ pub vortex_array::ColumnarView::Constant(vortex_array::ArrayView<'a, vortex_arra
 
 pub enum vortex_array::ExecutionStep
 
+pub vortex_array::ExecutionStep::AppendChild(usize)
+
 pub vortex_array::ExecutionStep::Done
 
 pub vortex_array::ExecutionStep::ExecuteSlot(usize, vortex_array::DonePredicate)
@@ -22315,6 +22317,8 @@ pub fn vortex_array::Array<V>::as_array(&self) -> &vortex_array::ArrayRef
 pub fn vortex_array::Array<V>::as_view(&self) -> vortex_array::ArrayView<'_, V>
 
 pub fn vortex_array::Array<V>::data(&self) -> &<V as vortex_array::VTable>::ArrayData
+
+pub fn vortex_array::Array<V>::data_mut(&mut self) -> core::option::Option<&mut <V as vortex_array::VTable>::ArrayData>
 
 pub fn vortex_array::Array<V>::dtype(&self) -> &vortex_array::dtype::DType
 
@@ -23139,6 +23143,8 @@ pub fn vortex_array::ExecutionCtx::drop(&mut self)
 pub struct vortex_array::ExecutionResult
 
 impl vortex_array::ExecutionResult
+
+pub fn vortex_array::ExecutionResult::append_child(array: impl vortex_array::IntoArray, slot_idx: usize) -> Self
 
 pub fn vortex_array::ExecutionResult::array(&self) -> &vortex_array::ArrayRef
 
@@ -25729,6 +25735,8 @@ impl vortex_array::VortexSessionExecute for vortex_session::VortexSession
 pub fn vortex_session::VortexSession::create_execution_ctx(&self) -> vortex_array::ExecutionCtx
 
 pub fn vortex_array::child_to_validity(child: core::option::Option<&vortex_array::ArrayRef>, nullability: vortex_array::dtype::Nullability) -> vortex_array::validity::Validity
+
+pub fn vortex_array::execute_into_builder(array: vortex_array::ArrayRef, builder: alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<alloc::boxed::Box<dyn vortex_array::builders::ArrayBuilder>>
 
 pub fn vortex_array::patches_child(patches: &vortex_array::patches::Patches, idx: usize) -> vortex_array::ArrayRef
 

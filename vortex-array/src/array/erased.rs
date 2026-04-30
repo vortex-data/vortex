@@ -23,6 +23,7 @@ use crate::ArrayHash;
 use crate::ArrayView;
 use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VTable;
@@ -91,6 +92,12 @@ impl ArrayRef {
     #[inline(always)]
     pub(crate) fn inner(&self) -> &Arc<dyn DynArray> {
         &self.0
+    }
+
+    /// Returns a reference to the inner Arc.
+    #[inline(always)]
+    pub(crate) fn inner_mut(&mut self) -> &mut Arc<dyn DynArray> {
+        &mut self.0
     }
 
     /// Consumes the array reference, returning the owned backing allocation.
@@ -431,10 +438,13 @@ impl ArrayRef {
         self.with_slots(slots)
     }
 
-    /// Take a slot for executor-owned physical rewrites. This has the result that the array may
-    /// either be taken or cloned from the parent.
+    /// Take a slot for executor-owned physical rewrites.
     ///
-    /// The array can be put back with [`put_slot_unchecked`].
+    /// On return the produced parent has the taken slot set to `None`
+    /// callers must put the slot back (typically via [`put_slot_unchecked`]) before the parent is
+    /// returned from the execution loop.
+    ///
+    /// When the `Arc` was shared this allocates a fresh parent.
     ///
     /// # Safety
     /// The caller must put back a slot with the same logical dtype and length before exposing the
@@ -443,18 +453,27 @@ impl ArrayRef {
         mut self,
         slot_idx: usize,
     ) -> VortexResult<(ArrayRef, ArrayRef)> {
-        let child = if let Some(inner) = Arc::get_mut(&mut self.0) {
-            // # Safety: ensured by the caller.
-            unsafe { inner.slots_mut()[slot_idx].take() }
-                .vortex_expect("take_slot_unchecked cannot take an absent slot")
-        } else {
-            self.slots()[slot_idx]
-                .as_ref()
-                .vortex_expect("take_slot_unchecked cannot take an absent slot")
-                .clone()
-        };
+        if let Some(inner) = Arc::get_mut(&mut self.0) {
+            // SAFETY: ensured by the caller.
+            let child = unsafe { inner.slots_mut()[slot_idx].take() }
+                .vortex_expect("take_slot_unchecked cannot take an absent slot");
+            return Ok((self, child));
+        }
 
-        Ok((self, child))
+        // Arc is shared: clone the child out and build a fresh parent with slot_idx = None,
+        // bypassing encoding-level validation so the absent slot does not panic `V::validate`.
+        let child = self.slots()[slot_idx]
+            .as_ref()
+            .vortex_expect("take_slot_unchecked cannot take an absent slot")
+            .clone();
+
+        let mut new_slots = self.slots().to_vec();
+        new_slots[slot_idx] = None;
+
+        // SAFETY: ensured by the caller — the None slot is either put back or driven to completion
+        // via the builder path before the parent escapes the executor.
+        let new_parent = unsafe { self.0.with_slots_unchecked(&self, new_slots) };
+        Ok((new_parent, child))
     }
 
     /// Puts an array into `slot_idx` by either, cloning the inner array if the Arc is not exclusive
@@ -532,12 +551,28 @@ impl ArrayRef {
         self.0.reduce_parent(self, parent, child_idx)
     }
 
-    pub(crate) fn execute_encoding(
+    pub(crate) fn execute_encoding(self, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let inner = Arc::as_ptr(&self.0);
+        // Safety the Arc outline the DynArray function call
+        unsafe { (&*inner).execute(self, ctx) }
+    }
+
+    /// Execute a single encoding step without applying `Done`-result postconditions.
+    ///
+    /// This is for the iterative executor only. It may operate on suspended executor-private
+    /// arrays whose slots temporarily contain `None`, so the executor itself must interpret
+    /// `Done`, enforce any `len`/`dtype` invariants, and transfer statistics.
+    pub(crate) fn execute_encoding_unchecked(
         self,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<crate::ExecutionResult> {
-        let inner = Arc::clone(&self.0);
-        inner.execute(self, ctx)
+    ) -> VortexResult<ExecutionResult> {
+        let inner = Arc::as_ptr(&self.0);
+        // Safety the Arc outline the DynArray function call
+        let inner = unsafe { &*inner };
+        // SAFETY: `inner` points at the allocation owned by `self.0`. `self` stays alive for the
+        // duration of the call, so the pointee remains valid. Avoiding an extra `Arc` clone here
+        // preserves uniqueness so execute-time metadata cursors can use `Arc::get_mut`.
+        unsafe { inner.execute_unchecked(self, ctx) }
     }
 
     pub fn execute_parent(
