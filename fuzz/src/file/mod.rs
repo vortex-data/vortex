@@ -11,7 +11,7 @@ use vortex_array::expr::Expression;
 use vortex_array::expr::arbitrary::filter_expr;
 use vortex_array::expr::arbitrary::projection_expr;
 
-use crate::FUZZ_ARRAY_MAX_LEN;
+use crate::{FUZZ_ARRAY_MAX_LEN, FUZZ_FILE_ARRAY_MAX_LEN};
 use crate::array::CompressorStrategy;
 
 #[derive(Debug)]
@@ -28,7 +28,7 @@ impl<'a> Arbitrary<'a> for FuzzFileAction {
             u,
             &ArbitraryArrayConfig {
                 dtype: None,
-                len: 0..=FUZZ_ARRAY_MAX_LEN,
+                len: 0..=FUZZ_FILE_ARRAY_MAX_LEN,
             },
         )?
         .0;
