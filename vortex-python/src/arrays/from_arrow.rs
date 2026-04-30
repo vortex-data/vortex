@@ -49,8 +49,9 @@ pub trait FromPyArrowArray: Sized {
     fn from_pyarrow_with_session(
         py_array: &Bound<'_, PyAny>,
         nullable: bool,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> PyResult<Self> {
+        let _ = session;
         Self::from_pyarrow(py_array, nullable)
     }
 }

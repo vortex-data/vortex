@@ -34,8 +34,9 @@ pub trait FromArrowArray<A>: Sized {
     fn from_arrow_with_session(
         array: A,
         nullable: bool,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<Self> {
+        let _ = session;
         Self::from_arrow(array, nullable)
     }
 }

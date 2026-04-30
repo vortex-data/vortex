@@ -86,7 +86,10 @@ pub(super) fn to_arrow_struct(
 
     // Otherwise, we fall back to executing to a StructArray.
     let array = if let Some(fields) = target_fields {
-        let vx_fields = StructFields::from_arrow(fields);
+        // Thread the ctx session so any extension Field metadata in `fields` resolves to
+        // `DType::Extension` in the cast target — keeps the cast path consistent with the
+        // short-circuit Struct/`Pack` paths above.
+        let vx_fields = StructFields::from_arrow_with_session(fields, ctx.session());
         // We apply a cast to ensure we push down casting where possible into the struct fields.
         array.cast(DType::Struct(
             vx_fields,

@@ -63,7 +63,8 @@ pub trait FromArrowType<T>: Sized {
     /// Convert the Arrow type to a Vortex type, consulting `session` for extension lookup.
     ///
     /// Unregistered or malformed extension metadata falls back to the storage dtype.
-    fn from_arrow_with_session(value: T, _session: &VortexSession) -> Self {
+    fn from_arrow_with_session(value: T, session: &VortexSession) -> Self {
+        let _ = session;
         Self::from_arrow(value)
     }
 }
@@ -375,6 +376,11 @@ impl DType {
     }
 
     /// Returns the Arrow [`DataType`] that best corresponds to this Vortex [`DType`].
+    ///
+    /// Extensions without a native Arrow mapping (e.g. user-registered extensions like
+    /// `Vector`) degrade to their storage `DataType`; extension identity only survives when
+    /// emitted onto an Arrow `Field` (see [`Self::to_arrow_schema`]). Callers that must
+    /// reject non-temporal extensions should match on `DType::Extension` themselves.
     pub fn to_arrow_dtype(&self) -> VortexResult<DataType> {
         arrow_dtype_from_dtype(self)
     }
