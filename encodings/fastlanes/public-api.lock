@@ -186,6 +186,10 @@ impl vortex_array::arrays::slice::SliceReduce for vortex_fastlanes::BitPacked
 
 pub fn vortex_fastlanes::BitPacked::slice(array: vortex_array::array::view::ArrayView<'_, Self>, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
+impl vortex_array::scalar_fn::fns::cast::kernel::CastKernel for vortex_fastlanes::BitPacked
+
+pub fn vortex_fastlanes::BitPacked::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_fastlanes::BitPacked
 
 pub fn vortex_fastlanes::BitPacked::cast(array: vortex_array::array::view::ArrayView<'_, Self>, dtype: &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>

@@ -12,10 +12,12 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) const RULES: ParentRuleSet<Primitive> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&PrimitiveMaskedValidityRule),
+    ParentRuleSet::lift(&CastReduceAdaptor(Primitive)),
     ParentRuleSet::lift(&MaskReduceAdaptor(Primitive)),
     ParentRuleSet::lift(&SliceReduceAdaptor(Primitive)),
 ]);

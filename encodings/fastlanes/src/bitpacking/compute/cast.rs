@@ -3,48 +3,67 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::patches::Patches;
+use vortex_array::scalar_fn::fns::cast::CastKernel;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
 use crate::bitpacking::BitPacked;
 use crate::bitpacking::array::BitPackedArrayExt;
+
+fn build_with_validity(
+    array: ArrayView<'_, BitPacked>,
+    dtype: &DType,
+    new_validity: Validity,
+) -> VortexResult<ArrayRef> {
+    Ok(BitPacked::try_new(
+        array.packed().clone(),
+        dtype.as_ptype(),
+        new_validity,
+        array
+            .patches()
+            .map(|patches| patches.map_values(|values| values.cast(dtype.clone())))
+            .transpose()?,
+        array.bit_width(),
+        array.len(),
+        array.offset(),
+    )?
+    .into_array())
+}
+
 impl CastReduce for BitPacked {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        if array.dtype().eq_ignore_nullability(dtype) {
-            let new_validity = array
-                .validity()?
-                .cast_nullability(dtype.nullability(), array.len())?;
-            return Ok(Some(
-                BitPacked::try_new(
-                    array.packed().clone(),
-                    dtype.as_ptype(),
-                    new_validity,
-                    array
-                        .patches()
-                        .map(|patches| {
-                            let new_values = patches.values().cast(dtype.clone())?;
-                            Patches::new(
-                                patches.array_len(),
-                                patches.offset(),
-                                patches.indices().clone(),
-                                new_values,
-                                patches.chunk_offsets().clone(),
-                            )
-                        })
-                        .transpose()?,
-                    array.bit_width(),
-                    array.len(),
-                    array.offset(),
-                )?
-                .into_array(),
-            ));
+        if !array.dtype().eq_ignore_nullability(dtype) {
+            return Ok(None);
         }
+        let Some(new_validity) = array
+            .validity()?
+            .trivial_cast_nullability(dtype.nullability(), array.len())?
+        else {
+            return Ok(None);
+        };
+        build_with_validity(array, dtype, new_validity).map(Some)
+    }
+}
 
-        Ok(None)
+impl CastKernel for BitPacked {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if !array.dtype().eq_ignore_nullability(dtype) {
+            return Ok(None);
+        }
+        let new_validity =
+            array
+                .validity()?
+                .cast_nullability(dtype.nullability(), array.len(), ctx)?;
+        build_with_validity(array, dtype, new_validity).map(Some)
     }
 }
 

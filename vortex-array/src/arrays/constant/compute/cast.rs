@@ -15,7 +15,7 @@ impl CastReduce for Constant {
     fn cast(array: ArrayView<'_, Constant>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         match array.scalar().cast(dtype) {
             Ok(scalar) => Ok(Some(ConstantArray::new(scalar, array.len()).into_array())),
-            Err(_e) => Ok(None),
+            Err(_) => Ok(None),
         }
     }
 }
