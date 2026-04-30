@@ -7280,7 +7280,7 @@ impl<O: arrow_array::array::list_array::OffsetSizeTrait + vortex_array::dtype::N
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::list_view_array::GenericListViewArray<O>, nullable: bool) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: &arrow_array::array::list_view_array::GenericListViewArray<O>, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl<O: vortex_array::dtype::IntegerPType + arrow_array::array::list_array::OffsetSizeTrait> vortex_array::arrow::FromArrowArray<&arrow_array::array::list_array::GenericListArray<O>> for vortex_array::ArrayRef
 
@@ -9329,8 +9329,6 @@ impl vortex_array::dtype::DType
 pub fn vortex_array::dtype::DType::to_arrow_dtype(&self) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
 
 pub fn vortex_array::dtype::DType::to_arrow_schema(&self) -> vortex_error::VortexResult<arrow_schema::schema::Schema>
-
-pub fn vortex_array::dtype::DType::to_arrow_schema_with_session(&self, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<arrow_schema::schema::Schema>
 
 impl core::clone::Clone for vortex_array::dtype::DType
 
@@ -22974,7 +22972,7 @@ impl<O: arrow_array::array::list_array::OffsetSizeTrait + vortex_array::dtype::N
 
 pub fn vortex_array::ArrayRef::from_arrow(array: &arrow_array::array::list_view_array::GenericListViewArray<O>, nullable: bool) -> vortex_error::VortexResult<Self>
 
-pub fn vortex_array::ArrayRef::from_arrow_with_session(array: A, nullable: bool, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+pub fn vortex_array::ArrayRef::from_arrow_with_session(array: &arrow_array::array::list_view_array::GenericListViewArray<O>, nullable: bool, session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 impl<O: vortex_array::dtype::IntegerPType + arrow_array::array::list_array::OffsetSizeTrait> vortex_array::arrow::FromArrowArray<&arrow_array::array::list_array::GenericListArray<O>> for vortex_array::ArrayRef
 

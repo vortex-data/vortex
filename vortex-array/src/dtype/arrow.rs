@@ -358,12 +358,6 @@ fn storage_dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
 impl DType {
     /// Convert a Vortex [`DType`] into an Arrow [`Schema`].
     pub fn to_arrow_schema(&self) -> VortexResult<Schema> {
-        self.to_arrow_schema_with_session(&LEGACY_SESSION)
-    }
-
-    /// Convert a Vortex [`DType`] into an Arrow [`Schema`], threading `session` through nested
-    /// fields so registered extensions are emitted with their `ARROW:extension:name` metadata.
-    pub fn to_arrow_schema_with_session(&self, session: &VortexSession) -> VortexResult<Schema> {
         let DType::Struct(struct_dtype, nullable) = self else {
             vortex_bail!("only DType::Struct can be converted to arrow schema");
         };
@@ -372,14 +366,9 @@ impl DType {
             vortex_bail!("top-level struct in Schema must be NonNullable");
         }
 
-        let dtypes = session.dtypes();
         let mut builder = SchemaBuilder::with_capacity(struct_dtype.names().len());
         for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
-            builder.push(field_from_dtype(
-                field_name.as_ref(),
-                &field_dtype,
-                &dtypes,
-            )?);
+            builder.push(field_from_dtype(field_name.as_ref(), &field_dtype)?);
         }
 
         Ok(builder.finish())
@@ -387,11 +376,11 @@ impl DType {
 
     /// Returns the Arrow [`DataType`] that best corresponds to this Vortex [`DType`].
     pub fn to_arrow_dtype(&self) -> VortexResult<DataType> {
-        arrow_dtype_from_dtype(self, &LEGACY_SESSION.dtypes())
+        arrow_dtype_from_dtype(self)
     }
 }
 
-fn arrow_dtype_from_dtype(dtype: &DType, dtypes: &DTypeSession) -> VortexResult<DataType> {
+fn arrow_dtype_from_dtype(dtype: &DType) -> VortexResult<DataType> {
     Ok(match dtype {
         DType::Null => DataType::Null,
         DType::Bool(_) => DataType::Boolean,
@@ -432,13 +421,11 @@ fn arrow_dtype_from_dtype(dtype: &DType, dtypes: &DTypeSession) -> VortexResult<
         DType::List(elem_dtype, _) => DataType::List(FieldRef::new(field_from_dtype(
             Field::LIST_FIELD_DEFAULT_NAME,
             elem_dtype,
-            dtypes,
         )?)),
         DType::FixedSizeList(elem_dtype, size, _) => DataType::FixedSizeList(
             FieldRef::new(field_from_dtype(
                 Field::LIST_FIELD_DEFAULT_NAME,
                 elem_dtype,
-                dtypes,
             )?),
             *size as i32,
         ),
@@ -448,7 +435,6 @@ fn arrow_dtype_from_dtype(dtype: &DType, dtypes: &DTypeSession) -> VortexResult<
                 fields.push(FieldRef::from(field_from_dtype(
                     field_name.as_ref(),
                     &field_dt,
-                    dtypes,
                 )?));
             }
 
@@ -463,14 +449,14 @@ fn arrow_dtype_from_dtype(dtype: &DType, dtypes: &DTypeSession) -> VortexResult<
             }
             // Extension identity lives on the Field (see `field_from_dtype`), not on
             // DataType, so here we only encode the storage type.
-            arrow_dtype_from_dtype(ext_dtype.storage_dtype(), dtypes)?
+            arrow_dtype_from_dtype(ext_dtype.storage_dtype())?
         }
     })
 }
 
 /// Build an Arrow [`Field`], attaching `ARROW:extension:name` and, when present,
 /// `ARROW:extension:metadata` for extensions and Variant that have no native Arrow mapping.
-fn field_from_dtype(name: &str, dtype: &DType, dtypes: &DTypeSession) -> VortexResult<Field> {
+fn field_from_dtype(name: &str, dtype: &DType) -> VortexResult<Field> {
     if dtype.is_variant() {
         let storage = DataType::Struct(variant_storage_fields_minimal());
         return Ok(
@@ -491,7 +477,7 @@ fn field_from_dtype(name: &str, dtype: &DType, dtypes: &DTypeSession) -> VortexR
             return Ok(Field::new(name, native, dtype.is_nullable()));
         }
 
-        let storage_arrow = arrow_dtype_from_dtype(ext.storage_dtype(), dtypes)?;
+        let storage_arrow = arrow_dtype_from_dtype(ext.storage_dtype())?;
         let ext_meta_bytes = ext.serialize_metadata()?;
         let meta_str = BASE64_STANDARD.encode(&ext_meta_bytes);
 
@@ -508,7 +494,7 @@ fn field_from_dtype(name: &str, dtype: &DType, dtypes: &DTypeSession) -> VortexR
 
     Ok(Field::new(
         name,
-        arrow_dtype_from_dtype(dtype, dtypes)?,
+        arrow_dtype_from_dtype(dtype)?,
         dtype.is_nullable(),
     ))
 }

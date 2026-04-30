@@ -89,12 +89,6 @@ impl ArrowArrayExecutor for ArrayRef {
         data_type: Option<&DataType>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
-        // Extension identity lives on Field metadata; dispatch on the storage array.
-        if matches!(self.dtype(), DType::Extension(_)) {
-            let ext = self.execute::<ExtensionArray>(ctx)?;
-            return ext.storage_array().clone().execute_arrow(data_type, ctx);
-        }
-
         let len = self.len();
 
         // Resolve the DataType if it is a leaf type
@@ -103,6 +97,14 @@ impl ArrowArrayExecutor for ArrayRef {
             Some(dt) => dt.clone(),
             None => preferred_arrow_type(&self)?,
         };
+
+        // Non-temporal extension identity lives on Field metadata; dispatch on the storage
+        // array. Temporal extensions are kept intact because `to_arrow_temporal` reads
+        // `TemporalMetadata` off the extension dtype.
+        if matches!(self.dtype(), DType::Extension(_)) && !resolved_type.is_temporal() {
+            let ext = self.execute::<ExtensionArray>(ctx)?;
+            return ext.storage_array().clone().execute_arrow(data_type, ctx);
+        }
 
         let arrow = match &resolved_type {
             DataType::Null => to_arrow_null(self, ctx),
@@ -242,6 +244,7 @@ mod tests {
     use arrow_array::cast::AsArray;
     use arrow_array::types::UInt64Type;
     use arrow_schema::DataType;
+    use arrow_schema::TimeUnit as ArrowTimeUnit;
 
     use super::*;
     use crate::LEGACY_SESSION;
@@ -249,6 +252,9 @@ mod tests {
     use crate::array::IntoArray;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
+    use crate::dtype::Nullability;
+    use crate::extension::datetime::TimeUnit;
+    use crate::extension::datetime::Timestamp;
     use crate::extension::tests::divisible_int::DivisibleInt;
     use crate::extension::tests::divisible_int::Divisor;
 
@@ -268,5 +274,34 @@ mod tests {
 
         let primitives = arrow.as_primitive::<UInt64Type>();
         assert_eq!(primitives.values(), &[0, 1, 2, 3, 4, 5]);
+    }
+
+    /// Temporal extensions have native Arrow mappings. The executor must keep the extension
+    /// array intact so `to_arrow_temporal` can read `TemporalMetadata` from its dtype.
+    #[test]
+    fn execute_arrow_keeps_temporal_extension_for_native_arrow_type() {
+        use crate::dtype::DType;
+        use crate::dtype::PType;
+
+        let storage = PrimitiveArray::from_iter(0i64..3).into_array();
+        let ts_ref =
+            Timestamp::new_with_tz(TimeUnit::Microseconds, None, Nullability::NonNullable).erased();
+        let storage_dtype = DType::Primitive(PType::I64, Nullability::NonNullable);
+        assert_eq!(ts_ref.storage_dtype(), &storage_dtype);
+        let ext = ExtensionArray::try_new(ts_ref, storage)
+            .unwrap()
+            .into_array();
+
+        let arrow = ext
+            .execute_arrow(
+                Some(&DataType::Timestamp(ArrowTimeUnit::Microsecond, None)),
+                &mut LEGACY_SESSION.create_execution_ctx(),
+            )
+            .unwrap();
+
+        assert!(matches!(
+            arrow.data_type(),
+            DataType::Timestamp(ArrowTimeUnit::Microsecond, None)
+        ));
     }
 }

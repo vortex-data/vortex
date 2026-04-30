@@ -457,14 +457,28 @@ impl<O: IntegerPType + OffsetSizeTrait> FromArrowArray<&GenericListArray<O>> for
 
 impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListViewArray<O>> for ArrayRef {
     fn from_arrow(array: &GenericListViewArray<O>, nullable: bool) -> VortexResult<Self> {
-        // Extract the validity of the underlying element array.
-        let elements_are_nullable = match array.data_type() {
-            DataType::ListView(field) => field.is_nullable(),
-            DataType::LargeListView(field) => field.is_nullable(),
+        Self::from_arrow_with_session(array, nullable, &LEGACY_SESSION)
+    }
+
+    fn from_arrow_with_session(
+        array: &GenericListViewArray<O>,
+        nullable: bool,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        let elements_field: &Field = match array.data_type() {
+            DataType::ListView(field) => field.as_ref(),
+            DataType::LargeListView(field) => field.as_ref(),
             dt => vortex_panic!("Invalid data type for ListViewArray: {dt}"),
         };
 
-        let elements = Self::from_arrow(array.values().as_ref(), elements_are_nullable)?;
+        let elements_storage = Self::from_arrow_with_session(
+            array.values().as_ref(),
+            elements_field.is_nullable(),
+            session,
+        )?;
+        let dtypes = session.dtypes();
+        let elements =
+            wrap_extension_if_field_has_metadata(elements_storage, elements_field, &dtypes)?;
 
         // `offsets` and `sizes` are always non-nullable.
         let offsets = array.offsets().clone().into_array();
@@ -557,6 +571,12 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             }
             DataType::FixedSizeList(..) => {
                 Self::from_arrow_with_session(array.as_fixed_size_list(), nullable, session)
+            }
+            DataType::ListView(_) => {
+                Self::from_arrow_with_session(array.as_list_view::<i32>(), nullable, session)
+            }
+            DataType::LargeListView(_) => {
+                Self::from_arrow_with_session(array.as_list_view::<i64>(), nullable, session)
             }
             // Other arrays don't carry child Fields, so session-aware dispatch is identical to
             // the legacy path; fall through to `from_arrow`.

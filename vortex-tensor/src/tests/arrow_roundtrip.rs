@@ -116,7 +116,7 @@ fn vector_record_batch_round_trip_carries_field_metadata() {
     let struct_array = StructArray::from_fields(&[("embedding", vector_array)]).unwrap();
 
     let dtype = DType::struct_([("embedding", vector_dtype(4))], Nullability::NonNullable);
-    let schema = dtype.to_arrow_schema_with_session(&SESSION).unwrap();
+    let schema = dtype.to_arrow_schema().unwrap();
     let rb = struct_array
         .into_record_batch_with_schema_with_session(&schema, &SESSION)
         .unwrap();
@@ -182,7 +182,7 @@ fn vector_record_batch_round_trip() {
     let original = StructArray::from_fields(&[("embedding", vector_array)]).unwrap();
 
     let dtype = DType::struct_([("embedding", vector_dtype(4))], Nullability::NonNullable);
-    let schema = dtype.to_arrow_schema_with_session(&SESSION).unwrap();
+    let schema = dtype.to_arrow_schema().unwrap();
     let rb = original
         .into_record_batch_with_schema_with_session(&schema, &SESSION)
         .unwrap();
