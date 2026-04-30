@@ -50,6 +50,7 @@ rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-cuda = { path = ".", features = ["_test-harness"] }
+vortex-fsst = { workspace = true, features = ["_test-harness"] }
 
 [build-dependencies]
 bindgen = { workspace = true }
@@ -97,4 +98,8 @@ harness = false
 
 [[bench]]
 name = "load_to_device_cuda"
+harness = false
+
+[[bench]]
+name = "fsst_cuda"
 harness = false
