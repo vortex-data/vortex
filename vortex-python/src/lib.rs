@@ -16,6 +16,7 @@ use pyo3_log::Caching;
 use pyo3_log::Logger;
 
 pub(crate) mod arrays;
+pub use crate::arrays::from_arrow::FromPyArrowArray;
 pub mod arrow;
 pub(crate) mod classes;
 #[cfg(feature = "tui")]
