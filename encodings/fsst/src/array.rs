@@ -189,12 +189,13 @@ impl VTable for FSST {
         metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = FSSTMetadata::decode(metadata)?;
         let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
         let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
 
+        let mut ctx = session.create_execution_ctx();
         if buffers.len() == 2 {
             return Self::deserialize_legacy(
                 self,
@@ -204,6 +205,7 @@ impl VTable for FSST {
                 &symbols,
                 &symbol_lengths,
                 children,
+                &mut ctx,
             );
         }
 
@@ -237,8 +239,6 @@ impl VTable for FSST {
                 vortex_bail!("Expected 2 or 3 children, got {}", children.len());
             };
 
-            // TODO(ctx): trait fixes - VTable::deserialize has a fixed signature.
-            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             FSSTData::validate_parts(
                 &symbols,
                 &symbol_lengths,
@@ -413,6 +413,7 @@ impl FSST {
     /// Legacy deserialization path (2 buffers): the codes were stored as a full
     /// `VarBinArray` child. We decompose the VarBinArray into its bytes (stored in
     /// FSSTData) and offsets/validity (stored in slots).
+    #[allow(clippy::too_many_arguments)]
     fn deserialize_legacy(
         &self,
         dtype: &DType,
@@ -421,6 +422,7 @@ impl FSST {
         symbols: &Buffer<Symbol>,
         symbol_lengths: &Buffer<u8>,
         children: &dyn ArrayChildren,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayParts<Self>> {
         if children.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
@@ -444,8 +446,6 @@ impl FSST {
             len,
         )?;
 
-        // TODO(ctx): trait fixes - VTable::deserialize has a fixed signature.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         FSSTData::validate_parts_from_codes(
             symbols,
             symbol_lengths,
@@ -453,7 +453,7 @@ impl FSST {
             &uncompressed_lengths,
             dtype,
             len,
-            &mut ctx,
+            ctx,
         )?;
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();

@@ -8,7 +8,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use crate::types::fixed_shape::FixedShapeTensorMetadata;
+use crate::types::fixed_shape_tensor::FixedShapeTensorMetadata;
 
 /// Protobuf representation of [`FixedShapeTensorMetadata`].
 ///

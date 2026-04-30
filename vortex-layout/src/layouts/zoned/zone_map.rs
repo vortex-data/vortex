@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use vortex_array::ArrayRef;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
@@ -103,7 +102,7 @@ impl ZoneMap {
             return applied.execute::<Mask>(&mut ctx);
         }
 
-        let row_count_array = row_count_array(self.zone_len, self.row_count, num_zones, &mut ctx)?;
+        let row_count_array = row_count_array(self.zone_len, self.row_count, num_zones)?;
         let substituted = substitute_row_count(applied, &row_count_array)?;
         substituted.execute::<Mask>(&mut ctx)
     }
@@ -114,12 +113,7 @@ impl ZoneMap {
 /// `zone_len` is the nominal zone size; only the final zone may be shorter. The
 /// result is a [`ConstantArray`] for uniform zone sizes, otherwise a two-run
 /// run-end encoded array whose trailing run carries the final zone length.
-fn row_count_array(
-    zone_len: u64,
-    row_count: u64,
-    num_zones: usize,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
+fn row_count_array(zone_len: u64, row_count: u64, num_zones: usize) -> VortexResult<ArrayRef> {
     let last_zone_len = row_count - zone_len.saturating_mul((num_zones as u64) - 1);
     if num_zones == 1 || last_zone_len == zone_len {
         return Ok(ConstantArray::new(last_zone_len, num_zones).into_array());
@@ -139,7 +133,7 @@ fn row_count_array(
 
     // SAFETY: `ends` are strictly increasing, terminate at `num_zones`, and align one-to-one
     // with the non-null run values.
-    Ok(unsafe { RunEnd::new_unchecked(ends, values, 0, num_zones, ctx) }.into_array())
+    Ok(unsafe { RunEnd::new_unchecked(ends, values, 0, num_zones) }.into_array())
 }
 
 #[cfg(test)]

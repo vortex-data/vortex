@@ -65,7 +65,7 @@ use crate::utils::validate_binary_tensor_float_inputs;
 /// Both inputs must be tensor-like extension arrays ([`FixedShapeTensor`] or [`Vector`]) with the
 /// same dtype and a float element type. The output is a float column of the same float type.
 ///
-/// [`FixedShapeTensor`]: crate::fixed_shape::FixedShapeTensor
+/// [`FixedShapeTensor`]: crate::fixed_shape_tensor::FixedShapeTensor
 /// [`Vector`]: crate::vector::Vector
 #[derive(Clone)]
 pub struct InnerProduct;

@@ -4,8 +4,6 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
@@ -16,38 +14,35 @@ use crate::alp_rd::ALPRD;
 
 impl CastReduce for ALPRD {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        // ALPRDArray stores floating-point values, so only cast between float types
-        // or if just changing nullability
-
         // Check if this is just a nullability change
-        if array.dtype().eq_ignore_nullability(dtype) {
-            // For nullability-only changes, we need to cast the left_parts array
-            // since it carries the validity information
-            let new_left_parts = array.left_parts().cast(
-                array
-                    .left_parts()
-                    .dtype()
-                    .with_nullability(dtype.nullability()),
-            )?;
+        if !array.dtype().eq_ignore_nullability(dtype) {
+            return Ok(None);
+        }
 
-            // NOTE: `CastReduce::cast` has a fixed trait signature without `ExecutionCtx`, so we
-            // construct a legacy ctx locally at this trait boundary.
-            return Ok(Some(
-                ALPRD::try_new(
+        // For nullability-only changes, we need to cast the left_parts array
+        // since it carries the validity information
+        let new_left_parts = array.left_parts().cast(
+            array
+                .left_parts()
+                .dtype()
+                .with_nullability(dtype.nullability()),
+        )?;
+
+        // NOTE: `CastReduce::cast` has a fixed trait signature without `ExecutionCtx`, so we
+        // construct a legacy ctx locally at this trait boundary.
+        Ok(Some(
+            unsafe {
+                ALPRD::new_unchecked(
                     dtype.clone(),
                     new_left_parts,
                     array.left_parts_dictionary().clone(),
                     array.right_parts().clone(),
                     array.right_bit_width(),
                     array.left_parts_patches(),
-                    &mut LEGACY_SESSION.create_execution_ctx(),
-                )?
-                .into_array(),
-            ));
-        }
-
-        // For other casts (e.g., f32 to f64), decode to canonical and let PrimitiveArray handle it
-        Ok(None)
+                )
+            }
+            .into_array(),
+        ))
     }
 }
 
@@ -99,12 +94,17 @@ mod tests {
         let encoder = RDEncoder::new(&values);
         let alprd = encoder.encode(arr.as_view(), &mut ctx);
 
-        // Cast to NonNullable should fail since we have nulls
+        // Cast to NonNullable should fail since we have nulls. The failure surfaces during
+        // execution since the reduce path defers when the validity stat is not cached.
         let result = alprd
             .clone()
             .into_array()
-            .cast(DType::Primitive(PType::F64, Nullability::NonNullable));
-        assert!(result.is_err());
+            .cast(DType::Primitive(PType::F64, Nullability::NonNullable))
+            .and_then(|a| {
+                a.execute::<PrimitiveArray>(&mut ctx)
+                    .map(|p| p.into_array())
+            });
+        assert!(result.is_err(), "Expected error, got: {result:?}");
 
         // Cast to same type with Nullable should succeed
         let casted = alprd
