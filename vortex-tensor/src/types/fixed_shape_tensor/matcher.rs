@@ -8,8 +8,8 @@ use vortex_array::dtype::extension::Matcher;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
-use crate::types::fixed_shape::FixedShapeTensor;
-use crate::types::fixed_shape::FixedShapeTensorMetadata;
+use crate::types::fixed_shape_tensor::FixedShapeTensor;
+use crate::types::fixed_shape_tensor::FixedShapeTensorMetadata;
 
 pub struct AnyFixedShapeTensor;
 

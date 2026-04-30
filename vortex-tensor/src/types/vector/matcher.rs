@@ -101,8 +101,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::types::fixed_shape::FixedShapeTensor;
-    use crate::types::fixed_shape::FixedShapeTensorMetadata;
+    use crate::types::fixed_shape_tensor::FixedShapeTensor;
+    use crate::types::fixed_shape_tensor::FixedShapeTensorMetadata;
 
     fn vector_storage_dtype(element_ptype: PType, dimensions: u32) -> DType {
         DType::FixedSizeList(
