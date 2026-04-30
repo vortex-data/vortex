@@ -184,9 +184,11 @@ fn vector_record_batch_round_trip() {
     let dtype = DType::struct_([("embedding", vector_dtype(4))], Nullability::NonNullable);
     let schema = dtype.to_arrow_schema().unwrap();
     let rb = original
+        .clone()
         .into_record_batch_with_schema_with_session(&schema, &SESSION)
         .unwrap();
 
     let recovered = ArrayRef::from_arrow_with_session(rb, false, &SESSION).unwrap();
     assert_eq!(recovered.dtype(), &dtype);
+    vortex_array::assert_arrays_eq!(recovered, original.into_array());
 }

@@ -52,6 +52,7 @@ use crate::arrow::executor::temporal::to_arrow_temporal;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
+use crate::extension::datetime::AnyTemporal;
 
 /// Trait for executing a Vortex array to produce an Arrow array.
 pub trait ArrowArrayExecutor: Sized {
@@ -98,10 +99,13 @@ impl ArrowArrayExecutor for ArrayRef {
             None => preferred_arrow_type(&self)?,
         };
 
-        // Non-temporal extension identity lives on Field metadata; dispatch on the storage
-        // array. Temporal extensions are kept intact because `to_arrow_temporal` reads
-        // `TemporalMetadata` off the extension dtype.
-        if matches!(self.dtype(), DType::Extension(_)) && !resolved_type.is_temporal() {
+        // Extensions with a native Arrow mapping (temporal) keep their wrapper so
+        // `to_arrow_temporal` can read the metadata. Other extensions carry identity in
+        // Field metadata, so dispatch on the storage array. Mirror the discriminator used
+        // by `field_from_dtype` / `native_arrow_dtype_for_extension` in `dtype/arrow.rs`.
+        if let DType::Extension(ext) = self.dtype()
+            && ext.metadata_opt::<AnyTemporal>().is_none()
+        {
             let ext = self.execute::<ExtensionArray>(ctx)?;
             return ext.storage_array().clone().execute_arrow(data_type, ctx);
         }

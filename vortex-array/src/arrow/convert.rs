@@ -578,8 +578,11 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             DataType::LargeListView(_) => {
                 Self::from_arrow_with_session(array.as_list_view::<i64>(), nullable, session)
             }
-            // Other arrays don't carry child Fields, so session-aware dispatch is identical to
-            // the legacy path; fall through to `from_arrow`.
+            // Remaining arrays don't carry child Fields we honor here.
+            // Note: Dictionary recurses into `values()` via `from_arrow` (no session), so an
+            // extension Field nested inside a struct/list-typed dictionary value would be
+            // silently dropped. Vortex uses Dictionary almost exclusively for primitive
+            // values, so this is acceptable in practice — fix when a real case appears.
             _ => Self::from_arrow(array, nullable),
         }
     }

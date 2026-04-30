@@ -33,6 +33,7 @@ prost = { workspace = true }
 [dev-dependencies]
 arrow-schema = { workspace = true }
 divan = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
 mimalloc = { workspace = true }
 rand = { workspace = true }
 rand_distr = { workspace = true }
