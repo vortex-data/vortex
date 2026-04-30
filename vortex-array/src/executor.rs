@@ -1,22 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! The execution engine: iteratively transforms arrays toward canonical form.
+//! Iterative array execution.
 //!
-//! Execution proceeds through four layers tried in order on each iteration:
+//! The single-step [`Executable`] implementation for [`ArrayRef`] tries `reduce`,
+//! `reduce_parent`, `execute_parent`, then `execute` once. The matcher-driven
+//! [`ArrayRef::execute_until`] loop interprets [`ExecutionStep::ExecuteSlot`],
+//! [`ExecutionStep::AppendChild`], and [`ExecutionStep::Done`] using an explicit stack plus an
+//! optional builder, so encodings can advance without recursive descent.
 //!
-//! 1. **`reduce`** -- metadata-only self-rewrite (cheapest).
-//! 2. **`reduce_parent`** -- metadata-only child-driven parent rewrite.
-//! 3. **`execute_parent`** -- child-driven fused execution (may read buffers).
-//! 4. **`execute`** -- the encoding's own decode step (most expensive).
-//!
-//! The main entry point is [`ArrayRef::execute_until`], which uses an explicit work stack
-//! to drive execution iteratively without recursion. Between steps, the optimizer runs
-//! reduce/reduce_parent rules to fixpoint using the active [`ExecutionCtx`] session, so
-//! session-registered optimizer kernels participate during execution.
-//!
-//! See <https://docs.vortex.dev/developer-guide/internals/execution> for a full description
-//! of the model.
+//! See <https://docs.vortex.dev/developer-guide/internals/execution> for the full execution
+//! narrative, diagrams, and walkthroughs.
 
 use std::env::VarError;
 use std::fmt;
@@ -91,70 +85,72 @@ impl ArrayRef {
     }
 
     /// Iteratively execute this array until the [`Matcher`] matches, using an explicit work
-    /// stack.
+    /// stack plus an optional builder for `AppendChild`.
     ///
     /// Note: the returned array may not match `M`. If execution converges to a canonical form
     /// that does not match `M`, the canonical array is returned since no further execution
     /// progress is possible.
     ///
-    /// For safety, we will error when the number of execution iterations reaches a configurable
-    /// maximum (default 128, override with `VORTEX_MAX_ITERATIONS`).
+    /// For safety, this errors once execution reaches a configurable maximum number of
+    /// iterations (default `2^22`, override with `VORTEX_MAX_ITERATIONS`).
     ///
-    /// # Execution model
+    /// # Loop state
     ///
-    /// The executor maintains two pieces of mutable state: `current_array` (the array
-    /// being worked on) and `stack` (suspended parent frames from `ExecuteSlot`).
-    /// When an `AppendChild` step is active, a `current_builder` accumulates results.
+    /// - `current_array: ArrayRef` -- the array currently in focus.
+    /// - `current_builder: Option<Box<dyn ArrayBuilder>>` -- active only for builder-mode
+    ///   execution. `AppendChild` appends detached children here. `Done` finishes the builder
+    ///   and turns it back into the next `current_array`.
+    /// - `stack: Vec<StackFrame>` -- suspended parents from `ExecuteSlot`, including the
+    ///   detached slot index, its [`DonePredicate`], and the parent builder that was active
+    ///   before focus moved into the child.
     ///
-    /// Consider a tree where `ExecuteSlot` has pushed a parent onto the stack:
+    /// Example after `ExecuteSlot(1, pred)` has focused slot 1 of a parent:
     ///
     /// ```text
-    ///   stack[0].parent_array:
-    ///     RunEnd                          <-- PARENT (suspended on stack)
+    ///   stack[top].parent_array:
+    ///     RunEnd                          <-- suspended parent
     ///     +-- slot 0: ends
     ///     +-- slot 1: _  (detached)
     ///
     ///   current_array:
-    ///     DictEncoding                    <-- CHILD (executor focus)
+    ///     DictEncoding                    <-- focused child
     ///     +-- slot 0: codes
     ///     +-- slot 1: dictionary
+    ///
+    ///   current_builder:
+    ///     None
     /// ```
     ///
-    /// Each iteration tries these steps in order on `current_array`:
-    ///
-    /// **Step 1 — done check**: if `current_array` satisfies the matcher (or is
-    /// canonical), pop the stack frame and reassemble the parent with the resolved
-    /// child via `put_slot_unchecked`.
-    ///
-    /// **Step 2a — `execute_parent` (stack)**: ask `current_array` (the child) whether
-    /// it can rewrite the suspended parent on the stack. For example, a child that has
-    /// been filtered can tell a RunEnd parent to fuse the filter, replacing both parent
-    /// and child with a single new array. Skipped when a builder is active (the current
-    /// array has been partially consumed by `AppendChild`).
+    /// Each loop iteration works like this:
     ///
     /// ```text
-    ///   current_array.execute_parent(&stack_parent, slot_idx)
-    ///       child looks UP at suspended parent
-    ///       DictEncoding ---> "can I rewrite RunEnd?"
+    /// loop:
+    ///   Step 1: done(current_array)?
+    ///     - root activation   -> return current_array
+    ///     - ExecuteSlot frame -> pop, reattach child, resume parent
+    ///
+    ///   Step 2: current_builder active?
+    ///     - yes -> skip Step 2a / 2b
+    ///     - no  -> try parent kernels
+    ///
+    ///   Step 2a: current_array.execute_parent(stack.top.parent_array)
+    ///     child looks up at the suspended parent from ExecuteSlot
+    ///
+    ///   Step 2b: for child in current_array.children():
+    ///               child.execute_parent(current_array)
+    ///     each child looks up at current_array
+    ///
+    ///   Step 3: match current_array.execute()
+    ///     ExecuteSlot(i, pred) -> push parent on stack, focus child `i`
+    ///     AppendChild(i)       -> detach child `i`, append it into current_builder,
+    ///                             keep parent as current_array
+    ///     Done                 -> finish current_builder if present, else use returned array
     /// ```
     ///
-    /// **Step 2b — `execute_parent` (self)**: iterate `current_array`'s own children
-    /// and ask each whether it can rewrite `current_array` (their parent). Skipped
-    /// when a builder is active for the same reason as 2a.
-    ///
-    /// ```text
-    ///   for child in current_array.children():
-    ///       child.execute_parent(&current_array, slot_idx)
-    ///           children look UP at current_array
-    ///           codes -------> "can I rewrite DictEncoding?"
-    ///           dictionary --> "can I rewrite DictEncoding?"
-    /// ```
-    ///
-    /// **Step 3 — `execute`**: call the encoding's own decode step. Returns one of:
-    ///   - `ExecuteSlot(i)`: push `current_array` onto the stack, focus on child `i`.
-    ///   - `AppendChild(i)`: detach child `i`, append it into the builder, keep
-    ///     `current_array` as the parent for the next iteration.
-    ///   - `Done`: finalize (builder if present, otherwise the returned array).
+    /// Step 2a and Step 2b are skipped while `current_builder` is active. `AppendChild`
+    /// partially consumes `current_array`: some slots already live in the builder, so a
+    /// parent rewrite would observe inconsistent state and could discard accumulated builder
+    /// data.
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
@@ -183,7 +179,7 @@ impl ArrayRef {
                 }
             }
 
-            // execute_parent against stack parent
+            // Step 2a: execute_parent against the suspended parent from ExecuteSlot.
             //
             // When executing a child for ExecuteSlot, try execute_parent against
             // the suspended parent on the stack. This lets kernels like RunEnd's
@@ -208,9 +204,7 @@ impl ArrayRef {
                 continue;
             }
 
-            // execute_parent
-            //
-            // Skip execute_parent with child.
+            // Step 2b: execute_parent against current_array's own children.
             if current_builder.is_none()
                 && let Some(rewritten) = try_execute_parent(&current_array, ctx)?
             {
@@ -550,59 +544,59 @@ fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
 /// A predicate that determines when an array has reached a desired form during execution.
 pub type DonePredicate = fn(&ArrayRef) -> bool;
 
-/// Metadata-only step indicator returned alongside an array in [`ExecutionResult`].
+/// Scheduler step indicator returned alongside an array in [`ExecutionResult`].
 ///
 /// Instead of recursively executing children, encodings return an `ExecutionStep` that tells the
 /// scheduler what to do next. This enables the scheduler to manage execution iteratively using
-/// an explicit work stack, run cross-step optimizations, and cache shared sub-expressions.
+/// an explicit work stack plus an optional builder.
 ///
 /// # Semantics
 ///
 /// Each variant describes a different execution strategy with distinct cost profiles:
 ///
-/// - [`Done`](ExecutionStep::Done): The encoding has finished its work in this step. The
-///   returned array is the result. The scheduler may continue executing if the target form
-///   (e.g. canonical) has not yet been reached.
+/// - [`Done`](ExecutionStep::Done): The current activation has finished its work. If no builder
+///   is active, the returned array is the result. If a builder is active, the scheduler ignores
+///   the placeholder array and finishes the builder instead. The scheduler may continue
+///   executing if the target form (e.g. canonical) has not yet been reached.
 ///
 /// - [`ExecuteSlot`](ExecutionStep::ExecuteSlot): The encoding needs one of its children
-///   decoded before it can make further progress. The scheduler takes ownership of the child,
-///   executes it until the [`DonePredicate`] matches, puts it back, and re-enters the parent.
-///   Between steps the optimizer runs reduce/reduce_parent rules to fixpoint, enabling
-///   cross-step optimization (e.g. pushing scalar functions through newly-decoded children).
-///   This is a cooperative yield — the encoding does a bounded amount of work per step.
+///   decoded before it can make further progress. The scheduler detaches that child, pushes
+///   the parent onto the explicit stack, executes the child until the [`DonePredicate`]
+///   matches, puts it back, and re-enters the parent. This is a cooperative yield: the
+///   encoding does a bounded amount of work per step while the loop tracks the parent-child
+///   relationship explicitly.
 ///
 /// - [`AppendChild`](ExecutionStep::AppendChild): The encoding needs one child executed to
 ///   canonical form and then appended into a builder owned by the current activation. The
-///   scheduler suspends the parent, executes the child, appends the finished child into the
-///   parent's builder, and then resumes the same parent so it can continue with more
-///   `AppendChild` or `ExecuteSlot` steps. **Important:** in the single-step executor
-///   ([`Executable`] for [`ArrayRef`]), returning `AppendChild` still causes the executor to
-///   drive the *entire* array to completion via [`execute_into_builder`] in one call — this can
-///   do significantly more work than a single `ExecuteSlot` step.
+///   scheduler detaches that child, lazily creates `current_builder` if needed, appends the
+///   child into it, and keeps the parent as `current_array` for the next iteration. While the
+///   builder is active, parent-kernel rewrites are skipped because the parent is partially
+///   consumed. **Important:** in the single-step executor ([`Executable`] for [`ArrayRef`]),
+///   returning `AppendChild` still causes the executor to drive the *entire* array to
+///   completion via [`execute_into_builder`] in one call — this can do significantly more
+///   work than a single `ExecuteSlot` step.
 pub enum ExecutionStep {
     /// Request that the scheduler execute the slot at the given index, using the provided
     /// [`DonePredicate`] to determine when the slot is "done", then replace the slot in this
     /// array and re-enter execution.
     ///
-    /// Between steps, the scheduler runs reduce/reduce_parent rules to fixpoint, enabling
-    /// cross-step optimization (e.g., pushing scalar functions through newly-decoded children).
-    ///
     /// Use [`ExecutionResult::execute_slot`] instead of constructing this variant directly.
     ExecuteSlot(usize, DonePredicate),
 
-    /// Execute the slot at the given index to canonical form, then append it into a canonical
-    /// builder owned by the current activation.
+    /// Detach the slot at the given index, append that child into the current activation's
+    /// canonical builder, and keep the returned parent as `current_array`.
     ///
-    /// The parent activation remains suspended with its builder while the child executes. Once
-    /// the child reaches canonical form, the scheduler appends it into the parent builder and
-    /// resumes the same parent activation.
+    /// `Done` finalizes that builder and turns it into the result of the activation.
     ///
     /// **Note:** In the single-step executor ([`Executable`] for [`ArrayRef`]), this variant
     /// drives the entire parent to completion in one call via [`execute_into_builder`], which
     /// may perform substantially more work than a single `ExecuteSlot` step.
     AppendChild(usize),
 
-    /// Execution is complete. The array in the accompanying [`ExecutionResult`] is the result.
+    /// Execution is complete. If no builder is active, the array in the accompanying
+    /// [`ExecutionResult`] is the result. Otherwise, the scheduler finalizes the active
+    /// builder and uses that finished array instead.
+    ///
     /// The scheduler will continue executing if it has not yet reached the target form.
     Done,
 }
@@ -645,8 +639,9 @@ impl ExecutionResult {
         }
     }
 
-    /// Request that the child slot at `slot_idx` be executed and appended into the current
-    /// activation's canonical builder.
+    /// Request that the child slot at `slot_idx` be detached, appended into the current
+    /// activation's canonical builder, and leave the returned parent as the next
+    /// `current_array`.
     pub fn append_child(array: impl IntoArray, slot_idx: usize) -> Self {
         Self {
             array: array.into_array(),

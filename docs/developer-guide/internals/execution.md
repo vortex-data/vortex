@@ -60,44 +60,31 @@ support constant vectors directly, avoiding unnecessary expansion.
 
 ## Execution Overview
 
-The `execute_until<M: Matcher>` method on `ArrayRef` drives execution. The scheduler is
-iterative: it rewrites and executes arrays in small steps until the current array matches the
-requested target form.
+Execution has two closely related entry points:
 
-At a high level, each iteration works like this:
+- `ArrayRef::execute::<ArrayRef>` is the single-step executor. It tries `reduce`,
+  `reduce_parent`, `execute_parent`, then `execute` once.
+- `ArrayRef::execute_until<M>` is the matcher-driven loop used by `Canonical`, `Columnar`,
+  and other target executors. It repeatedly interprets `ExecutionStep` until the current
+  activation matches `M` or no further progress is possible.
 
-1. `optimize(current)` runs metadata-only rewrites to fixpoint:
-   `reduce` lets an array simplify itself, and `reduce_parent` lets a child rewrite its parent.
-2. If optimization does not finish execution, each child gets a chance to `execute_parent`,
-   meaning "execute my parent's operation using my representation".
-3. If no child can do that, the array's own `execute` method returns the next `ExecutionStep`.
+`VTable::execute` never recursively descends into children on its own. Instead it returns an
+`ExecutionResult` containing an `ExecutionStep` that tells `execute_until` what to do next.
 
-This keeps execution iterative rather than recursive, and it gives optimization rules another
-chance to fire after every structural or computational step.
+The loop carries three mutable pieces of state:
+
+- `current_array: ArrayRef` -- the array currently in focus.
+- `current_builder: Option<Box<dyn ArrayBuilder>>` -- active only for the builder path.
+  `AppendChild` appends detached children here, and `Done` finalizes the builder.
+- `stack: Vec<StackFrame>` -- suspended parents from `ExecuteSlot`, including the detached
+  slot index, its `DonePredicate`, and the parent builder that was active before focus moved
+  into the child.
 
 ## The Four Layers
 
-The execution model has four layers, but they are not all invoked in the same way. Layers 1 and
-2 make up `optimize`, which runs to fixpoint before and after execution steps. Layers 3 and 4
-run only after optimization has stalled.
-
-```
-execute_until(root):
-  current = optimize(root)             # Layers 1-2 to fixpoint
-
-  loop:
-    if current matches target:
-      return / reattach to parent
-
-    Layer 3: try execute_parent on each child
-      if one succeeds:
-        current = optimize(result)
-        continue
-
-    Layer 4: call execute(current)
-      ExecuteChild(i, pred) -> focus child[i], then optimize
-      Done                  -> current = optimize(result)
-```
+Encodings can contribute logic in four places. The single-step executor can touch all four.
+The iterative `execute_until` loop revisits Layers 3 and 4 directly, using `ExecuteSlot`,
+`AppendChild`, and `Done` to move focus around the tree.
 
 ### Layer 1: `reduce` -- self-rewrite rules
 
@@ -162,66 +149,92 @@ containing an `ExecutionStep` that tells the scheduler what to do next:
 
 ```rust
 pub enum ExecutionStep {
-    /// Ask the scheduler to execute child[idx] until it matches the predicate,
-    /// then replace the child and re-enter execution for this array.
-    ExecuteChild(usize, DonePredicate),
+    /// Push the parent onto the stack, focus a single child, and resume the
+    /// parent once that child matches the predicate.
+    ExecuteSlot(usize, DonePredicate),
 
-    /// Execution is complete. The array in the ExecutionResult is the result.
+    /// Detach a child, append it into the current activation's builder, and
+    /// keep the parent as current_array for the next iteration.
+    AppendChild(usize),
+
+    /// Execution is complete. If a builder is active, it is finalized here.
     Done,
 }
 ```
 
+- `ExecuteSlot(i, pred)` detaches slot `i`, pushes the parent onto `stack`, and makes that
+  child the new `current_array` until `pred` says it is done.
+- `AppendChild(i)` detaches slot `i`, appends that child into `current_builder`, and keeps
+  the returned parent as `current_array` for the next iteration.
+- `Done` finishes the current activation. If `current_builder` is active, the builder is
+  finalized and its finished array becomes the result of this activation.
+
 ## The Execution Loop
 
-The full `execute_until<M: Matcher>` loop uses an explicit work stack to manage
-parent-child relationships without recursion:
+The full `execute_until<M: Matcher>` loop uses an explicit work stack and an optional builder
+to manage parent-child relationships without recursion.
 
 ```
 execute_until<M>(root):
+  current_array = root
+  current_builder = None
   stack = []
-  current = optimize(root)
 
   loop:
-    ┌─────────────────────────────────────────────────────┐
-    │ Is current "done"?                                  │
-    │   (matches M if at root, or matches the stack       │
-    │    frame's DonePredicate if inside a child)         │
-    ├──────────────────────┬──────────────────────────────┘
+    ┌──────────────────────────────────────────────────────────────┐
+    │ Step 1: is current_array "done"?                            │
+    │   (matches M at the root, or the stack frame's              │
+    │    DonePredicate inside ExecuteSlot)                        │
+    ├──────────────────────┬───────────────────────────────────────┘
     │ yes                  │ no
     │                      │
-    │  stack empty?        │  Already canonical?
-    │  ├─ yes → return     │  ├─ yes → pop stack (can't make more progress)
-    │  └─ no  → pop frame, │  └─ no  → continue to execution steps
-    │     replace child,   │
-    │     optimize, loop   │
-    │                      ▼
-    │         ┌────────────────────────────────────┐
-    │         │  Try execute_parent on each child  │
-    │         │  (Layer 3 parent kernels)          │
-    │         ├────────┬───────────────────────────┘
-    │         │ Some   │ None
-    │         │        │
-    │         │        ▼
-    │         │  ┌─────────────────────────────────┐
-    │         │  │  Call execute (Layer 4)         │
-    │         │  │  Returns ExecutionResult        │
-    │         │  ├────────┬────────────────────────┘
-    │         │  │        │
-    │         │  │  ExecuteChild(i, pred)?
-    │         │  │  ├─ yes → push (array, i, pred)
-    │         │  │  │        current = child[i]
-    │         │  │  │        optimize, loop
-    │         │  │  └─ Done → current = result
-    │         │  │            loop
-    │         │  │
-    │         ▼  ▼
-    │    optimize result, loop
-    └──────────────────────────
+    │  stack empty?        │  current_builder active?
+    │  ├─ yes → return     │  ├─ yes → skip Step 2a / 2b
+    │  └─ no  → pop frame, │  └─ no
+    │     reattach child,  │
+    │     restore builder, │
+    │     loop             ▼
+    │         ┌────────────────────────────────────────────┐
+    │         │ Step 2a: current_array.execute_parent(     │
+    │         │            stack.top.parent_array )        │
+    │         │ child looks UP at the suspended parent     │
+    │         ├────────────┬───────────────────────────────┘
+    │         │ Some       │ None
+    │         │            │
+    │         │            ▼
+    │         │  ┌─────────────────────────────────────────┐
+    │         │  │ Step 2b: each child.execute_parent(     │
+    │         │  │            current_array )              │
+    │         │  │ children look UP at current_array       │
+    │         │  ├──────────┬──────────────────────────────┘
+    │         │  │ Some     │ None
+    │         │  │          │
+    │         │  │          ▼
+    │         │  │  ┌──────────────────────────────────────┐
+    │         │  │  │ Step 3: current_array.execute()      │
+    │         │  │  ├──────────────┬───────────────────────┘
+    │         │  │  │              │
+    │         │  │  │ ExecuteSlot(i, pred)
+    │         │  │  │   -> push parent + builder
+    │         │  │  │   -> current_array = child[i]
+    │         │  │  │   -> current_builder = None
+    │         │  │  │
+    │         │  │  │ AppendChild(i)
+    │         │  │  │   -> ensure current_builder
+    │         │  │  │   -> child.append_to_builder(...)
+    │         │  │  │   -> current_array = parent
+    │         │  │  │
+    │         │  │  │ Done
+    │         │  │  │   -> finish current_builder if present
+    │         │  │  │   -> otherwise use returned array
+    │         ▼  ▼  ▼
+    │    continue loop with rewritten or finished array
+    └──────────────────────────────────────────────────────
 ```
 
-Note that `optimize` runs after every transformation. This is what enables cross-step
-optimizations: after a child is decoded, new `reduce_parent` rules may now match that were
-previously blocked.
+Step 2a and Step 2b are skipped while `current_builder` is active. `AppendChild` partially
+consumes `current_array`: some slots already live in the builder, so a parent rewrite would
+observe inconsistent state and could discard accumulated builder data.
 
 ## Incremental Execution
 
@@ -242,8 +255,9 @@ If execution jumped straight to canonicalizing the dict's children, it would exp
 codes through the slice, missing the Dict-RLE optimization entirely. Incremental execution
 avoids this:
 
-1. First iteration: the slice `execute_parent` (parent kernel on RunEnd for Slice) performs a
-   binary search on run ends, returning a new `RunEndArray` with adjusted offsets.
+1. First iteration: the slice `execute` returns `ExecuteSlot` for its `RunEndArray` child.
+   Once that child is in focus, Step 2a gives it a chance to rewrite the suspended slice
+   parent before the child is forced toward canonical form.
 
 2. Second iteration: the `RunEndArray` codes child now matches the Dict-RLE pattern. Its
    `execute_parent` provides a fused kernel that expands runs while performing dictionary
@@ -259,43 +273,95 @@ Input:  RunEndArray { ends: [3, 7, 10], values: [A, B, C], len: 10 }
 Goal:   Canonical (PrimitiveArray or similar)
 
 Iteration 1:
-  reduce?         → None (no self-rewrite rules match)
-  reduce_parent?  → None (no parent, this is root)
-  execute_parent? → None (no parent)
-  execute         → ends are not Primitive yet?
-                    ExecuteChild(0, Primitive::matches)
+  Step 1          → not done
+  Step 2a         → skipped (root, no stacked parent)
+  Step 2b         → None
+  Step 3          → ends are not Primitive yet?
+                    ExecuteSlot(0, Primitive::matches)
                     Stack: [(RunEnd, child_idx=0, Primitive::matches)]
                     Focus on: ends
+                    current_builder = None
 
 Iteration 2:
-  Current: ends array
-  Already Primitive? → yes, done.
-  Pop stack → replace child 0 in RunEnd, optimize.
+  Step 1          → done (ends already match Primitive)
+                    Pop stack → replace child 0 in RunEnd
 
 Iteration 3:
-  reduce?         → None
-  reduce_parent?  → None
-  execute_parent? → None
-  execute         → values are not Canonical yet?
-                    ExecuteChild(1, AnyCanonical::matches)
+  Step 1          → not done
+  Step 2a         → skipped (root again after the pop)
+  Step 2b         → None
+  Step 3          → values are not Canonical yet?
+                    ExecuteSlot(1, AnyCanonical::matches)
                     Stack: [(RunEnd, child_idx=1, AnyCanonical::matches)]
                     Focus on: values
 
 Iteration 4:
-  Current: values array
-  Already Canonical? → yes, done.
-  Pop stack → replace child 1 in RunEnd, optimize.
+  Step 1          → done (values already match AnyCanonical)
+                    Pop stack → replace child 1 in RunEnd
 
 Iteration 5:
-  reduce?         → None
-  reduce_parent?  → None
-  execute_parent? → None
-  execute         → all children ready, decode runs:
+  Step 1          → not done
+  Step 2a         → skipped (root)
+  Step 2b         → None
+  Step 3          → all children ready, decode runs:
                     [A, A, A, B, B, B, B, C, C, C]
                     Done → return PrimitiveArray
 
 → Result: PrimitiveArray [A, A, A, B, B, B, B, C, C, C]
 ```
+
+## Walkthrough: Executing a Chunked Bool Array via `AppendChild`
+
+`Chunked` uses the builder path for most dtypes. Instead of focusing one child as the new
+`current_array`, it detaches one chunk at a time, appends it into `current_builder`, and keeps
+the `ChunkedArray` itself as the active parent:
+
+```
+Input:  Chunked {
+          chunks[0] = Bool[true, false],
+          chunks[1] = Bool[false],
+          chunks[2] = Bool[true, true],
+        }
+Goal:   Canonical BoolArray
+
+Iteration 1:
+  Step 1          → not done
+  Step 2a         → skipped (root, no stacked parent)
+  Step 2b         → None
+  Step 3          → AppendChild(1)
+                    create current_builder = BoolBuilder []
+                    append chunks[0]
+                    current_array = Chunked(next_builder_slot = 2)
+                    current_builder = BoolBuilder [true, false]
+
+Iteration 2:
+  Step 1          → not done
+  Step 2a / 2b    → skipped (builder active; current_array is partially consumed)
+  Step 3          → AppendChild(2)
+                    append chunks[1]
+                    current_array = Chunked(next_builder_slot = 3)
+                    current_builder = BoolBuilder [true, false, false]
+
+Iteration 3:
+  Step 1          → not done
+  Step 2a / 2b    → skipped
+  Step 3          → AppendChild(3)
+                    append chunks[2]
+                    current_array = Chunked(next_builder_slot = 4)
+                    current_builder = BoolBuilder [true, false, false, true, true]
+
+Iteration 4:
+  Step 1          → not done
+  Step 2a / 2b    → skipped
+  Step 3          → Done
+                    finish current_builder
+                    result = BoolArray [true, false, false, true, true]
+
+→ Result: BoolArray [true, false, false, true, true]
+```
+
+When `current_builder` is active, the array returned alongside `Done` is just the signal that
+the parent activation has finished. The actual result comes from finalizing the builder.
 
 ## Implementing an Encoding: Where Does My Logic Go?
 
@@ -317,7 +383,7 @@ Rules of thumb:
   knows how to handle its parent's operation more efficiently than the parent knows how to handle
   the child.
 - Treat `execute` as the fallback. If no reduce rule or parent kernel applies, the encoding
-  decodes itself and uses `ExecuteChild` to request child execution when needed.
+  decodes itself and uses `ExecuteSlot` or `AppendChild` to tell the scheduler what to do next.
 
 ## Future Work
 
