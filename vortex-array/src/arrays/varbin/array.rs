@@ -320,7 +320,10 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
     }
 
     fn varbin_validity(&self) -> Validity {
-        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
+        child_to_validity(
+            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.nullability(),
+        )
     }
 
     fn offset_at(&self, index: usize) -> usize {

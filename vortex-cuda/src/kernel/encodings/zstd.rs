@@ -218,7 +218,7 @@ impl CudaExecute for ZstdExecutor {
 
 async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
     let dtype = array.dtype().clone();
-    let validity = child_to_validity(&array.as_ref().slots()[0], dtype.nullability());
+    let validity = child_to_validity(array.as_ref().slots()[0].as_ref(), dtype.nullability());
     let ZstdDataParts {
         frames,
         metadata,

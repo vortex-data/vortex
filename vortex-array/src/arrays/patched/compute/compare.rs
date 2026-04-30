@@ -53,7 +53,7 @@ impl CompareKernel for Patched {
             .execute::<Canonical>(ctx)?
             .into_bool();
 
-        let validity = child_to_validity(&result.slots()[0], result.dtype().nullability());
+        let validity = child_to_validity(result.slots()[0].as_ref(), result.dtype().nullability());
         let len = result.len();
         let BoolDataParts { bits, offset, len } = result.into_data().into_parts(len);
 

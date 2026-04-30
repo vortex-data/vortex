@@ -719,7 +719,7 @@ pub trait FSSTArrayExt: TypedArrayRef<FSST> {
             .vortex_expect("FSSTArray codes_offsets slot")
             .clone();
         let validity = child_to_validity(
-            &self.as_ref().slots()[CODES_VALIDITY_SLOT],
+            self.as_ref().slots()[CODES_VALIDITY_SLOT].as_ref(),
             self.as_ref().dtype().nullability(),
         );
         let codes_bytes = self.codes_bytes_handle().clone();
@@ -745,7 +745,7 @@ impl<T: TypedArrayRef<FSST>> FSSTArrayExt for T {}
 impl ValidityVTable<FSST> for FSST {
     fn validity(array: ArrayView<'_, FSST>) -> VortexResult<Validity> {
         Ok(child_to_validity(
-            &array.slots()[CODES_VALIDITY_SLOT],
+            array.slots()[CODES_VALIDITY_SLOT].as_ref(),
             array.dtype().nullability(),
         ))
     }

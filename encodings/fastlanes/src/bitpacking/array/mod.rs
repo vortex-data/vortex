@@ -316,10 +316,7 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
 
     #[inline]
     fn validity(&self) -> Validity {
-        child_to_validity(
-            &self.validity_child().cloned(),
-            self.as_ref().dtype().nullability(),
-        )
+        child_to_validity(self.validity_child(), self.as_ref().dtype().nullability())
     }
 
     #[inline]
