@@ -7,6 +7,11 @@
 //! - `/api/groups`, `/api/chart/{slug}`, `/health` (read API)
 //! - `/api/ingest` (gated by [`crate::auth::require_bearer`])
 //! - HTML routes contributed by [`crate::html::router`]
+//!
+//! All responses pass through [`CompressionLayer`] so HTML, JSON, and the
+//! bundled `/static/*` JS/CSS are served gzipped or brotli-encoded when the
+//! client advertises support. The landing page HTML alone is several
+//! hundred KB uncompressed, so this is the single biggest cold-load win.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -16,6 +21,7 @@ use anyhow::Result;
 use axum::Router;
 use axum::routing::get;
 use axum::routing::post;
+use tower_http::compression::CompressionLayer;
 
 use crate::api;
 use crate::auth::require_bearer;
@@ -65,5 +71,6 @@ pub fn router(state: AppState) -> Router {
         .merge(ingest_routes)
         .merge(read_routes)
         .merge(html::router())
+        .layer(CompressionLayer::new())
         .with_state(state)
 }
