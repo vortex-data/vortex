@@ -28,7 +28,6 @@ use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
-use crate::expr::stats::StatsProviderExt;
 use crate::optimizer::ArrayOptimizer;
 use crate::patches::Patches;
 use crate::scalar::Scalar;
