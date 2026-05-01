@@ -87,6 +87,7 @@ impl ScalarFnVTable for SorfTransform {
 
         let child_dtype = &arg_dtypes[0];
         let vector_metadata = child_dtype
+            .peel_lossy()
             .as_extension_opt()
             .and_then(|ext| ext.metadata_opt::<AnyVector>())
             .ok_or_else(|| {

@@ -48,6 +48,7 @@ use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_denorm::L2Denorm;
 use crate::utils::extract_flat_elements;
 use crate::utils::extract_l2_denorm_children;
+use crate::utils::peel_lossy_extension_array;
 use crate::utils::validate_tensor_float_input;
 
 /// L2 norm (Euclidean norm) of a tensor or vector column.
@@ -128,7 +129,11 @@ impl ScalarFnVTable for L2Norm {
         let input_ref = args.get(0)?;
         let row_count = args.row_count();
 
-        let ext = input_ref.dtype().as_extension();
+        // Peel a single layer of `Lossy` from the dtype so the matcher sees the underlying
+        // tensor extension transparently. The `metadata_opt::<AnyTensor>` matcher itself also
+        // peels, but doing so explicitly here keeps `as_extension`'s panic semantics intact for
+        // any future non-extension input.
+        let ext = input_ref.dtype().peel_lossy().as_extension();
         let tensor_match = ext
             .metadata_opt::<AnyTensor>()
             .vortex_expect("we already validated this in `return_dtype`");
@@ -148,7 +153,12 @@ impl ScalarFnVTable for L2Norm {
 
         // Optimize for the constant array case.
         if let Some(array) = input_ref.as_opt::<Constant>() {
-            let scalar = array.scalar().as_extension().to_storage_scalar();
+            // Peel any number of nested extension scalars (e.g. `Lossy<Vector<f32>>`) until we
+            // reach the underlying list scalar.
+            let mut scalar = array.scalar().as_extension().to_storage_scalar();
+            while scalar.dtype().is_extension() {
+                scalar = scalar.as_extension().to_storage_scalar();
+            }
 
             let Some(elements) = scalar.as_list().elements() else {
                 return Ok(ConstantArray::new(Scalar::null(norm_dtype), row_count).into_array());
@@ -172,7 +182,10 @@ impl ScalarFnVTable for L2Norm {
             return Ok(norms);
         }
 
+        // Peel one layer of `Lossy` so the kernel uniformly sees the underlying tensor-like
+        // extension array.
         let input: ExtensionArray = input_ref.execute(ctx)?;
+        let input = peel_lossy_extension_array(input, ctx)?;
         let validity = input.as_ref().validity()?;
 
         let storage = input.storage_array();
@@ -289,6 +302,7 @@ mod tests {
     use crate::types::vector::Vector;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::literal_vector_array;
+    use crate::utils::test_helpers::lossy_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
@@ -340,6 +354,23 @@ mod tests {
             ],
         )?;
         assert_close(&eval_l2_norm(arr, 2)?, &[1.0, 5.0]);
+        Ok(())
+    }
+
+    /// L2 norm over a `Lossy<Vector<f64>>` array must produce the same result as L2 norm over
+    /// the underlying `Vector<f64>` array. This exercises the `peel_lossy` call sites added in
+    /// the L2 norm kernel.
+    #[test]
+    fn lossy_vector_l2_norm_matches_unwrapped() -> VortexResult<()> {
+        let elements: &[f64] = &[
+            1.0, 0.0, 0.0, // norm = 1.0
+            3.0, 4.0, 0.0, // norm = 5.0
+        ];
+
+        let unwrapped = eval_l2_norm(vector_array(3, elements)?, 2)?;
+        let lossy = eval_l2_norm(lossy_vector_array(3, elements)?, 2)?;
+        assert_close(&lossy, &unwrapped);
+        assert_close(&lossy, &[1.0, 5.0]);
         Ok(())
     }
 

@@ -6,6 +6,7 @@
 use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_array::dtype::extension::Matcher;
+use vortex_array::extension::AnyLossy;
 
 use crate::types::fixed_shape_tensor::AnyFixedShapeTensor;
 use crate::types::fixed_shape_tensor::FixedShapeTensorMatcherMetadata;
@@ -54,6 +55,13 @@ impl Matcher for AnyTensor {
     type Match<'a> = TensorMatch<'a>;
 
     fn try_match<'a>(ext_dtype: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
+        // If this dtype is wrapped in `Lossy`, peel one layer and re-dispatch on the inner
+        // extension so kernels see the underlying tensor-like extension transparently.
+        if ext_dtype.is::<AnyLossy>() {
+            let inner = ext_dtype.storage_dtype().as_extension_opt()?;
+            return Self::try_match(inner);
+        }
+
         if let Some(metadata) = ext_dtype.metadata_opt::<AnyFixedShapeTensor>() {
             return Some(TensorMatch::FixedShapeTensor(metadata));
         }
