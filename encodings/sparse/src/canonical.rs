@@ -39,6 +39,7 @@ use vortex_array::match_each_native_ptype;
 use vortex_array::match_smallest_offset_type;
 use vortex_array::patches::Patches;
 use vortex_array::scalar::DecimalScalar;
+use vortex_array::scalar::ListScalar;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::StructScalar;
 use vortex_array::validity::Validity;
@@ -142,10 +143,10 @@ fn execute_sparse_lists(
         .values()
         .clone()
         .execute::<ListViewArray>(ctx)?;
-    let fill_scalar = array.fill_scalar().clone();
+    let fill_scalar = array.fill_scalar().as_list();
 
     let n_filled = array.len() - resolved_patches.num_patches();
-    let total_canonical_values = values.elements().len() + fill_scalar.as_list().len() * n_filled;
+    let total_canonical_values = values.elements().len() + fill_scalar.len() * n_filled;
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         match_smallest_offset_type!(total_canonical_values, |O| {
@@ -167,7 +168,7 @@ fn execute_sparse_lists(
 fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
     patch_indices: &[I],
     patch_values: ListViewArray,
-    fill_scalar: Scalar,
+    fill_scalar: ListScalar,
     values_dtype: Arc<DType>,
     len: usize,
     total_canonical_values: usize,
@@ -182,7 +183,7 @@ fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
         total_canonical_values,
         len,
     );
-    let fill_elements = list_scalar_elements_array(&fill_scalar);
+    let fill_elements = list_scalar_elements_array(fill_scalar);
     let patch_values_validity = patch_values
         .listview_validity()
         .execute_mask(patch_values.len(), ctx)
@@ -235,7 +236,7 @@ fn execute_sparse_fixed_size_list(
         .values()
         .clone()
         .execute::<FixedSizeListArray>(ctx)?;
-    let fill_scalar = array.fill_scalar().clone();
+    let fill_scalar = array.fill_scalar().as_list();
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         execute_sparse_fixed_size_list_inner::<I>(
@@ -259,7 +260,7 @@ fn execute_sparse_fixed_size_list(
 fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
     indices: &[I],
     values: FixedSizeListArray,
-    fill_scalar: Scalar,
+    fill_scalar: ListScalar,
     array_len: usize,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
@@ -275,7 +276,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
         nullability,
         array_len,
     );
-    let fill_elements = list_scalar_elements_array(&fill_scalar);
+    let fill_elements = list_scalar_elements_array(fill_scalar);
     let values_validity = values
         .validity()
         .vortex_expect("sparse fixed-size-list validity should be derivable")
@@ -316,8 +317,7 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
     builder.finish_into_fixed_size_list()
 }
 
-fn list_scalar_elements_array(scalar: &Scalar) -> Option<ArrayRef> {
-    let list = scalar.as_list();
+fn list_scalar_elements_array(list: ListScalar) -> Option<ArrayRef> {
     list.elements().map(|elements| {
         let mut builder = builder_with_capacity(list.element_dtype(), elements.len());
         for element in elements {
