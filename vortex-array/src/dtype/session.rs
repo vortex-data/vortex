@@ -13,6 +13,7 @@ use vortex_session::registry::Registry;
 
 use crate::dtype::extension::ExtDTypePluginRef;
 use crate::dtype::extension::ExtVTable;
+use crate::extension::Lossy;
 use crate::extension::datetime::Date;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::Timestamp;
@@ -36,6 +37,11 @@ impl Default for DTypeSession {
         this.register(Date);
         this.register(Time);
         this.register(Timestamp);
+
+        // Register the `Lossy` extension dtype so columns marked as Lossy can be deserialized
+        // out of files written by vortex-file (and any other path that depends on the default
+        // session registry).
+        this.register(Lossy);
 
         this
     }

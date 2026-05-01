@@ -34,7 +34,8 @@ pub enum VectorFlavor {
     /// `BtrBlocksCompressorBuilder::empty()`
     #[clap(name = "vortex-uncompressed")]
     Uncompressed,
-    /// `BtrBlocksCompressorBuilder::default().with_turboquant()`.
+    /// `BtrBlocksCompressorBuilder::default()`. TurboQuant fires when the input column is wrapped
+    /// in `Lossy<Vector<f32>>` (the dtype-level consent that gates lossy schemes).
     #[clap(name = "vortex-turboquant")]
     TurboQuant,
     // TODO(connor): We will want to add `Default` here which is just the default compressor.
@@ -90,9 +91,9 @@ impl VectorFlavor {
                     .build()
             }
             VectorFlavor::TurboQuant => {
-                let compressor = BtrBlocksCompressorBuilder::default()
-                    .with_turboquant()
-                    .build();
+                // TurboQuant is registered in the default scheme set and fires automatically when
+                // the column is wrapped in `Lossy<Vector<f32>>` (handled at ingest time).
+                let compressor = BtrBlocksCompressorBuilder::default().build();
 
                 let mut allowed: HashSet<ArrayId> = ALLOWED_ENCODINGS.clone();
                 allowed.insert(L2Denorm.id());

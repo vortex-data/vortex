@@ -68,6 +68,8 @@ pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::compress(&self, &
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::expected_compression_ratio(&self, &vortex_compressor::stats::cache::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
+pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::is_lossy(&self) -> bool
+
 pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
 pub fn vortex_tensor::encodings::turboquant::TurboQuantScheme::scheme_name(&self) -> &'static str
