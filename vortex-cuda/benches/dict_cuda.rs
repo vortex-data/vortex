@@ -34,9 +34,8 @@ use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
+use crate::bench_config::BENCH_SIZES;
 use crate::timed_launch_strategy::TimedLaunchStrategy;
-
-const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M")];
 
 /// Configuration for a dictionary benchmark specifying value and code types along with dictionary size.
 struct DictBenchConfig {
@@ -75,9 +74,9 @@ where
     C: NativePType + DeviceRepr + TryFrom<usize>,
     <C as TryFrom<usize>>::Error: Debug,
 {
-    let mut group = c.benchmark_group("dict_cuda");
+    let mut group = c.benchmark_group("cuda/dict");
 
-    for (len, len_str) in BENCH_ARGS {
+    for (len, len_str) in BENCH_SIZES {
         // Throughput is based on output size (values read from dictionary)
         group.throughput(Throughput::Bytes((len * size_of::<V>()) as u64));
 
@@ -85,11 +84,11 @@ where
 
         group.bench_with_input(
             BenchmarkId::new(
-                "dict",
                 format!(
-                    "{len_str}_{}_values_{}_codes",
+                    "{}_values_{}_codes",
                     config.value_type_name, config.code_type_name
                 ),
+                len_str,
             ),
             &dict_array,
             |b, dict_array| {
