@@ -32,13 +32,13 @@ use crate::scalar_fn::fns::pack::Pack;
 use crate::validity::Validity;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&SliceReduceAdaptor(Dict)),
     ParentRuleSet::lift(&FilterReduceAdaptor(Dict)),
     ParentRuleSet::lift(&CastReduceAdaptor(Dict)),
     ParentRuleSet::lift(&MaskReduceAdaptor(Dict)),
     ParentRuleSet::lift(&LikeReduceAdaptor(Dict)),
     ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Dict)),
 ]);
 
 /// Push down a scalar function to run only over the values of a dictionary array.

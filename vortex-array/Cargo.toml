@@ -162,6 +162,10 @@ name = "dict_unreferenced_mask"
 harness = false
 
 [[bench]]
+name = "slice_dict"
+harness = false
+
+[[bench]]
 name = "varbinview_zip"
 harness = false
 

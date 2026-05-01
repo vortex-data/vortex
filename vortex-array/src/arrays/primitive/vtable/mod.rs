@@ -94,23 +94,23 @@ impl VTable for Primitive {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let DType::Primitive(_, nullability) = dtype else {
-            vortex_bail!("Expected primitive dtype, got {dtype:?}");
-        };
+        vortex_ensure!(
+            dtype.is_primitive(),
+            "Expected primitive dtype, got {dtype}"
+        );
         vortex_ensure!(
             data.len() == len,
             "PrimitiveArray length {} does not match outer length {}",
             data.len(),
             len
         );
-        let validity = crate::array::child_to_validity(slots[0].as_ref(), *nullability);
-        if let Some(validity_len) = validity.maybe_len() {
+        if let Some(slot) = &slots[0] {
             vortex_ensure!(
-                validity_len == len,
+                slot.len() == len,
                 "PrimitiveArray validity len {} does not match outer length {}",
-                validity_len,
+                slot.len(),
                 len
-            );
+            )
         }
 
         Ok(())

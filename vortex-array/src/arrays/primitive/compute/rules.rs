@@ -16,10 +16,10 @@ use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 
 pub(crate) const RULES: ParentRuleSet<Primitive> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&SliceReduceAdaptor(Primitive)),
     ParentRuleSet::lift(&PrimitiveMaskedValidityRule),
     ParentRuleSet::lift(&CastReduceAdaptor(Primitive)),
     ParentRuleSet::lift(&MaskReduceAdaptor(Primitive)),
-    ParentRuleSet::lift(&SliceReduceAdaptor(Primitive)),
 ]);
 
 /// Rule to push down validity masking from MaskedArray parent into PrimitiveArray child.
