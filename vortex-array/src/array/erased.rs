@@ -224,11 +224,11 @@ impl ArrayRef {
     /// Execute the array to extract a scalar at the given index.
     pub fn execute_scalar(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
         vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
-        if self.is_invalid(index, ctx)? {
+        if self.dtype().is_nullable() && self.is_invalid(index, ctx)? {
             return Ok(Scalar::null(self.dtype().clone()));
         }
         let scalar = self.0.execute_scalar(self, index, ctx)?;
-        vortex_ensure!(self.dtype() == scalar.dtype(), "Scalar dtype mismatch");
+        debug_assert_eq!(self.dtype(), scalar.dtype(), "Scalar dtype mismatch");
         Ok(scalar)
     }
 
