@@ -66,6 +66,15 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
         None
     }
 
+    /// Whether columns of this extension type may be wrapped in a `Lossy` extension type.
+    ///
+    /// Implementors that store float-shaped data (e.g. fixed-size lists of floats) may opt in
+    /// by overriding this to return `true`. The default is `false`, which is the safe choice
+    /// for any extension type whose semantics are not preserved under lossy compression.
+    fn can_be_lossy(&self) -> bool {
+        false
+    }
+
     // Methods related to the extension scalar values.
 
     /// Validate the given storage value is compatible with the extension type.

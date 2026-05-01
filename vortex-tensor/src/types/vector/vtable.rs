@@ -48,6 +48,10 @@ impl ExtVTable for Vector {
         validate_vector_storage_dtype(ext_dtype.storage_dtype())
     }
 
+    fn can_be_lossy(&self) -> bool {
+        true
+    }
+
     fn unpack_native<'a>(
         _ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
@@ -192,6 +196,23 @@ mod tests {
         let rhs = vector_dtype_with_outer(PType::F32, 4, Nullability::Nullable)?;
         let expected = vector_dtype_with_outer(PType::F32, 4, Nullability::Nullable)?;
         assert_eq!(lhs.least_supertype(&rhs), Some(expected));
+        Ok(())
+    }
+
+    #[test]
+    fn vector_can_be_lossy_is_true() {
+        // The Vector ext type opts in to Lossy storage by overriding
+        // `ExtVTable::can_be_lossy`.
+        assert!(Vector.can_be_lossy());
+    }
+
+    #[test]
+    fn lossy_accepts_vector_storage() -> VortexResult<()> {
+        // `Lossy<Vector<f32>>` should be accepted because Vector::can_be_lossy is true.
+        use vortex_array::extension::Lossy;
+
+        let vector = vector_dtype(PType::F32, 128)?;
+        Lossy::new(vector)?;
         Ok(())
     }
 }

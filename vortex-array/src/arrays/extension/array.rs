@@ -15,6 +15,7 @@ use crate::dtype::DType;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtVTable;
+use crate::extension::AnyLossy;
 
 /// The backing storage array for this extension array.
 pub(super) const STORAGE_SLOT: usize = 0;
@@ -33,6 +34,14 @@ pub trait ExtensionArrayExt: TypedArrayRef<Extension> {
         self.as_ref().slots()[STORAGE_SLOT]
             .as_ref()
             .vortex_expect("ExtensionArray storage slot")
+    }
+
+    /// If this extension array's type is `Lossy`, returns the underlying storage array.
+    /// Otherwise returns `None`.
+    fn peel_lossy(&self) -> Option<&ArrayRef> {
+        self.ext_dtype()
+            .is::<AnyLossy>()
+            .then(|| self.storage_array())
     }
 }
 impl<T: TypedArrayRef<Extension>> ExtensionArrayExt for T {}

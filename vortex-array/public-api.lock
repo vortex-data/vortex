@@ -2624,11 +2624,15 @@ pub trait vortex_array::arrays::extension::ExtensionArrayExt: vortex_array::Type
 
 pub fn vortex_array::arrays::extension::ExtensionArrayExt::ext_dtype(&self) -> &vortex_array::dtype::extension::ExtDTypeRef
 
+pub fn vortex_array::arrays::extension::ExtensionArrayExt::peel_lossy(&self) -> core::option::Option<&vortex_array::ArrayRef>
+
 pub fn vortex_array::arrays::extension::ExtensionArrayExt::storage_array(&self) -> &vortex_array::ArrayRef
 
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Extension>> vortex_array::arrays::extension::ExtensionArrayExt for T
 
 pub fn T::ext_dtype(&self) -> &vortex_array::dtype::extension::ExtDTypeRef
+
+pub fn T::peel_lossy(&self) -> core::option::Option<&vortex_array::ArrayRef>
 
 pub fn T::storage_array(&self) -> &vortex_array::ArrayRef
 
@@ -8858,6 +8862,8 @@ pub fn vortex_array::dtype::extension::ExtDType<V>::try_new(<V as vortex_array::
 
 impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extension::ExtDType<V>
 
+pub fn vortex_array::dtype::extension::ExtDType<V>::can_be_lossy(&self) -> bool
+
 pub fn vortex_array::dtype::extension::ExtDType<V>::can_coerce_from(&self, &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::can_coerce_to(&self, &vortex_array::dtype::DType) -> bool
@@ -8905,6 +8911,8 @@ impl<V: vortex_array::dtype::extension::ExtVTable> core::marker::StructuralParti
 pub struct vortex_array::dtype::extension::ExtDTypeRef(_)
 
 impl vortex_array::dtype::extension::ExtDTypeRef
+
+pub fn vortex_array::dtype::extension::ExtDTypeRef::can_be_lossy(&self) -> bool
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::can_coerce_from(&self, &vortex_array::dtype::DType) -> bool
 
@@ -8980,6 +8988,8 @@ pub type vortex_array::dtype::extension::ExtVTable::Metadata: 'static + core::ma
 
 pub type vortex_array::dtype::extension::ExtVTable::NativeValue<'a>: core::fmt::Display
 
+pub fn vortex_array::dtype::extension::ExtVTable::can_be_lossy(&self) -> bool
+
 pub fn vortex_array::dtype::extension::ExtVTable::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::dtype::extension::ExtVTable::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
@@ -8998,11 +9008,39 @@ pub fn vortex_array::dtype::extension::ExtVTable::validate_dtype(&vortex_array::
 
 pub fn vortex_array::dtype::extension::ExtVTable::validate_scalar_value(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
+impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::Lossy
+
+pub type vortex_array::extension::Lossy::Metadata = vortex_array::extension::EmptyMetadata
+
+pub type vortex_array::extension::Lossy::NativeValue<'a> = &'a vortex_array::scalar::ScalarValue
+
+pub fn vortex_array::extension::Lossy::can_be_lossy(&self) -> bool
+
+pub fn vortex_array::extension::Lossy::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
+
+pub fn vortex_array::extension::Lossy::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
+
+pub fn vortex_array::extension::Lossy::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_array::extension::Lossy::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::Lossy::least_supertype(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::extension::Lossy::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::Lossy::unpack_native<'a>(&'a vortex_array::dtype::extension::ExtDType<Self>, &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+
+pub fn vortex_array::extension::Lossy::validate_dtype(&vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::extension::Lossy::validate_scalar_value(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+
 impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::datetime::Date
 
 pub type vortex_array::extension::datetime::Date::Metadata = vortex_array::extension::datetime::TimeUnit
 
 pub type vortex_array::extension::datetime::Date::NativeValue<'a> = vortex_array::extension::datetime::DateValue
+
+pub fn vortex_array::extension::datetime::Date::can_be_lossy(&self) -> bool
 
 pub fn vortex_array::extension::datetime::Date::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
 
@@ -9028,6 +9066,8 @@ pub type vortex_array::extension::datetime::Time::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Time::NativeValue<'a> = vortex_array::extension::datetime::TimeValue
 
+pub fn vortex_array::extension::datetime::Time::can_be_lossy(&self) -> bool
+
 pub fn vortex_array::extension::datetime::Time::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::datetime::Time::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
@@ -9052,6 +9092,8 @@ pub type vortex_array::extension::datetime::Timestamp::Metadata = vortex_array::
 
 pub type vortex_array::extension::datetime::Timestamp::NativeValue<'a> = vortex_array::extension::datetime::TimestampValue<'a>
 
+pub fn vortex_array::extension::datetime::Timestamp::can_be_lossy(&self) -> bool
+
 pub fn vortex_array::extension::datetime::Timestamp::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::datetime::Timestamp::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
@@ -9075,6 +9117,8 @@ impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::uuid
 pub type vortex_array::extension::uuid::Uuid::Metadata = vortex_array::extension::uuid::UuidMetadata
 
 pub type vortex_array::extension::uuid::Uuid::NativeValue<'a> = uuid::Uuid
+
+pub fn vortex_array::extension::uuid::Uuid::can_be_lossy(&self) -> bool
 
 pub fn vortex_array::extension::uuid::Uuid::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
 
@@ -9101,6 +9145,14 @@ pub type vortex_array::dtype::extension::Matcher::Match<'a>
 pub fn vortex_array::dtype::extension::Matcher::matches(&vortex_array::dtype::extension::ExtDTypeRef) -> bool
 
 pub fn vortex_array::dtype::extension::Matcher::try_match<'a>(&'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
+
+impl vortex_array::dtype::extension::Matcher for vortex_array::extension::AnyLossy
+
+pub type vortex_array::extension::AnyLossy::Match<'a> = ()
+
+pub fn vortex_array::extension::AnyLossy::matches(&vortex_array::dtype::extension::ExtDTypeRef) -> bool
+
+pub fn vortex_array::extension::AnyLossy::try_match<'a>(&'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
 
 impl vortex_array::dtype::extension::Matcher for vortex_array::extension::datetime::AnyTemporal
 
@@ -9271,6 +9323,8 @@ pub fn vortex_array::dtype::DType::is_variant(&self) -> bool
 pub fn vortex_array::dtype::DType::list(impl core::convert::Into<vortex_array::dtype::DType>, vortex_array::dtype::Nullability) -> Self
 
 pub fn vortex_array::dtype::DType::nullability(&self) -> vortex_array::dtype::Nullability
+
+pub fn vortex_array::dtype::DType::peel_lossy(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_array::dtype::DType::struct_<I: core::iter::traits::collect::IntoIterator<Item = (impl core::convert::Into<vortex_array::dtype::FieldName>, impl core::convert::Into<vortex_array::dtype::FieldDType>)>>(I, vortex_array::dtype::Nullability) -> Self
 
@@ -12944,6 +12998,8 @@ pub type vortex_array::extension::datetime::Date::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Date::NativeValue<'a> = vortex_array::extension::datetime::DateValue
 
+pub fn vortex_array::extension::datetime::Date::can_be_lossy(&self) -> bool
+
 pub fn vortex_array::extension::datetime::Date::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::datetime::Date::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
@@ -12999,6 +13055,8 @@ impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::date
 pub type vortex_array::extension::datetime::Time::Metadata = vortex_array::extension::datetime::TimeUnit
 
 pub type vortex_array::extension::datetime::Time::NativeValue<'a> = vortex_array::extension::datetime::TimeValue
+
+pub fn vortex_array::extension::datetime::Time::can_be_lossy(&self) -> bool
 
 pub fn vortex_array::extension::datetime::Time::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
 
@@ -13057,6 +13115,8 @@ impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::date
 pub type vortex_array::extension::datetime::Timestamp::Metadata = vortex_array::extension::datetime::TimestampOptions
 
 pub type vortex_array::extension::datetime::Timestamp::NativeValue<'a> = vortex_array::extension::datetime::TimestampValue<'a>
+
+pub fn vortex_array::extension::datetime::Timestamp::can_be_lossy(&self) -> bool
 
 pub fn vortex_array::extension::datetime::Timestamp::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
 
@@ -13140,6 +13200,8 @@ pub type vortex_array::extension::uuid::Uuid::Metadata = vortex_array::extension
 
 pub type vortex_array::extension::uuid::Uuid::NativeValue<'a> = uuid::Uuid
 
+pub fn vortex_array::extension::uuid::Uuid::can_be_lossy(&self) -> bool
+
 pub fn vortex_array::extension::uuid::Uuid::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
 
 pub fn vortex_array::extension::uuid::Uuid::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
@@ -13188,6 +13250,16 @@ impl core::hash::Hash for vortex_array::extension::uuid::UuidMetadata
 
 pub fn vortex_array::extension::uuid::UuidMetadata::hash<H: core::hash::Hasher>(&self, &mut H)
 
+pub struct vortex_array::extension::AnyLossy
+
+impl vortex_array::dtype::extension::Matcher for vortex_array::extension::AnyLossy
+
+pub type vortex_array::extension::AnyLossy::Match<'a> = ()
+
+pub fn vortex_array::extension::AnyLossy::matches(&vortex_array::dtype::extension::ExtDTypeRef) -> bool
+
+pub fn vortex_array::extension::AnyLossy::try_match<'a>(&'a vortex_array::dtype::extension::ExtDTypeRef) -> core::option::Option<Self::Match>
+
 pub struct vortex_array::extension::EmptyMetadata
 
 impl core::clone::Clone for vortex_array::extension::EmptyMetadata
@@ -13213,6 +13285,62 @@ impl core::hash::Hash for vortex_array::extension::EmptyMetadata
 pub fn vortex_array::extension::EmptyMetadata::hash<__H: core::hash::Hasher>(&self, &mut __H)
 
 impl core::marker::StructuralPartialEq for vortex_array::extension::EmptyMetadata
+
+pub struct vortex_array::extension::Lossy
+
+impl vortex_array::extension::Lossy
+
+pub fn vortex_array::extension::Lossy::new(vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::extension::ExtDType<Self>>
+
+impl core::clone::Clone for vortex_array::extension::Lossy
+
+pub fn vortex_array::extension::Lossy::clone(&self) -> vortex_array::extension::Lossy
+
+impl core::cmp::Eq for vortex_array::extension::Lossy
+
+impl core::cmp::PartialEq for vortex_array::extension::Lossy
+
+pub fn vortex_array::extension::Lossy::eq(&self, &vortex_array::extension::Lossy) -> bool
+
+impl core::default::Default for vortex_array::extension::Lossy
+
+pub fn vortex_array::extension::Lossy::default() -> vortex_array::extension::Lossy
+
+impl core::fmt::Debug for vortex_array::extension::Lossy
+
+pub fn vortex_array::extension::Lossy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::extension::Lossy
+
+pub fn vortex_array::extension::Lossy::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_array::extension::Lossy
+
+impl vortex_array::dtype::extension::ExtVTable for vortex_array::extension::Lossy
+
+pub type vortex_array::extension::Lossy::Metadata = vortex_array::extension::EmptyMetadata
+
+pub type vortex_array::extension::Lossy::NativeValue<'a> = &'a vortex_array::scalar::ScalarValue
+
+pub fn vortex_array::extension::Lossy::can_be_lossy(&self) -> bool
+
+pub fn vortex_array::extension::Lossy::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
+
+pub fn vortex_array::extension::Lossy::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
+
+pub fn vortex_array::extension::Lossy::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
+
+pub fn vortex_array::extension::Lossy::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::Lossy::least_supertype(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::extension::Lossy::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
+
+pub fn vortex_array::extension::Lossy::unpack_native<'a>(&'a vortex_array::dtype::extension::ExtDType<Self>, &'a vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
+
+pub fn vortex_array::extension::Lossy::validate_dtype(&vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::extension::Lossy::validate_scalar_value(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
 pub mod vortex_array::flatbuffers
 
