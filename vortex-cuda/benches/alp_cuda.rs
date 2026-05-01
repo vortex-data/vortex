@@ -92,7 +92,7 @@ fn benchmark_alp_decode_typed<T>(c: &mut Criterion, type_name: &str)
 where
     T: ALPFloat + NativePType + DeviceRepr,
 {
-    let mut group = c.benchmark_group(format!("cuda/alp_{}", type_name));
+    let mut group = c.benchmark_group("cuda");
 
     for &(len, len_str) in BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
@@ -101,7 +101,7 @@ where
             let array = make_alp_array::<T>(len, patch_freq);
 
             group.bench_with_input(
-                BenchmarkId::new(patch_label, len_str),
+                BenchmarkId::new(format!("cuda/alp_{}/{}", type_name, patch_label), len_str),
                 &array,
                 |b, array| {
                     b.iter_custom(|iters| {

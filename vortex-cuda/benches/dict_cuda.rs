@@ -74,7 +74,7 @@ where
     C: NativePType + DeviceRepr + TryFrom<usize>,
     <C as TryFrom<usize>>::Error: Debug,
 {
-    let mut group = c.benchmark_group("cuda/dict");
+    let mut group = c.benchmark_group("cuda");
 
     for (len, len_str) in BENCH_SIZES {
         // Throughput is based on output size (values read from dictionary)
@@ -85,7 +85,7 @@ where
         group.bench_with_input(
             BenchmarkId::new(
                 format!(
-                    "{}_values_{}_codes",
+                    "cuda/dict/{}_values_{}_codes",
                     config.value_type_name, config.code_type_name
                 ),
                 len_str,
