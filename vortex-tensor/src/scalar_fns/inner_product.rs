@@ -54,6 +54,7 @@ use crate::utils::BinaryTensorOpMetadata;
 use crate::utils::extract_constant_flat_row;
 use crate::utils::extract_flat_elements;
 use crate::utils::extract_l2_denorm_children;
+use crate::utils::peel_lossy_extension_array;
 use crate::utils::validate_binary_tensor_float_inputs;
 
 /// Inner product (dot product) between two columns.
@@ -169,9 +170,12 @@ impl ScalarFnVTable for InnerProduct {
         // Compute combined validity.
         let validity = lhs_ref.validity()?.and(rhs_ref.validity()?)?;
 
-        // Canonicalize so we can perform the math directly.
+        // Canonicalize so we can perform the math directly. Peel one layer of `Lossy` from each
+        // operand so the kernel uniformly sees the underlying tensor-like extension array.
         let lhs: ExtensionArray = lhs_ref.execute(ctx)?;
         let rhs: ExtensionArray = rhs_ref.execute(ctx)?;
+        let lhs = peel_lossy_extension_array(lhs, ctx)?;
+        let rhs = peel_lossy_extension_array(rhs, ctx)?;
 
         // We validated that both inputs have the same type.
         let ext = lhs.dtype().as_extension();
@@ -581,6 +585,7 @@ mod tests {
     use crate::tests::SESSION;
     use crate::utils::test_helpers::assert_close;
     use crate::utils::test_helpers::l2_denorm_array;
+    use crate::utils::test_helpers::lossy_vector_array;
     use crate::utils::test_helpers::tensor_array;
     use crate::utils::test_helpers::vector_array;
 
@@ -654,6 +659,32 @@ mod tests {
             ],
         )?;
         assert_close(&eval_inner_product(lhs, rhs, 2)?, &[25.0, 0.0]);
+        Ok(())
+    }
+
+    /// Inner product over `Lossy<Vector<f64>>` operands must produce the same result as inner
+    /// product over the underlying `Vector<f64>` operands. This exercises the `peel_lossy`
+    /// call sites added throughout the kernel.
+    #[test]
+    fn lossy_vector_inner_product_matches_unwrapped() -> VortexResult<()> {
+        let lhs_elems: &[f64] = &[
+            3.0, 4.0, // vector 0
+            1.0, 0.0, // vector 1
+        ];
+        let rhs_elems: &[f64] = &[
+            3.0, 4.0, // vector 0: dot = 25
+            0.0, 1.0, // vector 1: dot = 0
+        ];
+
+        let unwrapped =
+            eval_inner_product(vector_array(2, lhs_elems)?, vector_array(2, rhs_elems)?, 2)?;
+        let lossy = eval_inner_product(
+            lossy_vector_array(2, lhs_elems)?,
+            lossy_vector_array(2, rhs_elems)?,
+            2,
+        )?;
+        assert_close(&lossy, &unwrapped);
+        assert_close(&lossy, &[25.0, 0.0]);
         Ok(())
     }
 

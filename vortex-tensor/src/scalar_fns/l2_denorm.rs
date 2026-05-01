@@ -61,6 +61,7 @@ use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::utils::extract_constant_flat_row;
 use crate::utils::extract_flat_elements;
+use crate::utils::peel_lossy_extension_array;
 use crate::utils::unit_norm_tolerance;
 use crate::utils::validate_tensor_float_input;
 
@@ -232,7 +233,10 @@ impl ScalarFnVTable for L2Denorm {
             }
         }
 
+        // Peel one layer of `Lossy` so the kernel uniformly sees the underlying tensor-like
+        // extension array.
         let normalized: ExtensionArray = normalized_ref.execute(ctx)?;
+        let normalized = peel_lossy_extension_array(normalized, ctx)?;
         let norms: PrimitiveArray = norms_ref.execute(ctx)?;
         let row_count = args.row_count();
 
@@ -362,6 +366,7 @@ fn execute_l2_denorm_constant_norms(
 
     let tensor_match = normalized_ref
         .dtype()
+        .peel_lossy()
         .as_extension_opt()
         .and_then(|ext| ext.metadata_opt::<AnyTensor>())
         .ok_or_else(|| {
@@ -527,9 +532,11 @@ pub(crate) fn try_build_constant_l2_denorm(
     }
 
     // The caller is expected to have already validated that `input` is an `AnyTensor`
-    // extension dtype.
+    // extension dtype. Peel one layer of `Lossy` so the matcher transparently sees the
+    // underlying tensor extension.
     let tensor_match = input
         .dtype()
+        .peel_lossy()
         .as_extension()
         .metadata_opt::<AnyTensor>()
         .vortex_expect("caller validated input has AnyTensor metadata");

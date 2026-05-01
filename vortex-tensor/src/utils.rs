@@ -8,9 +8,11 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFn;
+use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
@@ -75,8 +77,12 @@ pub fn extract_l2_denorm_children(array: &ArrayRef) -> (ArrayRef, ArrayRef) {
 }
 
 /// Validates that `input_dtype` is a float-valued tensor-like extension dtype.
+///
+/// Transparently peels a single layer of `Lossy` so callers can pass `Lossy<Vector<f32>>` and
+/// see the underlying tensor metadata.
 pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMatch<'_>> {
     let ext = input_dtype
+        .peel_lossy()
         .as_extension_opt()
         .ok_or_else(|| vortex_err!("expected an extension type, got {input_dtype}"))?;
 
@@ -91,6 +97,21 @@ pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMa
     );
 
     Ok(tensor_match)
+}
+
+/// If `array` is a `Lossy`-wrapped extension array, returns the inner extension array
+/// (canonicalized). Otherwise returns `array` unchanged.
+///
+/// Tensor scalar functions use this to operate uniformly on `Vector` / `FixedShapeTensor`
+/// storage regardless of whether the column is wrapped in `Lossy`.
+pub(crate) fn peel_lossy_extension_array(
+    array: ExtensionArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ExtensionArray> {
+    if let Some(inner) = array.peel_lossy() {
+        return inner.clone().execute(ctx);
+    }
+    Ok(array)
 }
 
 /// Validates that two arguments of a binary tensor-like operator share the same float tensor
@@ -325,6 +346,7 @@ pub mod test_helpers {
     use vortex_array::dtype::NativePType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::extension::ExtDType;
+    use vortex_array::extension::Lossy;
     use vortex_array::scalar::PValue;
     use vortex_array::scalar::Scalar;
     use vortex_array::validity::Validity;
@@ -370,6 +392,15 @@ pub mod test_helpers {
     /// Builds a [`Vector`] extension array from flat `elements` and a vector dimension size.
     pub fn vector_array<T: NativePType>(dim: u32, elements: &[T]) -> VortexResult<ArrayRef> {
         Vector::try_new_vector_array(flat_fsl(elements, dim))
+    }
+
+    /// Builds a `Lossy<Vector<T>>` extension array from flat `elements` and a vector dimension
+    /// size. The inner Vector array is identical to one returned by [`vector_array`]; the only
+    /// difference is the additional outer `Lossy` wrapper.
+    pub fn lossy_vector_array<T: NativePType>(dim: u32, elements: &[T]) -> VortexResult<ArrayRef> {
+        let inner = vector_array(dim, elements)?;
+        let lossy_ext = Lossy::new(inner.dtype().clone())?.erased();
+        Ok(ExtensionArray::new(lossy_ext, inner).into_array())
     }
 
     /// Builds a [`FixedShapeTensor`] extension array whose storage is a [`ConstantArray`],
