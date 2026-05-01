@@ -53,7 +53,9 @@ use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
 
-const ARROW_EXT_NAME_VARIANT: &str = "arrow.parquet.variant";
+/// Canonical Arrow extension name for Parquet Variant — handled as `DType::Variant` rather
+/// than going through the extension registry.
+pub const ARROW_EXT_NAME_VARIANT: &str = "arrow.parquet.variant";
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
@@ -251,8 +253,7 @@ impl FromArrowType<&Field> for DType {
     }
 }
 
-/// Convert an Arrow Field to a [`DType`] with `dtypes` already borrowed from the session,
-/// so the handle is acquired once per schema rather than once per field.
+/// Convert a Field to a [`DType`]. Takes `dtypes` borrowed once per schema (not per field).
 fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
     if field
         .extension_type_name()
@@ -268,10 +269,8 @@ fn dtype_from_field(field: &Field, dtypes: &DTypeSession) -> DType {
     }
 }
 
-/// Resolve the [`ExtDTypeRef`] for an Arrow Field whose `ARROW:extension:name` metadata names
-/// a registered Vortex extension. Returns `None` for unregistered extensions, malformed
-/// metadata, or fields with no extension name; callers fall back to the storage representation
-/// and `tracing::warn!` reports the anomaly.
+/// Resolve the [`ExtDTypeRef`] for a Field whose `ARROW:extension:name` names a registered
+/// Vortex extension. Returns `None` for missing/unregistered/malformed metadata.
 pub(crate) fn resolve_extension_dtype(
     field: &Field,
     dtypes: &DTypeSession,
@@ -377,10 +376,8 @@ impl DType {
 
     /// Returns the Arrow [`DataType`] that best corresponds to this Vortex [`DType`].
     ///
-    /// Extensions without a native Arrow mapping (e.g. user-registered extensions like
-    /// `Vector`) degrade to their storage `DataType`; extension identity only survives when
-    /// emitted onto an Arrow `Field` (see [`Self::to_arrow_schema`]). Callers that must
-    /// reject non-temporal extensions should match on `DType::Extension` themselves.
+    /// Extensions without a native Arrow mapping degrade to their storage `DataType`;
+    /// identity only survives via `Field` metadata (see [`Self::to_arrow_schema`]).
     pub fn to_arrow_dtype(&self) -> VortexResult<DataType> {
         arrow_dtype_from_dtype(self)
     }
@@ -460,8 +457,7 @@ fn arrow_dtype_from_dtype(dtype: &DType) -> VortexResult<DataType> {
     })
 }
 
-/// Build an Arrow [`Field`], attaching `ARROW:extension:name` and, when present,
-/// `ARROW:extension:metadata` for extensions and Variant that have no native Arrow mapping.
+/// Build a Field, attaching extension/Variant metadata when there's no native Arrow mapping.
 fn field_from_dtype(name: &str, dtype: &DType) -> VortexResult<Field> {
     if dtype.is_variant() {
         let storage = DataType::Struct(variant_storage_fields_minimal());

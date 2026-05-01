@@ -8888,6 +8888,8 @@ pub use vortex_array::dtype::half
 
 pub mod vortex_array::dtype::arrow
 
+pub const vortex_array::dtype::arrow::ARROW_EXT_NAME_VARIANT: &str
+
 pub trait vortex_array::dtype::arrow::FromArrowType<T>: core::marker::Sized
 
 pub fn vortex_array::dtype::arrow::FromArrowType::from_arrow(value: T) -> Self

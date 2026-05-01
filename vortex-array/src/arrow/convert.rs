@@ -589,8 +589,7 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
             DataType::Dictionary(key_type, _) => {
                 Ok(dict_from_arrow_with_session(array, key_type, nullable, session)?.into_array())
             }
-            // Other arrays don't carry child Fields, so the session-aware path is
-            // equivalent to the legacy one.
+            // Leaves: no child Fields to thread session through.
             _ => Self::from_arrow(array, nullable),
         }
     }
@@ -744,8 +743,8 @@ impl FromArrowArray<&RecordBatch> for ArrayRef {
     }
 }
 
-/// Inverse of `field_from_dtype` (in `dtype/arrow.rs`): rewrap `storage` as `ExtensionArray`
-/// when `field` carries `ARROW:extension:name` metadata for a registered extension.
+/// Rewrap `storage` as `ExtensionArray` if `field` carries `ARROW:extension:name`
+/// for a registered extension. Inverse of `field_from_dtype` in `dtype/arrow.rs`.
 fn wrap_extension_if_field_has_metadata(
     storage: ArrayRef,
     field: &Field,

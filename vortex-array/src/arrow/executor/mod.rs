@@ -99,10 +99,9 @@ impl ArrowArrayExecutor for ArrayRef {
             None => preferred_arrow_type(&self)?,
         };
 
-        // Extensions with a native Arrow mapping (temporal) keep their wrapper so
-        // `to_arrow_temporal` can read the metadata. Other extensions carry identity in
-        // Field metadata, so dispatch on the storage array. Mirror the discriminator used
-        // by `field_from_dtype` / `native_arrow_dtype_for_extension` in `dtype/arrow.rs`.
+        // Temporal extensions keep their wrapper so `to_arrow_temporal` can read the
+        // metadata. Other extensions unwrap to storage; their identity rides on Field
+        // metadata.
         if let DType::Extension(ext) = self.dtype()
             && ext.metadata_opt::<AnyTemporal>().is_none()
         {
