@@ -1235,7 +1235,8 @@
   }
 
   // -----------------------------------------------------------------------
-  // Lazy fetch on `<details>` toggle for closed-by-default groups.
+  // Lazy fetch on `<details>` toggle. Every group renders closed; this
+  // hydrates the chart cards inside whichever group the user expands.
   // -----------------------------------------------------------------------
   function fetchAndConstruct(card) {
     var canvas = card.querySelector("canvas");
@@ -1243,9 +1244,8 @@
     if (canvas.__bench_chart) return Promise.resolve();
     // `constructChart` reads inline JSON (`<script id="chart-data-N">`)
     // when there's no payload on the canvas yet. The first group's
-    // payloads are inlined server-side regardless of whether the
-    // group is open by default, so try a synchronous construct before
-    // hitting the network.
+    // payloads are inlined server-side, so try a synchronous construct
+    // before hitting the network.
     if (constructChart(card)) {
       bindToolbar(card);
       return Promise.resolve();

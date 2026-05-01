@@ -283,7 +283,13 @@ async fn read_routes_serve_after_ingest() -> Result<()> {
     assert!(body["display_name"].is_string());
     assert!(body["unit"].is_string());
     assert!(body["commits"].is_array());
-    assert_eq!(body["commits"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        body["commits"]
+            .as_array()
+            .context("commits is array")?
+            .len(),
+        1
+    );
     assert!(body["series"].is_object());
     Ok(())
 }

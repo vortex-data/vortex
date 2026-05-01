@@ -39,8 +39,9 @@ pub const DEFAULT_COMMIT_WINDOW: u32 = 100;
 /// Canonical group ordering, ported from the v2 site's hard-coded list at
 /// `origin/ct/vfvb:benchmarks-website/index.html`. Group names not in this
 /// list sort after every listed name in alphabetical order. The order is
-/// significant for the landing page render — the first group is opened by
-/// default and the rest are collapsed.
+/// significant for the landing page render — every group is collapsed by
+/// default, and only the first group's chart payloads are inlined into the
+/// HTML so opening it skips a fetch round-trip.
 pub const GROUP_ORDER: &[&str] = &[
     "Random Access",
     "Compression",
@@ -145,20 +146,13 @@ impl CommitWindow {
     }
 }
 
-/// Query string for `/api/chart/{slug}` and `/chart/{slug}`.
-///
-/// `y` (linear|log) and `mode` (abs|rel) are accepted but ignored by the SQL —
-/// the JSON response is identical regardless. They exist on the API surface so
-/// the client can drive deep links and refetches with a single URL shape; the
-/// rendering hints are applied client-side in `chart-init.js`.
+/// Query string for `/api/chart/{slug}` and `/chart/{slug}`. Only `?n=`
+/// affects the JSON response; per-chart UI state (Y axis, slider) is local
+/// to `chart-init.js` and intentionally not in the URL.
 #[derive(Debug, Default, Deserialize)]
 pub struct ChartQuery {
     /// Commit window: `25`, `50`, `100`, `250`, `all`, etc.
     pub n: Option<String>,
-    /// Y-axis hint (linear|log). Echoed for client-side rendering only.
-    pub y: Option<String>,
-    /// Display mode hint (abs|rel). Echoed for client-side rendering only.
-    pub mode: Option<String>,
 }
 
 impl ChartQuery {
@@ -168,11 +162,14 @@ impl ChartQuery {
     }
 }
 
+/// Body of `GET /api/groups`: every group with its chart links and summary.
 #[derive(Debug, Serialize)]
 pub struct GroupsResponse {
     pub groups: Vec<Group>,
 }
 
+/// One group: a display name, a slug for the group permalink, and the chart
+/// links inside it. Optionally carries a v2-compatible rollup summary.
 #[derive(Debug, Serialize)]
 pub struct Group {
     pub name: String,
@@ -274,12 +271,16 @@ pub struct NamedChartResponse {
     pub chart: ChartResponse,
 }
 
+/// One chart's short label inside a group (e.g. `Q1`) plus the slug that
+/// resolves to its `/api/chart/{slug}` payload.
 #[derive(Debug, Serialize)]
 pub struct ChartLink {
     pub name: String,
     pub slug: String,
 }
 
+/// Body of `GET /api/chart/{slug}`: every commit with data, every series'
+/// values aligned to those commits, and per-series engine/format tags.
 #[derive(Debug, Clone, Serialize)]
 pub struct ChartResponse {
     pub display_name: String,
@@ -317,6 +318,8 @@ pub struct FilterUniverse {
     pub formats: Vec<String>,
 }
 
+/// One row of the `commits[]` array on a [`ChartResponse`]. Carries enough
+/// metadata for the tooltip and the click-to-PR handler in `chart-init.js`.
 #[derive(Debug, Clone, Serialize)]
 pub struct CommitPoint {
     pub sha: String,
@@ -325,6 +328,8 @@ pub struct CommitPoint {
     pub url: String,
 }
 
+/// Body of `GET /health`: liveness probe plus a row-count rollup that's
+/// useful for "did my ingest land?" smoke tests.
 #[derive(Debug, Serialize)]
 pub struct HealthResponse {
     pub status: &'static str,
@@ -334,6 +339,7 @@ pub struct HealthResponse {
     pub row_counts: RowCounts,
 }
 
+/// Per-fact-table row counts surfaced by `/health`.
 #[derive(Debug, Serialize)]
 pub struct RowCounts {
     pub commits: i64,
@@ -1181,16 +1187,6 @@ pub(crate) fn chart_payload(
             threshold,
         } => collect_vector_search_chart(conn, dataset, layout, *threshold, window),
     }
-}
-
-/// Thin wrapper around [`chart_payload`] kept for callers that prefer the old
-/// name. New code should prefer [`chart_payload`].
-pub(crate) fn collect_chart(
-    conn: &Connection,
-    key: &ChartKey,
-    window: &CommitWindow,
-) -> Result<Option<ChartResponse>> {
-    chart_payload(conn, key, window)
 }
 
 /// Collect every chart inside one group. Returns `None` if the group has no

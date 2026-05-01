@@ -410,14 +410,16 @@ async fn landing_page_snapshot() -> Result<()> {
     );
     let body = resp.text().await?;
 
-    // Inline canvas + chart-data-0 from the open-by-default first group.
+    // Inline canvas + chart-data-0 from the first group (every group is
+    // collapsed by default, but the first group's payload is inlined for
+    // fast on-toggle hydration).
     assert!(
         body.contains("<canvas"),
         "landing page must render at least one <canvas>"
     );
     assert!(
         body.contains(r#"id="chart-data-0""#),
-        "the open-by-default first group must inline its chart payload"
+        "the first group must inline its chart payload for fast on-toggle hydration"
     );
     assert!(
         body.contains(r#"data-chart-slug="#),
@@ -990,28 +992,28 @@ async fn permalink_pages_inline_full_raw_history() -> Result<()> {
     Ok(())
 }
 
-/// The landing page caps the open-by-default group's inline JSON at
+/// The landing page caps the first group's inline JSON at
 /// `LANDING_INLINE_N` (= 100) commits regardless of `?n=`. Power users get
 /// the unbounded view via the `/api/chart/{slug}?n=all` refetch
 /// `chart-init.js` triggers when they zoom past the inlined window. Sending
 /// the full history inline would balloon the cold landing HTML — for the
-/// open-by-default chart with one big history every kilobyte is paid by
-/// every cold landing-page hit.
+/// inlined chart with one big history every kilobyte is paid by every
+/// cold landing-page hit.
 #[tokio::test]
 async fn landing_first_group_caps_inline_commits() -> Result<()> {
     // 250 commits is comfortably above the 100-commit landing inline cap so
     // the cap actually kicks in. `seed_long_history` only seeds the
     // Random-Access group; with the canonical group ordering Random Access
     // sorts first on the landing page, so its chart-data-0 carries the
-    // open-by-default payload.
+    // inlined payload.
     let server = Server::start().await?;
     seed_long_history(&server, 250).await?;
 
     let client = reqwest::Client::new();
     let body = client.get(server.url("/")).send().await?.text().await?;
 
-    let payload = extract_chart_data(&body, 0)
-        .context("the open-by-default first group must inline its chart payload")?;
+    let payload =
+        extract_chart_data(&body, 0).context("the first group must inline its chart payload")?;
     let commits = payload["commits"]
         .as_array()
         .context("inline commits array")?;
