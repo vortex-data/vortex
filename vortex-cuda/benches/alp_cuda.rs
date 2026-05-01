@@ -38,9 +38,8 @@ use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
+use crate::bench_config::BENCH_SIZES;
 use crate::timed_launch_strategy::TimedLaunchStrategy;
-
-const N_ROWS: usize = 100_000_000;
 
 /// Patch frequencies to benchmark (as fractions).
 const PATCH_FREQUENCIES: &[(f64, &str)] = &[(0.0, "0%"), (0.01, "1%"), (0.10, "10%")];
@@ -93,35 +92,38 @@ fn benchmark_alp_decode_typed<T>(c: &mut Criterion, type_name: &str)
 where
     T: ALPFloat + NativePType + DeviceRepr,
 {
-    let mut group = c.benchmark_group(format!("alp_cuda_{}", type_name));
+    let mut group = c.benchmark_group(format!("cuda/alp_{}", type_name));
 
-    let nbytes = N_ROWS * size_of::<T>();
-    group.throughput(Throughput::Bytes(nbytes as u64));
+    for &(len, len_str) in BENCH_SIZES {
+        group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
-    for &(patch_freq, patch_label) in PATCH_FREQUENCIES {
-        let array = make_alp_array::<T>(N_ROWS, patch_freq);
+        for &(patch_freq, patch_label) in PATCH_FREQUENCIES {
+            let array = make_alp_array::<T>(len, patch_freq);
 
-        group.bench_with_input(
-            BenchmarkId::new("alp_decode", patch_label),
-            &array,
-            |b, array| {
-                b.iter_custom(|iters| {
-                    let timed = TimedLaunchStrategy::default();
-                    let timer = timed.timer();
+            group.bench_with_input(
+                BenchmarkId::new(patch_label, len_str),
+                &array,
+                |b, array| {
+                    b.iter_custom(|iters| {
+                        let timed = TimedLaunchStrategy::default();
+                        let timer = timed.timer();
 
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                        .vortex_expect("failed to create execution context")
-                        .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
-                        .with_launch_strategy(Arc::new(timed));
+                        let mut cuda_ctx =
+                            CudaSession::create_execution_ctx(&VortexSession::empty())
+                                .vortex_expect("failed to create execution context")
+                                .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
+                                .with_launch_strategy(Arc::new(timed));
 
-                    for _ in 0..iters {
-                        block_on(array.clone().into_array().execute_cuda(&mut cuda_ctx)).unwrap();
-                    }
+                        for _ in 0..iters {
+                            block_on(array.clone().into_array().execute_cuda(&mut cuda_ctx))
+                                .unwrap();
+                        }
 
-                    Duration::from_nanos(timer.load(Ordering::Relaxed))
-                });
-            },
-        );
+                        Duration::from_nanos(timer.load(Ordering::Relaxed))
+                    });
+                },
+            );
+        }
     }
 
     group.finish();

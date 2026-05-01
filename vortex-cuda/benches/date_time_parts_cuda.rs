@@ -52,16 +52,16 @@ fn make_datetimeparts_array(len: usize, time_unit: TimeUnit) -> DateTimePartsArr
 }
 
 fn benchmark_datetimeparts(c: &mut Criterion) {
-    let mut group = c.benchmark_group("datetimeparts_cuda");
+    let mut group = c.benchmark_group("cuda/datetimeparts");
 
-    for (len, len_str) in [(10_000_000usize, "10M"), (100_000_000usize, "100M")] {
+    for &(len, len_str) in bench_config::BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<i64>()) as u64));
 
         let (time_unit, unit_str) = (TimeUnit::Milliseconds, "ms");
         let dtp_array = make_datetimeparts_array(len, time_unit);
 
         group.bench_with_input(
-            BenchmarkId::new("datetimeparts", format!("{len_str}_{unit_str}")),
+            BenchmarkId::new(unit_str, len_str),
             &dtp_array,
             |b, dtp_array| {
                 b.iter_custom(|iters| {

@@ -73,8 +73,7 @@ jobs:
         include:
           - { shard: 1, name: "Bitpacked", benches: "bitpacked_cuda" }
           - { shard: 2, name: "Dynamic dispatch", benches: "dynamic_dispatch_cuda" }
-          - { shard: 3, name: "Standalone kernels", benches: "alp_cuda date_time_parts_cuda dict_cuda for_cuda runend_cuda throughput_cuda" }
-          - { shard: 4, name: "NVIDIA kernels", benches: "filter_cuda zstd_cuda" }
+          - { shard: 3, name: "Standalone kernels", benches: "alp_cuda date_time_parts_cuda dict_cuda runend_cuda" }
     name: "Benchmark with Codspeed (CUDA Shard #${{ matrix.shard }} - ${{ matrix.name }})"
     timeout-minutes: 30
     runs-on: runs-on=${{ github.run_id }}/family=g5/image=ubuntu24-gpu-x64/tag=bench-codspeed-cuda-${{ matrix.shard }}
@@ -96,7 +95,7 @@ jobs:
         with:
           tool: cargo-codspeed
       - name: Build benchmarks
-        run: cargo codspeed build -m walltime -p vortex-cuda --profile bench
+        run: cargo codspeed build -m walltime $(printf -- '--bench %s ' ${{ matrix.benches }}) --profile bench
       - name: Run benchmarks
         uses: CodSpeedHQ/action@d872884a306dd4853acf0f584f4b706cf0cc72a2
         env:

@@ -40,9 +40,8 @@ use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
+use crate::bench_config::BENCH_SIZES;
 use crate::timed_launch_strategy::TimedLaunchStrategy;
-
-const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M")];
 const REFERENCE_VALUE: u8 = 10;
 
 /// Creates a FoR array with the specified type and length.
@@ -76,15 +75,15 @@ where
     T: NativePType + DeviceRepr + From<u8> + Add<Output = T>,
     Scalar: From<T>,
 {
-    let mut group = c.benchmark_group("for_cuda");
+    let mut group = c.benchmark_group("cuda/for");
 
-    for &(len, len_str) in BENCH_ARGS {
+    for &(len, len_str) in BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         let for_array = make_for_array_typed::<T>(len, false);
 
         group.bench_with_input(
-            BenchmarkId::new("for", format!("{len_str}_{type_name}")),
+            BenchmarkId::new(type_name, len_str),
             &for_array,
             |b, for_array| {
                 b.iter_custom(|iters| {
@@ -115,15 +114,15 @@ where
     T: NativePType + DeviceRepr + From<u8> + Add<Output = T>,
     Scalar: From<T>,
 {
-    let mut group = c.benchmark_group("ffor_cuda");
+    let mut group = c.benchmark_group("cuda/ffor");
 
-    for &(len, len_str) in BENCH_ARGS {
+    for &(len, len_str) in BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         let for_array = make_for_array_typed::<T>(len, true);
 
         group.bench_with_input(
-            BenchmarkId::new("for", format!("{len_str}_{type_name}")),
+            BenchmarkId::new(type_name, len_str),
             &for_array,
             |b, for_array| {
                 b.iter_custom(|iters| {

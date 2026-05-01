@@ -35,7 +35,7 @@ use vortex_cuda::CudaSession;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-const BENCH_SIZES: &[(usize, &str)] = &[(10_000_000, "10M")];
+use crate::bench_config::BENCH_SIZES;
 const SELECTIVITIES: &[(f64, &str)] = &[(0.1, "10%"), (0.5, "50%"), (0.9, "90%")];
 
 /// Creates input data of the given length.
@@ -137,7 +137,7 @@ fn benchmark_filter_type<T>(c: &mut Criterion, type_name: &str)
 where
     T: CubFilterable + DeviceRepr + From<u8> + Debug + Clone + Send + Sync + 'static,
 {
-    let mut group = c.benchmark_group(format!("filter_cuda_{type_name}"));
+    let mut group = c.benchmark_group(format!("cuda/filter_{type_name}"));
 
     for (len, len_label) in BENCH_SIZES {
         for (selectivity, sel_label) in SELECTIVITIES {
@@ -148,7 +148,7 @@ where
             group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
             group.bench_with_input(
-                BenchmarkId::new(format!("{len_label}_{sel_label}"), true_count),
+                BenchmarkId::new(format!("select/{sel_label}"), len_label),
                 &(input_data, bitmask, true_count),
                 |b, (input_data, bitmask, true_count)| {
                     b.iter_custom(|iters| {
