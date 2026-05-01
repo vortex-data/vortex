@@ -4,7 +4,32 @@
 // Hydrate Chart.js charts on /, /chart/:slug, and /group/:slug, plus the
 // lazy-fetch-on-toggle behaviour for closed `<details>` groups.
 //
-// Per-chart UX:
+// File map (in source order):
+//   1. Constants                       — throttle delays, fetch knobs, caps.
+//   2. Canvas state contract           — every `canvas.__bench_*` field.
+//   3. Per-card DOM contract           — every `data-role` selector.
+//   4. Global filter state             — engines/formats from the navbar.
+//   5. Palette + helpers               — colours, formatting, throttle.
+//   6. LTTB                            — pure largest-triangle downsampler.
+//   7. Crosshair plugin                — inline Chart.js plugin.
+//   8. External tooltip handler        — factory that returns a Chart.js
+//                                        external tooltip handler.
+//   9. Payload + datasets              — readInlinePayload, buildDatasets,
+//                                        rebuildVisibleAndUpdate.
+//  10. Lazy refetch                    — maybeRefetchFullPayload,
+//                                        replaceChartPayload.
+//  11. Slider + badge sync             — syncSliderFromRange,
+//                                        syncDownsampleBadge.
+//  12. Per-card construction           — constructChart.
+//  13. Range scrollbar strip           — bindRangeStrip + pointer math.
+//  14. Toolbar + wheel pan             — bindToolbar, attachWheelPan,
+//                                        applyScope, applyY.
+//  15. Lazy fetch on details.toggle    — fetchAndConstruct + UI helpers.
+//  16. Global filter wiring            — chip toggle, URL sync, bindings.
+//  17. Header controls                 — theme toggle, expand/collapse all.
+//  18. Page wiring                     — IntersectionObserver, init.
+//
+// Per-chart UX (for orientation):
 //   - Each `.chart-card` carries `data-chart-slug`. The card *owns* its own
 //     toolbar (`.toolbar--card`) — there is no page-level toolbar.
 //   - Each chart fetches the **entire raw history** once (`?n=all`). The
@@ -30,6 +55,58 @@
 //   - A custom inline plugin draws a vertical crosshair at the hovered
 //     commit; the external tooltip is offset and `pointer-events: none`
 //     to fix the flicker described in the per-chart UX rebuild brief.
+//
+// Canvas state contract — every per-chart property we plant on the canvas:
+//   canvas.__bench_chart              Chart.js instance, set in constructChart.
+//   canvas.__bench_payload            Last-fetched ChartResponse (raw,
+//                                     unmodified by LTTB). Source of truth
+//                                     the tooltip + LTTB rebuild read.
+//   canvas.__bench_state              { y: "linear"|"log", scope: number|"all" }
+//                                     — the per-chart toolbar state.
+//   canvas.__bench_overrides          Map<seriesLabel, true> of series the
+//                                     user has manually toggled on this card.
+//                                     Once set, the global filter no longer
+//                                     drives that label's visibility here.
+//   canvas.__bench_strip_render       Function bound by bindRangeStrip; called
+//                                     from any path that mutates scales.x.
+//   canvas.__bench_rebuild            Throttled `rebuildVisibleAndUpdate`
+//                                     wrapper; called from pan/zoom/wheel.
+//   canvas.__bench_wheel_attached     true once attachWheelPan has wired
+//                                     a wheel listener (idempotency).
+//   canvas.__bench_inline_trimmed     true if the payload came from inline
+//                                     `<script id="chart-data-N">` and
+//                                     reached LANDING_INLINE_N commits, so
+//                                     might have been trimmed server-side.
+//   canvas.__bench_full_loaded        true once a `?n=all` refetch has
+//                                     replaced the payload.
+//   canvas.__bench_full_fetch_pending true while a `?n=all` refetch is in
+//                                     flight; dedupes the pan-frame retry.
+//
+// Per-card DOM contract — every selector the chart cards are queried by:
+//   .chart-card[data-chart-index][data-chart-slug]    The card itself.
+//   canvas[data-chart-index]                          The chart canvas.
+//   .chart-tooltip-host                               External tooltip host.
+//   .chart-wrap                                       Canvas wrapper.
+//   [data-role="downsample-badge"]                    LTTB badge slot.
+//   [data-role="scope-slider"]                        Toolbar scope slider.
+//   .toolbar--card                                    Toolbar root.
+//   .toolbar-btn[data-y]                              Y-axis switch buttons.
+//   [data-role="range-strip"]                         Range scrollbar root.
+//   [data-role="range-window"]                        Range strip's window.
+//   [data-role="range-handle-left"]                   Left resize handle.
+//   [data-role="range-handle-right"]                  Right resize handle.
+//   .group-disclosure                                 The <details> wrapper.
+//   .group-details                                    The wrapping <section>.
+//   [data-role="global-filter-bar"]                   Filter dropdown root.
+//   [data-role="filter-trigger"]                      Filter dropdown button.
+//   [data-role="filter-panel"]                        Filter dropdown body.
+//   .filter-chip[data-filter][data-value]             A single filter chip.
+//   [data-role="filter-badge"]                        Badge on the trigger.
+//   [data-action="expand-all"]                        Header button.
+//   [data-action="collapse-all"]                      Header button.
+//   [data-role="theme-toggle"]                        Header button.
+//   #bench-filter-state                               Server-emitted filter
+//                                                     state JSON (script id).
 (function () {
   "use strict";
 
@@ -329,6 +406,15 @@
 
   // -----------------------------------------------------------------------
   // External tooltip with offset + flip-on-overflow.
+  //
+  // Factory contract: returns a Chart.js `external` tooltip handler closed
+  // over `canvas` (the rendered canvas element, used to read the cached
+  // payload via `canvas.__bench_payload`) and `host` (the
+  // `<div class="chart-tooltip-host">` element to render markup into;
+  // `host.parentNode` is the chart-card and is used as the positioning
+  // origin). The returned handler is invoked by Chart.js with one argument
+  // `context = { tooltip, chart }`; it mutates `host` in place and is a
+  // no-op when `tooltip.opacity === 0`.
   //
   // Flicker fix: the tooltip host is **always** `pointer-events: none`. The
   // previous implementation flipped it to `auto` when visible; the cursor
@@ -784,17 +870,9 @@
   }
 
   // -----------------------------------------------------------------------
-  // Per-card construction. State lives on the canvas:
-  //   canvas.__bench_chart            — Chart.js instance
-  //   canvas.__bench_payload          — last-fetched ChartResponse (raw)
-  //   canvas.__bench_state            — { y, scope } (per-chart toolbar state)
-  //   canvas.__bench_inline_trimmed   — true if the payload came from an
-  //                                     inline `<script id="chart-data-N">`
-  //                                     and may have been capped at
-  //                                     LANDING_INLINE_N commits server-side
-  //   canvas.__bench_full_loaded      — true once a `?n=all` refetch has
-  //                                     replaced the payload
-  //   canvas.__bench_full_fetch_pending — in-flight refetch flag (dedupe)
+  // Per-card construction. The set of `canvas.__bench_*` fields planted
+  // by this function (and read elsewhere) is documented at the top of
+  // this file under "Canvas state contract".
   // -----------------------------------------------------------------------
   function constructChart(card) {
     var idx = card.getAttribute("data-chart-index");
