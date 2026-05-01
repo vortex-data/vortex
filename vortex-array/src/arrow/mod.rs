@@ -28,9 +28,8 @@ use crate::VortexSessionExecute;
 pub trait FromArrowArray<A>: Sized {
     fn from_arrow(array: A, nullable: bool) -> VortexResult<Self>;
 
-    /// Same conversion, with session for resolving `ARROW:extension:name` field metadata to
-    /// registered extension dtypes. The default ignores the session — override on impls that
-    /// see Arrow `Field`s (RecordBatch, Struct, List, FSL).
+    /// Like [`Self::from_arrow`], but resolves `ARROW:extension:name` field metadata
+    /// against extensions registered on `session`. The default ignores the session.
     fn from_arrow_with_session(
         array: A,
         nullable: bool,

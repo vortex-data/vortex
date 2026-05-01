@@ -22,9 +22,7 @@ impl StructArray {
         self.into_record_batch_with_schema_with_session(schema, &LEGACY_SESSION)
     }
 
-    /// Same as [`Self::into_record_batch_with_schema`], but routes execution through `session`
-    /// so canonical Arrow extension aliases declared on registered vtables apply uniformly to
-    /// both schema construction and array conversion.
+    /// Like [`Self::into_record_batch_with_schema`], but runs the conversion under `session`.
     pub fn into_record_batch_with_schema_with_session(
         self,
         schema: impl AsRef<Schema>,

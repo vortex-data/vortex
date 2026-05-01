@@ -743,8 +743,8 @@ impl FromArrowArray<&RecordBatch> for ArrayRef {
     }
 }
 
-/// Rewrap `storage` as `ExtensionArray` if `field` carries `ARROW:extension:name`
-/// for a registered extension. Inverse of `field_from_dtype` in `dtype/arrow.rs`.
+/// Rewrap `storage` as an `ExtensionArray` when `field` carries extension metadata
+/// for an extension registered on the session.
 fn wrap_extension_if_field_has_metadata(
     storage: ArrayRef,
     field: &Field,
@@ -1968,8 +1968,8 @@ mod tests {
         ArrayRef::from_arrow(null_struct_array_with_non_nullable_field.as_ref(), true).unwrap();
     }
 
-    /// Dictionary value with a struct field carrying registered extension metadata recovers
-    /// the extension dtype when converted via the session-aware path.
+    /// Extension metadata on a struct field nested inside a Dictionary's values is
+    /// recovered when the session has the extension registered.
     #[test]
     fn dictionary_struct_value_recovers_extension_through_session() {
         let session = VortexSession::empty().with::<DTypeSession>();

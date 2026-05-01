@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-"""Round-trip tests for `vx.array` against pyarrow inputs carrying Vortex
-extension identity over the Arrow C ABI."""
+"""Tests that `vx.array` recovers Vortex extension identity from pyarrow inputs."""
 
 from __future__ import annotations
 
@@ -12,16 +11,16 @@ import pyarrow as pa
 
 import vortex as vx
 
-# vortex.timestamp wire format: u8 unit_tag + u16 LE tz_len (us=1, no tz).
-# See vortex-array/src/extension/datetime/timestamp.rs::serialize_metadata.
+# Wire format: u8 unit_tag + u16 LE tz_len. Microseconds = 1, no timezone.
+# See vortex-array/src/extension/datetime/timestamp.rs.
 _TIMESTAMP_US_METADATA = bytes([1, 0, 0])
 
 
 class VortexTimestampType(pa.ExtensionType):
-    """A pyarrow `ExtensionType` matching Vortex's `vortex.timestamp` extension."""
+    """pyarrow `ExtensionType` matching Vortex's `vortex.timestamp`."""
 
     def __init__(self, unit: str = "us"):
-        # pyarrow calls `__arrow_ext_serialize__` in __init__, so set `_unit` first.
+        # pyarrow calls `__arrow_ext_serialize__` from __init__, so `_unit` must be set first.
         self._unit = unit
         pa.ExtensionType.__init__(self, pa.int64(), "vortex.timestamp")
 

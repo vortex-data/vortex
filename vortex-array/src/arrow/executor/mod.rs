@@ -99,9 +99,8 @@ impl ArrowArrayExecutor for ArrayRef {
             None => preferred_arrow_type(&self)?,
         };
 
-        // Temporal extensions keep their wrapper so `to_arrow_temporal` can read the
-        // metadata. Other extensions unwrap to storage; their identity rides on Field
-        // metadata.
+        // Temporal extensions stay wrapped — `to_arrow_temporal` reads their metadata.
+        // Other extensions unwrap to storage; their identity lives on the Field.
         if let DType::Extension(ext) = self.dtype()
             && ext.metadata_opt::<AnyTemporal>().is_none()
         {
@@ -279,8 +278,8 @@ mod tests {
         assert_eq!(primitives.values(), &[0, 1, 2, 3, 4, 5]);
     }
 
-    /// Temporal extensions have native Arrow mappings. The executor must keep the extension
-    /// array intact so `to_arrow_temporal` can read `TemporalMetadata` from its dtype.
+    /// Temporal extensions map to native Arrow types — the executor must not unwrap them,
+    /// otherwise `to_arrow_temporal` can't read the time unit / timezone.
     #[test]
     fn execute_arrow_keeps_temporal_extension_for_native_arrow_type() {
         use crate::dtype::DType;

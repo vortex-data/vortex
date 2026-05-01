@@ -54,7 +54,7 @@ fn vector_forward_carries_extension_name() {
             .map(String::as_str),
         Some(Vector.id().as_str()),
     );
-    // EmptyMetadata → no metadata key.
+    // Vector uses EmptyMetadata, so no metadata key is written.
     assert!(field.metadata().get(EXTENSION_TYPE_METADATA_KEY).is_none());
 
     let DataType::FixedSizeList(element, size) = field.data_type() else {
