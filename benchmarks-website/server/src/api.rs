@@ -39,8 +39,9 @@ pub const DEFAULT_COMMIT_WINDOW: u32 = 100;
 /// Canonical group ordering, ported from the v2 site's hard-coded list at
 /// `origin/ct/vfvb:benchmarks-website/index.html`. Group names not in this
 /// list sort after every listed name in alphabetical order. The order is
-/// significant for the landing page render — the first group is opened by
-/// default and the rest are collapsed.
+/// significant for the landing page render — every group is collapsed by
+/// default, and only the first group's chart payloads are inlined into the
+/// HTML so opening it skips a fetch round-trip.
 pub const GROUP_ORDER: &[&str] = &[
     "Random Access",
     "Compression",

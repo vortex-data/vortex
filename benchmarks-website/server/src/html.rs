@@ -82,10 +82,10 @@ const VORTEX_BLACK_SVG: &[u8] = include_bytes!("../../public/vortex_black_nobg.s
 const VORTEX_WHITE_SVG: &[u8] = include_bytes!("../../public/vortex_white_nobg.svg");
 const STATIC_ASSET_VERSION: &str = "bench-v3-ui-16";
 
-/// Commits to inline for the open-by-default group. The chart's
-/// initial visible window is ~100 commits; bigger windows just bloat
-/// the cold-page HTML. Users who zoom out trigger a refetch with
-/// `?n=all` via `chart-init.js`.
+/// Commits to inline for the first group's pre-fetched chart payloads.
+/// The chart's initial visible window is ~100 commits; bigger windows
+/// just bloat the cold-page HTML. Users who zoom out trigger a refetch
+/// with `?n=all` via `chart-init.js`.
 const LANDING_INLINE_N: u32 = 100;
 
 /// HTML routes mounted under `/`.
@@ -127,8 +127,7 @@ pub struct UiQuery {
 impl UiQuery {
     /// Resolve the [`CommitWindow`] for HTML routes. Defaults to
     /// [`CommitWindow::All`] so users can pan/zoom all the way back to
-    /// the very first commit on every chart, including the first
-    /// (open-by-default) group on the landing page. Visual downsampling
+    /// the very first commit on every chart. Visual downsampling
     /// happens client-side on the visible commit range only.
     fn fetch_window(&self) -> CommitWindow {
         match self.n.as_deref() {
@@ -208,12 +207,12 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
 
 /// One group's worth of data for the landing page.
 ///
-/// The first group (in canonical order) ships with `charts` populated so
-/// the moment the user expands it the chart hydrates from the inline
-/// JSON without a network round-trip. Every other group ships
-/// with `charts` empty and only their chart-card shells — payloads are
-/// fetched client-side on first `details.toggle` to keep the cold landing
-/// HTML small.
+/// Every disclosure renders closed by default. The first group (in
+/// canonical order) ships with its chart payloads inlined, so the moment
+/// the user expands it the chart hydrates from the inline JSON without a
+/// network round-trip. Every other group ships only its chart-card
+/// shells — payloads are fetched client-side on first `details.toggle`
+/// to keep the cold landing HTML small.
 struct LandingGroup {
     name: String,
     summary: Option<Summary>,
@@ -221,8 +220,8 @@ struct LandingGroup {
     /// the slugs server-side so the chart-card shell can carry
     /// `data-chart-slug` for the lazy fetch.
     chart_links: Vec<api::ChartLink>,
-    /// Pre-fetched payloads. Populated only for the open-by-default group.
-    /// `Vec` indices line up with `chart_links`.
+    /// Pre-fetched payloads. Populated only for the first group in
+    /// canonical order. `Vec` indices line up with `chart_links`.
     inlined: Vec<Option<NamedChartResponse>>,
 }
 
@@ -263,7 +262,7 @@ fn collect_landing_groups(conn: &Connection) -> Result<Vec<LandingGroup>> {
             }
             v
         } else {
-            // Closed groups: ship only the shells. The client fetches on
+            // Other groups: ship only the shells. The client fetches on
             // first `details.toggle`.
             (0..group.charts.len()).map(|_| None).collect()
         };
