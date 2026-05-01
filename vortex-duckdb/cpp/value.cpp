@@ -18,9 +18,10 @@ extern "C" duckdb_value duckdb_vx_value_create_null(duckdb_logical_type ty) {
 
 extern "C" duckdb_value duckdb_vx_value_create_geometry(const uint8_t *wkb, idx_t len, const char *crs) {
     const auto bytes = reinterpret_cast<duckdb::const_data_ptr_t>(wkb);
-    auto value = (crs == nullptr || *crs == '\0')
-        ? duckdb::Value::GEOMETRY(bytes, len)
-        : duckdb::Value::GEOMETRY(bytes, len, duckdb::CoordinateReferenceSystem(std::string(crs)));
+    auto value =
+        (crs == nullptr || *crs == '\0')
+            ? duckdb::Value::GEOMETRY(bytes, len)
+            : duckdb::Value::GEOMETRY(bytes, len, duckdb::CoordinateReferenceSystem(std::string(crs)));
     auto owned = duckdb::make_uniq<duckdb::Value>(std::move(value));
     return reinterpret_cast<duckdb_value>(owned.release());
 }
