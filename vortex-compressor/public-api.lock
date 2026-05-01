@@ -32,6 +32,8 @@ pub fn vortex_compressor::builtins::BoolConstantScheme::descendant_exclusions(&s
 
 pub fn vortex_compressor::builtins::BoolConstantScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
+pub fn vortex_compressor::builtins::BoolConstantScheme::is_lossy(&self) -> bool
+
 pub fn vortex_compressor::builtins::BoolConstantScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
 pub fn vortex_compressor::builtins::BoolConstantScheme::num_children(&self) -> usize
@@ -69,6 +71,8 @@ pub fn vortex_compressor::builtins::FloatConstantScheme::compress(&self, &vortex
 pub fn vortex_compressor::builtins::FloatConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
 pub fn vortex_compressor::builtins::FloatConstantScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
+
+pub fn vortex_compressor::builtins::FloatConstantScheme::is_lossy(&self) -> bool
 
 pub fn vortex_compressor::builtins::FloatConstantScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
@@ -108,6 +112,8 @@ pub fn vortex_compressor::builtins::FloatDictScheme::descendant_exclusions(&self
 
 pub fn vortex_compressor::builtins::FloatDictScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
+pub fn vortex_compressor::builtins::FloatDictScheme::is_lossy(&self) -> bool
+
 pub fn vortex_compressor::builtins::FloatDictScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
 pub fn vortex_compressor::builtins::FloatDictScheme::num_children(&self) -> usize
@@ -145,6 +151,8 @@ pub fn vortex_compressor::builtins::IntConstantScheme::compress(&self, &vortex_c
 pub fn vortex_compressor::builtins::IntConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
 pub fn vortex_compressor::builtins::IntConstantScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
+
+pub fn vortex_compressor::builtins::IntConstantScheme::is_lossy(&self) -> bool
 
 pub fn vortex_compressor::builtins::IntConstantScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
@@ -184,6 +192,8 @@ pub fn vortex_compressor::builtins::IntDictScheme::descendant_exclusions(&self) 
 
 pub fn vortex_compressor::builtins::IntDictScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
+pub fn vortex_compressor::builtins::IntDictScheme::is_lossy(&self) -> bool
+
 pub fn vortex_compressor::builtins::IntDictScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
 pub fn vortex_compressor::builtins::IntDictScheme::num_children(&self) -> usize
@@ -221,6 +231,8 @@ pub fn vortex_compressor::builtins::StringConstantScheme::compress(&self, &vorte
 pub fn vortex_compressor::builtins::StringConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
 pub fn vortex_compressor::builtins::StringConstantScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
+
+pub fn vortex_compressor::builtins::StringConstantScheme::is_lossy(&self) -> bool
 
 pub fn vortex_compressor::builtins::StringConstantScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
@@ -260,6 +272,8 @@ pub fn vortex_compressor::builtins::StringDictScheme::descendant_exclusions(&sel
 
 pub fn vortex_compressor::builtins::StringDictScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
+pub fn vortex_compressor::builtins::StringDictScheme::is_lossy(&self) -> bool
+
 pub fn vortex_compressor::builtins::StringDictScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
 pub fn vortex_compressor::builtins::StringDictScheme::num_children(&self) -> usize
@@ -291,6 +305,8 @@ pub fn vortex_compressor::ctx::CompressorContext::cascade_history(&self) -> &[(v
 pub fn vortex_compressor::ctx::CompressorContext::finished_cascading(&self) -> bool
 
 pub fn vortex_compressor::ctx::CompressorContext::is_sample(&self) -> bool
+
+pub fn vortex_compressor::ctx::CompressorContext::lossy_allowed(&self) -> bool
 
 pub fn vortex_compressor::ctx::CompressorContext::merged_stats_options(&self) -> vortex_compressor::stats::GenerateStatsOptions
 
@@ -460,6 +476,8 @@ pub fn vortex_compressor::scheme::Scheme::descendant_exclusions(&self) -> alloc:
 
 pub fn vortex_compressor::scheme::Scheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
+pub fn vortex_compressor::scheme::Scheme::is_lossy(&self) -> bool
+
 pub fn vortex_compressor::scheme::Scheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
 pub fn vortex_compressor::scheme::Scheme::num_children(&self) -> usize
@@ -477,6 +495,8 @@ pub fn vortex_compressor::builtins::BoolConstantScheme::compress(&self, &vortex_
 pub fn vortex_compressor::builtins::BoolConstantScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
 pub fn vortex_compressor::builtins::BoolConstantScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
+
+pub fn vortex_compressor::builtins::BoolConstantScheme::is_lossy(&self) -> bool
 
 pub fn vortex_compressor::builtins::BoolConstantScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
@@ -496,6 +516,8 @@ pub fn vortex_compressor::builtins::FloatConstantScheme::descendant_exclusions(&
 
 pub fn vortex_compressor::builtins::FloatConstantScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
+pub fn vortex_compressor::builtins::FloatConstantScheme::is_lossy(&self) -> bool
+
 pub fn vortex_compressor::builtins::FloatConstantScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
 pub fn vortex_compressor::builtins::FloatConstantScheme::num_children(&self) -> usize
@@ -513,6 +535,8 @@ pub fn vortex_compressor::builtins::FloatDictScheme::compress(&self, &vortex_com
 pub fn vortex_compressor::builtins::FloatDictScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
 pub fn vortex_compressor::builtins::FloatDictScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
+
+pub fn vortex_compressor::builtins::FloatDictScheme::is_lossy(&self) -> bool
 
 pub fn vortex_compressor::builtins::FloatDictScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
@@ -532,6 +556,8 @@ pub fn vortex_compressor::builtins::IntConstantScheme::descendant_exclusions(&se
 
 pub fn vortex_compressor::builtins::IntConstantScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
+pub fn vortex_compressor::builtins::IntConstantScheme::is_lossy(&self) -> bool
+
 pub fn vortex_compressor::builtins::IntConstantScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
 pub fn vortex_compressor::builtins::IntConstantScheme::num_children(&self) -> usize
@@ -549,6 +575,8 @@ pub fn vortex_compressor::builtins::IntDictScheme::compress(&self, &vortex_compr
 pub fn vortex_compressor::builtins::IntDictScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
 pub fn vortex_compressor::builtins::IntDictScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
+
+pub fn vortex_compressor::builtins::IntDictScheme::is_lossy(&self) -> bool
 
 pub fn vortex_compressor::builtins::IntDictScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
@@ -568,6 +596,8 @@ pub fn vortex_compressor::builtins::StringConstantScheme::descendant_exclusions(
 
 pub fn vortex_compressor::builtins::StringConstantScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
 
+pub fn vortex_compressor::builtins::StringConstantScheme::is_lossy(&self) -> bool
+
 pub fn vortex_compressor::builtins::StringConstantScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
 pub fn vortex_compressor::builtins::StringConstantScheme::num_children(&self) -> usize
@@ -585,6 +615,8 @@ pub fn vortex_compressor::builtins::StringDictScheme::compress(&self, &vortex_co
 pub fn vortex_compressor::builtins::StringDictScheme::descendant_exclusions(&self) -> alloc::vec::Vec<vortex_compressor::scheme::DescendantExclusion>
 
 pub fn vortex_compressor::builtins::StringDictScheme::expected_compression_ratio(&self, &vortex_compressor::stats::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
+
+pub fn vortex_compressor::builtins::StringDictScheme::is_lossy(&self) -> bool
 
 pub fn vortex_compressor::builtins::StringDictScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
 
