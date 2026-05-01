@@ -126,7 +126,7 @@ These are user/owner decisions, not agent decisions.
   display-name map. Cosmetic but visible.
 - **Deferred UI follow-ups.** The user is handling these directly; agents should not pre-empt
   them:
-  - `collect_group_charts` N+1 refactor in `api.rs:1202-1233`.
+  - `collect_group_charts` N+1 refactor in `api/charts.rs::collect_group_charts`.
   - Mobile legend resize handler. The position is picked once at chart construction via
     `matchMedia("(max-width: 768px)")`; it doesn't update if the viewport crosses the breakpoint.
   - Zoom-sync within a group.
