@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::CStr;
+use std::ffi::CString;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::ptr;
 
 use num_traits::AsPrimitive;
 use vortex::buffer::BufferString;
@@ -12,6 +14,7 @@ use vortex::buffer::ByteBuffer;
 use vortex::dtype::NativeDType;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 
@@ -97,12 +100,15 @@ impl ValueRef {
                 ExtractedValue::Varchar(string)
             }
             DUCKDB_TYPE::DUCKDB_TYPE_BLOB => {
-                let blob = unsafe { cpp::duckdb_get_blob(self.as_ptr()) };
-                let slice =
-                    unsafe { std::slice::from_raw_parts(blob.data.cast::<u8>(), blob.size.as_()) };
-                let bytes = ByteBuffer::copy_from(slice);
-                unsafe { cpp::duckdb_free(blob.data) };
-                ExtractedValue::Blob(bytes)
+                ExtractedValue::Blob(unsafe { take_blob(cpp::duckdb_get_blob(self.as_ptr())) })
+            }
+            DUCKDB_TYPE::DUCKDB_TYPE_GEOMETRY => {
+                // GEOMETRY values are WKB blobs in DuckDB; we read the bytes directly via a shim
+                // that bypasses the GEOMETRY -> BLOB default cast (which requires spatial loaded).
+                // CRS lives on the logical type and is not part of the extracted bytes.
+                ExtractedValue::Blob(unsafe {
+                    take_blob(cpp::duckdb_vx_value_get_geometry(self.as_ptr()))
+                })
             }
             DUCKDB_TYPE::DUCKDB_TYPE_DATE => {
                 ExtractedValue::Date(unsafe { cpp::duckdb_get_date(self.as_ptr()).days })
@@ -250,6 +256,24 @@ impl Value {
     pub fn new_date(days: i32) -> Self {
         unsafe { Self::own(cpp::duckdb_create_date(cpp::duckdb_date { days })) }
     }
+
+    /// Creates a DuckDB GEOMETRY value from WKB bytes and an optional CRS.
+    ///
+    /// Pass `None` (or an empty string) for `crs` to create a geometry value with no CRS.
+    pub fn new_geometry(wkb: &[u8], crs: Option<&str>) -> VortexResult<Self> {
+        let crs_c = crs
+            .map(CString::new)
+            .transpose()
+            .map_err(|_| vortex_err!("CRS must not contain NUL bytes"))?;
+        let crs_ptr = crs_c.as_ref().map_or(ptr::null(), |c| c.as_ptr());
+        Ok(unsafe {
+            Self::own(cpp::duckdb_vx_value_create_geometry(
+                wkb.as_ptr(),
+                wkb.len() as idx_t,
+                crs_ptr,
+            ))
+        })
+    }
 }
 
 impl Display for ValueRef {
@@ -265,6 +289,28 @@ impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Display::fmt(&**self, f)
     }
+}
+
+/// Copies the bytes of a `duckdb_blob` into a `ByteBuffer` and frees the underlying allocation.
+///
+/// # Safety
+///
+/// `blob` must be a freshly returned value from a DuckDB allocator (`duckdb_malloc` or one of the
+/// `duckdb_get_*` accessors that allocate).
+unsafe fn take_blob(blob: cpp::duckdb_blob) -> ByteBuffer {
+    let size: usize = blob.size.as_();
+    // `slice::from_raw_parts` requires a non-null, aligned pointer even for zero-length slices,
+    // and `duckdb_malloc(0)` is permitted to return null. Skip the slice construction in that case.
+    let bytes = if size == 0 {
+        ByteBuffer::empty()
+    } else {
+        let slice = unsafe { std::slice::from_raw_parts(blob.data.cast::<u8>(), size) };
+        ByteBuffer::copy_from(slice)
+    };
+    if !blob.data.is_null() {
+        unsafe { cpp::duckdb_free(blob.data) };
+    }
+    bytes
 }
 
 #[inline]
