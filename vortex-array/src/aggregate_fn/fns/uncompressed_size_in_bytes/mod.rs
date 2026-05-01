@@ -83,10 +83,12 @@ fn uncompressed_size_in_bytes_u64(array: &ArrayRef, ctx: &mut ExecutionCtx) -> V
     Ok(size)
 }
 
-/// Sum the canonical, recursively uncompressed buffer sizes for an array.
+/// Sum the canonical, recursively **uncompressed** data size for an array.
 ///
 /// Applies to all types and returns a non-null `u64`. Encoding kernels can return this aggregate
 /// directly from metadata to avoid decoding arrays whose uncompressed size is known.
+///
+/// This is generally useful for various execution engines to pick better join orderings.
 #[derive(Clone, Debug)]
 pub struct UncompressedSizeInBytes;
 
@@ -102,8 +104,8 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
         unimplemented!("UncompressedSizeInBytes is not yet serializable");
     }
 
-    fn return_dtype(&self, _options: &Self::Options, _input_dtype: &DType) -> Option<DType> {
-        supports_uncompressed_size_in_bytes(_input_dtype)
+    fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        supports_uncompressed_size_in_bytes(input_dtype)
             .then_some(DType::Primitive(PType::U64, NonNullable))
     }
 
