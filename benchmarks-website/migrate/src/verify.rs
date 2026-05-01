@@ -30,6 +30,8 @@ pub struct VerifyReport {
     pub chart_diffs: Vec<ChartDiff>,
 }
 
+/// One group's chart-count divergence between v2 and v3, captured when the
+/// group is structurally present on both sides but the counts differ.
 #[derive(Debug, Clone)]
 pub struct ChartDiff {
     pub group: String,

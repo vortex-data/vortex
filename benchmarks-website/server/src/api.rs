@@ -162,11 +162,14 @@ impl ChartQuery {
     }
 }
 
+/// Body of `GET /api/groups`: every group with its chart links and summary.
 #[derive(Debug, Serialize)]
 pub struct GroupsResponse {
     pub groups: Vec<Group>,
 }
 
+/// One group: a display name, a slug for the group permalink, and the chart
+/// links inside it. Optionally carries a v2-compatible rollup summary.
 #[derive(Debug, Serialize)]
 pub struct Group {
     pub name: String,
@@ -268,12 +271,16 @@ pub struct NamedChartResponse {
     pub chart: ChartResponse,
 }
 
+/// One chart's short label inside a group (e.g. `Q1`) plus the slug that
+/// resolves to its `/api/chart/{slug}` payload.
 #[derive(Debug, Serialize)]
 pub struct ChartLink {
     pub name: String,
     pub slug: String,
 }
 
+/// Body of `GET /api/chart/{slug}`: every commit with data, every series'
+/// values aligned to those commits, and per-series engine/format tags.
 #[derive(Debug, Clone, Serialize)]
 pub struct ChartResponse {
     pub display_name: String,
@@ -311,6 +318,8 @@ pub struct FilterUniverse {
     pub formats: Vec<String>,
 }
 
+/// One row of the `commits[]` array on a [`ChartResponse`]. Carries enough
+/// metadata for the tooltip and the click-to-PR handler in `chart-init.js`.
 #[derive(Debug, Clone, Serialize)]
 pub struct CommitPoint {
     pub sha: String,
@@ -319,6 +328,8 @@ pub struct CommitPoint {
     pub url: String,
 }
 
+/// Body of `GET /health`: liveness probe plus a row-count rollup that's
+/// useful for "did my ingest land?" smoke tests.
 #[derive(Debug, Serialize)]
 pub struct HealthResponse {
     pub status: &'static str,
@@ -328,6 +339,7 @@ pub struct HealthResponse {
     pub row_counts: RowCounts,
 }
 
+/// Per-fact-table row counts surfaced by `/health`.
 #[derive(Debug, Serialize)]
 pub struct RowCounts {
     pub commits: i64,

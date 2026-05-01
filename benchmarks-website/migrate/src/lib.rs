@@ -13,9 +13,15 @@
 //! The migrator is throwaway: once v3 cuts over, both the binary and
 //! the classifier go away.
 
+/// Routing v2 records into v3 fact tables, ported from v2's `getGroup`.
 pub mod classifier;
+/// V2 commit -> v3 `commits` row upserts.
 pub mod commits;
+/// End-to-end migration of v2 dumps into a v3 DuckDB.
 pub mod migrate;
+/// Streaming readers for the v2 S3 bucket and local dumps.
 pub mod source;
+/// Wire shapes of the v2 benchmark dataset.
 pub mod v2;
+/// Structural diff between a migrated v3 DuckDB and v2's `/api/metadata`.
 pub mod verify;
