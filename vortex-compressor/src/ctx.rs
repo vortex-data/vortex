@@ -24,6 +24,16 @@ pub struct CompressorContext {
     /// Whether we're compressing a sample (for ratio estimation).
     is_sample: bool,
 
+    /// Whether lossy schemes are allowed at this compression site.
+    ///
+    /// This is set to `true` when the compressor descends into the storage of a
+    /// `Lossy<X>` extension array, which is the user's explicit consent to lossy
+    /// storage. Lossy schemes (those whose [`Scheme::is_lossy`] returns `true`)
+    /// are filtered out of the candidate set unless this flag is set.
+    ///
+    /// [`Scheme::is_lossy`]: crate::scheme::Scheme::is_lossy
+    lossy_allowed: bool,
+
     /// Remaining cascade depth allowed.
     allowed_cascading: usize,
 
@@ -47,6 +57,7 @@ impl CompressorContext {
     pub(super) fn new() -> Self {
         Self {
             is_sample: false,
+            lossy_allowed: false,
             allowed_cascading: MAX_CASCADE,
             merged_stats_options: GenerateStatsOptions::default(),
             cascade_history: Vec::new(),
@@ -65,6 +76,17 @@ impl CompressorContext {
     /// Whether this context is for sample compression (ratio estimation).
     pub fn is_sample(&self) -> bool {
         self.is_sample
+    }
+
+    /// Whether lossy schemes are allowed at this compression site.
+    ///
+    /// Lossy schemes (those whose [`Scheme::is_lossy`] returns `true`) are only
+    /// invoked when this flag is `true`. The compressor sets it on the child
+    /// context when it descends into the storage of a `Lossy<X>` extension array.
+    ///
+    /// [`Scheme::is_lossy`]: crate::scheme::Scheme::is_lossy
+    pub fn lossy_allowed(&self) -> bool {
+        self.lossy_allowed
     }
 
     /// Returns the merged stats generation options for this compression site.
@@ -110,6 +132,12 @@ impl CompressorContext {
     /// Returns a context marked as sample compression.
     pub(super) fn with_sampling(mut self) -> Self {
         self.is_sample = true;
+        self
+    }
+
+    /// Returns a context with lossy schemes allowed (or disallowed) at this site.
+    pub(super) fn with_lossy_allowed(mut self, allow: bool) -> Self {
+        self.lossy_allowed = allow;
         self
     }
 
