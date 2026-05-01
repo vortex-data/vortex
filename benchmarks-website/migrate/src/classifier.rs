@@ -793,6 +793,8 @@ fn split_engine_format(series: &str) -> Option<(String, String)> {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Context as _;
+
     use super::*;
 
     fn record(name: &str) -> V2Record {
@@ -836,8 +838,9 @@ mod tests {
     }
 
     #[test]
-    fn random_access_bins_dataset_pattern() {
-        let bin = classify(&record("random-access/taxi/take/parquet")).unwrap();
+    fn random_access_bins_dataset_pattern() -> anyhow::Result<()> {
+        let bin = classify(&record("random-access/taxi/take/parquet"))
+            .context("classify returned None for a known-good 4-part random-access name")?;
         assert_eq!(
             bin,
             V3Bin::RandomAccess {
@@ -845,5 +848,6 @@ mod tests {
                 format: "parquet".into(),
             }
         );
+        Ok(())
     }
 }

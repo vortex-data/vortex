@@ -869,12 +869,12 @@ mod tests {
 
     use super::*;
 
-    fn open_db_without(table: &str) -> (tempfile::TempDir, Connection) {
-        let dir = tempfile::TempDir::new().unwrap();
+    fn open_db_without(table: &str) -> Result<(tempfile::TempDir, Connection)> {
+        let dir = tempfile::TempDir::new()?;
         let path = dir.path().join("v3.duckdb");
-        let conn = open_target_db(&path).unwrap();
-        conn.execute_batch(&format!("DROP TABLE {table}")).unwrap();
-        (dir, conn)
+        let conn = open_target_db(&path)?;
+        conn.execute_batch(&format!("DROP TABLE {table}"))?;
+        Ok((dir, conn))
     }
 
     fn one_query_row() -> QueryMeasurement {
@@ -898,12 +898,12 @@ mod tests {
     }
 
     #[test]
-    fn flush_all_does_not_overcount_on_failure() {
+    fn flush_all_does_not_overcount_on_failure() -> Result<()> {
         // Drop `compression_times` before flushing so the second
         // flush in `flush_all` fails. The first (queries) succeeded,
         // so its counter must be set; the failed table's counter and
         // every later table's counter must stay at zero.
-        let (_dir, conn) = open_db_without("compression_times");
+        let (_dir, conn) = open_db_without("compression_times")?;
 
         let mut summary = MigrationSummary::default();
         let mut q = QueryAccum::default();
@@ -931,5 +931,6 @@ mod tests {
             summary.compression_size_inserted, 0,
             "later flushes never ran"
         );
+        Ok(())
     }
 }
