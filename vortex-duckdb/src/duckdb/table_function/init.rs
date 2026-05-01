@@ -74,7 +74,6 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
         }
     }
 
-    /// Returns the bind data for the table function.
     pub fn bind_data(&self) -> &T::BindData {
         unsafe { &*self.input.bind_data.cast::<T::BindData>() }
     }
