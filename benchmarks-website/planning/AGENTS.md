@@ -24,6 +24,7 @@ it as `vortex-bench-server` at `benchmarks-website/server/`.
 
 - Single Rust binary: `axum` (HTTP) + `maud` (SSR HTML) + embedded `duckdb-rs`. All static assets
   (`chart.umd.js`, `chart-init.js`, `style.css`) are `include_bytes!`'d into the binary. No CDN.
+  A `tower-http` `CompressionLayer` wraps every response (gzip/brotli).
 - One DuckDB file on local disk holds five fact tables (compression time, query measurement, vector
   search, RAG, random access) plus a `commits` dim table. Schema in
   [`01-schema.md`](./01-schema.md).
@@ -37,13 +38,23 @@ it as `vortex-bench-server` at `benchmarks-website/server/`.
 - Charts render inline on the landing page. Each `<canvas>` is paired with a
   `<script id="chart-data-N">` JSON payload that `chart-init.js` hydrates lazily via
   `IntersectionObserver`.
-- Per-chart toolbar with zoom-as-scope: each chart fetches up to 1000 commits once, then the Show /
-  Y / Mode buttons and slider adjust the visible range via `chart.update("none")`. Mouse wheel pans
-  history. Slider uses `input` events with a 16ms throttle + 150ms debounce.
+- Per-chart toolbar with zoom-as-scope. Each chart fetches its full raw history once
+  (`?n=all`); visual downsampling is **client-side LTTB** in `chart-init.js`
+  (`MAX_VISIBLE_POINTS = 500`, applied only to the currently visible commit range — zoomed-in
+  views render raw). Drag-pan, drag-rectangle-zoom, wheel-pan, the toolbar slider, and a
+  horizontal range-scrollbar strip below each chart all drive the same `rebuildVisibleAndUpdate`
+  so LTTB and the strip stay in lockstep. A "downsampled · K / N" badge surfaces when LTTB is
+  active.
 - Group ordering is hard-coded to match v2's `origin/ct/vfvb:benchmarks-website/index.html` order.
-  Each group is wrapped in a `<details>`; only the first is open by default.
-- URL state (`?n=&y=&mode=&hidden=`) is honored only on permalink pages (`/chart`, `/group`).
-  Landing page resets to defaults on open; users customize per-chart in place.
+  Every group is wrapped in a `<details>`, all collapsed by default. The first group's chart
+  payloads are still inlined (capped at `LANDING_INLINE_N = 100` commits) so opening it skips a
+  fetch round-trip; `chart-init.js` lazy-fetches `?n=all` once when the user zooms past the
+  inlined window.
+- A sticky filter bar at the top of every page exposes engine/format chips that drive series
+  visibility across every chart at once. Clicking a data point opens that commit's PR (parsed
+  from `(#NNNN)` in the message; falls back to the commit URL). URL params `?engine=&format=&n=`
+  survive permalink shares and refreshes; per-chart toolbar state (Y axis, slider) is
+  intentionally local-only.
 - `vortex-bench-migrate` reads v2 records, runs each through a classifier in
   `migrate/src/classifier.rs`, and either routes the record into one of the five fact tables or
   marks it `Skip(reason)` with a typed reason. The run **fails if more than 5% of records come back
@@ -54,13 +65,15 @@ it as `vortex-bench-server` at `benchmarks-website/server/`.
 | Path                                             | What lives here                                                                                                                                                                                                            |
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `benchmarks-website/server/src/main.rs`          | Binary entrypoint. Reads `INGEST_BEARER_TOKEN`, `VORTEX_BENCH_BIND` (default `127.0.0.1:3000`), `VORTEX_BENCH_DB` (default `./bench.duckdb`), `VORTEX_BENCH_LOG`.                                                          |
+| `benchmarks-website/server/src/app.rs`           | `AppState` (DB handle + bearer + path) and the `Router` composition. `CompressionLayer` wraps every response.                                                                                                              |
 | `benchmarks-website/server/src/api.rs`           | `chart_payload(conn, &ChartKey, &CommitWindow)` — the shared implementation behind `/api/chart/{slug}`, the inline `<script>` JSON, and `collect_group_charts`. Known N+1 in `collect_group_charts` — flagged with a TODO. |
-| `benchmarks-website/server/src/html.rs`          | Three HTML routes and the `<details>`-per-group landing page. `LANDING_DEFAULT_N: u32 = 50`. `UiQuery` parses `?n=&y=&mode=&hidden=` on permalink routes.                                                                  |
+| `benchmarks-website/server/src/html.rs`          | Three HTML routes and the `<details>`-per-group landing page. `LANDING_INLINE_N: u32 = 100` caps the first group's inlined chart JSON; HTML routes default to `CommitWindow::All`. `UiQuery` parses `?n=&engine=&format=`. |
 | `benchmarks-website/server/src/slug.rs`          | `ChartKey` / `GroupKey` enums and `to_slug` / `from_slug` round-trip.                                                                                                                                                      |
-| `benchmarks-website/server/static/chart-init.js` | Hydration, `IntersectionObserver`, custom external tooltip with delta rows, inline `afterDatasetsDraw` plugin for the dashed crosshair.                                                                                    |
-| `benchmarks-website/server/static/style.css`     | `.chart-tooltip-host` is `position: absolute; pointer-events: none;` (do not change — fixes the flicker). `.chart-card` is `position: relative`.                                                                           |
+| `benchmarks-website/server/static/chart-init.js` | Hydration, `IntersectionObserver`, lazy-fetch on `<details>` toggle, `rebuildVisibleAndUpdate` (client-side LTTB on the visible range, `MAX_VISIBLE_POINTS = 500`), custom external tooltip + delta rows + click-to-PR, range-scrollbar strip, global filter chips, inline crosshair plugin. |
+| `benchmarks-website/server/static/style.css`     | `.chart-tooltip-host` is `position: absolute; pointer-events: none;` (do not change — fixes the flicker). `.chart-card` is `position: relative`. `.chart-range-strip*` and `.filter-*` selectors back the range scrollbar and global filter chips. |
 | `benchmarks-website/server/tests/web_ui.rs`      | `insta` snapshot tests, seeded by POSTing to `/api/ingest`. No external fixtures.                                                                                                                                          |
 | `benchmarks-website/migrate/src/classifier.rs`   | `classify_outcome` routes records into a fact table, `Skip(reason)`, or `Unknown`. >5% Unknown gates the run.                                                                                                              |
+| `benchmarks-website/migrate/src/verify.rs`       | Structural diff between a migrated DuckDB and v2's live `/api/metadata`. Exits non-zero if any v2 group is missing in v3 — gates a CI step.                                                                                |
 
 ## Local dev / smoke test
 
@@ -111,13 +124,25 @@ See the root [`CLAUDE.md`](/CLAUDE.md) for Rust style, test layout, and CI norms
   [`README.md`](./README.md) first — it is almost certainly already deferred.
 - **Don't write a server-side classifier for live ingest.** The emitter is responsible for v3-shape
   records. The migrator's classifier exists only to translate v2 records once.
-- **Don't rebuild a global page-level toolbar.** Controls are per-chart. This was a real failure
-  mode the first time around — the page-level toolbar drove every chart together, which is not what
-  users want.
+- **Don't rebuild a global page-level toolbar with chart-state controls.** Per-chart controls
+  (slider, Y-axis, scope) stay per-chart. The sticky filter bar at the top of every page is the
+  exception — it drives series *visibility* across every chart at once, which is what users want
+  for the engine/format dimension. Don't extend it with per-chart settings.
 - **Don't bind a slider's reactive logic to `change` events.** Use `input` events with a small
   throttle + debounce, otherwise the slider only updates on release and feels broken.
-- **Don't refetch on scope change.** Each chart fetches a generous window once; scope buttons +
-  slider operate on that buffer via `chart.update("none")`.
+- **Don't refetch every time the scope changes.** The chart fetches its full history once; scope
+  buttons, slider, drag-pan, wheel-pan, and the range strip all rebuild via the in-memory LTTB
+  pass on the cached payload. The one exception is the inline-payload zoom-out path: when the user
+  zooms past the first group's inlined `LANDING_INLINE_N` window for the first time,
+  `chart-init.js` lazy-fetches `?n=all` once and replaces the payload.
+- **Don't re-introduce a server-side commit cap.** `?n=all` is the default for HTML routes and the
+  upper bound is unbounded everywhere. Visual downsampling lives client-side in `chart-init.js`,
+  not on the wire.
+- **Don't reverse the predecessor walk in the tooltip.** The chart payload's `commits[]` is sorted
+  oldest-first by SQL — `commits[0]` is the oldest commit, `commits[N-1]` is the newest. For
+  per-row delta the chronological predecessor of `commits[idx]` lives at `idx - 1`. We caught a
+  regression where a "fix" flipped this to `idx + 1`; the original walk-backward direction was
+  right.
 - **Don't re-introduce `pointer-events: auto` on the tooltip host.** The tooltip is positioned at
   the cursor; making it pointer-interactive causes a flicker loop. Keep it `pointer-events: none`
   and offset via `transform: translate(12px, 12px)`.
