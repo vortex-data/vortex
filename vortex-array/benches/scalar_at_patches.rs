@@ -18,7 +18,7 @@ fn main() {
 
 const ARRAY_LEN: usize = 1_000_000;
 const NUM_PATCHES: usize = 100;
-const NUM_QUERIES: usize = 10_000;
+const NUM_QUERIES: usize = 1_000;
 const PATCH_LOW: usize = 100_000;
 const PATCH_HIGH: usize = 110_000;
 
