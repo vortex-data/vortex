@@ -7,12 +7,8 @@ use criterion::Criterion;
 
 /// Benchmark input sizes.
 ///
-/// On codspeed, only the 100M variant runs — kernels under ~200 µs
-/// (i.e. the 10M cases) swing 15-45% across ephemeral GPU instances,
-/// drowning real regressions in noise. Locally both sizes run.
-#[cfg(not(codspeed))]
-pub const BENCH_SIZES: &[(usize, &str)] = &[(10_000_000, "10M"), (100_000_000, "100M")];
-#[cfg(codspeed)]
+/// 100M elements keeps every kernel above ~500 µs, well above the
+/// ~15 µs CUDA driver noise floor that caused 15-45% swings at 10M.
 pub const BENCH_SIZES: &[(usize, &str)] = &[(100_000_000, "100M")];
 
 /// Returns a [`Criterion`] configuration tuned for CUDA benchmarks.
