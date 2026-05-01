@@ -558,6 +558,8 @@ pub type vortex_tensor::vector::Vector::Metadata = vortex_array::extension::Empt
 
 pub type vortex_tensor::vector::Vector::NativeValue<'a> = &'a vortex_array::scalar::scalar_value::ScalarValue
 
+pub fn vortex_tensor::vector::Vector::can_be_lossy(&self) -> bool
+
 pub fn vortex_tensor::vector::Vector::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_tensor::vector::Vector::id(&self) -> vortex_array::dtype::extension::ExtId

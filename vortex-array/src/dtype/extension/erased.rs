@@ -114,6 +114,13 @@ impl ExtDTypeRef {
     pub fn least_supertype(&self, other: &DType) -> Option<DType> {
         self.0.least_supertype(other)
     }
+
+    /// Whether columns of this extension type may be wrapped in a `Lossy` extension type.
+    ///
+    /// Defaults to `false`; extension types opt in by overriding [`ExtVTable::can_be_lossy`].
+    pub fn can_be_lossy(&self) -> bool {
+        self.0.can_be_lossy()
+    }
 }
 
 /// Methods for downcasting type-erased extension dtypes.

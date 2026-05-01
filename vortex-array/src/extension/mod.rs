@@ -6,7 +6,11 @@
 use std::fmt;
 
 pub mod datetime;
+mod lossy;
 pub mod uuid;
+
+pub use lossy::AnyLossy;
+pub use lossy::Lossy;
 
 #[cfg(test)]
 mod tests;

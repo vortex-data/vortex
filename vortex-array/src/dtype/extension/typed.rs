@@ -123,6 +123,13 @@ impl<V: ExtVTable> ExtDType<V> {
         V::least_supertype(self, other)
     }
 
+    /// Whether columns of this extension type may be wrapped in a `Lossy` extension type.
+    ///
+    /// Defaults to `false`; extension types opt in by overriding [`ExtVTable::can_be_lossy`].
+    pub fn can_be_lossy(&self) -> bool {
+        self.vtable.can_be_lossy()
+    }
+
     /// Erase the concrete type information, returning a type-erased extension dtype.
     pub fn erased(self) -> ExtDTypeRef {
         ExtDTypeRef(Arc::new(self))
@@ -151,6 +158,7 @@ pub(super) trait DynExtDType: 'static + Send + Sync + super::sealed::Sealed {
     fn can_coerce_from(&self, other: &DType) -> bool;
     fn can_coerce_to(&self, other: &DType) -> bool;
     fn least_supertype(&self, other: &DType) -> Option<DType>;
+    fn can_be_lossy(&self) -> bool;
 }
 
 /// Blanket impl: thin forwarder to `ExtDType<V>` inherent methods.
@@ -231,5 +239,9 @@ impl<V: ExtVTable> DynExtDType for ExtDType<V> {
 
     fn least_supertype(&self, other: &DType) -> Option<DType> {
         self.least_supertype(other)
+    }
+
+    fn can_be_lossy(&self) -> bool {
+        self.can_be_lossy()
     }
 }

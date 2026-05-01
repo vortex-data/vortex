@@ -433,6 +433,19 @@ impl DType {
         }
     }
 
+    /// If this dtype is a `Lossy` extension at the top level, returns the wrapped storage
+    /// dtype. Otherwise returns `self`.
+    ///
+    /// This unwraps a single layer of `Lossy`. It does not recurse into nested types.
+    pub fn peel_lossy(&self) -> &DType {
+        if let Extension(ext) = self
+            && ext.is::<crate::extension::Lossy>()
+        {
+            return ext.storage_dtype();
+        }
+        self
+    }
+
     /// Convenience method for creating a [`DType::List`].
     pub fn list(dtype: impl Into<DType>, nullability: Nullability) -> Self {
         List(Arc::new(dtype.into()), nullability)
