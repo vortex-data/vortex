@@ -7,7 +7,10 @@ use std::sync::Arc;
 
 use divan::Bencher;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -25,16 +28,14 @@ fn main() {
 
 const LIST_ARGS: &[(usize, usize, usize)] = &[
     // len, patch_stride, list_size
-    (10_000, 7, 8),
-    (50_000, 7, 8),
-    (50_000, 11, 16),
+    (4_096, 7, 8),
+    (8_192, 17, 16),
 ];
 
 const FIXED_SIZE_LIST_ARGS: &[(usize, usize, u32)] = &[
     // len, patch_stride, list_size
-    (10_000, 7, 8),
-    (50_000, 7, 8),
-    (50_000, 11, 16),
+    (4_096, 7, 8),
+    (8_192, 17, 16),
 ];
 
 fn make_sparse_list(len: usize, patch_stride: usize, list_size: usize) -> ArrayRef {
@@ -92,11 +93,11 @@ fn canonicalize_sparse_list(
     let sparse = make_sparse_list(len, patch_stride, list_size);
 
     bencher
-        .with_inputs(|| sparse.clone())
-        .bench_values(|array| {
+        .with_inputs(|| (sparse.clone(), LEGACY_SESSION.create_execution_ctx()))
+        .bench_values(|(array, mut ctx)| {
             divan::black_box(
                 array
-                    .to_canonical()
+                    .execute::<Canonical>(&mut ctx)
                     .vortex_expect("sparse list canonicalization"),
             )
         });
@@ -110,11 +111,11 @@ fn canonicalize_sparse_fixed_size_list(
     let sparse = make_sparse_fixed_size_list(len, patch_stride, list_size);
 
     bencher
-        .with_inputs(|| sparse.clone())
-        .bench_values(|array| {
+        .with_inputs(|| (sparse.clone(), LEGACY_SESSION.create_execution_ctx()))
+        .bench_values(|(array, mut ctx)| {
             divan::black_box(
                 array
-                    .to_canonical()
+                    .execute::<Canonical>(&mut ctx)
                     .vortex_expect("sparse fixed-size-list canonicalization"),
             )
         });
