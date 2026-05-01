@@ -154,6 +154,13 @@ pub trait Scheme: Debug + Send + Sync {
     /// Whether this scheme can compress the given canonical array.
     fn matches(&self, canonical: &Canonical) -> bool;
 
+    /// Returns true if this scheme produces lossy (non-bit-exact) compressed output.
+    /// Lossy schemes are only invoked when the compressor context allows lossy storage,
+    /// which is gated by the user wrapping the column in `Lossy<X>`.
+    fn is_lossy(&self) -> bool {
+        false
+    }
+
     /// Returns the stats generation options this scheme requires. The compressor merges all
     /// eligible schemes' options before generating stats so that a single stats pass satisfies
     /// every scheme.
