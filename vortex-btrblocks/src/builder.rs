@@ -3,6 +3,7 @@
 
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
+use vortex_tensor::encodings::turboquant::TurboQuantScheme;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
@@ -60,6 +61,14 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     &decimal::DecimalScheme,
     // Temporal schemes.
     &temporal::TemporalScheme,
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // Tensor schemes.
+    //
+    // TurboQuant only fires on `Lossy<Vector<...>>` columns: it declares `is_lossy() = true`, and
+    // the cascading compressor filters out lossy schemes unless the user has wrapped the column
+    // in `Lossy<X>`. So registering it here is safe — non-Lossy columns will not see it.
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    &TurboQuantScheme,
 ];
 
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
@@ -144,22 +153,6 @@ impl BtrBlocksCompressorBuilder {
             .with_new_scheme(&float::PcoScheme);
 
         builder
-    }
-
-    /// Adds the TurboQuant lossy vector quantization scheme.
-    ///
-    /// When enabled, [`Vector`] extension arrays are compressed using the TurboQuant algorithm
-    /// with MSE-optimal scalar quantization.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the TurboQuant scheme is already present.
-    ///
-    /// [`Vector`]: vortex_tensor::vector::Vector
-    #[cfg(feature = "unstable_encodings")]
-    pub fn with_turboquant(self) -> Self {
-        use vortex_tensor::encodings::turboquant::TurboQuantScheme;
-        self.with_new_scheme(&TurboQuantScheme)
     }
 
     /// Excludes schemes without CUDA kernel support and adds Zstd for string compression.

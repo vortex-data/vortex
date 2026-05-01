@@ -58,11 +58,16 @@ vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
+rand = { workspace = true }
+rand_distr = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-btrblocks = { workspace = true }
+vortex-compressor = { workspace = true }
 vortex-io = { workspace = true, features = ["tokio"] }
 vortex-layout = { workspace = true, features = ["_test-harness"] }
 vortex-scan = { workspace = true }
+vortex-tensor = { workspace = true }
 
 [lints]
 workspace = true

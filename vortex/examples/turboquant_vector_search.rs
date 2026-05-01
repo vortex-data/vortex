@@ -129,10 +129,11 @@ async fn main() -> Result<()> {
     let id = chunked_table.get_item("id")?;
     let emb = chunked_table.get_item("emb")?;
 
-    println!("converting emb column to Vector extension type...");
+    println!("converting emb column to Lossy<Vector> extension type...");
     let vector_array = list_to_vector_ext(emb)?;
+    let lossy_vector_array = wrap_lossy(vector_array)?;
 
-    let fields = [("id", id), ("emb", vector_array)];
+    let fields = [("id", id), ("emb", lossy_vector_array)];
     let struct_array = StructArray::from_fields(&fields)?.into_array();
 
     println!("compressing with TurboQuant and writing to in-memory Vortex file...");
@@ -193,10 +194,15 @@ async fn get_query_vector(
     Ok((idx, query_vector))
 }
 
+/// Wrap a `Vector<f32, DIM>` extension array in a `Lossy<Vector<f32, DIM>>` wrapper, which is the
+/// dtype-level consent that lets the default BtrBlocks compressor pick TurboQuant.
+fn wrap_lossy(vector_array: ArrayRef) -> Result<ArrayRef> {
+    let lossy_ext = vortex::array::extension::Lossy::new(vector_array.dtype().clone())?.erased();
+    Ok(ExtensionArray::new(lossy_ext, vector_array).into_array())
+}
+
 async fn write_turboquant(session: &VortexSession, array: ArrayRef) -> Result<ByteBuffer> {
-    let compressor = BtrBlocksCompressorBuilder::default()
-        .with_turboquant()
-        .build();
+    let compressor = BtrBlocksCompressorBuilder::default().build();
 
     // TurboQuant produces `L2Denorm(SorfTransform(FSL(Dict(...))), norms)`. The default write
     // allow-list only covers canonical/compressed array encodings, so the tensor scalar-fn
@@ -362,8 +368,9 @@ fn fmt_slice(s: &[f32]) -> String {
         .join(", ")
 }
 
-/// Wrap a query vector in a `Vector<f32, len>` extension scalar suitable for use as the RHS of a
-/// `CosineSimilarity` filter expression via `lit(...)`.
+/// Wrap a query vector in a `Lossy<Vector<f32, len>>` extension scalar suitable for use as the
+/// RHS of a `CosineSimilarity` filter expression via `lit(...)`. The `Lossy` outer wrapper
+/// matches the persisted column dtype so binary tensor expressions validate.
 fn build_query_vector_scalar(query: &[f32]) -> Result<Scalar> {
     let element_dtype = DType::Primitive(PType::F32, Nullability::NonNullable);
     let children: Vec<Scalar> = query
@@ -371,15 +378,24 @@ fn build_query_vector_scalar(query: &[f32]) -> Result<Scalar> {
         .map(|&v| Scalar::primitive(v, Nullability::NonNullable))
         .collect();
     let fsl_scalar = Scalar::fixed_size_list(element_dtype, children, Nullability::NonNullable);
-    Ok(Scalar::extension::<Vector>(EmptyMetadata, fsl_scalar))
+    let vector_scalar = Scalar::extension::<Vector>(EmptyMetadata, fsl_scalar);
+    let lossy_dtype = vortex::array::extension::Lossy::new(vector_scalar.dtype().clone())?.erased();
+    Ok(Scalar::extension_ref(lossy_dtype, vector_scalar))
 }
 
-/// Decode a `Vector<f32, _>` extension array's storage down to its flat f32 buffer.
+/// Decode a `Vector<f32, _>` (or `Lossy<Vector<f32, _>>`) extension array's storage down to its
+/// flat f32 buffer.
 fn flatten_vector_column(emb: ArrayRef, ctx: &mut ExecutionCtx) -> Result<Vec<f32>> {
     let ext: ExtensionArray = emb.execute(ctx)?;
-    ensure!(ext.ext_dtype().is::<AnyVector>());
+    // Peel one optional Lossy layer.
+    let inner_ext: ExtensionArray = if let Some(inner) = ext.peel_lossy() {
+        inner.clone().execute(ctx)?
+    } else {
+        ext
+    };
+    ensure!(inner_ext.ext_dtype().is::<AnyVector>());
 
-    let fsl: FixedSizeListArray = ext.storage_array().clone().execute(ctx)?;
+    let fsl: FixedSizeListArray = inner_ext.storage_array().clone().execute(ctx)?;
     let elements: PrimitiveArray = fsl.elements().clone().execute(ctx)?;
     Ok(elements.as_slice::<f32>().to_vec())
 }

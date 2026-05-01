@@ -128,7 +128,7 @@ async fn write_shard_streaming(
 
     // We need to get the first chunk so that we know what the dtype of the file is.
     let first = match array_stream.next().await {
-        Some(chunk) => transform_chunk_with_error(chunk, &mut ctx, parquet_path, 1)?,
+        Some(chunk) => transform_chunk_with_error(chunk, flavor, &mut ctx, parquet_path, 1)?,
         None => {
             return Err(vortex_err!(
                 "ingest: parquet shard {} produced no chunks",
@@ -146,6 +146,7 @@ async fn write_shard_streaming(
                 let mut local_ctx = SESSION.create_execution_ctx();
                 transform_chunk_with_error(
                     chunk_or_err,
+                    flavor,
                     &mut local_ctx,
                     &shard_path,
                     chunk_offset + 2,
@@ -173,6 +174,7 @@ async fn write_shard_streaming(
 
 fn transform_chunk_with_error(
     chunk_or_err: VortexResult<ArrayRef>,
+    flavor: VectorFlavor,
     ctx: &mut ExecutionCtx,
     parquet_path: &Path,
     chunk_idx: usize,
@@ -185,7 +187,7 @@ fn transform_chunk_with_error(
         )
     })?;
 
-    transform_chunk(chunk, ctx).map_err(|err| {
+    transform_chunk(chunk, flavor, ctx).map_err(|err| {
         vortex_err!(
             "ingest: failed to transform chunk {} from {}: {err:#}",
             chunk_idx,

@@ -32,6 +32,7 @@ use vortex::array::arrays::extension::ExtensionArrayExt;
 use vortex::array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::array::extension::EmptyMetadata;
+use vortex::array::extension::Lossy;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
@@ -41,13 +42,21 @@ use vortex_bench::vector_dataset::list_to_vector_ext;
 use vortex_tensor::vector::AnyVector;
 use vortex_tensor::vector::Vector;
 
+use crate::compression::VectorFlavor;
+
 /// Apply the transform to a single struct chunk and return the rebuilt chunk.
 ///
 /// `chunk` must be a non-chunked `Struct { id: i64, emb: List<f32> }`, where all of the list
 /// elements are
 ///
-/// The returned array is always a `Struct { id: i64, emb: Vector<f32, dim> }`.
-pub fn transform_chunk(chunk: ArrayRef, ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
+/// For `flavor` = [`VectorFlavor::TurboQuant`], the `emb` column is wrapped in
+/// `Lossy<Vector<f32, dim>>` so the default compressor's lossy schemes (notably TurboQuant) become
+/// eligible. For all other flavors the column remains a bare `Vector<f32, dim>`.
+pub fn transform_chunk(
+    chunk: ArrayRef,
+    flavor: VectorFlavor,
+    ctx: &mut ExecutionCtx,
+) -> Result<ArrayRef> {
     let struct_view = chunk
         .as_opt::<Struct>()
         .with_context(|| format!("ingest: expected struct chunk, got dtype {}", chunk.dtype()))?;
@@ -83,8 +92,21 @@ pub fn transform_chunk(chunk: ArrayRef, ctx: &mut ExecutionCtx) -> Result<ArrayR
         other => bail!("ingest: unsupported emb element ptype {other}, expected f32 or f64"),
     };
 
-    let fields = [("id", id), ("emb", f32_vector_array)];
+    let emb_field = match flavor {
+        VectorFlavor::TurboQuant => wrap_lossy(f32_vector_array)?,
+        VectorFlavor::Uncompressed => f32_vector_array,
+    };
+
+    let fields = [("id", id), ("emb", emb_field)];
     Ok(StructArray::from_fields(&fields)?.into_array())
+}
+
+/// Wrap a `Vector<f32, dim>` extension array in `Lossy<Vector<f32, dim>>`. The outer Lossy wrapper
+/// is the dtype-level consent that allows the default compressor to apply lossy schemes like
+/// TurboQuant.
+fn wrap_lossy(vector_array: ArrayRef) -> Result<ArrayRef> {
+    let lossy_dtype = Lossy::new(vector_array.dtype().clone())?.erased();
+    Ok(ExtensionArray::new(lossy_dtype, vector_array).into_array())
 }
 
 /// Convert a `Vector<f64, dim>` extension array down to `Vector<f32, dim>`.
@@ -168,7 +190,7 @@ mod tests {
         let emb = list_chunk_f64(&[&[1.0, 2.0, 3.0], &[4.0, 5.0, 6.0]]);
         let chunk =
             StructArray::from_fields(&[("id", id_array(&[0, 1])), ("emb", emb)])?.into_array();
-        let out = transform_chunk(chunk, &mut ctx)?;
+        let out = transform_chunk(chunk, VectorFlavor::Uncompressed, &mut ctx)?;
         let out_struct = out
             .as_opt::<Struct>()
             .context("transform_chunk should return a Struct array")?;
@@ -213,7 +235,7 @@ mod tests {
         let chunk =
             StructArray::from_fields(&[("id", id_array(&[0, 1])), ("emb", emb)])?.into_array();
 
-        let out = transform_chunk(chunk, &mut ctx)?;
+        let out = transform_chunk(chunk, VectorFlavor::Uncompressed, &mut ctx)?;
         let out_struct = out.as_opt::<Struct>().expect("returns Struct");
         assert_eq!(out_struct.len(), 2);
         Ok(())

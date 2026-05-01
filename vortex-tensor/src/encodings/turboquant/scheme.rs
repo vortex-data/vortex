@@ -69,6 +69,10 @@ impl Scheme for TurboQuantScheme {
         tq_validate_vector_dtype(ext.dtype()).is_ok()
     }
 
+    fn is_lossy(&self) -> bool {
+        true
+    }
+
     fn expected_compression_ratio(
         &self,
         data: &ArrayAndStats,

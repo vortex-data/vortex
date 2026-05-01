@@ -73,8 +73,13 @@ pub async fn run_search_scan(
     let mut rows_scanned = 0u64;
 
     for iter_idx in 0..config.iterations {
-        let (wall, iter_matches, iter_rows) =
-            run_one_iteration(&dataset.vortex_files, query, config.threshold).await?;
+        let (wall, iter_matches, iter_rows) = run_one_iteration(
+            &dataset.vortex_files,
+            query,
+            config.threshold,
+            dataset.flavor,
+        )
+        .await?;
         tracing::debug!(
             "{} iter {} -> {:?} ({} matches, {} rows)",
             dataset.flavor.label(),
@@ -116,13 +121,14 @@ async fn run_one_iteration(
     vortex_files: &[PathBuf],
     query: &[f32],
     threshold: f32,
+    flavor: VectorFlavor,
 ) -> Result<(Duration, u64, u64)> {
     let mut matches = 0u64;
     let mut rows_scanned = 0u64;
 
     let started = Instant::now();
     for path in vortex_files {
-        let (m, r) = scan_one_file(path, query, threshold).await?;
+        let (m, r) = scan_one_file(path, query, threshold, flavor).await?;
         matches = matches.saturating_add(m);
         rows_scanned = rows_scanned.saturating_add(r);
     }
@@ -130,7 +136,12 @@ async fn run_one_iteration(
     Ok((started.elapsed(), matches, rows_scanned))
 }
 
-async fn scan_one_file(path: &Path, query: &[f32], threshold: f32) -> Result<(u64, u64)> {
+async fn scan_one_file(
+    path: &Path,
+    query: &[f32],
+    threshold: f32,
+    flavor: VectorFlavor,
+) -> Result<(u64, u64)> {
     let file = SESSION
         .open_options()
         .open_path(path)
@@ -138,7 +149,7 @@ async fn scan_one_file(path: &Path, query: &[f32], threshold: f32) -> Result<(u6
         .with_context(|| format!("open {}", path.display()))?;
 
     let total_rows = file.row_count();
-    let filter = similarity_filter(query, threshold)?;
+    let filter = similarity_filter(query, threshold, flavor)?;
     let chunks: Vec<ArrayRef> = file
         .scan()?
         .with_filter(filter)
