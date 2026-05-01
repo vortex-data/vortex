@@ -146,20 +146,13 @@ impl CommitWindow {
     }
 }
 
-/// Query string for `/api/chart/{slug}` and `/chart/{slug}`.
-///
-/// `y` (linear|log) and `mode` (abs|rel) are accepted but ignored by the SQL —
-/// the JSON response is identical regardless. They exist on the API surface so
-/// the client can drive deep links and refetches with a single URL shape; the
-/// rendering hints are applied client-side in `chart-init.js`.
+/// Query string for `/api/chart/{slug}` and `/chart/{slug}`. Only `?n=`
+/// affects the JSON response; per-chart UI state (Y axis, slider) is local
+/// to `chart-init.js` and intentionally not in the URL.
 #[derive(Debug, Default, Deserialize)]
 pub struct ChartQuery {
     /// Commit window: `25`, `50`, `100`, `250`, `all`, etc.
     pub n: Option<String>,
-    /// Y-axis hint (linear|log). Echoed for client-side rendering only.
-    pub y: Option<String>,
-    /// Display mode hint (abs|rel). Echoed for client-side rendering only.
-    pub mode: Option<String>,
 }
 
 impl ChartQuery {
@@ -1182,16 +1175,6 @@ pub(crate) fn chart_payload(
             threshold,
         } => collect_vector_search_chart(conn, dataset, layout, *threshold, window),
     }
-}
-
-/// Thin wrapper around [`chart_payload`] kept for callers that prefer the old
-/// name. New code should prefer [`chart_payload`].
-pub(crate) fn collect_chart(
-    conn: &Connection,
-    key: &ChartKey,
-    window: &CommitWindow,
-) -> Result<Option<ChartResponse>> {
-    chart_payload(conn, key, window)
 }
 
 /// Collect every chart inside one group. Returns `None` if the group has no

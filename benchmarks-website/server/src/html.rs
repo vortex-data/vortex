@@ -291,14 +291,14 @@ async fn chart_page(
 
     let window = ui.fetch_window();
     let result = db::run_blocking(&state.db, move |conn| {
-        api::collect_chart(conn, &key, &window)
+        api::chart_payload(conn, &key, &window)
     })
     .await;
     let chart = match result {
         Ok(Some(c)) => c,
         Ok(None) => return error_page(StatusCode::NOT_FOUND, "chart not found").into_response(),
         Err(err) => {
-            tracing::error!(error = ?err, "chart_page: collect_chart failed");
+            tracing::error!(error = ?err, "chart_page: chart_payload failed");
             return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
         }
     };

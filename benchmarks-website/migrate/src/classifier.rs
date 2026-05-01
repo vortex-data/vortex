@@ -432,17 +432,13 @@ pub enum Skip {
     HistoricalMemory,
 }
 
-/// Engines the v3 emitter produces today. Anything else is historical
-/// and gets bucketed as `Skip::Deprecated`.
-///
-/// ORCHESTRATOR NOTE: confirm against `vortex-bench`'s `Engine` enum
-/// before handing off; edit if the live set differs.
+/// Engines the v3 emitter produces today. Mirrors
+/// `vortex-bench/src/lib.rs::Engine`. Anything else is historical and gets
+/// bucketed as `Skip::Deprecated`.
 const V3_ENGINES: &[&str] = &["datafusion", "duckdb", "vortex", "arrow"];
 
-/// Formats the v3 emitter produces today (`Format::name()` values).
-///
-/// ORCHESTRATOR NOTE: confirm against `vortex-bench/src/lib.rs`
-/// `Format::name()` before handing off.
+/// Formats the v3 emitter produces today (`Format::name()` values from
+/// `vortex-bench/src/lib.rs`).
 const V3_FORMATS: &[&str] = &[
     "vortex-file-compressed",
     "vortex-compact",
