@@ -137,6 +137,7 @@ pub struct V2Commit {
     pub url: Option<String>,
 }
 
+/// Author or committer block on a v2 commit record.
 #[derive(Debug, Clone, Deserialize)]
 pub struct V2Person {
     #[serde(default)]
