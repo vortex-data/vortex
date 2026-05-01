@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Range;
+use std::sync::OnceLock;
 
 use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
@@ -146,6 +147,10 @@ pub struct Patches {
     /// `offset_within_chunk` is necessary in order to keep track of how many
     /// elements were sliced off within the chunk.
     offset_within_chunk: Option<usize>,
+    /// Cached `indices[0] - offset`.
+    min_index: OnceLock<usize>,
+    /// Cached `indices[len - 1] - offset`.
+    max_index: OnceLock<usize>,
 }
 
 impl Patches {
@@ -172,6 +177,9 @@ impl Patches {
         );
         vortex_ensure!(!indices.is_empty(), "Patch indices must not be empty");
 
+        let min_index = OnceLock::new();
+        let max_index = OnceLock::new();
+
         // Perform validation of components when they are host-resident.
         // This is not possible to do eagerly when the data is on GPU memory.
         if indices.is_host() && values.is_host() {
@@ -184,6 +192,14 @@ impl Patches {
                 max - offset < array_len,
                 "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
             );
+
+            // Pre-populate bounds caches for the search_index fast path.
+            let min = usize::try_from(
+                &indices.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            )
+            .map_err(|_| vortex_err!("indices must be a number"))?;
+            let _ = max_index.set(max - offset);
+            let _ = min_index.set(min - offset);
 
             #[cfg(debug_assertions)]
             {
@@ -205,6 +221,8 @@ impl Patches {
             chunk_offsets: chunk_offsets.clone(),
             // Initialize with `Some(0)` only if `chunk_offsets` are set.
             offset_within_chunk: chunk_offsets.map(|_| 0),
+            min_index,
+            max_index,
         })
     }
 
@@ -232,6 +250,8 @@ impl Patches {
             values,
             chunk_offsets,
             offset_within_chunk,
+            min_index: OnceLock::new(),
+            max_index: OnceLock::new(),
         }
     }
 
@@ -394,11 +414,29 @@ impl Patches {
     /// [`SearchResult::Found(patch_idx)`]: SearchResult::Found
     /// [`SearchResult::NotFound(insertion_point)`]: SearchResult::NotFound
     pub fn search_index(&self, index: usize) -> VortexResult<SearchResult> {
+        if let Some(result) = self.search_index_out_of_range(index) {
+            return Ok(result);
+        }
+
         if self.chunk_offsets.is_some() {
             return self.search_index_chunked(index);
         }
 
         Self::search_index_binary_search(&self.indices, index + self.offset)
+    }
+
+    /// Returns the search result if `index` falls outside the cached bounds,
+    /// or `None` if the bounds are uncached or `index` is in range.
+    fn search_index_out_of_range(&self, index: usize) -> Option<SearchResult> {
+        let min = *self.min_index.get()?;
+        let max = *self.max_index.get()?;
+        if index < min {
+            Some(SearchResult::NotFound(0))
+        } else if index > max {
+            Some(SearchResult::NotFound(self.indices.len()))
+        } else {
+            None
+        }
     }
 
     /// Binary searches for `needle` in the indices array.
@@ -551,19 +589,27 @@ impl Patches {
         })
     }
 
-    /// Returns the minimum patch index
+    /// Returns the minimum patch index.
     pub fn min_index(&self) -> VortexResult<usize> {
+        if let Some(&v) = self.min_index.get() {
+            return Ok(v);
+        }
         let first = self
             .indices
             .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
-        Ok(first - self.offset)
+        let result = first - self.offset;
+        let _ = self.min_index.set(result);
+        Ok(result)
     }
 
-    /// Returns the maximum patch index
+    /// Returns the maximum patch index.
     pub fn max_index(&self) -> VortexResult<usize> {
+        if let Some(&v) = self.max_index.get() {
+            return Ok(v);
+        }
         let last = self
             .indices
             .execute_scalar(
@@ -573,7 +619,9 @@ impl Patches {
             .as_primitive()
             .as_::<usize>()
             .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
-        Ok(last - self.offset)
+        let result = last - self.offset;
+        let _ = self.max_index.set(result);
+        Ok(result)
     }
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
@@ -648,6 +696,8 @@ impl Patches {
             // TODO(0ax1): Chunk offsets are invalid after a filter is applied.
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
+            min_index: OnceLock::new(),
+            max_index: OnceLock::new(),
         }))
     }
 
@@ -695,6 +745,8 @@ impl Patches {
             values,
             chunk_offsets: new_chunk_offsets,
             offset_within_chunk,
+            min_index: OnceLock::new(),
+            max_index: OnceLock::new(),
         }))
     }
 
@@ -830,6 +882,8 @@ impl Patches {
                 .take(PrimitiveArray::new(values_indices, values_validity).into_array())?,
             chunk_offsets: None,
             offset_within_chunk: Some(0), // Reset when creating new Patches.
+            min_index: OnceLock::new(),
+            max_index: OnceLock::new(),
         }))
     }
 
@@ -879,6 +933,8 @@ impl Patches {
             // TODO(0ax1): Chunk offsets are invalid after take is applied.
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
+            min_index: OnceLock::new(),
+            max_index: OnceLock::new(),
         }))
     }
 
@@ -902,6 +958,9 @@ impl Patches {
             values,
             chunk_offsets: self.chunk_offsets,
             offset_within_chunk: self.offset_within_chunk,
+            // indices and offset are preserved, so the cached bounds remain valid.
+            min_index: self.min_index,
+            max_index: self.max_index,
         })
     }
 }
@@ -1748,6 +1807,66 @@ mod test {
         assert_eq!(patches.search_index(3).unwrap(), SearchResult::NotFound(1));
         assert_eq!(patches.search_index(6).unwrap(), SearchResult::NotFound(2));
         assert_eq!(patches.search_index(9).unwrap(), SearchResult::NotFound(3));
+    }
+
+    #[test]
+    fn test_search_index_out_of_range_fast_path() {
+        let patches = Patches::new(
+            100,
+            0,
+            buffer![10u64, 20, 30, 40].into_array(),
+            buffer![1i32, 2, 3, 4].into_array(),
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(
+            patches.search_index_out_of_range(0),
+            Some(SearchResult::NotFound(0))
+        );
+        assert_eq!(
+            patches.search_index_out_of_range(9),
+            Some(SearchResult::NotFound(0))
+        );
+        assert_eq!(
+            patches.search_index_out_of_range(41),
+            Some(SearchResult::NotFound(4))
+        );
+        assert_eq!(
+            patches.search_index_out_of_range(99),
+            Some(SearchResult::NotFound(4))
+        );
+        assert_eq!(patches.search_index_out_of_range(10), None);
+        assert_eq!(patches.search_index_out_of_range(25), None);
+        assert_eq!(patches.search_index_out_of_range(40), None);
+
+        assert_eq!(patches.search_index(5).unwrap(), SearchResult::NotFound(0));
+        assert_eq!(patches.search_index(50).unwrap(), SearchResult::NotFound(4));
+    }
+
+    #[test]
+    fn test_search_index_out_of_range_with_offset() {
+        let patches = Patches::new(
+            100,
+            0,
+            buffer![10u64, 50, 90].into_array(),
+            buffer![1i32, 2, 3].into_array(),
+            None,
+        )
+        .unwrap();
+        let sliced = patches.slice(40..95).unwrap().unwrap();
+
+        assert_eq!(sliced.min_index().unwrap(), 10);
+        assert_eq!(sliced.max_index().unwrap(), 50);
+        assert_eq!(
+            sliced.search_index_out_of_range(5),
+            Some(SearchResult::NotFound(0))
+        );
+        assert_eq!(
+            sliced.search_index_out_of_range(54),
+            Some(SearchResult::NotFound(2))
+        );
+        assert_eq!(sliced.search_index_out_of_range(30), None);
     }
 
     #[test]
