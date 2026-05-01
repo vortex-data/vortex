@@ -1591,7 +1591,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -6884,7 +6884,7 @@ checksum = "044b1fa4f259f4df9ad5078e587b208f5d288a25407575fcddb9face30c7c692"
 dependencies = [
  "rand 0.9.4",
  "socket2",
- "thiserror 2.0.18",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -7171,8 +7171,7 @@ dependencies = [
 [[package]]
 name = "public-api"
 version = "0.51.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4597eaaa646a5df48e5f37924b58bd4b2e2a3746d4665195d03538846784858"
+source = "git+https://github.com/vortex-data/cargo-public-api.git?branch=main#ca28f3faff19f9c4cd838fb121fd7212953fdb19"
 dependencies = [
  "hashbag",
  "rustdoc-types",
@@ -8021,9 +8020,9 @@ dependencies = [
 
 [[package]]
 name = "rustdoc-types"
-version = "0.56.0"
+version = "0.57.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27bf787c529efe523ed9eb6dcdbaa5954d34329f08d5c243fce928441826ca90"
+checksum = "7e6919c49bdd9cca072b3b502d16c073d0a4d3b7283ff6e0c86a5f6e6b07bbfe"
 dependencies = [
  "serde",
  "serde_derive",
@@ -8039,7 +8038,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

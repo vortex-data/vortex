@@ -49,6 +49,8 @@ use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
+use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
+use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -67,6 +69,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::FUZZ_ARRAY_MAX_LEN;
 use crate::SESSION;
 use crate::error::Backtrace;
 use crate::error::VortexFuzzError;
@@ -170,7 +173,14 @@ impl ExpectedValue {
 
 impl<'a> Arbitrary<'a> for FuzzArrayAction {
     fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
-        let array = ArbitraryArray::arbitrary(u)?.0;
+        let array = ArbitraryArray::arbitrary_with_config(
+            u,
+            &ArbitraryArrayConfig {
+                dtype: None,
+                len: 0..=FUZZ_ARRAY_MAX_LEN,
+            },
+        )?
+        .0;
         let mut current_array = array.clone();
 
         let mut ctx = SESSION.create_execution_ctx();

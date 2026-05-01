@@ -20,7 +20,7 @@ const DUCKDB_SOURCE_COMMIT_URL: &str = "https://github.com/duckdb/duckdb/archive
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
 
-const SOURCE_FILES: [&str; 18] = [
+const SOURCE_FILES: [&str; 17] = [
     "cpp/client_context.cpp",
     "cpp/config.cpp",
     "cpp/copy_function.cpp",
@@ -30,7 +30,6 @@ const SOURCE_FILES: [&str; 18] = [
     "cpp/expr.cpp",
     "cpp/file_system.cpp",
     "cpp/logical_type.cpp",
-    "cpp/object_cache.cpp",
     "cpp/replacement_scan.cpp",
     "cpp/reusable_dict.cpp",
     "cpp/scalar_function.cpp",

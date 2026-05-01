@@ -114,21 +114,14 @@ typedef struct {
 
     duckdb_vx_data (*init_global)(const duckdb_vx_tfunc_init_input *input, duckdb_vx_error *error_out);
 
-    duckdb_vx_data (*init_local)(const duckdb_vx_tfunc_init_input *input,
-                                 void *init_global_data,
-                                 duckdb_vx_error *error_out);
+    duckdb_vx_data (*init_local)(void *init_global_data);
 
-    void (*function)(duckdb_client_context ctx,
-                     const void *bind_data,
-                     void *init_global_data,
+    void (*function)(void *init_global_data,
                      void *init_local_data,
                      duckdb_data_chunk data_chunk_out,
                      duckdb_vx_error *error_out);
 
-    bool (*statistics)(duckdb_client_context context,
-                       const void *bind_data,
-                       size_t column_index,
-                       duckdb_column_statistics *stats_out);
+    bool (*statistics)(const void *bind_data, size_t column_index, duckdb_column_statistics *stats_out);
 
     void (*cardinality)(void *bind_data, duckdb_vx_node_statistics *node_stats_out);
 
@@ -136,10 +129,9 @@ typedef struct {
 
     void (*to_string)(void *bind_data, duckdb_vx_string_map map);
 
-    double (*table_scan_progress)(duckdb_client_context ctx, void *bind_data, void *global_state);
+    double (*table_scan_progress)(void *global_state);
 
-    void (*get_partition_data)(const void *bind_data,
-                               void *init_global_data,
+    void (*get_partition_data)(void *init_global_data,
                                void *init_local_data,
                                duckdb_vx_partition_data *partition_data_out);
 } duckdb_vx_tfunc_vtab_t;
