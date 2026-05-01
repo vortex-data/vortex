@@ -10,9 +10,11 @@ the v2 Node/React stack.
 
 ## Status
 
-- **Alpha shipped** to `ct/benchmarks-v3`. Server, migrator, and inline-charts UI are merged.
-- **In production-readiness phase.** v2 is still serving `bench.vortex.dev`. v3 has not been
-  deployed publicly yet.
+- **Alpha shipped** to `ct/benchmarks-v3`. Server, migrator, full-history UI (client-side LTTB,
+  range scrollbar, global filter chips, click-to-PR tooltip), response compression, and the
+  `LANDING_INLINE_N` cold-load trim are all merged.
+- **In production-readiness phase.** v2 is still serving `bench.vortex.dev`. v3 runs on a
+  throwaway EC2 host for smoke-testing; not deployed publicly yet.
 - **UI follow-ups** are owned by the user, not by agents (see "Deferred UI follow-ups" below).
 
 A 10-bullet architecture summary lives at the top of [`AGENTS.md`](./AGENTS.md). Use that for
@@ -22,34 +24,33 @@ handoffs and external sharing.
 
 In rough order. Each item is a separate task; do not bundle.
 
-### 1. Repo secrets
+### 1. Repo secrets — done
 
-Two GitHub repository secrets on `vortex-data/vortex` (admins only):
+`INGEST_BEARER_TOKEN` and `V3_INGEST_URL` are set as repo-level secrets on `vortex-data/vortex`.
+They're fine at this scope for the test phase. Move to an Environment-scoped secret (gated to
+`ct/benchmarks-v3` / protected branches) before prod. Rotate `INGEST_BEARER_TOKEN` if the test
+value was ever shared in a comment / Slack / PR review.
 
-- `INGEST_BEARER_TOKEN` — random 32+ byte token. Same value gets set as the `INGEST_BEARER_TOKEN`
-  env var on whatever host runs the v3 server. Generate with `openssl rand -hex 32`.
-- `V3_INGEST_URL` — full URL of the v3 ingest endpoint, e.g. `http://<host>:3000/api/ingest` for
-  the test box, or `https://bench.vortex.dev/api/ingest` for prod.
+### 2. CI ingestion wiring — partial
 
-Repo-level secrets are fine for the test phase. Move to an Environment-scoped secret (gated to
-`ct/benchmarks-v3` / protected branches) before prod.
-
-### 2. CI ingestion wiring
-
-Confirm whichever workflow runs the benchmark suites and pushes results uses
-`secrets.INGEST_BEARER_TOKEN` and `secrets.V3_INGEST_URL`, and POSTs the versioned envelope shape
-defined in [`02-contracts.md`](./02-contracts.md). The current workflow targets the v2 endpoint;
-needs to either dual-write or flip.
+The dual-write step is wired into `bench.yml` and `sql-benchmarks.yml` via commit `f7fd270`. Still
+to do: an end-to-end run that triggers the workflow on a feature branch, POSTs to the EC2 box, and
+confirms the envelope lands in DuckDB intact. Outbox-style retry on failed POSTs is a follow-up;
+not built until we observe a failure.
 
 ### 3. Test deployment
 
 Currently a manual EC2 box for smoke-testing. Latest test host:
 
-- DNS: `ec2-18-116-241-0.us-east-2.compute.amazonaws.com`
+- DNS: `ec2-18-219-54-101.us-east-2.compute.amazonaws.com` (changes on stop/start unless an Elastic
+  IP is associated)
 - Port: `3000` (open to `0.0.0.0/0` in the security group)
 - Bind: `VORTEX_BENCH_BIND=0.0.0.0:3000` (default `127.0.0.1` does not work for external access)
-- HTTP only, no TLS. Public IP changes on stop/start unless an Elastic IP is associated. Throwaway
-  token only — don't reuse for prod.
+- HTTP only, no TLS. Throwaway bearer token only — don't reuse for prod.
+
+Build path: build narrow on the box itself (it's a `c6a.4xlarge` to avoid local-vs-EC2 arch
+mismatches). The v2 migration source is fetched directly from the public S3 bucket; no AWS creds
+needed.
 
 Smoke test from a laptop:
 
@@ -59,10 +60,12 @@ curl -i http://<host>:3000/
 
 Should return HTTP 200 with the landing HTML.
 
-### 4. Smoke test with migrated data
+### 4. Smoke test with migrated data — in progress
 
-Run `vortex-bench-migrate` against the v2 source, copy the resulting `bench.duckdb` to the deployed
-host, point `VORTEX_BENCH_DB` at it, and walk every group's charts in a browser.
+Run `vortex-bench-migrate` against the v2 source, point `VORTEX_BENCH_DB` at the result, walk every
+group's charts in a browser. Done so far: Random Access (caught and fixed a missing-chart
+regression — see `1228e530`); LTTB downsampling, range scrollbar, filter chips, and click-to-PR
+all behave on real data. Still to walk: every other group at least once.
 
 ### 5. Operational hygiene (not yet done)
 
@@ -123,10 +126,10 @@ These are user/owner decisions, not agent decisions.
   display-name map. Cosmetic but visible.
 - **Deferred UI follow-ups.** The user is handling these directly; agents should not pre-empt
   them:
-  - `collect_group_charts` N+1 refactor in `api.rs:1131-1162`.
-  - Mobile legend resize handler.
+  - `collect_group_charts` N+1 refactor in `api.rs:1202-1233`.
+  - Mobile legend resize handler. The position is picked once at chart construction via
+    `matchMedia("(max-width: 768px)")`; it doesn't update if the viewport crosses the breakpoint.
   - Zoom-sync within a group.
-  - LTTB downsampling for very long histories.
   - Swap the inline crosshair plugin for `chartjs-plugin-crosshair`.
 
 ## Reading order (alpha-era reference)
