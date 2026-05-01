@@ -28,14 +28,14 @@ fn main() {
 
 const LIST_ARGS: &[(usize, usize, usize)] = &[
     // len, patch_stride, list_size
-    (4_096, 7, 8),
-    (8_192, 17, 16),
+    (512, 7, 4),
+    (1_024, 17, 8),
 ];
 
 const FIXED_SIZE_LIST_ARGS: &[(usize, usize, u32)] = &[
     // len, patch_stride, list_size
-    (4_096, 7, 8),
-    (8_192, 17, 16),
+    (512, 7, 4),
+    (1_024, 17, 8),
 ];
 
 fn make_sparse_list(len: usize, patch_stride: usize, list_size: usize) -> ArrayRef {
