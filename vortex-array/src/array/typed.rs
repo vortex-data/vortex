@@ -28,6 +28,31 @@ use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
+/// Common metadata for every array encoding.
+///
+/// Stored in [`ArrayStore`] alongside the encoding-specific [`DynArray`] data.
+/// [`ArrayRef`] reads these fields directly — no vtable dispatch.
+pub(crate) struct ArrayMeta {
+    pub(crate) len: usize,
+    pub(crate) encoding_id: ArrayId,
+    pub(crate) dtype: DType,
+    pub(crate) slots: Vec<Option<ArrayRef>>,
+    pub(crate) stats: ArrayStats,
+}
+
+/// The combined allocation behind [`ArrayRef`].
+///
+/// Wraps an [`ArrayMeta`] (common fields) together with the encoding-specific
+/// `data` (a concrete [`ArrayInner<V>`] erased to `dyn DynArray`).
+///
+/// `ArrayRef` stores `Arc<ArrayStore<dyn DynArray>>` — a single 16-byte fat pointer.
+/// Metadata is accessed via `self.0.meta.*` (a normal struct field read through the Arc),
+/// while encoding-specific methods go through `self.0.data` (vtable dispatch).
+pub(crate) struct ArrayStore<D: ?Sized> {
+    pub(crate) meta: ArrayMeta,
+    pub(crate) data: D, // must be last for unsized coercion
+}
+
 /// Construction parameters for typed arrays.
 pub struct ArrayParts<V: VTable> {
     pub vtable: V,
@@ -73,58 +98,61 @@ impl<V: VTable> TypedArrayRef<V> for ArrayView<'_, V> {}
 // ArrayInner<V> — the concrete type stored inside Arc<dyn DynArray>
 // =============================================================================
 
-/// The concrete array type that lives inside an `Arc` behind [`ArrayRef`].
+/// The concrete encoding-specific array data that lives inside an [`ArrayStore`].
 ///
-/// Prefer using [`Array<V>`] (owned typed handle) for constructing arrays
-/// and converting between typed and untyped representations.
-/// This type is returned by reference from [`Matcher`] downcasts.
+/// Does not contain metadata (`len`, `dtype`, `encoding_id`) — those live in
+/// [`ArrayMeta`] within the same [`ArrayStore`] allocation.
 #[doc(hidden)]
 pub(crate) struct ArrayInner<V: VTable> {
     pub(crate) vtable: V,
-    pub(crate) dtype: DType,
-    pub(crate) len: usize,
     pub(crate) data: V::ArrayData,
-    pub(crate) slots: Vec<Option<ArrayRef>>,
-    pub(crate) stats: ArrayStats,
 }
 
 impl<V: VTable> ArrayInner<V> {
-    /// Create a new inner array from explicit construction parameters.
+    /// Create a new validated [`ArrayStore`] from construction parameters.
     #[doc(hidden)]
-    pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
+    pub fn try_new_store(new: ArrayParts<V>) -> VortexResult<ArrayStore<Self>> {
         new.vtable
             .validate(&new.data, &new.dtype, new.len, &new.slots)?;
-        Ok(unsafe {
-            Self::from_data_unchecked(
-                new.vtable,
-                new.dtype,
-                new.len,
-                new.data,
-                new.slots,
-                ArrayStats::default(),
-            )
+        Ok(ArrayStore {
+            meta: ArrayMeta {
+                len: new.len,
+                encoding_id: new.vtable.id(),
+                dtype: new.dtype,
+                slots: new.slots,
+                stats: ArrayStats::default(),
+            },
+            data: Self {
+                vtable: new.vtable,
+                data: new.data,
+            },
         })
     }
 
-    /// Create without validation.
+    /// Create an [`ArrayStore`] without validation.
     ///
     /// # Safety
     /// Caller must ensure dtype and len match the data.
-    pub(crate) unsafe fn from_data_unchecked(
+    pub(crate) unsafe fn store_unchecked(
         vtable: V,
-        dtype: DType,
         len: usize,
+        dtype: DType,
         data: V::ArrayData,
         slots: Vec<Option<ArrayRef>>,
         stats: ArrayStats,
-    ) -> Self {
-        Self {
-            vtable,
-            dtype,
-            len,
-            data,
-            slots,
-            stats,
+    ) -> ArrayStore<Self> {
+        ArrayStore {
+            meta: ArrayMeta {
+                len,
+                encoding_id: vtable.id(),
+                dtype,
+                slots,
+                stats,
+            },
+            data: Self {
+                vtable,
+                data,
+            },
         }
     }
 }
@@ -146,11 +174,7 @@ impl<V: VTable> Clone for ArrayInner<V> {
     fn clone(&self) -> Self {
         Self {
             vtable: self.vtable.clone(),
-            dtype: self.dtype.clone(),
-            len: self.len,
             data: self.data.clone(),
-            slots: self.slots.clone(),
-            stats: self.stats.clone(),
         }
     }
 }
@@ -159,23 +183,8 @@ impl<V: VTable> Debug for ArrayInner<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ArrayInner")
             .field("encoding", &self.vtable.id())
-            .field("dtype", &self.dtype)
-            .field("len", &self.len)
             .field("inner", &self.data)
-            .field("slots", &self.slots)
             .finish()
-    }
-}
-
-impl<V: VTable> IntoArray for ArrayInner<V> {
-    fn into_array(self) -> ArrayRef {
-        ArrayRef::from_inner(Arc::new(self))
-    }
-}
-
-impl<V: VTable> From<ArrayInner<V>> for ArrayRef {
-    fn from(value: ArrayInner<V>) -> ArrayRef {
-        ArrayRef::from_inner(Arc::new(value))
     }
 }
 
@@ -198,7 +207,8 @@ pub struct Array<V: VTable> {
 impl<V: VTable> Array<V> {
     /// Create a typed array from explicit construction parameters.
     pub fn try_from_parts(new: ArrayParts<V>) -> VortexResult<Self> {
-        let inner = ArrayRef::from_inner(Arc::new(ArrayInner::<V>::try_new(new)?));
+        let store = ArrayInner::<V>::try_new_store(new)?;
+        let inner = ArrayRef::from_store(Arc::new(store));
         Ok(Self {
             inner,
             _phantom: PhantomData,
@@ -211,16 +221,17 @@ impl<V: VTable> Array<V> {
     /// Caller must ensure the provided parts are logically consistent.
     #[doc(hidden)]
     pub unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
-        let inner = ArrayRef::from_inner(Arc::new(unsafe {
-            ArrayInner::<V>::from_data_unchecked(
+        let store = unsafe {
+            ArrayInner::<V>::store_unchecked(
                 new.vtable,
-                new.dtype,
                 new.len,
+                new.dtype,
                 new.data,
                 new.slots,
                 ArrayStats::default(),
             )
-        }));
+        };
+        let inner = ArrayRef::from_store(Arc::new(store));
         Self {
             inner,
             _phantom: PhantomData,
@@ -282,29 +293,27 @@ impl<V: VTable> Array<V> {
 
     /// Try to fetch a mut ref to the inner ArrayData.
     pub fn data_mut(&mut self) -> Option<&mut V::ArrayData> {
-        let m = self.inner.inner_mut();
-        let inner = Arc::get_mut(m)?;
-        let array_inner = inner.as_any_mut().downcast_mut::<ArrayInner<V>>();
+        let store = self.inner.store_mut()?;
+        let array_inner = store.data.as_any_mut().downcast_mut::<ArrayInner<V>>();
         Some(&mut array_inner?.data)
     }
 
     /// Returns the full typed array construction parts if this handle owns the allocation.
     pub fn try_into_parts(self) -> Result<ArrayParts<V>, Self> {
         let Self { inner, _phantom } = self;
-        let any = inner.into_inner().into_any_arc();
-        let inner = Arc::downcast::<ArrayInner<V>>(any)
-            .unwrap_or_else(|_| unreachable!("typed array must contain ArrayInner for its vtable"));
+        // SAFETY: Array<V> guarantees the inner is ArrayInner<V>.
+        let typed_arc = unsafe { inner.downcast_store_unchecked::<V>() };
 
-        match Arc::try_unwrap(inner) {
-            Ok(inner) => Ok(ArrayParts {
-                vtable: inner.vtable,
-                dtype: inner.dtype,
-                len: inner.len,
-                data: inner.data,
-                slots: inner.slots,
+        match Arc::try_unwrap(typed_arc) {
+            Ok(store) => Ok(ArrayParts {
+                vtable: store.data.vtable,
+                dtype: store.meta.dtype,
+                len: store.meta.len,
+                data: store.data.data,
+                slots: store.meta.slots,
             }),
-            Err(inner) => Err(Self {
-                inner: ArrayRef::from_inner(inner),
+            Err(typed_arc) => Err(Self {
+                inner: ArrayRef::from_store(typed_arc),
                 _phantom: PhantomData,
             }),
         }
@@ -322,7 +331,7 @@ impl<V: VTable> Array<V> {
 
     /// Returns the array slots.
     pub fn slots(&self) -> &[Option<ArrayRef>] {
-        &self.downcast_inner().slots
+        self.inner.slots()
     }
 
     /// Returns the internal [`ArrayRef`].
@@ -341,7 +350,7 @@ impl<V: VTable> Array<V> {
     /// Downcast the inner `ArrayRef` to `&ArrayInner<V>`.
     #[inline(always)]
     fn downcast_inner(&self) -> &ArrayInner<V> {
-        let any = self.inner.inner().as_any();
+        let any = self.inner.dyn_array().as_any();
         // NOTE(ngates): use downcast_unchecked when it becomes stable
         debug_assert!(any.is::<ArrayInner<V>>());
         // SAFETY: caller guarantees that T is the correct type

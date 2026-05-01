@@ -4,6 +4,7 @@
 use std::any::type_name;
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
@@ -32,6 +33,8 @@ use crate::aggregate_fn::fns::sum::sum;
 use crate::array::ArrayId;
 use crate::array::ArrayInner;
 use crate::array::DynArray;
+use crate::array::ArrayMeta;
+use crate::array::ArrayStore;
 use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::DictArray;
@@ -72,13 +75,35 @@ impl Iterator for DepthFirstArrayIterator {
 }
 
 /// A reference-counted pointer to a type-erased array.
+///
+/// Wraps `Arc<ArrayStore<dyn DynArray>>` — a single 16-byte fat pointer.
+/// Metadata (`len`, `dtype`, `encoding_id`) lives in `ArrayStore::meta` and is
+/// accessed as a normal struct field read — no vtable dispatch, no extra allocation.
 #[derive(Clone)]
-pub struct ArrayRef(Arc<dyn DynArray>);
+pub struct ArrayRef(Arc<ArrayStore<dyn DynArray>>);
 
 impl ArrayRef {
-    /// Create from an `Arc<dyn DynArray>`.
-    pub(crate) fn from_inner(inner: Arc<dyn DynArray>) -> Self {
-        Self(inner)
+    /// Create from an `Arc<ArrayStore<dyn DynArray>>`.
+    pub(crate) fn from_store<D: DynArray>(store: Arc<ArrayStore<D>>) -> Self {
+        Self(store)
+    }
+
+    /// Returns a reference to the array metadata.
+    #[inline(always)]
+    pub(crate) fn meta(&self) -> &ArrayMeta {
+        &self.0.meta
+    }
+
+    /// Returns a reference to the `dyn DynArray` inside the store.
+    #[inline(always)]
+    pub(crate) fn dyn_array(&self) -> &dyn DynArray {
+        &self.0.data
+    }
+
+    /// Returns a mutable reference to the store if this is the sole owner.
+    #[inline(always)]
+    pub(crate) fn store_mut(&mut self) -> Option<&mut ArrayStore<dyn DynArray>> {
+        Arc::get_mut(&mut self.0)
     }
 
     /// Returns the Arc::as_ptr().addr() of the underlying array.
@@ -88,22 +113,33 @@ impl ArrayRef {
         Arc::as_ptr(&self.0).addr()
     }
 
-    /// Returns a reference to the inner Arc.
-    #[inline(always)]
-    pub(crate) fn inner(&self) -> &Arc<dyn DynArray> {
-        &self.0
+    /// Downcast the store to a concrete `ArrayStore<ArrayInner<V>>`.
+    ///
+    /// Uses the same raw-pointer technique as `Arc::downcast`.
+    #[allow(dead_code)]
+    pub(crate) fn downcast_store<V: VTable>(
+        self,
+    ) -> Result<Arc<ArrayStore<ArrayInner<V>>>, Self> {
+        if self.0.data.as_any().is::<ArrayInner<V>>() {
+            Ok(unsafe { self.downcast_store_unchecked() })
+        } else {
+            Err(self)
+        }
     }
 
-    /// Returns a reference to the inner Arc.
+    /// Downcast without a runtime type check.
+    ///
+    /// # Safety
+    /// The caller must guarantee the concrete type behind `dyn DynArray` is `ArrayInner<V>`.
     #[inline(always)]
-    pub(crate) fn inner_mut(&mut self) -> &mut Arc<dyn DynArray> {
-        &mut self.0
-    }
-
-    /// Consumes the array reference, returning the owned backing allocation.
-    #[inline(always)]
-    pub(crate) fn into_inner(self) -> Arc<dyn DynArray> {
-        self.0
+    pub(crate) unsafe fn downcast_store_unchecked<V: VTable>(
+        self,
+    ) -> Arc<ArrayStore<ArrayInner<V>>> {
+        debug_assert!(self.0.data.as_any().is::<ArrayInner<V>>());
+        let raw = Arc::into_raw(self.0);
+        // SAFETY: caller guarantees the concrete type. The allocation was originally
+        // `Arc<ArrayStore<ArrayInner<V>>>` coerced to `Arc<ArrayStore<dyn DynArray>>`.
+        unsafe { Arc::from_raw(raw as *const ArrayStore<ArrayInner<V>>) }
     }
 
     /// Returns true if the two ArrayRefs point to the same allocation.
@@ -114,44 +150,66 @@ impl ArrayRef {
 
 impl Debug for ArrayRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        Debug::fmt(&*self.0, f)
+        f.debug_struct("Array")
+            .field("encoding", &self.meta().encoding_id)
+            .field("dtype", &self.meta().dtype)
+            .field("len", &self.meta().len)
+            .field("data", &self.0.data)
+            .finish()
     }
 }
 
 impl ArrayHash for ArrayRef {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
-        self.0.dyn_array_hash(state as &mut dyn Hasher, precision);
+        self.meta().len.hash(state);
+        self.meta().dtype.hash(state);
+        self.meta().encoding_id.hash(state);
+        self.meta().slots.len().hash(state);
+        for slot in &self.meta().slots {
+            slot.array_hash(state, precision);
+        }
+        self.0.data.dyn_array_hash(state as &mut dyn Hasher, precision);
     }
 }
 
 impl ArrayEq for ArrayRef {
     fn array_eq(&self, other: &Self, precision: crate::Precision) -> bool {
-        self.0.dyn_array_eq(other, precision)
+        self.meta().len == other.meta().len
+            && self.meta().dtype == other.meta().dtype
+            && self.meta().encoding_id == other.meta().encoding_id
+            && self.meta().slots.len() == other.meta().slots.len()
+            && self
+                .meta()
+                .slots
+                .iter()
+                .zip(other.meta().slots.iter())
+                .all(|(slot, other_slot)| slot.array_eq(other_slot, precision))
+            && self.0.data.dyn_array_eq(other, precision)
     }
 }
 impl ArrayRef {
     /// Returns the length of the array.
     #[inline]
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.meta().len
     }
 
     /// Returns whether the array is empty (has zero rows).
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.0.len() == 0
+        self.meta().len == 0
     }
 
     /// Returns the logical Vortex [`DType`] of the array.
     #[inline]
     pub fn dtype(&self) -> &DType {
-        self.0.dtype()
+        &self.meta().dtype
     }
 
     /// Returns the encoding ID of the array.
     #[inline]
     pub fn encoding_id(&self) -> ArrayId {
-        self.0.encoding_id()
+        self.meta().encoding_id
     }
 
     /// Performs a constant-time slice of the array.
@@ -227,7 +285,7 @@ impl ArrayRef {
         if self.is_invalid(index, ctx)? {
             return Ok(Scalar::null(self.dtype().clone()));
         }
-        let scalar = self.0.execute_scalar(self, index, ctx)?;
+        let scalar = self.0.data.execute_scalar(self, index, ctx)?;
         vortex_ensure!(self.dtype() == scalar.dtype(), "Scalar dtype mismatch");
         Ok(scalar)
     }
@@ -304,7 +362,7 @@ impl ArrayRef {
 
     /// Returns the [`Validity`] of the array.
     pub fn validity(&self) -> VortexResult<Validity> {
-        self.0.validity(self)
+        self.0.data.validity(self)
     }
 
     /// Returns the canonical representation of the array.
@@ -327,12 +385,12 @@ impl ArrayRef {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        self.0.append_to_builder(self, builder, ctx)
+        self.0.data.append_to_builder(self, builder, ctx)
     }
 
     /// Returns the statistics of the array.
     pub fn statistics(&self) -> StatsSetRef<'_> {
-        self.0.statistics().to_ref(self)
+        self.0.meta.stats.to_ref(self)
     }
 
     /// Does the array match the given matcher.
@@ -367,7 +425,7 @@ impl ArrayRef {
 
     /// Returns a reference to the typed `ArrayInner<V>` if this array matches the given vtable type.
     pub fn as_typed<V: VTable>(&self) -> Option<ArrayView<'_, V>> {
-        let inner = self.0.as_any().downcast_ref::<ArrayInner<V>>()?;
+        let inner = self.0.data.as_any().downcast_ref::<ArrayInner<V>>()?;
         Some(unsafe { ArrayView::new_unchecked(self, &inner.data) })
     }
 
@@ -453,9 +511,8 @@ impl ArrayRef {
         mut self,
         slot_idx: usize,
     ) -> VortexResult<(ArrayRef, ArrayRef)> {
-        if let Some(inner) = Arc::get_mut(&mut self.0) {
-            // SAFETY: ensured by the caller.
-            let child = unsafe { inner.slots_mut()[slot_idx].take() }
+        if let Some(store) = Arc::get_mut(&mut self.0) {
+            let child = store.meta.slots[slot_idx].take()
                 .vortex_expect("take_slot_unchecked cannot take an absent slot");
             return Ok((self, child));
         }
@@ -472,7 +529,7 @@ impl ArrayRef {
 
         // SAFETY: ensured by the caller — the None slot is either put back or driven to completion
         // via the builder path before the parent escapes the executor.
-        let new_parent = unsafe { self.0.with_slots_unchecked(&self, new_slots) };
+        let new_parent = unsafe { self.0.data.with_slots_unchecked(&self, new_slots) };
         Ok((new_parent, child))
     }
 
@@ -488,16 +545,15 @@ impl ArrayRef {
         slot_idx: usize,
         replacement: ArrayRef,
     ) -> VortexResult<ArrayRef> {
-        if let Some(inner) = Arc::get_mut(&mut self.0) {
-            // # Safety: ensured by the caller.
-            unsafe { inner.slots_mut()[slot_idx] = Some(replacement) };
+        if let Some(store) = Arc::get_mut(&mut self.0) {
+            store.meta.slots[slot_idx] = Some(replacement);
             return Ok(self);
         }
 
         let mut slots = self.slots().to_vec();
         slots[slot_idx] = Some(replacement);
-        let inner = Arc::clone(&self.0);
-        inner.with_slots(self, slots)
+        let store = Arc::clone(&self.0);
+        store.data.with_slots(self, slots)
     }
 
     /// Returns a new array with the provided slots.
@@ -535,12 +591,12 @@ impl ArrayRef {
                 );
             }
         }
-        let inner = Arc::clone(&self.0);
-        inner.with_slots(self, slots)
+        let store = Arc::clone(&self.0);
+        store.data.with_slots(self, slots)
     }
 
     pub fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
-        self.0.reduce(self)
+        self.0.data.reduce(self)
     }
 
     pub fn reduce_parent(
@@ -548,13 +604,13 @@ impl ArrayRef {
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        self.0.reduce_parent(self, parent, child_idx)
+        self.0.data.reduce_parent(self, parent, child_idx)
     }
 
     pub(crate) fn execute_encoding(self, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let inner = Arc::as_ptr(&self.0);
-        // Safety the Arc outline the DynArray function call
-        unsafe { (&*inner).execute(self, ctx) }
+        let store = Arc::as_ptr(&self.0);
+        // SAFETY: the Arc outlives the DynArray function call
+        unsafe { (&*store).data.execute(self, ctx) }
     }
 
     /// Execute a single encoding step without applying `Done`-result postconditions.
@@ -566,13 +622,11 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ExecutionResult> {
-        let inner = Arc::as_ptr(&self.0);
-        // Safety the Arc outline the DynArray function call
-        let inner = unsafe { &*inner };
-        // SAFETY: `inner` points at the allocation owned by `self.0`. `self` stays alive for the
+        let store = Arc::as_ptr(&self.0);
+        // SAFETY: `store` points at the allocation owned by `self.0`. `self` stays alive for the
         // duration of the call, so the pointee remains valid. Avoiding an extra `Arc` clone here
         // preserves uniqueness so execute-time metadata cursors can use `Arc::get_mut`.
-        unsafe { inner.execute_unchecked(self, ctx) }
+        unsafe { (&*store).data.execute_unchecked(self, ctx) }
     }
 
     pub fn execute_parent(
@@ -581,74 +635,74 @@ impl ArrayRef {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        self.0.execute_parent(self, parent, child_idx, ctx)
+        self.0.data.execute_parent(self, parent, child_idx, ctx)
     }
 
     // ArrayVisitor delegation methods
 
     /// Returns the children of the array.
     pub fn children(&self) -> Vec<ArrayRef> {
-        self.0.children(self)
+        self.0.data.children(self)
     }
 
     /// Returns the number of children of the array.
     pub fn nchildren(&self) -> usize {
-        self.0.nchildren(self)
+        self.0.data.nchildren(self)
     }
 
     /// Returns the nth child of the array without allocating a Vec.
     pub fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
-        self.0.nth_child(self, idx)
+        self.0.data.nth_child(self, idx)
     }
 
     /// Returns the names of the children of the array.
     pub fn children_names(&self) -> Vec<String> {
-        self.0.children_names(self)
+        self.0.data.children_names(self)
     }
 
     /// Returns the array's children with their names.
     pub fn named_children(&self) -> Vec<(String, ArrayRef)> {
-        self.0.named_children(self)
+        self.0.data.named_children(self)
     }
 
     /// Returns the data buffers of the array.
     pub fn buffers(&self) -> Vec<ByteBuffer> {
-        self.0.buffers(self)
+        self.0.data.buffers(self)
     }
 
     /// Returns the buffer handles of the array.
     pub fn buffer_handles(&self) -> Vec<BufferHandle> {
-        self.0.buffer_handles(self)
+        self.0.data.buffer_handles(self)
     }
 
     /// Returns the names of the buffers of the array.
     pub fn buffer_names(&self) -> Vec<String> {
-        self.0.buffer_names(self)
+        self.0.data.buffer_names(self)
     }
 
     /// Returns the array's buffers with their names.
     pub fn named_buffers(&self) -> Vec<(String, BufferHandle)> {
-        self.0.named_buffers(self)
+        self.0.data.named_buffers(self)
     }
 
     /// Returns the number of data buffers of the array.
     pub fn nbuffers(&self) -> usize {
-        self.0.nbuffers(self)
+        self.0.data.nbuffers(self)
     }
 
     /// Returns the slots of the array.
     pub fn slots(&self) -> &[Option<ArrayRef>] {
-        self.0.slots()
+        &self.0.meta.slots
     }
 
     /// Returns the name of the slot at the given index.
     pub fn slot_name(&self, idx: usize) -> String {
-        self.0.slot_name(self, idx)
+        self.0.data.slot_name(self, idx)
     }
 
     /// Formats a human-readable metadata description.
     pub fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.0.metadata_fmt(f)
+        self.0.data.metadata_fmt(f)
     }
 
     /// Returns whether all buffers are host-resident.
@@ -691,11 +745,11 @@ impl<V: VTable> Matcher for V {
     type Match<'a> = ArrayView<'a, V>;
 
     fn matches(array: &ArrayRef) -> bool {
-        array.0.as_any().is::<ArrayInner<V>>()
+        array.0.data.as_any().is::<ArrayInner<V>>()
     }
 
     fn try_match<'a>(array: &'a ArrayRef) -> Option<ArrayView<'a, V>> {
-        let inner = array.0.as_any().downcast_ref::<ArrayInner<V>>()?;
+        let inner = array.0.data.as_any().downcast_ref::<ArrayInner<V>>()?;
         // # Safety checked by `downcast_ref`.
         Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
     }
