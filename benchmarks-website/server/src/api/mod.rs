@@ -9,13 +9,13 @@
 //! [`crate::slug::ChartKey`] / [`crate::slug::GroupKey`].
 //!
 //! Submodules:
-//! - [`dto`]      — every wire-shape struct (`Group`, `ChartResponse`, …).
-//! - [`window`]   — [`CommitWindow`] + [`ChartQuery`].
-//! - [`groups`]   — discovery passes that build the group / chart-link tree.
-//! - [`summary`]  — v2-compatible per-group rollups.
-//! - [`charts`]   — `chart_payload` + the per-fact-table `collect_*_chart`
+//! - [`mod@dto`]      — every wire-shape struct (`Group`, `ChartResponse`, …).
+//! - [`mod@window`]   — [`CommitWindow`] + [`ChartQuery`].
+//! - [`mod@groups`]   — discovery passes that build the group / chart-link tree.
+//! - [`mod@summary`]  — v2-compatible per-group rollups.
+//! - [`mod@charts`]   — `chart_payload` + the per-fact-table `collect_*_chart`
 //!   functions and their shared `SeriesAccumulator`.
-//! - [`filter`]   — chip-universe collection for the global filter bar.
+//! - [`mod@filter`]   — chip-universe collection for the global filter bar.
 
 pub mod charts;
 pub mod dto;

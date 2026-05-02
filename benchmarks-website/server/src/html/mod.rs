@@ -40,15 +40,15 @@
 //! script) are served from `/static/...` via [`include_bytes!`] so the
 //! binary is fully self-contained.
 //!
-//! Submodules:
-//! - [`render`]        — page chrome (header, theme bootstrap, error page,
+//! Submodules (all crate-private):
+//! - `render`        — page chrome (header, theme bootstrap, error page,
 //!   `escape_json_for_script`).
-//! - [`landing`]       — landing-page body + chart-card shell rendering.
-//! - [`chart`]         — chart and group permalink page bodies.
-//! - [`summary`]       — group summary card rendering.
-//! - [`filter`]        — filter dropdown + on-page filter-state JSON.
-//! - [`toolbar`]       — per-chart scope slider, Y-axis switch, range strip.
-//! - [`static_assets`] — `include_bytes!`'d JS/CSS/SVG handlers.
+//! - `landing`       — landing-page body + chart-card shell rendering.
+//! - `chart`         — chart and group permalink page bodies.
+//! - `summary`       — group summary card rendering.
+//! - `filter`        — filter dropdown + on-page filter-state JSON.
+//! - `toolbar`       — per-chart scope slider, Y-axis switch, range strip.
+//! - `static_assets` — `include_bytes!`'d JS/CSS/SVG handlers.
 
 mod chart;
 mod filter;

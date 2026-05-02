@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Per-chart payload assembly + the shared [`SeriesAccumulator`] glue.
+//! Per-chart payload assembly + the shared `SeriesAccumulator` glue.
 //!
 //! `chart_payload` dispatches on [`ChartKey`] to one of five
 //! `collect_*_chart` functions, each of which runs one SQL query against

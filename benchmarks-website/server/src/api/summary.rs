@@ -6,7 +6,7 @@
 //! Each `collect_*_summary` runs a small set of focused SQL queries over a
 //! single fact table and returns one [`Summary`] variant. The query group
 //! summary is gated on a v2 dataset allowlist via
-//! [`query_group_has_v2_summary`].
+//! `query_group_has_v2_summary`.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
