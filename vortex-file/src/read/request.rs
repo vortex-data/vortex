@@ -57,6 +57,14 @@ impl IoRequest {
             IoRequestInner::Coalesced(req) => req.resolve(result),
         }
     }
+
+    /// Returns true if no callback remains to receive the read result.
+    pub(crate) fn is_cancelled(&self) -> bool {
+        match &self.0 {
+            IoRequestInner::Single(req) => req.is_closed(),
+            IoRequestInner::Coalesced(req) => req.is_cancelled(),
+        }
+    }
 }
 
 // Testing functionality
@@ -100,12 +108,16 @@ impl Debug for ReadRequest {
             .field("offset", &self.offset)
             .field("length", &self.length)
             .field("alignment", &self.alignment)
-            .field("is_closed", &self.callback.is_closed())
+            .field("is_closed", &self.is_closed())
             .finish()
     }
 }
 
 impl ReadRequest {
+    pub(crate) fn is_closed(&self) -> bool {
+        self.callback.is_closed()
+    }
+
     pub(crate) fn resolve(self, result: VortexResult<BufferHandle>) {
         if let Err(e) = self.callback.send(result) {
             tracing::debug!("ReadRequest {} dropped before resolving: {e}", self.id);
@@ -132,6 +144,10 @@ impl Debug for CoalescedRequest {
 }
 
 impl CoalescedRequest {
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.requests.iter().all(ReadRequest::is_closed)
+    }
+
     pub fn resolve(self, result: VortexResult<BufferHandle>) {
         match result {
             Ok(buffer) => {

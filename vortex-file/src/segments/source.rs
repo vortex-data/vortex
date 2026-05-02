@@ -30,6 +30,7 @@ use vortex_metrics::MetricBuilder;
 use vortex_metrics::MetricsRegistry;
 
 use crate::SegmentSpec;
+use crate::read::IoRequest;
 use crate::read::IoRequestStream;
 use crate::read::ReadRequest;
 use crate::read::RequestId;
@@ -111,12 +112,7 @@ impl FileSegmentSource {
             stream
                 .map(move |req| {
                     let reader = reader.clone();
-                    async move {
-                        let result = reader
-                            .read_at(req.offset(), req.len(), req.alignment())
-                            .await;
-                        req.resolve(result);
-                    }
+                    drive_request(reader, req)
                 })
                 .buffer_unordered(concurrency)
                 .collect::<()>()
@@ -131,6 +127,22 @@ impl FileSegmentSource {
             next_id: Arc::new(AtomicUsize::new(0)),
         }
     }
+}
+
+async fn drive_request<R: VortexReadAt>(reader: R, req: IoRequest) {
+    if req.is_cancelled() {
+        tracing::debug!(
+            offset = req.offset(),
+            length = req.len(),
+            "Skipping cancelled I/O request"
+        );
+        return;
+    }
+
+    let result = reader
+        .read_at(req.offset(), req.len(), req.alignment())
+        .await;
+    req.resolve(result);
 }
 
 impl SegmentSource for FileSegmentSource {
@@ -293,5 +305,135 @@ impl SegmentSource for BufferSegmentSource {
 
         let slice = self.buffer.slice(start..end).aligned(spec.alignment);
         future::ready(Ok(BufferHandle::new_host(slice))).boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use futures::future::BoxFuture;
+
+    use super::*;
+    use crate::read::CoalescedRequest;
+
+    #[derive(Clone, Default)]
+    struct CountingRead {
+        read_count: Arc<AtomicUsize>,
+    }
+
+    impl VortexReadAt for CountingRead {
+        fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+            async { Ok(1024) }.boxed()
+        }
+
+        fn concurrency(&self) -> usize {
+            1
+        }
+
+        fn read_at(
+            &self,
+            _offset: u64,
+            length: usize,
+            alignment: Alignment,
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+            self.read_count.fetch_add(1, Ordering::Relaxed);
+            async move {
+                let buffer = ByteBuffer::copy_from(vec![0; length]).aligned(alignment);
+                Ok(BufferHandle::new_host(buffer))
+            }
+            .boxed()
+        }
+    }
+
+    #[tokio::test]
+    async fn drive_request_skips_cancelled_single_request() {
+        let reader = CountingRead::default();
+        let (callback, receiver) = oneshot::channel();
+        drop(receiver);
+
+        let req = IoRequest::new_single(ReadRequest {
+            id: 0,
+            offset: 0,
+            length: 16,
+            alignment: Alignment::none(),
+            callback,
+        });
+
+        drive_request(reader.clone(), req).await;
+
+        assert_eq!(reader.read_count.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn drive_request_skips_fully_cancelled_coalesced_request() {
+        let reader = CountingRead::default();
+        let (callback1, receiver1) = oneshot::channel();
+        let (callback2, receiver2) = oneshot::channel();
+        drop(receiver1);
+        drop(receiver2);
+
+        let req = IoRequest::new_coalesced(CoalescedRequest {
+            range: 0..32,
+            alignment: Alignment::none(),
+            requests: vec![
+                ReadRequest {
+                    id: 0,
+                    offset: 0,
+                    length: 16,
+                    alignment: Alignment::none(),
+                    callback: callback1,
+                },
+                ReadRequest {
+                    id: 1,
+                    offset: 16,
+                    length: 16,
+                    alignment: Alignment::none(),
+                    callback: callback2,
+                },
+            ],
+        });
+
+        drive_request(reader.clone(), req).await;
+
+        assert_eq!(reader.read_count.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn drive_request_reads_coalesced_request_with_live_receiver() -> VortexResult<()> {
+        let reader = CountingRead::default();
+        let (callback1, receiver1) = oneshot::channel();
+        let (callback2, receiver2) = oneshot::channel();
+        drop(receiver1);
+
+        let req = IoRequest::new_coalesced(CoalescedRequest {
+            range: 0..32,
+            alignment: Alignment::none(),
+            requests: vec![
+                ReadRequest {
+                    id: 0,
+                    offset: 0,
+                    length: 16,
+                    alignment: Alignment::none(),
+                    callback: callback1,
+                },
+                ReadRequest {
+                    id: 1,
+                    offset: 16,
+                    length: 16,
+                    alignment: Alignment::none(),
+                    callback: callback2,
+                },
+            ],
+        });
+
+        drive_request(reader.clone(), req).await;
+
+        let buffer = receiver2.await.expect("live receiver should resolve")?;
+        assert_eq!(buffer.len(), 16);
+        assert_eq!(reader.read_count.load(Ordering::Relaxed), 1);
+        Ok(())
     }
 }

@@ -3,13 +3,16 @@
 
 #![expect(clippy::cast_possible_truncation)]
 use std::iter;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
 use bytes::Bytes;
 use futures::StreamExt;
 use futures::TryStreamExt;
+use futures::future::BoxFuture;
 use futures::pin_mut;
+use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
@@ -27,6 +30,7 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::assert_arrays_eq;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::DecimalDType;
 use vortex_array::dtype::Nullability;
@@ -58,12 +62,17 @@ use vortex_array::stats::PRUNING_STATS;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::Layout;
+use vortex_layout::LayoutChildType;
 use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -86,6 +95,34 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 
     session
 });
+
+#[derive(Clone)]
+struct RecordingRead<R> {
+    inner: R,
+    reads: Arc<Mutex<Vec<Range<u64>>>>,
+}
+
+impl<R: VortexReadAt + Clone> VortexReadAt for RecordingRead<R> {
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        self.inner.size()
+    }
+
+    fn concurrency(&self) -> usize {
+        self.inner.concurrency()
+    }
+
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let end =
+            offset + u64::try_from(length).vortex_expect("read length must fit in u64 byte range");
+        self.reads.lock().push(offset..end);
+        self.inner.read_at(offset, length, alignment)
+    }
+}
 
 #[tokio::test]
 async fn test_eof_values() {
@@ -513,6 +550,61 @@ async fn issue_5385_filter_casted_column() {
         result,
         StructArray::try_from_iter([("x", buffer![1u8])]).unwrap()
     );
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn all_false_filter_does_not_read_projected_column_segments() -> VortexResult<()> {
+    let row_count = 16_384;
+    let column_a = PrimitiveArray::from_iter(0..row_count).into_array();
+    let column_b =
+        PrimitiveArray::from_iter((0..row_count).map(|value| value * 3 + 1)).into_array();
+    let array = StructArray::from_fields(&[("a", column_a), ("b", column_b)])?.into_array();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_file_statistics(vec![])
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+    assert!(summary.footer().statistics().is_none());
+
+    let b_ranges = collect_field_segment_ranges(
+        summary.footer().layout().as_ref(),
+        "b",
+        summary.footer().segment_map(),
+    )?;
+    assert!(!b_ranges.is_empty(), "expected column b to have segments");
+
+    let reads = Arc::new(Mutex::new(Vec::new()));
+    let reader = RecordingRead {
+        inner: ByteBuffer::from(buf),
+        reads: Arc::clone(&reads),
+    };
+    let file = SESSION
+        .open_options()
+        .with_footer(summary.footer().clone())
+        .open_read(reader)
+        .await?;
+
+    let result = file
+        .scan()?
+        .with_filter(gt(get_item("a", root()), lit(row_count)))
+        .with_projection(get_item("b", root()))
+        .into_array_stream()?
+        .read_all()
+        .await?;
+
+    assert_eq!(result.len(), 0);
+
+    let read_ranges = reads.lock().clone();
+    assert!(
+        read_ranges
+            .iter()
+            .all(|read| b_ranges.iter().all(|b| !ranges_overlap(read, b))),
+        "projection column b was read despite an all-false filter: reads={read_ranges:?}, b_ranges={b_ranges:?}"
+    );
+    Ok(())
 }
 
 #[tokio::test]
@@ -1799,6 +1891,59 @@ fn collect_segment_offsets_inner(
     for child in layout.children().unwrap() {
         collect_segment_offsets_inner(child.as_ref(), segment_specs, result);
     }
+}
+
+fn collect_field_segment_ranges(
+    layout: &dyn Layout,
+    field_name: &str,
+    segment_specs: &[SegmentSpec],
+) -> VortexResult<Vec<Range<u64>>> {
+    let mut result = Vec::new();
+    collect_field_segment_ranges_inner(layout, field_name, segment_specs, &mut result)?;
+    Ok(result)
+}
+
+fn collect_field_segment_ranges_inner(
+    layout: &dyn Layout,
+    field_name: &str,
+    segment_specs: &[SegmentSpec],
+    result: &mut Vec<Range<u64>>,
+) -> VortexResult<()> {
+    for idx in 0..layout.nchildren() {
+        let child = layout.child(idx)?;
+        match layout.child_type(idx) {
+            LayoutChildType::Field(name) if name == field_name => {
+                collect_segment_ranges(child.as_ref(), segment_specs, result)?;
+            }
+            _ => {
+                collect_field_segment_ranges_inner(
+                    child.as_ref(),
+                    field_name,
+                    segment_specs,
+                    result,
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn collect_segment_ranges(
+    layout: &dyn Layout,
+    segment_specs: &[SegmentSpec],
+    result: &mut Vec<Range<u64>>,
+) -> VortexResult<()> {
+    for seg_id in layout.segment_ids() {
+        result.push(segment_specs[*seg_id as usize].byte_range());
+    }
+    for child in layout.children()? {
+        collect_segment_ranges(child.as_ref(), segment_specs, result)?;
+    }
+    Ok(())
+}
+
+fn ranges_overlap(left: &Range<u64>, right: &Range<u64>) -> bool {
+    left.start < right.end && right.start < left.end
 }
 
 /// Assert that all offsets in `before` are less than all offsets in `after`.

@@ -138,13 +138,14 @@ impl SegmentCacheSourceAdapter {
 impl SegmentSource for SegmentCacheSourceAdapter {
     fn request(&self, id: SegmentId) -> SegmentFuture {
         let cache = Arc::clone(&self.cache);
-        let delegate = self.source.request(id);
+        let source = Arc::clone(&self.source);
 
         async move {
             if let Ok(Some(segment)) = cache.get(id).await {
                 tracing::debug!("Resolved segment {} from cache", id);
                 return Ok(BufferHandle::new_host(segment));
             }
+            let delegate = source.request(id);
             let result = delegate.await?;
             // Cache only CPU buffers; device buffers are not cached.
             if let Some(buffer) = result.as_host_opt()
@@ -155,5 +156,69 @@ impl SegmentSource for SegmentCacheSourceAdapter {
             Ok(result)
         }
         .boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+
+    use vortex_buffer::ByteBuffer;
+
+    use super::*;
+    use crate::segments::SegmentSink;
+    use crate::segments::TestSegments;
+    use crate::sequence::SequenceId;
+
+    #[derive(Default, Clone)]
+    struct CountingSegmentSource {
+        segments: TestSegments,
+        request_count: Arc<AtomicUsize>,
+    }
+
+    impl SegmentSource for CountingSegmentSource {
+        fn request(&self, id: SegmentId) -> SegmentFuture {
+            self.request_count.fetch_add(1, Ordering::Relaxed);
+            self.segments.request(id)
+        }
+    }
+
+    #[tokio::test]
+    async fn cache_hit_does_not_request_inner_source() -> VortexResult<()> {
+        let id = SegmentId::from(0);
+        let data = ByteBuffer::copy_from([1, 2, 3, 4]);
+        let cache = Arc::new(MokaSegmentCache::new(1024));
+        cache.put(id, data.clone()).await?;
+
+        let source = CountingSegmentSource::default();
+        let adapter = SegmentCacheSourceAdapter::new(cache, Arc::new(source.clone()));
+
+        let result = adapter.request(id).await?;
+
+        assert_eq!(result.unwrap_host(), data);
+        assert_eq!(source.request_count.load(Ordering::Relaxed), 0);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cache_miss_requests_inner_source_and_stores_host_buffer() -> VortexResult<()> {
+        let data = ByteBuffer::copy_from([5, 6, 7, 8]);
+        let source = CountingSegmentSource::default();
+        let id = source
+            .segments
+            .write(SequenceId::root().downgrade(), vec![data.clone()])
+            .await?;
+
+        let cache = Arc::new(MokaSegmentCache::new(1024));
+        let cache_source: Arc<dyn SegmentCache> = Arc::<MokaSegmentCache>::clone(&cache);
+        let adapter = SegmentCacheSourceAdapter::new(cache_source, Arc::new(source.clone()));
+
+        let result = adapter.request(id).await?;
+
+        assert_eq!(result.unwrap_host(), data);
+        assert_eq!(source.request_count.load(Ordering::Relaxed), 1);
+        assert_eq!(cache.get(id).await?.as_ref(), Some(&data));
+        Ok(())
     }
 }
