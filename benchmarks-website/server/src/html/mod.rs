@@ -48,7 +48,7 @@
 //! - `summary`       — group summary card rendering.
 //! - `filter`        — filter dropdown + on-page filter-state JSON.
 //! - `toolbar`       — per-chart scope slider, Y-axis switch, range strip.
-//! - `static_assets` — `include_bytes!`'d JS/CSS/SVG handlers.
+//! - `static_assets` — `include_bytes!`'d JS/CSS/PNG handlers.
 
 mod chart;
 mod filter;
