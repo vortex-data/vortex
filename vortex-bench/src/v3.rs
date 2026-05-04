@@ -397,12 +397,23 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 }
 
 fn v3_query_idx(qm: &QueryMeasurement) -> u32 {
-    let query_idx = if matches!(&qm.benchmark_dataset, BenchmarkDataset::ClickBench { .. }) {
+    let query_idx = if query_source_is_zero_based(&qm.benchmark_dataset) {
         qm.query_idx.saturating_add(1)
     } else {
         qm.query_idx
     };
     u32::try_from(query_idx).unwrap_or(u32::MAX)
+}
+
+fn query_source_is_zero_based(dataset: &BenchmarkDataset) -> bool {
+    matches!(
+        dataset,
+        BenchmarkDataset::ClickBench { .. }
+            | BenchmarkDataset::StatPopGen { .. }
+            | BenchmarkDataset::PolarSignals { .. }
+            | BenchmarkDataset::Fineweb
+            | BenchmarkDataset::GhArchive
+    )
 }
 
 fn engine_label(engine: Engine) -> &'static str {
@@ -514,6 +525,64 @@ mod tests {
             }),
             ("tpcds".to_string(), None, Some("10".to_string()))
         );
+    }
+
+    #[test]
+    fn zero_based_query_sources_emit_one_based_query_idx() {
+        let datasets = [
+            BenchmarkDataset::ClickBench {
+                flavor: Flavor::Partitioned,
+            },
+            BenchmarkDataset::StatPopGen { n_rows: 100_000 },
+            BenchmarkDataset::PolarSignals { n_rows: 1_000_000 },
+            BenchmarkDataset::Fineweb,
+            BenchmarkDataset::GhArchive,
+        ];
+
+        for benchmark_dataset in datasets {
+            let qm = QueryMeasurement {
+                query_idx: 0,
+                target: Target::new(Engine::DataFusion, Format::Parquet),
+                benchmark_dataset,
+                benchmark_runner: "ci-runner".to_string(),
+                storage: "nvme".to_string(),
+                runs: vec![Duration::from_nanos(1)],
+            };
+            let V3Record::QueryMeasurement(record) = query_measurement_record(&qm, None) else {
+                panic!("expected query measurement record");
+            };
+            assert_eq!(record.query_idx, 1);
+        }
+    }
+
+    #[test]
+    fn one_based_query_sources_keep_query_idx() {
+        let datasets = [
+            BenchmarkDataset::TpcH {
+                scale_factor: "1".to_string(),
+            },
+            BenchmarkDataset::TpcDS {
+                scale_factor: "1".to_string(),
+            },
+            BenchmarkDataset::PublicBi {
+                name: "cms-provider".to_string(),
+            },
+        ];
+
+        for benchmark_dataset in datasets {
+            let qm = QueryMeasurement {
+                query_idx: 1,
+                target: Target::new(Engine::DataFusion, Format::Parquet),
+                benchmark_dataset,
+                benchmark_runner: "ci-runner".to_string(),
+                storage: "nvme".to_string(),
+                runs: vec![Duration::from_nanos(1)],
+            };
+            let V3Record::QueryMeasurement(record) = query_measurement_record(&qm, None) else {
+                panic!("expected query measurement record");
+            };
+            assert_eq!(record.query_idx, 1);
+        }
     }
 
     #[test]
