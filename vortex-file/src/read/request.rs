@@ -160,7 +160,7 @@ impl CoalescedRequest {
                     req,
                 )
             }
-            if req.offset.saturating_add(req.length as u64) <= range.end {
+            if req.offset.saturating_add(req.length as u64) > range.end {
                 vortex_bail!(
                     "CoalescedRequest: sub-request for length {} at file offset {} exceeds the coalesced range: {}..{}. {:?}",
                     req.length,
