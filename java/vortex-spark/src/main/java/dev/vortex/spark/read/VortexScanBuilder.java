@@ -6,7 +6,7 @@ package dev.vortex.spark.read;
 import static com.google.common.base.Preconditions.checkState;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -47,10 +47,10 @@ public final class VortexScanBuilder
     public VortexScanBuilder(Map<String, String> formatOptions, Transform[] partitionTransforms) {
         this.paths = ImmutableList.builder();
         this.columns = new ArrayList<>();
-        ImmutableMap.Builder<String, String> options = ImmutableMap.builder();
-        options.putAll(formatOptions);
+        Map<String, String> options = Maps.newHashMap();
         options.put("vortex.workerThreads", "4");
-        this.formatOptions = options.build();
+        options.putAll(formatOptions);
+        this.formatOptions = options;
         this.partitionColumnNames = collectPartitionColumnNames(partitionTransforms);
     }
 

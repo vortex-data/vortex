@@ -34,7 +34,6 @@ public final class VortexPartitionReaderFactory implements PartitionReaderFactor
 
     public VortexPartitionReaderFactory(
             List<String> dataColumnNames, Map<String, String> formatOptions, Predicate[] pushedPredicates) {
-        NativeRuntime.setWorkerThreads(formatOptions.getOrDefault("vortex.workerThreads", "0"));
         this.dataColumnNames = ImmutableList.copyOf(dataColumnNames);
         this.formatOptions = ImmutableMap.copyOf(formatOptions);
         this.pushedPredicates = pushedPredicates == null ? new Predicate[0] : pushedPredicates.clone();
@@ -47,6 +46,7 @@ public final class VortexPartitionReaderFactory implements PartitionReaderFactor
 
     @Override
     public PartitionReader<ColumnarBatch> createColumnarReader(InputPartition partition) {
+        NativeRuntime.setWorkerThreads(Integer.parseInt(formatOptions.getOrDefault("vortex.workerThreads", "4")));
         VortexFilePartition spark = (VortexFilePartition) partition;
         return new VortexPartitionReader(spark, dataColumnNames, formatOptions, pushedPredicates);
     }
