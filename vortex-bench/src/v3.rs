@@ -201,12 +201,16 @@ pub struct VectorSearchRunRecord {
 /// `benchmarks-website/planning/benchmark-mapping.md`.
 pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, Option<String>) {
     match d {
-        BenchmarkDataset::TpcH { scale_factor } => {
-            ("tpch".to_string(), None, Some(scale_factor.clone()))
-        }
-        BenchmarkDataset::TpcDS { scale_factor } => {
-            ("tpcds".to_string(), None, Some(scale_factor.clone()))
-        }
+        BenchmarkDataset::TpcH { scale_factor } => (
+            "tpch".to_string(),
+            None,
+            Some(canonical_tpc_scale_factor(scale_factor)),
+        ),
+        BenchmarkDataset::TpcDS { scale_factor } => (
+            "tpcds".to_string(),
+            None,
+            Some(canonical_tpc_scale_factor(scale_factor)),
+        ),
         BenchmarkDataset::ClickBench { flavor } => {
             let variant = match flavor {
                 Flavor::Partitioned => "partitioned",
@@ -237,6 +241,7 @@ pub fn query_measurement_record(
     let (dataset, dataset_variant, scale_factor) = benchmark_dataset_dims(&qm.benchmark_dataset);
     let value_ns = duration_as_ns(qm.median_run());
     let all_runtimes_ns = qm.runs.iter().copied().map(duration_as_ns).collect();
+    let query_idx = v3_query_idx(qm);
     let (peak_physical, peak_virtual, physical_delta, virtual_delta) = match memory {
         Some(m) => (
             Some(m.peak_physical_memory),
@@ -251,7 +256,7 @@ pub fn query_measurement_record(
         dataset,
         dataset_variant,
         scale_factor,
-        query_idx: u32::try_from(qm.query_idx).unwrap_or(u32::MAX),
+        query_idx,
         storage: qm.storage.clone(),
         engine: engine_label(qm.target.engine).to_string(),
         format: qm.target.format.name().to_string(),
@@ -383,6 +388,23 @@ fn duration_as_ns(d: std::time::Duration) -> u64 {
     u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)
 }
 
+fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
+    let trimmed = scale_factor.trim();
+    match trimmed.parse::<f64>() {
+        Ok(value) if value.is_finite() => format!("{value}"),
+        _ => scale_factor.to_string(),
+    }
+}
+
+fn v3_query_idx(qm: &QueryMeasurement) -> u32 {
+    let query_idx = if matches!(&qm.benchmark_dataset, BenchmarkDataset::ClickBench { .. }) {
+        qm.query_idx.saturating_add(1)
+    } else {
+        qm.query_idx
+    };
+    u32::try_from(query_idx).unwrap_or(u32::MAX)
+}
+
 fn engine_label(engine: Engine) -> &'static str {
     match engine {
         Engine::Vortex => "vortex",
@@ -461,7 +483,7 @@ mod tests {
     #[test]
     fn snapshot_query_measurement_clickbench_no_memory() -> anyhow::Result<()> {
         let qm = QueryMeasurement {
-            query_idx: 1,
+            query_idx: 0,
             target: Target::new(Engine::DuckDB, Format::Parquet),
             benchmark_dataset: BenchmarkDataset::ClickBench {
                 flavor: Flavor::Partitioned,
@@ -476,6 +498,22 @@ mod tests {
             assert_snapshot!(rendered);
         });
         Ok(())
+    }
+
+    #[test]
+    fn tpc_scale_factors_are_canonicalized_for_query_dims() {
+        assert_eq!(
+            benchmark_dataset_dims(&BenchmarkDataset::TpcH {
+                scale_factor: "1.0".to_string()
+            }),
+            ("tpch".to_string(), None, Some("1".to_string()))
+        );
+        assert_eq!(
+            benchmark_dataset_dims(&BenchmarkDataset::TpcDS {
+                scale_factor: "10.0".to_string()
+            }),
+            ("tpcds".to_string(), None, Some("10".to_string()))
+        );
     }
 
     #[test]
