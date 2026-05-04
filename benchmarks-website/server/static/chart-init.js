@@ -697,6 +697,16 @@
     // surrounding measurements. Markers are only drawn at non-null
     // indices, so the gap is still visible as a missing point — just not
     // as a broken line.
+    //
+    // Edge-extension: for each series, also fill in the nearest non-null
+    // value just *outside* `[min, max]` on each side. Chart.js's scale
+    // `min`/`max` clip the canvas but still draw lines whose endpoints
+    // lie outside that range; without these neighbours the line would
+    // start/end at the nearest in-range point and visually break at the
+    // window's edge — exactly the "zoom in and see only a few floating
+    // dots" symptom the user reported. With them, the line continues
+    // out of the visible region to the next real measurement and the
+    // off-screen segment is naturally clipped.
     for (var dj = 0; dj < datasets.length; dj++) {
       var ds = datasets[dj];
       var dsRaw = ds.rawData;
@@ -712,6 +722,22 @@
         var val = dsRaw[idx];
         if (val !== null && val !== undefined && !Number.isNaN(val)) {
           data[idx] = val;
+        }
+      }
+      // Nearest non-null neighbour to the left of the visible window.
+      for (var le = min - 1; le >= 0; le--) {
+        var lv = dsRaw[le];
+        if (lv !== null && lv !== undefined && !Number.isNaN(lv)) {
+          data[le] = lv;
+          break;
+        }
+      }
+      // Nearest non-null neighbour to the right of the visible window.
+      for (var re = max + 1; re < n; re++) {
+        var rv = dsRaw[re];
+        if (rv !== null && rv !== undefined && !Number.isNaN(rv)) {
+          data[re] = rv;
+          break;
         }
       }
     }
