@@ -9,7 +9,7 @@
 //! path synchronous; the binary's hot path is single-threaded
 //! per-source already (DuckDB is a single-writer).
 //!
-//! For tests and offline runs, [`Source::Local`] accepts a local
+//! For tests and offline runs, [`Source::Local`](crate::source::Source::Local) accepts a local
 //! directory of dumps; the migrator's `--source` flag picks the
 //! variant.
 
