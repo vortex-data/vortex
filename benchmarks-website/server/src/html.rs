@@ -78,8 +78,8 @@ const CHART_JS: &[u8] = include_bytes!("../static/chart.umd.js");
 const CHART_ZOOM_JS: &[u8] = include_bytes!("../static/chartjs-plugin-zoom.umd.min.js");
 const CHART_INIT_JS: &[u8] = include_bytes!("../static/chart-init.js");
 const STYLE_CSS: &[u8] = include_bytes!("../static/style.css");
-const VORTEX_BLACK_SVG: &[u8] = include_bytes!("../../public/vortex_black_nobg.svg");
-const VORTEX_WHITE_SVG: &[u8] = include_bytes!("../../public/vortex_white_nobg.svg");
+const VORTEX_BLACK_PNG: &[u8] = include_bytes!("../../public/Vortex_Black_NoBG.png");
+const VORTEX_WHITE_PNG: &[u8] = include_bytes!("../../public/Vortex_White_NoBG.png");
 const STATIC_ASSET_VERSION: &str = "bench-v3-ui-16";
 
 /// Commits to inline for the first group's pre-fetched chart payloads.
@@ -101,8 +101,8 @@ pub fn router() -> Router<AppState> {
         )
         .route("/static/chart-init.js", get(serve_chart_init_js))
         .route("/static/style.css", get(serve_style_css))
-        .route("/vortex_black_nobg.svg", get(serve_vortex_black_svg))
-        .route("/vortex_white_nobg.svg", get(serve_vortex_white_svg))
+        .route("/Vortex_Black_NoBG.png", get(serve_vortex_black_png))
+        .route("/Vortex_White_NoBG.png", get(serve_vortex_white_png))
 }
 
 /// Query string for HTML routes. `?n=` overrides the commit window;
@@ -430,8 +430,8 @@ fn theme_bootstrap_script() -> Markup {
 }
 
 fn site_header(universe: Option<&api::FilterUniverse>, filter: &FilterState) -> Markup {
-    let black_logo = versioned_asset("/vortex_black_nobg.svg");
-    let white_logo = versioned_asset("/vortex_white_nobg.svg");
+    let black_logo = versioned_asset("/Vortex_Black_NoBG.png");
+    let white_logo = versioned_asset("/Vortex_White_NoBG.png");
     let show_filters = universe
         .map(|u| !u.engines.is_empty() || !u.formats.is_empty())
         .unwrap_or(false);
@@ -995,12 +995,12 @@ async fn serve_style_css() -> impl IntoResponse {
     static_response(STYLE_CSS, "text/css; charset=utf-8")
 }
 
-async fn serve_vortex_black_svg() -> impl IntoResponse {
-    static_response(VORTEX_BLACK_SVG, "image/svg+xml; charset=utf-8")
+async fn serve_vortex_black_png() -> impl IntoResponse {
+    static_response(VORTEX_BLACK_PNG, "image/png")
 }
 
-async fn serve_vortex_white_svg() -> impl IntoResponse {
-    static_response(VORTEX_WHITE_SVG, "image/svg+xml; charset=utf-8")
+async fn serve_vortex_white_png() -> impl IntoResponse {
+    static_response(VORTEX_WHITE_PNG, "image/png")
 }
 
 fn static_response(bytes: &'static [u8], content_type: &'static str) -> Response {

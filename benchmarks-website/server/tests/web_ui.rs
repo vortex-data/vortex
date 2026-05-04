@@ -448,7 +448,7 @@ async fn landing_page_snapshot() -> Result<()> {
         "navbar controls should render icons"
     );
     assert!(
-        body.contains(r#"vortex_black_nobg.svg"#) && body.contains(r#"vortex_white_nobg.svg"#),
+        body.contains(r#"Vortex_Black_NoBG.png"#) && body.contains(r#"Vortex_White_NoBG.png"#),
         "navbar should render the Vortex logo assets"
     );
     assert!(
@@ -1410,8 +1410,8 @@ async fn static_assets_are_served() -> Result<()> {
         ),
         ("/static/chart-init.js", "application/javascript"),
         ("/static/style.css", "text/css"),
-        ("/vortex_black_nobg.svg", "image/svg+xml"),
-        ("/vortex_white_nobg.svg", "image/svg+xml"),
+        ("/Vortex_Black_NoBG.png", "image/png"),
+        ("/Vortex_White_NoBG.png", "image/png"),
     ] {
         let resp = client.get(server.url(path)).send().await?;
         assert_eq!(resp.status(), 200, "GET {path} should be 200");

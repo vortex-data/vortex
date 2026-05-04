@@ -192,7 +192,7 @@ a:hover { text-decoration: underline; }
 .site-logo {
   display: block;
   width: auto;
-  height: 48px;
+  height: 24px;
 }
 
 .logo-dark { display: none; }
@@ -209,7 +209,7 @@ a:hover { text-decoration: underline; }
 
 .site-title {
   display: none;
-  margin: 0;
+  margin: 0 0 0 1.5rem;
   color: var(--fg);
   font-size: 1.25rem;
   font-weight: 600;
@@ -911,7 +911,7 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
     padding: 0 0.5rem;
   }
   .site-logo {
-    height: 32px;
+    height: 16px;
   }
   .header-left {
     gap: 0.5rem;

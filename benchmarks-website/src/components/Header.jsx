@@ -25,9 +25,9 @@ export default function Header({
           </button>
           <a href="/" className="logo-link">
             <picture>
-                <source srcset="/vortex_black_nobg.svg" media="(prefers-color-scheme: light)"/>
-                <source srcset="/vortex_white_nobg.svg" media="(prefers-color-scheme: dark)"/>
-                <img src="/vortex_black_nobg.svg" alt="Vortex" className="site-logo"/>
+                <source srcset="/Vortex_Black_NoBG.png" media="(prefers-color-scheme: light)"/>
+                <source srcset="/Vortex_White_NoBG.png" media="(prefers-color-scheme: dark)"/>
+                <img src="/Vortex_Black_NoBG.png" alt="Vortex" className="site-logo"/>
             </picture>
           </a>
         </div>

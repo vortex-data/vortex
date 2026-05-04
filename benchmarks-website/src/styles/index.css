@@ -151,7 +151,7 @@ code, pre {
 }
 
 .site-logo {
-  height: 48px;
+  height: 24px;
   width: auto;
   display: block;
 }
@@ -161,7 +161,7 @@ code, pre {
   font-size: 1.5rem;
   font-weight: 600;
   margin: 0;
-  margin-left: calc(var(--sidebar-width) - 180px);
+  margin-left: calc(var(--sidebar-width) - 156px);
   color: var(--text-color);
   display: none;
   white-space: nowrap;
@@ -1173,7 +1173,7 @@ code, pre {
   }
 
   .site-logo {
-    height: 32px;
+    height: 16px;
   }
 
   .site-title {
