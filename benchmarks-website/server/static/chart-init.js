@@ -582,11 +582,13 @@
       var rawValues = Array.isArray(raw[name]) ? raw[name] : [];
       // `data` starts null-padded; `rebuildVisibleAndUpdate` fills the
       // current visible window with raw or LTTB-kept values. Chart.js's
-      // `spanGaps: false` makes the line break visibly at every null —
-      // commits where this series has no measurement (a benchmark crashed,
-      // a series only runs nightly, etc.) appear as a real gap rather than
-      // being silently bridged. The previous `spanGaps: true` made
-      // partial-coverage runs look like continuous lines.
+      // `spanGaps: true` connects the line across nulls so a series with
+      // partial coverage (a benchmark crashed at one commit, a series
+      // only runs nightly, etc.) still draws as a continuous trend
+      // through the surrounding measurements. The point markers
+      // themselves are only drawn at non-null indices, so the missing
+      // commits are visible as a "no marker" beat in the line — the line
+      // itself bridges to the next available data point.
       var data = new Array(n);
       for (var j = 0; j < n; j++) data[j] = null;
       return {
@@ -596,7 +598,7 @@
         borderColor: colorFor(i),
         backgroundColor: colorFor(i) + "20",
         borderWidth: 1.5,
-        spanGaps: false,
+        spanGaps: true,
         tension: 0,
         pointRadius: 2,
         pointHoverRadius: 5,
@@ -618,8 +620,8 @@
   // `MAX_VISIBLE_POINTS` and LTTB-downsamples to exactly that number when
   // above. The result is written into `dataset.data` with nulls outside
   // the kept set so Chart.js renders just the kept points; with
-  // `spanGaps: false`, nulls show up as visible gaps in the line so
-  // missing measurements are obvious rather than silently bridged.
+  // `spanGaps: true`, the line connects across the nulls to the next
+  // non-null point so a sparse series still reads as a continuous trend.
   //
   // Mutates `dataset.data` in place to avoid GC churn on every pan frame.
   // Updates the per-card downsample badge as a side effect.
@@ -688,10 +690,13 @@
     }
 
     // Plant the shared kept set into every dataset.data. Series that have
-    // no value at a kept index simply remain null there. With
-    // `spanGaps: false`, those nulls render as visible gaps — partial-
-    // coverage commits (a benchmark crashed, a series only runs nightly)
-    // show up as a break in the line rather than being silently bridged.
+    // no value at a kept index simply remain null there; with
+    // `spanGaps: true`, the line connects to the next non-null point so
+    // a series with partial coverage (a benchmark crashed, a series only
+    // runs nightly) still draws as a continuous trend through the
+    // surrounding measurements. Markers are only drawn at non-null
+    // indices, so the gap is still visible as a missing point — just not
+    // as a broken line.
     for (var dj = 0; dj < datasets.length; dj++) {
       var ds = datasets[dj];
       var dsRaw = ds.rawData;

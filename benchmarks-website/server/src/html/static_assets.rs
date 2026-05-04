@@ -21,7 +21,7 @@ const VORTEX_WHITE_PNG: &[u8] = include_bytes!("../../../public/Vortex_White_NoB
 
 /// Cache-busting suffix appended to every static asset URL. Bump on a UI
 /// release so cached browsers see the new bytes.
-pub(crate) const STATIC_ASSET_VERSION: &str = "bench-v3-ui-19";
+pub(crate) const STATIC_ASSET_VERSION: &str = "bench-v3-ui-20";
 
 /// Append the cache-bust query param to a static asset URL.
 pub(crate) fn versioned_asset(path: &str) -> String {
