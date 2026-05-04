@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[package]
+name = "vortex-bench-migrate"
+version = "0.1.0-alpha.0"
+edition = "2024"
+rust-version = "1.91.0"
+license = "Apache-2.0"
+description = "One-shot historical migrator from the v2 benchmarks S3 dataset to a v3 DuckDB file"
+publish = false
+
+[[bin]]
+name = "vortex-bench-migrate"
+path = "src/main.rs"
+
+# Throwaway binary, not part of the vortex-* public API surface.
+# Errors use anyhow, and the crate is intentionally outside the
+# workspace public-api lockfile set.
+
+[dependencies]
+anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-buffer = { workspace = true }
+arrow-schema = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+# track vortex-duckdb's bundled engine version (build.rs)
+duckdb = { version = "1.10502", features = ["bundled", "appender-arrow"] }
+flate2 = "1.1"
+reqwest = { workspace = true, features = ["json"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing = { workspace = true, features = ["std"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+vortex-bench-server = { path = "../server" }
+vortex-utils = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+tempfile = { workspace = true }

@@ -6,7 +6,6 @@ expression: render(&record)
   "kind": "query_measurement",
   "commit_sha": "<commit-sha>",
   "dataset": "clickbench",
-  "dataset_variant": "partitioned",
   "query_idx": 1,
   "storage": "s3",
   "engine": "duckdb",

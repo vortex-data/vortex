@@ -20,7 +20,6 @@ use target_lexicon::Triple;
 use crate::BenchmarkDataset;
 use crate::Engine;
 use crate::Format;
-use crate::clickbench::Flavor;
 use crate::compress::CompressOp;
 use crate::measurements::CompressionTimingMeasurement;
 use crate::measurements::MemoryMeasurement;
@@ -72,7 +71,9 @@ pub struct QueryMeasurementRecord {
     /// ClickBench flavor (`partitioned`/`single`) or Public-BI sub-dataset name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dataset_variant: Option<String>,
-    /// TPC scale factor or `n_rows` for StatPopGen / PolarSignals.
+    /// TPC scale factor (TPC-H / TPC-DS only). Other suites leave this `None`
+    /// so live records merge with the migrated v2 history, which never carried
+    /// a per-suite scale factor.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scale_factor: Option<String>,
     /// 1-based query index within the suite.
@@ -201,30 +202,26 @@ pub struct VectorSearchRunRecord {
 /// `benchmarks-website/planning/benchmark-mapping.md`.
 pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, Option<String>) {
     match d {
-        BenchmarkDataset::TpcH { scale_factor } => (
-            "tpch".to_string(),
-            None,
-            Some(canonical_tpc_scale_factor(scale_factor)),
-        ),
-        BenchmarkDataset::TpcDS { scale_factor } => (
-            "tpcds".to_string(),
-            None,
-            Some(canonical_tpc_scale_factor(scale_factor)),
-        ),
-        BenchmarkDataset::ClickBench { flavor } => {
-            let variant = match flavor {
-                Flavor::Partitioned => "partitioned",
-                Flavor::Single => "single",
-            };
-            ("clickbench".to_string(), Some(variant.to_string()), None)
+        BenchmarkDataset::TpcH { scale_factor } => {
+            ("tpch".to_string(), None, Some(scale_factor.clone()))
         }
+        BenchmarkDataset::TpcDS { scale_factor } => {
+            ("tpcds".to_string(), None, Some(scale_factor.clone()))
+        }
+        // ClickBench: the migrate path leaves `dataset_variant` NULL because
+        // v2 record names did not encode flavor, so the live emitter does the
+        // same to keep historical and live records in one `clickbench` group.
+        // Flavor is fixed per CI matrix entry and recoverable from there.
+        BenchmarkDataset::ClickBench { .. } => ("clickbench".to_string(), None, None),
         BenchmarkDataset::PublicBi { name } => ("public-bi".to_string(), Some(name.clone()), None),
-        BenchmarkDataset::StatPopGen { n_rows } => {
-            ("statpopgen".to_string(), None, Some(n_rows.to_string()))
-        }
-        BenchmarkDataset::PolarSignals { n_rows } => {
-            ("polarsignals".to_string(), None, Some(n_rows.to_string()))
-        }
+        // StatPopGen / PolarSignals: the migrate path (v2 → v3 backfill) does
+        // not carry a per-record scale factor for these suites, so writing one
+        // here would split each into two groups (sf=NULL historical vs. sf=N
+        // live). Drop it to keep live ingests merging into the migrated
+        // group. The dataset-level `n_rows` is recoverable from the bench
+        // matrix if ever needed.
+        BenchmarkDataset::StatPopGen { .. } => ("statpopgen".to_string(), None, None),
+        BenchmarkDataset::PolarSignals { .. } => ("polarsignals".to_string(), None, None),
         BenchmarkDataset::Fineweb => ("fineweb".to_string(), None, None),
         BenchmarkDataset::GhArchive => ("gharchive".to_string(), None, None),
     }
@@ -241,7 +238,6 @@ pub fn query_measurement_record(
     let (dataset, dataset_variant, scale_factor) = benchmark_dataset_dims(&qm.benchmark_dataset);
     let value_ns = duration_as_ns(qm.median_run());
     let all_runtimes_ns = qm.runs.iter().copied().map(duration_as_ns).collect();
-    let query_idx = v3_query_idx(qm);
     let (peak_physical, peak_virtual, physical_delta, virtual_delta) = match memory {
         Some(m) => (
             Some(m.peak_physical_memory),
@@ -256,7 +252,7 @@ pub fn query_measurement_record(
         dataset,
         dataset_variant,
         scale_factor,
-        query_idx,
+        query_idx: u32::try_from(qm.query_idx).unwrap_or(u32::MAX),
         storage: qm.storage.clone(),
         engine: engine_label(qm.target.engine).to_string(),
         format: qm.target.format.name().to_string(),
@@ -388,34 +384,6 @@ fn duration_as_ns(d: std::time::Duration) -> u64 {
     u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)
 }
 
-fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
-    let trimmed = scale_factor.trim();
-    match trimmed.parse::<f64>() {
-        Ok(value) if value.is_finite() => format!("{value}"),
-        _ => scale_factor.to_string(),
-    }
-}
-
-fn v3_query_idx(qm: &QueryMeasurement) -> u32 {
-    let query_idx = if query_source_is_zero_based(&qm.benchmark_dataset) {
-        qm.query_idx.saturating_add(1)
-    } else {
-        qm.query_idx
-    };
-    u32::try_from(query_idx).unwrap_or(u32::MAX)
-}
-
-fn query_source_is_zero_based(dataset: &BenchmarkDataset) -> bool {
-    matches!(
-        dataset,
-        BenchmarkDataset::ClickBench { .. }
-            | BenchmarkDataset::StatPopGen { .. }
-            | BenchmarkDataset::PolarSignals { .. }
-            | BenchmarkDataset::Fineweb
-            | BenchmarkDataset::GhArchive
-    )
-}
-
 fn engine_label(engine: Engine) -> &'static str {
     match engine {
         Engine::Vortex => "vortex",
@@ -494,7 +462,7 @@ mod tests {
     #[test]
     fn snapshot_query_measurement_clickbench_no_memory() -> anyhow::Result<()> {
         let qm = QueryMeasurement {
-            query_idx: 0,
+            query_idx: 1,
             target: Target::new(Engine::DuckDB, Format::Parquet),
             benchmark_dataset: BenchmarkDataset::ClickBench {
                 flavor: Flavor::Partitioned,
@@ -509,80 +477,6 @@ mod tests {
             assert_snapshot!(rendered);
         });
         Ok(())
-    }
-
-    #[test]
-    fn tpc_scale_factors_are_canonicalized_for_query_dims() {
-        assert_eq!(
-            benchmark_dataset_dims(&BenchmarkDataset::TpcH {
-                scale_factor: "1.0".to_string()
-            }),
-            ("tpch".to_string(), None, Some("1".to_string()))
-        );
-        assert_eq!(
-            benchmark_dataset_dims(&BenchmarkDataset::TpcDS {
-                scale_factor: "10.0".to_string()
-            }),
-            ("tpcds".to_string(), None, Some("10".to_string()))
-        );
-    }
-
-    #[test]
-    fn zero_based_query_sources_emit_one_based_query_idx() {
-        let datasets = [
-            BenchmarkDataset::ClickBench {
-                flavor: Flavor::Partitioned,
-            },
-            BenchmarkDataset::StatPopGen { n_rows: 100_000 },
-            BenchmarkDataset::PolarSignals { n_rows: 1_000_000 },
-            BenchmarkDataset::Fineweb,
-            BenchmarkDataset::GhArchive,
-        ];
-
-        for benchmark_dataset in datasets {
-            let qm = QueryMeasurement {
-                query_idx: 0,
-                target: Target::new(Engine::DataFusion, Format::Parquet),
-                benchmark_dataset,
-                benchmark_runner: "ci-runner".to_string(),
-                storage: "nvme".to_string(),
-                runs: vec![Duration::from_nanos(1)],
-            };
-            let V3Record::QueryMeasurement(record) = query_measurement_record(&qm, None) else {
-                panic!("expected query measurement record");
-            };
-            assert_eq!(record.query_idx, 1);
-        }
-    }
-
-    #[test]
-    fn one_based_query_sources_keep_query_idx() {
-        let datasets = [
-            BenchmarkDataset::TpcH {
-                scale_factor: "1".to_string(),
-            },
-            BenchmarkDataset::TpcDS {
-                scale_factor: "1".to_string(),
-            },
-            BenchmarkDataset::PublicBi {
-                name: "cms-provider".to_string(),
-            },
-        ];
-
-        for benchmark_dataset in datasets {
-            let qm = QueryMeasurement {
-                query_idx: 1,
-                target: Target::new(Engine::DataFusion, Format::Parquet),
-                benchmark_dataset,
-                benchmark_runner: "ci-runner".to_string(),
-                storage: "nvme".to_string(),
-                runs: vec![Duration::from_nanos(1)],
-            };
-            let V3Record::QueryMeasurement(record) = query_measurement_record(&qm, None) else {
-                panic!("expected query measurement record");
-            };
-            assert_eq!(record.query_idx, 1);
-        }
     }
 
     #[test]
@@ -663,6 +557,45 @@ mod tests {
         );
         assert_snapshot!(render(&record)?);
         Ok(())
+    }
+
+    #[test]
+    fn live_dims_match_migrate_for_non_fan_out_suites() {
+        // The v2 → v3 migrate classifier leaves both `dataset_variant` and
+        // `scale_factor` NULL for the non-fan-out SQL suites (clickbench,
+        // polarsignals, statpopgen, fineweb, gharchive). The live emitter
+        // must do the same so live ingests merge with migrated history into
+        // a single group instead of forking off a sibling group keyed on a
+        // dim the historical rows do not carry.
+        for (case, expected) in [
+            (
+                BenchmarkDataset::ClickBench {
+                    flavor: Flavor::Partitioned,
+                },
+                "clickbench",
+            ),
+            (
+                BenchmarkDataset::ClickBench {
+                    flavor: Flavor::Single,
+                },
+                "clickbench",
+            ),
+            (
+                BenchmarkDataset::PolarSignals { n_rows: 1_000_000 },
+                "polarsignals",
+            ),
+            (
+                BenchmarkDataset::StatPopGen { n_rows: 100_000 },
+                "statpopgen",
+            ),
+            (BenchmarkDataset::Fineweb, "fineweb"),
+            (BenchmarkDataset::GhArchive, "gharchive"),
+        ] {
+            let (ds, variant, sf) = benchmark_dataset_dims(&case);
+            assert_eq!(ds, expected, "dataset for {case:?}");
+            assert_eq!(variant, None, "dataset_variant for {case:?}");
+            assert_eq!(sf, None, "scale_factor for {case:?}");
+        }
     }
 
     #[test]
