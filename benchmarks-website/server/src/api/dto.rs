@@ -75,10 +75,9 @@ pub struct Group {
     /// Optional v2-compatible rollup computed from the fact tables.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<Summary>,
-    /// Short editorial description ported from v2's `BENCHMARK_DESCRIPTIONS`
-    /// + `getBenchmarkDescription`. Rendered as a hover tooltip on the
-    /// disclosure title; absent when no description exists for this group
-    /// name (e.g. vector-search groups).
+    /// Short editorial description ported from v2's `BENCHMARK_DESCRIPTIONS` +
+    /// `getBenchmarkDescription`. Rendered as a hover tooltip on the disclosure title; absent when
+    /// no description exists for this group name (e.g. vector-search groups).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }

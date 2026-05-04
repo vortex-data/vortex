@@ -59,7 +59,9 @@ async fn landing_page_renders_group_descriptions() -> Result<()> {
     );
     // TPC-H NVMe SF=1 — derived description with scale-bytes annotation.
     assert!(
-        body.contains(r#"data-tooltip="TPC-H benchmark queries on local NVMe storage at SF=1 (~1GB of data)""#),
+        body.contains(
+            r#"data-tooltip="TPC-H benchmark queries on local NVMe storage at SF=1 (~1GB of data)""#
+        ),
         "TPC-H description with scale-bytes annotation must appear on the landing page"
     );
 
@@ -182,12 +184,7 @@ async fn groups_api_carries_description_field() -> Result<()> {
 /// Build an envelope that records a `random_access_time` measurement only
 /// for the listed `(format, value_ns)` pairs. The fixture commits' SHAs are
 /// deterministic so tests can assert on them.
-fn ra_envelope(
-    sha: &str,
-    ts: &str,
-    msg: &str,
-    rows: &[(&str, i64)],
-) -> Value {
+fn ra_envelope(sha: &str, ts: &str, msg: &str, rows: &[(&str, i64)]) -> Value {
     json!({
         "run_meta": {
             "benchmark_id": "partial-coverage-fixture",
@@ -237,10 +234,7 @@ async fn chart_includes_commits_with_partial_series_coverage() -> Result<()> {
             "aaaa111111111111111111111111111111111111",
             "2026-04-23T12:00:00Z",
             "A: both series",
-            &[
-                ("vortex-file-compressed", 500),
-                ("parquet", 1_000),
-            ],
+            &[("vortex-file-compressed", 500), ("parquet", 1_000)],
         ),
         ra_envelope(
             "bbbb222222222222222222222222222222222222",
@@ -252,10 +246,7 @@ async fn chart_includes_commits_with_partial_series_coverage() -> Result<()> {
             "cccc333333333333333333333333333333333333",
             "2026-04-25T12:00:00Z",
             "C: both series",
-            &[
-                ("vortex-file-compressed", 600),
-                ("parquet", 1_200),
-            ],
+            &[("vortex-file-compressed", 600), ("parquet", 1_200)],
         ),
     ];
     for env in &envelopes {
@@ -280,13 +271,8 @@ async fn chart_includes_commits_with_partial_series_coverage() -> Result<()> {
         .json()
         .await?;
 
-    let commits = chart["commits"]
-        .as_array()
-        .context("commits[] array")?;
-    let shas: Vec<&str> = commits
-        .iter()
-        .filter_map(|c| c["sha"].as_str())
-        .collect();
+    let commits = chart["commits"].as_array().context("commits[] array")?;
+    let shas: Vec<&str> = commits.iter().filter_map(|c| c["sha"].as_str()).collect();
     assert_eq!(
         shas,
         vec![
@@ -354,6 +340,10 @@ async fn chart_includes_commits_with_zero_rows_in_fact_table() -> Result<()> {
             "sha": "bbbb222222222222222222222222222222222222",
             "timestamp": "2026-04-24T12:00:00Z",
             "message": "B: random-access did not run (only compression_size emitted)",
+            "author_name": "Test Author",
+            "author_email": "author@example.com",
+            "committer_name": "Test Committer",
+            "committer_email": "committer@example.com",
             "tree_sha": "fedcba9876543210fedcba9876543210fedcba98",
             "url": "https://github.com/vortex-data/vortex/commit/bbbb222222222222222222222222222222222222"
         },
@@ -419,7 +409,10 @@ async fn chart_includes_commits_with_zero_rows_in_fact_table() -> Result<()> {
         .context("parquet series array")?;
     assert_eq!(parquet.len(), 3);
     assert_eq!(parquet[0].as_f64(), Some(1_000.0));
-    assert!(parquet[1].is_null(), "parquet must be null at the zero-rows commit");
+    assert!(
+        parquet[1].is_null(),
+        "parquet must be null at the zero-rows commit"
+    );
     assert_eq!(parquet[2].as_f64(), Some(1_200.0));
 
     Ok(())
@@ -445,6 +438,10 @@ async fn chart_excludes_commits_before_first_fact_row() -> Result<()> {
             "sha": "aaaa111111111111111111111111111111111111",
             "timestamp": "2026-04-22T12:00:00Z",
             "message": "A: pre-history of the random-access bench",
+            "author_name": "Test Author",
+            "author_email": "author@example.com",
+            "committer_name": "Test Committer",
+            "committer_email": "committer@example.com",
             "tree_sha": "fedcba9876543210fedcba9876543210fedcba98",
             "url": "https://github.com/vortex-data/vortex/commit/aaaa111111111111111111111111111111111111"
         },

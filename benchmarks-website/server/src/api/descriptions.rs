@@ -34,9 +34,9 @@ pub fn group_description(name: &str) -> Option<String> {
 /// match the wording style v2 set.
 fn static_description(name: &str) -> Option<&'static str> {
     match name {
-        "Random Access" => Some(
-            "Tests performance of selecting arbitrary row indices from a file on NVMe storage",
-        ),
+        "Random Access" => {
+            Some("Tests performance of selecting arbitrary row indices from a file on NVMe storage")
+        }
         "Compression" => Some(
             "Measures encoding and decoding throughput (MB/s) for Vortex files and Parquet \
              files (with zstd page compression)",
@@ -49,9 +49,9 @@ fn static_description(name: &str) -> Option<&'static str> {
             "ClickHouse's analytical benchmark suite testing real-world query patterns on web \
              analytics data",
         ),
-        "Statistical and Population Genetics" => Some(
-            "A suite of Statistical and Population genetics queries using the gnomAD dataset",
-        ),
+        "Statistical and Population Genetics" => {
+            Some("A suite of Statistical and Population genetics queries using the gnomAD dataset")
+        }
         "PolarSignals Profiling" => Some(
             "Profiling data benchmark modeled on PolarSignals/Parca, exercising scan-layer \
              performance with projection and filter pushdown on deeply nested schemas",
@@ -111,9 +111,9 @@ fn format_tpc(suite: &str, storage: &str, sf: &str) -> String {
         _ => None,
     };
     match (suite, bytes) {
-        ("TPC-H", Some(b)) => format!(
-            "TPC-H benchmark queries {storage_phrase} at SF={sf} (~{b} of data)",
-        ),
+        ("TPC-H", Some(b)) => {
+            format!("TPC-H benchmark queries {storage_phrase} at SF={sf} (~{b} of data)",)
+        }
         ("TPC-H", None) => format!("TPC-H benchmark queries {storage_phrase} at SF={sf}"),
         ("TPC-DS", _) => format!("TPC-DS benchmark queries {storage_phrase} at SF={sf}"),
         _ => format!("{suite} benchmark queries {storage_phrase} at SF={sf}"),
@@ -128,7 +128,9 @@ mod tests {
     fn static_descriptions_match_v2() {
         assert_eq!(
             group_description("Random Access").as_deref(),
-            Some("Tests performance of selecting arbitrary row indices from a file on NVMe storage"),
+            Some(
+                "Tests performance of selecting arbitrary row indices from a file on NVMe storage"
+            ),
         );
         assert_eq!(
             group_description("Compression").as_deref(),
@@ -153,9 +155,7 @@ mod tests {
         );
         assert_eq!(
             group_description("Statistical and Population Genetics").as_deref(),
-            Some(
-                "A suite of Statistical and Population genetics queries using the gnomAD dataset",
-            ),
+            Some("A suite of Statistical and Population genetics queries using the gnomAD dataset",),
         );
         assert_eq!(
             group_description("PolarSignals Profiling").as_deref(),

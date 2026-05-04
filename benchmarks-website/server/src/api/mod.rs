@@ -36,7 +36,6 @@ use duckdb::Connection;
 
 pub(crate) use self::charts::chart_payload;
 pub(crate) use self::charts::collect_group_charts;
-pub use self::descriptions::group_description;
 pub use self::dto::ChartLink;
 pub use self::dto::ChartResponse;
 pub use self::dto::CommitPoint;
