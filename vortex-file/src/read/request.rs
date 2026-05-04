@@ -13,9 +13,9 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 
 /// An I/O request, either a single read or a coalesced set of reads.
+#[derive(Debug)]
 pub(crate) struct IoRequest(IoRequestInner);
 
 impl IoRequest {
@@ -82,6 +82,7 @@ impl IoRequest {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum IoRequestInner {
     Single(ReadRequest),
     Coalesced(CoalescedRequest),
@@ -165,6 +166,10 @@ impl CoalescedRequest {
             alignment,
             requests,
         })
+    }
+
+    pub fn requests(&self) -> &[ReadRequest] {
+        &self.requests
     }
 
     pub fn resolve(self, result: VortexResult<BufferHandle>) {

@@ -174,7 +174,7 @@ impl State {
                 IoRequest::new_single(request)
             }),
             Some(window) => self.next_coalesced(window).map(|request| {
-                match request.requests.len() {
+                match request.requests().len() {
                     1 => self.metrics.individual_requests.add(1),
                     num_requests => {
                         self.metrics.coalesced_requests.add(1);
@@ -311,11 +311,14 @@ impl State {
             current_end - aligned_start,
         );
 
-        Some(CoalescedRequest {
-            range: aligned_start..current_end,
-            alignment: self.coalesced_buffer_alignment,
-            requests,
-        })
+        Some(
+            CoalescedRequest::try_new(
+                aligned_start..current_end,
+                self.coalesced_buffer_alignment,
+                requests,
+            )
+            .vortex_expect("each request is correctly constructed and range.start <= range.end"),
+        )
     }
 }
 

@@ -119,9 +119,10 @@ impl FileSegmentSource {
                         let result = result.and_then(|buffer| {
                             if req.len() != buffer.len() {
                                 vortex_bail!(
-                                    "ReadRequest: expected buffer of length {} but received {}.",
+                                    "FileSegmentSource: expected buffer of length {} but received {}. {:?}",
                                     req.len(),
-                                    buffer.len()
+                                    buffer.len(),
+                                    req
                                 )
                             }
                             Ok(buffer)
