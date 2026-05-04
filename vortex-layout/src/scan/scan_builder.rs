@@ -14,6 +14,8 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
@@ -55,6 +57,10 @@ pub struct ScanBuilder<A> {
     filter: Option<Expression>,
     /// Whether the scan needs to return splits in the order they appear in the file.
     ordered: bool,
+    /// Whether to yield chunks in reverse file order, with rows within each chunk also reversed.
+    ///
+    /// Implies ordered output (chunks are emitted in strict reverse sequence, not interleaved).
+    reversed: bool,
     /// Optionally read a subset of the rows in the file.
     row_range: Option<Range<u64>>,
     /// The selection mask to apply to the selected row range.
@@ -95,6 +101,7 @@ impl ScanBuilder<ArrayRef> {
             file_stats: None,
             limit: None,
             row_offset: 0,
+            reversed: false,
         }
     }
 
@@ -143,6 +150,20 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     pub fn with_ordered(mut self, ordered: bool) -> Self {
         self.ordered = ordered;
+        self
+    }
+
+    pub fn reversed(&self) -> bool {
+        self.reversed
+    }
+
+    /// Reverse the scan order: chunks are yielded last-to-first, and rows within each chunk are
+    /// also reversed. This produces a globally reversed row sequence without reading the whole
+    /// file first.
+    ///
+    /// Reversed scans always produce ordered output (equivalent to `with_ordered(true)`).
+    pub fn with_reversed(mut self, reversed: bool) -> Self {
+        self.reversed = reversed;
         self
     }
 
@@ -233,6 +254,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             file_stats: self.file_stats,
             limit: self.limit,
             row_offset: self.row_offset,
+            reversed: self.reversed,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
         }
     }
@@ -285,6 +307,19 @@ impl<A: 'static + Send> ScanBuilder<A> {
                 )?)
             };
 
+        // If reversed, wrap the map_fn to reverse row order within each chunk via a lazy
+        // `DictArray` take. Chunk order reversal is handled by `RepeatedScan::execute`.
+        let map_fn = if self.reversed {
+            let original = self.map_fn;
+            Arc::new(move |array: ArrayRef| {
+                let n = array.len() as u64;
+                let indices = PrimitiveArray::from_iter((0..n).rev()).into_array();
+                original(array.take(indices)?)
+            }) as Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>
+        } else {
+            self.map_fn
+        };
+
         Ok(RepeatedScan::new(
             self.session.clone(),
             layout_reader,
@@ -295,9 +330,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.selection,
             splits,
             self.concurrency,
-            self.map_fn,
+            map_fn,
             self.limit,
             dtype,
+            self.reversed,
         ))
     }
 
@@ -366,7 +402,7 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
             match &mut self.state {
                 LazyScanState::Builder(builder) => {
                     let builder = builder.take().vortex_expect("polled after completion");
-                    let ordered = builder.ordered;
+                    let ordered = builder.ordered || builder.reversed;
                     let num_workers = std::thread::available_parallelism()
                         .map(|n| n.get())
                         .unwrap_or(1);
