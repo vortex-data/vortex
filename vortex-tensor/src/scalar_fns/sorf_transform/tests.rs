@@ -33,8 +33,8 @@ use super::SorfOptions;
 use super::SorfTransform;
 use super::rotation::SorfMatrix;
 use crate::encodings::turboquant::centroids::compute_centroid_boundaries;
+use crate::encodings::turboquant::centroids::compute_or_get_centroids;
 use crate::encodings::turboquant::centroids::find_nearest_centroid;
-use crate::encodings::turboquant::centroids::get_centroids;
 use crate::tests::SESSION;
 use crate::types::vector::Vector;
 
@@ -67,7 +67,7 @@ fn forward_rotate_and_quantize(
 
     let rotation = SorfMatrix::try_new(seed, dim, num_rounds)?;
     let padded_dim = rotation.padded_dim();
-    let centroids = get_centroids(padded_dim as u32, bit_width)?;
+    let centroids = compute_or_get_centroids(padded_dim as u32, bit_width)?;
     let boundaries = compute_centroid_boundaries(&centroids);
 
     let mut all_indices = BufferMut::<u8>::with_capacity(num_rows * padded_dim);
@@ -115,7 +115,7 @@ fn default_options(dim: u32, seed: u64) -> SorfOptions {
     SorfOptions {
         seed,
         num_rounds: 3,
-        dimension: dim,
+        dimensions: dim,
         element_ptype: PType::F32,
     }
 }
@@ -319,7 +319,7 @@ fn rejects_zero_rounds_at_construction() {
     let options = SorfOptions {
         seed: 42,
         num_rounds: 0,
-        dimension: 128,
+        dimensions: 128,
         element_ptype: PType::F32,
     };
     let elements = PrimitiveArray::from_iter([0.0f32; 128]).into_array();
@@ -336,7 +336,7 @@ fn rejects_non_float_output_ptype_at_construction() {
     let options = SorfOptions {
         seed: 42,
         num_rounds: 3,
-        dimension: 128,
+        dimensions: 128,
         element_ptype: PType::U8,
     };
     let elements = PrimitiveArray::from_iter([0.0f32; 128]).into_array();
@@ -400,7 +400,7 @@ fn f16_output_type() -> VortexResult<()> {
     let options = SorfOptions {
         seed,
         num_rounds: 3,
-        dimension: dim as u32,
+        dimensions: dim as u32,
         element_ptype: PType::F16,
     };
     let sorf = SorfTransform::try_new_array(&options, padded_vector.into_array(), num_rows)?;
@@ -425,7 +425,7 @@ fn f64_output_type() -> VortexResult<()> {
     let options = SorfOptions {
         seed,
         num_rounds: 3,
-        dimension: dim as u32,
+        dimensions: dim as u32,
         element_ptype: PType::F64,
     };
     let sorf = SorfTransform::try_new_array(&options, padded_vector.into_array(), num_rows)?;
@@ -461,13 +461,13 @@ fn trivial_padded_vector(padded_dim: u32, num_rows: usize, validity: Validity) -
 #[case::non_power_of_two_dim(100, Validity::NonNullable)]
 // Nullable top-level Vector to verify child nullability is reconstructed from the parent output.
 #[case::nullable_child(100, Validity::AllValid)]
-fn serde_round_trip(#[case] dimension: u32, #[case] validity: Validity) -> VortexResult<()> {
-    let padded_dim = dimension.next_power_of_two();
+fn serde_round_trip(#[case] dimensions: u32, #[case] validity: Validity) -> VortexResult<()> {
+    let padded_dim = dimensions.next_power_of_two();
     let num_rows = 4;
     let options = SorfOptions {
         seed: 42,
         num_rounds: 3,
-        dimension,
+        dimensions,
         element_ptype: PType::F32,
     };
     let child = trivial_padded_vector(padded_dim, num_rows, validity);

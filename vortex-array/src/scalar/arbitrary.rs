@@ -66,7 +66,7 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
         .vortex_expect("unable to construct random `Scalar`_"),
         DType::Struct(sdt, _) => Scalar::try_new(
             dtype.clone(),
-            Some(ScalarValue::List(
+            Some(ScalarValue::Tuple(
                 sdt.fields()
                     .map(|d| random_scalar(u, &d).map(|s| s.into_value()))
                     .collect::<Result<Vec<_>>>()?,
@@ -75,7 +75,7 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
         .vortex_expect("unable to construct random `Scalar`_"),
         DType::List(edt, _) => Scalar::try_new(
             dtype.clone(),
-            Some(ScalarValue::List(
+            Some(ScalarValue::Tuple(
                 iter::from_fn(|| {
                     // Generate elements with 1/4 probability.
                     u.arbitrary()
@@ -88,7 +88,7 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
         .vortex_expect("unable to construct random `Scalar`_"),
         DType::FixedSizeList(edt, size, _) => Scalar::try_new(
             dtype.clone(),
-            Some(ScalarValue::List(
+            Some(ScalarValue::Tuple(
                 (0..*size)
                     .map(|_| random_scalar(u, edt).map(|s| s.into_value()))
                     .collect::<Result<Vec<_>>>()?,

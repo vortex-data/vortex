@@ -24,8 +24,19 @@ use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::SelectionVectorRef;
 use crate::duckdb::Value;
 use crate::duckdb::ValueRef;
+use crate::duckdb::VectorBuffer;
 use crate::duckdb::VectorBufferRef;
 use crate::lifetime_wrapper;
+
+/// External validity data for zero-copy export of validity masks to DuckDB.
+///
+/// Holds a [`VectorBuffer`] as a keep-alive and a raw pointer to the validity bitmap.
+pub(crate) struct ValidityData {
+    /// VectorBuffer that keeps the underlying memory alive via DuckDB's ref-counting.
+    pub(crate) shared_buffer: VectorBuffer,
+    /// Pointer to the raw validity bitmap data within the buffer.
+    pub(crate) data_ptr: *const u8,
+}
 
 /// Returns the internal vector size used by DuckDB at runtime.
 #[expect(
@@ -149,6 +160,31 @@ impl VectorRef {
     /// Sets the data pointer for the vector. This is the start of the values array in the vector.
     pub unsafe fn set_data_ptr<T>(&self, ptr: *mut T) {
         unsafe { cpp::duckdb_vx_vector_set_data_ptr(self.as_ptr(), ptr as *mut c_void) }
+    }
+
+    /// Sets the validity data for the vector from a [`ValidityData`]. The buffer is
+    /// attached purely as a keep-alive, and the data pointer is used as the validity data
+    /// at the given `u64_offset`.
+    ///
+    /// # Safety
+    ///
+    /// The data pointer must point to a valid `u64` array with at least
+    /// `u64_offset + capacity.div_ceil(64)` elements.
+    pub(crate) unsafe fn set_validity_data(
+        &self,
+        u64_offset: usize,
+        capacity: usize,
+        zero_copy: &ValidityData,
+    ) {
+        unsafe {
+            cpp::duckdb_vx_vector_set_validity_data(
+                self.as_ptr(),
+                u64_offset as idx_t,
+                capacity as idx_t,
+                zero_copy.shared_buffer.as_ptr(),
+                zero_copy.data_ptr as *mut c_void,
+            )
+        }
     }
 
     /// Assigns the element at the specified index with a string value.

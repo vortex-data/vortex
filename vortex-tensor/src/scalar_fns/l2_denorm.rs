@@ -31,7 +31,6 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
-use vortex_array::dtype::PType;
 use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
@@ -62,6 +61,7 @@ use crate::matcher::AnyTensor;
 use crate::scalar_fns::l2_norm::L2Norm;
 use crate::utils::extract_constant_flat_row;
 use crate::utils::extract_flat_elements;
+use crate::utils::unit_norm_tolerance;
 use crate::utils::validate_tensor_float_input;
 
 /// Re-applies authoritative L2 norms to a normalized tensor column.
@@ -360,7 +360,21 @@ fn execute_l2_denorm_constant_norms(
         .vortex_expect("we know that this is a float, so it must fit in f64")
         - 1.0f64;
 
-    let tolerance = unit_norm_tolerance(norm_scalar.dtype().as_ptype());
+    let tensor_match = normalized_ref
+        .dtype()
+        .as_extension_opt()
+        .and_then(|ext| ext.metadata_opt::<AnyTensor>())
+        .ok_or_else(|| {
+            vortex_err!(
+                "L2Denorm normalized child must be a tensor-like extension, got {}",
+                normalized_ref.dtype(),
+            )
+        })?;
+
+    let tolerance = unit_norm_tolerance(
+        norm_scalar.dtype().as_ptype(),
+        tensor_match.list_size() as usize,
+    );
     if err.abs() < tolerance {
         return Ok(normalized_ref);
     }
@@ -594,16 +608,6 @@ fn build_tensor_array<T: NativePType>(
     Ok(ExtensionArray::new(dtype.as_extension().clone(), storage.into_array()).into_array())
 }
 
-/// Returns the acceptable unit-norm drift for the given element precision.
-fn unit_norm_tolerance(element_ptype: PType) -> f64 {
-    match element_ptype {
-        PType::F16 => 2e-3,
-        PType::F32 => 2e-6,
-        PType::F64 => 1e-10,
-        _ => unreachable!("L2Denorm requires float elements, got {element_ptype:?}"),
-    }
-}
-
 /// Validates that `normalized` and (when supplied) the matching `norms` jointly satisfy the
 /// [`L2Denorm`] invariants:
 ///
@@ -623,8 +627,8 @@ pub fn validate_l2_normalized_rows_against_norms(
 
     let tensor_match = validate_tensor_float_input(normalized.dtype())?;
     let element_ptype = tensor_match.element_ptype();
-    let tolerance = unit_norm_tolerance(element_ptype);
     let tensor_flat_size = tensor_match.list_size() as usize;
+    let tolerance = unit_norm_tolerance(element_ptype, tensor_flat_size);
 
     if let Some(norms) = norms {
         vortex_ensure_eq!(

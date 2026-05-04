@@ -6,8 +6,10 @@ use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::arrays::filter::FilterExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
+use crate::scalar_fn::fns::cast::CastExecuteAdaptor;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<VarBin> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&CastExecuteAdaptor(VarBin)),
     ParentKernelSet::lift(&CompareExecuteAdaptor(VarBin)),
     ParentKernelSet::lift(&FilterExecuteAdaptor(VarBin)),
     ParentKernelSet::lift(&TakeExecuteAdaptor(VarBin)),

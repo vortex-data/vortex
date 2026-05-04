@@ -13,6 +13,8 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::arbitrary::ArbitraryArray;
+use crate::arrays::arbitrary::ArbitraryArrayConfig;
+use crate::arrays::arbitrary::ArbitraryWith;
 use crate::arrays::arbitrary::random_validity;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
@@ -36,7 +38,14 @@ impl ArbitraryDictArray {
         // Generate the number of unique values (dictionary size)
         let values_len = u.int_in_range(1..=20)?;
         // Generate values array with the given dtype
-        let values = ArbitraryArray::arbitrary_with(u, Some(values_len), dtype)?.0;
+        let values = ArbitraryArray::arbitrary_with_config(
+            u,
+            &ArbitraryArrayConfig {
+                dtype: Some(dtype.clone()),
+                len: values_len..=values_len,
+            },
+        )?
+        .0;
 
         // Generate codes that index into the values
         let codes_len = len.unwrap_or(u.int_in_range(0..=100)?);

@@ -139,7 +139,7 @@ impl DataSource for LayoutReaderDataSource {
 
         // Check file-level pruning: if the filter can be proven false for the entire row range
         // using file-level statistics (e.g. via FileStatsLayoutReader), skip the scan entirely.
-        if let Some(ref filter) = scan_request.filter {
+        if let Some(filter) = &scan_request.filter {
             let mask = Mask::new_true(
                 usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX),
             );
@@ -289,6 +289,12 @@ impl Partition for LayoutReaderSplit {
         self
     }
 
+    #[expect(clippy::cast_possible_truncation)]
+    fn index(&self) -> usize {
+        // Row range is unique per split
+        self.row_range.start as usize
+    }
+
     fn row_count(&self) -> Option<Precision<u64>> {
         let row_count = self.row_range.end - self.row_range.start;
         let row_count = self.selection.row_count(row_count);
@@ -349,6 +355,10 @@ impl DataSourceScan for Empty {
 impl Partition for Empty {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn index(&self) -> usize {
+        0
     }
 
     fn row_count(&self) -> Option<Precision<u64>> {

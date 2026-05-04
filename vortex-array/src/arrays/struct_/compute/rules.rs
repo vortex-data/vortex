@@ -18,43 +18,46 @@ use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::DType;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::scalar_fn::EmptyOptions;
-use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::cast::CastReduce;
+use crate::scalar_fn::fns::cast::CastReduceAdaptor;
 use crate::scalar_fn::fns::get_item::GetItem;
 use crate::scalar_fn::fns::mask::Mask;
 use crate::scalar_fn::fns::mask::MaskReduceAdaptor;
 use crate::validity::Validity;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<Struct> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&StructCastPushDownRule),
+    ParentRuleSet::lift(&CastReduceAdaptor(Struct)),
     ParentRuleSet::lift(&StructGetItemRule),
     ParentRuleSet::lift(&MaskReduceAdaptor(Struct)),
     ParentRuleSet::lift(&SliceReduceAdaptor(Struct)),
     ParentRuleSet::lift(&TakeReduceAdaptor(Struct)),
 ]);
 
-/// Rule to push down cast into struct fields.
+/// Push the cast into struct fields without execution.
 ///
-/// TODO(joe/rob): should be have this in casts.
+/// Supports schema evolution by allowing new nullable fields to be added during the cast,
+/// filled with null values. For nullability changes, only handles the cheap path
+/// (`try_cast_nullability`); when statistics computation is required to determine whether
+/// the array contains invalid values, returns `Ok(None)` so [`CastKernel`] can run instead.
 ///
-/// This rule supports schema evolution by allowing new nullable fields to be added
-/// at the end of the struct, filled with null values.
-#[derive(Debug)]
-struct StructCastPushDownRule;
-impl ArrayParentReduceRule<Struct> for StructCastPushDownRule {
-    type Parent = ExactScalarFn<Cast>;
-
-    fn reduce_parent(
-        &self,
-        array: ArrayView<'_, Struct>,
-        parent: ScalarFnArrayView<Cast>,
-        _child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let Some(target_fields) = parent.options.as_struct_fields_opt() else {
+/// [`CastKernel`]: crate::scalar_fn::fns::cast::CastKernel
+impl CastReduce for Struct {
+    fn cast(array: ArrayView<'_, Struct>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        let Some(target_fields) = dtype.as_struct_fields_opt() else {
             return Ok(None);
         };
+
+        let Some(validity) = array
+            .validity()?
+            .trivial_cast_nullability(dtype.nullability(), array.len())?
+        else {
+            return Ok(None);
+        };
+
         let mut new_fields = Vec::with_capacity(target_fields.nfields());
 
         for (target_name, target_dtype) in target_fields.names().iter().zip(target_fields.fields())
@@ -78,20 +81,12 @@ impl ArrayParentReduceRule<Struct> for StructCastPushDownRule {
             }
         }
 
-        let validity = if parent.options.is_nullable() {
-            array.validity()?.into_nullable()
-        } else {
-            array
-                .validity()?
-                .into_non_nullable(array.len())
-                .ok_or_else(|| vortex_err!("Failed to cast nullable struct to non-nullable"))?
-        };
-
-        let new_struct = unsafe {
-            StructArray::new_unchecked(new_fields, target_fields.clone(), array.len(), validity)
-        };
-
-        Ok(Some(new_struct.into_array()))
+        Ok(Some(
+            unsafe {
+                StructArray::new_unchecked(new_fields, target_fields.clone(), array.len(), validity)
+            }
+            .into_array(),
+        ))
     }
 }
 
@@ -144,24 +139,30 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::struct_::StructArrayExt;
     use crate::arrays::struct_::compute::rules::ConstantArray;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
-    #[expect(deprecated)]
-    use crate::canonical::ToCanonical as _;
     use crate::dtype::DType;
     use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
     use crate::scalar::Scalar;
+    use crate::session::ArraySession;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_struct_cast_field_reorder() {
@@ -188,8 +189,12 @@ mod tests {
 
         // Use `ArrayBuiltins::cast` which goes through the optimizer and applies
         // `StructCastPushDownRule`.
-        #[expect(deprecated)]
-        let result = source.into_array().cast(target).unwrap().to_struct();
+        let result = source
+            .into_array()
+            .cast(target)
+            .unwrap()
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_arrays_eq!(
             result.unmasked_field_by_name("a").unwrap(),
             VarBinViewArray::from_iter_nullable_str([Some("A")])
@@ -257,8 +262,12 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        #[expect(deprecated)]
-        let result = source.into_array().cast(target).unwrap().to_struct();
+        let result = source
+            .into_array()
+            .cast(target)
+            .unwrap()
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(result.unmasked_fields().len(), 2);
         assert_arrays_eq!(
             result.unmasked_field_by_name("a").unwrap(),
@@ -289,8 +298,12 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        #[expect(deprecated)]
-        let result = source.into_array().cast(target).unwrap().to_struct();
+        let result = source
+            .into_array()
+            .cast(target)
+            .unwrap()
+            .execute::<StructArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(
             result.unmasked_field_by_name("val").unwrap().dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)

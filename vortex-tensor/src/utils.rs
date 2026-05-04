@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use half::f16;
+use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -8,22 +10,69 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_array::dtype::proto::dtype as pb;
+use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::matcher::AnyTensor;
 use crate::matcher::TensorMatch;
 use crate::scalar_fns::l2_denorm::L2Denorm;
+
+/// Safety factor for unit-norm tolerance. Applied as a constant multiplier on the probabilistic
+/// `√d · ε` bound so that legitimate round-off noise clears the check with headroom.
+pub(crate) const SAFETY_FACTOR: usize = 10;
+
+/// Returns the acceptable unit-norm drift for the given element precision and dimension count.
+///
+/// Uses the `c · √d · ε` bound where ε is machine epsilon and d is the vector dimension. Under
+/// IEEE 754 round-to-nearest the probabilistic (RMS-case) forward error for computing ‖x‖₂ grows
+/// as `O(√d · ε)` rather than the worst-case `O(d · ε)` from the classical Wilkinson bound,
+/// assuming near-independent rounding errors across the d-term summation.
+///
+/// Reference: Croci, Fasi, Higham, Mary, Mikaitis (2022). "Stochastic rounding: implementation,
+/// error analysis and applications." Royal Society Open Science, 9: 211631, §6.1 "Probabilistic
+/// error analysis." https://doi.org/10.1098/rsos.211631
+pub fn unit_norm_tolerance(element_ptype: PType, dimensions: usize) -> f64 {
+    let machine_epsilon: f64 = match element_ptype {
+        PType::F64 => f64::EPSILON,
+        PType::F32 => f32::EPSILON as f64,
+        PType::F16 => f16::EPSILON.to_f64_const(),
+        _ => unreachable!("unit_norm_tolerance requires a float ptype, got {element_ptype:?}"),
+    };
+
+    let dimensions_root = (dimensions as f64).sqrt();
+
+    SAFETY_FACTOR as f64 * machine_epsilon * dimensions_root
+}
+
+/// Extracts the `(normalized, norms)` children from an [`L2Denorm`] scalar function array.
+///
+/// [`L2Denorm`]: crate::scalar_fns::l2_denorm::L2Denorm
+pub fn extract_l2_denorm_children(array: &ArrayRef) -> (ArrayRef, ArrayRef) {
+    let sfn = array
+        .as_opt::<ExactScalarFn<L2Denorm>>()
+        .vortex_expect("expected ScalarFnArray wrapping L2Denorm");
+    (
+        sfn.nth_child(0)
+            .vortex_expect("L2Denorm missing normalized array"),
+        sfn.nth_child(1).vortex_expect("L2Denorm missing norms"),
+    )
+}
 
 /// Validates that `input_dtype` is a float-valued tensor-like extension dtype.
 pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMatch<'_>> {
@@ -46,17 +95,13 @@ pub fn validate_tensor_float_input(input_dtype: &DType) -> VortexResult<TensorMa
 
 /// Validates that two arguments of a binary tensor-like operator share the same float tensor
 /// dtype (ignoring top-level nullability), returning the shared [`TensorMatch`].
-///
-/// `op_name` is interpolated into the shape-mismatch error message so callers get a
-/// self-identifying diagnostic (e.g. "InnerProduct requires both inputs ...").
 pub fn validate_binary_tensor_float_inputs<'a>(
-    op_name: &str,
     lhs: &'a DType,
     rhs: &DType,
 ) -> VortexResult<TensorMatch<'a>> {
     vortex_ensure!(
         lhs.eq_ignore_nullability(rhs),
-        "{op_name} requires both inputs to have the same dtype, got {lhs} and {rhs}"
+        "binary tensor expression expects inputs to have the same dtype, got {lhs} and {rhs}"
     );
     validate_tensor_float_input(lhs)
 }
@@ -73,7 +118,7 @@ pub fn validate_binary_tensor_float_inputs<'a>(
 pub fn cast_to_f32(prim: PrimitiveArray) -> VortexResult<Buffer<f32>> {
     match prim.ptype() {
         PType::F16 => Ok(prim
-            .as_slice::<half::f16>()
+            .as_slice::<f16>()
             .iter()
             .map(|&v| f32::from(v))
             .collect()),
@@ -209,18 +254,62 @@ pub fn extract_constant_flat_row(
     Ok(FlatRow { elems })
 }
 
-/// Extracts the `(normalized, norms)` children from an [`L2Denorm`] scalar function array.
+/// Metadata for a serialized binary tensor-op array (shared by [`InnerProduct`] and
+/// [`CosineSimilarity`]). Both operands share the same extension dtype up to nullability
+/// (enforced by their `return_dtype` checks), but their individual nullabilities are lost in the
+/// parent's unioned output, so both are persisted.
 ///
-/// [`L2Denorm`]: crate::scalar_fns::l2_denorm::L2Denorm
-pub fn extract_l2_denorm_children(array: &ArrayRef) -> (ArrayRef, ArrayRef) {
-    let sfn = array
-        .as_opt::<ExactScalarFn<L2Denorm>>()
-        .vortex_expect("expected ScalarFnArray wrapping L2Denorm");
-    (
-        sfn.nth_child(0)
-            .vortex_expect("L2Denorm missing normalized array"),
-        sfn.nth_child(1).vortex_expect("L2Denorm missing norms"),
-    )
+/// [`CosineSimilarity`]: crate::scalar_fns::cosine_similarity::CosineSimilarity
+#[derive(Clone, prost::Message)]
+pub(crate) struct BinaryTensorOpMetadata {
+    #[prost(message, optional, tag = "1")]
+    pub(crate) lhs_dtype: Option<pb::DType>,
+    #[prost(message, optional, tag = "2")]
+    pub(crate) rhs_dtype: Option<pb::DType>,
+}
+
+impl BinaryTensorOpMetadata {
+    /// Encodes the two children of `view` into a [`BinaryTensorOpMetadata`] byte blob.
+    pub(crate) fn encode_from_view<V: ScalarFnVTable>(
+        view: &ScalarFnArrayView<V>,
+    ) -> VortexResult<Vec<u8>> {
+        let scalar_fn_array = view.as_::<ScalarFn>();
+        let lhs_dtype = Some(scalar_fn_array.child_at(0).dtype().try_into()?);
+        let rhs_dtype = Some(scalar_fn_array.child_at(1).dtype().try_into()?);
+        Ok(Self {
+            lhs_dtype,
+            rhs_dtype,
+        }
+        .encode_to_vec())
+    }
+
+    /// Decodes `metadata` and fetches both children from `children` using the decoded dtypes,
+    /// validating that `lhs` and `rhs` are compatible tensor operands.
+    pub(crate) fn decode_children(
+        metadata: &[u8],
+        len: usize,
+        children: &dyn vortex_array::serde::ArrayChildren,
+        session: &VortexSession,
+    ) -> VortexResult<Vec<ArrayRef>> {
+        let metadata = Self::decode(metadata)
+            .map_err(|e| vortex_err!("Failed to decode BinaryTensorOpMetadata: {e}"))?;
+        let lhs_pb = metadata
+            .lhs_dtype
+            .as_ref()
+            .ok_or_else(|| vortex_err!("metadata missing lhs_dtype"))?;
+        let rhs_pb = metadata
+            .rhs_dtype
+            .as_ref()
+            .ok_or_else(|| vortex_err!("metadata missing rhs_dtype"))?;
+
+        let lhs_dtype = DType::from_proto(lhs_pb, session)?;
+        let rhs_dtype = DType::from_proto(rhs_pb, session)?;
+        validate_binary_tensor_float_inputs(&lhs_dtype, &rhs_dtype)?;
+
+        let lhs = children.get(0, &lhs_dtype, len)?;
+        let rhs = children.get(1, &rhs_dtype, len)?;
+        Ok(vec![lhs, rhs])
+    }
 }
 
 #[cfg(test)]
@@ -241,11 +330,10 @@ pub mod test_helpers {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_err;
 
     use crate::scalar_fns::l2_denorm::L2Denorm;
-    use crate::types::fixed_shape::FixedShapeTensor;
-    use crate::types::fixed_shape::FixedShapeTensorMetadata;
+    use crate::types::fixed_shape_tensor::FixedShapeTensor;
+    use crate::types::fixed_shape_tensor::FixedShapeTensorMetadata;
     use crate::types::vector::Vector;
 
     /// Builds a `FixedSizeList<T, list_size>` storage array from flat `elements`. The row count is
@@ -271,12 +359,7 @@ pub mod test_helpers {
     /// The number of rows is inferred from the total element count divided by the product of the
     /// shape dimensions. For 0-dimensional tensors (scalar), each element is one row.
     pub fn tensor_array<T: NativePType>(shape: &[usize], elements: &[T]) -> VortexResult<ArrayRef> {
-        let list_size: u32 = shape
-            .iter()
-            .product::<usize>()
-            .max(1)
-            .try_into()
-            .map_err(|e| vortex_err!("{e}"))?;
+        let list_size: u32 = shape.iter().product::<usize>().max(1).try_into().unwrap();
         let storage = flat_fsl(elements, list_size);
         let metadata = FixedShapeTensorMetadata::new(shape.to_vec());
         let ext_dtype =

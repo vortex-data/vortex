@@ -18,22 +18,19 @@ categories = { workspace = true }
 
 [dependencies]
 arrow-array = { workspace = true, features = ["ffi"] }
-arrow-ipc = { workspace = true }
 arrow-schema = { workspace = true }
 futures = { workspace = true }
-jni = "0.21.1"
+jni = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }
 parking_lot = { workspace = true }
-prost = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing = { workspace = true, features = ["std", "log"] }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
-vortex = { workspace = true, features = ["object_store", "files", "tokio"] }
+vortex = { workspace = true, features = ["object_store", "files"] }
 
 [dev-dependencies]
-jni = { version = "0.21.1", features = ["invocation"] }
+jni = { workspace = true, features = ["invocation"] }
 
 [lib]
 crate-type = ["staticlib", "cdylib"]

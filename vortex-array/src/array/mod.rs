@@ -56,6 +56,9 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
+    /// Returns the array as a mutable reference to a generic [`Any`] trait object.
+    fn as_any_mut(&mut self) -> &mut dyn Any;
+
     /// Converts an owned array allocation into an owned [`Any`] allocation for downcasting.
     fn into_any_arc(self: std::sync::Arc<Self>) -> std::sync::Arc<dyn Any + Send + Sync>;
 
@@ -143,6 +146,24 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns a new array with the given slots.
     fn with_slots(&self, this: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
 
+    /// Returns a new array with the given slots, bypassing encoding-level validation.
+    ///
+    /// Used by the executor to temporarily carry an array that has had one of its child slots
+    /// taken out (leaving `None`) without panicking `V::validate`. The caller must ensure the
+    /// missing slot is filled back in (via `put_slot_unchecked`) or driven to completion by the
+    /// builder path before the array becomes externally observable.
+    ///
+    /// # Safety
+    ///
+    /// The array returned may have slots whose content does not match the encoding's normal
+    /// invariants. Callers must re-establish those invariants before handing the array to
+    /// anything outside the executor.
+    unsafe fn with_slots_unchecked(
+        &self,
+        this: &ArrayRef,
+        slots: Vec<Option<ArrayRef>>,
+    ) -> ArrayRef;
+
     /// Attempt to reduce the array to a simpler representation.
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
 
@@ -155,7 +176,29 @@ pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
     ) -> VortexResult<Option<ArrayRef>>;
 
     /// Execute the array by taking a single encoding-specific execution step.
+    ///
+    /// This is the checked entry point. If the encoding reports
+    /// [`ExecutionStep::Done`](crate::ExecutionStep::Done), implementations must validate that the
+    /// returned array preserves this array's logical `len` and `dtype`, and must transfer this
+    /// array's statistics to the returned array.
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult>;
+
+    /// Execute the array by taking a single encoding-specific execution step without applying
+    /// `Done`-result postconditions.
+    ///
+    /// This exists for the iterative executor, which may call into `execute` on suspended
+    /// executor-private arrays whose slots temporarily contain `None`. In that mode the executor
+    /// itself is responsible for deciding when a `Done` result represents a real logical array,
+    /// enforcing any `len`/`dtype` invariants, and transferring statistics.
+    ///
+    /// # Safety
+    /// The `array` returned should have it's `DType` and len checked
+    /// (optionally it should have its stats propagated from `this`).
+    unsafe fn execute_unchecked(
+        &self,
+        this: ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult>;
 
     /// Attempt to execute the parent of this array.
     fn execute_parent(
@@ -200,6 +243,10 @@ mod private {
 /// while data-access methods delegate to VTable methods on the inner `V::ArrayData`.
 impl<V: VTable> DynArray for ArrayInner<V> {
     fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 
@@ -387,6 +434,26 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         .into_array())
     }
 
+    unsafe fn with_slots_unchecked(
+        &self,
+        this: &ArrayRef,
+        slots: Vec<Option<ArrayRef>>,
+    ) -> ArrayRef {
+        // SAFETY: we intentionally skip `V::validate` here. Caller guarantees that the resulting
+        // array is either repaired or not externally observed.
+        let inner = unsafe {
+            ArrayInner::<V>::from_data_unchecked(
+                self.vtable.clone(),
+                this.dtype().clone(),
+                self.len,
+                self.data.clone(),
+                slots,
+                self.stats.clone(),
+            )
+        };
+        ArrayRef::from_inner(std::sync::Arc::new(inner))
+    }
+
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         let Some(reduced) = V::reduce(view)? else {
@@ -437,12 +504,8 @@ impl<V: VTable> DynArray for ArrayInner<V> {
     fn execute(&self, this: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let len = this.len();
         let dtype = this.dtype().clone();
-        let stats = this.statistics().to_owned();
-
-        let typed = Array::<V>::try_from_array_ref(this)
-            .map_err(|_| vortex_err!("Failed to downcast array for execute"))
-            .vortex_expect("Failed to downcast array for execute");
-        let result = V::execute(typed, ctx)?;
+        let stats = this.statistics().to_array_stats();
+        let result = unsafe { self.execute_unchecked(this, ctx)? };
 
         if matches!(result.step(), ExecutionStep::Done) {
             if cfg!(debug_assertions) {
@@ -458,10 +521,24 @@ impl<V: VTable> DynArray for ArrayInner<V> {
                 );
             }
 
-            result.array().statistics().set_iter(stats.into_iter());
+            result
+                .array()
+                .statistics()
+                .set_iter(crate::stats::StatsSet::from(stats).into_iter());
         }
 
         Ok(result)
+    }
+
+    unsafe fn execute_unchecked(
+        &self,
+        this: ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExecutionResult> {
+        let typed = Array::<V>::try_from_array_ref(this)
+            .map_err(|_| vortex_err!("Failed to downcast array for execute"))
+            .vortex_expect("Failed to downcast array for execute");
+        V::execute(typed, ctx)
     }
 
     fn execute_parent(

@@ -544,7 +544,7 @@ mod turboquant_benches {
     fn turboquant_config(bit_width: u8) -> TurboQuantConfig {
         TurboQuantConfig {
             bit_width,
-            seed: Some(123),
+            seed: 123,
             num_rounds: 3,
         }
     }

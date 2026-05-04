@@ -121,7 +121,7 @@ impl VTable for Decimal {
             data.len(),
             len
         );
-        let validity = crate::array::child_to_validity(&slots[0], *nullability);
+        let validity = crate::array::child_to_validity(slots[0].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len() {
             vortex_ensure!(
                 validity_len == len,

@@ -22,7 +22,7 @@ impl CastKernel for Struct {
     fn cast(
         array: ArrayView<'_, Struct>,
         dtype: &DType,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(target_sdtype) = dtype.as_struct_fields_opt() else {
             return Ok(None);
@@ -73,7 +73,7 @@ impl CastKernel for Struct {
 
         let validity = array
             .validity()?
-            .cast_nullability(dtype.nullability(), array.len())?;
+            .cast_nullability(dtype.nullability(), array.len(), ctx)?;
 
         StructArray::try_new(
             target_sdtype.names().clone(),

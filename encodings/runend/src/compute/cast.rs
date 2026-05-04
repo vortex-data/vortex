@@ -4,8 +4,6 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
@@ -18,8 +16,6 @@ impl CastReduce for RunEnd {
         // Cast the values array to the target type
         let casted_values = array.values().cast(dtype.clone())?;
 
-        // TODO(ctx): trait fixes - CastReduce::cast has a fixed signature.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // SAFETY: casting does not affect the ends being valid
         unsafe {
             Ok(Some(
@@ -28,7 +24,6 @@ impl CastReduce for RunEnd {
                     casted_values,
                     array.offset(),
                     array.len(),
-                    &mut ctx,
                 )
                 .into_array(),
             ))
@@ -38,9 +33,10 @@ impl CastReduce for RunEnd {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -50,14 +46,19 @@ mod tests {
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
     use crate::RunEnd;
     use crate::RunEndArray;
 
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
     #[test]
     fn test_cast_runend_i32_to_i64() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let runend = RunEnd::try_new(
             buffer![3u64, 5, 8, 10].into_array(),
             buffer![100i32, 200, 100, 300].into_array(),
@@ -98,7 +99,7 @@ mod tests {
 
     #[test]
     fn test_cast_runend_nullable() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let runend = RunEnd::try_new(
             buffer![2u64, 4, 7].into_array(),
             PrimitiveArray::from_option_iter([Some(10i32), None, Some(20)]).into_array(),
@@ -118,7 +119,7 @@ mod tests {
 
     #[test]
     fn test_cast_runend_with_offset() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         // Create a RunEndArray: [100, 100, 100, 200, 200, 300, 300, 300, 300, 300]
         let runend = RunEnd::try_new(
             buffer![3u64, 5, 10].into_array(),
@@ -174,7 +175,7 @@ mod tests {
         ctx,
     ).unwrap())]
     fn test_cast_runend_conformance(#[case] build: RunEndBuilder) {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let array = build(&mut ctx);
         test_cast_conformance(&array.into_array());
     }

@@ -19,6 +19,7 @@ use vortex::mask::Mask;
 use super::ConversionCache;
 use super::all_invalid;
 use super::new_array_exporter_with_flatten;
+use super::validity;
 use crate::cpp;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Vector;
@@ -26,7 +27,6 @@ use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
 struct ListExporter<O> {
-    validity: Mask,
     /// We cache the child elements of our list array so that we don't have to export it every time,
     /// and we also share it across any other exporters who want to export this array.
     ///
@@ -92,7 +92,6 @@ pub(crate) fn new_exporter(
 
     let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
         Box::new(ListExporter {
-            validity,
             duckdb_elements: shared_elements,
             offsets,
             num_elements,
@@ -100,7 +99,7 @@ pub(crate) fn new_exporter(
         }) as Box<dyn ColumnExporter>
     });
 
-    Ok(boxed)
+    Ok(validity::new_exporter(validity, boxed))
 }
 
 impl<O: IntegerPType> ColumnExporter for ListExporter<O> {
@@ -111,21 +110,6 @@ impl<O: IntegerPType> ColumnExporter for ListExporter<O> {
         vector: &mut VectorRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // Verify that offset + len doesn't exceed the validity mask length.
-        assert!(
-            offset + len <= self.validity.len(),
-            "Export range [{}, {}) exceeds validity mask length {}",
-            offset,
-            offset + len,
-            self.validity.len()
-        );
-
-        // Set validity if necessary.
-        if unsafe { vector.set_validity(&self.validity, offset, len) } {
-            // All values are null, so no point copying the data.
-            return Ok(());
-        }
-
         let offsets = &self.offsets.as_slice::<O>()[offset..offset + len + 1];
         debug_assert_eq!(offsets.len(), len + 1);
 

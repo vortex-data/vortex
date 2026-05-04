@@ -77,9 +77,20 @@ impl MultiFileDataSource {
     ///
     /// The glob path should be relative to the filesystem's base URL. Pass `None` for the
     /// filesystem to use the local filesystem (auto-created in [`Self::build`]).
+    ///
+    /// Relative paths are resolved against the process working directory.
     pub fn with_glob(mut self, glob: impl Into<String>, fs: Option<FileSystemRef>) -> Self {
-        let glob_str = glob.into().trim_start_matches('/').to_string();
-        self.glob_sources.push((glob_str, fs));
+        let glob = glob.into();
+        let glob = if fs.is_none() && std::path::Path::new(&glob).is_relative() {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(&glob).to_string_lossy().into_owned())
+                .unwrap_or(glob)
+                .trim_start_matches('/')
+                .to_string()
+        } else {
+            glob.trim_start_matches('/').to_string()
+        };
+        self.glob_sources.push((glob, fs));
         self
     }
 

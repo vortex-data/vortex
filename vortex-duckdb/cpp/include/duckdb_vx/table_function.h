@@ -12,9 +12,13 @@
 #include "error.h"
 #include "table_filter.h"
 #include "duckdb_vx/data.h"
-#include "duckdb_vx/client_context.h"
+#include <stdint.h>
 
-#ifdef __cplusplus /* If compiled as C++, use C ABI */
+#ifdef __cplusplus
+static_assert(sizeof(idx_t) == 8);
+#endif
+
+#ifdef __cplusplus
 extern "C" {
 #endif
 
@@ -22,15 +26,9 @@ extern "C" {
 typedef struct duckdb_vx_tfunc_bind_input_ *duckdb_vx_tfunc_bind_input;
 typedef struct duckdb_vx_tfunc_bind_result_ *duckdb_vx_tfunc_bind_result;
 
-// Fetch the parameter count from the bind info.
-size_t duckdb_vx_tfunc_bind_input_get_parameter_count(duckdb_vx_tfunc_bind_input ffi_input);
-
 // Fetch a parameter from the bind info.
 // The caller is responsible for freeing the value using duckdb_value_free.
 duckdb_value duckdb_vx_tfunc_bind_input_get_parameter(duckdb_vx_tfunc_bind_input ffi_input, size_t index);
-
-duckdb_value duckdb_vx_tfunc_bind_input_get_named_parameter(duckdb_vx_tfunc_bind_input ffi_input,
-                                                            const char *name_str);
 
 // Add a result column to the bind info.
 void duckdb_vx_tfunc_bind_result_add_column(duckdb_vx_tfunc_bind_result ffi_result,
@@ -90,22 +88,22 @@ typedef struct {
     bool has_null;
 } duckdb_column_statistics;
 
-typedef idx_t column_t;
+const idx_t INVALID_IDX = UINT64_MAX;
 
-// A transparent DuckDB table function vtable, which can be used to configure a table function.
-// See duckdb/include/function/tfunc.hpp for details on each field.
 typedef struct {
-    // The name of the table function.
-    const char *name;
+    idx_t partition_index;
+    // Either INVALID_IDX or position of column in output for file_index column
+    size_t file_index_column_pos;
+    // File index for the exported partition.
+    size_t file_index;
+} duckdb_vx_partition_data;
 
-    // The parameters of the table function.
+// vtable mimicking subset of TableFunction.
+// See duckdb/include/function/tfunc.hpp
+typedef struct {
+    const char *name;
     const duckdb_logical_type *parameters;
     size_t parameter_count;
-
-    // The named parameters of the table function.
-    const duckdb_logical_type *named_parameter_types;
-    const char *const *named_parameter_names;
-    size_t named_parameter_count;
 
     duckdb_vx_data (*bind)(duckdb_client_context ctx,
                            duckdb_vx_tfunc_bind_input input,
@@ -114,65 +112,33 @@ typedef struct {
 
     duckdb_vx_data (*bind_data_clone)(const void *bind_data, duckdb_vx_error *error_out);
 
-    // void *bind_replace;
-    // void *bind_operator;
-
     duckdb_vx_data (*init_global)(const duckdb_vx_tfunc_init_input *input, duckdb_vx_error *error_out);
 
-    duckdb_vx_data (*init_local)(const duckdb_vx_tfunc_init_input *input,
-                                 void *init_global_data,
-                                 duckdb_vx_error *error_out);
+    duckdb_vx_data (*init_local)(void *init_global_data);
 
-    void (*function)(duckdb_client_context ctx,
-                     const void *bind_data,
-                     void *init_global_data,
+    void (*function)(void *init_global_data,
                      void *init_local_data,
                      duckdb_data_chunk data_chunk_out,
                      duckdb_vx_error *error_out);
 
-    // void *in_out_function;
-    // void *in_out_function_final;
+    bool (*statistics)(const void *bind_data, size_t column_index, duckdb_column_statistics *stats_out);
 
-    // false if statistics are not available
-    bool (*statistics)(duckdb_client_context context,
-                       const void *bind_data,
-                       size_t column_index,
-                       duckdb_column_statistics *stats_out);
-
-    // void *dependency;
     void (*cardinality)(void *bind_data, duckdb_vx_node_statistics *node_stats_out);
 
     bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
 
-    void *pushdown_expression;
-
     void (*to_string)(void *bind_data, duckdb_vx_string_map map);
 
-    double (*table_scan_progress)(duckdb_client_context ctx, void *bind_data, void *global_state);
+    double (*table_scan_progress)(void *global_state);
 
-    idx_t (*get_partition_data)(const void *bind_data,
-                                void *init_global_data,
-                                void *init_local_data,
-                                duckdb_vx_error *error_out);
-    // void *get_bind_info;
-    // void *type_pushdown;
-    // void *get_multi_file_reader;
-    // void *supports_pushdown_type;
-    // void *get_partition_info;
-    // void *get_partition_stats;
-    // void *get_row_id_columns;
-
-    bool projection_pushdown;
-    bool filter_pushdown;
-    bool filter_prune;
-    bool sampling_pushdown;
-    bool late_materialization;
-    idx_t max_threads;
+    void (*get_partition_data)(void *init_global_data,
+                               void *init_local_data,
+                               duckdb_vx_partition_data *partition_data_out);
 } duckdb_vx_tfunc_vtab_t;
 
 // A single function for configuring the DuckDB table function vtable.
 duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const duckdb_vx_tfunc_vtab_t *vtab);
 
-#ifdef __cplusplus /* End C ABI */
+#ifdef __cplusplus
 }
 #endif

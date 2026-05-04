@@ -6,7 +6,6 @@
 use std::fmt::Formatter;
 
 use num_traits::Float;
-use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -17,13 +16,11 @@ use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeList;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::ScalarFn as ScalarFnArrayEncoding;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
@@ -31,7 +28,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::dtype::proto::dtype as pb;
 use vortex_array::expr::Expression;
 use vortex_array::expr::and;
 use vortex_array::match_each_float_ptype;
@@ -47,8 +43,6 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::matcher::AnyTensor;
@@ -56,6 +50,7 @@ use crate::scalar_fns::l2_denorm::DenormOrientation;
 use crate::scalar_fns::sorf_transform::SorfMatrix;
 use crate::scalar_fns::sorf_transform::SorfTransform;
 use crate::types::vector::Vector;
+use crate::utils::BinaryTensorOpMetadata;
 use crate::utils::extract_constant_flat_row;
 use crate::utils::extract_flat_elements;
 use crate::utils::extract_l2_denorm_children;
@@ -70,7 +65,7 @@ use crate::utils::validate_binary_tensor_float_inputs;
 /// Both inputs must be tensor-like extension arrays ([`FixedShapeTensor`] or [`Vector`]) with the
 /// same dtype and a float element type. The output is a float column of the same float type.
 ///
-/// [`FixedShapeTensor`]: crate::fixed_shape::FixedShapeTensor
+/// [`FixedShapeTensor`]: crate::fixed_shape_tensor::FixedShapeTensor
 /// [`Vector`]: crate::vector::Vector
 #[derive(Clone)]
 pub struct InnerProduct;
@@ -130,7 +125,7 @@ impl ScalarFnVTable for InnerProduct {
         let rhs = &arg_dtypes[1];
 
         // TODO(connor): relax the float-only gate once integer tensors are supported.
-        let tensor_match = validate_binary_tensor_float_inputs("InnerProduct", lhs, rhs)?;
+        let tensor_match = validate_binary_tensor_float_inputs(lhs, rhs)?;
         let ptype = tensor_match.element_ptype();
         let nullability = Nullability::from(lhs.is_nullable() || rhs.is_nullable());
         Ok(DType::Primitive(ptype, nullability))
@@ -225,66 +220,6 @@ impl ScalarFnVTable for InnerProduct {
     }
 }
 
-/// Metadata for a serialized binary tensor-op array (shared by [`InnerProduct`] and
-/// [`CosineSimilarity`]). Both operands share the same extension dtype up to nullability
-/// (enforced by their `return_dtype` checks), but their individual nullabilities are lost in the
-/// parent's unioned output, so both are persisted.
-///
-/// [`CosineSimilarity`]: crate::scalar_fns::cosine_similarity::CosineSimilarity
-#[derive(Clone, prost::Message)]
-pub(crate) struct BinaryTensorOpMetadata {
-    #[prost(message, optional, tag = "1")]
-    pub(crate) lhs_dtype: Option<pb::DType>,
-    #[prost(message, optional, tag = "2")]
-    pub(crate) rhs_dtype: Option<pb::DType>,
-}
-
-impl BinaryTensorOpMetadata {
-    /// Encodes the two children of `view` into a [`BinaryTensorOpMetadata`] byte blob.
-    pub(crate) fn encode_from_view<V: ScalarFnVTable>(
-        view: &ScalarFnArrayView<V>,
-    ) -> VortexResult<Vec<u8>> {
-        let scalar_fn_array = view.as_::<ScalarFnArrayEncoding>();
-        let lhs_dtype = Some(scalar_fn_array.child_at(0).dtype().try_into()?);
-        let rhs_dtype = Some(scalar_fn_array.child_at(1).dtype().try_into()?);
-        Ok(Self {
-            lhs_dtype,
-            rhs_dtype,
-        }
-        .encode_to_vec())
-    }
-
-    /// Decodes `metadata` and fetches both children from `children` using the decoded dtypes,
-    /// validating that `lhs` and `rhs` agree modulo nullability.
-    pub(crate) fn decode_children(
-        metadata: &[u8],
-        len: usize,
-        children: &dyn ArrayChildren,
-        session: &VortexSession,
-        scalar_fn_name: &str,
-    ) -> VortexResult<Vec<ArrayRef>> {
-        let metadata = Self::decode(metadata)
-            .map_err(|e| vortex_err!("Failed to decode BinaryTensorOpMetadata: {e}"))?;
-        let lhs_pb = metadata
-            .lhs_dtype
-            .as_ref()
-            .ok_or_else(|| vortex_err!("{scalar_fn_name} metadata missing lhs_dtype"))?;
-        let rhs_pb = metadata
-            .rhs_dtype
-            .as_ref()
-            .ok_or_else(|| vortex_err!("{scalar_fn_name} metadata missing rhs_dtype"))?;
-        let lhs_dtype = DType::from_proto(lhs_pb, session)?;
-        let rhs_dtype = DType::from_proto(rhs_pb, session)?;
-        vortex_ensure!(
-            lhs_dtype.eq_ignore_nullability(&rhs_dtype),
-            "{scalar_fn_name} operand dtype mismatch: {lhs_dtype} vs {rhs_dtype}"
-        );
-        let lhs = children.get(0, &lhs_dtype, len)?;
-        let rhs = children.get(1, &rhs_dtype, len)?;
-        Ok(vec![lhs, rhs])
-    }
-}
-
 impl ScalarFnArrayVTable for InnerProduct {
     fn serialize(
         &self,
@@ -302,13 +237,8 @@ impl ScalarFnArrayVTable for InnerProduct {
         children: &dyn ArrayChildren,
         session: &VortexSession,
     ) -> VortexResult<ScalarFnArrayParts<Self>> {
-        let reconstructed = BinaryTensorOpMetadata::decode_children(
-            metadata,
-            len,
-            children,
-            session,
-            "InnerProduct",
-        )?;
+        let reconstructed =
+            BinaryTensorOpMetadata::decode_children(metadata, len, children, session)?;
         Ok(ScalarFnArrayParts {
             options: EmptyOptions,
             children: reconstructed,
@@ -421,7 +351,7 @@ impl InnerProduct {
             return Ok(None);
         };
 
-        let dim = sorf_view.options.dimension as usize;
+        let dim = sorf_view.options.dimensions as usize;
         let num_rounds = sorf_view.options.num_rounds as usize;
         let seed = sorf_view.options.seed;
         let padded_dim = dim.next_power_of_two();
@@ -980,7 +910,7 @@ mod tests {
             let sorf_options = SorfOptions {
                 seed,
                 num_rounds,
-                dimension: dim,
+                dimensions: dim,
                 element_ptype: PType::F32,
             };
             let sorf =
@@ -1556,7 +1486,7 @@ mod tests {
             let sorf_options = SorfOptions {
                 seed,
                 num_rounds,
-                dimension: dim,
+                dimensions: dim,
                 element_ptype: PType::F32,
             };
             let sorf =

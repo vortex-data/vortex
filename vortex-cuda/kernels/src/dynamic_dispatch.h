@@ -20,7 +20,7 @@
 ///
 /// Each source op and scalar op may produce a different PType than its input.
 /// For example, DICT transforms codes (e.g. u8) into values (e.g. f32), and
-/// ALP transforms encoded integers (i32) into floats (f32).
+/// ALP transforms encoded integers into floats (e.g. i32 → f32, i64 → f64).
 ///
 /// `PTypeTag` is a compact enum that identifies the primitive type at each
 /// point in the pipeline. The kernel uses it to dispatch typed memory
@@ -76,6 +76,27 @@ PTYPE_HOST_DEVICE constexpr PTypeTag ptype_to_unsigned(PTypeTag tag) {
         return PTYPE_U64;
     default:
         return tag;
+    }
+}
+
+PTYPE_HOST_DEVICE constexpr uint8_t ptype_byte_width(PTypeTag tag) {
+    switch (tag) {
+    case PTYPE_U8:
+    case PTYPE_I8:
+        return 1;
+    case PTYPE_U16:
+    case PTYPE_I16:
+        return 2;
+    case PTYPE_U32:
+    case PTYPE_I32:
+    case PTYPE_F32:
+        return 4;
+    case PTYPE_U64:
+    case PTYPE_I64:
+    case PTYPE_F64:
+        return 8;
+    default:
+        return 0;
     }
 }
 #endif
@@ -150,7 +171,7 @@ struct SourceOp {
 /// Each scalar op declares its `output_ptype` — the PType of the values it
 /// produces. Most ops preserve the input type (FOR, ZIGZAG), but some
 /// change it:
-///   - ALP: encoded int → float (e.g. i32 → f32)
+///   - ALP: encoded int → float (e.g. i32 → f32, i64 → f64)
 ///   - DICT: codes type → values type (e.g. u8 → u32)
 ///
 /// The plan builder uses `output_ptype` to determine the element width
@@ -162,8 +183,8 @@ union ScalarParams {
     } frame_of_ref;
 
     struct AlpParams {
-        float f;
-        float e;
+        double f;
+        double e;
         uint64_t patches_ptr; // device pointer to GPUPatches struct (0 = none)
     } alp;
 

@@ -13,15 +13,19 @@ import org.apache.spark.sql.SaveMode;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
-import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * Integration test for Vortex DataSource with mocked S3 using Adobe S3Mock.
  *
- * <p>This test verifies that Vortex can correctly read and write files from S3-compatible
- * storage by using S3Mock running as a Testcontainer.
+ * <p>This test verifies that Vortex can correctly read and write files from S3-compatible storage by using S3Mock
+ * running as a Testcontainer.
  */
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -45,7 +49,9 @@ public final class VortexDataSourceS3MockTest {
                 .master("local[2]")
                 .config("spark.sql.shuffle.partitions", "2")
                 .config("spark.sql.adaptive.enabled", "false")
+                .config("spark.driver.host", "127.0.0.1")
                 .config("spark.ui.enabled", "false")
+                .config("spark.driver.host", "127.0.0.1")
                 // S3A configuration for S3Mock.
                 // This should be propagated into our reader
                 .config("spark.hadoop.fs.s3a.endpoint", s3Endpoint)
@@ -123,10 +129,7 @@ public final class VortexDataSourceS3MockTest {
         verifyDataContent(originalDf, readDf);
     }
 
-    /**
-     * Creates a test DataFrame with monotonically increasing integers
-     * and their string representations.
-     */
+    /** Creates a test DataFrame with monotonically increasing integers and their string representations. */
     private Dataset<Row> createTestDataFrame(int numRows) {
         return spark.range(0, numRows)
                 .selectExpr(
@@ -135,9 +138,7 @@ public final class VortexDataSourceS3MockTest {
                         "array('Alpha', 'Bravo', 'Charlie') AS elements");
     }
 
-    /**
-     * Verifies that two schemas are equal.
-     */
+    /** Verifies that two schemas are equal. */
     private void assertSchemaEquals(StructType expected, StructType actual) {
         assertEquals(expected.fields().length, actual.fields().length, "Schemas should have same number of fields");
 
@@ -157,9 +158,7 @@ public final class VortexDataSourceS3MockTest {
         }
     }
 
-    /**
-     * Verifies that the data content of two DataFrames is identical.
-     */
+    /** Verifies that the data content of two DataFrames is identical. */
     private void verifyDataContent(Dataset<Row> expected, Dataset<Row> actual) {
         // Sort both DataFrames by id to ensure consistent ordering
         Dataset<Row> expectedSorted = expected.orderBy("id");

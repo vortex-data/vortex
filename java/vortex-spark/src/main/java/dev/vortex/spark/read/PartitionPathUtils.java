@@ -3,19 +3,34 @@
 
 package dev.vortex.spark.read;
 
+import com.google.common.base.Splitter;
+import com.google.common.primitives.Doubles;
+import com.google.common.primitives.Ints;
+import com.google.common.primitives.Longs;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.apache.spark.sql.execution.vectorized.ConstantColumnVector;
-import org.apache.spark.sql.types.*;
+import org.apache.spark.sql.types.BooleanType;
+import org.apache.spark.sql.types.ByteType;
+import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DataTypes;
+import org.apache.spark.sql.types.DateType;
+import org.apache.spark.sql.types.DoubleType;
+import org.apache.spark.sql.types.FloatType;
+import org.apache.spark.sql.types.IntegerType;
+import org.apache.spark.sql.types.LongType;
+import org.apache.spark.sql.types.ShortType;
+import org.apache.spark.sql.types.StringType;
+import org.apache.spark.sql.types.TimestampNTZType;
+import org.apache.spark.sql.types.TimestampType;
 import org.apache.spark.unsafe.types.UTF8String;
 
-/**
- * Utilities for discovering and materializing Hive-style partition columns from file paths.
- */
+/** Utilities for discovering and materializing Hive-style partition columns from file paths. */
 public final class PartitionPathUtils {
     private static final String HIVE_DEFAULT_PARTITION = "__HIVE_DEFAULT_PARTITION__";
+    private static final Splitter PATH_SPLITTER = Splitter.on('/');
 
     private PartitionPathUtils() {}
 
@@ -26,8 +41,7 @@ public final class PartitionPathUtils {
      */
     public static Map<String, String> parsePartitionValues(String filePath) {
         LinkedHashMap<String, String> values = new LinkedHashMap<>();
-        String[] segments = filePath.split("/");
-        for (String segment : segments) {
+        for (String segment : PATH_SPLITTER.split(filePath)) {
             int eqIdx = segment.indexOf('=');
             if (eqIdx > 0 && eqIdx < segment.length() - 1) {
                 String key = URLDecoder.decode(segment.substring(0, eqIdx), StandardCharsets.UTF_8);
@@ -39,27 +53,21 @@ public final class PartitionPathUtils {
     }
 
     /**
-     * Infers a Spark {@link DataType} from a partition value string.
-     * Tries integer, long, double, boolean, and falls back to string.
+     * Infers a Spark {@link DataType} from a partition value string. Tries integer, long, double, boolean, and falls
+     * back to string.
      */
     public static DataType inferPartitionColumnType(String value) {
         if (value == null || HIVE_DEFAULT_PARTITION.equals(value)) {
             return DataTypes.StringType;
         }
-        try {
-            Integer.parseInt(value);
+        if (Ints.tryParse(value) != null) {
             return DataTypes.IntegerType;
-        } catch (NumberFormatException ignored) {
         }
-        try {
-            Long.parseLong(value);
+        if (Longs.tryParse(value) != null) {
             return DataTypes.LongType;
-        } catch (NumberFormatException ignored) {
         }
-        try {
-            Double.parseDouble(value);
+        if (Doubles.tryParse(value) != null) {
             return DataTypes.DoubleType;
-        } catch (NumberFormatException ignored) {
         }
         if ("true".equalsIgnoreCase(value) || "false".equalsIgnoreCase(value)) {
             return DataTypes.BooleanType;
@@ -68,8 +76,8 @@ public final class PartitionPathUtils {
     }
 
     /**
-     * Creates a Spark {@link ConstantColumnVector} populated with the given partition value,
-     * parsed according to the target {@link DataType}.
+     * Creates a Spark {@link ConstantColumnVector} populated with the given partition value, parsed according to the
+     * target {@link DataType}.
      */
     public static ConstantColumnVector createConstantVector(int numRows, DataType type, String value) {
         ConstantColumnVector vec = new ConstantColumnVector(numRows, type);

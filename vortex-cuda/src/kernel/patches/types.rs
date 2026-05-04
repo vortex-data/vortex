@@ -167,16 +167,16 @@ fn build_gpu_patches(
     Ok((gpu_buf, ptr))
 }
 
-/// Sync wrapper: load patches via [`load_patches`] (blocking), then build and
-/// upload a [`GPUPatches`] struct. Returns the device pointer and all buffer
-/// handles that must be kept alive for the kernel launch.
-pub(crate) fn load_patches_sync(
+/// Transfers patches to the GPU and builds a [`GPUPatches`] descriptor.
+///
+/// Returns the device pointer and all buffer handles that must be kept
+/// alive for the kernel launch.
+pub(crate) async fn load_patches_to_gpu(
     patches: &Patches,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(u64, Vec<BufferHandle>)> {
-    let device_patches = futures::executor::block_on(load_patches(patches, ctx))?;
+    let device_patches = load_patches(patches, ctx).await?;
     let (gpu_buf, ptr) = build_gpu_patches(&device_patches, ctx)?;
-
     let DevicePatches {
         chunk_offsets,
         indices,

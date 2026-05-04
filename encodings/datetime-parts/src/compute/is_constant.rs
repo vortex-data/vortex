@@ -11,7 +11,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::DateTimeParts;
-use crate::array::DateTimePartsArrayExt;
+use crate::array::DateTimePartsArraySlotsExt;
 
 /// DateTimeParts-specific is_constant kernel.
 ///

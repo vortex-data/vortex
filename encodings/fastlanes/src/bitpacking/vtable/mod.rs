@@ -105,7 +105,7 @@ impl VTable for BitPacked {
     ) -> VortexResult<()> {
         let slots = BitPackedSlotsView::from_slots(slots);
 
-        let validity = child_to_validity(&slots.validity_child.cloned(), dtype.nullability());
+        let validity = child_to_validity(slots.validity_child, dtype.nullability());
         let patches = match (slots.patch_indices, slots.patch_values) {
             (Some(indices), Some(values)) => {
                 let patch_offset = data
@@ -151,18 +151,6 @@ impl VTable for BitPacked {
             0 => Some("packed".to_string()),
             _ => None,
         }
-    }
-
-    fn reduce_parent(
-        array: ArrayView<'_, Self>,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        BitPackedSlots::NAMES[idx].to_string()
     }
 
     fn serialize(
@@ -283,6 +271,10 @@ impl VTable for BitPacked {
         })
     }
 
+    fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
+        BitPackedSlots::NAMES[idx].to_string()
+    }
+
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         require_patches!(
             array,
@@ -304,6 +296,14 @@ impl VTable for BitPacked {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

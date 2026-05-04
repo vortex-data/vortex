@@ -16,9 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37  # v6
         with:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1
@@ -54,7 +54,7 @@ jobs:
         if: github.repository == 'vortex-data/vortex'
         with:
           sccache: s3
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - name: Setup benchmark environment
         run: sudo bash scripts/setup-benchmark.sh
       - uses: ./.github/actions/setup-rust
@@ -77,7 +77,7 @@ jobs:
           cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }} --features unstable_encodings
 
       - name: Setup Polar Signals
-        uses: polarsignals/gh-actions-ps-profiling@v0.8.1
+        uses: polarsignals/gh-actions-ps-profiling@68ae857e375a826606352016e5b90f01a2a7ff7a  # v0.8.1
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}"
@@ -95,7 +95,7 @@ jobs:
           bash scripts/bench-taskset.sh target/release_debug/${{ matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} -d gh-json -o results.json
 
       - name: Setup AWS CLI
-        uses: aws-actions/configure-aws-credentials@v6
+        uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37  # v6
         with:
           role-to-assume: arn:aws:iam::245040174862:role/GitHubBenchmarkRole
           aws-region: us-east-1

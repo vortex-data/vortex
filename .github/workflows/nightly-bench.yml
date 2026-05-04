@@ -72,4 +72,4 @@ jobs:
       matrix:
         machine_type:
           - id: x86
-            instance_name: c6id.8xlarge
+            instance_name: i7i.metal-24xl

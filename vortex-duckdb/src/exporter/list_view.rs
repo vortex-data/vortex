@@ -19,6 +19,7 @@ use vortex::mask::Mask;
 use super::ConversionCache;
 use super::all_invalid;
 use super::new_array_exporter_with_flatten;
+use super::validity;
 use crate::cpp;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Vector;
@@ -26,7 +27,6 @@ use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
 struct ListViewExporter<O, S> {
-    validity: Mask,
     /// We cache the child elements of our list array so that we don't have to export it every time,
     /// and we also share it across any other exporters who want to export this array.
     ///
@@ -97,7 +97,6 @@ pub(crate) fn new_exporter(
     let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
         match_each_integer_ptype!(sizes.ptype(), |S| {
             Box::new(ListViewExporter {
-                validity,
                 duckdb_elements: shared_elements,
                 offsets,
                 sizes,
@@ -108,7 +107,7 @@ pub(crate) fn new_exporter(
         })
     });
 
-    Ok(boxed)
+    Ok(validity::new_exporter(validity, boxed))
 }
 
 impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListViewExporter<O, S> {
@@ -119,21 +118,6 @@ impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListViewExporter<O, S>
         vector: &mut VectorRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // Verify that offset + len doesn't exceed the validity mask length.
-        assert!(
-            offset + len <= self.validity.len(),
-            "Export range [{}, {}) exceeds validity mask length {}",
-            offset,
-            offset + len,
-            self.validity.len()
-        );
-
-        // Set validity if necessary.
-        if unsafe { vector.set_validity(&self.validity, offset, len) } {
-            // All values are null, so no point copying the data.
-            return Ok(());
-        }
-
         let offsets = &self.offsets.as_slice::<O>()[offset..offset + len];
         let sizes = &self.sizes.as_slice::<S>()[offset..offset + len];
         debug_assert_eq!(offsets.len(), len);

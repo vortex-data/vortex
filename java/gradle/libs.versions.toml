@@ -14,7 +14,7 @@ protobuf = "4.34.1"
 slf4j = "2.0.17"
 spark3 = "3.5.8"
 spark4 = "4.1.1"
-s3mock = "4.12.4"
+s3mock = "5.0.0"
 testcontainers-jupiter = "1.21.4"
 
 [libraries]

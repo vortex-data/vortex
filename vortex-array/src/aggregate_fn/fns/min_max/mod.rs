@@ -79,7 +79,7 @@ pub fn min_max(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<
     let result = MinMaxResult::from_scalar(result_scalar)?;
 
     // Cache the computed min/max as statistics.
-    if let Some(ref r) = result {
+    if let Some(r) = &result {
         if let Some(min_value) = r.min.value() {
             array
                 .statistics()

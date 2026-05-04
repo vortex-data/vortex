@@ -29,6 +29,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayContext;
 use crate::ArrayRef;
+use crate::array::ArrayId;
 use crate::array::new_foreign_array;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -377,7 +378,7 @@ impl SerializedArray {
 
     fn decode_foreign(
         &self,
-        encoding_id: crate::array::ArrayId,
+        encoding_id: ArrayId,
         dtype: &DType,
         len: usize,
         ctx: &ReadContext,

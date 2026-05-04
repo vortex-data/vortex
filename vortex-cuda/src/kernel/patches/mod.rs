@@ -16,6 +16,7 @@ use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::patches::Patches;
 use vortex::array::validity::Validity;
 use vortex::dtype::NativePType;
+use vortex::dtype::PType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_ensure;
@@ -51,12 +52,12 @@ impl GPUPatches {
 }
 
 /// Convert a [`PType`] to the corresponding [`ChunkOffsetType`] for GPU patches.
-fn ptype_to_chunk_offset_type(ptype: vortex::dtype::PType) -> VortexResult<ChunkOffsetType> {
+fn ptype_to_chunk_offset_type(ptype: PType) -> VortexResult<ChunkOffsetType> {
     match ptype {
-        vortex::dtype::PType::U8 => Ok(ChunkOffsetType_CO_U8),
-        vortex::dtype::PType::U16 => Ok(ChunkOffsetType_CO_U16),
-        vortex::dtype::PType::U32 => Ok(ChunkOffsetType_CO_U32),
-        vortex::dtype::PType::U64 => Ok(ChunkOffsetType_CO_U64),
+        PType::U8 => Ok(ChunkOffsetType_CO_U8),
+        PType::U16 => Ok(ChunkOffsetType_CO_U16),
+        PType::U32 => Ok(ChunkOffsetType_CO_U32),
+        PType::U64 => Ok(ChunkOffsetType_CO_U64),
         _ => vortex_bail!("Invalid PType for chunk_offsets: {:?}", ptype),
     }
 }

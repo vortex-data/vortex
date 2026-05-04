@@ -19,7 +19,7 @@ use crate::scalar::ScalarValue;
 ///
 /// This type provides a view into a boolean scalar value, which can be either
 /// true, false, or null.
-#[derive(Debug, Clone, Hash, Eq)]
+#[derive(Debug, Clone, Copy, Hash, Eq)]
 pub struct BoolScalar<'a> {
     /// The data type of this scalar.
     dtype: &'a DType,
