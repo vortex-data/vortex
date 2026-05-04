@@ -37,6 +37,17 @@ pub(crate) fn normalize_benchmark_runner_id(benchmark_runner: &str) -> String {
 pub trait Dataset {
     fn name(&self) -> &str;
 
+    /// Map this dataset to the v3 `(dataset, dataset_variant)` pair.
+    ///
+    /// Default: `(name(), None)`. Override for suites that have a parent
+    /// namespace and a sub-dataset (e.g. Public-BI emits
+    /// `dataset = "public-bi"`, `dataset_variant = "<sub-dataset name>"`).
+    /// The convention matches the SQL query path; see the per-suite dim
+    /// values table in `benchmarks-website/planning/benchmark-mapping.md`.
+    fn v3_dataset_dims(&self) -> (&str, Option<&str>) {
+        (self.name(), None)
+    }
+
     async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef>;
 
     /// Get the path to the parquet file for this dataset.

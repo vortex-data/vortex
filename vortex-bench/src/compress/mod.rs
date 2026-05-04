@@ -64,6 +64,8 @@ pub struct CompressResult {
     pub time: Duration,
     pub compressed_size: u64,
     pub timing: CompressionTimingMeasurement,
+    /// Per-iteration encode wall times. Captured for v3 emission.
+    pub all_runs: Vec<Duration>,
     pub ratios: Vec<CustomUnitMeasurement>,
 }
 
@@ -71,6 +73,8 @@ pub struct CompressResult {
 pub struct DecompressResult {
     pub time: Duration,
     pub timing: CompressionTimingMeasurement,
+    /// Per-iteration decode wall times. Captured for v3 emission.
+    pub all_runs: Vec<Duration>,
 }
 
 /// Trait for format-specific compression/decompression operations.
@@ -111,12 +115,14 @@ pub async fn benchmark_compress(
     let format = compressor.format();
     let mut fastest = Duration::MAX;
     let mut compressed_size = 0u64;
+    let mut all_runs = Vec::with_capacity(iterations);
 
     for _ in 0..iterations {
         let (size, elapsed) = compressor.compress(parquet_path).await?;
 
         compressed_size = size;
         fastest = fastest.min(elapsed);
+        all_runs.push(elapsed);
     }
 
     let ratios = vec![CustomUnitMeasurement {
@@ -136,6 +142,7 @@ pub async fn benchmark_compress(
         time: fastest,
         compressed_size,
         timing,
+        all_runs,
         ratios,
     })
 }
@@ -151,11 +158,13 @@ pub async fn benchmark_decompress(
 ) -> Result<DecompressResult> {
     let format = compressor.format();
     let mut fastest = Duration::MAX;
+    let mut all_runs = Vec::with_capacity(iterations);
 
     for _ in 0..iterations {
         let elapsed = compressor.decompress(parquet_path).await?;
 
         fastest = fastest.min(elapsed);
+        all_runs.push(elapsed);
     }
 
     let timing = CompressionTimingMeasurement {
@@ -167,6 +176,7 @@ pub async fn benchmark_decompress(
     Ok(DecompressResult {
         time: fastest,
         timing,
+        all_runs,
     })
 }
 
