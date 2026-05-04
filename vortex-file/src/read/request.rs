@@ -39,8 +39,10 @@ impl IoRequest {
     pub fn len(&self) -> usize {
         match &self.0 {
             IoRequestInner::Single(r) => r.length,
-            IoRequestInner::Coalesced(r) => usize::try_from(r.range.end - r.range.start)
-                .vortex_expect("range too big for usize"),
+            IoRequestInner::Coalesced(r) => {
+                usize::try_from(r.range.end.saturating_sub(r.range.start))
+                    .vortex_expect("range too big for usize")
+            }
         }
     }
 
@@ -109,17 +111,6 @@ impl Debug for ReadRequest {
 
 impl ReadRequest {
     pub(crate) fn resolve(self, result: VortexResult<BufferHandle>) {
-        let result = result.and_then(|buffer| {
-            if self.length != buffer.len() {
-                vortex_bail!(
-                    "ReadRequest: expected buffer of length {} but received {}.",
-                    self.length,
-                    buffer.len()
-                )
-            }
-            Ok(buffer)
-        });
-
         if let Err(e) = self.callback.send(result) {
             tracing::debug!("ReadRequest {} dropped before resolving: {e}", self.id);
         }
@@ -128,9 +119,9 @@ impl ReadRequest {
 
 /// A set of I/O requests that have been coalesced into a single larger request.
 pub(crate) struct CoalescedRequest {
-    pub(crate) range: Range<u64>,
-    pub(crate) alignment: Alignment, // Global max segment alignment used for the coalesced range.
-    pub(crate) requests: Vec<ReadRequest>, // TODO(ngates): we could have enum of Single/Many to avoid Vec.
+    range: Range<u64>,
+    alignment: Alignment, // Global max segment alignment used for the coalesced range.
+    requests: Vec<ReadRequest>, // TODO(ngates): we could have enum of Single/Many to avoid Vec.
 }
 
 impl Debug for CoalescedRequest {
@@ -145,28 +136,45 @@ impl Debug for CoalescedRequest {
 }
 
 impl CoalescedRequest {
-    pub fn resolve(self, result: VortexResult<BufferHandle>) {
-        let result = result.and_then(|buffer| {
-            let expected_length = self.range.end.saturating_sub(self.range.start);
-            let buffer_len = buffer.len() as u64;
-            if expected_length != buffer_len {
+    pub fn try_new(
+        range: Range<u64>,
+        alignment: Alignment,
+        requests: Vec<ReadRequest>,
+    ) -> VortexResult<Self> {
+        if range.start > range.end {
+            vortex_bail!(
+                "CoalescedRequest: range.start, {}, must be less than or equal to range.end, {}.",
+                range.start,
+                range.end,
+            )
+        }
+        for req in requests.iter() {
+            if req.offset < range.start {
                 vortex_bail!(
-                    "CoalescedRequest: expected buffer of length {} but received {}.",
-                    expected_length,
-                    buffer_len
+                    "CoalescedRequest: sub-request for length {} at file offset {} precedes coalesced range: {}..{}. {:?}",
+                    req.length,
+                    req.offset,
+                    range.start,
+                    range.end,
+                    req,
                 )
             }
+        }
+        Ok(Self {
+            range,
+            alignment,
+            requests,
+        })
+    }
+
+    pub fn resolve(self, result: VortexResult<BufferHandle>) {
+        let result = result.and_then(|buffer| {
+            let buffer_len = buffer.len() as u64;
 
             for req in self.requests.iter() {
-                let request_offset = req.offset.checked_sub(self.range.start).ok_or_else(|| {
-                    vortex_err!(
-                        "CoalescedRequest: sub-request for length {} at file offset {} preceeds coalesced range: {}..{}.",
-                        req.length,
-                        req.offset,
-                        self.range.start,
-                        self.range.end,
-                    )
-                })?;
+                // We check on construction that req.offset >= range.start.
+                let request_offset = req.offset - self.range.start;
+
                 if request_offset > buffer_len {
                     vortex_bail!(
                         "CoalescedRequest: sub-request for length {} at buffer offset {} (file offset {}) is unsatisfiable by buffer of length {}.",
