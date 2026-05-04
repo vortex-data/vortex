@@ -424,13 +424,19 @@ main {
  * tooltip from intercepting hover (which would cause flicker), and
  * `white-space: normal` + a fixed `max-width` lets long descriptions wrap
  * gracefully.
+ *
+ * Anchored to the icon's left edge (not centred on the icon) so the tooltip
+ * grows rightward into the page. Group titles in our layout are left-
+ * aligned in the disclosure header, so the icon is always close to the
+ * viewport's left edge — `left: 50%; transform: translateX(-50%)` would
+ * push half of a wide tooltip off the screen and clip it. Anchoring to the
+ * left keeps the description fully visible.
  */
 [data-tooltip].group-info-icon::after {
   content: attr(data-tooltip);
   position: absolute;
   top: calc(100% + 0.5rem);
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
   padding: 0.5rem 0.75rem;
   background: var(--tooltip-bg);
   color: var(--tooltip-fg);
