@@ -698,15 +698,19 @@
     // indices, so the gap is still visible as a missing point — just not
     // as a broken line.
     //
-    // Edge-extension: for each series, also fill in the nearest non-null
-    // value just *outside* `[min, max]` on each side. Chart.js's scale
-    // `min`/`max` clip the canvas but still draw lines whose endpoints
-    // lie outside that range; without these neighbours the line would
-    // start/end at the nearest in-range point and visually break at the
-    // window's edge — exactly the "zoom in and see only a few floating
-    // dots" symptom the user reported. With them, the line continues
-    // out of the visible region to the next real measurement and the
-    // off-screen segment is naturally clipped.
+    // We deliberately do NOT plant nearest-neighbour values for indices
+    // outside `[min, max]`: extending the line past the visible edges
+    // sounds nice (the line goes off-screen toward the next real
+    // measurement instead of stopping at the rightmost in-range point),
+    // but Chart.js's y-axis auto-scale uses every non-null value in the
+    // dataset regardless of `scales.x.min/max`. An off-screen neighbour
+    // with a very different y value (an old benchmark configuration, a
+    // first-run cold cache, anything) blows up the y-axis range and
+    // squashes the in-window values into a flat line near the floor.
+    // Fixing that would mean overriding `scales.y.min/max` per rebuild
+    // from only the in-window values, which changes the "y-axis stays
+    // stable across x-zoom" UX. Out of scope here; if a user wants to
+    // see how the line connects across the edge they can zoom out.
     for (var dj = 0; dj < datasets.length; dj++) {
       var ds = datasets[dj];
       var dsRaw = ds.rawData;
@@ -722,22 +726,6 @@
         var val = dsRaw[idx];
         if (val !== null && val !== undefined && !Number.isNaN(val)) {
           data[idx] = val;
-        }
-      }
-      // Nearest non-null neighbour to the left of the visible window.
-      for (var le = min - 1; le >= 0; le--) {
-        var lv = dsRaw[le];
-        if (lv !== null && lv !== undefined && !Number.isNaN(lv)) {
-          data[le] = lv;
-          break;
-        }
-      }
-      // Nearest non-null neighbour to the right of the visible window.
-      for (var re = max + 1; re < n; re++) {
-        var rv = dsRaw[re];
-        if (rv !== null && rv !== undefined && !Number.isNaN(rv)) {
-          data[re] = rv;
-          break;
         }
       }
     }
