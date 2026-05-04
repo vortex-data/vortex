@@ -9,6 +9,7 @@ pub(crate) mod is_sorted;
 mod like;
 mod mask;
 pub(crate) mod min_max;
+mod reverse;
 pub(crate) mod rules;
 mod slice;
 

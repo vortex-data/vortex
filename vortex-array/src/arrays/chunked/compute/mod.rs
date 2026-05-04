@@ -7,6 +7,7 @@ mod fill_null;
 mod filter;
 pub(crate) mod kernel;
 mod mask;
+mod reverse;
 pub(crate) mod rules;
 mod slice;
 mod take;

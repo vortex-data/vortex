@@ -14,8 +14,6 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
-use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
@@ -308,15 +306,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
                 )?)
             };
 
-        // If reversed, wrap the map_fn to reverse row order within each chunk via a lazy
-        // `DictArray` take. Chunk order reversal is handled by `RepeatedScan::execute`.
         let map_fn = if self.reversed {
             let original = self.map_fn;
-            Arc::new(move |array: ArrayRef| {
-                let n = array.len() as u64;
-                let indices = PrimitiveArray::from_iter((0..n).rev()).into_array();
-                original(array.take(indices)?)
-            }) as Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>
+            Arc::new(move |array: ArrayRef| original(array.reverse()?))
+                as Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>
         } else {
             self.map_fn
         };

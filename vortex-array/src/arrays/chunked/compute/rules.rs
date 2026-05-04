@@ -14,6 +14,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFn;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::chunked::ChunkedArrayExt;
+use crate::arrays::reversed::ReverseReduceAdaptor;
 use crate::arrays::scalar_fn::AnyScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::optimizer::ArrayOptimizer;
@@ -27,6 +28,7 @@ pub(crate) const PARENT_RULES: ParentRuleSet<Chunked> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
     ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
     ParentRuleSet::lift(&FillNullReduceAdaptor(Chunked)),
+    ParentRuleSet::lift(&ReverseReduceAdaptor(Chunked)),
 ]);
 
 /// Push down any unary scalar function through chunked arrays.
