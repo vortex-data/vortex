@@ -1165,13 +1165,40 @@
   // -----------------------------------------------------------------------
   // Recompute helpers driven by the per-chart toolbar.
   // -----------------------------------------------------------------------
-  function visibleRange(commitCount, scope) {
+  // Invariant: when `currentRange` is supplied AND the chart is already
+  // panned away from the right edge, a scope change preserves the visible
+  // CENTER instead of snapping to the most recent N commits. With no
+  // `currentRange` (initial render) or a view that already covers
+  // everything / sits flush with the newest commit, anchor to the right —
+  // the right default at first load and after "show all".
+  function visibleRange(commitCount, scope, currentRange) {
     if (commitCount <= 0) return { min: undefined, max: undefined };
     var maxIdx = commitCount - 1;
     if (scope === "all" || !Number.isFinite(scope) || scope <= 0 || scope >= commitCount) {
       return { min: 0, max: maxIdx };
     }
-    return { min: Math.max(0, maxIdx - (scope - 1)), max: maxIdx };
+    var width = scope;
+    var rightAnchored = { min: Math.max(0, maxIdx - (width - 1)), max: maxIdx };
+    if (!currentRange) return rightAnchored;
+    var curMin = Number.isFinite(currentRange.min) ? currentRange.min : 0;
+    var curMax = Number.isFinite(currentRange.max) ? currentRange.max : maxIdx;
+    var coversAll = curMin <= 0 && curMax >= maxIdx;
+    // Half-commit tolerance: pan/zoom can leave fractional drift even when
+    // the user is effectively still flush with the newest commit.
+    var atRightEdge = curMax >= maxIdx - 0.5;
+    if (coversAll || atRightEdge) return rightAnchored;
+    var center = (curMin + curMax) / 2;
+    var halfWidth = (width - 1) / 2;
+    var newMin = Math.round(center - halfWidth);
+    var newMax = newMin + (width - 1);
+    if (newMin < 0) {
+      newMin = 0;
+      newMax = width - 1;
+    } else if (newMax > maxIdx) {
+      newMax = maxIdx;
+      newMin = maxIdx - (width - 1);
+    }
+    return { min: newMin, max: newMax };
   }
 
   function applyScope(card, scopeValue) {
@@ -1181,7 +1208,12 @@
     var commits = chart.data.labels.length;
     var scope = scopeValue === "all" ? "all" : parseInt(scopeValue, 10);
     canvas.__bench_state.scope = scope;
-    var range = visibleRange(commits, scope);
+    // Capture the chart's existing visible window BEFORE we overwrite it,
+    // so `visibleRange` can preserve the center when the user has panned
+    // away from the right edge.
+    var sx = chart.options.scales.x;
+    var currentRange = sx ? { min: sx.min, max: sx.max } : null;
+    var range = visibleRange(commits, scope, currentRange);
     chart.options.scales.x.min = range.min;
     chart.options.scales.x.max = range.max;
     rebuildVisibleAndUpdate(card, chart, range.min, range.max);
