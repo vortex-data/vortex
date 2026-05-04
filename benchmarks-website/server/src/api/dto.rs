@@ -61,7 +61,9 @@ pub struct GroupsResponse {
 }
 
 /// One group: a display name, a slug for the group permalink, and the chart
-/// links inside it. Optionally carries a v2-compatible rollup summary.
+/// links inside it. Optionally carries a v2-compatible rollup summary and a
+/// short editorial description (rendered as a hover tooltip on the
+/// disclosure title).
 #[derive(Debug, Serialize)]
 pub struct Group {
     /// Human-readable group label rendered in the disclosure header.
@@ -73,6 +75,12 @@ pub struct Group {
     /// Optional v2-compatible rollup computed from the fact tables.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<Summary>,
+    /// Short editorial description ported from v2's `BENCHMARK_DESCRIPTIONS`
+    /// + `getBenchmarkDescription`. Rendered as a hover tooltip on the
+    /// disclosure title; absent when no description exists for this group
+    /// name (e.g. vector-search groups).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// All charts in one group, returned by `GET /api/group/{slug}`.
@@ -83,6 +91,9 @@ pub struct GroupChartsResponse {
     /// Optional v2-compatible rollup computed from the fact tables.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<Summary>,
+    /// Optional editorial description, mirroring [`Group::description`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Every chart inside the group, with full payload inlined.
     pub charts: Vec<NamedChartResponse>,
 }

@@ -9,15 +9,17 @@
 //! [`crate::slug::ChartKey`] / [`crate::slug::GroupKey`].
 //!
 //! Submodules:
-//! - [`mod@dto`]      — every wire-shape struct (`Group`, `ChartResponse`, …).
-//! - [`mod@window`]   — [`CommitWindow`] + [`ChartQuery`].
-//! - [`mod@groups`]   — discovery passes that build the group / chart-link tree.
-//! - [`mod@summary`]  — v2-compatible per-group rollups.
-//! - [`mod@charts`]   — `chart_payload` + the per-fact-table `collect_*_chart`
+//! - [`mod@dto`]          — every wire-shape struct (`Group`, `ChartResponse`, …).
+//! - [`mod@window`]       — [`CommitWindow`] + [`ChartQuery`].
+//! - [`mod@groups`]       — discovery passes that build the group / chart-link tree.
+//! - [`mod@summary`]      — v2-compatible per-group rollups.
+//! - [`mod@charts`]       — `chart_payload` + the per-fact-table `collect_*_chart`
 //!   functions and their shared `SeriesAccumulator`.
-//! - [`mod@filter`]   — chip-universe collection for the global filter bar.
+//! - [`mod@filter`]       — chip-universe collection for the global filter bar.
+//! - [`mod@descriptions`] — editorial blurbs surfaced as hover tooltips.
 
 pub mod charts;
+pub mod descriptions;
 pub mod dto;
 pub mod filter;
 pub mod groups;
@@ -34,6 +36,7 @@ use duckdb::Connection;
 
 pub(crate) use self::charts::chart_payload;
 pub(crate) use self::charts::collect_group_charts;
+pub use self::descriptions::group_description;
 pub use self::dto::ChartLink;
 pub use self::dto::ChartResponse;
 pub use self::dto::CommitPoint;

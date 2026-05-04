@@ -106,12 +106,24 @@ pub(crate) fn collect_group_charts(
     Ok(Some(GroupChartsResponse {
         name: group.name,
         summary: group.summary,
+        description: group.description,
         charts,
     }))
 }
 
 /// Time series rows are gathered keyed by `(commit_sha, series_key)` and then
 /// reshaped into the `commits[] / series{}` response shape.
+///
+/// **The accumulator is seeded with the canonical commits-in-window list
+/// before any fact rows are recorded.** That list is the chart's x-axis: it
+/// includes every commit in the requested [`CommitWindow`] whose timestamp
+/// is at or after the earliest commit that has a row in the fact table for
+/// this chart. Commits with zero rows in the fact table still appear in
+/// `commits[]`; their per-series slot stays `None` and renders as a visible
+/// gap in the line. Without seeding, commits absent from the fact table
+/// would be silently dropped from the chart's x-axis, making partial-coverage
+/// runs (a benchmark crashed; a series only runs nightly) look like
+/// continuous lines when they should break.
 struct SeriesAccumulator {
     commits: Vec<CommitPoint>,
     commit_index: BTreeMap<String, usize>,
@@ -129,19 +141,24 @@ impl SeriesAccumulator {
         }
     }
 
-    fn ensure_commit(&mut self, sha: &str, timestamp: &str, message: &str, url: &str) -> usize {
-        if let Some(&idx) = self.commit_index.get(sha) {
-            return idx;
+    /// Seed the chart's commit list, oldest-first by timestamp. Must be
+    /// called before [`Self::record`] / [`Self::tag`] so series allocations
+    /// are sized correctly and missing-value slots stay `None`.
+    fn seed_commits(&mut self, commits: Vec<CommitPoint>) {
+        self.commit_index.clear();
+        for (i, c) in commits.iter().enumerate() {
+            self.commit_index.insert(c.sha.clone(), i);
         }
-        let idx = self.commits.len();
-        self.commits.push(CommitPoint {
-            sha: sha.to_string(),
-            timestamp: timestamp.to_string(),
-            message: message.to_string(),
-            url: url.to_string(),
-        });
-        self.commit_index.insert(sha.to_string(), idx);
-        idx
+        self.commits = commits;
+    }
+
+    /// Index of `sha` in the seeded commits list, or `None` if the sha
+    /// was not part of the window. Returning `None` rather than panicking
+    /// keeps `collect_*_chart` resilient to an unseeded sha showing up in
+    /// the fact table (e.g. a transient race in concurrent ingest); we
+    /// just drop the row.
+    fn commit_idx(&self, sha: &str) -> Option<usize> {
+        self.commit_index.get(sha).copied()
     }
 
     fn record(&mut self, series_key: &str, commit_idx: usize, value: f64) {
@@ -191,6 +208,56 @@ impl SeriesAccumulator {
     }
 }
 
+/// Resolve a chart's x-axis: every commit in the requested commit-window
+/// whose timestamp is at or after the earliest commit that has a row in the
+/// fact table for this chart. Returns the list oldest-first; an empty list
+/// means the fact table has no rows at all for this chart, and the caller
+/// should return `None` (404).
+///
+/// `earliest_subquery` is spliced into the outer query as
+/// `c.timestamp >= ({earliest_subquery})`, so it must SELECT a single
+/// `MIN(timestamp)` row scoped to this chart's fact-table predicates. Its
+/// bound parameters appear first in `subquery_binds`; the window's `LIMIT`
+/// placeholder is appended after.
+///
+/// The bounds matter: without the timestamp lower bound a chart's x-axis
+/// would include every commit ever, including pre-history before the
+/// benchmark even existed. Without the [`CommitWindow`] cap a chart with a
+/// long history would always render the entire timeline regardless of the
+/// caller's `?n=` request.
+fn seeded_commits_in_window(
+    conn: &Connection,
+    earliest_subquery: &str,
+    subquery_binds: Vec<Box<dyn ToSql>>,
+    window: &CommitWindow,
+) -> Result<Vec<CommitPoint>> {
+    let sql = format!(
+        r#"
+        SELECT c.commit_sha,
+               CAST(c.timestamp AS VARCHAR),
+               COALESCE(c.message, ''),
+               c.url
+          FROM commits c
+         WHERE c.timestamp >= ({earliest_subquery}){window_filter}
+         ORDER BY c.timestamp ASC
+        "#,
+        window_filter = window.sql_filter(),
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let mut binds = subquery_binds;
+    push_window_limit(&mut binds, window);
+    let rows = stmt.query_map(params_from_iter(binds.iter()), |row| {
+        Ok(CommitPoint {
+            sha: row.get(0)?,
+            timestamp: row.get(1)?,
+            message: row.get(2)?,
+            url: row.get(3)?,
+        })
+    })?;
+    let out: Vec<CommitPoint> = rows.collect::<Result<_, _>>()?;
+    Ok(out)
+}
+
 /// Append the commit-window `LIMIT` bind value to a parameter list, when the
 /// window is bounded. Pairs with [`CommitWindow::sql_filter`] which emits
 /// the matching `?` placeholder.
@@ -209,11 +276,37 @@ fn collect_query_chart(
     query_idx: i32,
     window: &CommitWindow,
 ) -> Result<Option<ChartResponse>> {
+    // x-axis pre-pass. `IS NOT DISTINCT FROM` matches NULL == NULL so charts
+    // with a NULL `dataset_variant` or `scale_factor` still pin the right
+    // earliest-commit timestamp.
+    let seeded = seeded_commits_in_window(
+        conn,
+        "SELECT MIN(c2.timestamp) \
+           FROM query_measurements q2 \
+           JOIN commits c2 ON c2.commit_sha = q2.commit_sha \
+          WHERE q2.dataset = ? \
+            AND q2.dataset_variant IS NOT DISTINCT FROM ? \
+            AND q2.scale_factor    IS NOT DISTINCT FROM ? \
+            AND q2.storage = ? \
+            AND q2.query_idx = ?",
+        vec![
+            Box::new(dataset.to_string()),
+            Box::new(dataset_variant.clone()),
+            Box::new(scale_factor.clone()),
+            Box::new(storage.to_string()),
+            Box::new(query_idx),
+        ],
+        window,
+    )?;
+    if seeded.is_empty() {
+        return Ok(None);
+    }
+    let mut acc = SeriesAccumulator::new();
+    acc.seed_commits(seeded);
+
     let sql = format!(
         r#"
         SELECT q.commit_sha,
-               CAST(c.timestamp AS VARCHAR),
-               COALESCE(c.message, '') AS message, c.url,
                q.engine, q.format, q.value_ns
           FROM query_measurements q
           JOIN commits c USING (commit_sha)
@@ -227,7 +320,6 @@ fn collect_query_chart(
         filter = window.sql_filter(),
     );
     let mut stmt = conn.prepare(&sql)?;
-    let mut acc = SeriesAccumulator::new();
     let mut binds: Vec<Box<dyn ToSql>> = vec![
         Box::new(dataset.to_string()),
         Box::new(dataset_variant.clone()),
@@ -241,23 +333,17 @@ fn collect_query_chart(
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, String>(5)?,
-            row.get::<_, i64>(6)?,
+            row.get::<_, i64>(3)?,
         ))
     })?;
-    let mut any = false;
     for row in rows {
-        any = true;
-        let (sha, ts, msg, url, engine, format, value_ns) = row?;
-        let idx = acc.ensure_commit(&sha, &ts, &msg, &url);
+        let (sha, engine, format, value_ns) = row?;
+        let Some(idx) = acc.commit_idx(&sha) else {
+            continue;
+        };
         let series_key = format!("{engine}:{format}");
         acc.record(&series_key, idx, value_ns as f64);
         acc.tag(&series_key, Some(&engine), Some(&format));
-    }
-    if !any {
-        return Ok(None);
     }
     let mut name = dataset.to_string();
     if let Some(v) = dataset_variant {
@@ -278,11 +364,28 @@ fn collect_compression_time_chart(
     dataset_variant: &Option<String>,
     window: &CommitWindow,
 ) -> Result<Option<ChartResponse>> {
+    let seeded = seeded_commits_in_window(
+        conn,
+        "SELECT MIN(c2.timestamp) \
+           FROM compression_times t2 \
+           JOIN commits c2 ON c2.commit_sha = t2.commit_sha \
+          WHERE t2.dataset = ? \
+            AND t2.dataset_variant IS NOT DISTINCT FROM ?",
+        vec![
+            Box::new(dataset.to_string()),
+            Box::new(dataset_variant.clone()),
+        ],
+        window,
+    )?;
+    if seeded.is_empty() {
+        return Ok(None);
+    }
+    let mut acc = SeriesAccumulator::new();
+    acc.seed_commits(seeded);
+
     let sql = format!(
         r#"
         SELECT t.commit_sha,
-               CAST(c.timestamp AS VARCHAR),
-               COALESCE(c.message, '') AS message, c.url,
                t.format, t.op, t.value_ns
           FROM compression_times t
           JOIN commits c USING (commit_sha)
@@ -293,7 +396,6 @@ fn collect_compression_time_chart(
         filter = window.sql_filter(),
     );
     let mut stmt = conn.prepare(&sql)?;
-    let mut acc = SeriesAccumulator::new();
     let mut binds: Vec<Box<dyn ToSql>> = vec![
         Box::new(dataset.to_string()),
         Box::new(dataset_variant.clone()),
@@ -304,23 +406,17 @@ fn collect_compression_time_chart(
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, String>(5)?,
-            row.get::<_, i64>(6)?,
+            row.get::<_, i64>(3)?,
         ))
     })?;
-    let mut any = false;
     for row in rows {
-        any = true;
-        let (sha, ts, msg, url, format, op, value_ns) = row?;
-        let idx = acc.ensure_commit(&sha, &ts, &msg, &url);
+        let (sha, format, op, value_ns) = row?;
+        let Some(idx) = acc.commit_idx(&sha) else {
+            continue;
+        };
         let series_key = format!("{format}:{op}");
         acc.record(&series_key, idx, value_ns as f64);
         acc.tag(&series_key, None, Some(&format));
-    }
-    if !any {
-        return Ok(None);
     }
     let mut name = dataset.to_string();
     if let Some(v) = dataset_variant {
@@ -336,11 +432,28 @@ fn collect_compression_size_chart(
     dataset_variant: &Option<String>,
     window: &CommitWindow,
 ) -> Result<Option<ChartResponse>> {
+    let seeded = seeded_commits_in_window(
+        conn,
+        "SELECT MIN(c2.timestamp) \
+           FROM compression_sizes s2 \
+           JOIN commits c2 ON c2.commit_sha = s2.commit_sha \
+          WHERE s2.dataset = ? \
+            AND s2.dataset_variant IS NOT DISTINCT FROM ?",
+        vec![
+            Box::new(dataset.to_string()),
+            Box::new(dataset_variant.clone()),
+        ],
+        window,
+    )?;
+    if seeded.is_empty() {
+        return Ok(None);
+    }
+    let mut acc = SeriesAccumulator::new();
+    acc.seed_commits(seeded);
+
     let sql = format!(
         r#"
         SELECT s.commit_sha,
-               CAST(c.timestamp AS VARCHAR),
-               COALESCE(c.message, '') AS message, c.url,
                s.format, s.value_bytes
           FROM compression_sizes s
           JOIN commits c USING (commit_sha)
@@ -351,7 +464,6 @@ fn collect_compression_size_chart(
         filter = window.sql_filter(),
     );
     let mut stmt = conn.prepare(&sql)?;
-    let mut acc = SeriesAccumulator::new();
     let mut binds: Vec<Box<dyn ToSql>> = vec![
         Box::new(dataset.to_string()),
         Box::new(dataset_variant.clone()),
@@ -361,22 +473,16 @@ fn collect_compression_size_chart(
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, i64>(5)?,
+            row.get::<_, i64>(2)?,
         ))
     })?;
-    let mut any = false;
     for row in rows {
-        any = true;
-        let (sha, ts, msg, url, format, value_bytes) = row?;
-        let idx = acc.ensure_commit(&sha, &ts, &msg, &url);
+        let (sha, format, value_bytes) = row?;
+        let Some(idx) = acc.commit_idx(&sha) else {
+            continue;
+        };
         acc.record(&format, idx, value_bytes as f64);
         acc.tag(&format, None, Some(&format));
-    }
-    if !any {
-        return Ok(None);
     }
     let mut name = dataset.to_string();
     if let Some(v) = dataset_variant {
@@ -391,11 +497,24 @@ fn collect_random_access_chart(
     dataset: &str,
     window: &CommitWindow,
 ) -> Result<Option<ChartResponse>> {
+    let seeded = seeded_commits_in_window(
+        conn,
+        "SELECT MIN(c2.timestamp) \
+           FROM random_access_times r2 \
+           JOIN commits c2 ON c2.commit_sha = r2.commit_sha \
+          WHERE r2.dataset = ?",
+        vec![Box::new(dataset.to_string())],
+        window,
+    )?;
+    if seeded.is_empty() {
+        return Ok(None);
+    }
+    let mut acc = SeriesAccumulator::new();
+    acc.seed_commits(seeded);
+
     let sql = format!(
         r#"
         SELECT r.commit_sha,
-               CAST(c.timestamp AS VARCHAR),
-               COALESCE(c.message, '') AS message, c.url,
                r.format, r.value_ns
           FROM random_access_times r
           JOIN commits c USING (commit_sha)
@@ -405,29 +524,22 @@ fn collect_random_access_chart(
         filter = window.sql_filter(),
     );
     let mut stmt = conn.prepare(&sql)?;
-    let mut acc = SeriesAccumulator::new();
     let mut binds: Vec<Box<dyn ToSql>> = vec![Box::new(dataset.to_string())];
     push_window_limit(&mut binds, window);
     let rows = stmt.query_map(params_from_iter(binds.iter()), |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, i64>(5)?,
+            row.get::<_, i64>(2)?,
         ))
     })?;
-    let mut any = false;
     for row in rows {
-        any = true;
-        let (sha, ts, msg, url, format, value_ns) = row?;
-        let idx = acc.ensure_commit(&sha, &ts, &msg, &url);
+        let (sha, format, value_ns) = row?;
+        let Some(idx) = acc.commit_idx(&sha) else {
+            continue;
+        };
         acc.record(&format, idx, value_ns as f64);
         acc.tag(&format, None, Some(&format));
-    }
-    if !any {
-        return Ok(None);
     }
     Ok(Some(acc.finish(dataset.to_string(), "ns")))
 }
@@ -439,11 +551,30 @@ fn collect_vector_search_chart(
     threshold: f64,
     window: &CommitWindow,
 ) -> Result<Option<ChartResponse>> {
+    let seeded = seeded_commits_in_window(
+        conn,
+        "SELECT MIN(c2.timestamp) \
+           FROM vector_search_runs v2 \
+           JOIN commits c2 ON c2.commit_sha = v2.commit_sha \
+          WHERE v2.dataset = ? \
+            AND v2.layout = ? \
+            AND v2.threshold = ?",
+        vec![
+            Box::new(dataset.to_string()),
+            Box::new(layout.to_string()),
+            Box::new(threshold),
+        ],
+        window,
+    )?;
+    if seeded.is_empty() {
+        return Ok(None);
+    }
+    let mut acc = SeriesAccumulator::new();
+    acc.seed_commits(seeded);
+
     let sql = format!(
         r#"
         SELECT v.commit_sha,
-               CAST(c.timestamp AS VARCHAR),
-               COALESCE(c.message, '') AS message, c.url,
                v.flavor, v.value_ns
           FROM vector_search_runs v
           JOIN commits c USING (commit_sha)
@@ -455,7 +586,6 @@ fn collect_vector_search_chart(
         filter = window.sql_filter(),
     );
     let mut stmt = conn.prepare(&sql)?;
-    let mut acc = SeriesAccumulator::new();
     let mut binds: Vec<Box<dyn ToSql>> = vec![
         Box::new(dataset.to_string()),
         Box::new(layout.to_string()),
@@ -466,21 +596,15 @@ fn collect_vector_search_chart(
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, String>(4)?,
-            row.get::<_, i64>(5)?,
+            row.get::<_, i64>(2)?,
         ))
     })?;
-    let mut any = false;
     for row in rows {
-        any = true;
-        let (sha, ts, msg, url, flavor, value_ns) = row?;
-        let idx = acc.ensure_commit(&sha, &ts, &msg, &url);
+        let (sha, flavor, value_ns) = row?;
+        let Some(idx) = acc.commit_idx(&sha) else {
+            continue;
+        };
         acc.record(&flavor, idx, value_ns as f64);
-    }
-    if !any {
-        return Ok(None);
     }
     Ok(Some(acc.finish(
         format!("{dataset} / {layout} (threshold={threshold})"),

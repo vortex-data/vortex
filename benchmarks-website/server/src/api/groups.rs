@@ -11,6 +11,7 @@ use anyhow::Context as _;
 use anyhow::Result;
 use duckdb::Connection;
 
+use super::descriptions::group_description;
 use super::dto::ChartLink;
 use super::dto::Group;
 use super::dto::group_sort_key;
@@ -42,6 +43,7 @@ pub(crate) fn collect_groups(conn: &Connection) -> Result<Vec<Group>> {
         let key = GroupKey::from_slug(&group.slug)
             .with_context(|| format!("invalid generated group slug: {}", group.slug))?;
         group.summary = collect_group_summary(conn, &key, &group.charts)?;
+        group.description = group_description(&group.name);
     }
 
     // Apply canonical ordering. `sort_by_key` is stable, so groups whose
@@ -96,6 +98,7 @@ fn collect_query_groups(conn: &Connection) -> Result<Vec<Group>> {
                 slug: group_slug,
                 charts: Vec::new(),
                 summary: None,
+                description: None,
             });
             current = Some(key);
         }
@@ -213,6 +216,7 @@ fn collect_compression_time_group(conn: &Connection) -> Result<Option<Group>> {
             slug: GroupKey::CompressionTimeGroup.to_slug(),
             charts,
             summary: None,
+            description: None,
         }))
     }
 }
@@ -258,6 +262,7 @@ fn collect_compression_size_group(conn: &Connection) -> Result<Option<Group>> {
             slug: GroupKey::CompressionSizeGroup.to_slug(),
             charts,
             summary: None,
+            description: None,
         }))
     }
 }
@@ -287,6 +292,7 @@ fn collect_random_access_group(conn: &Connection) -> Result<Option<Group>> {
             slug: GroupKey::RandomAccessGroup.to_slug(),
             charts,
             summary: None,
+            description: None,
         }))
     }
 }
@@ -324,6 +330,7 @@ fn collect_vector_search_groups(conn: &Connection) -> Result<Vec<Group>> {
                 slug: group_slug,
                 charts: Vec::new(),
                 summary: None,
+                description: None,
             });
             current = Some(key);
         }

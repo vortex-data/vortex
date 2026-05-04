@@ -31,6 +31,9 @@ use crate::api::Summary;
 pub(super) struct LandingGroup {
     /// Display name rendered in the disclosure header.
     pub(super) name: String,
+    /// Optional editorial blurb rendered as a hover tooltip on the
+    /// disclosure title's info-icon.
+    pub(super) description: Option<String>,
     /// Optional v2-compatible summary card rendered above the chart grid.
     pub(super) summary: Option<Summary>,
     /// Chart links for every chart in the group. Always present — we need
@@ -62,6 +65,7 @@ pub(super) fn landing_body(groups: &[LandingGroup]) -> Markup {
                     summary.group-summary {
                         span.group-summary-row {
                             span.group-name { (group.name) }
+                            (group_description_icon(group.description.as_deref()))
                             span.group-count {
                                 (group.chart_links.len()) " chart" @if group.chart_links.len() != 1 { "s" }
                             }
@@ -80,6 +84,30 @@ pub(super) fn landing_body(groups: &[LandingGroup]) -> Markup {
         }
         noscript {
             p.no-script { "JavaScript is required to render the charts." }
+        }
+    }
+}
+
+/// Render the small ⓘ info icon that surfaces the group's editorial
+/// description on hover and on focus. The CSS-only tooltip uses a
+/// `data-tooltip` attribute so it shows below the icon (see `style.css`'s
+/// `.group-info-icon` rule). The icon itself is keyboard-focusable and
+/// `aria-label`-ed so the description is reachable via the keyboard and to
+/// screen readers.
+///
+/// Returns an empty markup fragment when `description` is `None` so groups
+/// without a canonical blurb (e.g. vector-search groups) render unchanged.
+pub(super) fn group_description_icon(description: Option<&str>) -> Markup {
+    let Some(text) = description else {
+        return html! {};
+    };
+    html! {
+        span.group-info-icon
+            tabindex="0"
+            role="note"
+            aria-label=(text)
+            data-tooltip=(text) {
+            "ⓘ"
         }
     }
 }

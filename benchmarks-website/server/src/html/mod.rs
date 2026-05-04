@@ -258,6 +258,7 @@ fn collect_landing_groups(conn: &Connection) -> Result<Vec<LandingGroup>> {
         };
         out.push(LandingGroup {
             name: group.name,
+            description: group.description,
             summary: group.summary,
             chart_links: group.charts,
             inlined,

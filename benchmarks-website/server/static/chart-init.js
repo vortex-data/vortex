@@ -582,7 +582,11 @@
       var rawValues = Array.isArray(raw[name]) ? raw[name] : [];
       // `data` starts null-padded; `rebuildVisibleAndUpdate` fills the
       // current visible window with raw or LTTB-kept values. Chart.js's
-      // `spanGaps: true` means nulls render as gaps.
+      // `spanGaps: false` makes the line break visibly at every null —
+      // commits where this series has no measurement (a benchmark crashed,
+      // a series only runs nightly, etc.) appear as a real gap rather than
+      // being silently bridged. The previous `spanGaps: true` made
+      // partial-coverage runs look like continuous lines.
       var data = new Array(n);
       for (var j = 0; j < n; j++) data[j] = null;
       return {
@@ -592,7 +596,7 @@
         borderColor: colorFor(i),
         backgroundColor: colorFor(i) + "20",
         borderWidth: 1.5,
-        spanGaps: true,
+        spanGaps: false,
         tension: 0,
         pointRadius: 2,
         pointHoverRadius: 5,
@@ -613,8 +617,9 @@
   // for each series, renders raw when the visible count is at or below
   // `MAX_VISIBLE_POINTS` and LTTB-downsamples to exactly that number when
   // above. The result is written into `dataset.data` with nulls outside
-  // the kept set so Chart.js renders just the kept points (with
-  // `spanGaps: true`).
+  // the kept set so Chart.js renders just the kept points; with
+  // `spanGaps: false`, nulls show up as visible gaps in the line so
+  // missing measurements are obvious rather than silently bridged.
   //
   // Mutates `dataset.data` in place to avoid GC churn on every pan frame.
   // Updates the per-card downsample badge as a side effect.
@@ -683,8 +688,10 @@
     }
 
     // Plant the shared kept set into every dataset.data. Series that have
-    // no value at a kept index simply remain null there — `spanGaps: true`
-    // lets the line connect across.
+    // no value at a kept index simply remain null there. With
+    // `spanGaps: false`, those nulls render as visible gaps — partial-
+    // coverage commits (a benchmark crashed, a series only runs nightly)
+    // show up as a break in the line rather than being silently bridged.
     for (var dj = 0; dj < datasets.length; dj++) {
       var ds = datasets[dj];
       var dsRaw = ds.rawData;
@@ -930,18 +937,18 @@
         animation: false,
         // Snap to the single nearest commit *that has rendered data*.
         // After LTTB downsampling most commit indices are null in
-        // `dataset.data` (`spanGaps: true` draws across them);
-        // `mode: "index"` would happily pick one of those null indices
-        // and produce an empty tooltip, while `mode: "x"` would pick
-        // multiple closely-packed LTTB columns at once and the
-        // tooltip would render duplicate rows for the same series at
-        // different commits. `mode: "nearest"` returns exactly one
-        // closest data point — its `dataIndex` is then used by the
-        // external handler as the single hovered commit, and the
-        // handler iterates `chart.data.datasets` itself to build one
-        // row per series. `intersect: false` keeps it active anywhere
-        // on the chart and, combined with `pointer-events: none` on
-        // the tooltip host, is also the flicker fix.
+        // `dataset.data`; `mode: "index"` would happily pick one of
+        // those null indices and produce an empty tooltip, while
+        // `mode: "x"` would pick multiple closely-packed LTTB columns
+        // at once and the tooltip would render duplicate rows for the
+        // same series at different commits. `mode: "nearest"` returns
+        // exactly one closest data point — its `dataIndex` is then
+        // used by the external handler as the single hovered commit,
+        // and the handler iterates `chart.data.datasets` itself to
+        // build one row per series. `intersect: false` keeps it
+        // active anywhere on the chart and, combined with
+        // `pointer-events: none` on the tooltip host, is also the
+        // flicker fix.
         interaction: { mode: "nearest", intersect: false, axis: "x" },
         onClick: function (event, _activeElements, chart) {
           var points = chart.getElementsAtEventForMode(

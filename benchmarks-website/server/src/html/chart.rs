@@ -12,6 +12,7 @@ use maud::PreEscaped;
 use maud::html;
 
 use super::landing::downsample_badge_slot;
+use super::landing::group_description_icon;
 use super::render::escape_json_for_script;
 use super::summary::summary_markup;
 use super::toolbar::per_chart_toolbar;
@@ -55,6 +56,7 @@ pub(super) fn group_body(group: &GroupChartsResponse) -> Markup {
     html! {
         p.chart-meta {
             (chart_count) " chart" @if chart_count != 1 { "s" }
+            (group_description_icon(group.description.as_deref()))
         }
         (summary_markup(group.summary.as_ref()))
         div.chart-grid {
