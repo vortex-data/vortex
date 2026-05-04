@@ -160,6 +160,16 @@ impl CoalescedRequest {
                     req,
                 )
             }
+            if req.offset.saturating_add(req.length as u64) <= range.end {
+                vortex_bail!(
+                    "CoalescedRequest: sub-request for length {} at file offset {} exceeds the coalesced range: {}..{}. {:?}",
+                    req.length,
+                    req.offset,
+                    range.start,
+                    range.end,
+                    req,
+                )
+            }
         }
         Ok(Self {
             range,
@@ -173,36 +183,6 @@ impl CoalescedRequest {
     }
 
     pub fn resolve(self, result: VortexResult<BufferHandle>) {
-        let result = result.and_then(|buffer| {
-            let buffer_len = buffer.len() as u64;
-
-            for req in self.requests.iter() {
-                // We check on construction that req.offset >= range.start.
-                let request_offset = req.offset - self.range.start;
-
-                if request_offset > buffer_len {
-                    vortex_bail!(
-                        "CoalescedRequest: sub-request for length {} at buffer offset {} (file offset {}) is unsatisfiable by buffer of length {}.",
-                        req.length,
-                        request_offset,
-                        req.offset,
-                        buffer_len
-                    )
-                }
-                let request_end = request_offset.saturating_add(req.length as u64);
-                if request_end > buffer_len {
-                    vortex_bail!(
-                        "CoalescedRequest: sub-request for length {} at buffer offset {} (file offset {}) is unsatisfiable by buffer of length {}.",
-                        req.length,
-                        request_offset,
-                        req.offset,
-                        buffer_len
-                    )
-                }
-            }
-            Ok(buffer)
-        });
-
         match result {
             Ok(buffer) => {
                 let base = match buffer.ensure_aligned(Alignment::none()) {
