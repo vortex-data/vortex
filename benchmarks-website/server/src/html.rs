@@ -80,7 +80,7 @@ const CHART_INIT_JS: &[u8] = include_bytes!("../static/chart-init.js");
 const STYLE_CSS: &[u8] = include_bytes!("../static/style.css");
 const VORTEX_BLACK_PNG: &[u8] = include_bytes!("../../public/Vortex_Black_NoBG.png");
 const VORTEX_WHITE_PNG: &[u8] = include_bytes!("../../public/Vortex_White_NoBG.png");
-const STATIC_ASSET_VERSION: &str = "bench-v3-ui-16";
+const STATIC_ASSET_VERSION: &str = "bench-v3-ui-17";
 
 /// Commits to inline for the first group's pre-fetched chart payloads.
 /// The chart's initial visible window is ~100 commits; bigger windows
