@@ -12,6 +12,8 @@ use vortex_buffer::Alignment;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 
 /// An I/O request, either a single read or a coalesced set of reads.
 pub(crate) struct IoRequest(IoRequestInner);
@@ -107,6 +109,17 @@ impl Debug for ReadRequest {
 
 impl ReadRequest {
     pub(crate) fn resolve(self, result: VortexResult<BufferHandle>) {
+        let result = result.and_then(|buffer| {
+            if self.length != buffer.len() {
+                vortex_bail!(
+                    "ReadRequest: expected buffer of length {} but received {}.",
+                    self.length,
+                    buffer.len()
+                )
+            }
+            Ok(buffer)
+        });
+
         if let Err(e) = self.callback.send(result) {
             tracing::debug!("ReadRequest {} dropped before resolving: {e}", self.id);
         }
@@ -133,6 +146,50 @@ impl Debug for CoalescedRequest {
 
 impl CoalescedRequest {
     pub fn resolve(self, result: VortexResult<BufferHandle>) {
+        let result = result.and_then(|buffer| {
+            let expected_length = self.range.end.saturating_sub(self.range.start);
+            let buffer_len = buffer.len() as u64;
+            if expected_length != buffer_len {
+                vortex_bail!(
+                    "CoalescedRequest: expected buffer of length {} but received {}.",
+                    expected_length,
+                    buffer_len
+                )
+            }
+
+            for req in self.requests.iter() {
+                let request_offset = req.offset.checked_sub(self.range.start).ok_or_else(|| {
+                    vortex_err!(
+                        "CoalescedRequest: sub-request for length {} at file offset {} preceeds coalesced range: {}..{}.",
+                        req.length,
+                        req.offset,
+                        self.range.start,
+                        self.range.end,
+                    )
+                })?;
+                if request_offset > buffer_len {
+                    vortex_bail!(
+                        "CoalescedRequest: sub-request for length {} at buffer offset {} (file offset {}) is unsatisfiable by buffer of length {}.",
+                        req.length,
+                        request_offset,
+                        req.offset,
+                        buffer_len
+                    )
+                }
+                let request_end = request_offset.saturating_add(req.length as u64);
+                if request_end > buffer_len {
+                    vortex_bail!(
+                        "CoalescedRequest: sub-request for length {} at buffer offset {} (file offset {}) is unsatisfiable by buffer of length {}.",
+                        req.length,
+                        request_offset,
+                        req.offset,
+                        buffer_len
+                    )
+                }
+            }
+            Ok(buffer)
+        });
+
         match result {
             Ok(buffer) => {
                 let base = match buffer.ensure_aligned(Alignment::none()) {
