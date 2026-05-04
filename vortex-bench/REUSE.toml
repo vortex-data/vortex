@@ -9,3 +9,9 @@ SPDX-License-Identifier = "Apache-2.0"
 path = "**/*.csv"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"
+
+# `insta` snapshot files do not allow leading comment lines.
+[[annotations]]
+path = "src/snapshots/**.snap"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
