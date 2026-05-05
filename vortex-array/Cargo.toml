@@ -125,7 +125,7 @@ name = "scalar_at_struct"
 harness = false
 
 [[bench]]
-name = "scalar_at_patches"
+name = "patches_lookup"
 harness = false
 
 [[bench]]
