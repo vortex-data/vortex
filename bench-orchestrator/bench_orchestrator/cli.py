@@ -7,6 +7,7 @@ import subprocess
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Annotated
 
 import pandas as pd
@@ -115,6 +116,38 @@ def open_results_output(path: Path | None):
         yield handle
 
 
+@contextmanager
+def temporary_v3_output_dir(enabled: bool):
+    """Create a temporary directory for per-backend v3 JSONL files."""
+    if not enabled:
+        yield None
+        return
+
+    with TemporaryDirectory(prefix="vx-bench-v3-") as temp_dir:
+        yield Path(temp_dir)
+
+
+def backend_v3_output_path(temp_dir: Path | None, index: int, backend: Engine) -> Path | None:
+    """Return the v3 JSONL path a backend should write, if v3 output is enabled."""
+    if temp_dir is None:
+        return None
+    return temp_dir / f"{index:02d}-{backend.value}.jsonl"
+
+
+def write_combined_v3_output(output_path: Path, input_paths: list[Path]) -> None:
+    """Concatenate successful per-backend v3 JSONL files into the requested output."""
+    if output_path.parent != Path():
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with output_path.open("w", encoding="utf-8") as output:
+        for input_path in input_paths:
+            if not input_path.exists():
+                raise RuntimeError(f"v3 output was not written by benchmark backend: {input_path}")
+            with input_path.open("r", encoding="utf-8") as input_file:
+                for line in input_file:
+                    output.write(line)
+
+
 def write_result_line(line: str, store_writer, compatibility_file) -> None:
     """Write a raw result line to the run store and optional compatibility output."""
     store_writer(line)
@@ -210,6 +243,10 @@ def run(
         Path | None,
         typer.Option("--output", help="Optional path for compatibility JSONL output"),
     ] = None,
+    gh_json_v3: Annotated[
+        Path | None,
+        typer.Option("--gh-json-v3", help="Optional path for v3 JSONL records emitted by the benchmark binary"),
+    ] = None,
     options: Annotated[list[str] | None, typer.Option("--opt", help="Engine or benchmark specific options")] = None,
 ) -> None:
     """Run benchmarks with specified configuration."""
@@ -276,10 +313,16 @@ def run(
     soft_failures: list[str] = []
 
     try:
-        with store.create_run(config, build_config) as ctx, open_results_output(output) as compatibility_file:
-            for backend, backend_targets in backend_groups.items():
+        with (
+            store.create_run(config, build_config) as ctx,
+            open_results_output(output) as compatibility_file,
+            temporary_v3_output_dir(gh_json_v3 is not None) as v3_temp_dir,
+        ):
+            v3_output_parts: list[Path] = []
+            for backend_idx, (backend, backend_targets) in enumerate(backend_groups.items()):
                 executor = BenchmarkExecutor(binary_paths[backend], backend, verbose=verbose)
                 backend_formats = [target.format for target in backend_targets]
+                backend_gh_json_v3 = backend_v3_output_path(v3_temp_dir, backend_idx, backend)
 
                 try:
                     results = executor.run(
@@ -294,6 +337,7 @@ def run(
                         sample_rate=sample_rate,
                         tracing=tracing,
                         runner=runner,
+                        gh_json_v3=backend_gh_json_v3,
                         on_result=lambda line, store_writer=ctx.write_raw_json, compatibility=compatibility_file: (
                             write_result_line(
                                 line,
@@ -302,6 +346,8 @@ def run(
                             )
                         ),
                     )
+                    if backend_gh_json_v3 is not None:
+                        v3_output_parts.append(backend_gh_json_v3)
                     console.print(f"[green]{backend.value}: {len(results)} results[/green]")
                 except RuntimeError as exc:
                     ctx.metadata.partial = True
@@ -309,6 +355,9 @@ def run(
                         raise
                     console.print(f"[red]{backend.value} failed: {exc}[/red]")
                     soft_failures.append(str(exc))
+
+            if gh_json_v3 is not None:
+                write_combined_v3_output(gh_json_v3, v3_output_parts)
 
             ctx.metadata.binaries = {backend.value: str(path) for backend, path in binary_paths.items()}
     except RuntimeError as exc:

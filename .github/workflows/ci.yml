@@ -358,7 +358,8 @@ jobs:
         if: matrix.os == 'windows-x64'
         run: |
           cargo nextest run --cargo-profile ci --locked --workspace --all-features --no-fail-fast `
-            --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb `
+            --exclude vortex-bench --exclude vortex-bench-server `
+            --exclude vortex-python --exclude vortex-duckdb `
             --exclude vortex-fuzz --exclude vortex-cuda --exclude vortex-nvcomp `
             --exclude vortex-cub --exclude vortex-test-e2e-cuda --exclude duckdb-bench `
             --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench `

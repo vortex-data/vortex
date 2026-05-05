@@ -87,6 +87,7 @@ impl ExtVTable for Date {
     }
 
     fn deserialize_metadata(&self, metadata: &[u8]) -> VortexResult<Self::Metadata> {
+        vortex_ensure!(!metadata.is_empty(), "Date metadata must not be empty");
         let tag = metadata[0];
         TimeUnit::try_from(tag)
     }
@@ -208,5 +209,22 @@ mod tests {
         let ms = DType::Extension(Date::new(TimeUnit::Milliseconds, NonNullable).erased());
         assert!(ms.can_coerce_from(&days));
         assert!(!days.can_coerce_from(&ms));
+    }
+
+    #[test]
+    fn deserialize_empty_metadata_returns_error() {
+        use crate::dtype::extension::ExtVTable;
+
+        let vtable = Date;
+        assert!(vtable.deserialize_metadata(&[]).is_err());
+    }
+
+    #[test]
+    fn deserialize_invalid_tag_returns_error() {
+        use crate::dtype::extension::ExtVTable;
+
+        let vtable = Date;
+        // 0xFF is not a valid TimeUnit tag.
+        assert!(vtable.deserialize_metadata(&[0xFF]).is_err());
     }
 }

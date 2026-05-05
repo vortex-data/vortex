@@ -1,0 +1,154 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Landing-page body rendering.
+//!
+//! Every group is wrapped in a collapsed `<details>`; the first group's
+//! chart payloads are inlined so opening it skips the JS fetch round-trip,
+//! and every other group ships only chart-card shells fetched lazily on
+//! `details.toggle`.
+
+use maud::Markup;
+use maud::PreEscaped;
+use maud::html;
+
+use super::render::escape_json_for_script;
+use super::summary::summary_markup;
+use super::toolbar::per_chart_toolbar;
+use super::toolbar::range_strip;
+use crate::api;
+use crate::api::NamedChartResponse;
+use crate::api::Summary;
+
+/// One group's worth of data for the landing page.
+///
+/// Every disclosure renders closed by default. The first group (in
+/// canonical order) ships with its chart payloads inlined, so the moment
+/// the user expands it the chart hydrates from the inline JSON without a
+/// network round-trip. Every other group ships only its chart-card
+/// shells — payloads are fetched client-side on first `details.toggle`
+/// to keep the cold landing HTML small.
+pub(super) struct LandingGroup {
+    /// Display name rendered in the disclosure header.
+    pub(super) name: String,
+    /// Optional editorial blurb rendered as a hover tooltip on the
+    /// disclosure title's info-icon.
+    pub(super) description: Option<String>,
+    /// Optional v2-compatible summary card rendered above the chart grid.
+    pub(super) summary: Option<Summary>,
+    /// Chart links for every chart in the group. Always present — we need
+    /// the slugs server-side so the chart-card shell can carry
+    /// `data-chart-slug` for the lazy fetch.
+    pub(super) chart_links: Vec<api::ChartLink>,
+    /// Pre-fetched payloads. Populated only for the first group in
+    /// canonical order. `Vec` indices line up with `chart_links`.
+    pub(super) inlined: Vec<Option<NamedChartResponse>>,
+}
+
+/// Render the landing-page body — one `<section>` per group, each wrapping a
+/// `<details>` disclosure. The `chart-data-N` script ids are globally
+/// indexed so `chart-init.js` can find every payload by integer.
+pub(super) fn landing_body(groups: &[LandingGroup]) -> Markup {
+    if groups.is_empty() {
+        return html! {
+            p.empty { "No data ingested yet." }
+        };
+    }
+    let total_charts: usize = groups.iter().map(|g| g.chart_links.len()).sum();
+    // Index every chart globally so `<canvas data-chart-index="N">` and
+    // `<script id="chart-data-N">` agree across groups.
+    let mut idx_iter = 0usize..total_charts;
+    html! {
+        @for group in groups.iter() {
+            section.group-details data-group-name=(group.name) {
+                details.group-disclosure {
+                    summary.group-summary {
+                        span.group-summary-row {
+                            span.group-name { (group.name) }
+                            (group_description_icon(group.description.as_deref()))
+                            span.group-count {
+                                (group.chart_links.len()) " chart" @if group.chart_links.len() != 1 { "s" }
+                            }
+                        }
+                    }
+                }
+                (summary_markup(group.summary.as_ref()))
+                div.chart-grid {
+                    @for (chart_idx, link) in group.chart_links.iter().enumerate() {
+                        @let idx = idx_iter.next().expect("indices match charts");
+                        @let inlined = group.inlined.get(chart_idx).and_then(|o| o.as_ref());
+                        (chart_card(link, idx, inlined))
+                    }
+                }
+            }
+        }
+        noscript {
+            p.no-script { "JavaScript is required to render the charts." }
+        }
+    }
+}
+
+/// Render the small ⓘ info icon that surfaces the group's editorial
+/// description on hover and on focus. The CSS-only tooltip uses a
+/// `data-tooltip` attribute so it shows below the icon (see `style.css`'s
+/// `.group-info-icon` rule). The icon itself is keyboard-focusable and
+/// `aria-label`-ed so the description is reachable via the keyboard and to
+/// screen readers.
+///
+/// Returns an empty markup fragment when `description` is `None` so groups
+/// without a canonical blurb (e.g. vector-search groups) render unchanged.
+pub(super) fn group_description_icon(description: Option<&str>) -> Markup {
+    let Some(text) = description else {
+        return html! {};
+    };
+    html! {
+        span.group-info-icon
+            tabindex="0"
+            role="note"
+            aria-label=(text)
+            data-tooltip=(text) {
+            "ⓘ"
+        }
+    }
+}
+
+/// Render one chart-card. `inlined` carries the JSON payload when the
+/// server pre-fetched it; absent on closed-by-default landing groups, where
+/// the JS fetches on first `details.toggle`.
+fn chart_card(link: &api::ChartLink, idx: usize, inlined: Option<&NamedChartResponse>) -> Markup {
+    let permalink = format!("/chart/{}", link.slug);
+    html! {
+        section.chart-card data-chart-index=(idx) data-chart-slug=(link.slug) {
+            h3.chart-card-title {
+                a href=(permalink) { (link.name) }
+                (downsample_badge_slot())
+            }
+            (per_chart_toolbar(idx))
+            div.chart-tooltip-host {}
+            div.chart-wrap {
+                canvas data-chart-index=(idx) {}
+            }
+            (range_strip(idx))
+            @if let Some(item) = inlined {
+                script id={ "chart-data-" (idx) } type="application/json" {
+                    (PreEscaped(escape_json_for_script(
+                        &serde_json::to_string(&item.chart)
+                            .expect("ChartResponse serialises"),
+                    )))
+                }
+            }
+        }
+    }
+}
+
+/// Empty hidden slot for the LTTB badge. `chart-init.js` flips it on when
+/// the *currently visible* commit range exceeds the LTTB threshold and the
+/// rendered point count is therefore less than the raw point count in that
+/// range.
+pub(super) fn downsample_badge_slot() -> Markup {
+    html! {
+        span.chart-badge.chart-badge--downsampled
+            data-role="downsample-badge"
+            hidden {}
+    }
+}
