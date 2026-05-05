@@ -163,6 +163,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::executor::VortexSessionExecute;
     use crate::optimizer::ArrayOptimizer;
     use crate::optimizer::kernels::ArrayKernels;
     use crate::optimizer::kernels::ReduceParentFn;
@@ -170,7 +171,6 @@ mod tests {
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::cast::Cast;
     use crate::validity::Validity;
-
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArrayKernels>());
 

@@ -565,7 +565,7 @@ fn try_execute_parent(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<
     for (slot_idx, slot) in array.slots().iter().enumerate() {
         let Some(child) = slot else { continue };
         if let Some(executed_parent) =
-            execute_parent_for_child(&array, child, slot_idx, kernels.as_ref(), ctx)?
+            execute_parent_for_child(array, child, slot_idx, kernels.as_ref(), ctx)?
         {
             ctx.log(format_args!(
                 "execute_parent: slot[{}]({}) rewrote {} -> {}",
