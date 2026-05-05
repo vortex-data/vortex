@@ -71,7 +71,10 @@ pub(super) fn to_arrow_byte_view<T: ByteViewType>(
     // We do this in case the vortex array is Utf8, and we want Binary or vice versa. By casting
     // first, we may push this down through the Vortex array tree. We choose nullable to be most
     // flexible since there's no prescribed nullability in Arrow types.
-    let array = array.cast(DType::from_arrow((&T::DATA_TYPE, Nullability::Nullable)))?;
+    let array = array.cast(DType::from_arrow(
+        (&T::DATA_TYPE, Nullability::Nullable),
+        ctx.session(),
+    ))?;
 
     let varbinview = array.execute::<VarBinViewArray>(ctx)?;
     canonical_varbinview_to_arrow::<T>(&varbinview, ctx)

@@ -6,6 +6,7 @@
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 mod convert;
 mod datum;
@@ -24,10 +25,8 @@ use crate::ArrayRef;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 
-pub trait FromArrowArray<A> {
-    fn from_arrow(array: A, nullable: bool) -> VortexResult<Self>
-    where
-        Self: Sized;
+pub trait FromArrowArray<A>: Sized {
+    fn from_arrow(array: A, nullable: bool, session: &VortexSession) -> VortexResult<Self>;
 }
 
 #[deprecated(note = "Use `execute_arrow(None, ctx)` or `execute_arrow(Some(dt), ctx)` instead")]

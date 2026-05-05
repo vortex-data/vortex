@@ -1165,7 +1165,7 @@ mod test {
             nulls.finish(),
         );
 
-        let vortex_struct = ArrayRef::from_arrow(&arrow_struct, true).unwrap();
+        let vortex_struct = ArrayRef::from_arrow(&arrow_struct, true, ctx.session()).unwrap();
 
         assert_eq!(
             &arrow_struct,
@@ -1193,7 +1193,7 @@ mod test {
         );
         let list_data_type = arrow_list.data_type();
 
-        let vortex_list = ArrayRef::from_arrow(&arrow_list, true).unwrap();
+        let vortex_list = ArrayRef::from_arrow(&arrow_list, true, ctx.session()).unwrap();
 
         let rt_arrow_list = vortex_list
             .execute_arrow(Some(list_data_type), &mut ctx)

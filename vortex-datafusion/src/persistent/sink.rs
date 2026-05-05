@@ -26,6 +26,7 @@ use object_store::ObjectStore;
 use object_store::path::Path;
 use tokio_stream::wrappers::ReceiverStream;
 use vortex::array::ArrayRef;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
@@ -115,12 +116,13 @@ impl FileSink for VortexSink {
             let session = self.session.clone();
             let object_store = Arc::clone(&object_store);
             let writer_schema = get_writer_schema(&self.config);
-            let dtype = DType::from_arrow(writer_schema);
+            let dtype = DType::from_arrow(writer_schema, &LEGACY_SESSION);
 
             // We need to spawn work because there's a dependency between the different files. If one file has too many batches buffered,
             // the demux task might deadlock itself.
             file_write_tasks.spawn(async move {
-                let stream = ReceiverStream::new(rx).map(move |rb| ArrayRef::from_arrow(rb, false));
+                let stream = ReceiverStream::new(rx)
+                    .map(move |rb| ArrayRef::from_arrow(rb, false, &LEGACY_SESSION));
 
                 let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
 

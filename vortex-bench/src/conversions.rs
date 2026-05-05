@@ -20,6 +20,7 @@ use tracing::trace;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrow::FromArrowArray;
@@ -91,7 +92,7 @@ pub fn parquet_to_vortex_stream(
 ) -> impl futures::Stream<Item = VortexResult<ArrayRef>> {
     reader.map(move |result| {
         result.map_err(|e| vortex_err!(External: e)).and_then(|rb| {
-            let chunk = ArrayRef::from_arrow(rb, false)?;
+            let chunk = ArrayRef::from_arrow(rb, false, &LEGACY_SESSION)?;
             let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
 
             // Canonicalize the chunk.
@@ -115,7 +116,7 @@ pub async fn convert_parquet_file_to_vortex(
 ) -> anyhow::Result<()> {
     let file = File::open(parquet_path).await?;
     let builder = ParquetRecordBatchStreamBuilder::new(file).await?;
-    let dtype = DType::from_arrow(builder.schema().as_ref());
+    let dtype = DType::from_arrow(builder.schema().as_ref(), &LEGACY_SESSION);
 
     let stream = parquet_to_vortex_stream(builder.build()?);
 

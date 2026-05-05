@@ -44,6 +44,7 @@ use futures::stream;
 use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::memory::MemorySessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
@@ -526,7 +527,7 @@ impl FileFormat for VortexFormat {
                 let column_size =
                     stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
 
-                let target_dtype = DType::from_arrow(field.as_ref());
+                let target_dtype = DType::from_arrow(field.as_ref(), &LEGACY_SESSION);
                 let min = scalar_stat_to_df(
                     Stat::Min,
                     stats_set.get(Stat::Min),

@@ -17,6 +17,7 @@ use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::RunEndData;
 use crate::ops::find_slice_end_index;
@@ -25,14 +26,18 @@ impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndData
 where
     R::Native: NativePType,
 {
-    fn from_arrow(array: &RunArray<R>, nullable: bool) -> VortexResult<Self> {
+    fn from_arrow(
+        array: &RunArray<R>,
+        nullable: bool,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
         let offset = array.run_ends().offset();
         let len = array.run_ends().len();
         let ends_buf =
             Buffer::<R::Native>::from_arrow_scalar_buffer(array.run_ends().inner().clone());
         let ends = PrimitiveArray::new(ends_buf, Validity::NonNullable)
             .reinterpret_cast(R::Native::PTYPE.to_unsigned());
-        let values = ArrayRef::from_arrow(array.values().as_ref(), nullable)?;
+        let values = ArrayRef::from_arrow(array.values().as_ref(), nullable, session)?;
 
         let ends_array = PrimitiveArray::from_buffer_handle(
             ends.buffer_handle().clone(),
@@ -125,7 +130,7 @@ mod tests {
             Buffer::<R::Native>::from_arrow_scalar_buffer(array.run_ends().inner().clone());
         let ends = PrimitiveArray::new(ends_buf, Validity::NonNullable)
             .reinterpret_cast(R::Native::PTYPE.to_unsigned());
-        let values = ArrayRef::from_arrow(array.values().as_ref(), nullable)?;
+        let values = ArrayRef::from_arrow(array.values().as_ref(), nullable, &SESSION)?;
 
         let ends_array = PrimitiveArray::from_buffer_handle(
             ends.buffer_handle().clone(),
