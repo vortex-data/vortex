@@ -27,8 +27,8 @@ use crate::arrays::FixedSizeList;
 use crate::arrays::ListView;
 use crate::arrays::Null;
 use crate::arrays::Primitive;
-use crate::arrays::Struct;
 use crate::arrays::VarBinView;
+use crate::arrays::struct_::compute::cast::struct_cast;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::StatsCatalog;
@@ -218,7 +218,7 @@ fn cast_canonical(
         CanonicalView::VarBinView(a) => <VarBinView as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::List(a) => <ListView as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::FixedSizeList(a) => <FixedSizeList as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::Struct(a) => <Struct as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::Struct(a) => struct_cast(a, dtype, ctx),
         CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a, dtype),
         CanonicalView::Variant(_) => {
             vortex_bail!("Variant arrays don't support casting")

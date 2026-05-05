@@ -1,0 +1,1072 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* SPDX-FileCopyrightText: Copyright the Vortex contributors */
+
+:root {
+  color-scheme: light;
+  --header-height: 72px;
+  --bg: #ffffff;
+  --page-bg: #fafafa;
+  --fg: #101010;
+  --muted: #666666;
+  --accent: #5971fd;
+  --accent-fg: #ffffff;
+  --border: #ececec;
+  --card-bg: #ffffff;
+  --code-bg: #fafafa;
+  --tooltip-bg: #1a1a1a;
+  --tooltip-fg: #f5f5f5;
+  --good: #16a34a;
+  --bad: #dc2626;
+  --shadow-md: 0 4px 8px rgba(16, 16, 16, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #050507;
+    --page-bg: #121219;
+    --fg: #f5f5f7;
+    --muted: #a0a0b0;
+    --accent: #8a9cff;
+    --accent-fg: #050507;
+    --border: #30303a;
+    --card-bg: #050507;
+    --code-bg: #121219;
+    --tooltip-bg: #1a1c22;
+    --tooltip-fg: #f5f5f5;
+    --good: #4ade80;
+    --bad: #f87171;
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.7);
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --page-bg: #fafafa;
+  --fg: #101010;
+  --muted: #666666;
+  --accent: #5971fd;
+  --accent-fg: #ffffff;
+  --border: #ececec;
+  --card-bg: #ffffff;
+  --code-bg: #fafafa;
+  --tooltip-bg: #1a1a1a;
+  --tooltip-fg: #f5f5f5;
+  --good: #16a34a;
+  --bad: #dc2626;
+  --shadow-md: 0 4px 8px rgba(16, 16, 16, 0.08);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #050507;
+  --page-bg: #121219;
+  --fg: #f5f5f7;
+  --muted: #a0a0b0;
+  --accent: #8a9cff;
+  --accent-fg: #050507;
+  --border: #30303a;
+  --card-bg: #050507;
+  --code-bg: #121219;
+  --tooltip-bg: #1a1c22;
+  --tooltip-fg: #f5f5f5;
+  --good: #4ade80;
+  --bad: #f87171;
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.7);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-width: 0;
+  overflow-x: hidden;
+  background: var(--page-bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+body {
+  padding-top: var(--header-height);
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.sticky-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  height: var(--header-height);
+  border-bottom: 1px solid var(--border);
+  background: rgba(250, 250, 250, 0.95);
+  box-shadow: 0 1px 3px rgba(16, 16, 16, 0.08);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .sticky-header {
+    background: rgba(18, 18, 25, 0.95);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  }
+}
+
+:root[data-theme="dark"] .sticky-header {
+  background: rgba(18, 18, 25, 0.95);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+:root[data-theme="light"] .sticky-header {
+  background: rgba(250, 250, 250, 0.95);
+  box-shadow: 0 1px 3px rgba(16, 16, 16, 0.08);
+}
+
+.header-content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
+  width: 100%;
+  height: 100%;
+  padding: 0 2rem;
+  background: var(--code-bg);
+}
+
+.header-left,
+.header-center,
+.header-right,
+.nav-controls,
+.repo-link,
+.logo-link {
+  display: flex;
+  align-items: center;
+}
+
+.header-left {
+  min-width: 0;
+  gap: 0.75rem;
+}
+
+.header-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  flex: 0 0 auto;
+  justify-content: center;
+  min-width: 0;
+  transform: translate(-50%, -50%);
+}
+
+.header-right {
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+.nav-controls {
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.logo-link {
+  flex: 0 0 auto;
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+.logo-link:hover {
+  opacity: 0.8;
+  text-decoration: none;
+}
+
+.site-logo {
+  display: block;
+  width: auto;
+  height: 24px;
+}
+
+.logo-dark { display: none; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .logo-light { display: none; }
+  :root:not([data-theme="light"]) .logo-dark { display: block; }
+}
+
+:root[data-theme="dark"] .logo-light { display: none; }
+:root[data-theme="dark"] .logo-dark { display: block; }
+:root[data-theme="light"] .logo-light { display: block; }
+:root[data-theme="light"] .logo-dark { display: none; }
+
+.site-title {
+  display: none;
+  margin: 0 0 0 1.5rem;
+  color: var(--fg);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+@media (min-width: 1400px) {
+  .site-title {
+    display: block;
+  }
+}
+
+.control-btn,
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background-color 0.2s ease, border-color 0.2s ease,
+    box-shadow 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.control-btn {
+  padding: 0.5rem 1.25rem;
+  cursor: pointer;
+}
+
+.control-btn:hover,
+.repo-link:hover {
+  border-color: var(--accent);
+  background: var(--code-bg);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(16, 16, 16, 0.08);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.theme-toggle {
+  min-width: 4.25rem;
+}
+
+.btn-icon {
+  flex: 0 0 auto;
+}
+
+.theme-icon-dark {
+  display: none;
+}
+
+.theme-toggle[data-next-theme="dark"] .theme-icon-light {
+  display: none;
+}
+
+.theme-toggle[data-next-theme="dark"] .theme-icon-dark {
+  display: block;
+}
+
+.theme-toggle[data-next-theme="light"] .theme-icon-light {
+  display: block;
+}
+
+.theme-toggle[data-next-theme="light"] .theme-icon-dark {
+  display: none;
+}
+
+.repo-link {
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+}
+
+.github-logo {
+  flex: 0 0 auto;
+}
+
+.page-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--code-bg);
+  padding: 1rem 2rem;
+  width: 100%;
+}
+.page-header h1 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+.page-header h1 a { color: var(--fg); }
+.page-header .subtitle {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+main {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 2rem;
+}
+
+@media (min-width: 1600px) {
+  main { padding: 2.5rem 3.75rem; }
+}
+
+@media (min-width: 1920px) {
+  main { padding: 3rem 5rem; }
+}
+
+.empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.group-details {
+  width: 100%;
+  max-width: none;
+  margin-bottom: 3rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.group-disclosure {
+  display: block;
+}
+.group-summary {
+  list-style: none;
+  cursor: pointer;
+  display: block;
+  background: var(--code-bg);
+  border-radius: 12px 12px 0 0;
+  user-select: none;
+}
+.group-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid var(--border);
+  transition: background-color 0.2s ease;
+}
+.group-summary::-webkit-details-marker { display: none; }
+.group-summary-row::before {
+  content: "▶";
+  display: inline-block;
+  width: 1rem;
+  flex: 0 0 auto;
+  font-size: 0.9rem;
+  line-height: 1;
+  text-align: center;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+.group-disclosure[open] > .group-summary .group-summary-row::before {
+  transform: rotate(90deg);
+}
+.group-summary:hover .group-summary-row { background: var(--bg); }
+.group-name {
+  font-weight: 600;
+  font-size: 1.35rem;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+.group-count {
+  color: var(--muted);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+/*
+ * The small ⓘ next to a group title that surfaces the editorial blurb on
+ * hover and on focus. The icon is keyboard-focusable; clicking the icon
+ * doesn't toggle the surrounding `<details>` because we stop propagation
+ * via `pointer-events: auto` on the icon (the surrounding summary row is
+ * still clickable around it).
+ */
+.group-info-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: help;
+  user-select: none;
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+.group-info-icon:hover,
+.group-info-icon:focus-visible {
+  color: var(--fg);
+  outline: none;
+}
+/*
+ * CSS-only tooltip rendered below the icon. We use a `::after` pseudo so
+ * we don't have to plant extra DOM. `pointer-events: none` keeps the
+ * tooltip from intercepting hover (which would cause flicker), and
+ * `white-space: normal` + a fixed `max-width` lets long descriptions wrap
+ * gracefully.
+ *
+ * Anchored to the icon's left edge (not centred on the icon) so the tooltip
+ * grows rightward into the page. Group titles in our layout are left-
+ * aligned in the disclosure header, so the icon is always close to the
+ * viewport's left edge — `left: 50%; transform: translateX(-50%)` would
+ * push half of a wide tooltip off the screen and clip it. Anchoring to the
+ * left keeps the description fully visible.
+ */
+[data-tooltip].group-info-icon::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-fg);
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.35;
+  border-radius: 6px;
+  max-width: min(28rem, 90vw);
+  width: max-content;
+  white-space: normal;
+  text-align: left;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+  pointer-events: none;
+  z-index: 10;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+[data-tooltip].group-info-icon:hover::after,
+[data-tooltip].group-info-icon:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+}
+.group-details > .chart-grid {
+  padding: 1.25rem;
+  background: var(--bg);
+}
+
+.benchmark-scores-summary {
+  border-bottom: 1px solid var(--border);
+  background: var(--code-bg);
+  padding: 0.75rem 2rem;
+  margin: 0;
+}
+
+.group-disclosure:not([open]) ~ .chart-grid {
+  display: none;
+}
+
+.group-details > .chart-grid .chart-card:last-child {
+  margin-bottom: 0;
+}
+
+.chart-meta + .benchmark-scores-summary {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+.scores-title {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.scores-list {
+  column-count: 2;
+  column-gap: 1.25rem;
+}
+
+.score-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+  font-size: 0.875rem;
+  break-inside: avoid;
+}
+
+.score-rank {
+  min-width: 2.25rem;
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+
+.score-series {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--fg);
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.score-metrics {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.score-value,
+.score-runtime {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.score-value { color: var(--accent); }
+.score-runtime { color: var(--muted); }
+
+.scores-explanation {
+  margin-top: 0.45rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-style: italic;
+  text-align: center;
+}
+
+/* ----------------------------------------------------------------------
+ * Global filter dropdown — lives inside the sticky header. The trigger is
+ * a `.control-btn` styled like the expand/collapse buttons; the panel is
+ * absolutely positioned beneath it and shows two rows of `.filter-chip`
+ * buttons that toggle whole engines / formats across every chart at once.
+ *
+ * Toggle semantics (driven by chart-init.js):
+ *   - Each non-"all" chip toggles independently. Active = visible.
+ *   - The "all" chip is a one-shot reset; clicking it forces every chip
+ *     in that row back to active. It never holds an active state itself.
+ *   - Per-chart legend clicks override the global state for that card.
+ * ---------------------------------------------------------------------- */
+.filter-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.filter-trigger {
+  position: relative;
+}
+.filter-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1;
+}
+.filter-panel {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 22rem;
+  max-width: min(90vw, 36rem);
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-md);
+}
+.filter-panel[hidden] { display: none; }
+.global-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.global-filter-label {
+  flex: 0 0 auto;
+  min-width: 4rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0.1rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+}
+.filter-chip:hover { border-color: var(--accent); }
+.filter-chip--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.filter-chip--all {
+  font-weight: 600;
+}
+
+/* ----------------------------------------------------------------------
+ * Per-chart toolbar (`.toolbar.toolbar--card`)
+ * ---------------------------------------------------------------------- */
+.toolbar--card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  align-items: center;
+  padding: 0.4rem 0.5rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  font-size: 0.78rem;
+}
+.toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+.toolbar-label {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 0.15rem;
+}
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 0.78rem;
+  font-family: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+.toolbar-btn:hover { border-color: var(--accent); }
+.toolbar-btn--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+.toolbar-btn--active:hover { color: var(--accent-fg); }
+.toolbar-slider {
+  width: 12rem;
+  accent-color: var(--accent);
+}
+/* ----------------------------------------------------------------------
+ * Single-chart + group-page chart card
+ * ---------------------------------------------------------------------- */
+.chart-meta {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin: 0 0 0.75rem;
+}
+.chart-meta code {
+  background: var(--code-bg);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+
+.chart-card {
+  min-width: 0;
+  width: 100%;
+  max-width: none;
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+  transition: box-shadow 0.2s ease;
+}
+.chart-card:hover {
+  box-shadow: var(--shadow-md);
+}
+.chart-card-title {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.chart-card-title a { color: var(--fg); }
+.chart-card-title a:hover { color: var(--accent); }
+
+/* Downsampled-payload badge. Rendered both server-side (when the inline
+ * payload was downsampled) and client-side (after the lazy fetch
+ * completes). The `hidden` attribute hides it when no downsampling
+ * occurred; JS toggles it via `removeAttribute("hidden")`. */
+.chart-badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--code-bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  cursor: help;
+}
+.chart-badge[hidden] { display: none; }
+.chart-badge--downsampled {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.chart-grid {
+  width: 100%;
+  max-width: none;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+.chart-wrap {
+  width: 100%;
+  position: relative;
+  height: 420px;
+}
+.chart-card .chart-wrap canvas,
+.chart-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+@media (min-width: 1200px) {
+  .chart-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+
+  .chart-wrap {
+    height: 450px;
+  }
+}
+
+/* Single-chart pages get a taller area; group cards keep the compact 450px. */
+main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
+  height: 680px;
+}
+
+/* ----------------------------------------------------------------------
+ * Range scrollbar strip (`.chart-range-strip`)
+ *
+ * Thin track below each canvas. Spans the full commit history; the inset
+ * `.chart-range-strip-window` highlights the currently visible slice and
+ * carries two edge handles for resize. Pointer events are intentionally
+ * `auto` (unlike the tooltip host) because users grab and drag this widget.
+ * ---------------------------------------------------------------------- */
+.chart-range-strip {
+  position: relative;
+  width: 100%;
+  height: 14px;
+  margin-top: 0.4rem;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+}
+.chart-range-strip-track {
+  position: absolute;
+  inset: 0;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.chart-range-strip-window {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  border-left: 1px solid var(--accent);
+  border-right: 1px solid var(--accent);
+  cursor: grab;
+  box-sizing: border-box;
+}
+.chart-range-strip--dragging .chart-range-strip-window { cursor: grabbing; }
+.chart-range-strip-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  background: var(--accent);
+  cursor: ew-resize;
+}
+.chart-range-strip-handle--left { left: -3px; border-radius: 2px 0 0 2px; }
+.chart-range-strip-handle--right { right: -3px; border-radius: 0 2px 2px 0; }
+.chart-range-strip-handle:hover { filter: brightness(1.1); }
+
+@media (max-width: 768px) {
+  .chart-range-strip { height: 18px; }
+  .chart-range-strip-handle { width: 10px; }
+  .chart-range-strip-handle--left { left: -5px; }
+  .chart-range-strip-handle--right { right: -5px; }
+}
+
+.no-script {
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--code-bg);
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+/* Per-card loading + error indicators (lazy-fetch on details toggle). */
+.chart-loading,
+.chart-error {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 5;
+}
+.chart-loading {
+  background: var(--code-bg);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+.chart-error {
+  background: var(--bad);
+  color: var(--accent-fg);
+  max-width: 18rem;
+  white-space: normal;
+}
+
+/* ----------------------------------------------------------------------
+ * Custom external tooltip
+ *
+ * `pointer-events: none` is intentional and load-bearing: previously this
+ * was flipped to `auto` while visible, which caused a flicker loop where
+ * the cursor would land on the tooltip → mouseout fires on the canvas →
+ * tooltip hides → cursor lands on the canvas → tooltip shows. The cost is
+ * that links inside the tooltip are no longer clickable; the chart-card
+ * title already links to the permalink.
+ * ---------------------------------------------------------------------- */
+.chart-tooltip-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 20;
+  background: var(--tooltip-bg);
+  color: var(--tooltip-fg);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  max-width: 22rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  /* default offset; chart-init.js flips horizontally near the right edge */
+  transform: translate(12px, 12px);
+  transition: opacity 80ms;
+}
+.tt-title {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+  font-variant-numeric: tabular-nums;
+}
+.tt-rows { display: flex; flex-direction: column; gap: 0.15rem; }
+.tt-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+.tt-swatch {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.tt-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 11rem;
+}
+.tt-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+.tt-delta {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+.tt-delta--better { color: var(--good); }
+.tt-delta--worse { color: var(--bad); }
+.tt-footer {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.tt-msg {
+  color: var(--tooltip-fg);
+  opacity: 0.85;
+  white-space: normal;
+  font-style: italic;
+}
+
+/* ----------------------------------------------------------------------
+ * Mobile
+ * ---------------------------------------------------------------------- */
+@media (max-width: 768px) {
+  :root {
+    --header-height: 56px;
+  }
+  .header-content {
+    gap: 0.5rem;
+    padding: 0 0.5rem;
+  }
+  .site-logo {
+    height: 16px;
+  }
+  .header-left {
+    gap: 0.5rem;
+  }
+  .header-center {
+    position: static;
+    flex: 1 1 auto;
+    transform: none;
+  }
+  .header-right {
+    gap: 0.35rem;
+    margin-left: 0;
+  }
+  .site-title {
+    display: none;
+  }
+  .nav-controls {
+    gap: 0.35rem;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nav-controls::-webkit-scrollbar {
+    display: none;
+  }
+  .control-btn,
+  .repo-link {
+    min-height: 32px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+  }
+  .control-btn {
+    padding: 0.4rem 0.55rem;
+  }
+  .theme-toggle {
+    min-width: 3.25rem;
+  }
+  .repo-link {
+    padding: 0.4rem 0.55rem;
+  }
+  .repo-link span {
+    display: none;
+  }
+  main { padding: 1rem; }
+  .group-details {
+    margin-bottom: 1.5rem;
+    border-radius: 8px;
+  }
+  .group-summary {
+    border-radius: 8px 8px 0 0;
+  }
+  .group-summary-row {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+  }
+  .group-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 1.1rem;
+    word-break: break-word;
+  }
+  .group-count {
+    flex: 0 0 auto;
+    font-size: 0.65rem;
+  }
+  .group-details > .chart-grid {
+    padding: 0.75rem;
+  }
+  .benchmark-scores-summary {
+    padding: 0.6rem 1rem;
+  }
+  .toolbar--card {
+    gap: 0.35rem 0.6rem;
+    padding: 0.4rem 0.45rem;
+  }
+  .toolbar-btn {
+    min-height: 32px;
+    padding: 0.25rem 0.6rem;
+    font-size: 0.85rem;
+  }
+  .scores-list { column-count: 1; }
+  .score-item { align-items: flex-start; }
+  .score-metrics { flex-direction: column; gap: 0; align-items: flex-end; }
+  .toolbar-slider { width: 100%; flex: 1 1 auto; min-width: 6rem; }
+  .chart-grid { grid-template-columns: 1fr; gap: 0.5rem; }
+  .chart-wrap { height: 350px; }
+  main > .chart-card:not(.chart-grid .chart-card) .chart-wrap { height: 420px; }
+}

@@ -97,13 +97,13 @@ fn transfer_mix_timed(
 }
 
 fn benchmark_transfer_throughput(c: &mut Criterion) {
-    let mut group = c.benchmark_group("cuda/throughput");
+    let mut group = c.benchmark_group("cuda");
     for &(input_bytes, output_bytes, label) in MIXES {
         let total_mem_bytes = input_bytes * 2 + output_bytes;
         group.throughput(Throughput::Bytes(total_mem_bytes as u64));
 
         group.bench_with_input(
-            BenchmarkId::new(format!("transfer/{label}"), "100MiB"),
+            BenchmarkId::new(format!("cuda/throughput/transfer/{label}"), "100MiB"),
             &(input_bytes, output_bytes),
             |b, &(in_bytes, out_bytes)| {
                 b.iter_custom(|iters| {

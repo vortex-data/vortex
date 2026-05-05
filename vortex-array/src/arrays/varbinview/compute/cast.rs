@@ -42,7 +42,7 @@ impl CastReduce for VarBinView {
         let new_nullability = dtype.nullability();
         let Some(new_validity) = array
             .validity()?
-            .trivial_cast_nullability(new_nullability, array.len())?
+            .trivially_cast_nullability(new_nullability, array.len())?
         else {
             return Ok(None);
         };

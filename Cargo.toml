@@ -60,6 +60,9 @@ members = [
     "benchmarks/duckdb-bench",
     "benchmarks/random-access-bench",
     "benchmarks/vector-search-bench",
+    # Benchmarks website v3 (alpha) - leaf binary, not part of vortex-* API
+    "benchmarks-website/server",
+    "benchmarks-website/migrate",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"

@@ -188,7 +188,7 @@ impl<T: DeviceRepr + NativePType> BenchRunner<T> {
 // Benchmark: FoR(BitPacked)
 // ---------------------------------------------------------------------------
 fn bench_for_bitpacked(c: &mut Criterion) {
-    let mut group = c.benchmark_group("cuda/for_bitpacked_6bw");
+    let mut group = c.benchmark_group("cuda");
 
     let bit_width: u8 = 6;
     let reference = 100_000u32;
@@ -209,20 +209,24 @@ fn bench_for_bitpacked(c: &mut Criterion) {
             .vortex_expect("for")
             .into_array();
 
-        group.bench_with_input(BenchmarkId::new("dispatch_u32", len_str), len, |b, &n| {
-            let mut cuda_ctx =
-                CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+        group.bench_with_input(
+            BenchmarkId::new("cuda/for_bitpacked_6bw/dispatch_u32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-            let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
-            b.iter_custom(|iters| {
-                let mut total_time = Duration::ZERO;
-                for _ in 0..iters {
-                    total_time += bench_runner.run(&mut cuda_ctx);
-                }
-                total_time
-            });
-        });
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
     }
 
     group.finish();
@@ -232,7 +236,7 @@ fn bench_for_bitpacked(c: &mut Criterion) {
 // Benchmark: Dict(codes=BitPacked, values=Primitive)
 // ---------------------------------------------------------------------------
 fn bench_dict_bp_codes(c: &mut Criterion) {
-    let mut group = c.benchmark_group("cuda/dict_256vals_bp8bw_codes");
+    let mut group = c.benchmark_group("cuda");
 
     let dict_size: usize = 256;
     let dict_bit_width: u8 = 8;
@@ -250,20 +254,24 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
         let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
         let array = dict.into_array();
 
-        group.bench_with_input(BenchmarkId::new("dispatch_u32", len_str), len, |b, &n| {
-            let mut cuda_ctx =
-                CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+        group.bench_with_input(
+            BenchmarkId::new("cuda/dict_256vals_bp8bw_codes/dispatch_u32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-            let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
-            b.iter_custom(|iters| {
-                let mut total_time = Duration::ZERO;
-                for _ in 0..iters {
-                    total_time += bench_runner.run(&mut cuda_ctx);
-                }
-                total_time
-            });
-        });
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
     }
 
     group.finish();
@@ -273,7 +281,7 @@ fn bench_dict_bp_codes(c: &mut Criterion) {
 // Benchmark: RunEnd(ends=Prim, values=Prim)
 // ---------------------------------------------------------------------------
 fn bench_runend(c: &mut Criterion) {
-    let mut group = c.benchmark_group("cuda/runend_100runs");
+    let mut group = c.benchmark_group("cuda");
 
     let num_runs: usize = 100;
 
@@ -290,20 +298,24 @@ fn bench_runend(c: &mut Criterion) {
         let re = RunEnd::new(ends_arr, values_arr, &mut ctx);
         let array = re.into_array();
 
-        group.bench_with_input(BenchmarkId::new("dispatch_u32", len_str), len, |b, &n| {
-            let mut cuda_ctx =
-                CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+        group.bench_with_input(
+            BenchmarkId::new("cuda/runend_100runs/dispatch_u32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-            let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
-            b.iter_custom(|iters| {
-                let mut total_time = Duration::ZERO;
-                for _ in 0..iters {
-                    total_time += bench_runner.run(&mut cuda_ctx);
-                }
-                total_time
-            });
-        });
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
     }
 
     group.finish();
@@ -314,7 +326,7 @@ fn bench_runend(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 fn bench_alp_for_bitpacked_f64(c: &mut Criterion) {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let mut group = c.benchmark_group("cuda/alp_for_bp_6bw_f64");
+    let mut group = c.benchmark_group("cuda");
 
     let exponents = Exponents { e: 2, f: 0 };
     let bit_width: u8 = 6;
@@ -351,20 +363,24 @@ fn bench_alp_for_bitpacked_f64(c: &mut Criterion) {
         );
         let array = tree.into_array();
 
-        group.bench_with_input(BenchmarkId::new("dispatch_f64", len_str), len, |b, &n| {
-            let mut cuda_ctx =
-                CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+        group.bench_with_input(
+            BenchmarkId::new("cuda/alp_for_bp_6bw_f64/dispatch_f64", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-            let bench_runner = BenchRunner::<u64>::new(&array, n, &mut cuda_ctx);
+                let bench_runner = BenchRunner::<u64>::new(&array, n, &mut cuda_ctx);
 
-            b.iter_custom(|iters| {
-                let mut total_time = Duration::ZERO;
-                for _ in 0..iters {
-                    total_time += bench_runner.run(&mut cuda_ctx);
-                }
-                total_time
-            });
-        });
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
     }
 
     group.finish();
@@ -374,7 +390,7 @@ fn bench_alp_for_bitpacked_f64(c: &mut Criterion) {
 // Benchmark: Dict(codes=BitPacked, values=FoR(BitPacked))
 // ---------------------------------------------------------------------------
 fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
-    let mut group = c.benchmark_group("cuda/dict_64vals_bp6bw_codes_for_bp6bw_values");
+    let mut group = c.benchmark_group("cuda");
 
     let dict_size: usize = 64;
     let dict_bit_width: u8 = 6;
@@ -401,20 +417,27 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
         let dict = DictArray::new(codes_bp.into_array(), dict_for.clone().into_array());
         let array = dict.into_array();
 
-        group.bench_with_input(BenchmarkId::new("dispatch_u32", len_str), len, |b, &n| {
-            let mut cuda_ctx =
-                CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+        group.bench_with_input(
+            BenchmarkId::new(
+                "cuda/dict_64vals_bp6bw_codes_for_bp6bw_values/dispatch_u32",
+                len_str,
+            ),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-            let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
-            b.iter_custom(|iters| {
-                let mut total_time = Duration::ZERO;
-                for _ in 0..iters {
-                    total_time += bench_runner.run(&mut cuda_ctx);
-                }
-                total_time
-            });
-        });
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
     }
 
     group.finish();
@@ -425,7 +448,7 @@ fn bench_dict_bp_codes_bp_for_values(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 fn bench_alp_for_bitpacked(c: &mut Criterion) {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let mut group = c.benchmark_group("cuda/alp_for_bp_6bw_f32");
+    let mut group = c.benchmark_group("cuda");
 
     let exponents = Exponents { e: 2, f: 0 };
     let bit_width: u8 = 6;
@@ -462,20 +485,24 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
         );
         let array = tree.into_array();
 
-        group.bench_with_input(BenchmarkId::new("dispatch_f32", len_str), len, |b, &n| {
-            let mut cuda_ctx =
-                CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+        group.bench_with_input(
+            BenchmarkId::new("cuda/alp_for_bp_6bw_f32/dispatch_f32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-            let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
-            b.iter_custom(|iters| {
-                let mut total_time = Duration::ZERO;
-                for _ in 0..iters {
-                    total_time += bench_runner.run(&mut cuda_ctx);
-                }
-                total_time
-            });
-        });
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
     }
 
     group.finish();
@@ -487,7 +514,7 @@ fn bench_alp_for_bitpacked(c: &mut Criterion) {
 
 /// Dict(codes=BitPacked<u8>, values=Prim<u32>) — widens u8 → u32 in smem.
 fn bench_dict_bp_u8_codes_u32_values(c: &mut Criterion) {
-    let mut group = c.benchmark_group("cuda/dict_widen_u8_to_u32");
+    let mut group = c.benchmark_group("cuda");
 
     let dict_size: usize = 4; // 2-bit codes
     let bit_width: u8 = 2;
@@ -505,20 +532,24 @@ fn bench_dict_bp_u8_codes_u32_values(c: &mut Criterion) {
         let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
         let array = dict.into_array();
 
-        group.bench_with_input(BenchmarkId::new("dispatch_u32", len_str), len, |b, &n| {
-            let mut cuda_ctx =
-                CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+        group.bench_with_input(
+            BenchmarkId::new("cuda/dict_widen_u8_to_u32/dispatch_u32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-            let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
-            b.iter_custom(|iters| {
-                let mut total_time = Duration::ZERO;
-                for _ in 0..iters {
-                    total_time += bench_runner.run(&mut cuda_ctx);
-                }
-                total_time
-            });
-        });
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
     }
 
     group.finish();
@@ -526,7 +557,7 @@ fn bench_dict_bp_u8_codes_u32_values(c: &mut Criterion) {
 
 /// Dict(codes=BitPacked<u16>, values=Prim<u32>) — widens u16 → u32 in smem.
 fn bench_dict_bp_u16_codes_u32_values(c: &mut Criterion) {
-    let mut group = c.benchmark_group("cuda/dict_widen_u16_to_u32");
+    let mut group = c.benchmark_group("cuda");
 
     let dict_size: usize = 8; // 3-bit codes
     let bit_width: u8 = 3;
@@ -544,20 +575,24 @@ fn bench_dict_bp_u16_codes_u32_values(c: &mut Criterion) {
         let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
         let array = dict.into_array();
 
-        group.bench_with_input(BenchmarkId::new("dispatch_u32", len_str), len, |b, &n| {
-            let mut cuda_ctx =
-                CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+        group.bench_with_input(
+            BenchmarkId::new("cuda/dict_widen_u16_to_u32/dispatch_u32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-            let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
-            b.iter_custom(|iters| {
-                let mut total_time = Duration::ZERO;
-                for _ in 0..iters {
-                    total_time += bench_runner.run(&mut cuda_ctx);
-                }
-                total_time
-            });
-        });
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
     }
 
     group.finish();
@@ -565,7 +600,7 @@ fn bench_dict_bp_u16_codes_u32_values(c: &mut Criterion) {
 
 /// Dict(codes=BitPacked<u32>, values=Prim<u32>) — same-width baseline, no widen.
 fn bench_dict_bp_u32_codes_u32_values(c: &mut Criterion) {
-    let mut group = c.benchmark_group("cuda/dict_nowiden_u32_to_u32");
+    let mut group = c.benchmark_group("cuda");
 
     let dict_size: usize = 8; // 3-bit codes
     let bit_width: u8 = 3;
@@ -583,20 +618,24 @@ fn bench_dict_bp_u32_codes_u32_values(c: &mut Criterion) {
         let dict = DictArray::new(codes_bp.into_array(), values_prim.into_array());
         let array = dict.into_array();
 
-        group.bench_with_input(BenchmarkId::new("dispatch_u32", len_str), len, |b, &n| {
-            let mut cuda_ctx =
-                CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
+        group.bench_with_input(
+            BenchmarkId::new("cuda/dict_nowiden_u32_to_u32/dispatch_u32", len_str),
+            len,
+            |b, &n| {
+                let mut cuda_ctx =
+                    CudaSession::create_execution_ctx(&VortexSession::empty()).vortex_expect("ctx");
 
-            let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
+                let bench_runner = BenchRunner::<u32>::new(&array, n, &mut cuda_ctx);
 
-            b.iter_custom(|iters| {
-                let mut total_time = Duration::ZERO;
-                for _ in 0..iters {
-                    total_time += bench_runner.run(&mut cuda_ctx);
-                }
-                total_time
-            });
-        });
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+                    for _ in 0..iters {
+                        total_time += bench_runner.run(&mut cuda_ctx);
+                    }
+                    total_time
+                });
+            },
+        );
     }
 
     group.finish();

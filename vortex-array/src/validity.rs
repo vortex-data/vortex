@@ -385,10 +385,10 @@ impl Validity {
     /// Convert into a variant compatible with the given nullability.
     ///
     /// This is the execution-time half of the nullability-cast pair. It is paired with
-    /// [`Self::trivial_cast_nullability`], which is used by `CastReduce` rules. The pattern is:
+    /// [`Self::trivially_cast_nullability`], which is used by `CastReduce` rules. The pattern is:
     ///
     /// - **`CastReduce` rules** (metadata-only rewrites in the optimizer) call
-    ///   [`Self::trivial_cast_nullability`]. If it returns `Ok(None)`, the rule returns `Ok(None)`
+    ///   [`Self::trivially_cast_nullability`]. If it returns `Ok(None)`, the rule returns `Ok(None)`
     ///   and the cast is deferred to execution.
     /// - **`CastKernel` impls** (executed via [`ExecuteParentKernel`]) call this method, which
     ///   may run the underlying validity array to compute statistics.
@@ -437,7 +437,7 @@ impl Validity {
     /// };
     /// ```
     #[inline]
-    pub fn trivial_cast_nullability(
+    pub fn trivially_cast_nullability(
         self,
         nullability: Nullability,
         len: usize,

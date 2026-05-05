@@ -22,7 +22,7 @@ impl CastReduce for Bool {
 
         let Some(new_validity) = array
             .validity()?
-            .trivial_cast_nullability(dtype.nullability(), array.len())?
+            .trivially_cast_nullability(dtype.nullability(), array.len())?
         else {
             return Ok(None);
         };

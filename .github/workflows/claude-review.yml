@@ -19,12 +19,6 @@ name: Claude Code (Review)
 # - PR conversation comments on PRs already opened by the Claude App are handled by
 #   claude-write.yml so maintainers can ask Claude to make follow-up changes there.
 
-concurrency:
-  # `issue_comment` events on PRs expose the PR number via `github.event.issue.number`,
-  # so this falls back there when `github.event.pull_request.number` is unset.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
-  cancel-in-progress: true
-
 on:
   issue_comment:
     types: [created]
@@ -226,6 +220,11 @@ jobs:
     if: needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    concurrency:
+      # `issue_comment` events on PRs expose the PR number via `github.event.issue.number`,
+      # so this falls back there when `github.event.pull_request.number` is unset.
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+      cancel-in-progress: true
     permissions:
       contents: read
       issues: write
