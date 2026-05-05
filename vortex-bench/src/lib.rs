@@ -53,6 +53,7 @@ pub mod statpopgen;
 pub mod tpcds;
 pub mod tpch;
 pub mod utils;
+pub mod v3;
 pub mod vector_dataset;
 
 pub use benchmark::Benchmark;

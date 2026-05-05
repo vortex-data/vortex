@@ -23,20 +23,19 @@ jobs:
               pull_number: pr.number,
             });
 
-            // Count unique human approvals (latest review per user)
-            const latestByUser = {};
-            for (const review of reviews.data) {
-              if (review.user.type === 'Bot') continue;
-              latestByUser[review.user.login] = review.state;
-            }
-            const approvalCount = Object.values(latestByUser)
-              .filter(state => state === 'APPROVED').length;
-
             // Determine if PR author is a bot/GitHub Actions
             const authorType = pr.user.type;        // 'Bot' vs 'User'
             const authorLogin = pr.user.login;       // e.g. 'github-actions[bot]'
             const isBot = authorType === 'Bot' || authorLogin.endsWith('[bot]');
             const oneApprovalBotAuthors = new Set(['renovate[bot]']);
+
+            // Count unique approvals, including bot approvals.
+            const latestByUser = {};
+            for (const review of reviews.data) {
+              latestByUser[review.user.login] = review.state;
+            }
+            const approvalCount = Object.values(latestByUser)
+              .filter(state => state === 'APPROVED').length;
 
             const required = isBot && !oneApprovalBotAuthors.has(authorLogin) ? 2 : 1;
 
@@ -46,7 +45,7 @@ jobs:
 
             if (isBot && (approvalCount < required))  {
               core.setFailed(
-                `This PR needs ${required} human approval(s) but has ${approvalCount}. ` +
+                `This PR needs ${required} approval(s) but has ${approvalCount}. ` +
                 `(Author is ${isBot ? 'a bot' : 'human'})`
               );
             }

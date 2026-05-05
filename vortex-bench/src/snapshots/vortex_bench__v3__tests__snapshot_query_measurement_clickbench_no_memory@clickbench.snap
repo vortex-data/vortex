@@ -1,0 +1,18 @@
+---
+source: vortex-bench/src/v3.rs
+expression: render(&record)
+---
+{
+  "kind": "query_measurement",
+  "commit_sha": "<commit-sha>",
+  "dataset": "clickbench",
+  "query_idx": 1,
+  "storage": "s3",
+  "engine": "duckdb",
+  "format": "parquet",
+  "value_ns": 2000000,
+  "all_runtimes_ns": [
+    2000000
+  ],
+  "env_triple": "<env-triple>"
+}
