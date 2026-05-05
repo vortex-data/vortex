@@ -22194,7 +22194,7 @@ pub fn vortex_array::Array<vortex_array::arrays::Struct>::with_column(&self, imp
 
 impl vortex_array::Array<vortex_array::arrays::Struct>
 
-pub fn vortex_array::Array<vortex_array::arrays::Struct>::into_record_batch_with_schema(self, impl core::convert::AsRef<arrow_schema::schema::Schema>) -> vortex_error::VortexResult<arrow_array::record_batch::RecordBatch>
+pub fn vortex_array::Array<vortex_array::arrays::Struct>::into_record_batch_with_schema(self, impl core::convert::AsRef<arrow_schema::schema::Schema>, &vortex_session::VortexSession) -> vortex_error::VortexResult<arrow_array::record_batch::RecordBatch>
 
 impl vortex_array::Array<vortex_array::arrays::VarBin>
 

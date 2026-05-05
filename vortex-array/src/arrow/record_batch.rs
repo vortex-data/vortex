@@ -6,8 +6,8 @@ use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use arrow_schema::Schema;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
-use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::IntoArray;
 use crate::arrays::StructArray;
@@ -17,11 +17,12 @@ impl StructArray {
     pub fn into_record_batch_with_schema(
         self,
         schema: impl AsRef<Schema>,
+        session: &VortexSession,
     ) -> VortexResult<RecordBatch> {
         let data_type = DataType::Struct(schema.as_ref().fields.clone());
         let array_ref = self
             .into_array()
-            .execute_arrow(Some(&data_type), &mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute_arrow(Some(&data_type), &mut session.create_execution_ctx())?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }
@@ -35,6 +36,7 @@ mod tests {
     use arrow_schema::FieldRef;
     use arrow_schema::Schema;
 
+    use crate::LEGACY_SESSION;
     use crate::arrow::record_batch::StructArray;
     use crate::builders::ArrayBuilder;
     use crate::builders::ListBuilder;
@@ -69,7 +71,9 @@ mod tests {
             DataType::LargeListView(FieldRef::new(Field::new_list_field(DataType::Int32, false))),
             true,
         )]));
-        let rb = array.into_record_batch_with_schema(arrow_schema).unwrap();
+        let rb = array
+            .into_record_batch_with_schema(arrow_schema, &LEGACY_SESSION)
+            .unwrap();
 
         let xs = rb.column(0);
         assert_eq!(
