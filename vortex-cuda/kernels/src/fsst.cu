@@ -53,8 +53,7 @@
 // the next add (≤ 8 bytes) within the 24-byte capacity.
 //
 // `codes_offsets` is templated over the four unsigned integer widths
-// (u8/u16/u32/u64). `output_offsets` is always uint32_t because of the
-// MAX_BUFFER_LEN output limit.
+// (u8/u16/u32/u64). `output_offsets` is uint64_t.
 
 // 24-byte scratch buffer split across three u64 lanes. `cursor` is the
 // number of bytes currently buffered and the next-push offset.
@@ -84,7 +83,7 @@ struct Scratch {
 
     // Emit one variable-width aligned store from the low end and slide the
     // kept bytes toward the low end across all three lanes.
-    __device__ inline void drain(uint8_t *__restrict out, uint32_t &out_pos, uint32_t out_end) {
+    __device__ inline void drain(uint8_t *__restrict out, uint64_t &out_pos, uint64_t out_end) {
         if (cursor >= 16 && (out_pos & 15u) == 0 && out_pos + 16 <= out_end) {
             *reinterpret_cast<ulonglong2 *>(out + out_pos) = make_ulonglong2(low, mid);
             low = high;
@@ -125,42 +124,55 @@ struct Scratch {
 };
 
 template <typename OffT>
-__device__ inline void fsst_decode_string(const uint8_t *__restrict codes_bytes,
-                                          const OffT *__restrict codes_offsets,
-                                          const uint64_t *__restrict symbols,
-                                          const uint8_t *__restrict symbol_lengths,
-                                          const uint32_t *__restrict output_offsets,
-                                          const uint8_t *__restrict validity_bits,
-                                          uint8_t *__restrict output_bytes,
-                                          uint64_t sid) {
-    if (((validity_bits[sid >> 3] >> (sid & 7u)) & 1u) == 0u) {
+struct FSSTArgs {
+    // Compressed FSST code stream, contiguous across all strings. String
+    // `sid`'s codes live in `[codes_offsets[sid], codes_offsets[sid + 1])`.
+    const uint8_t *__restrict codes_bytes;
+    // Per-string offsets into `codes_bytes`, length `num_strings + 1`.
+    const OffT *__restrict codes_offsets;
+    // FSST symbol table.
+    const uint64_t *__restrict symbols;
+    // Length in bytes (1..=8) of each entry in `symbols`. The remaining bits
+    // are unspecified.
+    const uint8_t *__restrict symbol_lengths;
+    // Buffer to write decoded data into.
+    uint8_t *__restrict output_bytes;
+    // Per-string offsets into `output_bytes`, length `num_strings + 1`.
+    const uint64_t *__restrict output_offsets;
+    // Validity of each string.
+    const uint8_t *__restrict validity_bits;
+};
+
+template <typename OffT>
+__device__ inline void fsst_decode_string(const FSSTArgs<OffT> &args, uint64_t sid) {
+    if (((args.validity_bits[sid >> 3] >> (sid & 7u)) & 1u) == 0u) {
         return;
     }
 
-    OffT in_pos = codes_offsets[sid];
-    const OffT in_end = codes_offsets[sid + 1];
-    uint32_t out_pos = output_offsets[sid];
-    const uint32_t out_end = output_offsets[sid + 1];
+    OffT in_pos = args.codes_offsets[sid];
+    const OffT in_end = args.codes_offsets[sid + 1];
+    uint64_t out_pos = args.output_offsets[sid];
+    const uint64_t out_end = args.output_offsets[sid + 1];
 
     Scratch scratch;
 
     while (in_pos < in_end) {
         // Drain to scratch.cursor ≤ 16 so the next ≤8-byte symbol fits in 24.
         while (scratch.cursor > 16) {
-            scratch.drain(output_bytes, out_pos, out_end);
+            scratch.drain(args.output_bytes, out_pos, out_end);
         }
 
         // Decode next code. 255 is the escape for raw literal bytes.
-        const uint8_t code = codes_bytes[in_pos];
+        const uint8_t code = args.codes_bytes[in_pos];
         uint64_t sym;
         uint32_t len, consumed;
         if (code == 255) {
-            sym = (uint64_t)codes_bytes[in_pos + 1];
+            sym = (uint64_t)args.codes_bytes[in_pos + 1];
             len = 1;
             consumed = 2;
         } else {
-            sym = symbols[code];
-            len = symbol_lengths[code];
+            sym = args.symbols[code];
+            len = args.symbol_lengths[code];
             consumed = 1;
         }
 
@@ -174,7 +186,7 @@ __device__ inline void fsst_decode_string(const uint8_t *__restrict codes_bytes,
 
     // Epilogue: drain everything that's left.
     while (scratch.cursor > 0) {
-        scratch.drain(output_bytes, out_pos, out_end);
+        scratch.drain(args.output_bytes, out_pos, out_end);
     }
 }
 
@@ -183,10 +195,20 @@ __device__ inline void fsst_decode_string(const uint8_t *__restrict codes_bytes,
                                              const OffT *__restrict codes_offsets,                           \
                                              const uint64_t *__restrict symbols,                             \
                                              const uint8_t *__restrict symbol_lengths,                       \
-                                             const uint32_t *__restrict output_offsets,                      \
+                                             const uint64_t *__restrict output_offsets,                      \
                                              const uint8_t *__restrict validity_bits,                        \
                                              uint8_t *__restrict output_bytes,                               \
                                              uint64_t num_strings) {                                         \
+        const FSSTArgs<OffT> args = {                                                                        \
+            codes_bytes,                                                                                     \
+            codes_offsets,                                                                                   \
+            symbols,                                                                                         \
+            symbol_lengths,                                                                                  \
+            output_bytes,                                                                                    \
+            output_offsets,                                                                                  \
+            validity_bits,                                                                                   \
+        };                                                                                                   \
+                                                                                                             \
         const uint64_t elements_per_block = (uint64_t)blockDim.x * ELEMENTS_PER_THREAD;                      \
         const uint64_t block_start = (uint64_t)blockIdx.x * elements_per_block;                              \
         const uint64_t block_end = (block_start + elements_per_block < num_strings)                          \
@@ -194,14 +216,7 @@ __device__ inline void fsst_decode_string(const uint8_t *__restrict codes_bytes,
                                        : num_strings;                                                        \
                                                                                                              \
         for (uint64_t sid = block_start + threadIdx.x; sid < block_end; sid += blockDim.x) {                 \
-            fsst_decode_string<OffT>(codes_bytes,                                                            \
-                                     codes_offsets,                                                          \
-                                     symbols,                                                                \
-                                     symbol_lengths,                                                         \
-                                     output_offsets,                                                         \
-                                     validity_bits,                                                          \
-                                     output_bytes,                                                           \
-                                     sid);                                                                   \
+            fsst_decode_string<OffT>(args, sid);                                                             \
         }                                                                                                    \
     }
 

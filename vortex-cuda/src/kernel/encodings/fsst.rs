@@ -84,16 +84,16 @@ impl CudaExecute for FSSTExecutor {
             .clone()
             .execute::<PrimitiveArray>(ctx.execution_ctx())?;
 
-        // Prefix-sum lens to per-string u32 output offsets so the kernel
+        // Prefix-sum lens to per-string u64 output offsets so the kernel
         // knows where to write each decoded string.
-        #[expect(clippy::cast_possible_truncation)]
-        let output_offsets: Vec<u32> = match_each_integer_ptype!(lens.ptype(), |P| {
+        let output_offsets: Vec<u64> = match_each_integer_ptype!(lens.ptype(), |P| {
             let mut out = Vec::with_capacity(lens.len() + 1);
-            let mut acc: usize = 0;
-            out.push(0u32);
+            let mut acc: u64 = 0;
+            out.push(0u64);
+            #[allow(clippy::unnecessary_cast)]
             for &l in lens.as_slice::<P>() {
-                acc += l as usize;
-                out.push(acc as u32);
+                acc += l as u64;
+                out.push(acc);
             }
             out
         });
@@ -110,7 +110,7 @@ async fn decode_fsst<U>(
     fsst: FSSTArray,
     codes_offsets: PrimitiveArray,
     lens: PrimitiveArray,
-    output_offsets: Vec<u32>,
+    output_offsets: Vec<u64>,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
 where
@@ -120,9 +120,12 @@ where
     let validity = fsst.codes().validity()?;
     let num_strings = fsst.len();
     let num_strings_u64 = num_strings as u64;
-    let total_size = *output_offsets
-        .last()
-        .vortex_expect("output_offsets has at least one entry") as usize;
+    let total_size = usize::try_from(
+        *output_offsets
+            .last()
+            .vortex_expect("output_offsets has at least one entry"),
+    )
+    .vortex_expect("total_size fits in usize");
 
     let symbols_u64: Vec<u64> = fsst.symbols().iter().map(|s| s.to_u64()).collect();
     let symbol_lengths = fsst.symbol_lengths().clone();
@@ -162,7 +165,7 @@ where
     let codes_offsets_view = codes_offsets.cuda_view::<U>()?;
     let symbols_view = symbols.cuda_view::<u64>()?;
     let symbol_lengths_view = symbol_lengths.cuda_view::<u8>()?;
-    let output_offsets_view = output_offsets.cuda_view::<u32>()?;
+    let output_offsets_view = output_offsets.cuda_view::<u64>()?;
     let validity_view = validity_device.cuda_view::<u8>()?;
 
     let cuda_function = ctx.load_function("fsst", &[U::PTYPE])?;
