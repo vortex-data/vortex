@@ -210,3 +210,53 @@ jobs:
           claude_args: |
             --allowedTools "Bash(cargo nextest:*),Bash(cargo check:*),Bash(cargo clippy:*),Bash(cargo fmt:*),Bash(uv run:*)"
             --system-prompt "You are the repository's write-capable Claude workflow. You run only from trusted issue traffic and from trusted PR conversation comments on same-repo pull requests that were previously opened by the repository's Claude GitHub App. Create or update branches and pull requests using the provided GitHub App token. Do not use fork pull request content because those runs are blocked before this job starts."
+
+      - name: Open pull request for issue branch
+        if: ${{ steps.claude.outputs.branch_name != '' && !github.event.issue.pull_request }}
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          BRANCH_NAME: ${{ steps.claude.outputs.branch_name }}
+          PR_TITLE: ${{ github.event.issue.title }}
+          PR_BODY: |
+            Fixes #${{ github.event.issue.number }}
+
+            Generated with Claude Code.
+
+            [View Claude run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+        run: |
+          commits_ahead="$(
+            gh api \
+              "repos/$REPO/compare/$BASE_BRANCH...$BRANCH_NAME" \
+              --jq .ahead_by 2>/dev/null || echo 0
+          )"
+
+          if [[ "$commits_ahead" == "0" ]]; then
+            echo "Branch has no commits ahead of $BASE_BRANCH; skipping PR creation."
+            exit 0
+          fi
+
+          existing_pr="$(
+            gh pr list \
+              --repo "$REPO" \
+              --head "$BRANCH_NAME" \
+              --state all \
+              --json url \
+              --jq '.[0].url // ""'
+          )"
+
+          if [[ -n "$existing_pr" ]]; then
+            echo "Pull request already exists: $existing_pr"
+            exit 0
+          fi
+
+          pr_url="$(
+            gh pr create \
+              --repo "$REPO" \
+              --base "$BASE_BRANCH" \
+              --head "$BRANCH_NAME" \
+              --title "$PR_TITLE" \
+              --body "$PR_BODY"
+          )"
+          echo "Created pull request: $pr_url"
