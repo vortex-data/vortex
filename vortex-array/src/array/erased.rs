@@ -32,7 +32,6 @@ use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::sum::sum;
 use crate::array::ArrayData;
 use crate::array::ArrayId;
-use crate::array::ArrayMeta;
 use crate::array::ArrayInner;
 use crate::array::DynArrayData;
 use crate::arrays::Bool;
@@ -54,6 +53,7 @@ use crate::expr::stats::StatsProviderExt;
 use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
+use crate::stats::ArrayStats;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
@@ -86,12 +86,6 @@ impl ArrayRef {
     /// Create from an `Arc<ArrayInner<dyn DynArrayData>>`.
     pub(crate) fn from_store<D: DynArrayData>(store: Arc<ArrayInner<D>>) -> Self {
         Self(store)
-    }
-
-    /// Returns a reference to the array metadata.
-    #[inline(always)]
-    pub(crate) fn meta(&self) -> &ArrayMeta {
-        &self.0.meta
     }
 
     /// Returns a reference to the `dyn DynArrayData` inside the store.
@@ -149,9 +143,9 @@ impl ArrayRef {
 impl Debug for ArrayRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Array")
-            .field("encoding", &self.meta().encoding_id)
-            .field("dtype", &self.meta().dtype)
-            .field("len", &self.meta().len)
+            .field("encoding", &self.0.encoding_id)
+            .field("dtype", &self.0.dtype)
+            .field("len", &self.0.len)
             .field("data", &self.0.data)
             .finish()
     }
@@ -159,11 +153,11 @@ impl Debug for ArrayRef {
 
 impl ArrayHash for ArrayRef {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
-        self.meta().len.hash(state);
-        self.meta().dtype.hash(state);
-        self.meta().encoding_id.hash(state);
-        self.meta().slots.len().hash(state);
-        for slot in &self.meta().slots {
+        self.0.len.hash(state);
+        self.0.dtype.hash(state);
+        self.0.encoding_id.hash(state);
+        self.0.slots.len().hash(state);
+        for slot in &self.0.slots {
             slot.array_hash(state, precision);
         }
         self.0
@@ -174,15 +168,15 @@ impl ArrayHash for ArrayRef {
 
 impl ArrayEq for ArrayRef {
     fn array_eq(&self, other: &Self, precision: crate::Precision) -> bool {
-        self.meta().len == other.meta().len
-            && self.meta().dtype == other.meta().dtype
-            && self.meta().encoding_id == other.meta().encoding_id
-            && self.meta().slots.len() == other.meta().slots.len()
+        self.0.len == other.0.len
+            && self.0.dtype == other.0.dtype
+            && self.0.encoding_id == other.0.encoding_id
+            && self.0.slots.len() == other.0.slots.len()
             && self
-                .meta()
+                .0
                 .slots
                 .iter()
-                .zip(other.meta().slots.iter())
+                .zip(other.0.slots.iter())
                 .all(|(slot, other_slot)| slot.array_eq(other_slot, precision))
             && self.0.data.dyn_array_eq(other, precision)
     }
@@ -191,25 +185,25 @@ impl ArrayRef {
     /// Returns the length of the array.
     #[inline]
     pub fn len(&self) -> usize {
-        self.meta().len
+        self.0.len
     }
 
     /// Returns whether the array is empty (has zero rows).
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.meta().len == 0
+        self.0.len == 0
     }
 
     /// Returns the logical Vortex [`DType`] of the array.
     #[inline]
     pub fn dtype(&self) -> &DType {
-        &self.meta().dtype
+        &self.0.dtype
     }
 
     /// Returns the encoding ID of the array.
     #[inline]
     pub fn encoding_id(&self) -> ArrayId {
-        self.meta().encoding_id
+        self.0.encoding_id
     }
 
     /// Performs a constant-time slice of the array.
@@ -388,9 +382,14 @@ impl ArrayRef {
         self.0.data.append_to_builder(self, builder, ctx)
     }
 
+    /// Returns the raw stats storage.
+    pub(crate) fn raw_stats(&self) -> &ArrayStats {
+        &self.0.stats
+    }
+
     /// Returns the statistics of the array.
     pub fn statistics(&self) -> StatsSetRef<'_> {
-        self.0.meta.stats.to_ref(self)
+        self.0.stats.to_ref(self)
     }
 
     /// Does the array match the given matcher.
@@ -512,7 +511,7 @@ impl ArrayRef {
         slot_idx: usize,
     ) -> VortexResult<(ArrayRef, ArrayRef)> {
         if let Some(store) = Arc::get_mut(&mut self.0) {
-            let child = store.meta.slots[slot_idx]
+            let child = store.slots[slot_idx]
                 .take()
                 .vortex_expect("take_slot_unchecked cannot take an absent slot");
             return Ok((self, child));
@@ -547,7 +546,7 @@ impl ArrayRef {
         replacement: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         if let Some(store) = Arc::get_mut(&mut self.0) {
-            store.meta.slots[slot_idx] = Some(replacement);
+            store.slots[slot_idx] = Some(replacement);
             return Ok(self);
         }
 
@@ -693,7 +692,7 @@ impl ArrayRef {
 
     /// Returns the slots of the array.
     pub fn slots(&self) -> &[Option<ArrayRef>] {
-        &self.0.meta.slots
+        &self.0.slots
     }
 
     /// Returns the name of the slot at the given index.

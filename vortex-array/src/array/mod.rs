@@ -378,7 +378,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 this.dtype().clone(),
                 self.data.clone(),
                 slots,
-                this.meta().stats.clone(),
+                this.raw_stats().clone(),
             )
         };
         ArrayRef::from_store(Arc::new(store))

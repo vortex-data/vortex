@@ -28,28 +28,20 @@ use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 
-/// Common metadata for every array encoding.
+/// The combined allocation behind [`ArrayRef`].
 ///
-/// Stored in [`ArrayInner`] alongside the encoding-specific [`DynArrayData`] data.
-/// [`ArrayRef`] reads these fields directly — no vtable dispatch.
-pub(crate) struct ArrayMeta {
+/// Stores common metadata (len, dtype, encoding_id, slots, stats) together with the
+/// encoding-specific `data` (a concrete [`ArrayData<V>`] erased to `dyn DynArrayData`).
+///
+/// `ArrayRef` stores `Arc<ArrayInner<dyn DynArrayData>>` — a single 16-byte fat pointer.
+/// Metadata is accessed via `self.0.*` (a normal struct field read through the Arc),
+/// while encoding-specific methods go through `self.0.data` (vtable dispatch).
+pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) len: usize,
     pub(crate) encoding_id: ArrayId,
     pub(crate) dtype: DType,
     pub(crate) slots: Vec<Option<ArrayRef>>,
     pub(crate) stats: ArrayStats,
-}
-
-/// The combined allocation behind [`ArrayRef`].
-///
-/// Wraps an [`ArrayMeta`] (common fields) together with the encoding-specific
-/// `data` (a concrete [`ArrayData<V>`] erased to `dyn DynArrayData`).
-///
-/// `ArrayRef` stores `Arc<ArrayInner<dyn DynArrayData>>` — a single 16-byte fat pointer.
-/// Metadata is accessed via `self.0.meta.*` (a normal struct field read through the Arc),
-/// while encoding-specific methods go through `self.0.data` (vtable dispatch).
-pub(crate) struct ArrayInner<D: ?Sized> {
-    pub(crate) meta: ArrayMeta,
     pub(crate) data: D, // must be last for unsized coercion
 }
 
@@ -98,10 +90,7 @@ impl<V: VTable> TypedArrayRef<V> for ArrayView<'_, V> {}
 // ArrayData<V> — the concrete type stored inside Arc<dyn DynArrayData>
 // =============================================================================
 
-/// The concrete encoding-specific array data that lives inside an [`ArrayInner`].
-///
-/// Does not contain metadata (`len`, `dtype`, `encoding_id`) — those live in
-/// [`ArrayMeta`] within the same [`ArrayInner`] allocation.
+/// A VTable and its instance data, this can be type-erased to [`DynArrayData`](crate::array::DynArrayData).
 #[doc(hidden)]
 pub(crate) struct ArrayData<V: VTable> {
     pub(crate) vtable: V,
@@ -115,13 +104,11 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
         new.vtable
             .validate(&new.data, &new.dtype, new.len, &new.slots)?;
         Ok(ArrayInner {
-            meta: ArrayMeta {
-                len: new.len,
-                encoding_id: new.vtable.id(),
-                dtype: new.dtype,
-                slots: new.slots,
-                stats: ArrayStats::default(),
-            },
+            len: new.len,
+            encoding_id: new.vtable.id(),
+            dtype: new.dtype,
+            slots: new.slots,
+            stats: ArrayStats::default(),
             data: ArrayData {
                 vtable: new.vtable,
                 data: new.data,
@@ -142,17 +129,12 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
         stats: ArrayStats,
     ) -> Self {
         ArrayInner {
-            meta: ArrayMeta {
-                len,
-                encoding_id: vtable.id(),
-                dtype,
-                slots,
-                stats,
-            },
-            data: ArrayData {
-                vtable,
-                data,
-            },
+            len,
+            encoding_id: vtable.id(),
+            dtype,
+            slots,
+            stats,
+            data: ArrayData { vtable, data },
         }
     }
 }
@@ -307,10 +289,10 @@ impl<V: VTable> Array<V> {
         match Arc::try_unwrap(typed_arc) {
             Ok(store) => Ok(ArrayParts {
                 vtable: store.data.vtable,
-                dtype: store.meta.dtype,
-                len: store.meta.len,
+                dtype: store.dtype,
+                len: store.len,
                 data: store.data.data,
-                slots: store.meta.slots,
+                slots: store.slots,
             }),
             Err(typed_arc) => Err(Self {
                 inner: ArrayRef::from_store(typed_arc),
