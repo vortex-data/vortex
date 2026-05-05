@@ -381,7 +381,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
                 this.raw_stats().clone(),
             )
         };
-        ArrayRef::from_store(Arc::new(store))
+        ArrayRef::from_inner(Arc::new(store))
     }
 
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>> {

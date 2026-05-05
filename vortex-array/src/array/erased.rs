@@ -84,7 +84,7 @@ pub struct ArrayRef(Arc<ArrayInner<dyn DynArrayData>>);
 
 impl ArrayRef {
     /// Create from an `Arc<ArrayInner<dyn DynArrayData>>`.
-    pub(crate) fn from_store<D: DynArrayData>(store: Arc<ArrayInner<D>>) -> Self {
+    pub(crate) fn from_inner<D: DynArrayData>(store: Arc<ArrayInner<D>>) -> Self {
         Self(store)
     }
 
@@ -96,7 +96,7 @@ impl ArrayRef {
 
     /// Returns a mutable reference to the store if this is the sole owner.
     #[inline(always)]
-    pub(crate) fn store_mut(&mut self) -> Option<&mut ArrayInner<dyn DynArrayData>> {
+    pub(crate) fn inner_mut(&mut self) -> Option<&mut ArrayInner<dyn DynArrayData>> {
         Arc::get_mut(&mut self.0)
     }
 
@@ -113,7 +113,7 @@ impl ArrayRef {
     #[allow(dead_code)]
     pub(crate) fn downcast_store<V: VTable>(self) -> Result<Arc<ArrayInner<ArrayData<V>>>, Self> {
         if self.0.data.as_any().is::<ArrayData<V>>() {
-            Ok(unsafe { self.downcast_store_unchecked() })
+            Ok(unsafe { self.downcast_inner_unchecked() })
         } else {
             Err(self)
         }
@@ -124,7 +124,7 @@ impl ArrayRef {
     /// # Safety
     /// The caller must guarantee the concrete type behind `dyn DynArrayData` is `ArrayData<V>`.
     #[inline(always)]
-    pub(crate) unsafe fn downcast_store_unchecked<V: VTable>(
+    pub(crate) unsafe fn downcast_inner_unchecked<V: VTable>(
         self,
     ) -> Arc<ArrayInner<ArrayData<V>>> {
         debug_assert!(self.0.data.as_any().is::<ArrayData<V>>());

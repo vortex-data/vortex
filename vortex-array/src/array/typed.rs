@@ -190,7 +190,7 @@ impl<V: VTable> Array<V> {
     /// Create a typed array from explicit construction parameters.
     pub fn try_from_parts(new: ArrayParts<V>) -> VortexResult<Self> {
         let store = ArrayInner::<ArrayData<V>>::try_new(new)?;
-        let inner = ArrayRef::from_store(Arc::new(store));
+        let inner = ArrayRef::from_inner(Arc::new(store));
         Ok(Self {
             inner,
             _phantom: PhantomData,
@@ -213,7 +213,7 @@ impl<V: VTable> Array<V> {
                 ArrayStats::default(),
             )
         };
-        let inner = ArrayRef::from_store(Arc::new(store));
+        let inner = ArrayRef::from_inner(Arc::new(store));
         Self {
             inner,
             _phantom: PhantomData,
@@ -275,7 +275,7 @@ impl<V: VTable> Array<V> {
 
     /// Try to fetch a mut ref to the inner ArrayData.
     pub fn data_mut(&mut self) -> Option<&mut V::TypedArrayData> {
-        let store = self.inner.store_mut()?;
+        let store = self.inner.inner_mut()?;
         let array_inner = store.data.as_any_mut().downcast_mut::<ArrayData<V>>();
         Some(&mut array_inner?.data)
     }
@@ -284,7 +284,7 @@ impl<V: VTable> Array<V> {
     pub fn try_into_parts(self) -> Result<ArrayParts<V>, Self> {
         let Self { inner, _phantom } = self;
         // SAFETY: Array<V> guarantees the inner is ArrayData<V>.
-        let typed_arc = unsafe { inner.downcast_store_unchecked::<V>() };
+        let typed_arc = unsafe { inner.downcast_inner_unchecked::<V>() };
 
         match Arc::try_unwrap(typed_arc) {
             Ok(store) => Ok(ArrayParts {
@@ -295,7 +295,7 @@ impl<V: VTable> Array<V> {
                 slots: store.slots,
             }),
             Err(typed_arc) => Err(Self {
-                inner: ArrayRef::from_store(typed_arc),
+                inner: ArrayRef::from_inner(typed_arc),
                 _phantom: PhantomData,
             }),
         }
