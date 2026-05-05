@@ -8,7 +8,7 @@ extend-ignore-re = [
 ]
 
 [files]
-extend-exclude = ["/vortex-bench/**", "/docs/references.bib", "benchmarks/**", "vortex-sqllogictest/slt/**", "encodings/fsst/src/dfa/tests.rs", "encodings/fsst/src/dfa/flat_contains.rs"]
+extend-exclude = ["/vortex-bench/**", "/docs/references.bib", "benchmarks/**", "vortex-sqllogictest/slt/**", "encodings/fsst/src/dfa/tests.rs", "encodings/fsst/src/dfa/flat_contains.rs", "benchmarks-website/server/static/**", "benchmarks-website/server/tests/snapshots/**"]
 
 [type.py]
 extend-ignore-identifiers-re = [

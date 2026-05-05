@@ -532,7 +532,7 @@ impl ArrayRef {
 
         // SAFETY: ensured by the caller — the None slot is either put back or driven to completion
         // via the builder path before the parent escapes the executor.
-        let new_parent = unsafe { self.0.data.with_slots_unchecked(&self, new_slots) };
+        let new_parent = unsafe { self.0.with_slots_unchecked(new_slots) };
         Ok((new_parent, child))
     }
 
@@ -556,7 +556,7 @@ impl ArrayRef {
         let mut slots = self.slots().to_vec();
         slots[slot_idx] = Some(replacement);
         let inner = Arc::clone(&self.0);
-        inner.data.with_slots(self, slots)
+        inner.with_slots(slots)
     }
 
     /// Returns a new array with the provided slots.
@@ -595,7 +595,7 @@ impl ArrayRef {
             }
         }
         let inner = Arc::clone(&self.0);
-        inner.data.with_slots(self, slots)
+        inner.with_slots(slots)
     }
 
     pub fn reduce(&self) -> VortexResult<Option<ArrayRef>> {

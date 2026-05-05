@@ -75,7 +75,7 @@ where
     T: NativePType + DeviceRepr + From<u8> + Add<Output = T>,
     Scalar: From<T>,
 {
-    let mut group = c.benchmark_group("cuda/for");
+    let mut group = c.benchmark_group("cuda");
 
     for &(len, len_str) in BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
@@ -83,7 +83,7 @@ where
         let for_array = make_for_array_typed::<T>(len, false);
 
         group.bench_with_input(
-            BenchmarkId::new(type_name, len_str),
+            BenchmarkId::new(format!("cuda/for/{type_name}"), len_str),
             &for_array,
             |b, for_array| {
                 b.iter_custom(|iters| {
@@ -114,7 +114,7 @@ where
     T: NativePType + DeviceRepr + From<u8> + Add<Output = T>,
     Scalar: From<T>,
 {
-    let mut group = c.benchmark_group("cuda/ffor");
+    let mut group = c.benchmark_group("cuda");
 
     for &(len, len_str) in BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
@@ -122,7 +122,7 @@ where
         let for_array = make_for_array_typed::<T>(len, true);
 
         group.bench_with_input(
-            BenchmarkId::new(type_name, len_str),
+            BenchmarkId::new(format!("cuda/ffor/{type_name}"), len_str),
             &for_array,
             |b, for_array| {
                 b.iter_custom(|iters| {

@@ -36,7 +36,7 @@ SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 
 [[annotations]]
-path = ["**/.gitignore", ".gitmodules", ".python-version", "**/*.lock", "**/*.lockfile", "**/*.toml", "**/*.json", ".idea/**", ".github/**", "codecov.yml", "java/gradle/wrapper/gradle-wrapper.properties"]
+path = ["**/.gitignore", ".gitmodules", ".python-version", "**/*.lock", "**/*.lockfile", "**/*.toml", "**/*.json", ".idea/**", ".github/**", "codecov.yml", "java/gradle/wrapper/gradle-wrapper.properties", "**.duckdb*"]
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"

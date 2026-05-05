@@ -453,6 +453,10 @@ impl Dataset for PBIBenchmark {
         &self.name
     }
 
+    fn v3_dataset_dims(&self) -> (&str, Option<&str>) {
+        ("public-bi", Some(&self.name))
+    }
+
     async fn to_vortex_array(&self, _ctx: &mut ExecutionCtx) -> anyhow::Result<ArrayRef> {
         let dataset = self.dataset()?;
         dataset.write_as_vortex().await?;

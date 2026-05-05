@@ -22,6 +22,7 @@ use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::DecimalBuilder;
+use vortex_array::builders::FixedSizeListBuilder;
 use vortex_array::builders::ListViewBuilder;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::dtype::DType;
@@ -142,26 +143,21 @@ fn execute_sparse_lists(
         .values()
         .clone()
         .execute::<ListViewArray>(ctx)?;
-    let fill_value = array.fill_scalar().as_list();
+    let fill_scalar = array.fill_scalar().as_list();
 
     let n_filled = array.len() - resolved_patches.num_patches();
-    let total_canonical_values = values.elements().len() + fill_value.len() * n_filled;
-
-    let validity = {
-        let arr = array.as_array();
-        Validity::from_mask(arr.validity()?.execute_mask(arr.len(), ctx)?, nullability)
-    };
+    let total_canonical_values = values.elements().len() + fill_scalar.len() * n_filled;
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         match_smallest_offset_type!(total_canonical_values, |O| {
             execute_sparse_lists_inner::<I, O>(
                 indices.as_slice(),
                 values,
-                fill_value,
+                fill_scalar,
                 values_dtype,
                 array.len(),
                 total_canonical_values,
-                validity,
+                nullability,
                 ctx,
             )
         })
@@ -172,51 +168,55 @@ fn execute_sparse_lists(
 fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
     patch_indices: &[I],
     patch_values: ListViewArray,
-    fill_value: ListScalar,
+    fill_scalar: ListScalar,
     values_dtype: Arc<DType>,
     len: usize,
     total_canonical_values: usize,
-    validity: Validity,
+    nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
     // Create the builder with appropriate types. It is easy to just use the same type for both
     // `offsets` and `sizes` since we have no other constraints.
     let mut builder = ListViewBuilder::<O, O>::with_capacity(
         values_dtype,
-        validity.nullability(),
+        nullability,
         total_canonical_values,
         len,
     );
+    let fill_elements = list_scalar_elements_array(fill_scalar);
+    let patch_values_validity = patch_values
+        .listview_validity()
+        .execute_mask(patch_values.len(), ctx)
+        .vortex_expect("sparse list validity mask failed to execute");
 
-    let mut patch_idx = 0;
+    let mut next_index = 0;
 
-    // Loop over the patch indices and set them to the corresponding scalar values. For positions
-    // that are not patched, use the fill value.
-    for position in 0..len {
-        let position_is_patched = patch_idx < patch_indices.len()
-            && patch_indices[patch_idx]
-                .to_usize()
-                .vortex_expect("patch index must fit in usize")
-                == position;
+    for (patch_idx, sparse_idx) in patch_indices.iter().enumerate() {
+        let sparse_idx = sparse_idx
+            .to_usize()
+            .vortex_expect("patch index must fit in usize");
 
-        if position_is_patched {
-            // Set with the patch value.
+        append_list_fill(
+            &mut builder,
+            fill_elements.as_ref(),
+            sparse_idx - next_index,
+        );
+
+        if patch_values_validity.value(patch_idx) {
+            let patch_list = patch_values
+                .list_elements_at(patch_idx)
+                .vortex_expect("list_elements_at");
             builder
-                .append_value(
-                    patch_values
-                        .execute_scalar(patch_idx, ctx)
-                        .vortex_expect("scalar_at")
-                        .as_list(),
-                )
+                .append_array_as_list(&patch_list)
                 .vortex_expect("Failed to append sparse value");
-            patch_idx += 1;
         } else {
-            // Set with the fill value.
-            builder
-                .append_value(fill_value)
-                .vortex_expect("Failed to append fill value");
+            builder.append_null();
         }
+
+        next_index = sparse_idx + 1;
     }
+
+    append_list_fill(&mut builder, fill_elements.as_ref(), len - next_index);
 
     builder.finish()
 }
@@ -236,20 +236,15 @@ fn execute_sparse_fixed_size_list(
         .values()
         .clone()
         .execute::<FixedSizeListArray>(ctx)?;
-    let fill_value = array.fill_scalar().as_list();
-
-    let validity = {
-        let arr = array.as_array();
-        Validity::from_mask(arr.validity()?.execute_mask(arr.len(), ctx)?, nullability)
-    };
+    let fill_scalar = array.fill_scalar().as_list();
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         execute_sparse_fixed_size_list_inner::<I>(
             indices.as_slice(),
             values,
-            fill_value,
+            fill_scalar,
             array.len(),
-            validity,
+            nullability,
             ctx,
         )
         .into_array()
@@ -265,16 +260,28 @@ fn execute_sparse_fixed_size_list(
 fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
     indices: &[I],
     values: FixedSizeListArray,
-    fill_value: ListScalar,
+    fill_scalar: ListScalar,
     array_len: usize,
-    validity: Validity,
+    nullability: Nullability,
     ctx: &mut ExecutionCtx,
 ) -> FixedSizeListArray {
     let list_size = values.list_size();
-    let element_dtype = values.elements().dtype();
-    let total_elements = array_len * list_size as usize;
-    let mut builder = builder_with_capacity(element_dtype, total_elements);
-    let fill_elements = fill_value.elements();
+    let element_dtype = values
+        .dtype()
+        .as_fixed_size_list_element_opt()
+        .vortex_expect("sparse fixed-size-list values must have fixed-size-list dtype");
+    let mut builder = FixedSizeListBuilder::with_capacity(
+        Arc::clone(element_dtype),
+        list_size,
+        nullability,
+        array_len,
+    );
+    let fill_elements = list_scalar_elements_array(fill_scalar);
+    let values_validity = values
+        .validity()
+        .vortex_expect("sparse fixed-size-list validity should be derivable")
+        .execute_mask(values.len(), ctx)
+        .vortex_expect("sparse fixed-size-list validity mask failed to execute");
 
     let mut next_index = 0;
     let indices = indices
@@ -283,69 +290,74 @@ fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
 
     for (patch_idx, sparse_idx) in indices.enumerate() {
         // Fill gap before this patch with fill values.
-        append_n_lists(
-            &mut *builder,
-            fill_elements.as_deref(),
-            list_size,
+        append_fixed_size_list_fill(
+            &mut builder,
+            fill_elements.as_ref(),
             sparse_idx - next_index,
         );
 
         // Append the patch value, handling null patches by appending defaults.
-        if values
-            .validity()
-            .vortex_expect("sparse fixed-size-list validity should be derivable")
-            .is_valid(patch_idx)
-            .vortex_expect("is_valid")
-        {
+        if values_validity.value(patch_idx) {
             let patch_list = values
                 .fixed_size_list_elements_at(patch_idx)
                 .vortex_expect("fixed_size_list_elements_at");
-            for i in 0..list_size as usize {
-                builder
-                    .append_scalar(&patch_list.execute_scalar(i, ctx).vortex_expect("scalar_at"))
-                    .vortex_expect("element dtype must match");
-            }
+            builder
+                .append_array_as_list(&patch_list)
+                .vortex_expect("Failed to append sparse fixed-size-list value");
         } else {
-            builder.append_defaults(list_size as usize);
+            builder.append_null();
         }
 
         next_index = sparse_idx + 1;
     }
 
     // Fill remaining positions after last patch.
-    append_n_lists(
-        &mut *builder,
-        fill_elements.as_deref(),
-        list_size,
-        array_len - next_index,
-    );
+    append_fixed_size_list_fill(&mut builder, fill_elements.as_ref(), array_len - next_index);
 
-    let elements = builder.finish();
-
-    // SAFETY: elements.len() == array_len * list_size, validity length matches array_len.
-    unsafe { FixedSizeListArray::new_unchecked(elements, list_size, validity, array_len) }
+    builder.finish_into_fixed_size_list()
 }
 
-/// Append `count` copies of a fixed-size list to the builder.
-///
-/// If `fill_elements` is `Some`, appends those elements `count` times.
-/// If `fill_elements` is `None` (null fill), appends `list_size` default elements `count` times.
-fn append_n_lists(
-    builder: &mut dyn ArrayBuilder,
-    fill_elements: Option<&[Scalar]>,
-    list_size: u32,
+fn list_scalar_elements_array(list: ListScalar) -> Option<ArrayRef> {
+    list.elements().map(|elements| {
+        let mut builder = builder_with_capacity(list.element_dtype(), elements.len());
+        for element in elements {
+            builder
+                .append_scalar(&element)
+                .vortex_expect("list element scalar was invalid");
+        }
+        builder.finish()
+    })
+}
+
+fn append_list_fill<O: IntegerPType, S: IntegerPType>(
+    builder: &mut ListViewBuilder<O, S>,
+    fill_elements: Option<&ArrayRef>,
     count: usize,
 ) {
-    for _ in 0..count {
-        if let Some(fill_elems) = fill_elements {
-            for elem in fill_elems {
-                builder
-                    .append_scalar(elem)
-                    .vortex_expect("element dtype must match");
-            }
-        } else {
-            builder.append_defaults(list_size as usize);
+    if let Some(fill_elements) = fill_elements {
+        for _ in 0..count {
+            builder
+                .append_array_as_list(fill_elements)
+                .vortex_expect("Failed to append sparse fill value");
         }
+    } else {
+        builder.append_nulls(count);
+    }
+}
+
+fn append_fixed_size_list_fill(
+    builder: &mut FixedSizeListBuilder,
+    fill_elements: Option<&ArrayRef>,
+    count: usize,
+) {
+    if let Some(fill_elements) = fill_elements {
+        for _ in 0..count {
+            builder
+                .append_array_as_list(fill_elements)
+                .vortex_expect("Failed to append sparse fixed-size-list fill value");
+        }
+    } else {
+        builder.append_nulls(count);
     }
 }
 

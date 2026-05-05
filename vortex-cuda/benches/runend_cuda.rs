@@ -69,7 +69,7 @@ fn benchmark_runend_typed<T>(c: &mut Criterion, type_name: &str)
 where
     T: NativePType + DeviceRepr + From<u8>,
 {
-    let mut group = c.benchmark_group("cuda/runend");
+    let mut group = c.benchmark_group("cuda");
 
     for &(len, len_str) in bench_config::BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
@@ -79,7 +79,7 @@ where
             let runend_array = make_runend_array_typed::<T>(len, run_len, cuda_ctx.execution_ctx());
 
             group.bench_with_input(
-                BenchmarkId::new(format!("{type_name}_runlen_{run_len}"), len_str),
+                BenchmarkId::new(format!("cuda/runend/{type_name}_runlen_{run_len}"), len_str),
                 &runend_array,
                 |b, runend_array| {
                     b.iter_custom(|iters| {

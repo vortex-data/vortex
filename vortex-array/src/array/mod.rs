@@ -118,7 +118,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     fn dyn_array_eq(&self, other: &ArrayRef, precision: crate::Precision) -> bool;
 
     /// Returns a new array with the given slots.
-    fn with_slots(&self, this: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
+    fn with_slots(&self, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
 
     /// Returns a new array with the given slots, bypassing encoding-level validation.
     ///
@@ -132,11 +132,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// The array returned may have slots whose content does not match the encoding's normal
     /// invariants. Callers must re-establish those invariants before handing the array to
     /// anything outside the executor.
-    unsafe fn with_slots_unchecked(
-        &self,
-        this: &ArrayRef,
-        slots: Vec<Option<ArrayRef>>,
-    ) -> ArrayRef;
+    unsafe fn with_slots_unchecked(&self, slots: Vec<Option<ArrayRef>>) -> ArrayRef;
 
     /// Attempt to reduce the array to a simpler representation.
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
@@ -353,29 +349,29 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             .is_some_and(|other_inner| self.data.array_eq(&other_inner.data, precision))
     }
 
-    fn with_slots(&self, this: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
-        let data = self.data.clone();
-        let stats = this.statistics().to_owned();
+    fn with_slots(&self, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
+        let stats = self.stats.clone();
         Ok(Array::<V>::try_from_parts(
-            ArrayParts::new(self.vtable.clone(), this.dtype().clone(), this.len(), data)
-                .with_slots(slots),
+            ArrayParts::new(
+                self.vtable.clone(),
+                self.dtype.clone(),
+                self.len,
+                self.data.clone(),
+            )
+            .with_slots(slots),
         )?
-        .with_stats_set(stats)
+        .with_stats_set(stats.into())
         .into_array())
     }
 
-    unsafe fn with_slots_unchecked(
-        &self,
-        this: &ArrayRef,
-        slots: Vec<Option<ArrayRef>>,
-    ) -> ArrayRef {
+    unsafe fn with_slots_unchecked(&self, slots: Vec<Option<ArrayRef>>) -> ArrayRef {
         // SAFETY: we intentionally skip `V::validate` here. Caller guarantees that the resulting
         // array is either repaired or not externally observed.
         let store = unsafe {
             ArrayInner::<ArrayData<V>>::new_unchecked(
                 self.vtable.clone(),
-                this.len(),
-                this.dtype().clone(),
+                self.dtype.clone(),
+                self.len,
                 self.data.clone(),
                 slots,
                 this.raw_stats().clone(),

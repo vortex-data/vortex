@@ -137,7 +137,7 @@ fn benchmark_filter_type<T>(c: &mut Criterion, type_name: &str)
 where
     T: CubFilterable + DeviceRepr + From<u8> + Debug + Clone + Send + Sync + 'static,
 {
-    let mut group = c.benchmark_group(format!("cuda/filter_{type_name}"));
+    let mut group = c.benchmark_group("cuda");
 
     for (len, len_label) in BENCH_SIZES {
         for (selectivity, sel_label) in SELECTIVITIES {
@@ -148,7 +148,10 @@ where
             group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
             group.bench_with_input(
-                BenchmarkId::new(format!("select/{sel_label}"), len_label),
+                BenchmarkId::new(
+                    format!("cuda/filter_{type_name}/select/{sel_label}"),
+                    len_label,
+                ),
                 &(input_data, bitmask, true_count),
                 |b, (input_data, bitmask, true_count)| {
                     b.iter_custom(|iters| {
