@@ -12,6 +12,8 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use futures::future;
+use futures::future::BoxFuture;
+use futures::future::Shared;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -34,6 +36,8 @@ use crate::read::IoRequest;
 use crate::read::IoRequestStream;
 use crate::read::ReadRequest;
 use crate::read::RequestId;
+
+type IoStreamClosed = Shared<BoxFuture<'static, ()>>;
 
 #[derive(Debug)]
 pub enum ReadEvent {
@@ -67,6 +71,8 @@ pub struct FileSegmentSource {
     segments: Arc<[SegmentSpec]>,
     /// A queue for sending read request events to the I/O stream.
     events: mpsc::UnboundedSender<ReadEvent>,
+    /// Resolves when the spawned I/O driver stream is dropped.
+    io_stream_closed: IoStreamClosed,
     /// The next read request ID.
     next_id: Arc<AtomicUsize>,
 }
@@ -108,7 +114,15 @@ impl FileSegmentSource {
         )
         .boxed();
 
+        let (io_stream_closed_send, io_stream_closed_recv) = oneshot::channel();
+        let io_stream_closed = async move {
+            let _ = io_stream_closed_recv.into_future().await;
+        }
+        .boxed()
+        .shared();
+
         let drive_fut = async move {
+            let _io_stream_closed = IoStreamClosedNotifier::new(io_stream_closed_send);
             stream
                 .map(move |req| {
                     let reader = reader.clone();
@@ -124,7 +138,24 @@ impl FileSegmentSource {
         Self {
             segments,
             events: send,
+            io_stream_closed,
             next_id: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+}
+
+struct IoStreamClosedNotifier(Option<oneshot::Sender<()>>);
+
+impl IoStreamClosedNotifier {
+    fn new(send: oneshot::Sender<()>) -> Self {
+        Self(Some(send))
+    }
+}
+
+impl Drop for IoStreamClosedNotifier {
+    fn drop(&mut self) {
+        if let Some(send) = self.0.take() {
+            drop(send.send(()));
         }
     }
 }
@@ -183,6 +214,7 @@ impl SegmentSource for FileSegmentSource {
             polled: false,
             finished: false,
             events: self.events.clone(),
+            io_stream_closed: self.io_stream_closed.clone(),
         };
 
         // One allocation: we only box the returned SegmentFuture, not the inner ReadFuture.
@@ -200,6 +232,7 @@ struct ReadFuture {
     polled: bool,
     finished: bool,
     events: mpsc::UnboundedSender<ReadEvent>,
+    io_stream_closed: IoStreamClosed,
 }
 
 impl Future for ReadFuture {
@@ -212,21 +245,34 @@ impl Future for ReadFuture {
                 // note: we are skipping polled and dropped events for this if the future
                 //       is ready on the first poll, that means this request was completed
                 //       before it was polled, as part of a coalesced request.
-                Poll::Ready(
+                return Poll::Ready(
                     result.unwrap_or_else(|e| {
                         Err(vortex_err!("ReadRequest dropped by runtime: {e}"))
                     }),
-                )
+                );
             }
-            Poll::Pending if !self.polled => {
-                self.polled = true;
-                // Notify the I/O stream that this request has been polled.
-                match self.events.unbounded_send(ReadEvent::Polled(self.id)) {
-                    Ok(()) => Poll::Pending,
-                    Err(e) => Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}"))),
+            Poll::Pending => {}
+        }
+
+        if self.io_stream_closed.poll_unpin(cx).is_ready() {
+            self.finished = true;
+            return Poll::Ready(Err(vortex_err!(
+                "ReadRequest dropped by runtime: I/O request stream closed"
+            )));
+        }
+
+        if !self.polled {
+            self.polled = true;
+            // Notify the I/O stream that this request has been polled.
+            match self.events.unbounded_send(ReadEvent::Polled(self.id)) {
+                Ok(()) => Poll::Pending,
+                Err(e) => {
+                    self.finished = true;
+                    Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}")))
                 }
             }
-            _ => Poll::Pending,
+        } else {
+            Poll::Pending
         }
     }
 }
@@ -318,6 +364,16 @@ mod tests {
 
     use super::*;
     use crate::read::CoalescedRequest;
+
+    fn io_stream_closed_pair() -> (IoStreamClosedNotifier, IoStreamClosed) {
+        let (send, recv) = oneshot::channel();
+        let closed = async move {
+            let _ = recv.into_future().await;
+        }
+        .boxed()
+        .shared();
+        (IoStreamClosedNotifier::new(send), closed)
+    }
 
     #[derive(Clone, Default)]
     struct CountingRead {
@@ -435,5 +491,29 @@ mod tests {
         assert_eq!(buffer.len(), 16);
         assert_eq!(reader.read_count.load(Ordering::Relaxed), 1);
         Ok(())
+    }
+
+    #[tokio::test]
+    async fn read_future_finishes_when_io_stream_closes_after_poll() {
+        let (_callback, recv) = oneshot::channel();
+        let (events, _event_recv) = mpsc::unbounded();
+        let (notifier, io_stream_closed) = io_stream_closed_pair();
+
+        let read = ReadFuture {
+            id: 0,
+            recv: recv.into_future(),
+            polled: true,
+            finished: false,
+            events,
+            io_stream_closed,
+        };
+
+        drop(notifier);
+
+        let err = read.await.unwrap_err();
+        assert!(
+            err.to_string().contains("I/O request stream closed"),
+            "unexpected error: {err}"
+        );
     }
 }
