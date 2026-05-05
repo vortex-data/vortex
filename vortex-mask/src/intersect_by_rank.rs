@@ -11,12 +11,26 @@ use crate::Mask;
 use crate::MaskValues;
 
 trait DepositBits {
+    /// Whether the implementation benefits from short-circuiting on `rank_bits == 0`
+    /// and `self_chunk == u64::MAX`. The portable path loops `popcount(mask)` times,
+    /// so an all-ones mask is genuinely expensive; BMI2 PDEP is constant-time and
+    /// the branches just add mispredict cost.
+    const PREFER_BRANCHES: bool;
+
     fn deposit_bits(source: u64, mask: u64, mask_count: usize) -> u64;
+}
+
+trait SelectBit {
+    /// Position (0..63) of the `rank`-th set bit in `word`. Caller ensures
+    /// `rank < word.count_ones()`.
+    fn select_bit_position(word: u64, rank: usize) -> usize;
 }
 
 struct PortableDeposit;
 
 impl DepositBits for PortableDeposit {
+    const PREFER_BRANCHES: bool = true;
+
     #[inline]
     fn deposit_bits(source: u64, mask: u64, mask_count: usize) -> u64 {
         if mask_count >= 16 && count_ones(source) * 8 < mask_count {
@@ -24,6 +38,15 @@ impl DepositBits for PortableDeposit {
         }
 
         deposit_by_mask(source, mask)
+    }
+}
+
+struct PortableSelect;
+
+impl SelectBit for PortableSelect {
+    #[inline]
+    fn select_bit_position(word: u64, rank: usize) -> usize {
+        select_bit_position_portable(word, rank)
     }
 }
 
@@ -52,7 +75,12 @@ fn deposit_sparse_source(mut source: u64, mask: u64) -> u64 {
 }
 
 #[inline]
-fn select_set_bit(word: u64, mut rank: usize) -> u64 {
+fn select_set_bit(word: u64, rank: usize) -> u64 {
+    1u64 << select_bit_position_portable(word, rank)
+}
+
+#[inline]
+fn select_bit_position_portable(word: u64, mut rank: usize) -> usize {
     debug_assert!(rank < count_ones(word));
     let mut bit_offset = 0usize;
     for byte in word.to_le_bytes() {
@@ -63,13 +91,14 @@ fn select_set_bit(word: u64, mut rank: usize) -> u64 {
                 bits &= bits - 1;
             }
 
-            return 1u64 << (bit_offset + trailing_zeros_byte(bits));
+            return bit_offset + trailing_zeros_byte(bits);
         }
 
         rank -= count;
         bit_offset += 8;
     }
 
+    debug_assert!(false, "rank out of bounds");
     0
 }
 
@@ -93,10 +122,24 @@ struct Bmi2Deposit;
 
 #[cfg(target_arch = "x86_64")]
 impl DepositBits for Bmi2Deposit {
+    const PREFER_BRANCHES: bool = false;
+
     #[inline]
     fn deposit_bits(source: u64, mask: u64, _mask_count: usize) -> u64 {
         // SAFETY: callers only instantiate this implementation after checking BMI2 support.
         unsafe { pdep_bmi2(source, mask) }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+struct Bmi2Select;
+
+#[cfg(target_arch = "x86_64")]
+impl SelectBit for Bmi2Select {
+    #[inline]
+    fn select_bit_position(word: u64, rank: usize) -> usize {
+        // SAFETY: callers only instantiate this implementation after checking BMI2 support.
+        unsafe { select_bit_position_bmi2(word, rank) }
     }
 }
 
@@ -106,12 +149,28 @@ unsafe fn pdep_bmi2(source: u64, mask: u64) -> u64 {
     core::arch::x86_64::_pdep_u64(source, mask)
 }
 
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "bmi2")]
+unsafe fn select_bit_position_bmi2(word: u64, rank: usize) -> usize {
+    debug_assert!(rank < word.count_ones() as usize);
+    // PDEP places the rank-th bit of source into the rank-th set bit of mask, returning a single
+    // bit at the desired position.
+    let bit = core::arch::x86_64::_pdep_u64(1u64 << rank, word);
+    bit.trailing_zeros() as usize
+}
+
+/// Reader that pulls variable-length (0..=64 bit) groups from a [`BitBuffer`] sequentially.
+///
+/// Maintains a 128-bit window over two consecutive chunks (`current`, `next`) and uses a
+/// funnel shift via `u128` to extract bits at any offset without branching. The shift
+/// pattern compiles to a single funnel-shift / SHRD-style sequence on x86_64.
 struct RankBitReader<'a> {
     chunks: BitChunkIterator<'a>,
     remainder: u64,
     current: u64,
+    next: u64,
     bit_offset: usize,
-    loaded_remainder: bool,
+    remainder_loaded: bool,
 }
 
 impl<'a> RankBitReader<'a> {
@@ -119,63 +178,66 @@ impl<'a> RankBitReader<'a> {
         let chunks = buffer.chunks();
         let remainder = chunks.remainder_bits();
         let mut iter = chunks.iter();
-        let Some(current) = iter.next() else {
-            return Self {
-                chunks: iter,
-                remainder,
-                current: remainder,
-                bit_offset: 0,
-                loaded_remainder: true,
-            };
-        };
+        let mut remainder_loaded = false;
+
+        let current = iter.next().unwrap_or_else(|| {
+            remainder_loaded = true;
+            remainder
+        });
+        let next = iter.next().unwrap_or_else(|| {
+            if !remainder_loaded {
+                remainder_loaded = true;
+                remainder
+            } else {
+                0
+            }
+        });
 
         Self {
             chunks: iter,
             remainder,
             current,
+            next,
             bit_offset: 0,
-            loaded_remainder: false,
+            remainder_loaded,
         }
     }
 
     #[inline]
     fn read(&mut self, bit_count: usize) -> u64 {
         debug_assert!(bit_count <= 64);
-        if bit_count == 0 {
-            return 0;
+
+        // Funnel shift: extract `bit_count` bits at `bit_offset` from the (next:current)
+        // 128-bit window. For bit_offset in 0..=63 this is a single SHRD-style instruction
+        // on x86_64; the u128 cast keeps it well-defined when bit_offset == 0.
+        let combined = ((self.next as u128) << 64) | (self.current as u128);
+        // The truncation is intentional: we want the low 64 bits of the funnel-shifted
+        // window, which is exactly what `as u64` produces.
+        #[expect(clippy::cast_possible_truncation)]
+        let bits = (combined >> self.bit_offset) as u64 & low_bits(bit_count);
+
+        let new_offset = self.bit_offset + bit_count;
+        if new_offset >= 64 {
+            self.current = self.next;
+            self.next = self.fetch_next();
+            self.bit_offset = new_offset - 64;
+        } else {
+            self.bit_offset = new_offset;
         }
 
-        let available = 64 - self.bit_offset;
-        if bit_count <= available {
-            let result = (self.current >> self.bit_offset) & low_bits(bit_count);
-            self.bit_offset += bit_count;
-            if self.bit_offset == 64 {
-                self.advance();
-            }
-            return result;
-        }
-
-        let low = self.current >> self.bit_offset;
-        self.advance();
-
-        let high_bit_count = bit_count - available;
-        let high = self.current & low_bits(high_bit_count);
-        self.bit_offset = high_bit_count;
-        low | (high << available)
+        bits
     }
 
     #[inline]
-    fn advance(&mut self) {
-        if let Some(current) = self.chunks.next() {
-            self.current = current;
-            self.loaded_remainder = false;
-        } else if !self.loaded_remainder {
-            self.current = self.remainder;
-            self.loaded_remainder = true;
+    fn fetch_next(&mut self) -> u64 {
+        if let Some(chunk) = self.chunks.next() {
+            chunk
+        } else if !self.remainder_loaded {
+            self.remainder_loaded = true;
+            self.remainder
         } else {
-            self.current = 0;
+            0
         }
-        self.bit_offset = 0;
     }
 }
 
@@ -220,10 +282,17 @@ fn push_result_chunk<D: DepositBits>(
     self_count: usize,
     rank_bits: u64,
 ) {
-    let chunk = if rank_bits == 0 {
-        0
-    } else if self_chunk == u64::MAX {
-        rank_bits
+    // The portable deposit loops `popcount(self_chunk)` times, so an all-ones mask is
+    // genuinely 64x more expensive than the early returns; for BMI2 PDEP both inputs run
+    // in constant time and unpredictable branches just add mispredict overhead.
+    let chunk = if D::PREFER_BRANCHES {
+        if rank_bits == 0 {
+            0
+        } else if self_chunk == u64::MAX {
+            rank_bits
+        } else {
+            D::deposit_bits(rank_bits, self_chunk, self_count)
+        }
     } else {
         D::deposit_bits(rank_bits, self_chunk, self_count)
     };
@@ -295,40 +364,61 @@ fn intersect_bit_buffer_by_rank_indices<D: DepositBits>(
     )
 }
 
-fn intersect_bit_buffer_by_rank_index_iter<D: DepositBits>(
-    self_buffer: &BitBuffer,
-    mask_indices: impl Iterator<Item = usize>,
-    true_count: usize,
-) -> Mask {
+/// Walks `mask_indices` (global ranks into `self_buffer.set_bits`) and emits the corresponding
+/// positions in `self_buffer`. For each rank, advances `self_buffer`'s chunks via popcount
+/// skip-while, then locates the bit inside the current chunk with rank-select.
+///
+/// This dominates the chunk-scan paths when the mask is very sparse: cost is
+/// `O(mask.true_count() + self.len() / 64)` rather than `O(self.len() / 64)` per chunk.
+fn intersect_mask_driven<S, I>(self_buffer: &BitBuffer, mask_indices: I, true_count: usize) -> Mask
+where
+    S: SelectBit,
+    I: Iterator<Item = usize>,
+{
     let len = self_buffer.len();
-    let mut result = BufferMut::with_capacity(len.div_ceil(64));
-    let self_chunks = self_buffer.chunks();
-    let mut rank_base = 0usize;
-    let mut mask_indices = mask_indices.peekable();
-
-    for self_chunk in self_chunks.iter() {
-        let self_count = count_ones(self_chunk);
-        let next_rank_base = rank_base + self_count;
-        let rank_bits = rank_bits_for_chunk_iter(&mut mask_indices, rank_base, next_rank_base);
-        push_result_chunk::<D>(&mut result, self_chunk, self_count, rank_bits);
-        rank_base = next_rank_base;
+    if true_count == 0 {
+        return Mask::new_false(len);
     }
 
-    if self_chunks.remainder_len() != 0 {
-        let self_chunk = self_chunks.remainder_bits();
-        let self_count = count_ones(self_chunk);
-        let next_rank_base = rank_base + self_count;
-        let rank_bits = rank_bits_for_chunk_iter(&mut mask_indices, rank_base, next_rank_base);
-        push_result_chunk::<D>(&mut result, self_chunk, self_count, rank_bits);
+    let chunks = self_buffer.chunks();
+    let remainder = chunks.remainder_bits();
+    let mut chunk_iter = chunks.iter();
+
+    let (mut current_chunk, mut on_remainder) = match chunk_iter.next() {
+        Some(c) => (c, false),
+        None => (remainder, true),
+    };
+    let mut current_count = count_ones(current_chunk);
+    let mut current_chunk_idx = 0usize;
+    let mut rank_before = 0usize;
+
+    let mut output: Vec<usize> = Vec::with_capacity(true_count);
+
+    for global_rank in mask_indices {
+        while rank_before + current_count <= global_rank {
+            rank_before += current_count;
+            current_chunk_idx += 1;
+            current_chunk = match chunk_iter.next() {
+                Some(c) => c,
+                None if !on_remainder => {
+                    on_remainder = true;
+                    remainder
+                }
+                None => {
+                    debug_assert!(false, "mask index out of bounds");
+                    0
+                }
+            };
+            current_count = count_ones(current_chunk);
+        }
+
+        let local_rank = global_rank - rank_before;
+        let bit_pos = S::select_bit_position(current_chunk, local_rank);
+        output.push(current_chunk_idx * 64 + bit_pos);
     }
 
-    let exhausted_mask_indices = mask_indices.next().is_none();
-    debug_assert!(exhausted_mask_indices);
-
-    mask_from_buffer(
-        BitBuffer::new(result.freeze().into_byte_buffer(), len),
-        true_count,
-    )
+    debug_assert_eq!(output.len(), true_count);
+    Mask::from_indices(len, output)
 }
 
 #[inline]
@@ -364,23 +454,6 @@ fn intersect_by_rank_indices(len: usize, self_indices: &[usize], mask_indices: &
 }
 
 #[inline]
-fn rank_bits_for_chunk_iter(
-    mask_indices: &mut std::iter::Peekable<impl Iterator<Item = usize>>,
-    rank_base: usize,
-    next_rank_base: usize,
-) -> u64 {
-    let mut rank_bits = 0u64;
-    while let Some(&rank) = mask_indices.peek() {
-        if rank >= next_rank_base {
-            break;
-        }
-        rank_bits |= 1u64 << (rank - rank_base);
-        mask_indices.next();
-    }
-    rank_bits
-}
-
-#[inline]
 fn intersect_bit_buffers_dispatch(
     self_buffer: &BitBuffer,
     mask_buffer: &BitBuffer,
@@ -405,25 +478,20 @@ fn intersect_rank_indices_dispatch(self_buffer: &BitBuffer, mask_indices: &[usiz
 }
 
 #[inline]
-fn intersect_rank_index_iter_dispatch(
+fn intersect_mask_driven_dispatch<I>(
     self_buffer: &BitBuffer,
-    mask_indices: impl Iterator<Item = usize>,
+    mask_indices: I,
     true_count: usize,
-) -> Mask {
+) -> Mask
+where
+    I: Iterator<Item = usize>,
+{
     #[cfg(target_arch = "x86_64")]
     if std::arch::is_x86_feature_detected!("bmi2") {
-        return intersect_bit_buffer_by_rank_index_iter::<Bmi2Deposit>(
-            self_buffer,
-            mask_indices,
-            true_count,
-        );
+        return intersect_mask_driven::<Bmi2Select, _>(self_buffer, mask_indices, true_count);
     }
 
-    intersect_bit_buffer_by_rank_index_iter::<PortableDeposit>(
-        self_buffer,
-        mask_indices,
-        true_count,
-    )
+    intersect_mask_driven::<PortableSelect, _>(self_buffer, mask_indices, true_count)
 }
 
 impl Mask {
@@ -454,6 +522,9 @@ impl Mask {
             (Self::AllFalse(_), _) | (_, Self::AllFalse(_)) => Self::new_false(self.len()),
             (Self::Values(self_values), Self::Values(mask_values)) => {
                 let self_is_very_sparse = self_values.true_count() < self.len().div_ceil(64);
+                // The mask-driven path becomes worthwhile around ~3% mask density: each set
+                // bit costs a select + push, but we save a per-self-chunk popcount + deposit.
+                let mask_is_very_sparse = mask_values.true_count().saturating_mul(32) < mask.len();
 
                 if let Some(mask_indices) = mask_values.indices.get() {
                     if let Some(self_indices) = self_values.indices.get()
@@ -467,6 +538,14 @@ impl Mask {
                             self.len(),
                             self_values.indices(),
                             mask_indices,
+                        );
+                    }
+
+                    if mask_is_very_sparse {
+                        return intersect_mask_driven_dispatch(
+                            self_values.bit_buffer(),
+                            mask_indices.iter().copied(),
+                            mask_values.true_count(),
                         );
                     }
 
@@ -489,8 +568,8 @@ impl Mask {
                     );
                 }
 
-                if mask_values.true_count().saturating_mul(32) < mask.len() {
-                    return intersect_rank_index_iter_dispatch(
+                if mask_is_very_sparse {
+                    return intersect_mask_driven_dispatch(
                         self_values.bit_buffer(),
                         mask_values.bit_buffer().set_indices(),
                         mask_values.true_count(),
@@ -651,6 +730,59 @@ mod test {
             crate::AllOr::None => assert!(expected_indices.is_empty()),
             _ => panic!("Unexpected result"),
         }
+    }
+
+    #[rstest]
+    // Larger sizes to push the bench-shaped buffer paths through the unit tests too.
+    #[case::dense_len_1024(1024, 31, 0.5, 0.5)]
+    // Very-sparse mask exercises the mask-driven dispatch path. Both densities live in
+    // the half-open interval where `mask_is_very_sparse` is true.
+    #[case::sparse_mask_1pct(1024, 17, 0.5, 0.01)]
+    #[case::sparse_mask_2pct(2048, 0, 0.5, 0.02)]
+    #[case::very_sparse_mask_with_offsets(513, 5, 0.5, 0.005)]
+    fn test_intersect_by_rank_density_matrix(
+        #[case] base_len: usize,
+        #[case] base_offset: usize,
+        #[case] base_density: f64,
+        #[case] rank_density: f64,
+    ) {
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let base_threshold = (base_density * 1024.0) as usize;
+        #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let rank_threshold = (rank_density * 1024.0) as usize;
+
+        let base_source: Vec<bool> = (0..base_len + base_offset + 16)
+            .map(|i| (i * 7 + 13) % 1024 < base_threshold)
+            .collect();
+        let base_bits = base_source[base_offset..base_offset + base_len].to_vec();
+        let base = Mask::from_buffer(
+            BitBuffer::from(base_source).slice(base_offset..base_offset + base_len),
+        );
+
+        let rank_len = base.true_count();
+        let rank_bits: Vec<bool> = (0..rank_len)
+            .map(|i| (i * 11 + 7) % 1024 < rank_threshold)
+            .collect();
+        let rank_from_buffer = Mask::from_buffer(BitBuffer::from(rank_bits.clone()));
+        let rank_indices_vec = rank_bits
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, &v)| v.then_some(idx))
+            .collect::<Vec<_>>();
+        let rank_from_indices = Mask::from_indices(rank_len, rank_indices_vec);
+
+        let expected = expected_intersect_by_rank(&base_bits, &rank_bits);
+
+        assert_eq!(
+            base.intersect_by_rank(&rank_from_buffer),
+            expected,
+            "uncached rank"
+        );
+        assert_eq!(
+            base.intersect_by_rank(&rank_from_indices),
+            expected,
+            "cached rank"
+        );
     }
 
     #[rstest]
