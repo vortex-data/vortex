@@ -277,7 +277,9 @@ fn open_target_db_removes_orphan_wal() {
     assert!(wal.exists(), "precondition: orphan wal staged");
     assert!(!target.exists(), "precondition: no main db file");
 
-    let _conn = migrate::open_target_db(&target).unwrap();
+    {
+        let _conn = migrate::open_target_db(&target).unwrap();
+    }
 
     // The migrator opens the DB after sweeping the WAL; DuckDB may
     // recreate its own wal under load, but our pre-existing orphan
