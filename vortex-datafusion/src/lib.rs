@@ -153,7 +153,6 @@ mod common_tests {
     use url::Url;
     use vortex::VortexSessionDefault;
     use vortex::array::ArrayRef;
-    use vortex::array::LEGACY_SESSION;
     use vortex::array::arrow::FromArrowArray;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::io::VortexWrite;
@@ -211,7 +210,7 @@ mod common_tests {
         where
             P: Into<object_store::path::Path>,
         {
-            let array = ArrayRef::from_arrow(batch, false, &LEGACY_SESSION)?;
+            let array = ArrayRef::from_arrow(batch, false)?;
             let mut write = ObjectStoreWrite::new(Arc::clone(&self.store), &path.into()).await?;
             VX_SESSION
                 .write_options()

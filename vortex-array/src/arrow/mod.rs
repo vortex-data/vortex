@@ -26,7 +26,18 @@ use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 
 pub trait FromArrowArray<A>: Sized {
-    fn from_arrow(array: A, nullable: bool, session: &VortexSession) -> VortexResult<Self>;
+    /// Convert an Arrow array to a Vortex array, looking up extension types in `session`.
+    fn from_arrow_with_session(
+        array: A,
+        nullable: bool,
+        session: &VortexSession,
+    ) -> VortexResult<Self>;
+
+    /// Convert an Arrow array to a Vortex array using the legacy global session.
+    #[deprecated(note = "Use `from_arrow_with_session` instead")]
+    fn from_arrow(array: A, nullable: bool) -> VortexResult<Self> {
+        Self::from_arrow_with_session(array, nullable, &LEGACY_SESSION)
+    }
 }
 
 #[deprecated(note = "Use `execute_arrow(None, ctx)` or `execute_arrow(Some(dt), ctx)` instead")]

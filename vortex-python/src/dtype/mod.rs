@@ -33,7 +33,6 @@ use pyo3::pyclass;
 use pyo3::pymethods;
 use pyo3::types::PyType;
 use pyo3::wrap_pyfunction;
-use vortex::array::LEGACY_SESSION;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 
@@ -194,10 +193,7 @@ impl PyDType {
     ) -> PyResult<Bound<'py, PyDType>> {
         Self::init(
             cls.py(),
-            DType::from_arrow(
-                &Field::new("_", arrow_dtype, !non_nullable),
-                &LEGACY_SESSION,
-            ),
+            DType::from_arrow(&Field::new("_", arrow_dtype, !non_nullable)),
         )
     }
 }

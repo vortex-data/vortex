@@ -139,7 +139,7 @@ where
 macro_rules! impl_from_arrow_primitive {
     ($T:path) => {
         impl FromArrowArray<&ArrowPrimitiveArray<$T>> for ArrayRef {
-            fn from_arrow(
+            fn from_arrow_with_session(
                 value: &ArrowPrimitiveArray<$T>,
                 nullable: bool,
                 _session: &VortexSession,
@@ -165,7 +165,7 @@ impl_from_arrow_primitive!(Float32Type);
 impl_from_arrow_primitive!(Float64Type);
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal32Type>> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         array: &ArrowPrimitiveArray<Decimal32Type>,
         nullable: bool,
         _session: &VortexSession,
@@ -178,7 +178,7 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal32Type>> for ArrayRef {
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal64Type>> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         array: &ArrowPrimitiveArray<Decimal64Type>,
         nullable: bool,
         _session: &VortexSession,
@@ -191,7 +191,7 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal64Type>> for ArrayRef {
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         array: &ArrowPrimitiveArray<Decimal128Type>,
         nullable: bool,
         _session: &VortexSession,
@@ -204,7 +204,7 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         array: &ArrowPrimitiveArray<Decimal256Type>,
         nullable: bool,
         _session: &VortexSession,
@@ -224,7 +224,7 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
 macro_rules! impl_from_arrow_temporal {
     ($T:path) => {
         impl FromArrowArray<&ArrowPrimitiveArray<$T>> for ArrayRef {
-            fn from_arrow(
+            fn from_arrow_with_session(
                 value: &ArrowPrimitiveArray<$T>,
                 nullable: bool,
                 _session: &VortexSession,
@@ -279,7 +279,7 @@ impl<T: ByteArrayType> FromArrowArray<&GenericByteArray<T>> for ArrayRef
 where
     <T as ByteArrayType>::Offset: IntegerPType,
 {
-    fn from_arrow(
+    fn from_arrow_with_session(
         value: &GenericByteArray<T>,
         nullable: bool,
         _session: &VortexSession,
@@ -303,7 +303,7 @@ where
 }
 
 impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         value: &GenericByteViewArray<T>,
         nullable: bool,
         _session: &VortexSession,
@@ -339,7 +339,7 @@ impl<T: ByteViewType> FromArrowArray<&GenericByteViewArray<T>> for ArrayRef {
 }
 
 impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         value: &ArrowBooleanArray,
         nullable: bool,
         _session: &VortexSession,
@@ -401,7 +401,7 @@ fn remove_nulls(data: arrow_data::ArrayData) -> arrow_data::ArrayData {
 }
 
 impl FromArrowArray<&ArrowStructArray> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         value: &ArrowStructArray,
         nullable: bool,
         session: &VortexSession,
@@ -417,9 +417,9 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
                     // out here because Vortex is a little more strict.
                     if c.null_count() > 0 && !field.is_nullable() {
                         let stripped = make_array(remove_nulls(c.into_data()));
-                        Self::from_arrow(stripped.as_ref(), false, session)
+                        Self::from_arrow_with_session(stripped.as_ref(), false, session)
                     } else {
-                        Self::from_arrow(c.as_ref(), field.is_nullable(), session)
+                        Self::from_arrow_with_session(c.as_ref(), field.is_nullable(), session)
                     }
                 })
                 .collect::<VortexResult<Vec<_>>>()?,
@@ -431,7 +431,7 @@ impl FromArrowArray<&ArrowStructArray> for ArrayRef {
 }
 
 impl<O: IntegerPType + OffsetSizeTrait> FromArrowArray<&GenericListArray<O>> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         value: &GenericListArray<O>,
         nullable: bool,
         session: &VortexSession,
@@ -443,7 +443,8 @@ impl<O: IntegerPType + OffsetSizeTrait> FromArrowArray<&GenericListArray<O>> for
             dt => vortex_panic!("Invalid data type for ListArray: {dt}"),
         };
 
-        let elements = Self::from_arrow(value.values().as_ref(), elements_are_nullable, session)?;
+        let elements =
+            Self::from_arrow_with_session(value.values().as_ref(), elements_are_nullable, session)?;
 
         // `offsets` are always non-nullable.
         let offsets = value.offsets().clone().into_array();
@@ -454,7 +455,7 @@ impl<O: IntegerPType + OffsetSizeTrait> FromArrowArray<&GenericListArray<O>> for
 }
 
 impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListViewArray<O>> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         array: &GenericListViewArray<O>,
         nullable: bool,
         session: &VortexSession,
@@ -466,7 +467,8 @@ impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListViewArray<O>> 
             dt => vortex_panic!("Invalid data type for ListViewArray: {dt}"),
         };
 
-        let elements = Self::from_arrow(array.values().as_ref(), elements_are_nullable, session)?;
+        let elements =
+            Self::from_arrow_with_session(array.values().as_ref(), elements_are_nullable, session)?;
 
         // `offsets` and `sizes` are always non-nullable.
         let offsets = array.offsets().clone().into_array();
@@ -478,7 +480,7 @@ impl<O: OffsetSizeTrait + NativePType> FromArrowArray<&GenericListViewArray<O>> 
 }
 
 impl FromArrowArray<&ArrowFixedSizeListArray> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         array: &ArrowFixedSizeListArray,
         nullable: bool,
         session: &VortexSession,
@@ -488,7 +490,7 @@ impl FromArrowArray<&ArrowFixedSizeListArray> for ArrayRef {
         };
 
         Ok(FixedSizeListArray::try_new(
-            Self::from_arrow(array.values().as_ref(), field.is_nullable(), session)?,
+            Self::from_arrow_with_session(array.values().as_ref(), field.is_nullable(), session)?,
             *list_size as u32,
             nulls(array.nulls(), nullable),
             array.len(),
@@ -498,7 +500,7 @@ impl FromArrowArray<&ArrowFixedSizeListArray> for ArrayRef {
 }
 
 impl FromArrowArray<&ArrowNullArray> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         value: &ArrowNullArray,
         nullable: bool,
         _session: &VortexSession,
@@ -509,14 +511,14 @@ impl FromArrowArray<&ArrowNullArray> for ArrayRef {
 }
 
 impl<K: ArrowDictionaryKeyType> FromArrowArray<&DictionaryArray<K>> for DictArray {
-    fn from_arrow(
+    fn from_arrow_with_session(
         array: &DictionaryArray<K>,
         nullable: bool,
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let keys = AnyDictionaryArray::keys(array);
-        let keys = ArrayRef::from_arrow(keys, keys.is_nullable(), session)?;
-        let values = ArrayRef::from_arrow(array.values().as_ref(), nullable, session)?;
+        let keys = ArrayRef::from_arrow_with_session(keys, keys.is_nullable(), session)?;
+        let values = ArrayRef::from_arrow_with_session(array.values().as_ref(), nullable, session)?;
         // SAFETY: we assume that Arrow has checked the invariants on construction.
         Ok(unsafe { DictArray::new_unchecked(keys, values) })
     }
@@ -540,96 +542,128 @@ fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
 }
 
 impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         array: &dyn ArrowArray,
         nullable: bool,
         session: &VortexSession,
     ) -> VortexResult<Self> {
         match array.data_type() {
-            DataType::Boolean => Self::from_arrow(array.as_boolean(), nullable, session),
+            DataType::Boolean => {
+                Self::from_arrow_with_session(array.as_boolean(), nullable, session)
+            }
             DataType::UInt8 => {
-                Self::from_arrow(array.as_primitive::<UInt8Type>(), nullable, session)
+                Self::from_arrow_with_session(array.as_primitive::<UInt8Type>(), nullable, session)
             }
             DataType::UInt16 => {
-                Self::from_arrow(array.as_primitive::<UInt16Type>(), nullable, session)
+                Self::from_arrow_with_session(array.as_primitive::<UInt16Type>(), nullable, session)
             }
             DataType::UInt32 => {
-                Self::from_arrow(array.as_primitive::<UInt32Type>(), nullable, session)
+                Self::from_arrow_with_session(array.as_primitive::<UInt32Type>(), nullable, session)
             }
             DataType::UInt64 => {
-                Self::from_arrow(array.as_primitive::<UInt64Type>(), nullable, session)
+                Self::from_arrow_with_session(array.as_primitive::<UInt64Type>(), nullable, session)
             }
-            DataType::Int8 => Self::from_arrow(array.as_primitive::<Int8Type>(), nullable, session),
+            DataType::Int8 => {
+                Self::from_arrow_with_session(array.as_primitive::<Int8Type>(), nullable, session)
+            }
             DataType::Int16 => {
-                Self::from_arrow(array.as_primitive::<Int16Type>(), nullable, session)
+                Self::from_arrow_with_session(array.as_primitive::<Int16Type>(), nullable, session)
             }
             DataType::Int32 => {
-                Self::from_arrow(array.as_primitive::<Int32Type>(), nullable, session)
+                Self::from_arrow_with_session(array.as_primitive::<Int32Type>(), nullable, session)
             }
             DataType::Int64 => {
-                Self::from_arrow(array.as_primitive::<Int64Type>(), nullable, session)
+                Self::from_arrow_with_session(array.as_primitive::<Int64Type>(), nullable, session)
             }
-            DataType::Float16 => {
-                Self::from_arrow(array.as_primitive::<Float16Type>(), nullable, session)
+            DataType::Float16 => Self::from_arrow_with_session(
+                array.as_primitive::<Float16Type>(),
+                nullable,
+                session,
+            ),
+            DataType::Float32 => Self::from_arrow_with_session(
+                array.as_primitive::<Float32Type>(),
+                nullable,
+                session,
+            ),
+            DataType::Float64 => Self::from_arrow_with_session(
+                array.as_primitive::<Float64Type>(),
+                nullable,
+                session,
+            ),
+            DataType::Utf8 => {
+                Self::from_arrow_with_session(array.as_string::<i32>(), nullable, session)
             }
-            DataType::Float32 => {
-                Self::from_arrow(array.as_primitive::<Float32Type>(), nullable, session)
+            DataType::LargeUtf8 => {
+                Self::from_arrow_with_session(array.as_string::<i64>(), nullable, session)
             }
-            DataType::Float64 => {
-                Self::from_arrow(array.as_primitive::<Float64Type>(), nullable, session)
+            DataType::Binary => {
+                Self::from_arrow_with_session(array.as_binary::<i32>(), nullable, session)
             }
-            DataType::Utf8 => Self::from_arrow(array.as_string::<i32>(), nullable, session),
-            DataType::LargeUtf8 => Self::from_arrow(array.as_string::<i64>(), nullable, session),
-            DataType::Binary => Self::from_arrow(array.as_binary::<i32>(), nullable, session),
-            DataType::LargeBinary => Self::from_arrow(array.as_binary::<i64>(), nullable, session),
-            DataType::BinaryView => Self::from_arrow(array.as_binary_view(), nullable, session),
-            DataType::Utf8View => Self::from_arrow(array.as_string_view(), nullable, session),
-            DataType::Struct(_) => Self::from_arrow(array.as_struct(), nullable, session),
-            DataType::List(_) => Self::from_arrow(array.as_list::<i32>(), nullable, session),
-            DataType::LargeList(_) => Self::from_arrow(array.as_list::<i64>(), nullable, session),
+            DataType::LargeBinary => {
+                Self::from_arrow_with_session(array.as_binary::<i64>(), nullable, session)
+            }
+            DataType::BinaryView => {
+                Self::from_arrow_with_session(array.as_binary_view(), nullable, session)
+            }
+            DataType::Utf8View => {
+                Self::from_arrow_with_session(array.as_string_view(), nullable, session)
+            }
+            DataType::Struct(_) => {
+                Self::from_arrow_with_session(array.as_struct(), nullable, session)
+            }
+            DataType::List(_) => {
+                Self::from_arrow_with_session(array.as_list::<i32>(), nullable, session)
+            }
+            DataType::LargeList(_) => {
+                Self::from_arrow_with_session(array.as_list::<i64>(), nullable, session)
+            }
             DataType::ListView(_) => {
-                Self::from_arrow(array.as_list_view::<i32>(), nullable, session)
+                Self::from_arrow_with_session(array.as_list_view::<i32>(), nullable, session)
             }
             DataType::LargeListView(_) => {
-                Self::from_arrow(array.as_list_view::<i64>(), nullable, session)
+                Self::from_arrow_with_session(array.as_list_view::<i64>(), nullable, session)
             }
             DataType::FixedSizeList(..) => {
-                Self::from_arrow(array.as_fixed_size_list(), nullable, session)
+                Self::from_arrow_with_session(array.as_fixed_size_list(), nullable, session)
             }
-            DataType::Null => Self::from_arrow(as_null_array(array), nullable, session),
+            DataType::Null => {
+                Self::from_arrow_with_session(as_null_array(array), nullable, session)
+            }
             DataType::Timestamp(u, _) => match u {
-                ArrowTimeUnit::Second => Self::from_arrow(
+                ArrowTimeUnit::Second => Self::from_arrow_with_session(
                     array.as_primitive::<TimestampSecondType>(),
                     nullable,
                     session,
                 ),
-                ArrowTimeUnit::Millisecond => Self::from_arrow(
+                ArrowTimeUnit::Millisecond => Self::from_arrow_with_session(
                     array.as_primitive::<TimestampMillisecondType>(),
                     nullable,
                     session,
                 ),
-                ArrowTimeUnit::Microsecond => Self::from_arrow(
+                ArrowTimeUnit::Microsecond => Self::from_arrow_with_session(
                     array.as_primitive::<TimestampMicrosecondType>(),
                     nullable,
                     session,
                 ),
-                ArrowTimeUnit::Nanosecond => Self::from_arrow(
+                ArrowTimeUnit::Nanosecond => Self::from_arrow_with_session(
                     array.as_primitive::<TimestampNanosecondType>(),
                     nullable,
                     session,
                 ),
             },
             DataType::Date32 => {
-                Self::from_arrow(array.as_primitive::<Date32Type>(), nullable, session)
+                Self::from_arrow_with_session(array.as_primitive::<Date32Type>(), nullable, session)
             }
             DataType::Date64 => {
-                Self::from_arrow(array.as_primitive::<Date64Type>(), nullable, session)
+                Self::from_arrow_with_session(array.as_primitive::<Date64Type>(), nullable, session)
             }
             DataType::Time32(u) => match u {
-                ArrowTimeUnit::Second => {
-                    Self::from_arrow(array.as_primitive::<Time32SecondType>(), nullable, session)
-                }
-                ArrowTimeUnit::Millisecond => Self::from_arrow(
+                ArrowTimeUnit::Second => Self::from_arrow_with_session(
+                    array.as_primitive::<Time32SecondType>(),
+                    nullable,
+                    session,
+                ),
+                ArrowTimeUnit::Millisecond => Self::from_arrow_with_session(
                     array.as_primitive::<Time32MillisecondType>(),
                     nullable,
                     session,
@@ -637,74 +671,82 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
                 ArrowTimeUnit::Microsecond | ArrowTimeUnit::Nanosecond => unreachable!(),
             },
             DataType::Time64(u) => match u {
-                ArrowTimeUnit::Microsecond => Self::from_arrow(
+                ArrowTimeUnit::Microsecond => Self::from_arrow_with_session(
                     array.as_primitive::<Time64MicrosecondType>(),
                     nullable,
                     session,
                 ),
-                ArrowTimeUnit::Nanosecond => Self::from_arrow(
+                ArrowTimeUnit::Nanosecond => Self::from_arrow_with_session(
                     array.as_primitive::<Time64NanosecondType>(),
                     nullable,
                     session,
                 ),
                 ArrowTimeUnit::Second | ArrowTimeUnit::Millisecond => unreachable!(),
             },
-            DataType::Decimal32(..) => {
-                Self::from_arrow(array.as_primitive::<Decimal32Type>(), nullable, session)
-            }
-            DataType::Decimal64(..) => {
-                Self::from_arrow(array.as_primitive::<Decimal64Type>(), nullable, session)
-            }
-            DataType::Decimal128(..) => {
-                Self::from_arrow(array.as_primitive::<Decimal128Type>(), nullable, session)
-            }
-            DataType::Decimal256(..) => {
-                Self::from_arrow(array.as_primitive::<Decimal256Type>(), nullable, session)
-            }
+            DataType::Decimal32(..) => Self::from_arrow_with_session(
+                array.as_primitive::<Decimal32Type>(),
+                nullable,
+                session,
+            ),
+            DataType::Decimal64(..) => Self::from_arrow_with_session(
+                array.as_primitive::<Decimal64Type>(),
+                nullable,
+                session,
+            ),
+            DataType::Decimal128(..) => Self::from_arrow_with_session(
+                array.as_primitive::<Decimal128Type>(),
+                nullable,
+                session,
+            ),
+            DataType::Decimal256(..) => Self::from_arrow_with_session(
+                array.as_primitive::<Decimal256Type>(),
+                nullable,
+                session,
+            ),
             DataType::Dictionary(key_type, _) => match key_type.as_ref() {
-                DataType::Int8 => Ok(DictArray::from_arrow(
+                DataType::Int8 => Ok(DictArray::from_arrow_with_session(
                     array.as_dictionary::<Int8Type>(),
                     nullable,
                     session,
                 )?
                 .into_array()),
-                DataType::Int16 => Ok(DictArray::from_arrow(
+                DataType::Int16 => Ok(DictArray::from_arrow_with_session(
                     array.as_dictionary::<Int16Type>(),
                     nullable,
                     session,
                 )?
                 .into_array()),
-                DataType::Int32 => Ok(DictArray::from_arrow(
+                DataType::Int32 => Ok(DictArray::from_arrow_with_session(
                     array.as_dictionary::<Int32Type>(),
                     nullable,
                     session,
                 )?
                 .into_array()),
-                DataType::Int64 => Ok(DictArray::from_arrow(
+                DataType::Int64 => Ok(DictArray::from_arrow_with_session(
                     array.as_dictionary::<Int64Type>(),
                     nullable,
                     session,
                 )?
                 .into_array()),
-                DataType::UInt8 => Ok(DictArray::from_arrow(
+                DataType::UInt8 => Ok(DictArray::from_arrow_with_session(
                     array.as_dictionary::<UInt8Type>(),
                     nullable,
                     session,
                 )?
                 .into_array()),
-                DataType::UInt16 => Ok(DictArray::from_arrow(
+                DataType::UInt16 => Ok(DictArray::from_arrow_with_session(
                     array.as_dictionary::<UInt16Type>(),
                     nullable,
                     session,
                 )?
                 .into_array()),
-                DataType::UInt32 => Ok(DictArray::from_arrow(
+                DataType::UInt32 => Ok(DictArray::from_arrow_with_session(
                     array.as_dictionary::<UInt32Type>(),
                     nullable,
                     session,
                 )?
                 .into_array()),
-                DataType::UInt64 => Ok(DictArray::from_arrow(
+                DataType::UInt64 => Ok(DictArray::from_arrow_with_session(
                     array.as_dictionary::<UInt64Type>(),
                     nullable,
                     session,
@@ -718,26 +760,27 @@ impl FromArrowArray<&dyn ArrowArray> for ArrayRef {
 }
 
 impl FromArrowArray<RecordBatch> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         array: RecordBatch,
         nullable: bool,
         session: &VortexSession,
     ) -> VortexResult<Self> {
-        ArrayRef::from_arrow(&arrow_array::StructArray::from(array), nullable, session)
+        ArrayRef::from_arrow_with_session(&arrow_array::StructArray::from(array), nullable, session)
     }
 }
 
 impl FromArrowArray<&RecordBatch> for ArrayRef {
-    fn from_arrow(
+    fn from_arrow_with_session(
         array: &RecordBatch,
         nullable: bool,
         session: &VortexSession,
     ) -> VortexResult<Self> {
-        Self::from_arrow(array.clone(), nullable, session)
+        Self::from_arrow_with_session(array.clone(), nullable, session)
     }
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use std::sync::Arc;
 
@@ -793,7 +836,6 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::arrays::Decimal;
     use crate::arrays::FixedSizeList;
     use crate::arrays::List;
@@ -818,11 +860,10 @@ mod tests {
     #[test]
     fn test_int8_array_conversion() {
         let arrow_array = Int8Array::from(vec![Some(1), None, Some(3), Some(4)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = Int8Array::from(vec![1, 2, 3, 4]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -838,11 +879,10 @@ mod tests {
     #[test]
     fn test_int16_array_conversion() {
         let arrow_array = Int16Array::from(vec![Some(100), None, Some(300), Some(400)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = Int16Array::from(vec![100, 200, 300, 400]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -858,11 +898,10 @@ mod tests {
     #[test]
     fn test_int32_array_conversion() {
         let arrow_array = Int32Array::from(vec![Some(1000), None, Some(3000), Some(4000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = Int32Array::from(vec![1000, 2000, 3000, 4000]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -878,11 +917,10 @@ mod tests {
     #[test]
     fn test_int64_array_conversion() {
         let arrow_array = Int64Array::from(vec![Some(10000), None, Some(30000), Some(40000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = Int64Array::from(vec![10000_i64, 20000, 30000, 40000]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -898,11 +936,10 @@ mod tests {
     #[test]
     fn test_uint8_array_conversion() {
         let arrow_array = UInt8Array::from(vec![Some(1), None, Some(3), Some(4)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = UInt8Array::from(vec![1_u8, 2, 3, 4]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -918,11 +955,10 @@ mod tests {
     #[test]
     fn test_uint16_array_conversion() {
         let arrow_array = UInt16Array::from(vec![Some(100), None, Some(300), Some(400)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = UInt16Array::from(vec![100_u16, 200, 300, 400]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -938,11 +974,10 @@ mod tests {
     #[test]
     fn test_uint32_array_conversion() {
         let arrow_array = UInt32Array::from(vec![Some(1000), None, Some(3000), Some(4000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = UInt32Array::from(vec![1000_u32, 2000, 3000, 4000]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -958,11 +993,10 @@ mod tests {
     #[test]
     fn test_uint64_array_conversion() {
         let arrow_array = UInt64Array::from(vec![Some(10000), None, Some(30000), Some(40000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = UInt64Array::from(vec![10000_u64, 20000, 30000, 40000]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -983,7 +1017,7 @@ mod tests {
             Some(<Float16Type as ArrowPrimitiveType>::Native::from_f32(3.5)),
         ];
         let arrow_array = arrow_array::PrimitiveArray::<Float16Type>::from(values);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let non_null_values = vec![
             <Float16Type as ArrowPrimitiveType>::Native::from_f32(1.5),
@@ -991,8 +1025,7 @@ mod tests {
         ];
         let arrow_array_non_null =
             arrow_array::PrimitiveArray::<Float16Type>::from(non_null_values);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 3);
         assert_eq!(vortex_array_non_null.len(), 2);
@@ -1008,11 +1041,10 @@ mod tests {
     #[test]
     fn test_float32_array_conversion() {
         let arrow_array = Float32Array::from(vec![Some(1.5), None, Some(3.5), Some(4.5)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = Float32Array::from(vec![1.5_f32, 2.5, 3.5, 4.5]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1028,11 +1060,10 @@ mod tests {
     #[test]
     fn test_float64_array_conversion() {
         let arrow_array = Float64Array::from(vec![Some(1.5), None, Some(3.5), Some(4.5)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = Float64Array::from(vec![1.5_f64, 2.5, 3.5, 4.5]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1055,7 +1086,7 @@ mod tests {
         builder.append_value(11111);
         let decimal_array = builder.finish().with_precision_and_scale(10, 2).unwrap();
 
-        let vortex_array = ArrayRef::from_arrow(&decimal_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&decimal_array, true).unwrap();
         assert_eq!(vortex_array.len(), 4);
 
         let mut builder_non_null = Decimal128Builder::with_capacity(3);
@@ -1067,8 +1098,7 @@ mod tests {
             .with_precision_and_scale(10, 2)
             .unwrap();
 
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&decimal_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&decimal_array_non_null, false).unwrap();
         assert_eq!(vortex_array_non_null.len(), 3);
 
         // Verify metadata - should be DecimalArray with correct precision and scale
@@ -1093,7 +1123,7 @@ mod tests {
         builder.append_value(arrow_buffer::i256::from_i128(11111));
         let decimal_array = builder.finish().with_precision_and_scale(38, 10).unwrap();
 
-        let vortex_array = ArrayRef::from_arrow(&decimal_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&decimal_array, true).unwrap();
         assert_eq!(vortex_array.len(), 4);
 
         let mut builder_non_null = Decimal256Builder::with_capacity(3);
@@ -1105,8 +1135,7 @@ mod tests {
             .with_precision_and_scale(38, 10)
             .unwrap();
 
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&decimal_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&decimal_array_non_null, false).unwrap();
         assert_eq!(vortex_array_non_null.len(), 3);
 
         // Verify metadata - should be DecimalArray with correct precision and scale
@@ -1127,11 +1156,10 @@ mod tests {
     fn test_timestamp_second_array_conversion() {
         let arrow_array =
             TimestampSecondArray::from(vec![Some(1000), None, Some(3000), Some(4000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = TimestampSecondArray::from(vec![1000_i64, 2000, 3000, 4000]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1154,12 +1182,11 @@ mod tests {
     fn test_timestamp_millisecond_array_conversion() {
         let arrow_array =
             TimestampMillisecondArray::from(vec![Some(1000), None, Some(3000), Some(4000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null =
             TimestampMillisecondArray::from(vec![1000_i64, 2000, 3000, 4000]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1169,12 +1196,11 @@ mod tests {
     fn test_timestamp_microsecond_array_conversion() {
         let arrow_array =
             TimestampMicrosecondArray::from(vec![Some(1000), None, Some(3000), Some(4000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null =
             TimestampMicrosecondArray::from(vec![1000_i64, 2000, 3000, 4000]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1185,12 +1211,11 @@ mod tests {
         let arrow_array =
             TimestampMicrosecondArray::from(vec![Some(1000), None, Some(3000), Some(4000)])
                 .with_timezone("UTC");
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null =
             TimestampMicrosecondArray::from(vec![1000_i64, 2000, 3000, 4000]).with_timezone("UTC");
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(
@@ -1222,11 +1247,10 @@ mod tests {
     fn test_timestamp_nanosecond_array_conversion() {
         let arrow_array =
             TimestampNanosecondArray::from(vec![Some(1000), None, Some(3000), Some(4000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = TimestampNanosecondArray::from(vec![1000_i64, 2000, 3000, 4000]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1235,11 +1259,10 @@ mod tests {
     #[test]
     fn test_time32_second_array_conversion() {
         let arrow_array = Time32SecondArray::from(vec![Some(1000), None, Some(3000), Some(4000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = Time32SecondArray::from(vec![1000_i32, 2000, 3000, 4000]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1262,11 +1285,10 @@ mod tests {
     fn test_time32_millisecond_array_conversion() {
         let arrow_array =
             Time32MillisecondArray::from(vec![Some(1000), None, Some(3000), Some(4000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = Time32MillisecondArray::from(vec![1000_i32, 2000, 3000, 4000]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1276,11 +1298,10 @@ mod tests {
     fn test_time64_microsecond_array_conversion() {
         let arrow_array =
             Time64MicrosecondArray::from(vec![Some(1000), None, Some(3000), Some(4000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = Time64MicrosecondArray::from(vec![1000_i64, 2000, 3000, 4000]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1290,11 +1311,10 @@ mod tests {
     fn test_time64_nanosecond_array_conversion() {
         let arrow_array =
             Time64NanosecondArray::from(vec![Some(1000), None, Some(3000), Some(4000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = Time64NanosecondArray::from(vec![1000_i64, 2000, 3000, 4000]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1303,11 +1323,10 @@ mod tests {
     #[test]
     fn test_date32_array_conversion() {
         let arrow_array = Date32Array::from(vec![Some(18000), None, Some(18002), Some(18003)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = Date32Array::from(vec![18000_i32, 18001, 18002, 18003]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1321,7 +1340,7 @@ mod tests {
             Some(1555286400000),
             Some(1555372800000),
         ]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = Date64Array::from(vec![
             1555200000000_i64,
@@ -1329,8 +1348,7 @@ mod tests {
             1555286400000,
             1555372800000,
         ]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1340,11 +1358,10 @@ mod tests {
     #[test]
     fn test_utf8_array_conversion() {
         let arrow_array = StringArray::from(vec![Some("hello"), None, Some("world"), Some("test")]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = StringArray::from(vec!["hello", "world", "test", "vortex"]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1361,11 +1378,10 @@ mod tests {
     fn test_large_utf8_array_conversion() {
         let arrow_array =
             LargeStringArray::from(vec![Some("hello"), None, Some("world"), Some("test")]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = LargeStringArray::from(vec!["hello", "world", "test", "vortex"]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1379,7 +1395,7 @@ mod tests {
             Some("world".as_bytes()),
             Some("test".as_bytes()),
         ]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = BinaryArray::from(vec![
             "hello".as_bytes(),
@@ -1387,8 +1403,7 @@ mod tests {
             "test".as_bytes(),
             "vortex".as_bytes(),
         ]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1402,7 +1417,7 @@ mod tests {
             Some("world".as_bytes()),
             Some("test".as_bytes()),
         ]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = LargeBinaryArray::from(vec![
             "hello".as_bytes(),
@@ -1410,8 +1425,7 @@ mod tests {
             "test".as_bytes(),
             "vortex".as_bytes(),
         ]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1425,7 +1439,7 @@ mod tests {
         builder.append_value("world");
         builder.append_value("test");
         let arrow_array = builder.finish();
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let mut builder_non_null = StringViewBuilder::new();
         builder_non_null.append_value("hello");
@@ -1433,8 +1447,7 @@ mod tests {
         builder_non_null.append_value("test");
         builder_non_null.append_value("vortex");
         let arrow_array_non_null = builder_non_null.finish();
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1466,7 +1479,7 @@ mod tests {
         builder.append_value(b"world");
         builder.append_value(b"test");
         let arrow_array = builder.finish();
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let mut builder_non_null = BinaryViewBuilder::new();
         builder_non_null.append_value(b"hello");
@@ -1474,8 +1487,7 @@ mod tests {
         builder_non_null.append_value(b"test");
         builder_non_null.append_value(b"vortex");
         let arrow_array_non_null = builder_non_null.finish();
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1503,11 +1515,10 @@ mod tests {
     #[test]
     fn test_boolean_array_conversion() {
         let arrow_array = BooleanArray::from(vec![Some(true), None, Some(false), Some(true)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
 
         let arrow_array_non_null = BooleanArray::from(vec![true, false, true, false]);
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(vortex_array_non_null.len(), 4);
@@ -1531,7 +1542,7 @@ mod tests {
             None,
         );
 
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, false, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, false).unwrap();
         assert_eq!(vortex_array.len(), 3);
 
         // Verify metadata - should be StructArray with correct field names
@@ -1552,8 +1563,7 @@ mod tests {
             ]))),
         );
 
-        let vortex_nullable_array =
-            ArrayRef::from_arrow(&nullable_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_nullable_array = ArrayRef::from_arrow(&nullable_array, true).unwrap();
         assert_eq!(vortex_nullable_array.len(), 3);
 
         // Verify metadata for nullable struct
@@ -1572,7 +1582,7 @@ mod tests {
         builder.append_value([Some(4), Some(5)]);
         let arrow_array = builder.finish();
 
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
         assert_eq!(vortex_array.len(), 3);
 
         // Verify metadata - should be ListArray with correct offsets
@@ -1587,8 +1597,7 @@ mod tests {
         builder_non_null.append_value([Some(4), Some(5)]);
         let arrow_array_non_null = builder_non_null.finish();
 
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
         assert_eq!(vortex_array_non_null.len(), 2);
 
         // Verify metadata for non-nullable list
@@ -1606,7 +1615,7 @@ mod tests {
         builder.append_value([Some(4), Some(5)]);
         let arrow_array = builder.finish();
 
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
         assert_eq!(vortex_array.len(), 3);
 
         // Verify metadata - should be ListArray with correct offsets (I64 for large lists)
@@ -1621,8 +1630,7 @@ mod tests {
         builder_non_null.append_value([Some(4), Some(5)]);
         let arrow_array_non_null = builder_non_null.finish();
 
-        let vortex_array_non_null =
-            ArrayRef::from_arrow(&arrow_array_non_null, false, &LEGACY_SESSION).unwrap();
+        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
         assert_eq!(vortex_array_non_null.len(), 2);
 
         // Verify metadata for non-nullable large list
@@ -1655,7 +1663,7 @@ mod tests {
         let arrow_array =
             ArrowFixedSizeListArray::try_new(Arc::clone(&field), 3, Arc::new(values), None)
                 .unwrap();
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, false, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, false).unwrap();
 
         assert_eq!(vortex_array.len(), 4);
 
@@ -1688,8 +1696,7 @@ mod tests {
             Some(null_buffer),
         )
         .unwrap();
-        let vortex_array_nullable =
-            ArrayRef::from_arrow(&arrow_array_nullable, true, &LEGACY_SESSION).unwrap();
+        let vortex_array_nullable = ArrayRef::from_arrow(&arrow_array_nullable, true).unwrap();
 
         assert_eq!(vortex_array_nullable.len(), 3);
 
@@ -1729,7 +1736,7 @@ mod tests {
         )
         .unwrap();
 
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, false, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, false).unwrap();
         assert_eq!(vortex_array.len(), 4);
 
         // Verify metadata - should be ListViewArray with correct offsets and sizes
@@ -1755,8 +1762,7 @@ mod tests {
         )
         .unwrap();
 
-        let vortex_array_nullable =
-            ArrayRef::from_arrow(&arrow_array_nullable, true, &LEGACY_SESSION).unwrap();
+        let vortex_array_nullable = ArrayRef::from_arrow(&arrow_array_nullable, true).unwrap();
         assert_eq!(vortex_array_nullable.len(), 4);
 
         // Test LargeListView (i64 offsets and sizes)
@@ -1772,8 +1778,7 @@ mod tests {
         )
         .unwrap();
 
-        let large_vortex_array =
-            ArrayRef::from_arrow(&large_arrow_array, false, &LEGACY_SESSION).unwrap();
+        let large_vortex_array = ArrayRef::from_arrow(&large_arrow_array, false).unwrap();
         assert_eq!(large_vortex_array.len(), 4);
 
         // Verify metadata for large ListView
@@ -1791,7 +1796,7 @@ mod tests {
     #[test]
     fn test_null_array_conversion() {
         let arrow_array = NullArray::new(5);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
         assert_eq!(vortex_array.len(), 5);
     }
 
@@ -1841,7 +1846,7 @@ mod tests {
 
         let record_batch = RecordBatch::try_new(schema, vec![field1_data, field2_data]).unwrap();
 
-        let vortex_array = ArrayRef::from_arrow(record_batch, false, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(record_batch, false).unwrap();
         assert_eq!(vortex_array.len(), 4);
 
         // Test with reference
@@ -1855,7 +1860,7 @@ mod tests {
 
         let record_batch = RecordBatch::try_new(schema, vec![field1_data, field2_data]).unwrap();
 
-        let vortex_array = ArrayRef::from_arrow(&record_batch, false, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(&record_batch, false).unwrap();
         assert_eq!(vortex_array.len(), 4);
     }
 
@@ -1864,17 +1869,17 @@ mod tests {
     fn test_dyn_array_conversion() {
         let int_array = Int32Array::from(vec![1, 2, 3, 4]);
         let dyn_array: &dyn ArrowArray = &int_array;
-        let vortex_array = ArrayRef::from_arrow(dyn_array, false, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(dyn_array, false).unwrap();
         assert_eq!(vortex_array.len(), 4);
 
         let string_array = StringArray::from(vec!["a", "b", "c"]);
         let dyn_array: &dyn ArrowArray = &string_array;
-        let vortex_array = ArrayRef::from_arrow(dyn_array, false, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(dyn_array, false).unwrap();
         assert_eq!(vortex_array.len(), 3);
 
         let bool_array = BooleanArray::from(vec![true, false, true]);
         let dyn_array: &dyn ArrowArray = &bool_array;
-        let vortex_array = ArrayRef::from_arrow(dyn_array, false, &LEGACY_SESSION).unwrap();
+        let vortex_array = ArrayRef::from_arrow(dyn_array, false).unwrap();
         assert_eq!(vortex_array.len(), 3);
     }
 
@@ -1889,12 +1894,7 @@ mod tests {
             )])),
             1,
         );
-        ArrayRef::from_arrow(
-            null_struct_array_with_non_nullable_field.as_ref(),
-            true,
-            &LEGACY_SESSION,
-        )
-        .unwrap();
+        ArrayRef::from_arrow(null_struct_array_with_non_nullable_field.as_ref(), true).unwrap();
     }
 
     #[test]
@@ -1911,12 +1911,7 @@ mod tests {
             )])),
             1,
         );
-        ArrayRef::from_arrow(
-            null_struct_array_with_non_nullable_field.as_ref(),
-            true,
-            &LEGACY_SESSION,
-        )
-        .unwrap();
+        ArrayRef::from_arrow(null_struct_array_with_non_nullable_field.as_ref(), true).unwrap();
     }
 
     #[test]
@@ -1931,11 +1926,6 @@ mod tests {
             1,
         );
 
-        ArrayRef::from_arrow(
-            null_struct_array_with_non_nullable_field.as_ref(),
-            true,
-            &LEGACY_SESSION,
-        )
-        .unwrap();
+        ArrayRef::from_arrow(null_struct_array_with_non_nullable_field.as_ref(), true).unwrap();
     }
 }

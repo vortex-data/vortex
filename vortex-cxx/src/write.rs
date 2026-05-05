@@ -6,7 +6,6 @@ use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use vortex::array::ArrayRef;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
@@ -35,11 +34,11 @@ pub(crate) fn write_options_new() -> Box<VortexWriteOptions> {
 /// Convert an ArrowArrayStreamReader to a Vortex ArrayStream
 fn arrow_stream_to_vortex_stream(reader: ArrowArrayStreamReader) -> Result<impl ArrayStream> {
     let array_iter = ArrayIteratorAdapter::new(
-        DType::from_arrow(reader.schema(), &LEGACY_SESSION),
+        DType::from_arrow(reader.schema()),
         reader.map(|result| {
             result
                 .map_err(VortexError::from)
-                .and_then(|record_batch| ArrayRef::from_arrow(record_batch, false, &LEGACY_SESSION))
+                .and_then(|record_batch| ArrayRef::from_arrow(record_batch, false))
         }),
     );
 

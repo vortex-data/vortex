@@ -70,7 +70,7 @@ fn arrow_execute_boolean(
         other => return Err(vortex_err!("Not a boolean operator: {other}")),
     };
 
-    ArrayRef::from_arrow(&array, nullable, ctx.session())
+    ArrayRef::from_arrow(&array, nullable)
 }
 
 /// Constant-folds a boolean operation between two constant arrays.

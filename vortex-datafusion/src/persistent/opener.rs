@@ -568,7 +568,6 @@ mod tests {
     use rstest::rstest;
     use vortex::VortexSessionDefault;
     use vortex::array::ArrayRef;
-    use vortex::array::LEGACY_SESSION;
     use vortex::array::arrow::FromArrowArray;
     use vortex::buffer::Buffer;
     use vortex::file::WriteOptionsSessionExt;
@@ -646,7 +645,7 @@ mod tests {
         path: &str,
         rb: RecordBatch,
     ) -> anyhow::Result<u64> {
-        let array = ArrayRef::from_arrow(rb, false, &LEGACY_SESSION)?;
+        let array = ArrayRef::from_arrow(rb, false)?;
         let path = Path::parse(path)?;
 
         let mut write = ObjectStoreWrite::new(object_store, &path).await?;

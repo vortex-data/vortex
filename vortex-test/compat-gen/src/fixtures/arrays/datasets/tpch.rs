@@ -7,7 +7,6 @@ use tpchgen::generators::OrderGenerator;
 use tpchgen_arrow::RecordBatchIterator;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::FromArrowArray;
 use vortex_error::VortexResult;
@@ -21,7 +20,7 @@ fn collect_batches_as_vortex(iter: impl RecordBatchIterator) -> VortexResult<Arr
     Ok(ChunkedArray::from_iter(
         batches
             .into_iter()
-            .map(|batch| ArrayRef::from_arrow(batch, false, &LEGACY_SESSION))
+            .map(|batch| ArrayRef::from_arrow(batch, false))
             .collect::<VortexResult<Vec<_>>>()?,
     )
     .into_array())

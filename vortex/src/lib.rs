@@ -226,11 +226,11 @@ mod test {
         )?)?
         .build()?;
 
-        let dtype = DType::from_arrow(reader.schema(), &LEGACY_SESSION);
+        let dtype = DType::from_arrow(reader.schema());
         let chunks: Vec<_> = reader
             .map(|record_batch| {
                 let batch = record_batch?;
-                ArrayRef::from_arrow(batch, false, &LEGACY_SESSION)
+                ArrayRef::from_arrow(batch, false)
             })
             .collect::<VortexResult<_>>()?;
         let vortex_array = ChunkedArray::try_new(chunks, dtype)?.into_array();

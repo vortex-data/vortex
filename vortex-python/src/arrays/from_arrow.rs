@@ -12,7 +12,6 @@ use pyo3::intern;
 use pyo3::prelude::*;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrow::FromArrowArray;
 use vortex::dtype::DType;
@@ -38,7 +37,7 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
     if obj.is_instance(pa_array)? {
         let arrow_array = ArrowArrayData::from_pyarrow(&obj.as_borrowed()).map(make_array)?;
         let is_nullable = arrow_array.is_nullable();
-        let enc_array = ArrayRef::from_arrow(arrow_array.as_ref(), is_nullable, &LEGACY_SESSION)?;
+        let enc_array = ArrayRef::from_arrow(arrow_array.as_ref(), is_nullable)?;
         Ok(PyArrayRef::from(enc_array))
     } else if obj.is_instance(chunked_array)? {
         let chunks: Vec<Bound<PyAny>> = obj.getattr(intern!(py, "chunks"))?.extract()?;
@@ -46,25 +45,24 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
             .iter()
             .map(|a| {
                 let arrow_array = ArrowArrayData::from_pyarrow(&a.as_borrowed()).map(make_array)?;
-                ArrayRef::from_arrow(arrow_array.as_ref(), false, &LEGACY_SESSION)
-                    .map_err(PyVortexError::from)
+                ArrayRef::from_arrow(arrow_array.as_ref(), false).map_err(PyVortexError::from)
             })
             .collect::<PyVortexResult<Vec<_>>>()?;
         let dtype: DType = obj
             .getattr(intern!(py, "type"))
             .and_then(|v| DataType::from_pyarrow(&v.as_borrowed()))
-            .map(|dt| DType::from_arrow(&Field::new("_", dt, false), &LEGACY_SESSION))?;
+            .map(|dt| DType::from_arrow(&Field::new("_", dt, false)))?;
         Ok(PyArrayRef::from(
             ChunkedArray::try_new(encoded_chunks, dtype)?.into_array(),
         ))
     } else if obj.is_instance(table)? {
         let array_stream = ArrowArrayStreamReader::from_pyarrow(&obj.as_borrowed())?;
-        let dtype = DType::from_arrow(array_stream.schema(), &LEGACY_SESSION);
+        let dtype = DType::from_arrow(array_stream.schema());
         let chunks = array_stream
             .into_iter()
             .map(|b| {
                 b.map_err(VortexError::from)
-                    .and_then(|b| ArrayRef::from_arrow(b, false, &LEGACY_SESSION))
+                    .and_then(|b| ArrayRef::from_arrow(b, false))
             })
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(PyArrayRef::from(

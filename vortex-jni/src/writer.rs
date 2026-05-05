@@ -25,7 +25,6 @@ use jni::sys::jlong;
 use object_store::path::Path;
 use url::Url;
 use vortex::array::ArrayRef;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
@@ -89,7 +88,7 @@ impl NativeWriter {
     }
 
     fn write_record_batch(&self, batch: RecordBatch) -> VortexResult<()> {
-        let vortex_batch = ArrayRef::from_arrow(batch, false, &LEGACY_SESSION)?;
+        let vortex_batch = ArrayRef::from_arrow(batch, false)?;
         if !vortex_batch.dtype().eq(&self.write_schema) {
             return Err(vortex_err!(
                 "write schema mismatch: expected {}, got {}",

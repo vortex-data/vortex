@@ -71,14 +71,13 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
         .with_batch_size(BATCH_SIZE);
     let num_rows = parquet.metadata().file_metadata().num_rows();
 
-    let dtype = DType::from_arrow(parquet.schema().as_ref(), session);
-    let session_clone = session.clone();
+    let dtype = DType::from_arrow(parquet.schema().as_ref());
     let mut vortex_stream = parquet
         .build()?
-        .map(move |record_batch| {
+        .map(|record_batch| {
             record_batch
                 .map_err(|e| vortex_err!(External: e))
-                .and_then(|rb| ArrayRef::from_arrow(rb, false, &session_clone))
+                .and_then(|rb| ArrayRef::from_arrow(rb, false))
         })
         .boxed();
 
