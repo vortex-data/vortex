@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
@@ -16,6 +15,7 @@ use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::arrays::struct_::StructArrayExt;
+use crate::arrays::struct_::compute::cast::struct_cast_fields;
 use crate::builtins::ArrayBuiltins;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -67,25 +67,7 @@ fn reduce_struct_cast(
         return Ok(None);
     };
 
-    let mut new_fields = Vec::with_capacity(target_fields.nfields());
-
-    for (target_name, target_dtype) in target_fields.names().iter().zip(target_fields.fields()) {
-        match array.unmasked_field_by_name(target_name).ok() {
-            Some(field) => {
-                new_fields.push(field.cast(target_dtype)?);
-            }
-            None => {
-                // Not found - create NULL array (schema evolution)
-                vortex_ensure!(
-                    target_dtype.is_nullable(),
-                    "Cannot add non-nullable field '{}' during struct cast",
-                    target_name
-                );
-                new_fields
-                    .push(ConstantArray::new(Scalar::null(target_dtype), array.len()).into_array());
-            }
-        }
-    }
+    let new_fields = struct_cast_fields(array, target_fields)?;
 
     Ok(Some(
         unsafe {

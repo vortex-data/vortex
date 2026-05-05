@@ -16,6 +16,7 @@ use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::struct_::StructArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::StructFields;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::cast::Cast;
@@ -50,30 +51,7 @@ pub(crate) fn struct_cast(
         return Ok(None);
     };
 
-    let source_sdtype = array.struct_fields();
-
-    let mut cast_fields = Vec::with_capacity(target_sdtype.nfields());
-    // Re-order, handle fields by value instead.
-    for (target_name, target_type) in target_sdtype.names().iter().zip_eq(target_sdtype.fields()) {
-        match source_sdtype.find(target_name) {
-            None => {
-                // No source field with this name => evolve the schema compatibly.
-                // If the field is nullable, we add a new ConstantArray field with the type.
-                vortex_ensure!(
-                    target_type.is_nullable(),
-                    "CAST for struct only supports added nullable fields"
-                );
-
-                cast_fields
-                    .push(ConstantArray::new(Scalar::null(target_type), array.len()).into_array());
-            }
-            Some(src_field_idx) => {
-                // Field exists in source field. Cast it to the target type.
-                let cast_field = array.unmasked_field(src_field_idx).cast(target_type)?;
-                cast_fields.push(cast_field);
-            }
-        }
-    }
+    let cast_fields = struct_cast_fields(array, target_sdtype)?;
 
     let validity = array
         .validity()?
@@ -85,6 +63,53 @@ pub(crate) fn struct_cast(
         }
         .into_array(),
     ))
+}
+
+pub(crate) fn struct_cast_fields(
+    array: ArrayView<Struct>,
+    target_type: &StructFields,
+) -> VortexResult<Vec<ArrayRef>> {
+    let source_sdtype = array.struct_fields();
+
+    let fields_match_order = target_type.nfields() == source_sdtype.nfields()
+        && target_type
+            .names()
+            .iter()
+            .zip(source_sdtype.names().iter())
+            .all(|(f1, f2)| f1 == f2);
+
+    let mut cast_fields = Vec::with_capacity(target_type.nfields());
+    // Re-order, handle fields by value instead.
+    if fields_match_order {
+        for (field, target_type) in array.iter_unmasked_fields().zip_eq(target_type.fields()) {
+            let cast_field = field.cast(target_type)?;
+            cast_fields.push(cast_field);
+        }
+    } else {
+        for (target_name, target_type) in target_type.names().iter().zip_eq(target_type.fields()) {
+            match source_sdtype.find(target_name) {
+                None => {
+                    // No source field with this name => evolve the schema compatibly.
+                    // If the field is nullable, we add a new ConstantArray field with the type.
+                    vortex_ensure!(
+                        target_type.is_nullable(),
+                        "CAST for struct only supports added nullable fields"
+                    );
+
+                    cast_fields.push(
+                        ConstantArray::new(Scalar::null(target_type), array.len()).into_array(),
+                    );
+                }
+                Some(src_field_idx) => {
+                    // Field exists in source field. Cast it to the target type.
+                    let cast_field = array.unmasked_field(src_field_idx).cast(target_type)?;
+                    cast_fields.push(cast_field);
+                }
+            }
+        }
+    }
+
+    Ok(cast_fields)
 }
 
 #[cfg(test)]
