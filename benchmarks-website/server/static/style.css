@@ -476,6 +476,28 @@ main {
   display: none;
 }
 
+/*
+ * During the post-load Chart.js prebuild, render closed groups' chart
+ * grids in a hidden offscreen position so each canvas has real layout
+ * dimensions for Chart.js to measure. Without this override, charts
+ * construct against a 0x0 parent (the closed-group rule above), and the
+ * eventual on-toggle resize leaves a brief flash of a blank, full-zoomed
+ * canvas before the next frame paints. The width matches the visible
+ * content area via `--bench-prebuild-width` (set by `chart-init.js` from
+ * the live `<main>` width) so the build dimensions are close enough to
+ * the actual on-screen dimensions that Chart.js's ResizeObserver-driven
+ * adjust on toggle is a no-op or a single sub-frame tick.
+ */
+body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
+  display: grid !important;
+  position: fixed !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  top: -10000px !important;
+  left: 0 !important;
+  width: var(--bench-prebuild-width, 100vw);
+}
+
 .group-details > .chart-grid .chart-card:last-child {
   margin-bottom: 0;
 }

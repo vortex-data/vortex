@@ -81,6 +81,14 @@
 //                                     replaced the payload.
 //   canvas.__bench_full_fetch_pending true while a `?n=all` refetch is in
 //                                     flight; dedupes the pan-frame retry.
+//   canvas.__bench_prefetch_pending   Promise of an in-flight background
+//                                     prefetch; set by startBackgroundPrefetch
+//                                     so toggle / re-prefetch deduplicates.
+//   canvas.__bench_built_offscreen    true if `constructChart` ran while the
+//                                     enclosing `<details>` was closed; the
+//                                     toggle handler calls `chart.resize()`
+//                                     on these to recompute layout once the
+//                                     container is visible.
 //
 // Per-card DOM contract — every selector the chart cards are queried by:
 //   .chart-card[data-chart-index][data-chart-slug]    The card itself.
@@ -1541,12 +1549,24 @@
     if (!canvas) return Promise.resolve();
     if (canvas.__bench_chart) return Promise.resolve();
     // `constructChart` reads inline JSON (`<script id="chart-data-N">`)
-    // when there's no payload on the canvas yet. The first group's
-    // payloads are inlined server-side, so try a synchronous construct
-    // before hitting the network.
+    // when there's no payload on the canvas yet, and short-circuits when
+    // a background prefetch has already populated `__bench_payload`. So
+    // try a synchronous construct before hitting the network.
     if (constructChart(card)) {
       bindToolbar(card);
       return Promise.resolve();
+    }
+    // If a background prefetch is mid-flight for this slug, ride on its
+    // promise instead of issuing a duplicate GET. By the time it resolves,
+    // `__bench_payload` is populated (on success) and `__bench_prefetch_pending`
+    // is null, so re-entering hits the synchronous-construct branch above
+    // or falls through to a fresh network fetch on prefetch failure.
+    var pending = canvas.__bench_prefetch_pending;
+    if (pending) {
+      showCardLoading(card, true);
+      return pending
+        .then(function () { showCardLoading(card, false); })
+        .then(function () { return fetchAndConstruct(card); });
     }
     var slug = card.getAttribute("data-chart-slug");
     if (!slug) return Promise.resolve();
@@ -1799,6 +1819,7 @@
     if (!group) return;
     group.querySelectorAll(".chart-card[data-chart-slug]").forEach(function (card) {
       fetchAndConstruct(card);
+      wakeUpChart(card);
     });
   }
 
@@ -1870,11 +1891,207 @@
     });
   }
 
+  // Background prefetch of closed-group chart payloads, kicked off after
+  // `init()`. Each card's `?n=all` JSON is fetched and stashed on
+  // `canvas.__bench_payload`; once a payload lands we enqueue a Chart.js
+  // construction so the toggle path becomes a no-op (chart already built).
+  // Constructions are serialized through a single-slot queue, with each
+  // card running in its own task, so input handlers can run between heavy
+  // `constructChart` calls. We use `requestIdleCallback` with a short
+  // timeout so the queue never stalls behind a busy main thread (default
+  // idle callbacks can defer for seconds during initial paint).
+  //
+  // For Chart.js to measure the canvas at real dimensions, the
+  // `body.bench-prebuilding` class temporarily overrides
+  // `.group-disclosure:not([open]) ~ .chart-grid { display: none }` and
+  // moves closed-group grids to a hidden offscreen position with the
+  // measured `<main>` width (`--bench-prebuild-width`). Without that
+  // override, charts construct at 0x0 and the on-toggle resize shows a
+  // brief blank, full-zoomed flash before paint. The class is added when
+  // we kick off the sweep and removed once every prefetch and construct
+  // has settled.
+  var PREFETCH_IDLE_TIMEOUT_MS = 100;
+  var constructQueue = [];
+  var constructDraining = false;
+  var prebuildPendingFetches = 0;
+  var prebuildQueuedConstructs = 0;
+
+  function scheduleIdle(cb) {
+    if (window.requestIdleCallback) {
+      return window.requestIdleCallback(cb, { timeout: PREFETCH_IDLE_TIMEOUT_MS });
+    }
+    return setTimeout(cb, 0);
+  }
+
+  function enqueueConstruct(card) {
+    constructQueue.push(card);
+    prebuildQueuedConstructs++;
+    if (!constructDraining) drainConstructQueue();
+  }
+
+  function drainConstructQueue() {
+    if (!constructQueue.length) {
+      constructDraining = false;
+      checkPrebuildSettled();
+      return;
+    }
+    constructDraining = true;
+    scheduleIdle(function () {
+      var card = constructQueue.shift();
+      if (card) buildOffscreenChart(card);
+      prebuildQueuedConstructs--;
+      drainConstructQueue();
+    });
+  }
+
+  // The disclosure is a *sibling* of `.chart-grid` inside the same
+  // `section.group-details`, not an ancestor of the chart card. Walk up to
+  // the section and pick the disclosure from there. Returns `null` for
+  // pages that have no group structure (single-chart and group pages).
+  function disclosureForCard(card) {
+    var section = card.closest(".group-details");
+    if (!section) return null;
+    return section.querySelector(":scope > details.group-disclosure");
+  }
+
+  function buildOffscreenChart(card) {
+    var canvas = card.querySelector("canvas");
+    if (!canvas) return;
+    if (canvas.__bench_chart) return;
+    // Don't gate on `__bench_payload`: `constructChart` reads inline
+    // `<script id="chart-data-N">` data directly when no payload is on the
+    // canvas yet, and we deliberately leave that path intact for first-group
+    // cards so its `payloadFromInline` detection stays accurate (otherwise
+    // `__bench_inline_trimmed` would be wrongly cleared and
+    // `maybeRefetchFullPayload` could never upgrade to the full history).
+    var details = disclosureForCard(card);
+    var offscreen = !!(details && !details.open);
+    if (constructChart(card)) {
+      bindToolbar(card);
+      if (offscreen) canvas.__bench_built_offscreen = true;
+    }
+  }
+
+  function checkPrebuildSettled() {
+    if (prebuildPendingFetches > 0) return;
+    if (prebuildQueuedConstructs > 0) return;
+    if (constructDraining) return;
+    document.body.classList.remove("bench-prebuilding");
+  }
+
+  // Resolve a card's payload either from a prior prefetch, an inline
+  // `<script id="chart-data-N">` tag (first group on the landing page),
+  // or a fresh `?n=all` GET. Inline payloads skip the network entirely so
+  // first-group cards are eligible for offscreen construction immediately
+  // after `init()` returns.
+  function prefetchCard(card) {
+    var canvas = card.querySelector("canvas");
+    if (!canvas) return Promise.resolve();
+    if (canvas.__bench_chart) return Promise.resolve();
+    if (canvas.__bench_payload) {
+      enqueueConstruct(card);
+      return Promise.resolve();
+    }
+    // For cards with an inline `<script id="chart-data-N">` (first group on
+    // the landing page) skip the network round-trip and just enqueue the
+    // construction. We do NOT pre-populate `__bench_payload` here so that
+    // `constructChart`'s `payloadFromInline` check remains accurate; that
+    // check drives `__bench_inline_trimmed`, which `maybeRefetchFullPayload`
+    // reads to upgrade to the full history when the user zooms wide.
+    var idx = card.getAttribute("data-chart-index");
+    if (idx != null) {
+      var inlineSlot = document.getElementById("chart-data-" + idx);
+      if (inlineSlot) {
+        enqueueConstruct(card);
+        return Promise.resolve();
+      }
+    }
+    if (canvas.__bench_prefetch_pending) return canvas.__bench_prefetch_pending;
+    var slug = card.getAttribute("data-chart-slug");
+    if (!slug) return Promise.resolve();
+    var url = "/api/chart/" + encodeURIComponent(slug)
+      + "?n=" + encodeURIComponent(FETCH_N);
+    prebuildPendingFetches++;
+    var p = fetch(url, { headers: { "accept": "application/json" } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (payload) {
+        if (payload && !canvas.__bench_payload) {
+          canvas.__bench_payload = payload;
+          enqueueConstruct(card);
+        }
+      })
+      .catch(function () {})
+      .then(function () {
+        canvas.__bench_prefetch_pending = null;
+        prebuildPendingFetches--;
+        checkPrebuildSettled();
+      });
+    canvas.__bench_prefetch_pending = p;
+    return p;
+  }
+
+  function startBackgroundPrefetch() {
+    var cards = Array.prototype.slice.call(
+      document.querySelectorAll(".chart-card[data-chart-slug]")
+    ).filter(function (card) {
+      var details = disclosureForCard(card);
+      return details && !details.open;
+    });
+    if (!cards.length) return;
+    // Capture the visible `.group-details` width so the offscreen chart-grids
+    // during prebuild render at the same dimensions they will have when the
+    // user toggles a group open. The summary stays in flow even when the
+    // grid below is hidden, so `.group-details.clientWidth` is the right
+    // measurement; Chart.js then sees per-card dimensions identical to the
+    // visible state, and the on-toggle resize is a no-op. Falls back to
+    // `<main>` and finally `100vw` for layouts that lack groups.
+    var sample = document.querySelector(".group-details")
+      || document.querySelector("main");
+    var sampleWidth = sample ? sample.clientWidth : 0;
+    if (sampleWidth > 0) {
+      document.body.style.setProperty(
+        "--bench-prebuild-width", sampleWidth + "px",
+      );
+    }
+    document.body.classList.add("bench-prebuilding");
+    // Fire every prefetch immediately so the browser starts dispatching
+    // them on the same tick as page-load. With no JS-side concurrency cap,
+    // the only queueing is at the HTTP layer (browser per-host limits and
+    // the server's own concurrency); on HTTP/2 the fan-out is effectively
+    // unlimited. By the time the user clicks any group the responses are
+    // either already in flight or already parsed, so the toggle path
+    // hits the synchronous-construct branch instead of the on-toggle
+    // fetch fallback.
+    for (var i = 0; i < cards.length; i++) prefetchCard(cards[i]);
+    checkPrebuildSettled();
+  }
+
+  // Force a layout recompute on charts that were constructed while their
+  // enclosing `<details>` was closed. Chart.js measures the canvas parent
+  // at construction time, and a `display: none` ancestor means it cached
+  // a 0x0 size; once the disclosure opens we re-measure and redraw.
+  function wakeUpChart(card) {
+    var canvas = card.querySelector("canvas");
+    var chart = canvas && canvas.__bench_chart;
+    if (!chart || !canvas.__bench_built_offscreen) return;
+    canvas.__bench_built_offscreen = false;
+    chart.resize();
+    chart.update("none");
+  }
+
   function init() {
     initHeaderControls();
     initGlobalFilterBar();
     initDetailsToggle();
     initOpenCharts();
+    // Kick off the prefetch sweep on the same tick as `init()` so every
+    // card's `/api/chart/` request is queued before the user has a chance
+    // to click. `fetch()` returns a promise immediately and the actual
+    // request dispatch is async, so calling it for N cards here does not
+    // block the main thread; it just hands the requests to the browser
+    // network layer as early as possible. Chart.js construction, which is
+    // CPU-bound, is still scheduled via the idle queue downstream.
+    startBackgroundPrefetch();
   }
 
   if (document.readyState === "loading") {
