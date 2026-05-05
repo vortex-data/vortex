@@ -94,3 +94,7 @@ harness = false
 [[bench]]
 name = "throughput_cuda"
 harness = false
+
+[[bench]]
+name = "load_to_device_cuda"
+harness = false
