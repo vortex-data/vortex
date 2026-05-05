@@ -372,7 +372,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         // SAFETY: we intentionally skip `V::validate` here. Caller guarantees that the resulting
         // array is either repaired or not externally observed.
         let store = unsafe {
-            ArrayData::<V>::store_unchecked(
+            ArrayInner::<ArrayData<V>>::new_unchecked(
                 self.vtable.clone(),
                 this.len(),
                 this.dtype().clone(),

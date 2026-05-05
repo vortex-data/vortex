@@ -108,10 +108,10 @@ pub(crate) struct ArrayData<V: VTable> {
     pub(crate) data: V::TypedArrayData,
 }
 
-impl<V: VTable> ArrayData<V> {
+impl<V: VTable> ArrayInner<ArrayData<V>> {
     /// Create a new validated [`ArrayInner`] from construction parameters.
     #[doc(hidden)]
-    pub fn try_new_store(new: ArrayParts<V>) -> VortexResult<ArrayInner<Self>> {
+    pub fn try_new(new: ArrayParts<V>) -> VortexResult<Self> {
         new.vtable
             .validate(&new.data, &new.dtype, new.len, &new.slots)?;
         Ok(ArrayInner {
@@ -122,7 +122,7 @@ impl<V: VTable> ArrayData<V> {
                 slots: new.slots,
                 stats: ArrayStats::default(),
             },
-            data: Self {
+            data: ArrayData {
                 vtable: new.vtable,
                 data: new.data,
             },
@@ -133,14 +133,14 @@ impl<V: VTable> ArrayData<V> {
     ///
     /// # Safety
     /// Caller must ensure dtype and len match the data.
-    pub(crate) unsafe fn store_unchecked(
+    pub(crate) unsafe fn new_unchecked(
         vtable: V,
         len: usize,
         dtype: DType,
         data: V::TypedArrayData,
         slots: Vec<Option<ArrayRef>>,
         stats: ArrayStats,
-    ) -> ArrayInner<Self> {
+    ) -> Self {
         ArrayInner {
             meta: ArrayMeta {
                 len,
@@ -149,7 +149,7 @@ impl<V: VTable> ArrayData<V> {
                 slots,
                 stats,
             },
-            data: Self {
+            data: ArrayData {
                 vtable,
                 data,
             },
@@ -207,7 +207,7 @@ pub struct Array<V: VTable> {
 impl<V: VTable> Array<V> {
     /// Create a typed array from explicit construction parameters.
     pub fn try_from_parts(new: ArrayParts<V>) -> VortexResult<Self> {
-        let store = ArrayData::<V>::try_new_store(new)?;
+        let store = ArrayInner::<ArrayData<V>>::try_new(new)?;
         let inner = ArrayRef::from_store(Arc::new(store));
         Ok(Self {
             inner,
@@ -222,7 +222,7 @@ impl<V: VTable> Array<V> {
     #[doc(hidden)]
     pub unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
         let store = unsafe {
-            ArrayData::<V>::store_unchecked(
+            ArrayInner::<ArrayData<V>>::new_unchecked(
                 new.vtable,
                 new.len,
                 new.dtype,
