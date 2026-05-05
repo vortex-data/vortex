@@ -424,7 +424,6 @@ impl Executable for ArrayRef {
         let tmp_session = ctx.session().clone();
         let kernels = tmp_session.get_opt::<ArrayKernels>();
 
-
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
             if let Some(executed_parent) =
