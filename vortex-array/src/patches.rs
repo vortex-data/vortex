@@ -5,7 +5,6 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Range;
-use std::sync::OnceLock;
 
 use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
@@ -35,6 +34,9 @@ use crate::dtype::Nullability;
 use crate::dtype::Nullability::NonNullable;
 use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
+use crate::expr::stats::StatsProvider;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::PValue;
@@ -147,10 +149,6 @@ pub struct Patches {
     /// `offset_within_chunk` is necessary in order to keep track of how many
     /// elements were sliced off within the chunk.
     offset_within_chunk: Option<usize>,
-    /// Cached `indices[0] - offset`.
-    min_index: OnceLock<usize>,
-    /// Cached `indices[len - 1] - offset`.
-    max_index: OnceLock<usize>,
 }
 
 impl Patches {
@@ -177,29 +175,29 @@ impl Patches {
         );
         vortex_ensure!(!indices.is_empty(), "Patch indices must not be empty");
 
-        let min_index = OnceLock::new();
-        let max_index = OnceLock::new();
-
         // Perform validation of components when they are host-resident.
         // This is not possible to do eagerly when the data is on GPU memory.
         if indices.is_host() && values.is_host() {
-            let max = usize::try_from(&indices.execute_scalar(
+            let last = indices.execute_scalar(
                 indices.len() - 1,
                 &mut LEGACY_SESSION.create_execution_ctx(),
-            )?)
-            .map_err(|_| vortex_err!("indices must be a number"))?;
+            )?;
+            let max =
+                usize::try_from(&last).map_err(|_| vortex_err!("indices must be a number"))?;
             vortex_ensure!(
                 max - offset < array_len,
                 "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
             );
 
-            // Pre-populate bounds caches for the search_index fast path.
-            let min = usize::try_from(
-                &indices.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
-            )
-            .map_err(|_| vortex_err!("indices must be a number"))?;
-            let _ = max_index.set(max - offset);
-            let _ = min_index.set(min - offset);
+            // Seed Min/Max stats on indices so search_index can short-circuit
+            // out-of-range lookups without recomputing them. Indices are
+            // non-nullable per the validation above, so values are always present.
+            let first = indices.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
+            if let (Some(min_value), Some(max_value)) = (first.value(), last.value()) {
+                let stats = indices.statistics();
+                stats.set(Stat::Min, Precision::Exact(min_value.clone()));
+                stats.set(Stat::Max, Precision::Exact(max_value.clone()));
+            }
 
             #[cfg(debug_assertions)]
             {
@@ -221,8 +219,6 @@ impl Patches {
             chunk_offsets: chunk_offsets.clone(),
             // Initialize with `Some(0)` only if `chunk_offsets` are set.
             offset_within_chunk: chunk_offsets.map(|_| 0),
-            min_index,
-            max_index,
         })
     }
 
@@ -250,8 +246,6 @@ impl Patches {
             values,
             chunk_offsets,
             offset_within_chunk,
-            min_index: OnceLock::new(),
-            max_index: OnceLock::new(),
         }
     }
 
@@ -425,14 +419,17 @@ impl Patches {
         Self::search_index_binary_search(&self.indices, index + self.offset)
     }
 
-    /// Returns the search result if `index` falls outside the cached bounds,
-    /// or `None` if the bounds are uncached or `index` is in range.
+    /// Returns the search result if `index` falls outside the indices' Min/Max
+    /// stats, or `None` if those stats aren't populated or `index` is in range.
+    /// Reads stats directly without triggering computation.
     fn search_index_out_of_range(&self, index: usize) -> Option<SearchResult> {
-        let min = *self.min_index.get()?;
-        let max = *self.max_index.get()?;
-        if index < min {
+        let stats = self.indices.statistics();
+        let min = usize::try_from(&stats.get(Stat::Min)?.as_exact()?).ok()?;
+        let max = usize::try_from(&stats.get(Stat::Max)?.as_exact()?).ok()?;
+        let needle = index + self.offset;
+        if needle < min {
             Some(SearchResult::NotFound(0))
-        } else if index > max {
+        } else if needle > max {
             Some(SearchResult::NotFound(self.indices.len()))
         } else {
             None
@@ -591,37 +588,24 @@ impl Patches {
 
     /// Returns the minimum patch index.
     pub fn min_index(&self) -> VortexResult<usize> {
-        if let Some(&v) = self.min_index.get() {
-            return Ok(v);
-        }
-        let first = self
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let min: usize = self
             .indices
-            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
-            .as_primitive()
-            .as_::<usize>()
-            .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
-        let result = first - self.offset;
-        let _ = self.min_index.set(result);
-        Ok(result)
+            .statistics()
+            .compute_min(&mut ctx)
+            .ok_or_else(|| vortex_err!("min index unavailable"))?;
+        Ok(min - self.offset)
     }
 
     /// Returns the maximum patch index.
     pub fn max_index(&self) -> VortexResult<usize> {
-        if let Some(&v) = self.max_index.get() {
-            return Ok(v);
-        }
-        let last = self
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let max: usize = self
             .indices
-            .execute_scalar(
-                self.indices.len() - 1,
-                &mut LEGACY_SESSION.create_execution_ctx(),
-            )?
-            .as_primitive()
-            .as_::<usize>()
-            .ok_or_else(|| vortex_err!("index does not fit in usize"))?;
-        let result = last - self.offset;
-        let _ = self.max_index.set(result);
-        Ok(result)
+            .statistics()
+            .compute_max(&mut ctx)
+            .ok_or_else(|| vortex_err!("max index unavailable"))?;
+        Ok(max - self.offset)
     }
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
@@ -696,8 +680,6 @@ impl Patches {
             // TODO(0ax1): Chunk offsets are invalid after a filter is applied.
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
-            min_index: OnceLock::new(),
-            max_index: OnceLock::new(),
         }))
     }
 
@@ -745,8 +727,6 @@ impl Patches {
             values,
             chunk_offsets: new_chunk_offsets,
             offset_within_chunk,
-            min_index: OnceLock::new(),
-            max_index: OnceLock::new(),
         }))
     }
 
@@ -882,8 +862,6 @@ impl Patches {
                 .take(PrimitiveArray::new(values_indices, values_validity).into_array())?,
             chunk_offsets: None,
             offset_within_chunk: Some(0), // Reset when creating new Patches.
-            min_index: OnceLock::new(),
-            max_index: OnceLock::new(),
         }))
     }
 
@@ -933,8 +911,6 @@ impl Patches {
             // TODO(0ax1): Chunk offsets are invalid after take is applied.
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
-            min_index: OnceLock::new(),
-            max_index: OnceLock::new(),
         }))
     }
 
@@ -958,9 +934,6 @@ impl Patches {
             values,
             chunk_offsets: self.chunk_offsets,
             offset_within_chunk: self.offset_within_chunk,
-            // indices and offset are preserved, so the cached bounds remain valid.
-            min_index: self.min_index,
-            max_index: self.max_index,
         })
     }
 }
