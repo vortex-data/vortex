@@ -13,7 +13,6 @@ pub mod null;
 pub mod primitive;
 mod run_end;
 mod struct_;
-mod temporal;
 mod validity;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
@@ -46,7 +45,7 @@ use crate::arrow::executor::null::to_arrow_null;
 use crate::arrow::executor::primitive::to_arrow_primitive;
 use crate::arrow::executor::run_end::to_arrow_run_end;
 use crate::arrow::executor::struct_::to_arrow_struct;
-use crate::arrow::executor::temporal::to_arrow_temporal;
+use crate::arrow::export_session::ArrowExportSessionExt;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
@@ -89,11 +88,30 @@ impl ArrowArrayExecutor for ArrayRef {
     ) -> VortexResult<ArrowArrayRef> {
         let len = self.len();
 
-        // Resolve the DataType if it is a leaf type
-        // we should likely make this extensible.
+        if let Some(ext) = self.dtype().as_extension_opt() {
+            let plugin = ctx.session().arrow_exports().find(&ext.id());
+            let Some(plugin) = plugin else {
+                vortex_bail!(
+                    "no ArrowExportPlugin registered for extension id {}",
+                    ext.id()
+                );
+            };
+            let target = match data_type {
+                Some(dt) => dt.clone(),
+                None => plugin.to_arrow_data_type(ext)?,
+            };
+            let arrow = plugin.execute_to_arrow(self, &target, ctx)?;
+            vortex_ensure!(
+                arrow.len() == len,
+                "Arrow array length does not match Vortex array length after conversion to {:?}",
+                arrow
+            );
+            return Ok(arrow);
+        }
+
         let resolved_type: DataType = match data_type {
             Some(dt) => dt.clone(),
-            None => preferred_arrow_type(&self)?,
+            None => preferred_arrow_type(&self, ctx)?,
         };
 
         let arrow = match &resolved_type {
@@ -110,11 +128,6 @@ impl ArrowArrayExecutor for ArrayRef {
             DataType::Float16 => to_arrow_primitive::<Float16Type>(self, ctx),
             DataType::Float32 => to_arrow_primitive::<Float32Type>(self, ctx),
             DataType::Float64 => to_arrow_primitive::<Float64Type>(self, ctx),
-            DataType::Timestamp(..)
-            | DataType::Date32
-            | DataType::Date64
-            | DataType::Time32(_)
-            | DataType::Time64(_) => to_arrow_temporal(self, &resolved_type, ctx),
             DataType::Binary => to_arrow_byte_array::<BinaryType>(self, ctx),
             DataType::LargeBinary => to_arrow_byte_array::<LargeBinaryType>(self, ctx),
             DataType::Utf8 => to_arrow_byte_array::<Utf8Type>(self, ctx),
@@ -157,7 +170,12 @@ impl ArrowArrayExecutor for ArrayRef {
             DataType::RunEndEncoded(ends_type, values_type) => {
                 to_arrow_run_end(self, ends_type.data_type(), values_type, ctx)
             }
-            DataType::FixedSizeBinary(_)
+            DataType::Timestamp(..)
+            | DataType::Date32
+            | DataType::Date64
+            | DataType::Time32(_)
+            | DataType::Time64(_)
+            | DataType::FixedSizeBinary(_)
             | DataType::Map(..)
             | DataType::Duration(_)
             | DataType::Interval(_)
@@ -192,7 +210,7 @@ impl ArrowArrayExecutor for ArrayRef {
 /// However, some encodings have cheaper Arrow representations:
 /// - `VarBinArray`: Uses `Utf8`/`Binary` (offset-based) instead of `Utf8View`/`BinaryView`
 /// - `ListArray`: Uses `List` instead of `ListView`
-fn preferred_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
+fn preferred_arrow_type(array: &ArrayRef, ctx: &ExecutionCtx) -> VortexResult<DataType> {
     // VarBinArray: use offset-based Binary/Utf8 instead of View types
     if let Some(varbin) = array.as_opt::<VarBin>() {
         let offsets_ptype = PType::try_from(varbin.offsets().dtype())?;
@@ -211,8 +229,7 @@ fn preferred_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
     if let Some(list) = array.as_opt::<List>() {
         let offsets_ptype = PType::try_from(list.offsets().dtype())?;
         let use_large = matches!(offsets_ptype, PType::I64 | PType::U64);
-        // Recursively get the preferred type for elements
-        let elem_dtype = preferred_arrow_type(list.elements())?;
+        let elem_dtype = preferred_arrow_type(list.elements(), ctx)?;
         let field = FieldRef::new(Field::new_list_field(
             elem_dtype,
             list.elements().dtype().is_nullable(),
@@ -225,6 +242,11 @@ fn preferred_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
         });
     }
 
-    // Everything else: use canonical dtype conversion
+    if let Some(ext) = array.dtype().as_extension_opt()
+        && let Some(plugin) = ctx.session().arrow_exports().find(&ext.id())
+    {
+        return plugin.to_arrow_data_type(ext);
+    }
+
     array.dtype().to_arrow_dtype()
 }

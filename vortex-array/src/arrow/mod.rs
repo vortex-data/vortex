@@ -10,12 +10,16 @@ use vortex_error::VortexResult;
 mod convert;
 mod datum;
 mod executor;
+pub mod export_plugin;
+pub mod export_session;
 mod iter;
 mod null_buffer;
 mod record_batch;
 
 pub use datum::*;
 pub use executor::*;
+pub use export_plugin::*;
+pub use export_session::*;
 pub use iter::*;
 pub use null_buffer::to_arrow_null_buffer;
 pub use null_buffer::to_null_buffer;

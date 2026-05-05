@@ -6756,6 +6756,72 @@ pub fn vortex_array::arrow::byte_view::canonical_varbinview_to_arrow<T: arrow_ar
 
 pub fn vortex_array::arrow::byte_view::execute_varbinview_to_arrow<T: arrow_array::types::ByteViewType>(array: &vortex_array::arrays::VarBinViewArray, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
 
+pub mod vortex_array::arrow::export_plugin
+
+pub trait vortex_array::arrow::export_plugin::ArrowExportPlugin: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_array::arrow::export_plugin::ArrowExportPlugin::execute_to_arrow(&self, array: vortex_array::ArrayRef, target: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::arrow::export_plugin::ArrowExportPlugin::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::arrow::export_plugin::ArrowExportPlugin::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+impl vortex_array::arrow::ArrowExportPlugin for vortex_array::extension::datetime::DateArrowExport
+
+pub fn vortex_array::extension::datetime::DateArrowExport::execute_to_arrow(&self, array: vortex_array::ArrayRef, target: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::DateArrowExport::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::DateArrowExport::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+impl vortex_array::arrow::ArrowExportPlugin for vortex_array::extension::datetime::TimeArrowExport
+
+pub fn vortex_array::extension::datetime::TimeArrowExport::execute_to_arrow(&self, array: vortex_array::ArrayRef, target: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::TimeArrowExport::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::TimeArrowExport::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+impl vortex_array::arrow::ArrowExportPlugin for vortex_array::extension::datetime::TimestampArrowExport
+
+pub fn vortex_array::extension::datetime::TimestampArrowExport::execute_to_arrow(&self, array: vortex_array::ArrayRef, target: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::TimestampArrowExport::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::TimestampArrowExport::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+pub type vortex_array::arrow::export_plugin::ArrowExportPluginRef = alloc::sync::Arc<dyn vortex_array::arrow::ArrowExportPlugin>
+
+pub mod vortex_array::arrow::export_session
+
+pub struct vortex_array::arrow::export_session::ArrowExportSession
+
+impl vortex_array::arrow::ArrowExportSession
+
+pub fn vortex_array::arrow::ArrowExportSession::find(&self, id: &vortex_array::dtype::extension::ExtId) -> core::option::Option<vortex_array::arrow::ArrowExportPluginRef>
+
+pub fn vortex_array::arrow::ArrowExportSession::register(&self, plugin: impl vortex_array::arrow::ArrowExportPlugin)
+
+pub fn vortex_array::arrow::ArrowExportSession::registry(&self) -> &vortex_array::arrow::ArrowExportRegistry
+
+impl core::default::Default for vortex_array::arrow::ArrowExportSession
+
+pub fn vortex_array::arrow::ArrowExportSession::default() -> Self
+
+impl core::fmt::Debug for vortex_array::arrow::ArrowExportSession
+
+pub fn vortex_array::arrow::ArrowExportSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub trait vortex_array::arrow::export_session::ArrowExportSessionExt: vortex_session::SessionExt
+
+pub fn vortex_array::arrow::export_session::ArrowExportSessionExt::arrow_exports(&self) -> vortex_session::Ref<'_, vortex_array::arrow::ArrowExportSession>
+
+impl<S: vortex_session::SessionExt> vortex_array::arrow::ArrowExportSessionExt for S
+
+pub fn S::arrow_exports(&self) -> vortex_session::Ref<'_, vortex_array::arrow::ArrowExportSession>
+
+pub type vortex_array::arrow::export_session::ArrowExportRegistry = vortex_session::registry::Registry<vortex_array::arrow::ArrowExportPluginRef>
+
 pub mod vortex_array::arrow::null
 
 pub fn vortex_array::arrow::null::canonical_null_to_arrow(array: &vortex_array::arrays::null::NullArray) -> arrow_array::array::ArrayRef
@@ -6779,6 +6845,24 @@ pub fn vortex_array::arrow::ArrowArrayStreamAdapter::next(&mut self) -> core::op
 impl vortex_array::iter::ArrayIterator for vortex_array::arrow::ArrowArrayStreamAdapter
 
 pub fn vortex_array::arrow::ArrowArrayStreamAdapter::dtype(&self) -> &vortex_array::dtype::DType
+
+pub struct vortex_array::arrow::ArrowExportSession
+
+impl vortex_array::arrow::ArrowExportSession
+
+pub fn vortex_array::arrow::ArrowExportSession::find(&self, id: &vortex_array::dtype::extension::ExtId) -> core::option::Option<vortex_array::arrow::ArrowExportPluginRef>
+
+pub fn vortex_array::arrow::ArrowExportSession::register(&self, plugin: impl vortex_array::arrow::ArrowExportPlugin)
+
+pub fn vortex_array::arrow::ArrowExportSession::registry(&self) -> &vortex_array::arrow::ArrowExportRegistry
+
+impl core::default::Default for vortex_array::arrow::ArrowExportSession
+
+pub fn vortex_array::arrow::ArrowExportSession::default() -> Self
+
+impl core::fmt::Debug for vortex_array::arrow::ArrowExportSession
+
+pub fn vortex_array::arrow::ArrowExportSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_array::arrow::Datum
 
@@ -6815,6 +6899,46 @@ pub fn vortex_array::ArrayRef::execute_arrow(self, data_type: core::option::Opti
 pub fn vortex_array::ArrayRef::execute_record_batch(self, schema: &arrow_schema::schema::Schema, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::record_batch::RecordBatch>
 
 pub fn vortex_array::ArrayRef::execute_record_batches(self, schema: &arrow_schema::schema::Schema, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<alloc::vec::Vec<arrow_array::record_batch::RecordBatch>>
+
+pub trait vortex_array::arrow::ArrowExportPlugin: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_array::arrow::ArrowExportPlugin::execute_to_arrow(&self, array: vortex_array::ArrayRef, target: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::arrow::ArrowExportPlugin::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::arrow::ArrowExportPlugin::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+impl vortex_array::arrow::ArrowExportPlugin for vortex_array::extension::datetime::DateArrowExport
+
+pub fn vortex_array::extension::datetime::DateArrowExport::execute_to_arrow(&self, array: vortex_array::ArrayRef, target: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::DateArrowExport::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::DateArrowExport::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+impl vortex_array::arrow::ArrowExportPlugin for vortex_array::extension::datetime::TimeArrowExport
+
+pub fn vortex_array::extension::datetime::TimeArrowExport::execute_to_arrow(&self, array: vortex_array::ArrayRef, target: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::TimeArrowExport::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::TimeArrowExport::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+impl vortex_array::arrow::ArrowExportPlugin for vortex_array::extension::datetime::TimestampArrowExport
+
+pub fn vortex_array::extension::datetime::TimestampArrowExport::execute_to_arrow(&self, array: vortex_array::ArrayRef, target: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::TimestampArrowExport::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::TimestampArrowExport::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+pub trait vortex_array::arrow::ArrowExportSessionExt: vortex_session::SessionExt
+
+pub fn vortex_array::arrow::ArrowExportSessionExt::arrow_exports(&self) -> vortex_session::Ref<'_, vortex_array::arrow::ArrowExportSession>
+
+impl<S: vortex_session::SessionExt> vortex_array::arrow::ArrowExportSessionExt for S
+
+pub fn S::arrow_exports(&self) -> vortex_session::Ref<'_, vortex_array::arrow::ArrowExportSession>
 
 pub trait vortex_array::arrow::FromArrowArray<A>
 
@@ -6985,6 +7109,10 @@ pub fn vortex_array::arrow::from_arrow_array_with_len<A>(array: A, len: usize, n
 pub fn vortex_array::arrow::to_arrow_null_buffer(validity: vortex_array::validity::Validity, len: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_buffer::buffer::null::NullBuffer>>
 
 pub fn vortex_array::arrow::to_null_buffer(mask: vortex_mask::Mask) -> core::option::Option<arrow_buffer::buffer::null::NullBuffer>
+
+pub type vortex_array::arrow::ArrowExportPluginRef = alloc::sync::Arc<dyn vortex_array::arrow::ArrowExportPlugin>
+
+pub type vortex_array::arrow::ArrowExportRegistry = vortex_session::registry::Registry<vortex_array::arrow::ArrowExportPluginRef>
 
 pub mod vortex_array::buffer
 
@@ -12628,6 +12756,20 @@ pub fn vortex_array::extension::datetime::Date::validate_dtype(ext_dtype: &vorte
 
 pub fn vortex_array::extension::datetime::Date::validate_scalar_value(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
 
+pub struct vortex_array::extension::datetime::DateArrowExport
+
+impl core::fmt::Debug for vortex_array::extension::datetime::DateArrowExport
+
+pub fn vortex_array::extension::datetime::DateArrowExport::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::arrow::ArrowExportPlugin for vortex_array::extension::datetime::DateArrowExport
+
+pub fn vortex_array::extension::datetime::DateArrowExport::execute_to_arrow(&self, array: vortex_array::ArrayRef, target: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::DateArrowExport::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::DateArrowExport::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
 pub struct vortex_array::extension::datetime::Time
 
 impl vortex_array::extension::datetime::Time
@@ -12683,6 +12825,20 @@ pub fn vortex_array::extension::datetime::Time::unpack_native<'a>(ext_dtype: &'a
 pub fn vortex_array::extension::datetime::Time::validate_dtype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::extension::datetime::Time::validate_scalar_value(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+
+pub struct vortex_array::extension::datetime::TimeArrowExport
+
+impl core::fmt::Debug for vortex_array::extension::datetime::TimeArrowExport
+
+pub fn vortex_array::extension::datetime::TimeArrowExport::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::arrow::ArrowExportPlugin for vortex_array::extension::datetime::TimeArrowExport
+
+pub fn vortex_array::extension::datetime::TimeArrowExport::execute_to_arrow(&self, array: vortex_array::ArrayRef, target: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::TimeArrowExport::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::TimeArrowExport::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
 
 pub struct vortex_array::extension::datetime::Timestamp
 
@@ -12741,6 +12897,20 @@ pub fn vortex_array::extension::datetime::Timestamp::unpack_native<'a>(ext_dtype
 pub fn vortex_array::extension::datetime::Timestamp::validate_dtype(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::extension::datetime::Timestamp::validate_scalar_value(ext_dtype: &vortex_array::dtype::extension::ExtDType<Self>, storage_value: &vortex_array::scalar::ScalarValue) -> vortex_error::VortexResult<()>
+
+pub struct vortex_array::extension::datetime::TimestampArrowExport
+
+impl core::fmt::Debug for vortex_array::extension::datetime::TimestampArrowExport
+
+pub fn vortex_array::extension::datetime::TimestampArrowExport::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::arrow::ArrowExportPlugin for vortex_array::extension::datetime::TimestampArrowExport
+
+pub fn vortex_array::extension::datetime::TimestampArrowExport::execute_to_arrow(&self, array: vortex_array::ArrayRef, target: &arrow_schema::datatype::DataType, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::extension::datetime::TimestampArrowExport::id(&self) -> vortex_array::dtype::extension::ExtId
+
+pub fn vortex_array::extension::datetime::TimestampArrowExport::to_arrow_data_type(&self, ext_dtype: &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
 
 pub struct vortex_array::extension::datetime::TimestampOptions
 

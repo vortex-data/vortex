@@ -14,6 +14,7 @@
 //! materialize an Arrow ArrayRef at the very end of the processing chain.
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -28,20 +29,22 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
+use crate::arrow::export_session::ArrowExportSession;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
-use crate::extension::datetime::AnyTemporal;
 use crate::extension::datetime::Date;
-use crate::extension::datetime::TemporalMetadata;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
 use crate::extension::datetime::Timestamp;
+
+/// Default [`ArrowExportSession`] used by [`DType::to_arrow_dtype`] when no session is available.
+static DEFAULT_ARROW_EXPORTS: LazyLock<ArrowExportSession> =
+    LazyLock::new(ArrowExportSession::default);
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
@@ -324,32 +327,10 @@ impl DType {
                 "DType::Variant requires Arrow Field metadata; use to_arrow_schema or a Field helper"
             ),
             DType::Extension(ext_dtype) => {
-                // Try and match against the known extension DTypes.
-                if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
-                    return Ok(match temporal {
-                        TemporalMetadata::Timestamp(unit, tz) => {
-                            DataType::Timestamp(ArrowTimeUnit::try_from(*unit)?, tz.clone())
-                        }
-                        TemporalMetadata::Date(unit) => match unit {
-                            TimeUnit::Days => DataType::Date32,
-                            TimeUnit::Milliseconds => DataType::Date64,
-                            TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
-                                vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
-                            }
-                        },
-                        TemporalMetadata::Time(unit) => match unit {
-                            TimeUnit::Seconds => DataType::Time32(ArrowTimeUnit::Second),
-                            TimeUnit::Milliseconds => DataType::Time32(ArrowTimeUnit::Millisecond),
-                            TimeUnit::Microseconds => DataType::Time64(ArrowTimeUnit::Microsecond),
-                            TimeUnit::Nanoseconds => DataType::Time64(ArrowTimeUnit::Nanosecond),
-                            TimeUnit::Days => {
-                                vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
-                            }
-                        },
-                    });
-                };
-
-                vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id())
+                let plugin = DEFAULT_ARROW_EXPORTS.find(&ext_dtype.id()).ok_or_else(|| {
+                    vortex_err!("Unsupported extension type \"{}\"", ext_dtype.id())
+                })?;
+                return plugin.to_arrow_data_type(ext_dtype);
             }
         })
     }
