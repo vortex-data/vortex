@@ -7,6 +7,7 @@
 // vortex::compute is deprecated and will be ported over to expressions.
 pub use vortex_array::aggregate_fn;
 use vortex_array::aggregate_fn::session::AggregateFnSession;
+use vortex_array::arrow::ArrowSession;
 pub use vortex_array::compute;
 use vortex_array::dtype::session::DTypeSession;
 // vortex::expr is in the process of having its dependencies inverted, and will eventually be
@@ -165,6 +166,7 @@ impl VortexSessionDefault for VortexSession {
         let session = VortexSession::empty()
             .with::<DTypeSession>()
             .with::<ArraySession>()
+            .with::<ArrowSession>()
             .with::<LayoutSession>()
             .with::<ScalarFnSession>()
             .with::<ArrayKernels>()

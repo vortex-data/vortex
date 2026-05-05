@@ -41,7 +41,7 @@ struct RunEndMetadata {
     pub offset: u64,
 }
 
-pub(super) fn to_arrow_run_end(
+pub(in crate::arrow) fn to_arrow_run_end(
     array: ArrayRef,
     ends_type: &DataType,
     values_type: &Field,

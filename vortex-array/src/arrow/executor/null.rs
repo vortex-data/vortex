@@ -16,7 +16,7 @@ pub fn canonical_null_to_arrow(array: &NullArray) -> ArrowArrayRef {
     Arc::new(ArrowNullArray::new(array.len()))
 }
 
-pub(super) fn to_arrow_null(
+pub(in crate::arrow) fn to_arrow_null(
     array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {

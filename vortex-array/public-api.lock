@@ -7084,6 +7084,210 @@ pub fn vortex_array::arrow::byte_view::canonical_varbinview_to_arrow<T: arrow_ar
 
 pub fn vortex_array::arrow::byte_view::execute_varbinview_to_arrow<T: arrow_array::types::ByteViewType>(&vortex_array::arrays::VarBinViewArray, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
 
+pub mod vortex_array::arrow::canonical
+
+pub struct vortex_array::arrow::canonical::CanonicalArrowEncoder
+
+impl core::default::Default for vortex_array::arrow::canonical::CanonicalArrowEncoder
+
+pub fn vortex_array::arrow::canonical::CanonicalArrowEncoder::default() -> vortex_array::arrow::canonical::CanonicalArrowEncoder
+
+impl core::fmt::Debug for vortex_array::arrow::canonical::CanonicalArrowEncoder
+
+pub fn vortex_array::arrow::canonical::CanonicalArrowEncoder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::arrow::encoder::ArrowEncoder for vortex_array::arrow::canonical::CanonicalArrowEncoder
+
+pub fn vortex_array::arrow::canonical::CanonicalArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::canonical::CanonicalArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
+pub fn vortex_array::arrow::canonical::canonical_arrow_type_for_dtype(&vortex_array::dtype::DType) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+pub mod vortex_array::arrow::decoder
+
+pub trait vortex_array::arrow::decoder::ArrowDecoder: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_array::arrow::decoder::ArrowDecoder::try_decode(&self, &dyn arrow_array::array::Array, &arrow_schema::field::Field, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::arrow::decoder::ArrowDecoder for vortex_array::arrow::decoders::canonical::CanonicalArrowDecoder
+
+pub fn vortex_array::arrow::decoders::canonical::CanonicalArrowDecoder::try_decode(&self, &dyn arrow_array::array::Array, &arrow_schema::field::Field, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub type vortex_array::arrow::decoder::ArrowDecoderRef = alloc::sync::Arc<dyn vortex_array::arrow::decoder::ArrowDecoder>
+
+pub mod vortex_array::arrow::decoders
+
+pub mod vortex_array::arrow::decoders::canonical
+
+pub struct vortex_array::arrow::decoders::canonical::CanonicalArrowDTypeReader
+
+impl core::default::Default for vortex_array::arrow::decoders::canonical::CanonicalArrowDTypeReader
+
+pub fn vortex_array::arrow::decoders::canonical::CanonicalArrowDTypeReader::default() -> vortex_array::arrow::decoders::canonical::CanonicalArrowDTypeReader
+
+impl core::fmt::Debug for vortex_array::arrow::decoders::canonical::CanonicalArrowDTypeReader
+
+pub fn vortex_array::arrow::decoders::canonical::CanonicalArrowDTypeReader::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::arrow::dtype_converter::ArrowDTypeReader for vortex_array::arrow::decoders::canonical::CanonicalArrowDTypeReader
+
+pub fn vortex_array::arrow::decoders::canonical::CanonicalArrowDTypeReader::try_read_dtype(&self, &arrow_schema::field::Field) -> vortex_error::VortexResult<core::option::Option<vortex_array::dtype::DType>>
+
+pub struct vortex_array::arrow::decoders::canonical::CanonicalArrowDecoder
+
+impl core::default::Default for vortex_array::arrow::decoders::canonical::CanonicalArrowDecoder
+
+pub fn vortex_array::arrow::decoders::canonical::CanonicalArrowDecoder::default() -> vortex_array::arrow::decoders::canonical::CanonicalArrowDecoder
+
+impl core::fmt::Debug for vortex_array::arrow::decoders::canonical::CanonicalArrowDecoder
+
+pub fn vortex_array::arrow::decoders::canonical::CanonicalArrowDecoder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::arrow::decoder::ArrowDecoder for vortex_array::arrow::decoders::canonical::CanonicalArrowDecoder
+
+pub fn vortex_array::arrow::decoders::canonical::CanonicalArrowDecoder::try_decode(&self, &dyn arrow_array::array::Array, &arrow_schema::field::Field, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub mod vortex_array::arrow::dtype_converter
+
+pub trait vortex_array::arrow::dtype_converter::ArrowDTypeConverter: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_array::arrow::dtype_converter::ArrowDTypeConverter::to_arrow_data_type(&self, &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+pub fn vortex_array::arrow::dtype_converter::ArrowDTypeConverter::to_arrow_field(&self, &vortex_array::dtype::extension::ExtDTypeRef, &str) -> vortex_error::VortexResult<arrow_schema::field::Field>
+
+impl vortex_array::arrow::dtype_converter::ArrowDTypeConverter for vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter::to_arrow_data_type(&self, &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter::to_arrow_field(&self, &vortex_array::dtype::extension::ExtDTypeRef, &str) -> vortex_error::VortexResult<arrow_schema::field::Field>
+
+pub trait vortex_array::arrow::dtype_converter::ArrowDTypeReader: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_array::arrow::dtype_converter::ArrowDTypeReader::try_read_dtype(&self, &arrow_schema::field::Field) -> vortex_error::VortexResult<core::option::Option<vortex_array::dtype::DType>>
+
+impl vortex_array::arrow::dtype_converter::ArrowDTypeReader for vortex_array::arrow::decoders::canonical::CanonicalArrowDTypeReader
+
+pub fn vortex_array::arrow::decoders::canonical::CanonicalArrowDTypeReader::try_read_dtype(&self, &arrow_schema::field::Field) -> vortex_error::VortexResult<core::option::Option<vortex_array::dtype::DType>>
+
+pub type vortex_array::arrow::dtype_converter::ArrowDTypeConverterRef = alloc::sync::Arc<dyn vortex_array::arrow::dtype_converter::ArrowDTypeConverter>
+
+pub type vortex_array::arrow::dtype_converter::ArrowDTypeReaderRef = alloc::sync::Arc<dyn vortex_array::arrow::dtype_converter::ArrowDTypeReader>
+
+pub mod vortex_array::arrow::encoder
+
+pub trait vortex_array::arrow::encoder::ArrowEncoder: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_array::arrow::encoder::ArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::encoder::ArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
+impl vortex_array::arrow::encoder::ArrowEncoder for vortex_array::arrow::canonical::CanonicalArrowEncoder
+
+pub fn vortex_array::arrow::canonical::CanonicalArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::canonical::CanonicalArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
+impl vortex_array::arrow::encoder::ArrowEncoder for vortex_array::arrow::encoders::list::ListArrowEncoder
+
+pub fn vortex_array::arrow::encoders::list::ListArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::encoders::list::ListArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
+impl vortex_array::arrow::encoder::ArrowEncoder for vortex_array::arrow::encoders::temporal::TemporalArrowEncoder
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
+impl vortex_array::arrow::encoder::ArrowEncoder for vortex_array::arrow::encoders::varbin::VarBinArrowEncoder
+
+pub fn vortex_array::arrow::encoders::varbin::VarBinArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::encoders::varbin::VarBinArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
+pub type vortex_array::arrow::encoder::ArrowEncoderRef = alloc::sync::Arc<dyn vortex_array::arrow::encoder::ArrowEncoder>
+
+pub mod vortex_array::arrow::encoders
+
+pub mod vortex_array::arrow::encoders::list
+
+pub struct vortex_array::arrow::encoders::list::ListArrowEncoder
+
+impl vortex_array::arrow::encoders::list::ListArrowEncoder
+
+pub fn vortex_array::arrow::encoders::list::ListArrowEncoder::array_id() -> vortex_array::ArrayId
+
+impl core::default::Default for vortex_array::arrow::encoders::list::ListArrowEncoder
+
+pub fn vortex_array::arrow::encoders::list::ListArrowEncoder::default() -> vortex_array::arrow::encoders::list::ListArrowEncoder
+
+impl core::fmt::Debug for vortex_array::arrow::encoders::list::ListArrowEncoder
+
+pub fn vortex_array::arrow::encoders::list::ListArrowEncoder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::arrow::encoder::ArrowEncoder for vortex_array::arrow::encoders::list::ListArrowEncoder
+
+pub fn vortex_array::arrow::encoders::list::ListArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::encoders::list::ListArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
+pub mod vortex_array::arrow::encoders::temporal
+
+pub struct vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter
+
+impl core::default::Default for vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter::default() -> vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter
+
+impl core::fmt::Debug for vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::arrow::dtype_converter::ArrowDTypeConverter for vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter::to_arrow_data_type(&self, &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter::to_arrow_field(&self, &vortex_array::dtype::extension::ExtDTypeRef, &str) -> vortex_error::VortexResult<arrow_schema::field::Field>
+
+pub struct vortex_array::arrow::encoders::temporal::TemporalArrowEncoder
+
+impl core::default::Default for vortex_array::arrow::encoders::temporal::TemporalArrowEncoder
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowEncoder::default() -> vortex_array::arrow::encoders::temporal::TemporalArrowEncoder
+
+impl core::fmt::Debug for vortex_array::arrow::encoders::temporal::TemporalArrowEncoder
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowEncoder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::arrow::encoder::ArrowEncoder for vortex_array::arrow::encoders::temporal::TemporalArrowEncoder
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
+pub mod vortex_array::arrow::encoders::varbin
+
+pub struct vortex_array::arrow::encoders::varbin::VarBinArrowEncoder
+
+impl vortex_array::arrow::encoders::varbin::VarBinArrowEncoder
+
+pub fn vortex_array::arrow::encoders::varbin::VarBinArrowEncoder::array_id() -> vortex_array::ArrayId
+
+impl core::default::Default for vortex_array::arrow::encoders::varbin::VarBinArrowEncoder
+
+pub fn vortex_array::arrow::encoders::varbin::VarBinArrowEncoder::default() -> vortex_array::arrow::encoders::varbin::VarBinArrowEncoder
+
+impl core::fmt::Debug for vortex_array::arrow::encoders::varbin::VarBinArrowEncoder
+
+pub fn vortex_array::arrow::encoders::varbin::VarBinArrowEncoder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::arrow::encoder::ArrowEncoder for vortex_array::arrow::encoders::varbin::VarBinArrowEncoder
+
+pub fn vortex_array::arrow::encoders::varbin::VarBinArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::encoders::varbin::VarBinArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
 pub mod vortex_array::arrow::null
 
 pub fn vortex_array::arrow::null::canonical_null_to_arrow(&vortex_array::arrays::null::NullArray) -> arrow_array::array::ArrayRef
@@ -7107,6 +7311,78 @@ pub fn vortex_array::arrow::ArrowArrayStreamAdapter::next(&mut self) -> core::op
 impl vortex_array::iter::ArrayIterator for vortex_array::arrow::ArrowArrayStreamAdapter
 
 pub fn vortex_array::arrow::ArrowArrayStreamAdapter::dtype(&self) -> &vortex_array::dtype::DType
+
+pub struct vortex_array::arrow::ArrowSession
+
+impl vortex_array::arrow::ArrowSession
+
+pub fn vortex_array::arrow::ArrowSession::canonical_encoder(&self) -> core::option::Option<vortex_array::arrow::encoder::ArrowEncoderRef>
+
+pub fn vortex_array::arrow::ArrowSession::decoders(&self) -> alloc::vec::Vec<vortex_array::arrow::decoder::ArrowDecoderRef>
+
+pub fn vortex_array::arrow::ArrowSession::default_decoder(&self) -> core::option::Option<vortex_array::arrow::decoder::ArrowDecoderRef>
+
+pub fn vortex_array::arrow::ArrowSession::default_dtype_reader(&self) -> core::option::Option<vortex_array::arrow::dtype_converter::ArrowDTypeReaderRef>
+
+pub fn vortex_array::arrow::ArrowSession::dtype_converter_for(&self, &vortex_array::dtype::extension::ExtId) -> core::option::Option<vortex_array::arrow::dtype_converter::ArrowDTypeConverterRef>
+
+pub fn vortex_array::arrow::ArrowSession::dtype_readers(&self) -> alloc::vec::Vec<vortex_array::arrow::dtype_converter::ArrowDTypeReaderRef>
+
+pub fn vortex_array::arrow::ArrowSession::encoder_for_encoding(&self, &vortex_array::ArrayId) -> core::option::Option<vortex_array::arrow::encoder::ArrowEncoderRef>
+
+pub fn vortex_array::arrow::ArrowSession::encoder_for_extension(&self, &vortex_array::dtype::extension::ExtId) -> core::option::Option<vortex_array::arrow::encoder::ArrowEncoderRef>
+
+pub fn vortex_array::arrow::ArrowSession::register_decoder(&self, impl core::convert::Into<vortex_array::arrow::decoder::ArrowDecoderRef>)
+
+pub fn vortex_array::arrow::ArrowSession::register_dtype_converter(&self, impl core::convert::Into<vortex_session::registry::Id>, impl core::convert::Into<vortex_array::arrow::dtype_converter::ArrowDTypeConverterRef>)
+
+pub fn vortex_array::arrow::ArrowSession::register_dtype_reader(&self, impl core::convert::Into<vortex_array::arrow::dtype_converter::ArrowDTypeReaderRef>)
+
+pub fn vortex_array::arrow::ArrowSession::register_encoder_for_encoding(&self, impl core::convert::Into<vortex_session::registry::Id>, impl core::convert::Into<vortex_array::arrow::encoder::ArrowEncoderRef>)
+
+pub fn vortex_array::arrow::ArrowSession::register_encoder_for_extension(&self, impl core::convert::Into<vortex_session::registry::Id>, impl core::convert::Into<vortex_array::arrow::encoder::ArrowEncoderRef>)
+
+pub fn vortex_array::arrow::ArrowSession::set_canonical_encoder(&self, impl core::convert::Into<vortex_array::arrow::encoder::ArrowEncoderRef>)
+
+pub fn vortex_array::arrow::ArrowSession::set_default_decoder(&self, impl core::convert::Into<vortex_array::arrow::decoder::ArrowDecoderRef>)
+
+pub fn vortex_array::arrow::ArrowSession::set_default_dtype_reader(&self, impl core::convert::Into<vortex_array::arrow::dtype_converter::ArrowDTypeReaderRef>)
+
+impl vortex_array::arrow::ArrowSession
+
+pub fn vortex_array::arrow::ArrowSession::from_arrow_array(&self, &dyn arrow_array::array::Array, &arrow_schema::field::Field, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::arrow::ArrowSession::from_arrow_field(&self, &arrow_schema::field::Field) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::arrow::ArrowSession::from_arrow_schema(&self, &arrow_schema::schema::Schema) -> vortex_error::VortexResult<vortex_array::dtype::StructFields>
+
+impl vortex_array::arrow::ArrowSession
+
+pub fn vortex_array::arrow::ArrowSession::resolve_preferred_arrow_type(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+pub fn vortex_array::arrow::ArrowSession::to_arrow_array(&self, vortex_array::ArrayRef, core::option::Option<&arrow_schema::datatype::DataType>, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::array::ArrayRef>
+
+pub fn vortex_array::arrow::ArrowSession::to_arrow_data_type(&self, &vortex_array::dtype::DType) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+pub fn vortex_array::arrow::ArrowSession::to_arrow_field(&self, &str, &vortex_array::dtype::DType) -> vortex_error::VortexResult<arrow_schema::field::Field>
+
+pub fn vortex_array::arrow::ArrowSession::to_arrow_record_batch(&self, vortex_array::ArrayRef, &arrow_schema::schema::Schema, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::record_batch::RecordBatch>
+
+pub fn vortex_array::arrow::ArrowSession::to_arrow_schema(&self, &vortex_array::dtype::StructFields, vortex_array::dtype::Nullability) -> vortex_error::VortexResult<arrow_schema::schema::Schema>
+
+impl core::default::Default for vortex_array::arrow::ArrowSession
+
+pub fn vortex_array::arrow::ArrowSession::default() -> Self
+
+impl core::fmt::Debug for vortex_array::arrow::ArrowSession
+
+pub fn vortex_array::arrow::ArrowSession::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_session::SessionVar for vortex_array::arrow::ArrowSession
+
+pub fn vortex_array::arrow::ArrowSession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::arrow::ArrowSession::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub struct vortex_array::arrow::Datum
 
@@ -7143,6 +7419,72 @@ pub fn vortex_array::ArrayRef::execute_arrow(self, core::option::Option<&arrow_s
 pub fn vortex_array::ArrayRef::execute_record_batch(self, &arrow_schema::schema::Schema, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<arrow_array::record_batch::RecordBatch>
 
 pub fn vortex_array::ArrayRef::execute_record_batches(self, &arrow_schema::schema::Schema, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<alloc::vec::Vec<arrow_array::record_batch::RecordBatch>>
+
+pub trait vortex_array::arrow::ArrowDTypeConverter: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_array::arrow::ArrowDTypeConverter::to_arrow_data_type(&self, &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+pub fn vortex_array::arrow::ArrowDTypeConverter::to_arrow_field(&self, &vortex_array::dtype::extension::ExtDTypeRef, &str) -> vortex_error::VortexResult<arrow_schema::field::Field>
+
+impl vortex_array::arrow::dtype_converter::ArrowDTypeConverter for vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter::to_arrow_data_type(&self, &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowDTypeConverter::to_arrow_field(&self, &vortex_array::dtype::extension::ExtDTypeRef, &str) -> vortex_error::VortexResult<arrow_schema::field::Field>
+
+pub trait vortex_array::arrow::ArrowDTypeReader: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_array::arrow::ArrowDTypeReader::try_read_dtype(&self, &arrow_schema::field::Field) -> vortex_error::VortexResult<core::option::Option<vortex_array::dtype::DType>>
+
+impl vortex_array::arrow::dtype_converter::ArrowDTypeReader for vortex_array::arrow::decoders::canonical::CanonicalArrowDTypeReader
+
+pub fn vortex_array::arrow::decoders::canonical::CanonicalArrowDTypeReader::try_read_dtype(&self, &arrow_schema::field::Field) -> vortex_error::VortexResult<core::option::Option<vortex_array::dtype::DType>>
+
+pub trait vortex_array::arrow::ArrowDecoder: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_array::arrow::ArrowDecoder::try_decode(&self, &dyn arrow_array::array::Array, &arrow_schema::field::Field, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::arrow::decoder::ArrowDecoder for vortex_array::arrow::decoders::canonical::CanonicalArrowDecoder
+
+pub fn vortex_array::arrow::decoders::canonical::CanonicalArrowDecoder::try_decode(&self, &dyn arrow_array::array::Array, &arrow_schema::field::Field, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub trait vortex_array::arrow::ArrowEncoder: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
+
+pub fn vortex_array::arrow::ArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::ArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
+impl vortex_array::arrow::encoder::ArrowEncoder for vortex_array::arrow::canonical::CanonicalArrowEncoder
+
+pub fn vortex_array::arrow::canonical::CanonicalArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::canonical::CanonicalArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
+impl vortex_array::arrow::encoder::ArrowEncoder for vortex_array::arrow::encoders::list::ListArrowEncoder
+
+pub fn vortex_array::arrow::encoders::list::ListArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::encoders::list::ListArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
+impl vortex_array::arrow::encoder::ArrowEncoder for vortex_array::arrow::encoders::temporal::TemporalArrowEncoder
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::encoders::temporal::TemporalArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
+impl vortex_array::arrow::encoder::ArrowEncoder for vortex_array::arrow::encoders::varbin::VarBinArrowEncoder
+
+pub fn vortex_array::arrow::encoders::varbin::VarBinArrowEncoder::preferred_arrow_type(&self, &vortex_array::ArrayRef, &vortex_array::arrow::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::datatype::DataType>>
+
+pub fn vortex_array::arrow::encoders::varbin::VarBinArrowEncoder::to_arrow_array(&self, vortex_array::ArrayRef, &arrow_schema::datatype::DataType, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_array::array::ArrayRef>>
+
+pub trait vortex_array::arrow::ArrowSessionExt: vortex_session::SessionExt
+
+pub fn vortex_array::arrow::ArrowSessionExt::arrow(&self) -> vortex_session::Ref<'_, vortex_array::arrow::ArrowSession>
+
+impl<S: vortex_session::SessionExt> vortex_array::arrow::ArrowSessionExt for S
+
+pub fn S::arrow(&self) -> vortex_session::Ref<'_, vortex_array::arrow::ArrowSession>
 
 pub trait vortex_array::arrow::FromArrowArray<A>
 
@@ -7313,6 +7655,14 @@ pub fn vortex_array::arrow::from_arrow_array_with_len<A>(A, usize, bool) -> vort
 pub fn vortex_array::arrow::to_arrow_null_buffer(vortex_array::validity::Validity, usize, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<arrow_buffer::buffer::null::NullBuffer>>
 
 pub fn vortex_array::arrow::to_null_buffer(vortex_mask::Mask) -> core::option::Option<arrow_buffer::buffer::null::NullBuffer>
+
+pub type vortex_array::arrow::ArrowDTypeConverterRef = alloc::sync::Arc<dyn vortex_array::arrow::dtype_converter::ArrowDTypeConverter>
+
+pub type vortex_array::arrow::ArrowDTypeReaderRef = alloc::sync::Arc<dyn vortex_array::arrow::dtype_converter::ArrowDTypeReader>
+
+pub type vortex_array::arrow::ArrowDecoderRef = alloc::sync::Arc<dyn vortex_array::arrow::decoder::ArrowDecoder>
+
+pub type vortex_array::arrow::ArrowEncoderRef = alloc::sync::Arc<dyn vortex_array::arrow::encoder::ArrowEncoder>
 
 pub mod vortex_array::buffer
 

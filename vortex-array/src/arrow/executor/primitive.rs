@@ -34,7 +34,7 @@ where
     Ok(Arc::new(ArrowPrimitiveArray::<T>::new(buffer, null_buffer)))
 }
 
-pub(super) fn to_arrow_primitive<T: ArrowPrimitiveType>(
+pub(in crate::arrow) fn to_arrow_primitive<T: ArrowPrimitiveType>(
     array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef>

@@ -26,7 +26,7 @@ use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
-pub(super) fn to_arrow_byte_array<T: ByteArrayType>(
+pub(in crate::arrow) fn to_arrow_byte_array<T: ByteArrayType>(
     array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef>

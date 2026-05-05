@@ -26,6 +26,7 @@ pub use vortex_array_macros::array_slots;
 use vortex_session::VortexSession;
 use vortex_session::registry::Context;
 
+use crate::arrow::ArrowSession;
 use crate::session::ArraySession;
 
 pub mod accessor;
@@ -79,7 +80,10 @@ pub mod flatbuffers {
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
 //  from the new array encodings to support back-compat for legacy encodings. So we hold a session
 //  here...
-pub static LEGACY_SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+pub static LEGACY_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<ArrowSession>()
+});
 
 pub type ArrayContext = Context<ArrayPluginRef>;

@@ -15,7 +15,7 @@ use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 
-pub(super) fn to_arrow_fixed_list(
+pub(in crate::arrow) fn to_arrow_fixed_list(
     array: ArrayRef,
     list_size: i32,
     elements_field: &FieldRef,

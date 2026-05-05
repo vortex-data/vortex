@@ -29,7 +29,7 @@ pub fn canonical_bool_to_arrow(
     )))
 }
 
-pub(super) fn to_arrow_bool(
+pub(in crate::arrow) fn to_arrow_bool(
     array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {

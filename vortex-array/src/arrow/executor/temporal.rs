@@ -36,7 +36,7 @@ use crate::extension::datetime::AnyTemporal;
 use crate::extension::datetime::TemporalMetadata;
 use crate::extension::datetime::TimeUnit;
 
-pub(super) fn to_arrow_temporal(
+pub(in crate::arrow) fn to_arrow_temporal(
     array: ArrayRef,
     data_type: &DataType,
     ctx: &mut ExecutionCtx,

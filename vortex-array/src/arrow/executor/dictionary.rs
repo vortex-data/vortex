@@ -24,7 +24,7 @@ use crate::arrays::DictArray;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrow::ArrowArrayExecutor;
 
-pub(super) fn to_arrow_dictionary(
+pub(in crate::arrow) fn to_arrow_dictionary(
     array: ArrayRef,
     codes_type: &DataType,
     values_type: &DataType,

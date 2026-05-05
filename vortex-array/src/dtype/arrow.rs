@@ -258,6 +258,11 @@ impl DType {
     }
 
     /// Returns the Arrow [`DataType`] that best corresponds to this Vortex [`DType`].
+    ///
+    /// Prefer `session.arrow().to_arrow_data_type(dtype)` via
+    /// [`crate::arrow::ArrowSessionExt`], which dispatches through registered
+    /// [`crate::arrow::ArrowDTypeConverter`] plugins. This method retains the canonical
+    /// dtype mapping for callers without a session.
     pub fn to_arrow_dtype(&self) -> VortexResult<DataType> {
         Ok(match self {
             DType::Null => DataType::Null,
