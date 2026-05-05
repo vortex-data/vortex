@@ -21,12 +21,21 @@ use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::array::ArrayId;
 use crate::array::ArrayView;
+use crate::array::DynArrayData;
 use crate::array::VTable;
 use crate::dtype::DType;
 use crate::stats::ArrayStats;
 use crate::stats::StatsSet;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
+
+pub(crate) struct ArrayFields {
+    pub(crate) len: usize,
+    pub(crate) encoding_id: ArrayId,
+    pub(crate) dtype: DType,
+    pub(crate) slots: Vec<Option<ArrayRef>>,
+    pub(crate) stats: ArrayStats,
+}
 
 /// The combined allocation behind [`ArrayRef`].
 ///
@@ -37,11 +46,7 @@ use crate::validity::Validity;
 /// Metadata is accessed via `self.0.*` (a normal struct field read through the Arc),
 /// while encoding-specific methods go through `self.0.data` (vtable dispatch).
 pub(crate) struct ArrayInner<D: ?Sized> {
-    pub(crate) len: usize,
-    pub(crate) encoding_id: ArrayId,
-    pub(crate) dtype: DType,
-    pub(crate) slots: Vec<Option<ArrayRef>>,
-    pub(crate) stats: ArrayStats,
+    pub(crate) fields: ArrayFields,
     pub(crate) data: D, // must be last for unsized coercion
 }
 
@@ -104,11 +109,13 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
         new.vtable
             .validate(&new.data, &new.dtype, new.len, &new.slots)?;
         Ok(ArrayInner {
-            len: new.len,
-            encoding_id: new.vtable.id(),
-            dtype: new.dtype,
-            slots: new.slots,
-            stats: ArrayStats::default(),
+            fields: ArrayFields {
+                len: new.len,
+                encoding_id: new.vtable.id(),
+                dtype: new.dtype,
+                slots: new.slots,
+                stats: ArrayStats::default(),
+            },
             data: ArrayData {
                 vtable: new.vtable,
                 data: new.data,
@@ -129,13 +136,25 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
         stats: ArrayStats,
     ) -> Self {
         ArrayInner {
-            len,
-            encoding_id: vtable.id(),
-            dtype,
-            slots,
-            stats,
+            fields: ArrayFields {
+                len,
+                encoding_id: vtable.id(),
+                dtype,
+                slots,
+                stats,
+            },
             data: ArrayData { vtable, data },
         }
+    }
+}
+
+impl<V: DynArrayData + ?Sized> ArrayInner<V> {
+    pub(crate) fn with_slots(&self, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
+        self.data.with_slots(&self.fields, slots)
+    }
+
+    pub(crate) unsafe fn with_slots_unchecked(&self, slots: Vec<Option<ArrayRef>>) -> ArrayRef {
+        unsafe { self.data.with_slots_unchecked(&self.fields, slots) }
     }
 }
 
@@ -289,10 +308,10 @@ impl<V: VTable> Array<V> {
         match Arc::try_unwrap(typed_arc) {
             Ok(store) => Ok(ArrayParts {
                 vtable: store.data.vtable,
-                dtype: store.dtype,
-                len: store.len,
+                dtype: store.fields.dtype,
+                len: store.fields.len,
                 data: store.data.data,
-                slots: store.slots,
+                slots: store.fields.slots,
             }),
             Err(typed_arc) => Err(Self {
                 inner: ArrayRef::from_inner(typed_arc),
