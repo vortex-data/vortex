@@ -84,17 +84,17 @@ pub struct ArrayRef(Arc<ArrayInner<dyn DynArrayData>>);
 
 impl ArrayRef {
     /// Create from an `Arc<ArrayInner<dyn DynArrayData>>`.
-    pub(crate) fn from_inner<D: DynArrayData>(store: Arc<ArrayInner<D>>) -> Self {
-        Self(store)
+    pub(crate) fn from_inner<D: DynArrayData>(inner: Arc<ArrayInner<D>>) -> Self {
+        Self(inner)
     }
 
-    /// Returns a reference to the `dyn DynArrayData` inside the store.
+    /// Returns a reference to the `dyn DynArrayData` inside the inner.
     #[inline(always)]
     pub(crate) fn dyn_array(&self) -> &dyn DynArrayData {
         &self.0.data
     }
 
-    /// Returns a mutable reference to the store if this is the sole owner.
+    /// Returns a mutable reference to the inner if this is the sole owner.
     #[inline(always)]
     pub(crate) fn inner_mut(&mut self) -> Option<&mut ArrayInner<dyn DynArrayData>> {
         Arc::get_mut(&mut self.0)
@@ -107,11 +107,12 @@ impl ArrayRef {
         Arc::as_ptr(&self.0).addr()
     }
 
-    /// Downcast the store to a concrete `ArrayInner<ArrayData<V>>`.
+    /// Downcast the inner to a concrete `ArrayInner<ArrayData<V>>`.
     ///
     /// Uses the same raw-pointer technique as `Arc::downcast`.
     #[allow(dead_code)]
-    pub(crate) fn downcast_store<V: VTable>(self) -> Result<Arc<ArrayInner<ArrayData<V>>>, Self> {
+    pub(crate) fn downcast_inner<V: VTable>(self) -> Result<Arc<ArrayInner<ArrayData<V>>>, Self> {
+        // TODO(joe): can we use encoding id here?
         if self.0.data.as_any().is::<ArrayData<V>>() {
             Ok(unsafe { self.downcast_inner_unchecked() })
         } else {
@@ -128,10 +129,12 @@ impl ArrayRef {
         self,
     ) -> Arc<ArrayInner<ArrayData<V>>> {
         debug_assert!(self.0.data.as_any().is::<ArrayData<V>>());
+        // Recover the original concrete Arc. The fat pointer's data pointer is the
+        // same allocation that was originally `Arc<ArrayInner<ArrayData<V>>>` before
+        // unsized coercion to `Arc<ArrayInner<dyn DynArrayData>>`.
         let raw = Arc::into_raw(self.0);
-        // SAFETY: caller guarantees the concrete type. The allocation was originally
-        // `Arc<ArrayInner<ArrayData<V>>>` coerced to `Arc<ArrayInner<dyn DynArrayData>>`.
-        unsafe { Arc::from_raw(raw as *const ArrayInner<ArrayData<V>>) }
+        // # Safety all arrays are constructed in this way and type aliased.
+        unsafe { Arc::from_raw(raw.cast::<ArrayInner<ArrayData<V>>>()) }
     }
 
     /// Returns true if the two ArrayRefs point to the same allocation.
@@ -510,8 +513,8 @@ impl ArrayRef {
         mut self,
         slot_idx: usize,
     ) -> VortexResult<(ArrayRef, ArrayRef)> {
-        if let Some(store) = Arc::get_mut(&mut self.0) {
-            let child = store.slots[slot_idx]
+        if let Some(inner) = Arc::get_mut(&mut self.0) {
+            let child = inner.slots[slot_idx]
                 .take()
                 .vortex_expect("take_slot_unchecked cannot take an absent slot");
             return Ok((self, child));
@@ -545,15 +548,15 @@ impl ArrayRef {
         slot_idx: usize,
         replacement: ArrayRef,
     ) -> VortexResult<ArrayRef> {
-        if let Some(store) = Arc::get_mut(&mut self.0) {
-            store.slots[slot_idx] = Some(replacement);
+        if let Some(inner) = Arc::get_mut(&mut self.0) {
+            inner.slots[slot_idx] = Some(replacement);
             return Ok(self);
         }
 
         let mut slots = self.slots().to_vec();
         slots[slot_idx] = Some(replacement);
-        let store = Arc::clone(&self.0);
-        store.data.with_slots(self, slots)
+        let inner = Arc::clone(&self.0);
+        inner.data.with_slots(self, slots)
     }
 
     /// Returns a new array with the provided slots.
@@ -591,8 +594,8 @@ impl ArrayRef {
                 );
             }
         }
-        let store = Arc::clone(&self.0);
-        store.data.with_slots(self, slots)
+        let inner = Arc::clone(&self.0);
+        inner.data.with_slots(self, slots)
     }
 
     pub fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
@@ -608,9 +611,9 @@ impl ArrayRef {
     }
 
     pub(crate) fn execute_encoding(self, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let store = Arc::as_ptr(&self.0);
+        let inner = Arc::as_ptr(&self.0);
         // SAFETY: the Arc outlives the DynArrayData function call
-        unsafe { (&*store).data.execute(self, ctx) }
+        unsafe { (&*inner).data.execute(self, ctx) }
     }
 
     /// Execute a single encoding step without applying `Done`-result postconditions.
@@ -622,11 +625,11 @@ impl ArrayRef {
         self,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ExecutionResult> {
-        let store = Arc::as_ptr(&self.0);
-        // SAFETY: `store` points at the allocation owned by `self.0`. `self` stays alive for the
+        let inner = Arc::as_ptr(&self.0);
+        // SAFETY: `inner` points at the allocation owned by `self.0`. `self` stays alive for the
         // duration of the call, so the pointee remains valid. Avoiding an extra `Arc` clone here
         // preserves uniqueness so execute-time metadata cursors can use `Arc::get_mut`.
-        unsafe { (&*store).data.execute_unchecked(self, ctx) }
+        unsafe { (&*inner).data.execute_unchecked(self, ctx) }
     }
 
     pub fn execute_parent(
