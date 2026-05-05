@@ -1596,25 +1596,30 @@
     var canvas = card.querySelector("canvas");
     if (!canvas) return Promise.resolve();
     if (canvas.__bench_chart) return Promise.resolve();
-    // `constructChart` reads inline JSON (`<script id="chart-data-N">`)
-    // when there's no payload on the canvas yet, and short-circuits when
-    // a background prefetch has already populated `__bench_payload`. So
-    // try a synchronous construct before hitting the network.
-    if (constructChart(card)) {
-      bindToolbar(card);
-      return Promise.resolve();
-    }
     // If a background prefetch is mid-flight for this slug, ride on its
-    // promise instead of issuing a duplicate GET. By the time it resolves,
-    // `__bench_payload` is populated (on success) and `__bench_prefetch_pending`
-    // is null, so re-entering hits the synchronous-construct branch above
-    // or falls through to a fresh network fetch on prefetch failure.
+    // promise rather than constructing from inline JSON straight away.
+    // First-group inline payloads are trimmed at `LANDING_INLINE_N`; using
+    // them on toggle would render a partial chart that immediately upgrades
+    // when the prefetch arrives, which is exactly the visible "100 commits
+    // then it grows" flash we want to avoid. Waiting for the prefetch
+    // gives the user one render at the full range.
     var pending = canvas.__bench_prefetch_pending;
     if (pending) {
       showCardLoading(card, true);
       return pending
         .then(function () { showCardLoading(card, false); })
         .then(function () { return fetchAndConstruct(card); });
+    }
+    // No prefetch in flight: try a synchronous construct from inline JSON
+    // (`<script id="chart-data-N">`) or any payload already on the canvas.
+    // `constructChart` short-circuits when `__bench_payload` is populated
+    // (the prefetch resolved + `prefetch_pending` is now null). For cards
+    // whose prefetch failed, this is the inline fallback path; the chart
+    // renders the trimmed slice and `maybeRefetchFullPayload` retries the
+    // upgrade on the next pan that covers the loaded range.
+    if (constructChart(card)) {
+      bindToolbar(card);
+      return Promise.resolve();
     }
     var slug = card.getAttribute("data-chart-slug");
     if (!slug) return Promise.resolve();
@@ -2393,18 +2398,31 @@
       enqueueConstruct(card);
       return Promise.resolve();
     }
-    // For cards with an inline `<script id="chart-data-N">` (first group on
-    // the landing page) skip the network round-trip and just enqueue the
-    // construction. We do NOT pre-populate `__bench_payload` here so that
-    // `constructChart`'s `payloadFromInline` check remains accurate; that
-    // check drives `__bench_inline_trimmed`, which `maybeRefetchFullPayload`
-    // reads to upgrade to the full history when the user zooms wide.
+    // Cards with an inline `<script id="chart-data-N">` (first group on the
+    // landing page) get one of two treatments:
+    //
+    //   * If the inline payload's commit count is below `LANDING_INLINE_N`,
+    //     the server didn't trim — inline IS the full history, so skip the
+    //     network and enqueue construction directly.
+    //   * If the inline payload reached the cap, the server trimmed it. We
+    //     fall through to fire `?n=all` instead of using the partial slice,
+    //     so the user's first view of the chart shows the unbounded history
+    //     rather than the visible "100 commits, then a few hundred ms later
+    //     it grows to the full range" upgrade flash that
+    //     `maybeRefetchFullPayload` would otherwise produce.
+    //
+    // The inline payload is still the toggle-time fallback if the network
+    // fetch fails; `fetchAndConstruct` will let `constructChart` read the
+    // inline `<script>` directly when no prefetch is in flight.
     var idx = card.getAttribute("data-chart-index");
     if (idx != null) {
-      var inlineSlot = document.getElementById("chart-data-" + idx);
-      if (inlineSlot) {
-        enqueueConstruct(card);
-        return Promise.resolve();
+      var inline = readInlinePayload(idx);
+      if (inline) {
+        var inlineN = (inline.commits || []).length;
+        if (inlineN < LANDING_INLINE_N) {
+          enqueueConstruct(card);
+          return Promise.resolve();
+        }
       }
     }
     if (canvas.__bench_prefetch_pending) return canvas.__bench_prefetch_pending;
