@@ -141,7 +141,11 @@ impl ExtVTable for Timestamp {
     }
 
     fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
-        vortex_ensure!(data.len() >= 3);
+        vortex_ensure!(
+            data.len() >= 3,
+            "Timestamp metadata must have at least 3 bytes, got {}",
+            data.len()
+        );
 
         let tag = data[0];
         let time_unit = TimeUnit::try_from(tag)?;
@@ -158,7 +162,13 @@ impl ExtVTable for Timestamp {
         }
 
         // Attempt to load from len-prefixed bytes
-        let tz_bytes = &data[3..][..tz_len];
+        vortex_ensure!(
+            data.len() >= 3 + tz_len,
+            "Timestamp metadata is truncated: declared timezone length {} but only {} bytes available",
+            tz_len,
+            data.len() - 3
+        );
+        let tz_bytes = &data[3..3 + tz_len];
         let tz: Arc<str> = str::from_utf8(tz_bytes)
             .map_err(|e| vortex_err!("timezone is not valid utf8 string: {e}"))?
             .to_string()
@@ -364,5 +374,33 @@ mod tests {
         let none = DType::Extension(Timestamp::new(TimeUnit::Nanoseconds, NonNullable).erased());
         assert!(utc.can_coerce_from(&utc_s));
         assert!(!utc.can_coerce_from(&none));
+    }
+
+    #[test]
+    fn deserialize_empty_metadata_returns_error() {
+        use crate::dtype::extension::ExtVTable;
+
+        let vtable = Timestamp;
+        assert!(vtable.deserialize_metadata(&[]).is_err());
+    }
+
+    #[test]
+    fn deserialize_too_short_metadata_returns_error() {
+        use crate::dtype::extension::ExtVTable;
+
+        let vtable = Timestamp;
+        // Only 2 bytes - too short for the required 3-byte header.
+        assert!(vtable.deserialize_metadata(&[0x00, 0x01]).is_err());
+    }
+
+    #[test]
+    fn deserialize_truncated_timezone_returns_error() {
+        use crate::dtype::extension::ExtVTable;
+
+        let vtable = Timestamp;
+        // Valid tag (0x00 = Nanoseconds), tz_len = 10 (little-endian: [0x0A, 0x00]),
+        // but only 3 bytes of timezone data instead of the declared 10.
+        let data = [0x00u8, 0x0A, 0x00, b'U', b'T', b'C'];
+        assert!(vtable.deserialize_metadata(&data).is_err());
     }
 }

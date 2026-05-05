@@ -44,6 +44,7 @@ use vortex_bench::runner::BenchmarkQueryResult;
 use vortex_bench::runner::SqlBenchmarkRunner;
 use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
+use vortex_bench::v3;
 use vortex_datafusion::metrics::VortexMetricsFinder;
 
 /// Common arguments shared across benchmarks
@@ -81,6 +82,11 @@ struct Args {
 
     #[arg(short)]
     output_path: Option<PathBuf>,
+
+    /// Additionally write v3 JSONL records to this path. See
+    /// `benchmarks-website/planning/02-contracts.md`.
+    #[arg(long)]
+    gh_json_v3: Option<PathBuf>,
 
     #[arg(long, default_value_t = false)]
     show_metrics: bool,
@@ -224,6 +230,10 @@ async fn main() -> anyhow::Result<()> {
         if show_metrics {
             let plans = collected_plans.lock();
             print_metrics(plans.as_ref());
+        }
+
+        if let Some(path) = args.gh_json_v3.as_ref() {
+            v3::write_jsonl_to_path(path, &runner.v3_records())?;
         }
 
         let benchmark_id = format!("datafusion-{}", benchmark.dataset_name());

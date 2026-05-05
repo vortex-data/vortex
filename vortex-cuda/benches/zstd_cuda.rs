@@ -123,7 +123,7 @@ async fn execute_zstd_kernel(
 
 /// Benchmark ZSTD CUDA decompression kernel performance
 fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
-    let mut group = c.benchmark_group("cuda/zstd");
+    let mut group = c.benchmark_group("cuda");
 
     for (num_strings, label) in BENCH_SIZES {
         let mut setup_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
@@ -133,7 +133,7 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
 
         group.throughput(Throughput::Bytes(uncompressed_size as u64));
         group.bench_with_input(
-            BenchmarkId::new("decompress", label),
+            BenchmarkId::new("cuda/zstd/decompress", label),
             &zstd_array,
             |b, zstd_array| {
                 b.iter_custom(|iters| {

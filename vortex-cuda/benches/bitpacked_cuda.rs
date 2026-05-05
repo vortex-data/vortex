@@ -110,7 +110,7 @@ where
     T: BitPacked + NativePType + DeviceRepr + Add<Output = T> + From<u8>,
     T::Physical: DeviceRepr,
 {
-    let mut group = c.benchmark_group(format!("cuda/bitpacked_{}", type_name));
+    let mut group = c.benchmark_group("cuda");
 
     for &(n_rows, size_str) in bench_config::BENCH_SIZES {
         let array = make_bitpacked_array::<T>(bit_width, n_rows);
@@ -119,7 +119,10 @@ where
         group.throughput(Throughput::Bytes(nbytes as u64));
 
         group.bench_with_input(
-            BenchmarkId::new(format!("unpack/{}bw", bit_width), size_str),
+            BenchmarkId::new(
+                format!("cuda/bitpacked_{}/unpack/{}bw", type_name, bit_width),
+                size_str,
+            ),
             &array,
             |b, array| {
                 b.iter_custom(|iters| {
@@ -157,7 +160,7 @@ where
     T: BitPacked + NativePType + DeviceRepr + Add<Output = T> + From<u8>,
     T::Physical: DeviceRepr,
 {
-    let mut group = c.benchmark_group(format!("cuda/bitpacked_patched_{}", type_name));
+    let mut group = c.benchmark_group("cuda");
 
     for &(n_rows, size_str) in bench_config::BENCH_SIZES {
         let nbytes = n_rows * size_of::<T>();
@@ -167,7 +170,13 @@ where
             let array = make_bitpacked_array_with_patches::<T>(n_rows, patch_freq);
 
             group.bench_with_input(
-                BenchmarkId::new(format!("unpack/{}", patch_label), size_str),
+                BenchmarkId::new(
+                    format!(
+                        "cuda/bitpacked_patched_{}/unpack/{}",
+                        type_name, patch_label
+                    ),
+                    size_str,
+                ),
                 &array,
                 |b, array| {
                     b.iter_custom(|iters| {
