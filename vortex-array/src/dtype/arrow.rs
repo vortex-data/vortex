@@ -378,7 +378,6 @@ fn variant_storage_fields_minimal() -> Fields {
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
 mod test {
     use arrow_schema::DataType;
     use arrow_schema::Field;
@@ -389,6 +388,7 @@ mod test {
     use rstest::rstest;
 
     use super::*;
+    use crate::LEGACY_SESSION;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::FieldNames;
@@ -552,7 +552,10 @@ mod test {
         );
 
         let arrow_dtype = original_dtype.to_arrow_dtype().unwrap();
-        let roundtripped_dtype = DType::from_arrow((&arrow_dtype, Nullability::NonNullable));
+        let roundtripped_dtype = DType::from_arrow_with_session(
+            (&arrow_dtype, Nullability::NonNullable),
+            &LEGACY_SESSION,
+        );
 
         assert_eq!(original_dtype, roundtripped_dtype);
     }
@@ -573,7 +576,10 @@ mod test {
             DType::struct_([("\u{7}=outer", inner_struct)], Nullability::NonNullable);
 
         let arrow_dtype = original_dtype.to_arrow_dtype().unwrap();
-        let roundtripped_dtype = DType::from_arrow((&arrow_dtype, Nullability::NonNullable));
+        let roundtripped_dtype = DType::from_arrow_with_session(
+            (&arrow_dtype, Nullability::NonNullable),
+            &LEGACY_SESSION,
+        );
 
         assert_eq!(original_dtype, roundtripped_dtype);
     }

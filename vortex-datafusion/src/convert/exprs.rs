@@ -19,6 +19,7 @@ use datafusion_physical_expr::utils::collect_columns;
 use datafusion_physical_expr_common::physical_expr::is_dynamic_physical_expr;
 use datafusion_physical_plan::expressions as df_expr;
 use itertools::Itertools;
+use vortex::array::LEGACY_SESSION;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::arrow::FromArrowType;
@@ -225,7 +226,10 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         }
 
         if let Some(cast_expr) = df.as_any().downcast_ref::<df_expr::CastExpr>() {
-            let cast_dtype = DType::from_arrow((cast_expr.cast_type(), Nullability::Nullable));
+            let cast_dtype = DType::from_arrow_with_session(
+                (cast_expr.cast_type(), Nullability::Nullable),
+                &LEGACY_SESSION,
+            );
             let child = self.convert(cast_expr.expr().as_ref())?;
             return Ok(cast(child, cast_dtype));
         }
@@ -233,7 +237,10 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         if let Some(cast_col_expr) = df.as_any().downcast_ref::<df_expr::CastColumnExpr>() {
             let target = cast_col_expr.target_field();
 
-            let target_dtype = DType::from_arrow((target.data_type(), target.is_nullable().into()));
+            let target_dtype = DType::from_arrow_with_session(
+                (target.data_type(), target.is_nullable().into()),
+                &LEGACY_SESSION,
+            );
             let child = self.convert(cast_col_expr.expr().as_ref())?;
             return Ok(cast(child, target_dtype));
         }
@@ -973,7 +980,8 @@ mod tests {
         let vortex_expr = expr_convertor.try_convert_case_expr(&case_expr).unwrap();
 
         // Convert batch to Vortex array
-        let vortex_array: ArrayRef = ArrayRef::from_arrow(&batch, false).unwrap();
+        let vortex_array: ArrayRef =
+            ArrayRef::from_arrow_with_session(&batch, false, &LEGACY_SESSION).unwrap();
 
         // Apply Vortex expression
         let session = VortexSession::default();

@@ -10,6 +10,7 @@ use bytes::Bytes;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrow::FromArrowArray;
 use vortex_error::VortexResult;
@@ -198,7 +199,7 @@ impl DatasetFixture for ClickBenchHits5kFixture {
         Ok(ChunkedArray::from_iter(
             batches
                 .into_iter()
-                .map(|batch| ArrayRef::from_arrow(batch, false))
+                .map(|batch| ArrayRef::from_arrow_with_session(batch, false, &LEGACY_SESSION))
                 .collect::<VortexResult<Vec<_>>>()?,
         )
         .into_array())

@@ -47,6 +47,7 @@ mod tests {
     use arrow_schema::FieldRef;
     use arrow_schema::Schema;
 
+    use crate::LEGACY_SESSION;
     use crate::arrow::record_batch::StructArray;
     use crate::builders::ArrayBuilder;
     use crate::builders::ListBuilder;
@@ -81,8 +82,9 @@ mod tests {
             DataType::LargeListView(FieldRef::new(Field::new_list_field(DataType::Int32, false))),
             true,
         )]));
-        #[allow(deprecated)]
-        let rb = array.into_record_batch_with_schema(arrow_schema).unwrap();
+        let rb = array
+            .into_record_batch_with_schema_with_session(arrow_schema, &LEGACY_SESSION)
+            .unwrap();
 
         let xs = rb.column(0);
         assert_eq!(

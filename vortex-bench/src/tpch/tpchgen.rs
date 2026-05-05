@@ -32,6 +32,7 @@ use tpchgen::generators::SupplierGenerator;
 use tpchgen_arrow::RecordBatchIterator;
 use tracing::info;
 use vortex::array::ArrayRef;
+use vortex::array::LEGACY_SESSION;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
@@ -403,7 +404,7 @@ impl VortexWriter {
     ) -> Result<Self> {
         // Increase buffer size to avoid backpressure issues
         let (sender, receiver) = mpsc::channel(2);
-        let dtype = DType::from_arrow(schema);
+        let dtype = DType::from_arrow_with_session(schema, &LEGACY_SESSION);
         let file_path = path;
         let write_task = Some(tokio::spawn(async move {
             let stream = ArrayStreamAdapter::new(dtype, ReceiverStream::new(receiver));
@@ -428,7 +429,7 @@ impl VortexWriter {
 #[async_trait::async_trait]
 impl FileWriter for VortexWriter {
     async fn write_batch(&mut self, batch: &RecordBatch) -> Result<()> {
-        let array = ArrayRef::from_arrow(batch, false)?;
+        let array = ArrayRef::from_arrow_with_session(batch, false, &LEGACY_SESSION)?;
         self.sender
             .as_ref()
             .vortex_expect("sender closed early")

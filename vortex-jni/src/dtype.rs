@@ -10,6 +10,7 @@ use arrow_array::ffi::FFI_ArrowSchema;
 use arrow_schema::DataType;
 use arrow_schema::FieldRef;
 use arrow_schema::Fields;
+use vortex::array::LEGACY_SESSION;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexResult;
@@ -74,5 +75,8 @@ pub(crate) fn strip_views(data_type: DataType) -> DataType {
 pub(crate) fn import_dtype_from_arrow(schema_addr: i64) -> VortexResult<DType> {
     let ffi_schema = unsafe { &*(schema_addr as *const FFI_ArrowSchema) };
     let arrow_schema = arrow_schema::Schema::try_from(ffi_schema)?;
-    Ok(DType::from_arrow(&arrow_schema))
+    Ok(DType::from_arrow_with_session(
+        &arrow_schema,
+        &LEGACY_SESSION,
+    ))
 }

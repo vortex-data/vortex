@@ -6,6 +6,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::LEGACY_SESSION;
 use crate::arrow::FromArrowArray;
 use crate::dtype::DType;
 use crate::dtype::arrow::FromArrowType;
@@ -36,8 +37,11 @@ impl Iterator for ArrowArrayStreamAdapter {
         let batch = self.stream.next()?;
 
         Some(batch.map_err(VortexError::from).and_then(|b| {
-            debug_assert_eq!(&self.dtype, &DType::from_arrow(b.schema()));
-            ArrayRef::from_arrow(b, false)
+            debug_assert_eq!(
+                &self.dtype,
+                &DType::from_arrow_with_session(b.schema(), &LEGACY_SESSION)
+            );
+            ArrayRef::from_arrow_with_session(b, false, &LEGACY_SESSION)
         }))
     }
 }

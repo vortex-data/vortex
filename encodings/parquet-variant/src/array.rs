@@ -14,6 +14,7 @@ use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::TypedArrayRef;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrow::ArrowArrayExecutor;
@@ -183,17 +184,32 @@ impl ParquetVariantData {
                 }
             })
             .unwrap_or(Validity::NonNullable);
-        let metadata =
-            ArrayRef::from_arrow(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
+        let metadata = ArrayRef::from_arrow_with_session(
+            arrow_variant.metadata_field() as &dyn ArrowArray,
+            false,
+            &LEGACY_SESSION,
+        )?;
 
         let value = arrow_variant
             .value_field()
-            .map(|v| ArrayRef::from_arrow(v as &dyn ArrowArray, value_nullable))
+            .map(|v| {
+                ArrayRef::from_arrow_with_session(
+                    v as &dyn ArrowArray,
+                    value_nullable,
+                    &LEGACY_SESSION,
+                )
+            })
             .transpose()?;
 
         let typed_value = arrow_variant
             .typed_value_field()
-            .map(|tv| ArrayRef::from_arrow(tv.as_ref(), typed_value_nullable))
+            .map(|tv| {
+                ArrayRef::from_arrow_with_session(
+                    tv.as_ref(),
+                    typed_value_nullable,
+                    &LEGACY_SESSION,
+                )
+            })
             .transpose()?;
 
         let pv = ParquetVariant::try_new(validity, metadata, value, typed_value)?;
