@@ -31,7 +31,7 @@ impl CastReduce for Pco {
         let unsliced_validity =
             child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
         let Some(new_validity) =
-            unsliced_validity.trivial_cast_nullability(dtype.nullability(), array.len())?
+            unsliced_validity.trivially_cast_nullability(dtype.nullability(), array.len())?
         else {
             return Ok(None);
         };
