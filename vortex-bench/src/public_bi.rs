@@ -454,7 +454,12 @@ impl Dataset for PBIBenchmark {
     }
 
     fn v3_dataset_dims(&self) -> (&str, Option<&str>) {
-        ("public-bi", Some(&self.name))
+        // Match the v2 → v3 migrate classifier, which emits PBI compression
+        // records as `dataset = <lowercased pbi name>, dataset_variant = NULL`.
+        // The case-folding is applied by `compression_time_record` /
+        // `compression_size_record`; this method just surfaces the raw PBI
+        // name as the dataset.
+        (&self.name, None)
     }
 
     async fn to_vortex_array(&self, _ctx: &mut ExecutionCtx) -> anyhow::Result<ArrayRef> {
@@ -571,5 +576,33 @@ impl Benchmark for PublicBiBenchmark {
         // Each table is a single file named {table_name}.{ext}
         let pattern_str = format!("{}.{}", table_name, format.ext());
         glob::Pattern::new(&pattern_str).ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pbi_v3_dataset_dims_uses_pbi_name_as_dataset_with_no_variant() {
+        // The v2 → v3 migrate classifier emits PBI compression records as
+        // `dataset = <lowercased pbi name>, dataset_variant = NULL` (it never
+        // carried a `public-bi` parent in v2 chart names). The live emitter
+        // must mirror that shape so live ingests merge with migrated history
+        // into a single per-PBI-dataset chart group instead of forking off a
+        // sibling group keyed on `public-bi/<name>`. Lowercasing happens in
+        // `compression_time_record`/`compression_size_record`, so this trait
+        // method just needs to surface the raw PBI name as the dataset.
+        let bench = PBIBenchmark {
+            name: "Arade".to_string(),
+            base_path: PathBuf::new(),
+        };
+        assert_eq!(bench.v3_dataset_dims(), ("Arade", None));
+
+        let bench = PBIBenchmark {
+            name: "CMSprovider".to_string(),
+            base_path: PathBuf::new(),
+        };
+        assert_eq!(bench.v3_dataset_dims(), ("CMSprovider", None));
     }
 }

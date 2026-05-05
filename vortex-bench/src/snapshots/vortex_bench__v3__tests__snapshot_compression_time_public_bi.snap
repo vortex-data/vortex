@@ -5,8 +5,7 @@ expression: render(&record)?
 {
   "kind": "compression_time",
   "commit_sha": "<commit-sha>",
-  "dataset": "public-bi",
-  "dataset_variant": "cms-provider",
+  "dataset": "cmsprovider",
   "format": "vortex-file-compressed",
   "op": "encode",
   "value_ns": 5000000,
