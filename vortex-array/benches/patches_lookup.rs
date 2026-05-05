@@ -20,15 +20,9 @@ const ARRAY_LEN: usize = 1_000_000;
 const NUM_PATCHES: usize = 100;
 const NUM_QUERIES: usize = 1_000;
 
-// Patch indices for `narrow_band_patches` are sampled from this window.
 const PATCH_LOW: usize = 100_000;
 const PATCH_HIGH: usize = 110_000;
 
-/// Build a `Patches` whose indices are sampled from `index_iter`.
-///
-/// Indices are sorted and deduplicated; the values column is a dense
-/// `i32` sequence and is incidental to the benchmarks (which target
-/// index lookup, not value materialization).
 fn patches_from_indices(index_iter: impl Iterator<Item = u64>) -> Patches {
     let mut indices: Vec<u64> = index_iter.collect();
     indices.sort();
@@ -44,7 +38,6 @@ fn patches_from_indices(index_iter: impl Iterator<Item = u64>) -> Patches {
     .unwrap()
 }
 
-/// All patches clustered in `PATCH_LOW..PATCH_HIGH` — models a localized burst.
 fn narrow_band_patches() -> Patches {
     let mut rng = StdRng::seed_from_u64(42);
     patches_from_indices(
@@ -52,7 +45,6 @@ fn narrow_band_patches() -> Patches {
     )
 }
 
-/// Patches spread uniformly across the full array.
 fn full_range_patches() -> Patches {
     let mut rng = StdRng::seed_from_u64(43);
     patches_from_indices((0..NUM_PATCHES).map(|_| rng.random_range(0..(ARRAY_LEN as u64))))
@@ -105,18 +97,4 @@ fn search_index_full_range_random(bencher: Bencher) {
         .map(|_| rng.random_range(0..ARRAY_LEN))
         .collect();
     bench_search_index(bencher, full_range_patches(), queries);
-}
-
-#[divan::bench]
-fn get_patched_above_max(bencher: Bencher) {
-    let patches = narrow_band_patches();
-    let queries: Vec<usize> = (PATCH_HIGH..(PATCH_HIGH + NUM_QUERIES)).collect();
-
-    bencher
-        .with_inputs(|| (&patches, &queries))
-        .bench_refs(|(patches, queries)| {
-            for &q in queries.iter() {
-                divan::black_box(patches.get_patched(q).unwrap());
-            }
-        });
 }
