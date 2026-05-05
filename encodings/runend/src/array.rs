@@ -76,7 +76,7 @@ impl ArrayEq for RunEndData {
 }
 
 impl VTable for RunEnd {
-    type ArrayData = RunEndData;
+    type TypedArrayData = RunEndData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -88,7 +88,7 @@ impl VTable for RunEnd {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

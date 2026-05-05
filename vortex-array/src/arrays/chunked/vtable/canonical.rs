@@ -58,7 +58,7 @@ pub(super) fn _canonicalize(
     })
 }
 
-/// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`DynArray`] for each
+/// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`DynArrayData`] for each
 /// field is a [`ChunkedArray`].
 ///
 /// The caller guarantees there are at least 2 chunks.

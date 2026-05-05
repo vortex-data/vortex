@@ -95,7 +95,7 @@ impl ArrayEq for PatchedData {
 }
 
 impl VTable for Patched {
-    type ArrayData = PatchedData;
+    type TypedArrayData = PatchedData;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
 

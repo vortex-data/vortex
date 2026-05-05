@@ -30,11 +30,11 @@ use crate::LEGACY_SESSION;
 use crate::VTable;
 use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::sum::sum;
+use crate::array::ArrayData;
 use crate::array::ArrayId;
-use crate::array::ArrayInner;
-use crate::array::DynArray;
 use crate::array::ArrayMeta;
-use crate::array::ArrayStore;
+use crate::array::ArrayInner;
+use crate::array::DynArrayData;
 use crate::arrays::Bool;
 use crate::arrays::Constant;
 use crate::arrays::DictArray;
@@ -76,15 +76,15 @@ impl Iterator for DepthFirstArrayIterator {
 
 /// A reference-counted pointer to a type-erased array.
 ///
-/// Wraps `Arc<ArrayStore<dyn DynArray>>` — a single 16-byte fat pointer.
-/// Metadata (`len`, `dtype`, `encoding_id`) lives in `ArrayStore::meta` and is
+/// Wraps `Arc<ArrayInner<dyn DynArrayData>>` — a single 16-byte fat pointer.
+/// Metadata (`len`, `dtype`, `encoding_id`) lives in `ArrayInner::meta` and is
 /// accessed as a normal struct field read — no vtable dispatch, no extra allocation.
 #[derive(Clone)]
-pub struct ArrayRef(Arc<ArrayStore<dyn DynArray>>);
+pub struct ArrayRef(Arc<ArrayInner<dyn DynArrayData>>);
 
 impl ArrayRef {
-    /// Create from an `Arc<ArrayStore<dyn DynArray>>`.
-    pub(crate) fn from_store<D: DynArray>(store: Arc<ArrayStore<D>>) -> Self {
+    /// Create from an `Arc<ArrayInner<dyn DynArrayData>>`.
+    pub(crate) fn from_store<D: DynArrayData>(store: Arc<ArrayInner<D>>) -> Self {
         Self(store)
     }
 
@@ -94,15 +94,15 @@ impl ArrayRef {
         &self.0.meta
     }
 
-    /// Returns a reference to the `dyn DynArray` inside the store.
+    /// Returns a reference to the `dyn DynArrayData` inside the store.
     #[inline(always)]
-    pub(crate) fn dyn_array(&self) -> &dyn DynArray {
+    pub(crate) fn dyn_array(&self) -> &dyn DynArrayData {
         &self.0.data
     }
 
     /// Returns a mutable reference to the store if this is the sole owner.
     #[inline(always)]
-    pub(crate) fn store_mut(&mut self) -> Option<&mut ArrayStore<dyn DynArray>> {
+    pub(crate) fn store_mut(&mut self) -> Option<&mut ArrayInner<dyn DynArrayData>> {
         Arc::get_mut(&mut self.0)
     }
 
@@ -113,14 +113,12 @@ impl ArrayRef {
         Arc::as_ptr(&self.0).addr()
     }
 
-    /// Downcast the store to a concrete `ArrayStore<ArrayInner<V>>`.
+    /// Downcast the store to a concrete `ArrayInner<ArrayData<V>>`.
     ///
     /// Uses the same raw-pointer technique as `Arc::downcast`.
     #[allow(dead_code)]
-    pub(crate) fn downcast_store<V: VTable>(
-        self,
-    ) -> Result<Arc<ArrayStore<ArrayInner<V>>>, Self> {
-        if self.0.data.as_any().is::<ArrayInner<V>>() {
+    pub(crate) fn downcast_store<V: VTable>(self) -> Result<Arc<ArrayInner<ArrayData<V>>>, Self> {
+        if self.0.data.as_any().is::<ArrayData<V>>() {
             Ok(unsafe { self.downcast_store_unchecked() })
         } else {
             Err(self)
@@ -130,16 +128,16 @@ impl ArrayRef {
     /// Downcast without a runtime type check.
     ///
     /// # Safety
-    /// The caller must guarantee the concrete type behind `dyn DynArray` is `ArrayInner<V>`.
+    /// The caller must guarantee the concrete type behind `dyn DynArrayData` is `ArrayData<V>`.
     #[inline(always)]
     pub(crate) unsafe fn downcast_store_unchecked<V: VTable>(
         self,
-    ) -> Arc<ArrayStore<ArrayInner<V>>> {
-        debug_assert!(self.0.data.as_any().is::<ArrayInner<V>>());
+    ) -> Arc<ArrayInner<ArrayData<V>>> {
+        debug_assert!(self.0.data.as_any().is::<ArrayData<V>>());
         let raw = Arc::into_raw(self.0);
         // SAFETY: caller guarantees the concrete type. The allocation was originally
-        // `Arc<ArrayStore<ArrayInner<V>>>` coerced to `Arc<ArrayStore<dyn DynArray>>`.
-        unsafe { Arc::from_raw(raw as *const ArrayStore<ArrayInner<V>>) }
+        // `Arc<ArrayInner<ArrayData<V>>>` coerced to `Arc<ArrayInner<dyn DynArrayData>>`.
+        unsafe { Arc::from_raw(raw as *const ArrayInner<ArrayData<V>>) }
     }
 
     /// Returns true if the two ArrayRefs point to the same allocation.
@@ -168,7 +166,9 @@ impl ArrayHash for ArrayRef {
         for slot in &self.meta().slots {
             slot.array_hash(state, precision);
         }
-        self.0.data.dyn_array_hash(state as &mut dyn Hasher, precision);
+        self.0
+            .data
+            .dyn_array_hash(state as &mut dyn Hasher, precision);
     }
 }
 
@@ -423,9 +423,9 @@ impl ArrayRef {
             .unwrap_or_else(|_| vortex_panic!("Failed to downcast to {}", type_name::<V>()))
     }
 
-    /// Returns a reference to the typed `ArrayInner<V>` if this array matches the given vtable type.
+    /// Returns a reference to the typed `ArrayData<V>` if this array matches the given vtable type.
     pub fn as_typed<V: VTable>(&self) -> Option<ArrayView<'_, V>> {
-        let inner = self.0.data.as_any().downcast_ref::<ArrayInner<V>>()?;
+        let inner = self.0.data.as_any().downcast_ref::<ArrayData<V>>()?;
         Some(unsafe { ArrayView::new_unchecked(self, &inner.data) })
     }
 
@@ -512,7 +512,8 @@ impl ArrayRef {
         slot_idx: usize,
     ) -> VortexResult<(ArrayRef, ArrayRef)> {
         if let Some(store) = Arc::get_mut(&mut self.0) {
-            let child = store.meta.slots[slot_idx].take()
+            let child = store.meta.slots[slot_idx]
+                .take()
                 .vortex_expect("take_slot_unchecked cannot take an absent slot");
             return Ok((self, child));
         }
@@ -609,7 +610,7 @@ impl ArrayRef {
 
     pub(crate) fn execute_encoding(self, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let store = Arc::as_ptr(&self.0);
-        // SAFETY: the Arc outlives the DynArray function call
+        // SAFETY: the Arc outlives the DynArrayData function call
         unsafe { (&*store).data.execute(self, ctx) }
     }
 
@@ -745,11 +746,11 @@ impl<V: VTable> Matcher for V {
     type Match<'a> = ArrayView<'a, V>;
 
     fn matches(array: &ArrayRef) -> bool {
-        array.0.data.as_any().is::<ArrayInner<V>>()
+        array.0.data.as_any().is::<ArrayData<V>>()
     }
 
     fn try_match<'a>(array: &'a ArrayRef) -> Option<ArrayView<'a, V>> {
-        let inner = array.0.data.as_any().downcast_ref::<ArrayInner<V>>()?;
+        let inner = array.0.data.as_any().downcast_ref::<ArrayData<V>>()?;
         // # Safety checked by `downcast_ref`.
         Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
     }

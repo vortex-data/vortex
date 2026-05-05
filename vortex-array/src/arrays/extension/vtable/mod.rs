@@ -78,7 +78,7 @@ pub struct Extension;
 pub type ExtensionArray = Array<Extension>;
 
 impl VTable for Extension {
-    type ArrayData = EmptyArrayData;
+    type TypedArrayData = EmptyArrayData;
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;

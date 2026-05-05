@@ -49,7 +49,7 @@ impl ArrayEq for SharedData {
 }
 
 impl VTable for Shared {
-    type ArrayData = SharedData;
+    type TypedArrayData = SharedData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn id(&self) -> ArrayId {

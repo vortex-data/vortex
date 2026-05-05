@@ -49,7 +49,7 @@ pub trait ValidityChildSliceHelper {
 
 impl<V: VTable> ValidityVTable<V> for ValidityVTableFromChildSliceHelper
 where
-    V::ArrayData: ValidityChildSliceHelper,
+    V::TypedArrayData: ValidityChildSliceHelper,
 {
     fn validity(array: ArrayView<'_, V>) -> VortexResult<Validity> {
         array.data().sliced_child_array()?.validity()

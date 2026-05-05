@@ -85,7 +85,7 @@ impl ArrayEq for SparseData {
 }
 
 impl VTable for Sparse {
-    type ArrayData = SparseData;
+    type TypedArrayData = SparseData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -97,7 +97,7 @@ impl VTable for Sparse {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         _slots: &[Option<ArrayRef>],

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Typed array wrappers: [`ArrayInner<V>`] (heap-allocated), [`Array<V>`] (typed handle),
+//! Typed array wrappers: [`ArrayData<V>`] (heap-allocated), [`Array<V>`] (typed handle),
 //! and [`ArrayView<V>`] (lightweight borrow).
 
 use std::any::Any;
@@ -30,7 +30,7 @@ use crate::validity::Validity;
 
 /// Common metadata for every array encoding.
 ///
-/// Stored in [`ArrayStore`] alongside the encoding-specific [`DynArray`] data.
+/// Stored in [`ArrayInner`] alongside the encoding-specific [`DynArrayData`] data.
 /// [`ArrayRef`] reads these fields directly — no vtable dispatch.
 pub(crate) struct ArrayMeta {
     pub(crate) len: usize,
@@ -43,12 +43,12 @@ pub(crate) struct ArrayMeta {
 /// The combined allocation behind [`ArrayRef`].
 ///
 /// Wraps an [`ArrayMeta`] (common fields) together with the encoding-specific
-/// `data` (a concrete [`ArrayInner<V>`] erased to `dyn DynArray`).
+/// `data` (a concrete [`ArrayData<V>`] erased to `dyn DynArrayData`).
 ///
-/// `ArrayRef` stores `Arc<ArrayStore<dyn DynArray>>` — a single 16-byte fat pointer.
+/// `ArrayRef` stores `Arc<ArrayInner<dyn DynArrayData>>` — a single 16-byte fat pointer.
 /// Metadata is accessed via `self.0.meta.*` (a normal struct field read through the Arc),
 /// while encoding-specific methods go through `self.0.data` (vtable dispatch).
-pub(crate) struct ArrayStore<D: ?Sized> {
+pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) meta: ArrayMeta,
     pub(crate) data: D, // must be last for unsized coercion
 }
@@ -58,12 +58,12 @@ pub struct ArrayParts<V: VTable> {
     pub vtable: V,
     pub dtype: DType,
     pub len: usize,
-    pub data: V::ArrayData,
+    pub data: V::TypedArrayData,
     pub slots: Vec<Option<ArrayRef>>,
 }
 
 impl<V: VTable> ArrayParts<V> {
-    pub fn new(vtable: V, dtype: DType, len: usize, data: V::ArrayData) -> Self {
+    pub fn new(vtable: V, dtype: DType, len: usize, data: V::TypedArrayData) -> Self {
         Self {
             vtable,
             dtype,
@@ -83,8 +83,8 @@ impl<V: VTable> ArrayParts<V> {
 /// [`ArrayView<V>`].
 ///
 /// Extension traits use this to share typed array logic while still exposing the backing
-/// [`ArrayRef`] and the encoding-specific [`VTable::ArrayData`].
-pub trait TypedArrayRef<V: VTable>: AsRef<ArrayRef> + Deref<Target = V::ArrayData> {
+/// [`ArrayRef`] and the encoding-specific [`VTable::TypedArrayData`].
+pub trait TypedArrayRef<V: VTable>: AsRef<ArrayRef> + Deref<Target = V::TypedArrayData> {
     /// Returns an owned [`Array<V>`] from the reference.
     fn to_owned(&self) -> Array<V> {
         self.as_ref().clone().downcast()
@@ -95,26 +95,26 @@ impl<V: VTable> TypedArrayRef<V> for Array<V> {}
 
 impl<V: VTable> TypedArrayRef<V> for ArrayView<'_, V> {}
 // =============================================================================
-// ArrayInner<V> — the concrete type stored inside Arc<dyn DynArray>
+// ArrayData<V> — the concrete type stored inside Arc<dyn DynArrayData>
 // =============================================================================
 
-/// The concrete encoding-specific array data that lives inside an [`ArrayStore`].
+/// The concrete encoding-specific array data that lives inside an [`ArrayInner`].
 ///
 /// Does not contain metadata (`len`, `dtype`, `encoding_id`) — those live in
-/// [`ArrayMeta`] within the same [`ArrayStore`] allocation.
+/// [`ArrayMeta`] within the same [`ArrayInner`] allocation.
 #[doc(hidden)]
-pub(crate) struct ArrayInner<V: VTable> {
+pub(crate) struct ArrayData<V: VTable> {
     pub(crate) vtable: V,
-    pub(crate) data: V::ArrayData,
+    pub(crate) data: V::TypedArrayData,
 }
 
-impl<V: VTable> ArrayInner<V> {
-    /// Create a new validated [`ArrayStore`] from construction parameters.
+impl<V: VTable> ArrayData<V> {
+    /// Create a new validated [`ArrayInner`] from construction parameters.
     #[doc(hidden)]
-    pub fn try_new_store(new: ArrayParts<V>) -> VortexResult<ArrayStore<Self>> {
+    pub fn try_new_store(new: ArrayParts<V>) -> VortexResult<ArrayInner<Self>> {
         new.vtable
             .validate(&new.data, &new.dtype, new.len, &new.slots)?;
-        Ok(ArrayStore {
+        Ok(ArrayInner {
             meta: ArrayMeta {
                 len: new.len,
                 encoding_id: new.vtable.id(),
@@ -129,7 +129,7 @@ impl<V: VTable> ArrayInner<V> {
         })
     }
 
-    /// Create an [`ArrayStore`] without validation.
+    /// Create an [`ArrayInner`] without validation.
     ///
     /// # Safety
     /// Caller must ensure dtype and len match the data.
@@ -137,11 +137,11 @@ impl<V: VTable> ArrayInner<V> {
         vtable: V,
         len: usize,
         dtype: DType,
-        data: V::ArrayData,
+        data: V::TypedArrayData,
         slots: Vec<Option<ArrayRef>>,
         stats: ArrayStats,
-    ) -> ArrayStore<Self> {
-        ArrayStore {
+    ) -> ArrayInner<Self> {
+        ArrayInner {
             meta: ArrayMeta {
                 len,
                 encoding_id: vtable.id(),
@@ -157,20 +157,20 @@ impl<V: VTable> ArrayInner<V> {
     }
 }
 
-impl<V: VTable> Deref for ArrayInner<V> {
-    type Target = V::ArrayData;
-    fn deref(&self) -> &V::ArrayData {
+impl<V: VTable> Deref for ArrayData<V> {
+    type Target = V::TypedArrayData;
+    fn deref(&self) -> &V::TypedArrayData {
         &self.data
     }
 }
 
-impl<V: VTable> DerefMut for ArrayInner<V> {
-    fn deref_mut(&mut self) -> &mut V::ArrayData {
+impl<V: VTable> DerefMut for ArrayData<V> {
+    fn deref_mut(&mut self) -> &mut V::TypedArrayData {
         &mut self.data
     }
 }
 
-impl<V: VTable> Clone for ArrayInner<V> {
+impl<V: VTable> Clone for ArrayData<V> {
     fn clone(&self) -> Self {
         Self {
             vtable: self.vtable.clone(),
@@ -179,9 +179,9 @@ impl<V: VTable> Clone for ArrayInner<V> {
     }
 }
 
-impl<V: VTable> Debug for ArrayInner<V> {
+impl<V: VTable> Debug for ArrayData<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ArrayInner")
+        f.debug_struct("ArrayData")
             .field("encoding", &self.vtable.id())
             .field("inner", &self.data)
             .finish()
@@ -195,7 +195,7 @@ impl<V: VTable> Debug for ArrayInner<V> {
 /// A typed owned handle to an array.
 ///
 /// `Array<V>` holds an [`ArrayRef`] (shared, heap-allocated) and provides typed access
-/// to the encoding-specific data via [`Deref`] to `V::ArrayData`.
+/// to the encoding-specific data via [`Deref`] to `V::TypedArrayData`.
 ///
 /// This is the primary type for working with typed arrays. Convert to [`ArrayRef`]
 /// via [`into_array()`](IntoArray::into_array) or [`AsRef<ArrayRef>`].
@@ -207,7 +207,7 @@ pub struct Array<V: VTable> {
 impl<V: VTable> Array<V> {
     /// Create a typed array from explicit construction parameters.
     pub fn try_from_parts(new: ArrayParts<V>) -> VortexResult<Self> {
-        let store = ArrayInner::<V>::try_new_store(new)?;
+        let store = ArrayData::<V>::try_new_store(new)?;
         let inner = ArrayRef::from_store(Arc::new(store));
         Ok(Self {
             inner,
@@ -222,7 +222,7 @@ impl<V: VTable> Array<V> {
     #[doc(hidden)]
     pub unsafe fn from_parts_unchecked(new: ArrayParts<V>) -> Self {
         let store = unsafe {
-            ArrayInner::<V>::store_unchecked(
+            ArrayData::<V>::store_unchecked(
                 new.vtable,
                 new.len,
                 new.dtype,
@@ -238,10 +238,10 @@ impl<V: VTable> Array<V> {
         }
     }
 
-    /// Create from an existing `ArrayRef`, trusting that it contains `ArrayInner<V>`.
+    /// Create from an existing `ArrayRef`, trusting that it contains `ArrayData<V>`.
     ///
     /// # Safety
-    /// Caller must ensure the `ArrayRef` contains an `ArrayInner<V>`.
+    /// Caller must ensure the `ArrayRef` contains an `ArrayData<V>`.
     pub(crate) unsafe fn from_array_ref_unchecked(array: ArrayRef) -> Self {
         Self {
             inner: array,
@@ -287,21 +287,21 @@ impl<V: VTable> Array<V> {
     }
 
     /// Returns a reference to the encoding-specific data.
-    pub fn data(&self) -> &V::ArrayData {
+    pub fn data(&self) -> &V::TypedArrayData {
         &self.downcast_inner().data
     }
 
     /// Try to fetch a mut ref to the inner ArrayData.
-    pub fn data_mut(&mut self) -> Option<&mut V::ArrayData> {
+    pub fn data_mut(&mut self) -> Option<&mut V::TypedArrayData> {
         let store = self.inner.store_mut()?;
-        let array_inner = store.data.as_any_mut().downcast_mut::<ArrayInner<V>>();
+        let array_inner = store.data.as_any_mut().downcast_mut::<ArrayData<V>>();
         Some(&mut array_inner?.data)
     }
 
     /// Returns the full typed array construction parts if this handle owns the allocation.
     pub fn try_into_parts(self) -> Result<ArrayParts<V>, Self> {
         let Self { inner, _phantom } = self;
-        // SAFETY: Array<V> guarantees the inner is ArrayInner<V>.
+        // SAFETY: Array<V> guarantees the inner is ArrayData<V>.
         let typed_arc = unsafe { inner.downcast_store_unchecked::<V>() };
 
         match Arc::try_unwrap(typed_arc) {
@@ -325,7 +325,7 @@ impl<V: VTable> Array<V> {
     }
 
     /// Returns a clone of the inner encoding-specific data.
-    pub fn into_data(self) -> V::ArrayData {
+    pub fn into_data(self) -> V::TypedArrayData {
         self.downcast_inner().data.clone()
     }
 
@@ -343,22 +343,22 @@ impl<V: VTable> Array<V> {
     /// Returns an [`ArrayView`] borrowing this array's data.
     pub fn as_view(&self) -> ArrayView<'_, V> {
         let inner = self.downcast_inner();
-        // SAFETY: `inner.data` is the `V::ArrayData` stored inside `self.inner`.
+        // SAFETY: `inner.data` is the `V::TypedArrayData` stored inside `self.inner`.
         unsafe { ArrayView::new_unchecked(&self.inner, &inner.data) }
     }
 
-    /// Downcast the inner `ArrayRef` to `&ArrayInner<V>`.
+    /// Downcast the inner `ArrayRef` to `&ArrayData<V>`.
     #[inline(always)]
-    fn downcast_inner(&self) -> &ArrayInner<V> {
+    fn downcast_inner(&self) -> &ArrayData<V> {
         let any = self.inner.dyn_array().as_any();
         // NOTE(ngates): use downcast_unchecked when it becomes stable
-        debug_assert!(any.is::<ArrayInner<V>>());
+        debug_assert!(any.is::<ArrayData<V>>());
         // SAFETY: caller guarantees that T is the correct type
-        unsafe { &*(any as *const dyn Any as *const ArrayInner<V>) }
+        unsafe { &*(any as *const dyn Any as *const ArrayData<V>) }
     }
 }
 
-/// Public API methods that shadow `DynArray` / `ArrayRef` methods.
+/// Public API methods that shadow `DynArrayData` / `ArrayRef` methods.
 impl<V: VTable> Array<V> {
     pub fn slice(&self, range: std::ops::Range<usize>) -> VortexResult<ArrayRef> {
         self.inner.slice(range)
@@ -447,9 +447,9 @@ impl<V: VTable> Array<V> {
 }
 
 impl<V: VTable> Deref for Array<V> {
-    type Target = V::ArrayData;
+    type Target = V::TypedArrayData;
 
-    fn deref(&self) -> &V::ArrayData {
+    fn deref(&self) -> &V::TypedArrayData {
         self.data()
     }
 }

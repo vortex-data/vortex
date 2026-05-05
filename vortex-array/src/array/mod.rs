@@ -51,7 +51,7 @@ use crate::hash::ArrayHash;
 /// This trait is sealed and cannot be implemented outside of `vortex-array`.
 /// Use [`ArrayRef`] as the primary handle for working with arrays.
 #[doc(hidden)]
-pub(crate) trait DynArray: 'static + private::Sealed + Send + Sync + Debug {
+pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// Returns the array as a reference to a generic [`Any`] trait object.
     fn as_any(&self) -> &dyn Any;
 
@@ -204,18 +204,18 @@ mod private {
 
     pub trait Sealed {}
 
-    impl<V: VTable> Sealed for ArrayInner<V> {}
+    impl<V: VTable> Sealed for ArrayData<V> {}
 }
 
 // =============================================================================
-// New path: DynArray and supporting trait impls for ArrayInner<V>
+// New path: DynArrayData and supporting trait impls for ArrayData<V>
 // =============================================================================
 
-/// DynArray implementation for [`ArrayInner<V>`].
+/// DynArrayData implementation for [`ArrayData<V>`].
 ///
-/// This is self-contained: identity methods use `ArrayInner<V>`'s own fields (dtype, len, stats),
-/// while data-access methods delegate to VTable methods on the inner `V::ArrayData`.
-impl<V: VTable> DynArray for ArrayInner<V> {
+/// This is self-contained: identity methods use `ArrayData<V>`'s own fields (dtype, len, stats),
+/// while data-access methods delegate to VTable methods on the inner `V::TypedArrayData`.
+impl<V: VTable> DynArrayData for ArrayData<V> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -350,9 +350,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
             .dyn_array()
             .as_any()
             .downcast_ref::<Self>()
-            .is_some_and(|other_inner| {
-                self.data.array_eq(&other_inner.data, precision)
-            })
+            .is_some_and(|other_inner| self.data.array_eq(&other_inner.data, precision))
     }
 
     fn with_slots(&self, this: ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
@@ -374,7 +372,7 @@ impl<V: VTable> DynArray for ArrayInner<V> {
         // SAFETY: we intentionally skip `V::validate` here. Caller guarantees that the resulting
         // array is either repaired or not externally observed.
         let store = unsafe {
-            ArrayInner::<V>::store_unchecked(
+            ArrayData::<V>::store_unchecked(
                 self.vtable.clone(),
                 this.len(),
                 this.dtype().clone(),

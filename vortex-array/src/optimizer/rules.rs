@@ -68,7 +68,7 @@ pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
 
 /// Type-erased version of [`ArrayParentReduceRule`] used for dynamic dispatch within
 /// [`ParentRuleSet`].
-pub trait DynArrayParentReduceRule<V: VTable>: Debug + Send + Sync {
+pub trait DynArrayDataParentReduceRule<V: VTable>: Debug + Send + Sync {
     fn matches(&self, parent: &ArrayRef) -> bool;
 
     fn reduce_parent(
@@ -80,7 +80,7 @@ pub trait DynArrayParentReduceRule<V: VTable>: Debug + Send + Sync {
 }
 
 /// Bridges a concrete [`ArrayParentReduceRule<V, R>`] to the type-erased
-/// [`DynArrayParentReduceRule<V>`] trait. Created by [`ParentRuleSet::lift`].
+/// [`DynArrayDataParentReduceRule<V>`] trait. Created by [`ParentRuleSet::lift`].
 pub struct ParentReduceRuleAdapter<V, R> {
     rule: R,
     _phantom: PhantomData<V>,
@@ -95,7 +95,7 @@ impl<V: VTable, R: ArrayParentReduceRule<V>> Debug for ParentReduceRuleAdapter<V
     }
 }
 
-impl<V: VTable, K: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
+impl<V: VTable, K: ArrayParentReduceRule<V>> DynArrayDataParentReduceRule<V>
     for ParentReduceRuleAdapter<V, K>
 {
     fn matches(&self, parent: &ArrayRef) -> bool {
@@ -142,21 +142,21 @@ impl<V: VTable> ReduceRuleSet<V> {
 
 /// A set of parent reduction rules for a specific child array encoding.
 pub struct ParentRuleSet<V: VTable> {
-    rules: &'static [&'static dyn DynArrayParentReduceRule<V>],
+    rules: &'static [&'static dyn DynArrayDataParentReduceRule<V>],
 }
 
 impl<V: VTable> ParentRuleSet<V> {
     /// Create a new parent rule set with the given rules.
     ///
     /// Use [`ParentRuleSet::lift`] to lift static rules into dynamic trait objects.
-    pub const fn new(rules: &'static [&'static dyn DynArrayParentReduceRule<V>]) -> Self {
+    pub const fn new(rules: &'static [&'static dyn DynArrayDataParentReduceRule<V>]) -> Self {
         Self { rules }
     }
 
     /// Lift the given rule into a dynamic trait object.
     pub const fn lift<R: ArrayParentReduceRule<V>>(
         rule: &'static R,
-    ) -> &'static dyn DynArrayParentReduceRule<V> {
+    ) -> &'static dyn DynArrayDataParentReduceRule<V> {
         // Assert that self is zero-sized
         const {
             assert!(

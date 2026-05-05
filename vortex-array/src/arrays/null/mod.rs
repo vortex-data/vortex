@@ -31,7 +31,7 @@ pub(crate) mod compute;
 pub type NullArray = Array<Null>;
 
 impl VTable for Null {
-    type ArrayData = EmptyArrayData;
+    type TypedArrayData = EmptyArrayData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
