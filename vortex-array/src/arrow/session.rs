@@ -6,13 +6,13 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
-use parking_lot::RwLock;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -75,14 +75,14 @@ pub struct ArrowSession {
     encoder_by_extension: ArrowEncoderByExtensionRegistry,
     dtype_converters: ArrowDTypeConverterRegistry,
     /// User-registered decoder chain. Walked before [`ArrowSession::default_decoder`].
-    decoders: RwLock<Vec<ArrowDecoderRef>>,
+    decoders: ArcSwap<Vec<ArrowDecoderRef>>,
     /// User-registered dtype-reader chain. Walked before [`ArrowSession::default_dtype_reader`].
-    dtype_readers: RwLock<Vec<ArrowDTypeReaderRef>>,
-    canonical_encoder: RwLock<Option<ArrowEncoderRef>>,
+    dtype_readers: ArcSwap<Vec<ArrowDTypeReaderRef>>,
+    canonical_encoder: ArcSwap<Option<ArrowEncoderRef>>,
     /// Fallback decoder used after the user chain has declined.
-    default_decoder: RwLock<Option<ArrowDecoderRef>>,
+    default_decoder: ArcSwap<Option<ArrowDecoderRef>>,
     /// Fallback dtype reader used after the user chain has declined.
-    default_dtype_reader: RwLock<Option<ArrowDTypeReaderRef>>,
+    default_dtype_reader: ArcSwap<Option<ArrowDTypeReaderRef>>,
 }
 
 impl Default for ArrowSession {
@@ -91,11 +91,11 @@ impl Default for ArrowSession {
             encoder_by_encoding: Registry::default(),
             encoder_by_extension: Registry::default(),
             dtype_converters: Registry::default(),
-            decoders: RwLock::new(Vec::new()),
-            dtype_readers: RwLock::new(Vec::new()),
-            canonical_encoder: RwLock::new(None),
-            default_decoder: RwLock::new(None),
-            default_dtype_reader: RwLock::new(None),
+            decoders: ArcSwap::from_pointee(Vec::new()),
+            dtype_readers: ArcSwap::from_pointee(Vec::new()),
+            canonical_encoder: ArcSwap::from_pointee(None),
+            default_decoder: ArcSwap::from_pointee(None),
+            default_dtype_reader: ArcSwap::from_pointee(None),
         };
         this.set_canonical_encoder(Arc::new(CanonicalArrowEncoder) as ArrowEncoderRef);
         this.set_default_decoder(Arc::new(CanonicalArrowDecoder) as ArrowDecoderRef);
@@ -165,12 +165,16 @@ impl ArrowSession {
 
     /// Register a reverse-direction array decoder. Decoders are walked in registration order.
     pub fn register_decoder(&self, plugin: impl Into<ArrowDecoderRef>) {
-        self.decoders.write().push(plugin.into());
+        let mut next = (**self.decoders.load()).clone();
+        next.push(plugin.into());
+        self.decoders.store(Arc::new(next));
     }
 
     /// Register a reverse-direction dtype reader. Readers are walked in registration order.
     pub fn register_dtype_reader(&self, plugin: impl Into<ArrowDTypeReaderRef>) {
-        self.dtype_readers.write().push(plugin.into());
+        let mut next = (**self.dtype_readers.load()).clone();
+        next.push(plugin.into());
+        self.dtype_readers.store(Arc::new(next));
     }
 
     /// Set the canonical (fallback) encoder slot.
@@ -178,7 +182,7 @@ impl ArrowSession {
     /// This single plugin must handle every canonical Vortex encoding. Callers replace any
     /// previously-registered canonical encoder.
     pub fn set_canonical_encoder(&self, plugin: impl Into<ArrowEncoderRef>) {
-        *self.canonical_encoder.write() = Some(plugin.into());
+        self.canonical_encoder.store(Arc::new(Some(plugin.into())));
     }
 
     /// Set the fallback Arrow → Vortex array decoder.
@@ -186,12 +190,13 @@ impl ArrowSession {
     /// Replaces any previously-registered fallback. The fallback runs after the user chain
     /// has declined.
     pub fn set_default_decoder(&self, plugin: impl Into<ArrowDecoderRef>) {
-        *self.default_decoder.write() = Some(plugin.into());
+        self.default_decoder.store(Arc::new(Some(plugin.into())));
     }
 
     /// Set the fallback Arrow → Vortex dtype reader.
     pub fn set_default_dtype_reader(&self, plugin: impl Into<ArrowDTypeReaderRef>) {
-        *self.default_dtype_reader.write() = Some(plugin.into());
+        self.default_dtype_reader
+            .store(Arc::new(Some(plugin.into())));
     }
 
     /// Find a forward encoder for the given encoding [`ArrayId`].
@@ -211,27 +216,27 @@ impl ArrowSession {
 
     /// Snapshot the current decoder chain (in registration order).
     pub fn decoders(&self) -> Vec<ArrowDecoderRef> {
-        self.decoders.read().clone()
+        (**self.decoders.load()).clone()
     }
 
     /// Snapshot the current dtype-reader chain (in registration order).
     pub fn dtype_readers(&self) -> Vec<ArrowDTypeReaderRef> {
-        self.dtype_readers.read().clone()
+        (**self.dtype_readers.load()).clone()
     }
 
     /// The currently-registered canonical encoder, if any.
     pub fn canonical_encoder(&self) -> Option<ArrowEncoderRef> {
-        self.canonical_encoder.read().clone()
+        (**self.canonical_encoder.load()).clone()
     }
 
     /// The currently-registered fallback decoder, if any.
     pub fn default_decoder(&self) -> Option<ArrowDecoderRef> {
-        self.default_decoder.read().clone()
+        (**self.default_decoder.load()).clone()
     }
 
     /// The currently-registered fallback dtype reader, if any.
     pub fn default_dtype_reader(&self) -> Option<ArrowDTypeReaderRef> {
-        self.default_dtype_reader.read().clone()
+        (**self.default_dtype_reader.load()).clone()
     }
 }
 
