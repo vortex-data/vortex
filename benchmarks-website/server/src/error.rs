@@ -3,8 +3,9 @@
 
 //! Error types for the bench server.
 //!
-//! [`IngestError`] models the HTTP matrix from `02-contracts.md` for the
-//! `POST /api/ingest` route. [`ApiError`] is the catch-all for read routes.
+//! [`IngestError`] models the HTTP matrix documented on
+//! [`crate::ingest`] for the `POST /api/ingest` route. [`ApiError`] is
+//! the catch-all for read routes.
 
 use axum::Json;
 use axum::http::StatusCode;

@@ -24,19 +24,19 @@ use vortex_bench_server::app::router;
 
 /// Bearer token wired into the in-process server. Test ingest calls send
 /// this in `Authorization: Bearer …`.
-pub const TOKEN: &str = "test-bearer-token";
+pub(crate) const TOKEN: &str = "test-bearer-token";
 
 /// In-process axum server bound to a random port. Drops cleanly on `Drop`.
-pub struct Server {
+pub(crate) struct Server {
     /// Loopback address the server is listening on.
-    pub addr: SocketAddr,
+    pub(crate) addr: SocketAddr,
     _tmp: TempDir,
     handle: JoinHandle<()>,
 }
 
 impl Server {
     /// Spin up an in-process server backed by a fresh temp DuckDB.
-    pub async fn start() -> Result<Self> {
+    pub(crate) async fn start() -> Result<Self> {
         let tmp = TempDir::new()?;
         let db_path = tmp.path().join("bench.duckdb");
         let state = AppState::open(&db_path, TOKEN.to_string())?;
@@ -55,7 +55,7 @@ impl Server {
     }
 
     /// Build an absolute URL for `path` against the in-process server.
-    pub fn url(&self, path: &str) -> String {
+    pub(crate) fn url(&self, path: &str) -> String {
         format!("http://{}{}", self.addr, path)
     }
 }
@@ -68,7 +68,7 @@ impl Drop for Server {
 
 /// Three synthetic commits, oldest first. Picked so the rendered output has
 /// short SHAs that are visually distinct in snapshots.
-pub fn commits() -> &'static [(&'static str, &'static str, &'static str)] {
+pub(crate) fn commits() -> &'static [(&'static str, &'static str, &'static str)] {
     &[
         (
             "1111111111111111111111111111111111111111",
@@ -90,7 +90,7 @@ pub fn commits() -> &'static [(&'static str, &'static str, &'static str)] {
 
 /// Build a fixture envelope for one commit; `value_bias` is added to each
 /// numeric measurement so successive commits produce a non-flat time series.
-pub fn envelope_for(sha: &str, ts: &str, msg: &str, value_bias: i64) -> Value {
+pub(crate) fn envelope_for(sha: &str, ts: &str, msg: &str, value_bias: i64) -> Value {
     json!({
         "run_meta": {
             "benchmark_id": "web-ui-fixture",
@@ -231,7 +231,7 @@ pub fn envelope_for(sha: &str, ts: &str, msg: &str, value_bias: i64) -> Value {
 
 /// POST every fixture commit through `/api/ingest` so the test DB is
 /// pre-populated before the test exercises the read API.
-pub async fn seed(server: &Server) -> Result<()> {
+pub(crate) async fn seed(server: &Server) -> Result<()> {
     let client = reqwest::Client::new();
     for (i, (sha, ts, msg)) in commits().iter().enumerate() {
         let bias = (i as i64) * 50_000;
@@ -253,7 +253,7 @@ pub async fn seed(server: &Server) -> Result<()> {
 /// Slim ingest envelope carrying just a `random_access_time` pair so we can
 /// drive a long-history fixture cheaply (the full envelope is ~12 records;
 /// this is two). Used by the downsample tests.
-pub fn ra_envelope_for(sha: &str, ts: &str, msg: &str, bias: i64) -> Value {
+pub(crate) fn ra_envelope_for(sha: &str, ts: &str, msg: &str, bias: i64) -> Value {
     json!({
         "run_meta": {
             "benchmark_id": "downsample-fixture",
@@ -296,7 +296,7 @@ pub fn ra_envelope_for(sha: &str, ts: &str, msg: &str, bias: i64) -> Value {
 /// downsampler has something to chew on. SHAs are deterministic
 /// `{i:040x}`; timestamps are 1 minute apart starting 2025-01-01 so the
 /// commits sort stably.
-pub async fn seed_long_history(server: &Server, n: usize) -> Result<()> {
+pub(crate) async fn seed_long_history(server: &Server, n: usize) -> Result<()> {
     let client = reqwest::Client::new();
     for i in 0..n {
         let sha = format!("{i:040x}");
@@ -325,7 +325,7 @@ pub async fn seed_long_history(server: &Server, n: usize) -> Result<()> {
 
 /// Pull the inline `<script id="chart-data-N">…</script>` JSON out of an
 /// HTML body. Returns `None` if the script tag isn't present.
-pub fn extract_chart_data(body: &str, idx: usize) -> Option<Value> {
+pub(crate) fn extract_chart_data(body: &str, idx: usize) -> Option<Value> {
     let needle = format!(r#"<script id="chart-data-{idx}" type="application/json">"#);
     let start = body.find(&needle)? + needle.len();
     let end = body[start..].find("</script>")? + start;
@@ -337,7 +337,7 @@ pub fn extract_chart_data(body: &str, idx: usize) -> Option<Value> {
 /// Configure `insta` to look for snapshots in `tests/snapshots/` keyed by
 /// just the explicit name (no module prefix). Every test in this crate uses
 /// these settings so the snapshot file layout is path-independent.
-pub fn insta_settings() -> insta::Settings {
+pub(crate) fn insta_settings() -> insta::Settings {
     let mut s = insta::Settings::clone_current();
     s.set_snapshot_path("snapshots");
     s.set_prepend_module_to_snapshot(false);
@@ -347,7 +347,10 @@ pub fn insta_settings() -> insta::Settings {
 /// Lift a single chart slug from `/api/groups`, picking from a group whose
 /// name matches `predicate`. Used by tests that need a real slug to drive
 /// `/chart/{slug}` and `/api/chart/{slug}` round-trips.
-pub async fn pick_chart_slug(server: &Server, predicate: impl Fn(&str) -> bool) -> Result<String> {
+pub(crate) async fn pick_chart_slug(
+    server: &Server,
+    predicate: impl Fn(&str) -> bool,
+) -> Result<String> {
     let client = reqwest::Client::new();
     let groups: Value = client
         .get(server.url("/api/groups"))
@@ -369,7 +372,10 @@ pub async fn pick_chart_slug(server: &Server, predicate: impl Fn(&str) -> bool) 
 
 /// Lift a single group slug from `/api/groups`, picking the first group
 /// whose name matches `predicate`.
-pub async fn pick_group_slug(server: &Server, predicate: impl Fn(&str) -> bool) -> Result<String> {
+pub(crate) async fn pick_group_slug(
+    server: &Server,
+    predicate: impl Fn(&str) -> bool,
+) -> Result<String> {
     let client = reqwest::Client::new();
     let groups: Value = client
         .get(server.url("/api/groups"))
@@ -389,7 +395,7 @@ pub async fn pick_group_slug(server: &Server, predicate: impl Fn(&str) -> bool) 
 
 /// Look up a group entry by its `name` field inside an `/api/groups`
 /// response.
-pub fn group_by_name<'a>(groups: &'a Value, name: &str) -> Result<&'a Value> {
+pub(crate) fn group_by_name<'a>(groups: &'a Value, name: &str) -> Result<&'a Value> {
     groups["groups"]
         .as_array()
         .context("groups is array")?
@@ -400,7 +406,7 @@ pub fn group_by_name<'a>(groups: &'a Value, name: &str) -> Result<&'a Value> {
 
 /// Fuzzy `f64` equality for test assertions. The summary rollups round-trip
 /// through SQL so exact equality isn't safe even on integer-valued inputs.
-pub fn assert_close(actual: f64, expected: f64) {
+pub(crate) fn assert_close(actual: f64, expected: f64) {
     let delta = (actual - expected).abs();
     assert!(
         delta < 0.000_001,
@@ -412,7 +418,7 @@ pub fn assert_close(actual: f64, expected: f64) {
 /// filter dropdown — its trigger button and the chip panel. Keeps the
 /// snapshot focused on the chip markup and stable against changes elsewhere
 /// on the page.
-pub fn filter_bar_section(body: &str) -> String {
+pub(crate) fn filter_bar_section(body: &str) -> String {
     let needle = r#"<div class="filter-dropdown" data-role="global-filter-bar""#;
     let Some(start) = body.find(needle) else {
         return "<missing filter bar>".to_string();
@@ -447,7 +453,7 @@ pub fn filter_bar_section(body: &str) -> String {
 
 /// Pull the `<div class="global-filter-row">` containing chips for one
 /// dimension (`"engine"` or `"format"`).
-pub fn filter_section(body: &str, dim: &str) -> String {
+pub(crate) fn filter_section(body: &str, dim: &str) -> String {
     let bar = filter_bar_section(body);
     let needle = format!(r#"data-filter="{dim}""#);
     let Some(_) = bar.find(&needle) else {
@@ -464,7 +470,7 @@ pub fn filter_section(body: &str, dim: &str) -> String {
 }
 
 /// Pull a single chip's opening tag for assertions.
-pub fn extract_chip(section: &str, value: &str) -> String {
+pub(crate) fn extract_chip(section: &str, value: &str) -> String {
     let needle = format!(r#"data-value="{value}""#);
     let Some(idx) = section.find(&needle) else {
         return String::new();

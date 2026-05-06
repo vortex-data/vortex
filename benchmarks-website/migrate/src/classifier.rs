@@ -103,14 +103,22 @@ const ENGINE_RENAMES: &[(&str, &str)] = &[
     ("lance", "lance"),
 ];
 
-/// One entry of `QUERY_SUITES`.
+/// One entry of [`QUERY_SUITES`].
 #[derive(Debug, Clone, Copy)]
 pub struct QuerySuite {
+    /// Lowercase suite prefix used to match v2 record names (e.g. `tpch`).
     pub prefix: &'static str,
+    /// Human-readable suite name as v2 served it from `/api/metadata`.
     pub display_name: &'static str,
+    /// Uppercase prefix v2's `formatQuery` produced (e.g. `TPC-H`).
     pub query_prefix: &'static str,
+    /// Override for the dataset key v2 records use inside their `dataset`
+    /// object. Falls back to `prefix` when `None`.
     pub dataset_key: Option<&'static str>,
+    /// True if the suite's group name fans out by `(storage, scale_factor)`
+    /// (e.g. `TPC-H (NVMe) (SF=1)`); false collapses to a single group.
     pub fan_out: bool,
+    /// True if v2 deliberately ignored this suite (no live group is rendered).
     pub skip: bool,
 }
 
@@ -300,8 +308,12 @@ pub fn get_group(record: &V2Record) -> Option<V2Group> {
 /// `(group, chartName, seriesName)` triple after rename / skip rules.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct V2Classification {
+    /// Group the v2 server would place this record in.
     pub group: V2Group,
+    /// Chart name v2 displayed for this record (uppercase, separators
+    /// normalized).
     pub chart: String,
+    /// Series name after v2's `ENGINE_RENAMES` was applied.
     pub series: String,
 }
 
@@ -751,8 +763,10 @@ fn bin_query(cls: &V2Classification, record: &V2Record) -> Option<V3Bin> {
         _ => "nvme".to_string(),
     };
 
-    // ClickBench's "flavor" lives in dataset_variant per benchmark-mapping.md
-    // - we don't have it from a v2 name string, so we leave it None.
+    // ClickBench's "flavor" lives in `dataset_variant`, but v2 record names
+    // never encoded it — leave it `None` so historical and live rows merge
+    // (the live emitter does the same; see `vortex-bench/src/v3.rs`'s
+    // `benchmark_dataset_dims` for the matching shape).
     Some(V3Bin::Query {
         dataset: suite.prefix.to_string(),
         dataset_variant: None,

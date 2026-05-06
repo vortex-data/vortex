@@ -59,7 +59,9 @@ use crate::schema::SCHEMA_VERSION;
 /// Successful ingest response body.
 #[derive(Debug, Serialize)]
 pub struct IngestResponse {
+    /// Rows inserted across all five fact tables in this transaction.
     pub inserted: u64,
+    /// Rows that hit `ON CONFLICT (measurement_id) DO UPDATE`.
     pub updated: u64,
 }
 

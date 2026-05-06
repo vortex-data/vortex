@@ -14,6 +14,7 @@
 //! hash never crosses a process boundary, so the exact byte layout below
 //! is private to this server.
 
+use std::hash::Hasher as _;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -59,22 +60,18 @@ where
     .context("DB task panicked")?
 }
 
-/// Hash a sequence of fields with a per-table tag to produce a 64-bit
-/// `measurement_id`. The bit-cast to `i64` is intentional: DuckDB's `BIGINT`
-/// is signed.
+/// Finalize the hash and bit-cast to `i64` because DuckDB's `BIGINT` is
+/// signed.
 fn finish(hasher: XxHash64) -> i64 {
-    use std::hash::Hasher as _;
     hasher.finish() as i64
 }
 
 fn write_str(hasher: &mut XxHash64, s: &str) {
-    use std::hash::Hasher as _;
     hasher.write_u64(s.len() as u64);
     hasher.write(s.as_bytes());
 }
 
 fn write_opt_str(hasher: &mut XxHash64, s: Option<&str>) {
-    use std::hash::Hasher as _;
     match s {
         Some(s) => {
             hasher.write_u8(1);
@@ -85,17 +82,17 @@ fn write_opt_str(hasher: &mut XxHash64, s: Option<&str>) {
 }
 
 fn write_i32(hasher: &mut XxHash64, v: i32) {
-    use std::hash::Hasher as _;
     hasher.write_i32(v);
 }
 
 fn write_f64(hasher: &mut XxHash64, v: f64) {
-    use std::hash::Hasher as _;
     hasher.write_u64(v.to_bits());
 }
 
+/// Initialize a hasher seeded with a per-table tag so two fact tables that
+/// happen to share the same dim values still produce distinct
+/// `measurement_id`s.
 fn hasher_for(tag: &'static str) -> XxHash64 {
-    use std::hash::Hasher as _;
     let mut h = XxHash64::with_seed(0);
     h.write(tag.as_bytes());
     h.write_u8(0);
@@ -148,8 +145,8 @@ pub fn measurement_id_random_access(r: &RandomAccessTime) -> i64 {
     finish(h)
 }
 
-/// Hash for `vector_search_runs` rows. `iterations` is intentionally not part
-/// of the dim tuple per `01-schema.md`.
+/// Hash for `vector_search_runs` rows. `iterations` is intentionally not
+/// part of the dim tuple — it is a side count, not a dimension.
 pub fn measurement_id_vector_search(r: &VectorSearchRun) -> i64 {
     let mut h = hasher_for("vector_search_runs");
     write_str(&mut h, &r.commit_sha);

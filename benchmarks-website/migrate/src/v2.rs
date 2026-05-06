@@ -19,19 +19,32 @@ use serde::Deserialize;
 /// optional because different benches emit different subsets.
 #[derive(Debug, Clone, Deserialize)]
 pub struct V2Record {
+    /// Slash-separated benchmark identifier (e.g. `tpch_q01/datafusion:vortex-file-compressed`).
+    /// The classifier parses this string to recover dim values.
     pub name: String,
+    /// 40-hex commit SHA. Present on every well-formed v2 record.
     #[serde(default)]
     pub commit_id: Option<String>,
+    /// v2 unit string (`ns`, `bytes`, `ratio`, ...). Not used for routing —
+    /// the classifier picks the v3 fact table from the `name` prefix instead.
     #[serde(default)]
     pub unit: Option<String>,
+    /// Polymorphic value — emitters wrote both numbers and stringified
+    /// numbers. Use [`value_as_f64`] to normalize.
     #[serde(default)]
     pub value: Option<serde_json::Value>,
+    /// Storage backend the run targeted (`S3` or `NVMe`, mixed case in v2).
     #[serde(default)]
     pub storage: Option<String>,
+    /// Polymorphic dataset block — sometimes a string, sometimes an object
+    /// keyed by suite name with a `scale_factor` inside (use
+    /// [`dataset_scale_factor`]).
     #[serde(default)]
     pub dataset: Option<serde_json::Value>,
+    /// Per-iteration runtimes; same numeric polymorphism as `value`.
     #[serde(default)]
     pub all_runtimes: Option<Vec<serde_json::Value>>,
+    /// Host environment triple block.
     #[serde(default)]
     pub env_triple: Option<V2EnvTriple>,
 }
@@ -101,10 +114,13 @@ pub fn runtime_as_i64(value: &serde_json::Value) -> Option<i64> {
 /// stored it as an object; we serialize it back out as `arch-os-env`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct V2EnvTriple {
+    /// Host CPU architecture (e.g. `x86_64`).
     #[serde(default)]
     pub architecture: Option<String>,
+    /// Operating system name (e.g. `linux`).
     #[serde(default)]
     pub operating_system: Option<String>,
+    /// Host environment label (e.g. `gnu`).
     #[serde(default)]
     pub environment: Option<String>,
 }
@@ -122,17 +138,25 @@ impl V2EnvTriple {
 /// One JSONL line of `commits.json`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct V2Commit {
+    /// 40-hex commit SHA (the v2 schema named this `id`, not `commit_sha`).
     pub id: String,
+    /// RFC 3339 commit timestamp; required for the v3 row but tolerated as
+    /// missing in the source dump.
     #[serde(default)]
     pub timestamp: Option<String>,
+    /// Full commit message.
     #[serde(default)]
     pub message: Option<String>,
+    /// Author block.
     #[serde(default)]
     pub author: Option<V2Person>,
+    /// Committer block.
     #[serde(default)]
     pub committer: Option<V2Person>,
+    /// Git tree SHA.
     #[serde(default)]
     pub tree_id: Option<String>,
+    /// GitHub commit URL.
     #[serde(default)]
     pub url: Option<String>,
 }
@@ -140,8 +164,10 @@ pub struct V2Commit {
 /// Author or committer block on a v2 commit record.
 #[derive(Debug, Clone, Deserialize)]
 pub struct V2Person {
+    /// Display name.
     #[serde(default)]
     pub name: Option<String>,
+    /// Email address.
     #[serde(default)]
     pub email: Option<String>,
 }
@@ -150,12 +176,18 @@ pub struct V2Person {
 /// `scripts/capture-file-sizes.py`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct V2FileSize {
+    /// 40-hex commit SHA.
     pub commit_id: String,
+    /// Compression dataset name (`benchmark` is the v2 field name).
     pub benchmark: String,
+    /// TPC SF as a string when relevant.
     #[serde(default)]
     pub scale_factor: Option<String>,
+    /// Format the file was produced in.
     pub format: String,
+    /// Path of the underlying file (e.g. `lineitem.parquet`); informational.
     pub file: String,
+    /// Size in bytes; summed across files in the same `(commit, dataset, format)`.
     pub size_bytes: i64,
 }
 

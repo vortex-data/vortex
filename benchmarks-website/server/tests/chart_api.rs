@@ -223,8 +223,8 @@ async fn chart_payload_includes_series_meta() -> Result<()> {
 }
 
 /// Every chart payload must declare a structured `unit_kind` so the client
-/// can pick a display unit without guessing from the values. The taxonomy is
-/// documented in `planning/02-contracts.md`; this test pins the wire
+/// can pick a display unit without guessing from the values. The taxonomy
+/// lives on [`vortex_bench_server::api::UnitKind`]; this test pins the wire
 /// classification of every fact-table family currently emitted.
 #[tokio::test]
 async fn chart_payload_declares_unit_kind_per_family() -> Result<()> {

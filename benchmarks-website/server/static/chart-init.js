@@ -10,24 +10,26 @@
 //   3. Per-card DOM contract           — every `data-role` selector.
 //   4. Global filter state             — engines/formats from the navbar.
 //   5. Palette + helpers               — colours, formatting, throttle.
-//   6. LTTB                            — pure largest-triangle downsampler.
-//   7. Crosshair plugin                — inline Chart.js plugin.
-//   8. External tooltip handler        — factory that returns a Chart.js
+//   6. Display unit picker             — bytes/time/count formatter switch.
+//   7. LTTB                            — pure largest-triangle downsampler.
+//   8. Crosshair plugin                — inline Chart.js plugin.
+//   9. External tooltip handler        — factory that returns a Chart.js
 //                                        external tooltip handler.
-//   9. Payload + datasets              — readInlinePayload, buildDatasets,
+//  10. Payload + datasets              — readInlinePayload, buildDatasets,
 //                                        rebuildVisibleAndUpdate.
-//  10. Lazy refetch                    — maybeRefetchFullPayload,
-//                                        replaceChartPayload.
-//  11. Slider + badge sync             — syncSliderFromRange,
-//                                        syncDownsampleBadge.
+//  11. Lazy refetch                    — maybeRefetchFullPayload,
+//                                        replaceChartPayload, plus the
+//                                        slider + downsample-badge sync
+//                                        helpers.
 //  12. Per-card construction           — constructChart.
 //  13. Range scrollbar strip           — bindRangeStrip + pointer math.
-//  14. Toolbar + wheel pan             — bindToolbar, attachWheelPan,
+//  14. Per-chart toolbar wiring        — bindToolbar, attachWheelPan,
 //                                        applyScope, applyY.
 //  15. Lazy fetch on details.toggle    — fetchAndConstruct + UI helpers.
 //  16. Global filter wiring            — chip toggle, URL sync, bindings.
-//  17. Header controls                 — theme toggle, expand/collapse all.
-//  18. Page wiring                     — IntersectionObserver, init.
+//  17. Per-group toolbar wiring        — group-level filter + Y override.
+//  18. Header controls                 — theme toggle, expand/collapse all.
+//  19. Page wiring                     — IntersectionObserver, init.
 //
 // Per-chart UX (for orientation):
 //   - Each `.chart-card` carries `data-chart-slug`. The card *owns* its own
@@ -89,6 +91,16 @@
 //                                     toggle handler calls `chart.resize()`
 //                                     on these to recompute layout once the
 //                                     container is visible.
+//   canvas.__bench_display_unit       The picked display unit (`format`,
+//                                     `axisLabel`, `multiplier`) used by the
+//                                     tooltip and y-axis label. Recomputed
+//                                     after every payload swap and after each
+//                                     LTTB rebuild changes the visible window.
+//   canvas.__bench_y_user_set         true once the user has explicitly
+//                                     clicked the per-chart Y-axis toolbar.
+//                                     The per-group Y override skips charts
+//                                     where this flag is set so the local
+//                                     click stays sticky.
 //
 // Per-card DOM contract — every selector the chart cards are queried by:
 //   .chart-card[data-chart-index][data-chart-slug]    The card itself.
@@ -140,12 +152,13 @@
     if (name && WIDE_DEFAULT_GROUPS.has(name)) return "all";
     return DEFAULT_VISIBLE;
   }
-  // Mirror of `LANDING_INLINE_N` in `server/src/html.rs`. The first group's
-  // inline JSON is capped at this many commits to keep the cold landing
-  // page small. When the user zooms wider than what's inlined we lazy-fetch
-  // `?n=all` and replace the payload in place. If you change this, update
-  // the server too — the comparison `commits.length >= LANDING_INLINE_N`
-  // is what tells us the inline payload was potentially trimmed.
+  // Mirror of `LANDING_INLINE_N` in `server/src/html/mod.rs`. The first
+  // group's inline JSON is capped at this many commits to keep the cold
+  // landing page small. When the user zooms wider than what's inlined we
+  // lazy-fetch `?n=all` and replace the payload in place. If you change
+  // this, update the server too — the comparison
+  // `commits.length >= LANDING_INLINE_N` is what tells us the inline
+  // payload was potentially trimmed.
   var LANDING_INLINE_N = 100;
   // Hard cap on how many points a single series can render at once. When
   // the visible commit range has more raw non-null points than this, we
@@ -917,7 +930,7 @@
   // Lazy-upgrade an inline-trimmed payload to the full history.
   //
   // The landing page inlines at most `LANDING_INLINE_N` commits per chart
-  // (server: `html.rs::LANDING_INLINE_N`) so the cold HTML body stays small.
+  // (server: `html/mod.rs::LANDING_INLINE_N`) so the cold HTML body stays small.
   // The first time the user zooms wide enough to ask for everything we have
   // loaded we replace the payload with the unbounded view from
   // `/api/chart/{slug}?n=all`. The chart's pan/zoom limits and the toolbar
