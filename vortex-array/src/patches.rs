@@ -5,7 +5,6 @@ use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Range;
-use std::sync::OnceLock;
 
 use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
@@ -37,7 +36,6 @@ use crate::dtype::PType;
 use crate::dtype::UnsignedPType;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
-use crate::expr::stats::StatsProvider;
 use crate::match_each_integer_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::scalar::PValue;
@@ -150,8 +148,6 @@ pub struct Patches {
     /// `offset_within_chunk` is necessary in order to keep track of how many
     /// elements were sliced off within the chunk.
     offset_within_chunk: Option<usize>,
-    /// Memoized offset-adjusted bounds; avoids a stats lookup per `search_index` call.
-    bounds: OnceLock<(usize, usize)>,
 }
 
 impl Patches {
@@ -178,8 +174,6 @@ impl Patches {
         );
         vortex_ensure!(!indices.is_empty(), "Patch indices must not be empty");
 
-        let bounds = OnceLock::new();
-
         // Perform validation of components when they are host-resident.
         // This is not possible to do eagerly when the data is on GPU memory.
         if indices.is_host() && values.is_host() {
@@ -194,18 +188,15 @@ impl Patches {
                 "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
             );
 
+            // Seed Min/Max stats on indices so search_index can short-circuit
+            // out-of-range lookups, and so pruning/predicate-pushdown consumers
+            // see populated bounds.
             let first = indices.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
-            let min =
-                usize::try_from(&first).map_err(|_| vortex_err!("indices must be a number"))?;
-
-            // Seed indices stats so any other consumer (pruning, predicate pushdown)
-            // sees them, and pre-populate the bounds cache for the search_index fast path.
             if let (Some(min_value), Some(max_value)) = (first.value(), last.value()) {
                 let stats = indices.statistics();
                 stats.set(Stat::Min, Precision::Exact(min_value.clone()));
                 stats.set(Stat::Max, Precision::Exact(max_value.clone()));
             }
-            let _ = bounds.set((min - offset, max - offset));
 
             #[cfg(debug_assertions)]
             {
@@ -227,7 +218,6 @@ impl Patches {
             chunk_offsets: chunk_offsets.clone(),
             // Initialize with `Some(0)` only if `chunk_offsets` are set.
             offset_within_chunk: chunk_offsets.map(|_| 0),
-            bounds,
         })
     }
 
@@ -255,7 +245,6 @@ impl Patches {
             values,
             chunk_offsets,
             offset_within_chunk,
-            bounds: OnceLock::new(),
         }
     }
 
@@ -443,16 +432,12 @@ impl Patches {
 
     #[inline]
     fn cached_bounds(&self) -> Option<(usize, usize)> {
-        if let Some(&b) = self.bounds.get() {
-            return Some(b);
-        }
-        let stats = self.indices.statistics();
-        let raw_min = usize::try_from(&stats.get(Stat::Min)?.as_exact()?).ok()?;
-        let raw_max = usize::try_from(&stats.get(Stat::Max)?.as_exact()?).ok()?;
-        let min = raw_min.checked_sub(self.offset)?;
-        let max = raw_max.checked_sub(self.offset)?;
-        let _ = self.bounds.set((min, max));
-        Some((min, max))
+        let offset = self.offset;
+        self.indices.statistics().with_typed_stats_set(|typed| {
+            let raw_min = usize::try_from(typed.get_value(Stat::Min)?.as_exact()?).ok()?;
+            let raw_max = usize::try_from(typed.get_value(Stat::Max)?.as_exact()?).ok()?;
+            Some((raw_min.checked_sub(offset)?, raw_max.checked_sub(offset)?))
+        })
     }
 
     /// Binary searches for `needle` in the indices array.
@@ -707,7 +692,6 @@ impl Patches {
             // TODO(0ax1): Chunk offsets are invalid after a filter is applied.
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
-            bounds: OnceLock::new(),
         }))
     }
 
@@ -755,7 +739,6 @@ impl Patches {
             values,
             chunk_offsets: new_chunk_offsets,
             offset_within_chunk,
-            bounds: OnceLock::new(),
         }))
     }
 
@@ -891,7 +874,6 @@ impl Patches {
                 .take(PrimitiveArray::new(values_indices, values_validity).into_array())?,
             chunk_offsets: None,
             offset_within_chunk: Some(0), // Reset when creating new Patches.
-            bounds: OnceLock::new(),
         }))
     }
 
@@ -941,7 +923,6 @@ impl Patches {
             // TODO(0ax1): Chunk offsets are invalid after take is applied.
             chunk_offsets: None,
             offset_within_chunk: self.offset_within_chunk,
-            bounds: OnceLock::new(),
         }))
     }
 
@@ -965,8 +946,6 @@ impl Patches {
             values,
             chunk_offsets: self.chunk_offsets,
             offset_within_chunk: self.offset_within_chunk,
-            // indices and offset are preserved, so cached bounds remain valid.
-            bounds: self.bounds,
         })
     }
 }

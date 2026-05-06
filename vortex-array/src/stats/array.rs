@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use parking_lot::RwLock;
+use arc_swap::ArcSwap;
 use vortex_array::ExecutionCtx;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -32,9 +32,20 @@ use crate::scalar::ScalarValue;
 
 /// A shared [`StatsSet`] stored in an array. Can be shared by copies of the array and can also be mutated in place.
 // TODO(adamg): This is a very bad name.
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 pub struct ArrayStats {
-    inner: Arc<RwLock<StatsSet>>,
+    // Lock-free reads via copy-on-write. Writes are last-writer-wins;
+    // concurrent writers may lose updates, which is acceptable for stats
+    // (they're hints and can be recomputed).
+    inner: Arc<ArcSwap<StatsSet>>,
+}
+
+impl Default for ArrayStats {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(ArcSwap::from_pointee(StatsSet::default())),
+        }
+    }
 }
 
 /// Reference to an array's [`StatsSet`]. Can be used to get and mutate the underlying stats.
@@ -55,42 +66,49 @@ impl ArrayStats {
     }
 
     pub fn set(&self, stat: Stat, value: Precision<ScalarValue>) {
-        self.inner.write().set(stat, value);
+        let mut new_stats = (**self.inner.load()).clone();
+        new_stats.set(stat, value);
+        self.inner.store(Arc::new(new_stats));
     }
 
     pub fn clear(&self, stat: Stat) {
-        self.inner.write().clear(stat);
+        let mut new_stats = (**self.inner.load()).clone();
+        new_stats.clear(stat);
+        self.inner.store(Arc::new(new_stats));
     }
 
     pub fn retain(&self, stats: &[Stat]) {
-        self.inner.write().retain_only(stats);
+        let mut new_stats = (**self.inner.load()).clone();
+        new_stats.retain_only(stats);
+        self.inner.store(Arc::new(new_stats));
     }
 }
 
 impl From<StatsSet> for ArrayStats {
     fn from(value: StatsSet) -> Self {
         Self {
-            inner: Arc::new(RwLock::new(value)),
+            inner: Arc::new(ArcSwap::from_pointee(value)),
         }
     }
 }
 
 impl From<ArrayStats> for StatsSet {
     fn from(value: ArrayStats) -> Self {
-        value.inner.read().clone()
+        (**value.inner.load()).clone()
     }
 }
 
 impl StatsSetRef<'_> {
     pub(crate) fn replace(&self, stats: StatsSet) {
-        *self.array_stats.inner.write() = stats;
+        self.array_stats.inner.store(Arc::new(stats));
     }
 
     pub fn set_iter(&self, iter: StatsSetIntoIter) {
-        let mut guard = self.array_stats.inner.write();
+        let mut new_stats = (**self.array_stats.inner.load()).clone();
         for (stat, value) in iter {
-            guard.set(stat, value);
+            new_stats.set(stat, value);
         }
+        self.array_stats.inner.store(Arc::new(new_stats));
     }
 
     pub fn inherit_from(&self, stats: StatsSetRef<'_>) {
@@ -101,38 +119,33 @@ impl StatsSetRef<'_> {
     }
 
     pub fn inherit<'a>(&self, iter: impl Iterator<Item = &'a (Stat, Precision<ScalarValue>)>) {
-        let mut guard = self.array_stats.inner.write();
+        let mut new_stats = (**self.array_stats.inner.load()).clone();
         for (stat, value) in iter {
             if !value.is_exact() {
-                if !guard.get(*stat).is_some_and(|v| v.is_exact()) {
-                    guard.set(*stat, value.clone());
+                if !new_stats.get(*stat).is_some_and(|v| v.is_exact()) {
+                    new_stats.set(*stat, value.clone());
                 }
             } else {
-                guard.set(*stat, value.clone());
+                new_stats.set(*stat, value.clone());
             }
         }
+        self.array_stats.inner.store(Arc::new(new_stats));
     }
 
     pub fn with_typed_stats_set<U, F: FnOnce(TypedStatsSetRef) -> U>(&self, apply: F) -> U {
-        apply(
-            self.array_stats
-                .inner
-                .read()
-                .as_typed_ref(self.dyn_array_ref.dtype()),
-        )
+        let snapshot = self.array_stats.inner.load();
+        apply(snapshot.as_typed_ref(self.dyn_array_ref.dtype()))
     }
 
     pub fn with_mut_typed_stats_set<U, F: FnOnce(MutTypedStatsSetRef) -> U>(&self, apply: F) -> U {
-        apply(
-            self.array_stats
-                .inner
-                .write()
-                .as_mut_typed_ref(self.dyn_array_ref.dtype()),
-        )
+        let mut new_stats = (**self.array_stats.inner.load()).clone();
+        let result = apply(new_stats.as_mut_typed_ref(self.dyn_array_ref.dtype()));
+        self.array_stats.inner.store(Arc::new(new_stats));
+        result
     }
 
     pub fn to_owned(&self) -> StatsSet {
-        self.array_stats.inner.read().clone()
+        (**self.array_stats.inner.load()).clone()
     }
 
     /// Returns a clone of the underlying [`ArrayStats`].
@@ -149,8 +162,8 @@ impl StatsSetRef<'_> {
         &self,
         f: F,
     ) -> R {
-        let lock = self.array_stats.inner.read();
-        f(&mut lock.iter())
+        let snapshot = self.array_stats.inner.load();
+        f(&mut snapshot.iter())
     }
 
     pub fn compute_stat(&self, stat: Stat, ctx: &mut ExecutionCtx) -> VortexResult<Option<Scalar>> {
@@ -288,12 +301,12 @@ impl StatsProvider for StatsSetRef<'_> {
     fn get(&self, stat: Stat) -> Option<Precision<Scalar>> {
         self.array_stats
             .inner
-            .read()
+            .load()
             .as_typed_ref(self.dyn_array_ref.dtype())
             .get(stat)
     }
 
     fn len(&self) -> usize {
-        self.array_stats.inner.read().len()
+        self.array_stats.inner.load().len()
     }
 }

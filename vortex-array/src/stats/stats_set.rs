@@ -114,6 +114,14 @@ impl StatsSet {
             .map(|(_, v)| v.clone())
     }
 
+    /// Borrow the value for a given stat without cloning the underlying `ScalarValue`.
+    pub fn get_value(&self, stat: Stat) -> Option<&Precision<ScalarValue>> {
+        self.values
+            .iter()
+            .find(|(s, _)| *s == stat)
+            .map(|(_, v)| v)
+    }
+
     /// Length of the stats set
     pub fn len(&self) -> usize {
         self.values.len()
@@ -223,6 +231,13 @@ impl StatsSet {
 pub struct TypedStatsSetRef<'a, 'b> {
     pub values: &'a StatsSet,
     pub dtype: &'b DType,
+}
+
+impl<'a, 'b> TypedStatsSetRef<'a, 'b> {
+    /// Borrow the value for a given stat without constructing a [`Scalar`].
+    pub fn get_value(&self, stat: Stat) -> Option<Precision<&'a ScalarValue>> {
+        self.values.get_value(stat).map(|p| p.as_ref())
+    }
 }
 
 impl StatsProvider for TypedStatsSetRef<'_, '_> {
