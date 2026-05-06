@@ -153,7 +153,7 @@ use vortex_error::VortexResult;
 /// [`try_new`](Self::try_new) for patterns that cannot be evaluated without
 /// decompression (e.g., `_` wildcards, multiple `%` in non-standard positions,
 /// or patterns that exceed the DFA's representable byte-length limits).
-pub(crate) struct FsstMatcher {
+pub struct FsstMatcher {
     inner: MatcherInner,
 }
 
@@ -175,7 +175,7 @@ impl FsstMatcher {
     /// Returns `Ok(None)` if the pattern shape is not supported for pushdown
     /// (e.g. `_` wildcards, multiple non-bookend `%`, `prefix%` longer than
     /// 253 bytes, or `%needle%` longer than 254 bytes).
-    pub(crate) fn try_new(
+    pub fn try_new(
         symbols: &[Symbol],
         symbol_lengths: &[u8],
         pattern: &[u8],
@@ -230,7 +230,8 @@ impl FsstMatcher {
     }
 
     /// Run the matcher on a single FSST-compressed code sequence.
-    pub(crate) fn matches(&self, codes: &[u8]) -> bool {
+    #[inline]
+    pub fn matches(&self, codes: &[u8]) -> bool {
         match &self.inner {
             MatcherInner::MatchAll => true,
             MatcherInner::Prefix(dfa) => dfa.matches(codes),

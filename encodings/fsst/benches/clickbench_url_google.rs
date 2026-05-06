@@ -43,7 +43,8 @@ use vortex_array::scalar_fn::fns::like::Like;
 use vortex_array::scalar_fn::fns::like::LikeOptions;
 use vortex_array::session::ArraySession;
 use vortex_fsst::FSSTArray;
-use vortex_fsst::test_utils::build_fsst_test_matcher;
+use vortex_fsst::FSSTArrayExt;
+use vortex_fsst::dfa::FsstMatcher;
 use vortex_fsst::test_utils::generate_clickbench_urls;
 use vortex_fsst::test_utils::make_fsst_clickbench_urls;
 use vortex_session::VortexSession;
@@ -110,7 +111,6 @@ fn dfa_inner_only(bencher: Bencher) {
     #[expect(deprecated)]
     use vortex_array::ToCanonical;
     use vortex_array::arrays::varbin::VarBinArrayExt;
-    use vortex_fsst::FSSTArrayExt;
 
     let fsst = &*FSST_CB_URLS;
     let view = fsst.as_view();
@@ -120,14 +120,20 @@ fn dfa_inner_only(bencher: Bencher) {
     let offsets: Vec<u32> = offsets.as_slice::<i32>().iter().map(|&v| v as u32).collect();
     let bytes = codes.bytes().as_slice().to_vec();
 
-    let matcher = build_fsst_test_matcher(fsst, LIKE_PATTERN_BYTES).unwrap();
+    let matcher = FsstMatcher::try_new(
+        view.symbols().as_slice(),
+        view.symbol_lengths().as_slice(),
+        LIKE_PATTERN_BYTES,
+    )
+    .unwrap()
+    .unwrap();
 
     bencher.bench_local(|| {
         let mut count: u64 = 0;
         let mut start = offsets[0] as usize;
         for i in 0..N {
             let end = offsets[i + 1] as usize;
-            if matcher(&bytes[start..end]) {
+            if matcher.matches(&bytes[start..end]) {
                 count += 1;
             }
             start = end;

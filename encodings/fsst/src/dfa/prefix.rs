@@ -94,6 +94,7 @@ impl FlatPrefixDfa {
         })
     }
 
+    #[inline]
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
         let mut state = 0u8;
         let mut pos = 0;

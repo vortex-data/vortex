@@ -93,6 +93,7 @@ impl FlatContainsDfa {
         })
     }
 
+    #[inline]
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
         // Anchor prefilter: if the anchor code is absent, no match possible.
         if let Some(a) = self.anchor
