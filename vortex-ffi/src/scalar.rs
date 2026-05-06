@@ -571,7 +571,8 @@ mod tests {
                 Scalar::primitive(-42i64, Nullability::NonNullable),
             );
 
-            let f16_value = f16::from_f32(1.5);
+            // Use from_bits to avoid f16::from_f32 inline assembly which Miri cannot interpret.
+            let f16_value = f16::from_bits(0x3E00); // 1.5 in f16
             assert_scalar(
                 vx_scalar_new_f16_bits(f16_value.to_bits(), false),
                 Scalar::primitive(f16_value, Nullability::NonNullable),
