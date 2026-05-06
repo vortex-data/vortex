@@ -142,9 +142,6 @@ pub struct PatchSlotIndices {
 }
 
 impl PatchesData {
-    /// The number of slots used by patches (indices, values, chunk_offsets).
-    pub const NUM_SLOTS: usize = 3;
-
     /// Extract patch metadata from an existing [`Patches`].
     pub fn from_patches(patches: &Patches) -> Self {
         Self {
