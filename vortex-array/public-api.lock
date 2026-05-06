@@ -13862,8 +13862,6 @@ pub struct vortex_array::patches::PatchesData
 
 impl vortex_array::patches::PatchesData
 
-pub const vortex_array::patches::PatchesData::NUM_SLOTS: usize
-
 pub fn vortex_array::patches::PatchesData::from_patches(&vortex_array::patches::Patches) -> Self
 
 pub fn vortex_array::patches::PatchesData::offset(&self) -> usize
