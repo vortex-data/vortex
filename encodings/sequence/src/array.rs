@@ -8,6 +8,7 @@ use std::hash::Hasher;
 
 use num_traits::cast::FromPrimitive;
 use prost::Message;
+use smallvec::smallvec;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -383,7 +384,7 @@ impl Sequence {
 
         // SAFETY: we don't have duplicate stats.
         unsafe {
-            StatsSet::new_unchecked(vec![
+            StatsSet::new_unchecked(smallvec![
                 (Stat::IsSorted, StatPrecision::Exact(is_sorted.into())),
                 (
                     Stat::IsStrictSorted,

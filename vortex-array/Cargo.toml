@@ -61,6 +61,7 @@ rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive", "rc"] }
 simdutf8 = { workspace = true }
+smallvec = { workspace = true }
 static_assertions = { workspace = true }
 tabled = { workspace = true, optional = true, default-features = false, features = [
     "std",
