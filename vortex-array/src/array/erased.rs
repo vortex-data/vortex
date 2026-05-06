@@ -145,9 +145,9 @@ impl ArrayRef {
 impl Debug for ArrayRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Array")
-            .field("encoding", &self.0.fields.encoding_id)
-            .field("dtype", &self.0.fields.dtype)
-            .field("len", &self.0.fields.len)
+            .field("encoding", &self.0.encoding_id)
+            .field("dtype", &self.0.dtype)
+            .field("len", &self.0.len)
             .field("data", &self.0.data)
             .finish()
     }
@@ -155,11 +155,11 @@ impl Debug for ArrayRef {
 
 impl ArrayHash for ArrayRef {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: crate::Precision) {
-        self.0.fields.len.hash(state);
-        self.0.fields.dtype.hash(state);
-        self.0.fields.encoding_id.hash(state);
-        self.0.fields.slots.len().hash(state);
-        for slot in &self.0.fields.slots {
+        self.0.len.hash(state);
+        self.0.dtype.hash(state);
+        self.0.encoding_id.hash(state);
+        self.0.slots.len().hash(state);
+        for slot in &self.0.slots {
             slot.array_hash(state, precision);
         }
         self.0
@@ -170,16 +170,15 @@ impl ArrayHash for ArrayRef {
 
 impl ArrayEq for ArrayRef {
     fn array_eq(&self, other: &Self, precision: crate::Precision) -> bool {
-        self.0.fields.len == other.0.fields.len
-            && self.0.fields.dtype == other.0.fields.dtype
-            && self.0.fields.encoding_id == other.0.fields.encoding_id
-            && self.0.fields.slots.len() == other.0.fields.slots.len()
+        self.0.len == other.0.len
+            && self.0.dtype == other.0.dtype
+            && self.0.encoding_id == other.0.encoding_id
+            && self.0.slots.len() == other.0.slots.len()
             && self
                 .0
-                .fields
                 .slots
                 .iter()
-                .zip(other.0.fields.slots.iter())
+                .zip(other.0.slots.iter())
                 .all(|(slot, other_slot)| slot.array_eq(other_slot, precision))
             && self.0.data.dyn_array_eq(other, precision)
     }
@@ -188,25 +187,25 @@ impl ArrayRef {
     /// Returns the length of the array.
     #[inline]
     pub fn len(&self) -> usize {
-        self.0.fields.len
+        self.0.len
     }
 
     /// Returns whether the array is empty (has zero rows).
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.0.fields.len == 0
+        self.0.len == 0
     }
 
     /// Returns the logical Vortex [`DType`] of the array.
     #[inline]
     pub fn dtype(&self) -> &DType {
-        &self.0.fields.dtype
+        &self.0.dtype
     }
 
     /// Returns the encoding ID of the array.
     #[inline]
     pub fn encoding_id(&self) -> ArrayId {
-        self.0.fields.encoding_id
+        self.0.encoding_id
     }
 
     /// Performs a constant-time slice of the array.
@@ -387,7 +386,7 @@ impl ArrayRef {
 
     /// Returns the statistics of the array.
     pub fn statistics(&self) -> StatsSetRef<'_> {
-        self.0.fields.stats.to_ref(self)
+        self.0.stats.to_ref(self)
     }
 
     /// Does the array match the given matcher.
@@ -509,7 +508,7 @@ impl ArrayRef {
         slot_idx: usize,
     ) -> VortexResult<(ArrayRef, ArrayRef)> {
         if let Some(inner) = Arc::get_mut(&mut self.0) {
-            let child = inner.fields.slots[slot_idx]
+            let child = inner.slots[slot_idx]
                 .take()
                 .vortex_expect("take_slot_unchecked cannot take an absent slot");
             return Ok((self, child));
@@ -527,7 +526,7 @@ impl ArrayRef {
 
         // SAFETY: ensured by the caller — the None slot is either put back or driven to completion
         // via the builder path before the parent escapes the executor.
-        let new_parent = unsafe { self.0.with_slots_unchecked(new_slots) };
+        let new_parent = unsafe { self.0.data.with_slots_unchecked(&self, new_slots) };
         Ok((new_parent, child))
     }
 
@@ -544,14 +543,13 @@ impl ArrayRef {
         replacement: ArrayRef,
     ) -> VortexResult<ArrayRef> {
         if let Some(inner) = Arc::get_mut(&mut self.0) {
-            inner.fields.slots[slot_idx] = Some(replacement);
+            inner.slots[slot_idx] = Some(replacement);
             return Ok(self);
         }
 
         let mut slots = self.slots().to_vec();
         slots[slot_idx] = Some(replacement);
-        let inner = Arc::clone(&self.0);
-        inner.with_slots(slots)
+        self.0.data.with_slots(&self, slots)
     }
 
     /// Returns a new array with the provided slots.
@@ -589,8 +587,7 @@ impl ArrayRef {
                 );
             }
         }
-        let inner = Arc::clone(&self.0);
-        inner.with_slots(slots)
+        self.0.data.with_slots(&self, slots)
     }
 
     pub fn reduce(&self) -> VortexResult<Option<ArrayRef>> {
@@ -690,7 +687,7 @@ impl ArrayRef {
 
     /// Returns the slots of the array.
     pub fn slots(&self) -> &[Option<ArrayRef>] {
-        &self.0.fields.slots
+        &self.0.slots
     }
 
     /// Returns the name of the slot at the given index.

@@ -118,11 +118,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     fn dyn_array_eq(&self, other: &ArrayRef, precision: crate::Precision) -> bool;
 
     /// Returns a new array with the given slots.
-    fn with_slots(
-        &self,
-        fields: &ArrayFields,
-        slots: Vec<Option<ArrayRef>>,
-    ) -> VortexResult<ArrayRef>;
+    fn with_slots(&self, this: &ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
 
     /// Returns a new array with the given slots, bypassing encoding-level validation.
     ///
@@ -138,7 +134,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// anything outside the executor.
     unsafe fn with_slots_unchecked(
         &self,
-        fields: &ArrayFields,
+        this: &ArrayRef,
         slots: Vec<Option<ArrayRef>>,
     ) -> ArrayRef;
 
@@ -357,28 +353,24 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             .is_some_and(|other_inner| self.data.array_eq(&other_inner.data, precision))
     }
 
-    fn with_slots(
-        &self,
-        fields: &ArrayFields,
-        slots: Vec<Option<ArrayRef>>,
-    ) -> VortexResult<ArrayRef> {
-        let stats = fields.stats.clone();
+    fn with_slots(&self, this: &ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
+        let stats = this.statistics().to_owned();
         Ok(Array::<V>::try_from_parts(
             ArrayParts::new(
                 self.vtable.clone(),
-                fields.dtype.clone(),
-                fields.len,
+                this.dtype().clone(),
+                this.len(),
                 self.data.clone(),
             )
             .with_slots(slots),
         )?
-        .with_stats_set(stats.into())
+        .with_stats_set(stats)
         .into_array())
     }
 
     unsafe fn with_slots_unchecked(
         &self,
-        fields: &ArrayFields,
+        this: &ArrayRef,
         slots: Vec<Option<ArrayRef>>,
     ) -> ArrayRef {
         // SAFETY: we intentionally skip `V::validate` here. Caller guarantees that the resulting
@@ -386,11 +378,11 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         let store = unsafe {
             ArrayInner::<ArrayData<V>>::new_unchecked(
                 self.vtable.clone(),
-                fields.len,
-                fields.dtype.clone(),
+                this.len(),
+                this.dtype().clone(),
                 self.data.clone(),
                 slots,
-                fields.stats.clone(),
+                this.statistics().to_array_stats(),
             )
         };
         ArrayRef::from_inner(Arc::new(store))
