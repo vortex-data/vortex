@@ -71,22 +71,24 @@ fn try_optimize(
     let mut any_optimizations = false;
     let array_ref = session.and_then(|s| s.get_opt::<ArrayKernels>());
 
+    crate::trace_array!(record_optimize_start(array, session.is_some()));
+
     // Apply reduction rules to the current array until no more rules apply.
-    let mut loop_counter = 0;
-    'outer: loop {
-        if loop_counter > 100 {
-            vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
-        }
-        loop_counter += 1;
+    for _ in 0..=100 {
+        crate::trace_array!(record_optimize_loop_start(&current_array));
 
         if let Some(new_array) = current_array.reduce()? {
             current_array = new_array;
             any_optimizations = true;
+            crate::trace_array!(record_optimize_loop_end());
             continue;
         }
 
+        crate::trace_array!(record_optimize_reduce_none(&current_array));
+
         // Apply parent reduction rules to each slot in the context of the current array.
         // Its important to take all slots here, as `current_array` can change inside the loop.
+        let mut parent_reduced = None;
         for (slot_idx, slot) in current_array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
 
@@ -95,34 +97,62 @@ fn try_optimize(
                 && let Some(plugins) =
                     array_ref.find_reduce_parent(current_array.encoding_id(), child.encoding_id())
             {
-                for plugin in plugins.as_ref() {
+                for (plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
+                    crate::trace_array_use!(plugin_idx);
                     if let Some(new_array) = plugin(child, &current_array, slot_idx)? {
-                        current_array = new_array;
-                        any_optimizations = true;
-                        continue 'outer;
+                        crate::trace_array!(record_parent_reduce_applied(
+                            &current_array,
+                            child,
+                            slot_idx,
+                            crate::test_harness::trace::TraceSource::Session(plugin_idx),
+                            "reduce_parent_fn",
+                            &new_array,
+                        ));
+                        parent_reduced = Some(new_array);
+                        break;
                     }
+                    crate::trace_array!(record_parent_reduce_attempt(
+                        &current_array,
+                        child,
+                        slot_idx,
+                        crate::test_harness::trace::TraceSource::Session(plugin_idx),
+                        "reduce_parent_fn",
+                        crate::test_harness::trace::AttemptOutcome::Declined,
+                    ));
+                }
+                if parent_reduced.is_some() {
+                    break;
                 }
             }
 
             if let Some(new_array) = child.reduce_parent(&current_array, slot_idx)? {
-                // If the parent was replaced, then we attempt to reduce it again.
-                current_array = new_array;
-                any_optimizations = true;
-
-                // Continue to the start of the outer loop
-                continue 'outer;
+                parent_reduced = Some(new_array);
+                break;
             }
         }
 
+        if let Some(new_array) = parent_reduced {
+            // If the parent was replaced, then we attempt to reduce it again.
+            current_array = new_array;
+            any_optimizations = true;
+            crate::trace_array!(record_optimize_loop_end());
+            continue;
+        }
+
+        crate::trace_array!(record_optimize_parent_reduce_none(&current_array));
+        crate::trace_array!(record_optimize_loop_end());
+
         // No more optimizations can be applied
-        break;
+        crate::trace_array!(record_optimize_done(&current_array, any_optimizations));
+
+        if any_optimizations {
+            return Ok(Some(current_array));
+        } else {
+            return Ok(None);
+        }
     }
 
-    if any_optimizations {
-        Ok(Some(current_array))
-    } else {
-        Ok(None)
-    }
+    vortex_bail!("Exceeded maximum optimization iterations (possible infinite loop)");
 }
 
 fn try_optimize_recursive(
@@ -131,6 +161,8 @@ fn try_optimize_recursive(
 ) -> VortexResult<Option<ArrayRef>> {
     let mut current_array = array.clone();
     let mut any_optimizations = false;
+
+    crate::trace_array!(record_optimize_recursive_start(array));
 
     if let Some(new_array) = try_optimize(&current_array, Some(session))? {
         current_array = new_array;
@@ -143,6 +175,11 @@ fn try_optimize_recursive(
         match slot {
             Some(child) => {
                 if let Some(new_child) = try_optimize_recursive(child, session)? {
+                    crate::trace_array!(record_optimize_recursive_slot(
+                        new_slots.len(),
+                        child,
+                        &new_child,
+                    ));
                     new_slots.push(Some(new_child));
                     any_slot_optimized = true;
                 } else {

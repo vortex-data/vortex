@@ -133,8 +133,14 @@ impl<V: VTable> ReduceRuleSet<V> {
     pub fn evaluate(&self, array: ArrayView<'_, V>) -> VortexResult<Option<ArrayRef>> {
         for rule in self.rules.iter() {
             if let Some(reduced) = rule.reduce(array)? {
+                crate::trace_array!(record_reduce_applied(array.array(), *rule, &reduced));
                 return Ok(Some(reduced));
             }
+            crate::trace_array!(record_reduce_attempt(
+                array.array(),
+                *rule,
+                crate::test_harness::trace::AttemptOutcome::Declined,
+            ));
         }
         Ok(None)
     }
@@ -176,6 +182,14 @@ impl<V: VTable> ParentRuleSet<V> {
     ) -> VortexResult<Option<ArrayRef>> {
         for rule in self.rules.iter() {
             if !rule.matches(parent) {
+                crate::trace_array!(record_parent_reduce_attempt(
+                    parent,
+                    child.array(),
+                    child_idx,
+                    crate::test_harness::trace::TraceSource::Static,
+                    crate::test_harness::trace::compact_label(*rule),
+                    crate::test_harness::trace::AttemptOutcome::NoMatch,
+                ));
                 continue;
             }
             if let Some(reduced) = rule.reduce_parent(child, parent, child_idx)? {
@@ -198,8 +212,24 @@ impl<V: VTable> ParentRuleSet<V> {
                     );
                 }
 
+                crate::trace_array!(record_parent_reduce_applied(
+                    parent,
+                    child.array(),
+                    child_idx,
+                    crate::test_harness::trace::TraceSource::Static,
+                    crate::test_harness::trace::compact_label(*rule),
+                    &reduced,
+                ));
                 return Ok(Some(reduced));
             }
+            crate::trace_array!(record_parent_reduce_attempt(
+                parent,
+                child.array(),
+                child_idx,
+                crate::test_harness::trace::TraceSource::Static,
+                crate::test_harness::trace::compact_label(*rule),
+                crate::test_harness::trace::AttemptOutcome::Declined,
+            ));
         }
         Ok(None)
     }
