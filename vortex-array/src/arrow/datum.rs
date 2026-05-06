@@ -93,7 +93,7 @@ pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> Vor
 where
     ArrayRef: FromArrowArray<A>,
 {
-    let array = ArrayRef::from_arrow_with_session(array, nullable, &LEGACY_SESSION)?;
+    let array = ArrayRef::from_arrow_in(array, nullable, &LEGACY_SESSION)?;
     if array.len() == len {
         return Ok(array);
     }

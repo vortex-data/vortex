@@ -184,7 +184,7 @@ impl ParquetVariantData {
                 }
             })
             .unwrap_or(Validity::NonNullable);
-        let metadata = ArrayRef::from_arrow_with_session(
+        let metadata = ArrayRef::from_arrow_in(
             arrow_variant.metadata_field() as &dyn ArrowArray,
             false,
             &LEGACY_SESSION,
@@ -192,24 +192,12 @@ impl ParquetVariantData {
 
         let value = arrow_variant
             .value_field()
-            .map(|v| {
-                ArrayRef::from_arrow_with_session(
-                    v as &dyn ArrowArray,
-                    value_nullable,
-                    &LEGACY_SESSION,
-                )
-            })
+            .map(|v| ArrayRef::from_arrow_in(v as &dyn ArrowArray, value_nullable, &LEGACY_SESSION))
             .transpose()?;
 
         let typed_value = arrow_variant
             .typed_value_field()
-            .map(|tv| {
-                ArrayRef::from_arrow_with_session(
-                    tv.as_ref(),
-                    typed_value_nullable,
-                    &LEGACY_SESSION,
-                )
-            })
+            .map(|tv| ArrayRef::from_arrow_in(tv.as_ref(), typed_value_nullable, &LEGACY_SESSION))
             .transpose()?;
 
         let pv = ParquetVariant::try_new(validity, metadata, value, typed_value)?;

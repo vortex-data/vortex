@@ -154,7 +154,7 @@ mod tests {
         );
 
         // Convert to Vortex
-        ArrayRef::from_arrow_with_session(&struct_array, true, &LEGACY_SESSION)
+        ArrayRef::from_arrow_in(&struct_array, true, &LEGACY_SESSION)
     }
 
     fn create_arrow_schema() -> Arc<Schema> {

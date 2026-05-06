@@ -39,7 +39,7 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
         let arrow_array = ArrowArrayData::from_pyarrow(&obj.as_borrowed()).map(make_array)?;
         let is_nullable = arrow_array.is_nullable();
         let enc_array =
-            ArrayRef::from_arrow_with_session(arrow_array.as_ref(), is_nullable, &LEGACY_SESSION)?;
+            ArrayRef::from_arrow_in(arrow_array.as_ref(), is_nullable, &LEGACY_SESSION)?;
         Ok(PyArrayRef::from(enc_array))
     } else if obj.is_instance(chunked_array)? {
         let chunks: Vec<Bound<PyAny>> = obj.getattr(intern!(py, "chunks"))?.extract()?;
@@ -47,27 +47,25 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
             .iter()
             .map(|a| {
                 let arrow_array = ArrowArrayData::from_pyarrow(&a.as_borrowed()).map(make_array)?;
-                ArrayRef::from_arrow_with_session(arrow_array.as_ref(), false, &LEGACY_SESSION)
+                ArrayRef::from_arrow_in(arrow_array.as_ref(), false, &LEGACY_SESSION)
                     .map_err(PyVortexError::from)
             })
             .collect::<PyVortexResult<Vec<_>>>()?;
         let dtype: DType = obj
             .getattr(intern!(py, "type"))
             .and_then(|v| DataType::from_pyarrow(&v.as_borrowed()))
-            .map(|dt| {
-                DType::from_arrow_with_session(&Field::new("_", dt, false), &LEGACY_SESSION)
-            })?;
+            .map(|dt| DType::from_arrow_in(&Field::new("_", dt, false), &LEGACY_SESSION))?;
         Ok(PyArrayRef::from(
             ChunkedArray::try_new(encoded_chunks, dtype)?.into_array(),
         ))
     } else if obj.is_instance(table)? {
         let array_stream = ArrowArrayStreamReader::from_pyarrow(&obj.as_borrowed())?;
-        let dtype = DType::from_arrow_with_session(array_stream.schema(), &LEGACY_SESSION);
+        let dtype = DType::from_arrow_in(array_stream.schema(), &LEGACY_SESSION);
         let chunks = array_stream
             .into_iter()
             .map(|b| {
                 b.map_err(VortexError::from)
-                    .and_then(|b| ArrayRef::from_arrow_with_session(b, false, &LEGACY_SESSION))
+                    .and_then(|b| ArrayRef::from_arrow_in(b, false, &LEGACY_SESSION))
             })
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(PyArrayRef::from(

@@ -26,7 +26,7 @@ impl<R: RunEndIndexType> FromArrowArray<&RunArray<R>> for RunEndData
 where
     R::Native: NativePType,
 {
-    fn from_arrow_with_session(
+    fn from_arrow_in(
         array: &RunArray<R>,
         nullable: bool,
         session: &VortexSession,
@@ -37,7 +37,7 @@ where
             Buffer::<R::Native>::from_arrow_scalar_buffer(array.run_ends().inner().clone());
         let ends = PrimitiveArray::new(ends_buf, Validity::NonNullable)
             .reinterpret_cast(R::Native::PTYPE.to_unsigned());
-        let values = ArrayRef::from_arrow_with_session(array.values().as_ref(), nullable, session)?;
+        let values = ArrayRef::from_arrow_in(array.values().as_ref(), nullable, session)?;
 
         let ends_array = PrimitiveArray::from_buffer_handle(
             ends.buffer_handle().clone(),
@@ -130,8 +130,7 @@ mod tests {
             Buffer::<R::Native>::from_arrow_scalar_buffer(array.run_ends().inner().clone());
         let ends = PrimitiveArray::new(ends_buf, Validity::NonNullable)
             .reinterpret_cast(R::Native::PTYPE.to_unsigned());
-        let values =
-            ArrayRef::from_arrow_with_session(array.values().as_ref(), nullable, &SESSION)?;
+        let values = ArrayRef::from_arrow_in(array.values().as_ref(), nullable, &SESSION)?;
 
         let ends_array = PrimitiveArray::from_buffer_handle(
             ends.buffer_handle().clone(),

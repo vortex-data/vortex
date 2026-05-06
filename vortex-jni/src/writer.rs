@@ -89,7 +89,7 @@ impl NativeWriter {
     }
 
     fn write_record_batch(&self, batch: RecordBatch) -> VortexResult<()> {
-        let vortex_batch = ArrayRef::from_arrow_with_session(batch, false, &LEGACY_SESSION)?;
+        let vortex_batch = ArrayRef::from_arrow_in(batch, false, &LEGACY_SESSION)?;
         if !vortex_batch.dtype().eq(&self.write_schema) {
             return Err(vortex_err!(
                 "write schema mismatch: expected {}, got {}",

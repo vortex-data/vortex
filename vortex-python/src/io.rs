@@ -437,14 +437,14 @@ fn try_arrow_stream_to_iterator(
     if ob.is_instance(pa_table)? || ob.is_instance(pa_record_batch_reader)? {
         // Convert to Arrow stream using FFI
         let arrow_stream = ArrowArrayStreamReader::from_pyarrow(ob)?;
-        let dtype = DType::from_arrow_with_session(arrow_stream.schema(), &LEGACY_SESSION);
+        let dtype = DType::from_arrow_in(arrow_stream.schema(), &LEGACY_SESSION);
 
         // Convert Arrow RecordBatch stream to Vortex ArrayIterator
         let vortex_iter = arrow_stream
             .into_iter()
             .map(|batch_result| -> VortexResult<ArrayRef> {
                 let batch = batch_result.map_err(VortexError::from)?;
-                ArrayRef::from_arrow_with_session(batch, false, &LEGACY_SESSION)
+                ArrayRef::from_arrow_in(batch, false, &LEGACY_SESSION)
             });
 
         Ok(Box::new(ArrayIteratorAdapter::new(dtype, vortex_iter)))

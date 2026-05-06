@@ -86,7 +86,7 @@ pub(super) fn to_arrow_struct(
 
     // Otherwise, we fall back to executing to a StructArray.
     let array = if let Some(fields) = target_fields {
-        let vx_fields = StructFields::from_arrow_with_session(fields, ctx.session());
+        let vx_fields = StructFields::from_arrow_in(fields, ctx.session());
         // We apply a cast to ensure we push down casting where possible into the struct fields.
         array.cast(DType::Struct(
             vx_fields,
@@ -352,7 +352,7 @@ mod tests {
         let orig_dtype = array.dtype().clone();
         let arrow_array = array.into_array().execute_arrow(None, &mut ctx)?;
         let from_arrow =
-            array::ArrayRef::from_arrow_with_session(arrow_array.as_ref(), false, ctx.session())?;
+            array::ArrayRef::from_arrow_in(arrow_array.as_ref(), false, ctx.session())?;
         assert_eq!(&orig_dtype, from_arrow.dtype());
         Ok(())
     }

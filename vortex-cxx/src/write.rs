@@ -35,10 +35,10 @@ pub(crate) fn write_options_new() -> Box<VortexWriteOptions> {
 /// Convert an ArrowArrayStreamReader to a Vortex ArrayStream
 fn arrow_stream_to_vortex_stream(reader: ArrowArrayStreamReader) -> Result<impl ArrayStream> {
     let array_iter = ArrayIteratorAdapter::new(
-        DType::from_arrow_with_session(reader.schema(), &LEGACY_SESSION),
+        DType::from_arrow_in(reader.schema(), &LEGACY_SESSION),
         reader.map(|result| {
             result.map_err(VortexError::from).and_then(|record_batch| {
-                ArrayRef::from_arrow_with_session(record_batch, false, &LEGACY_SESSION)
+                ArrayRef::from_arrow_in(record_batch, false, &LEGACY_SESSION)
             })
         }),
     );

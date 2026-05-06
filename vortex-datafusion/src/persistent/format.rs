@@ -527,7 +527,7 @@ impl FileFormat for VortexFormat {
                 let column_size =
                     stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
 
-                let target_dtype = DType::from_arrow_with_session(field.as_ref(), &LEGACY_SESSION);
+                let target_dtype = DType::from_arrow_in(field.as_ref(), &LEGACY_SESSION);
                 let min = scalar_stat_to_df(
                     Stat::Min,
                     stats_set.get(Stat::Min),

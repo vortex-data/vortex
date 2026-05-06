@@ -21,7 +21,7 @@ fn collect_batches_as_vortex(iter: impl RecordBatchIterator) -> VortexResult<Arr
     Ok(ChunkedArray::from_iter(
         batches
             .into_iter()
-            .map(|batch| ArrayRef::from_arrow_with_session(batch, false, &LEGACY_SESSION))
+            .map(|batch| ArrayRef::from_arrow_in(batch, false, &LEGACY_SESSION))
             .collect::<VortexResult<Vec<_>>>()?,
     )
     .into_array())

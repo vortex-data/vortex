@@ -130,7 +130,7 @@ pub fn vortex_runend::RunEndData::array_hash<H: core::hash::Hasher>(&self, &mut 
 
 impl<R: arrow_array::types::RunEndIndexType> vortex_array::arrow::FromArrowArray<&arrow_array::array::run_array::RunArray<R>> for vortex_runend::RunEndData where <R as arrow_array::types::ArrowPrimitiveType>::Native: vortex_array::dtype::ptype::NativePType
 
-pub fn vortex_runend::RunEndData::from_arrow_with_session(&arrow_array::array::run_array::RunArray<R>, bool, &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+pub fn vortex_runend::RunEndData::from_arrow_in(&arrow_array::array::run_array::RunArray<R>, bool, &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
 
 pub struct vortex_runend::RunEndDataParts
 

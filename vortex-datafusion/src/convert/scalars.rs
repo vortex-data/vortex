@@ -220,7 +220,7 @@ impl FromDataFusion<ScalarValue> for Scalar {
             ScalarValue::Date32(v)
             | ScalarValue::Time32Second(v)
             | ScalarValue::Time32Millisecond(v) => {
-                let dtype = DType::from_arrow_with_session(
+                let dtype = DType::from_arrow_in(
                     (&value.data_type(), Nullability::Nullable),
                     &LEGACY_SESSION,
                 );
@@ -234,7 +234,7 @@ impl FromDataFusion<ScalarValue> for Scalar {
             | ScalarValue::TimestampMillisecond(v, _)
             | ScalarValue::TimestampMicrosecond(v, _)
             | ScalarValue::TimestampNanosecond(v, _) => {
-                let dtype = DType::from_arrow_with_session(
+                let dtype = DType::from_arrow_in(
                     (&value.data_type(), Nullability::Nullable),
                     &LEGACY_SESSION,
                 );

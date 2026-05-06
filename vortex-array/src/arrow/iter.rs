@@ -39,9 +39,9 @@ impl Iterator for ArrowArrayStreamAdapter {
         Some(batch.map_err(VortexError::from).and_then(|b| {
             debug_assert_eq!(
                 &self.dtype,
-                &DType::from_arrow_with_session(b.schema(), &LEGACY_SESSION)
+                &DType::from_arrow_in(b.schema(), &LEGACY_SESSION)
             );
-            ArrayRef::from_arrow_with_session(b, false, &LEGACY_SESSION)
+            ArrayRef::from_arrow_in(b, false, &LEGACY_SESSION)
         }))
     }
 }

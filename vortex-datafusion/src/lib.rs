@@ -211,7 +211,7 @@ mod common_tests {
         where
             P: Into<object_store::path::Path>,
         {
-            let array = ArrayRef::from_arrow_with_session(batch, false, &LEGACY_SESSION)?;
+            let array = ArrayRef::from_arrow_in(batch, false, &LEGACY_SESSION)?;
             let mut write = ObjectStoreWrite::new(Arc::clone(&self.store), &path.into()).await?;
             VX_SESSION
                 .write_options()

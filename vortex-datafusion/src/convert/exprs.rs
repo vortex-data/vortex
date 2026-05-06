@@ -226,7 +226,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         }
 
         if let Some(cast_expr) = df.as_any().downcast_ref::<df_expr::CastExpr>() {
-            let cast_dtype = DType::from_arrow_with_session(
+            let cast_dtype = DType::from_arrow_in(
                 (cast_expr.cast_type(), Nullability::Nullable),
                 &LEGACY_SESSION,
             );
@@ -237,7 +237,7 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         if let Some(cast_col_expr) = df.as_any().downcast_ref::<df_expr::CastColumnExpr>() {
             let target = cast_col_expr.target_field();
 
-            let target_dtype = DType::from_arrow_with_session(
+            let target_dtype = DType::from_arrow_in(
                 (target.data_type(), target.is_nullable().into()),
                 &LEGACY_SESSION,
             );
@@ -981,7 +981,7 @@ mod tests {
 
         // Convert batch to Vortex array
         let vortex_array: ArrayRef =
-            ArrayRef::from_arrow_with_session(&batch, false, &LEGACY_SESSION).unwrap();
+            ArrayRef::from_arrow_in(&batch, false, &LEGACY_SESSION).unwrap();
 
         // Apply Vortex expression
         let session = VortexSession::default();

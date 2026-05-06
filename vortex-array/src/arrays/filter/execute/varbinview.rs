@@ -37,7 +37,7 @@ fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> vortex_error::VortexResult<
     let mask_array = BooleanArray::new(values.bit_buffer().clone().into(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
-    ArrayRef::from_arrow_with_session(
+    ArrayRef::from_arrow_in(
         filtered.as_ref(),
         array.dtype().is_nullable(),
         &LEGACY_SESSION,

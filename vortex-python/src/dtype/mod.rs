@@ -194,7 +194,7 @@ impl PyDType {
     ) -> PyResult<Bound<'py, PyDType>> {
         Self::init(
             cls.py(),
-            DType::from_arrow_with_session(
+            DType::from_arrow_in(
                 &Field::new("_", arrow_dtype, !non_nullable),
                 &LEGACY_SESSION,
             ),

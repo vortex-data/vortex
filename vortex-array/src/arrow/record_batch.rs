@@ -16,7 +16,7 @@ use crate::arrow::ArrowArrayExecutor;
 
 impl StructArray {
     /// Convert a [`StructArray`] to a [`RecordBatch`] with the given schema, using `session`.
-    pub fn into_record_batch_with_schema_with_session(
+    pub fn into_record_batch_with_schema_in(
         self,
         schema: impl AsRef<Schema>,
         session: &VortexSession,
@@ -29,12 +29,12 @@ impl StructArray {
     }
 
     /// Convert a [`StructArray`] to a [`RecordBatch`] using the legacy global session.
-    #[deprecated(note = "Use `into_record_batch_with_schema_with_session` instead")]
+    #[deprecated(note = "Use `into_record_batch_with_schema_in` instead")]
     pub fn into_record_batch_with_schema(
         self,
         schema: impl AsRef<Schema>,
     ) -> VortexResult<RecordBatch> {
-        self.into_record_batch_with_schema_with_session(schema, &LEGACY_SESSION)
+        self.into_record_batch_with_schema_in(schema, &LEGACY_SESSION)
     }
 }
 
@@ -83,7 +83,7 @@ mod tests {
             true,
         )]));
         let rb = array
-            .into_record_batch_with_schema_with_session(arrow_schema, &LEGACY_SESSION)
+            .into_record_batch_with_schema_in(arrow_schema, &LEGACY_SESSION)
             .unwrap();
 
         let xs = rb.column(0);

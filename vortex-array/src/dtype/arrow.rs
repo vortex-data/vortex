@@ -48,12 +48,12 @@ use crate::extension::datetime::Timestamp;
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
     /// Convert the Arrow type to a Vortex type, looking up extension types in `session`.
-    fn from_arrow_with_session(value: T, session: &VortexSession) -> Self;
+    fn from_arrow_in(value: T, session: &VortexSession) -> Self;
 
     /// Convert the Arrow type to a Vortex type using the legacy global session.
-    #[deprecated(note = "Use `from_arrow_with_session` instead")]
+    #[deprecated(note = "Use `from_arrow_in` instead")]
     fn from_arrow(value: T) -> Self {
-        Self::from_arrow_with_session(value, &LEGACY_SESSION)
+        Self::from_arrow_in(value, &LEGACY_SESSION)
     }
 }
 
@@ -133,33 +133,33 @@ impl TryFrom<TimeUnit> for ArrowTimeUnit {
 }
 
 impl FromArrowType<SchemaRef> for DType {
-    fn from_arrow_with_session(value: SchemaRef, session: &VortexSession) -> Self {
-        Self::from_arrow_with_session(value.as_ref(), session)
+    fn from_arrow_in(value: SchemaRef, session: &VortexSession) -> Self {
+        Self::from_arrow_in(value.as_ref(), session)
     }
 }
 
 impl FromArrowType<&Schema> for DType {
-    fn from_arrow_with_session(value: &Schema, session: &VortexSession) -> Self {
+    fn from_arrow_in(value: &Schema, session: &VortexSession) -> Self {
         Self::Struct(
-            StructFields::from_arrow_with_session(value.fields(), session),
+            StructFields::from_arrow_in(value.fields(), session),
             Nullability::NonNullable, // Must match From<RecordBatch> for Array
         )
     }
 }
 
 impl FromArrowType<&Fields> for StructFields {
-    fn from_arrow_with_session(value: &Fields, session: &VortexSession) -> Self {
+    fn from_arrow_in(value: &Fields, session: &VortexSession) -> Self {
         StructFields::from_iter(value.into_iter().map(|f| {
             (
                 FieldName::from(f.name().as_str()),
-                DType::from_arrow_with_session(f.as_ref(), session),
+                DType::from_arrow_in(f.as_ref(), session),
             )
         }))
     }
 }
 
 impl FromArrowType<(&DataType, Nullability)> for DType {
-    fn from_arrow_with_session(
+    fn from_arrow_in(
         (data_type, nullability): (&DataType, Nullability),
         session: &VortexSession,
     ) -> Self {
@@ -200,23 +200,22 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
             | DataType::LargeList(e)
             | DataType::ListView(e)
             | DataType::LargeListView(e) => DType::List(
-                Arc::new(Self::from_arrow_with_session(e.as_ref(), session)),
+                Arc::new(Self::from_arrow_in(e.as_ref(), session)),
                 nullability,
             ),
             DataType::FixedSizeList(e, size) => DType::FixedSizeList(
-                Arc::new(Self::from_arrow_with_session(e.as_ref(), session)),
+                Arc::new(Self::from_arrow_in(e.as_ref(), session)),
                 *size as u32,
                 nullability,
             ),
-            DataType::Struct(f) => DType::Struct(
-                StructFields::from_arrow_with_session(f, session),
-                nullability,
-            ),
+            DataType::Struct(f) => {
+                DType::Struct(StructFields::from_arrow_in(f, session), nullability)
+            }
             DataType::Dictionary(_, value_type) => {
-                Self::from_arrow_with_session((value_type.as_ref(), nullability), session)
+                Self::from_arrow_in((value_type.as_ref(), nullability), session)
             }
             DataType::RunEndEncoded(_, value_type) => {
-                Self::from_arrow_with_session((value_type.data_type(), nullability), session)
+                Self::from_arrow_in((value_type.data_type(), nullability), session)
             }
             _ => unimplemented!("Arrow data type not yet supported: {:?}", data_type),
         }
@@ -224,7 +223,7 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
 }
 
 impl FromArrowType<&Field> for DType {
-    fn from_arrow_with_session(field: &Field, session: &VortexSession) -> Self {
+    fn from_arrow_in(field: &Field, session: &VortexSession) -> Self {
         if field
             .metadata()
             .get("ARROW:extension:name")
@@ -233,7 +232,7 @@ impl FromArrowType<&Field> for DType {
         {
             return DType::Variant(field.is_nullable().into());
         }
-        Self::from_arrow_with_session((field.data_type(), field.is_nullable().into()), session)
+        Self::from_arrow_in((field.data_type(), field.is_nullable().into()), session)
     }
 }
 
@@ -552,10 +551,8 @@ mod test {
         );
 
         let arrow_dtype = original_dtype.to_arrow_dtype().unwrap();
-        let roundtripped_dtype = DType::from_arrow_with_session(
-            (&arrow_dtype, Nullability::NonNullable),
-            &LEGACY_SESSION,
-        );
+        let roundtripped_dtype =
+            DType::from_arrow_in((&arrow_dtype, Nullability::NonNullable), &LEGACY_SESSION);
 
         assert_eq!(original_dtype, roundtripped_dtype);
     }
@@ -576,10 +573,8 @@ mod test {
             DType::struct_([("\u{7}=outer", inner_struct)], Nullability::NonNullable);
 
         let arrow_dtype = original_dtype.to_arrow_dtype().unwrap();
-        let roundtripped_dtype = DType::from_arrow_with_session(
-            (&arrow_dtype, Nullability::NonNullable),
-            &LEGACY_SESSION,
-        );
+        let roundtripped_dtype =
+            DType::from_arrow_in((&arrow_dtype, Nullability::NonNullable), &LEGACY_SESSION);
 
         assert_eq!(original_dtype, roundtripped_dtype);
     }
