@@ -663,6 +663,8 @@ mod tests {
             .into_array()
     }
 
+    // TODO: re-enable under miri once parking_lot_core fixes strict-provenance violations
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_struct_introspection_simple() {
         let array = create_test_struct_array();
@@ -679,6 +681,8 @@ mod tests {
         }
     }
 
+    // TODO: re-enable under miri once parking_lot_core fixes strict-provenance violations
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_field_name_access() {
         let array = create_test_struct_array();
@@ -704,6 +708,8 @@ mod tests {
         }
     }
 
+    // TODO: re-enable under miri once parking_lot_core fixes strict-provenance violations
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_comprehensive_struct_introspection() {
         let array = create_test_struct_array();
