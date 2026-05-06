@@ -123,6 +123,7 @@
 //! Patterns beyond those limits are still valid LIKE patterns; they simply do
 //! not use FSST pushdown and must be evaluated through the fallback path.
 
+mod anchor_scan;
 mod flat_contains;
 mod folded_contains;
 mod multi_contains;

@@ -663,3 +663,56 @@ fn test_like_edge_cases(
     assert_arrays_eq!(&result, &expected_arr);
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Randomized cross-check vs ground truth `String::contains`
+// ---------------------------------------------------------------------------
+//
+// Exercises the FSST `%needle%` DFA path (including the global-anchor-scan
+// fast path used by `FoldedContainsDfa::scan_to_bitbuf` for ≤8 progressing
+// codes) against random ClickBench-style URLs and random short needles.
+
+/// Verify that the FSST `%needle%` DFA agrees with naive `String::contains`
+/// across many random needles applied to random ClickBench-style URLs.
+#[test]
+fn test_random_needles_match_naive_contains() -> VortexResult<()> {
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::prelude::StdRng;
+
+    use crate::test_utils::generate_clickbench_urls;
+    use crate::test_utils::make_fsst_clickbench_urls;
+
+    const N_STRINGS: usize = 10_000;
+    const N_NEEDLES: usize = 32;
+
+    let urls = generate_clickbench_urls(N_STRINGS);
+    let fsst = make_fsst_clickbench_urls(N_STRINGS);
+
+    let mut rng = StdRng::seed_from_u64(0xCAFE_BABE);
+
+    // A pool of bytes most likely to occur in URLs, so most needles actually
+    // match something in the corpus and exercise both branches.
+    const URL_BYTES: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789-./";
+
+    for _ in 0..N_NEEDLES {
+        let len = rng.random_range(1..=7);
+        let needle: Vec<u8> = (0..len)
+            .map(|_| URL_BYTES[rng.random_range(0..URL_BYTES.len())])
+            .collect();
+        let needle_str = std::str::from_utf8(&needle).expect("ascii");
+        let pattern = format!("%{needle_str}%");
+
+        let result = run_like(
+            fsst.clone(),
+            ConstantArray::new(pattern.as_str(), N_STRINGS).into_array(),
+        )?;
+
+        let expected_bits: Vec<bool> = urls.iter().map(|u| u.contains(needle_str)).collect();
+        let expected = BoolArray::from_iter(expected_bits.iter().copied());
+
+        assert_arrays_eq!(&result, &expected);
+    }
+
+    Ok(())
+}
