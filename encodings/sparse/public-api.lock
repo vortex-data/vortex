@@ -90,9 +90,7 @@ pub fn vortex_sparse::SparseData::is_empty(&self) -> bool
 
 pub fn vortex_sparse::SparseData::len(&self) -> usize
 
-pub fn vortex_sparse::SparseData::patches(&self) -> &vortex_array::patches::Patches
-
-pub fn vortex_sparse::SparseData::resolved_patches(&self) -> vortex_error::VortexResult<vortex_array::patches::Patches>
+pub fn vortex_sparse::SparseData::offset(&self) -> usize
 
 pub fn vortex_sparse::SparseData::try_new_from_patches(vortex_array::patches::Patches, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<Self>
 
@@ -137,5 +135,23 @@ impl prost::message::Message for vortex_sparse::SparseMetadata
 pub fn vortex_sparse::SparseMetadata::clear(&mut self)
 
 pub fn vortex_sparse::SparseMetadata::encoded_len(&self) -> usize
+
+pub trait vortex_sparse::SparseExt
+
+pub fn vortex_sparse::SparseExt::patches(&self) -> vortex_array::patches::Patches
+
+pub fn vortex_sparse::SparseExt::resolved_patches(&self) -> vortex_error::VortexResult<vortex_array::patches::Patches>
+
+impl vortex_sparse::SparseExt for vortex_array::array::typed::Array<vortex_sparse::Sparse>
+
+pub fn vortex_array::array::typed::Array<vortex_sparse::Sparse>::patches(&self) -> vortex_array::patches::Patches
+
+pub fn vortex_array::array::typed::Array<vortex_sparse::Sparse>::resolved_patches(&self) -> vortex_error::VortexResult<vortex_array::patches::Patches>
+
+impl vortex_sparse::SparseExt for vortex_array::array::view::ArrayView<'_, vortex_sparse::Sparse>
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_sparse::Sparse>::patches(&self) -> vortex_array::patches::Patches
+
+pub fn vortex_array::array::view::ArrayView<'_, vortex_sparse::Sparse>::resolved_patches(&self) -> vortex_error::VortexResult<vortex_array::patches::Patches>
 
 pub type vortex_sparse::SparseArray = vortex_array::array::typed::Array<vortex_sparse::Sparse>

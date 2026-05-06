@@ -11,12 +11,12 @@ use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
 use crate::Sparse;
+use crate::SparseExt as _;
 
 impl CastReduce for Sparse {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         let casted_patches = array
             .patches()
-            .clone()
             .map_values(|values| values.cast(dtype.clone()))?;
 
         let casted_fill = if array.patches().num_patches() == array.len() {

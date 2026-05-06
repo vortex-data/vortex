@@ -26,6 +26,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
+use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
 use vortex_array::require_patches;
@@ -53,16 +54,13 @@ pub type ALPArray = Array<ALP>;
 impl ArrayHash for ALPData {
     fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
         self.exponents.hash(state);
-        self.patch_offset.hash(state);
-        self.patch_offset_within_chunk.hash(state);
+        self.patches_data.hash(state);
     }
 }
 
 impl ArrayEq for ALPData {
     fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
-        self.exponents == other.exponents
-            && self.patch_offset == other.patch_offset
-            && self.patch_offset_within_chunk == other.patch_offset_within_chunk
+        self.exponents == other.exponents && self.patches_data == other.patches_data
     }
 }
 
@@ -85,18 +83,14 @@ impl VTable for ALP {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let slots = ALPSlotsView::from_slots(slots);
-        validate_parts(
-            dtype,
+        let patches = PatchesData::to_optional_patches(
+            data.patches_data.as_ref(),
             len,
-            data.exponents,
-            slots.encoded,
-            patches_from_slots(
-                &slots,
-                data.patch_offset,
-                data.patch_offset_within_chunk,
-                len,
-            ),
-        )
+            slots.patch_indices,
+            slots.patch_values,
+            slots.patch_chunk_offsets,
+        );
+        validate_parts(dtype, len, data.exponents, slots.encoded, patches)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -221,16 +215,15 @@ pub struct ALPSlots {
 
 #[derive(Clone, Debug)]
 pub struct ALPData {
-    patch_offset: Option<usize>,
-    patch_offset_within_chunk: Option<usize>,
+    patches_data: Option<PatchesData>,
     exponents: Exponents,
 }
 
 impl Display for ALPData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "exponents: {}", self.exponents)?;
-        if let Some(offset) = self.patch_offset {
-            write!(f, ", patch_offset: {offset}")?;
+        if let Some(pd) = &self.patches_data {
+            write!(f, ", patch_offset: {}", pd.offset())?;
         }
         Ok(())
     }
@@ -339,14 +332,8 @@ impl ALPData {
     /// See [`ALP::try_new`] for reference on preconditions that must pass before
     /// calling this method.
     pub fn new(exponents: Exponents, patches: Option<Patches>) -> Self {
-        let (patch_offset, patch_offset_within_chunk) = match &patches {
-            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
-            None => (None, None),
-        };
-
         Self {
-            patch_offset,
-            patch_offset_within_chunk,
+            patches_data: patches.as_ref().map(PatchesData::from_patches),
             exponents,
         }
     }
@@ -411,14 +398,8 @@ impl ALP {
 
 impl ALPData {
     fn make_slots(encoded: &ArrayRef, patches: Option<&Patches>) -> Vec<Option<ArrayRef>> {
-        let (patch_indices, patch_values, patch_chunk_offsets) = match patches {
-            Some(p) => (
-                Some(p.indices().clone()),
-                Some(p.values().clone()),
-                p.chunk_offsets().clone(),
-            ),
-            None => (None, None, None),
-        };
+        let (patch_indices, patch_values, patch_chunk_offsets) =
+            PatchesData::make_optional_slots(patches);
         vec![
             Some(encoded.clone()),
             patch_indices,
@@ -439,36 +420,14 @@ pub trait ALPArrayExt: ALPArraySlotsExt {
     }
 
     fn patches(&self) -> Option<Patches> {
-        patches_from_slots(
-            &self.slots_view(),
-            self.patch_offset,
-            self.patch_offset_within_chunk,
+        let slots = self.slots_view();
+        PatchesData::to_optional_patches(
+            self.patches_data.as_ref(),
             self.as_ref().len(),
+            slots.patch_indices,
+            slots.patch_values,
+            slots.patch_chunk_offsets,
         )
-    }
-}
-
-fn patches_from_slots(
-    slots: &ALPSlotsView,
-    patch_offset: Option<usize>,
-    patch_offset_within_chunk: Option<usize>,
-    len: usize,
-) -> Option<Patches> {
-    match (slots.patch_indices, slots.patch_values) {
-        (Some(indices), Some(values)) => {
-            let patch_offset = patch_offset.vortex_expect("has patch slots but no patch_offset");
-            Some(unsafe {
-                Patches::new_unchecked(
-                    len,
-                    patch_offset,
-                    indices.clone(),
-                    values.clone(),
-                    slots.patch_chunk_offsets.cloned(),
-                    patch_offset_within_chunk,
-                )
-            })
-        }
-        _ => None,
     }
 }
 

@@ -30,6 +30,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::patches::Patches;
+use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -72,15 +73,18 @@ pub struct SparseMetadata {
 }
 
 impl ArrayHash for SparseData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
-        self.patches.array_hash(state, precision);
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.array_len.hash(state);
+        self.patches_data.hash(state);
         self.fill_value.hash(state);
     }
 }
 
 impl ArrayEq for SparseData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
-        self.patches.array_eq(&other.patches, precision) && self.fill_value == other.fill_value
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.array_len == other.array_len
+            && self.patches_data == other.patches_data
+            && self.fill_value == other.fill_value
     }
 }
 
@@ -100,9 +104,10 @@ impl VTable for Sparse {
         data: &Self::ArrayData,
         dtype: &DType,
         len: usize,
-        _slots: &[Option<ArrayRef>],
+        slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        SparseData::validate(data.patches(), data.fill_scalar(), dtype, len)
+        let patches = SparseData::patches_from_slots(data, len, slots);
+        SparseData::validate(&patches, data.fill_scalar(), dtype, len)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -181,7 +186,7 @@ impl VTable for Sparse {
             None,
         )?;
         let slots = SparseData::make_slots(&patches);
-        let data = SparseData::try_new_from_patches(patches, fill_value)?;
+        let data = SparseData::from_patches(&patches, fill_value)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -217,7 +222,10 @@ pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
 
 #[derive(Clone, Debug)]
 pub struct SparseData {
-    patches: Patches,
+    /// The total length of the sparse array.
+    array_len: usize,
+    /// Patch metadata (offset, offset_within_chunk) for reconstructing Patches from slots.
+    patches_data: PatchesData,
     fill_value: Scalar,
 }
 
@@ -241,7 +249,7 @@ impl Sparse {
         let dtype = fill_value.dtype().clone();
         let patches = Patches::new(len, 0, indices, values, None)?;
         let slots = SparseData::make_slots(&patches);
-        let data = SparseData::try_new_from_patches(patches, fill_value)?;
+        let data = SparseData::from_patches(&patches, fill_value)?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data).with_slots(slots))
         })
@@ -251,7 +259,7 @@ impl Sparse {
         let dtype = fill_value.dtype().clone();
         let len = patches.array_len();
         let slots = SparseData::make_slots(&patches);
-        let data = SparseData::try_new_from_patches(patches, fill_value)?;
+        let data = SparseData::from_patches(&patches, fill_value)?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data).with_slots(slots))
         })
@@ -261,7 +269,7 @@ impl Sparse {
         let dtype = fill_value.dtype().clone();
         let len = patches.array_len();
         let slots = SparseData::make_slots(&patches);
-        let data = unsafe { SparseData::new_unchecked(patches, fill_value) };
+        let data = SparseData::from_patches_unchecked(&patches, fill_value);
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data).with_slots(slots))
         }
@@ -325,25 +333,41 @@ impl SparseData {
     }
 
     fn make_slots(patches: &Patches) -> Vec<Option<ArrayRef>> {
-        vec![
-            Some(patches.indices().clone()),
-            Some(patches.values().clone()),
-            patches.chunk_offsets().clone(),
-        ]
+        let (indices, values, chunk_offsets) = PatchesData::make_slots(patches);
+        vec![Some(indices), Some(values), chunk_offsets]
     }
 
-    /// Build a new SparseArray from an existing set of patches.
+    /// Reconstruct a [`Patches`] from the stored metadata and the array's slots.
+    fn patches_from_slots(data: &SparseData, len: usize, slots: &[Option<ArrayRef>]) -> Patches {
+        data.patches_data.to_patches(
+            len,
+            slots[0]
+                .clone()
+                .vortex_expect("SparseArray patch_indices slot"),
+            slots[1]
+                .clone()
+                .vortex_expect("SparseArray patch_values slot"),
+            slots[2].clone(),
+        )
+    }
+
+    /// Build a new SparseData from an existing set of patches, normalizing dtypes.
     pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<Self> {
         let patches = Self::normalize_patches_dtype(patches, &fill_value)?;
-        Ok(Self {
-            patches,
-            fill_value,
-        })
+        Ok(Self::from_patches_unchecked(&patches, fill_value))
     }
 
-    pub(crate) unsafe fn new_unchecked(patches: Patches, fill_value: Scalar) -> Self {
+    /// Extract metadata from patches to create SparseData, with dtype normalization.
+    fn from_patches(patches: &Patches, fill_value: Scalar) -> VortexResult<Self> {
+        let patches = Self::normalize_patches_dtype(patches.clone(), &fill_value)?;
+        Ok(Self::from_patches_unchecked(&patches, fill_value))
+    }
+
+    /// Extract metadata from patches to create SparseData, without validation.
+    fn from_patches_unchecked(patches: &Patches, fill_value: Scalar) -> Self {
         Self {
-            patches,
+            array_len: patches.array_len(),
+            patches_data: PatchesData::from_patches(patches),
             fill_value,
         }
     }
@@ -351,13 +375,13 @@ impl SparseData {
     /// Returns the length of the array.
     #[inline]
     pub fn len(&self) -> usize {
-        self.patches.array_len()
+        self.array_len
     }
 
     /// Returns whether the array is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.patches.array_len() == 0
+        self.array_len == 0
     }
 
     /// Returns the logical data type of the array.
@@ -366,28 +390,10 @@ impl SparseData {
         self.fill_scalar().dtype()
     }
 
+    /// Returns the offset of the patches within the parent array.
     #[inline]
-    pub fn patches(&self) -> &Patches {
-        &self.patches
-    }
-
-    #[inline]
-    pub fn resolved_patches(&self) -> VortexResult<Patches> {
-        let patches = self.patches();
-        let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
-        let indices = patches.indices().binary(
-            ConstantArray::new(indices_offset, patches.indices().len()).into_array(),
-            Operator::Sub,
-        )?;
-
-        Patches::new(
-            patches.array_len(),
-            0,
-            indices,
-            patches.values().clone(),
-            // TODO(0ax1): handle chunk offsets
-            None,
-        )
+    pub fn offset(&self) -> usize {
+        self.patches_data.offset()
     }
 
     #[inline]
@@ -494,25 +500,64 @@ impl SparseData {
     }
 }
 
+/// Extension trait for accessing patches on [`SparseArray`] and [`ArrayView<'_, Sparse>`].
+///
+/// Patches are reconstructed from the array's slots and stored metadata on each call.
+pub trait SparseExt {
+    /// Reconstruct patches from the array's slots and metadata.
+    fn patches(&self) -> Patches;
+
+    /// Return patches with offset-resolved indices (offset subtracted from each index).
+    fn resolved_patches(&self) -> VortexResult<Patches> {
+        let patches = self.patches();
+        let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
+        let indices = patches.indices().binary(
+            ConstantArray::new(indices_offset, patches.indices().len()).into_array(),
+            Operator::Sub,
+        )?;
+
+        Patches::new(
+            patches.array_len(),
+            0,
+            indices,
+            patches.values().clone(),
+            // TODO(0ax1): handle chunk offsets
+            None,
+        )
+    }
+}
+
+impl SparseExt for ArrayView<'_, Sparse> {
+    fn patches(&self) -> Patches {
+        SparseData::patches_from_slots(self.data(), self.len(), self.slots())
+    }
+}
+
+impl SparseExt for Array<Sparse> {
+    fn patches(&self) -> Patches {
+        SparseData::patches_from_slots(self.data(), self.as_array().len(), self.slots())
+    }
+}
+
 impl ValidityVTable<Sparse> for Sparse {
     fn validity(array: ArrayView<'_, Sparse>) -> VortexResult<Validity> {
-        let patches = unsafe {
+        let orig_patches = array.patches();
+        let validity_patches = unsafe {
             Patches::new_unchecked(
-                array.patches.array_len(),
-                array.patches.offset(),
-                array.patches.indices().clone(),
-                array
-                    .patches
+                orig_patches.array_len(),
+                orig_patches.offset(),
+                orig_patches.indices().clone(),
+                orig_patches
                     .values()
                     .validity()?
-                    .to_array(array.patches.values().len()),
-                array.patches.chunk_offsets().clone(),
-                array.patches.offset_within_chunk(),
+                    .to_array(orig_patches.values().len()),
+                orig_patches.chunk_offsets().clone(),
+                orig_patches.offset_within_chunk(),
             )
         };
 
         Ok(Validity::Array(
-            unsafe { Sparse::new_unchecked(patches, array.fill_value.is_valid().into()) }
+            unsafe { Sparse::new_unchecked(validity_patches, array.fill_value.is_valid().into()) }
                 .into_array(),
         ))
     }

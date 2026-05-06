@@ -22,6 +22,7 @@ use vortex_fsst::FSSTArrayExt;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_sparse::Sparse;
+use vortex_sparse::SparseExt as _;
 
 use super::integer::IntDictScheme;
 use super::integer::SparseScheme as IntSparseScheme;

@@ -122,6 +122,109 @@ impl PatchesMetadata {
     }
 }
 
+/// Metadata stored in an array's data struct for reconstructing [`Patches`] from slots.
+///
+/// The actual patch arrays (indices, values, chunk_offsets) live in the array's
+/// slots. This struct stores only the scalar metadata needed to reassemble them.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct PatchesData {
+    offset: usize,
+    offset_within_chunk: Option<usize>,
+}
+
+impl PatchesData {
+    /// Extract patch metadata from an existing [`Patches`].
+    pub fn from_patches(patches: &Patches) -> Self {
+        Self {
+            offset: patches.offset(),
+            offset_within_chunk: patches.offset_within_chunk(),
+        }
+    }
+
+    /// Reconstruct a [`Patches`] from this metadata and the slot arrays.
+    ///
+    /// # Safety
+    /// Caller must ensure the slot arrays satisfy the `Patches` invariants.
+    pub fn to_patches(
+        &self,
+        len: usize,
+        indices: ArrayRef,
+        values: ArrayRef,
+        chunk_offsets: Option<ArrayRef>,
+    ) -> Patches {
+        unsafe {
+            Patches::new_unchecked(
+                len,
+                self.offset,
+                indices,
+                values,
+                chunk_offsets,
+                self.offset_within_chunk,
+            )
+        }
+    }
+
+    /// Reconstruct an optional [`Patches`] from optional metadata and slot arrays.
+    ///
+    /// Returns `None` if `patches_data` is `None` or if indices/values slots are missing.
+    pub fn to_optional_patches(
+        patches_data: Option<&Self>,
+        len: usize,
+        indices: Option<&ArrayRef>,
+        values: Option<&ArrayRef>,
+        chunk_offsets: Option<&ArrayRef>,
+    ) -> Option<Patches> {
+        let data = patches_data?;
+        match (indices, values) {
+            (Some(indices), Some(values)) => Some(unsafe {
+                Patches::new_unchecked(
+                    len,
+                    data.offset,
+                    indices.clone(),
+                    values.clone(),
+                    chunk_offsets.cloned(),
+                    data.offset_within_chunk,
+                )
+            }),
+            _ => None,
+        }
+    }
+
+    /// Extract the slot arrays (indices, values, chunk_offsets) from a [`Patches`].
+    pub fn make_slots(patches: &Patches) -> (ArrayRef, ArrayRef, Option<ArrayRef>) {
+        (
+            patches.indices().clone(),
+            patches.values().clone(),
+            patches.chunk_offsets().clone(),
+        )
+    }
+
+    /// Extract optional slot arrays from an optional [`Patches`].
+    pub fn make_optional_slots(
+        patches: Option<&Patches>,
+    ) -> (Option<ArrayRef>, Option<ArrayRef>, Option<ArrayRef>) {
+        match patches {
+            Some(p) => {
+                let (indices, values, chunk_offsets) = Self::make_slots(p);
+                (Some(indices), Some(values), chunk_offsets)
+            }
+            None => (None, None, None),
+        }
+    }
+
+    /// Returns the patch offset.
+    #[inline]
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    /// Returns the offset within the first chunk, if chunk offsets are present.
+    #[inline]
+    pub fn offset_within_chunk(&self) -> Option<usize> {
+        self.offset_within_chunk
+    }
+}
+
 /// A helper for working with patched arrays.
 #[derive(Debug, Clone)]
 pub struct Patches {

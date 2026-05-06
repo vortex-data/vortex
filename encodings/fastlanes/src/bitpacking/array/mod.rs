@@ -16,9 +16,9 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
 use vortex_array::patches::Patches;
+use vortex_array::patches::PatchesData;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -60,10 +60,8 @@ pub struct BitPackedData {
     pub(super) offset: u16,
     pub(super) bit_width: u8,
     pub(super) packed: BufferHandle,
-    /// The offset metadata from patches, needed to reconstruct Patches from slots.
-    pub(super) patch_offset: Option<usize>,
-    /// The offset_within_chunk metadata from patches.
-    pub(super) patch_offset_within_chunk: Option<usize>,
+    /// Patch metadata for reconstructing Patches from slots.
+    pub(super) patches_data: Option<PatchesData>,
 }
 
 impl Display for BitPackedData {
@@ -126,17 +124,11 @@ impl BitPackedData {
             "Offset must be less than the full block i.e., 1024, got {offset}"
         );
 
-        let (patch_offset, patch_offset_within_chunk) = match &patches {
-            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
-            None => (None, None),
-        };
-
         Ok(Self {
             offset,
             bit_width,
             packed,
-            patch_offset,
-            patch_offset_within_chunk,
+            patches_data: patches.as_ref().map(PatchesData::from_patches),
         })
     }
 
@@ -294,24 +286,13 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
 
     #[inline]
     fn patches(&self) -> Option<Patches> {
-        match (self.patch_indices(), self.patch_values()) {
-            (Some(indices), Some(values)) => {
-                let patch_offset = self
-                    .patch_offset
-                    .vortex_expect("has patch slots but no patch_offset");
-                Some(unsafe {
-                    Patches::new_unchecked(
-                        self.as_ref().len(),
-                        patch_offset,
-                        indices.clone(),
-                        values.clone(),
-                        self.patch_chunk_offsets().cloned(),
-                        self.patch_offset_within_chunk,
-                    )
-                })
-            }
-            _ => None,
-        }
+        PatchesData::to_optional_patches(
+            self.patches_data.as_ref(),
+            self.as_ref().len(),
+            self.patch_indices(),
+            self.patch_values(),
+            self.patch_chunk_offsets(),
+        )
     }
 
     #[inline]

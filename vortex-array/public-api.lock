@@ -13840,6 +13840,44 @@ impl vortex_array::ArrayHash for vortex_array::patches::Patches
 
 pub fn vortex_array::patches::Patches::array_hash<H: core::hash::Hasher>(&self, &mut H, vortex_array::Precision)
 
+pub struct vortex_array::patches::PatchesData
+
+impl vortex_array::patches::PatchesData
+
+pub fn vortex_array::patches::PatchesData::from_patches(&vortex_array::patches::Patches) -> Self
+
+pub fn vortex_array::patches::PatchesData::make_optional_slots(core::option::Option<&vortex_array::patches::Patches>) -> (core::option::Option<vortex_array::ArrayRef>, core::option::Option<vortex_array::ArrayRef>, core::option::Option<vortex_array::ArrayRef>)
+
+pub fn vortex_array::patches::PatchesData::make_slots(&vortex_array::patches::Patches) -> (vortex_array::ArrayRef, vortex_array::ArrayRef, core::option::Option<vortex_array::ArrayRef>)
+
+pub fn vortex_array::patches::PatchesData::offset(&self) -> usize
+
+pub fn vortex_array::patches::PatchesData::offset_within_chunk(&self) -> core::option::Option<usize>
+
+pub fn vortex_array::patches::PatchesData::to_optional_patches(core::option::Option<&Self>, usize, core::option::Option<&vortex_array::ArrayRef>, core::option::Option<&vortex_array::ArrayRef>, core::option::Option<&vortex_array::ArrayRef>) -> core::option::Option<vortex_array::patches::Patches>
+
+pub fn vortex_array::patches::PatchesData::to_patches(&self, usize, vortex_array::ArrayRef, vortex_array::ArrayRef, core::option::Option<vortex_array::ArrayRef>) -> vortex_array::patches::Patches
+
+impl core::clone::Clone for vortex_array::patches::PatchesData
+
+pub fn vortex_array::patches::PatchesData::clone(&self) -> vortex_array::patches::PatchesData
+
+impl core::cmp::Eq for vortex_array::patches::PatchesData
+
+impl core::cmp::PartialEq for vortex_array::patches::PatchesData
+
+pub fn vortex_array::patches::PatchesData::eq(&self, &vortex_array::patches::PatchesData) -> bool
+
+impl core::fmt::Debug for vortex_array::patches::PatchesData
+
+pub fn vortex_array::patches::PatchesData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::patches::PatchesData
+
+pub fn vortex_array::patches::PatchesData::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_array::patches::PatchesData
+
 pub struct vortex_array::patches::PatchesMetadata
 
 impl vortex_array::patches::PatchesMetadata
