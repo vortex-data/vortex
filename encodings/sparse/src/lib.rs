@@ -258,25 +258,32 @@ impl VTable for Sparse {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        // Resolve offset first: wrap indices in Binary(indices, offset, Sub) and rebuild
-        // with offset=0. Uses slot children (not data) since the executor may have
-        // updated slots via reduce_parent/execute_parent.
+        // Resolve offset first: wrap indices in Binary(indices, offset, Sub) and
+        // reassemble with offset=0. Uses slot children (not data) since the executor
+        // may have updated slots via reduce_parent/execute_parent.
         let array = if array.patches().offset() != 0 {
             let offset = array.patches().offset();
             let indices = array.patch_indices();
+            let values = array.patch_values().clone();
+            let len = array.len();
             let offset_scalar = Scalar::from(offset).cast(indices.dtype())?;
             let resolved_indices = indices.binary(
                 ConstantArray::new(offset_scalar, indices.len()).into_array(),
                 Operator::Sub,
             )?;
-            let patches = Patches::new(
-                array.len(),
-                0,
-                resolved_indices,
-                array.patch_values().clone(),
-                None,
-            )?;
-            Sparse::try_new_from_patches(patches, array.fill_scalar().clone())?
+            let patches = Patches::new(len, 0, resolved_indices.clone(), values, None)?;
+            // Decompose, update in place, and reassemble without re-validation.
+            match array.try_into_parts() {
+                Ok(mut parts) => {
+                    *parts.data.patches_mut() = patches;
+                    parts.slots[SparseSlots::PATCH_INDICES] = Some(resolved_indices);
+                    parts.slots[SparseSlots::PATCH_CHUNK_OFFSETS] = None;
+                    unsafe { Array::from_parts_unchecked(parts) }
+                }
+                Err(array) => {
+                    Sparse::try_new_from_patches(patches, array.fill_scalar().clone())?
+                }
+            }
         } else {
             array
         };
@@ -466,8 +473,32 @@ impl SparseData {
 
     /// Returns the offset of the patches within the parent array.
     #[inline]
-    pub fn offset(&self) -> usize {
-        self.patches_data.offset()
+    pub fn patches(&self) -> &Patches {
+        &self.patches
+    }
+
+    #[inline]
+    pub(crate) fn patches_mut(&mut self) -> &mut Patches {
+        &mut self.patches
+    }
+
+    #[inline]
+    pub fn resolved_patches(&self) -> VortexResult<Patches> {
+        let patches = self.patches();
+        let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
+        let indices = patches.indices().binary(
+            ConstantArray::new(indices_offset, patches.indices().len()).into_array(),
+            Operator::Sub,
+        )?;
+
+        Patches::new(
+            patches.array_len(),
+            0,
+            indices,
+            patches.values().clone(),
+            // TODO(0ax1): handle chunk offsets
+            None,
+        )
     }
 
     #[inline]
