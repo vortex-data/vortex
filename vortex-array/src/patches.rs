@@ -607,24 +607,32 @@ impl Patches {
 
     /// Returns the minimum patch index.
     pub fn min_index(&self) -> VortexResult<usize> {
+        if let Some((min, _)) = self.cached_bounds() {
+            return Ok(min);
+        }
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let min: usize = self
+        let raw: usize = self
             .indices
             .statistics()
             .compute_min(&mut ctx)
             .ok_or_else(|| vortex_err!("min index unavailable"))?;
-        Ok(min - self.offset)
+        raw.checked_sub(self.offset)
+            .ok_or_else(|| vortex_err!("offset {} exceeds min index {}", self.offset, raw))
     }
 
     /// Returns the maximum patch index.
     pub fn max_index(&self) -> VortexResult<usize> {
+        if let Some((_, max)) = self.cached_bounds() {
+            return Ok(max);
+        }
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let max: usize = self
+        let raw: usize = self
             .indices
             .statistics()
             .compute_max(&mut ctx)
             .ok_or_else(|| vortex_err!("max index unavailable"))?;
-        Ok(max - self.offset)
+        raw.checked_sub(self.offset)
+            .ok_or_else(|| vortex_err!("offset {} exceeds max index {}", self.offset, raw))
     }
 
     /// Filter the patches by a mask, resulting in new patches for the filtered array.
