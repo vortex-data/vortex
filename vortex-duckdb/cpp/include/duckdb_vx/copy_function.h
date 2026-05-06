@@ -33,6 +33,14 @@ typedef struct {
 // BATCH_COPY_TO_FILE
 // } copy_function_execution_mode;
 
+/// Statistics about a single written file, reported via copy_to_get_written_statistics.
+typedef struct {
+    /// Total number of rows written to the file.
+    unsigned long long row_count;
+    /// Total size of the written file in bytes.
+    unsigned long long file_size_bytes;
+} duckdb_vx_written_statistics_t;
+
 // A transparent DuckDB copy function vtable, which can be used to configure a copy function.
 typedef struct {
     // The name of the copy function.
@@ -62,6 +70,17 @@ typedef struct {
                          duckdb_vx_error *error_out);
 
     void (*copy_to_finalize)(const void *bind_data, void *global_data, duckdb_vx_error *error_out);
+
+    /// Optional callback to report per-file write statistics back to DuckDB.
+    ///
+    /// Called after copy_to_finalize. If non-null and the callback returns true, `stats_out`
+    /// is filled with aggregate statistics about the written file, and DuckDB exposes these
+    /// to table-format layers (e.g. duck-lake) for use in manifest or catalog entries.
+    /// Return false to indicate that no statistics are available for this write.
+    bool (*copy_to_get_written_statistics)(const void *bind_data,
+                                           const void *global_data,
+                                           duckdb_vx_written_statistics_t *stats_out,
+                                           duckdb_vx_error *error_out);
 
     // TODO(joe): expose via c api
     // copy_function_execution_mode (*execution_mode)(bool preserve_insertion_order, bool

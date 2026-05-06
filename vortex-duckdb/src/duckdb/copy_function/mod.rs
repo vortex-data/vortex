@@ -16,10 +16,23 @@ use crate::duckdb::DatabaseRef;
 use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::copy_function::callback::bind_callback;
 use crate::duckdb::copy_function::callback::copy_to_finalize_callback;
+use crate::duckdb::copy_function::callback::copy_to_get_written_statistics_callback;
 use crate::duckdb::copy_function::callback::copy_to_sink_callback;
 use crate::duckdb::copy_function::callback::global_callback;
 use crate::duckdb::copy_function::callback::local_callback;
 use crate::duckdb_try;
+
+/// Statistics about a single written Vortex file.
+///
+/// Returned by [`CopyFunction::get_written_statistics`] and forwarded to DuckDB via
+/// `copy_to_get_written_statistics`. Table-format layers (e.g. duck-lake) consume these
+/// values to build manifest or catalog entries.
+pub struct WrittenStatistics {
+    /// Total number of rows written to the file.
+    pub row_count: u64,
+    /// Total size of the written file in bytes.
+    pub file_size_bytes: u64,
+}
 
 pub trait CopyFunction: Sized + Debug {
     type BindData: Send;
@@ -61,6 +74,17 @@ pub trait CopyFunction: Sized + Debug {
     /// is thread-local.
     fn init_local(bind: &Self::BindData) -> VortexResult<Self::LocalState>;
 
+    /// Returns per-file write statistics after [`copy_to_finalize`][Self::copy_to_finalize].
+    ///
+    /// Return `Some` to report statistics to DuckDB (e.g. for duck-lake manifest entries).
+    /// The default implementation returns `None`, which disables the callback.
+    fn get_written_statistics(
+        _bind_data: &Self::BindData,
+        _global_state: &Self::GlobalState,
+    ) -> VortexResult<Option<WrittenStatistics>> {
+        Ok(None)
+    }
+
     // TODO(joe): there are many more callbacks that can be configured.
 }
 
@@ -80,6 +104,8 @@ impl DatabaseRef {
         vtab.init_local = Some(local_callback::<T>);
         vtab.copy_to_sink = Some(copy_to_sink_callback::<T>);
         vtab.copy_to_finalize = Some(copy_to_finalize_callback::<T>);
+        vtab.copy_to_get_written_statistics =
+            Some(copy_to_get_written_statistics_callback::<T>);
 
         duckdb_try!(
             unsafe { cpp::duckdb_vx_copy_func_register_vtab_one(self.as_ptr()) },

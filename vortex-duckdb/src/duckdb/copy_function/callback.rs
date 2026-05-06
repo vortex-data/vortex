@@ -14,6 +14,7 @@ use crate::cpp::duckdb_data_chunk;
 use crate::cpp::duckdb_logical_type;
 use crate::cpp::duckdb_vx_copy_func_bind_input;
 use crate::cpp::duckdb_vx_error;
+use crate::cpp::duckdb_vx_written_statistics_t;
 use crate::duckdb::ClientContext;
 use crate::duckdb::CopyFunction;
 use crate::duckdb::Data;
@@ -116,5 +117,30 @@ pub(crate) unsafe extern "C-unwind" fn copy_to_finalize_callback<T: CopyFunction
     try_or(error_out, || {
         T::copy_to_finalize(bind_data, global_data)?;
         Ok(())
+    })
+}
+
+pub(crate) unsafe extern "C-unwind" fn copy_to_get_written_statistics_callback<T: CopyFunction>(
+    bind_data: *const c_void,
+    global_data: *const c_void,
+    stats_out: *mut duckdb_vx_written_statistics_t,
+    error_out: *mut duckdb_vx_error,
+) -> bool {
+    let bind_data =
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null pointer");
+    let global_data = unsafe { global_data.cast::<T::GlobalState>().as_ref() }
+        .vortex_expect("global_data null pointer");
+
+    try_or(error_out, || {
+        match T::get_written_statistics(bind_data, global_data)? {
+            Some(stats) => {
+                if let Some(out) = unsafe { stats_out.as_mut() } {
+                    out.row_count = stats.row_count;
+                    out.file_size_bytes = stats.file_size_bytes;
+                }
+                Ok(true)
+            }
+            None => Ok(false),
+        }
     })
 }

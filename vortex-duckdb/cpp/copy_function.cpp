@@ -134,6 +134,34 @@ void copy_to_finalize(ClientContext & /*context*/, FunctionData &bind_data, Glob
     }
 }
 
+vector<Value> c_get_written_statistics(ClientContext & /*context*/,
+                                       FunctionData &bind_data,
+                                       GlobalFunctionData &gstate) {
+    auto &bind = bind_data.Cast<CCopyBindData>();
+    auto &global = gstate.Cast<CCopyGlobalData>();
+    if (!bind.vtab.copy_to_get_written_statistics) {
+        return {};
+    }
+
+    duckdb_vx_error error_out = nullptr;
+    duckdb_vx_written_statistics_t stats = {};
+    bool has_stats = bind.vtab.copy_to_get_written_statistics(bind.ffi_data->DataPtr(),
+                                                               global.ffi_data->DataPtr(),
+                                                               &stats,
+                                                               &error_out);
+    if (error_out) {
+        throw ExecutorException(IntoErrString(error_out));
+    }
+    if (!has_stats) {
+        return {};
+    }
+
+    child_list_t<Value> struct_vals;
+    struct_vals.emplace_back("row_count", Value::UBIGINT(stats.row_count));
+    struct_vals.emplace_back("file_size_bytes", Value::UBIGINT(stats.file_size_bytes));
+    return {Value::STRUCT(std::move(struct_vals))};
+}
+
 extern "C" duckdb_vx_copy_func_vtab_t *get_vtab_one() {
     return &copy_vtab_one;
 }
@@ -153,6 +181,9 @@ extern "C" duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_database ff
 
     copy_function.copy_to_sink = c_copy_to_sink;
     copy_function.copy_to_finalize = copy_to_finalize;
+    if (copy_vtab_one.copy_to_get_written_statistics) {
+        copy_function.copy_to_get_written_statistics = c_get_written_statistics;
+    }
     copy_function.extension = copy_vtab_one.extension;
 
     // TODO(joe): expose this via c our api

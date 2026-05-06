@@ -34,6 +34,7 @@ use crate::duckdb::CopyFunction;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::DuckDbFsWriter;
 use crate::duckdb::LogicalTypeRef;
+use crate::duckdb::WrittenStatistics;
 
 #[derive(Debug)]
 pub struct VortexCopyFunction;
@@ -56,6 +57,9 @@ pub struct GlobalState {
     // into us, and we call `RUNTIME.block_on`.
     #[expect(dead_code)]
     worker_pool: CurrentThreadWorkerPool,
+    /// Summary populated by [`VortexCopyFunction::copy_to_finalize`] for use in
+    /// [`VortexCopyFunction::get_written_statistics`].
+    write_summary: Option<WriteSummary>,
 }
 
 impl CopyFunction for VortexCopyFunction {
@@ -112,7 +116,8 @@ impl CopyFunction for VortexCopyFunction {
                 .lock()
                 .take()
                 .vortex_expect("no file to close");
-            task.await?;
+            let summary = task.await?;
+            init_global.write_summary = Some(summary);
             Ok(())
         })
     }
@@ -145,10 +150,21 @@ impl CopyFunction for VortexCopyFunction {
             worker_pool,
             write_task: Mutex::new(Some(write_task)),
             sink: Some(sink),
+            write_summary: None,
         })
     }
 
     fn init_local(_global: &Self::BindData) -> VortexResult<Self::LocalState> {
         Ok(())
+    }
+
+    fn get_written_statistics(
+        _bind_data: &Self::BindData,
+        global_state: &Self::GlobalState,
+    ) -> VortexResult<Option<WrittenStatistics>> {
+        Ok(global_state.write_summary.as_ref().map(|s| WrittenStatistics {
+            row_count: s.row_count(),
+            file_size_bytes: s.size(),
+        }))
     }
 }
