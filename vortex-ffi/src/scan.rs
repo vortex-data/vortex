@@ -304,7 +304,7 @@ pub unsafe extern "C-unwind" fn vx_scan_next_partition(
             }
         };
 
-        let owned = ptr::read(ptr);
+        let owned = ptr::replace(ptr, VxScan::Finished);
         try_or_default(err, || match owned {
             VxScan::Pending(scan) => on_stream(scan.partitions()),
             VxScan::Started(stream) => on_stream(stream),
@@ -421,7 +421,7 @@ pub unsafe extern "C-unwind" fn vx_partition_next(
             }
         };
 
-        let owned = ptr::read(ptr);
+        let owned = ptr::replace(ptr, VxPartitionScan::Finished);
         try_or_default(err, || match owned {
             VxPartitionScan::Pending(partition) => on_stream(partition.execute()?),
             VxPartitionScan::Started(stream) => on_stream(stream),
