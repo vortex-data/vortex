@@ -3,10 +3,46 @@
 
 //! Wire shapes for `POST /api/ingest`.
 //!
-//! These types deserialize the ingest envelope defined in
-//! `benchmarks-website/planning/02-contracts.md`. Each variant of [`Record`]
-//! is gated by `#[serde(deny_unknown_fields)]`, so unknown fields produce
-//! a 400 with the offending record's index.
+//! Each [`Record`] variant deserializes one row destined for one of the five
+//! fact tables in [`crate::schema`]. The producer side of the contract lives
+//! in `vortex-bench/src/v3.rs` (the `--gh-json-v3` emitter); when changing a
+//! shape here, change both sides in the same commit.
+//!
+//! ## Records are discriminated by `kind`
+//!
+//! Every record carries a `kind` field that picks one of the five fact
+//! tables; serde drives this with `#[serde(tag = "kind", rename_all =
+//! "snake_case")]`.
+//!
+//! | `kind`               | Destination table       |
+//! |----------------------|-------------------------|
+//! | `query_measurement`  | `query_measurements`    |
+//! | `compression_time`   | `compression_times`     |
+//! | `compression_size`   | `compression_sizes`     |
+//! | `random_access_time` | `random_access_times`   |
+//! | `vector_search_run`  | `vector_search_runs`    |
+//!
+//! Every record struct carries `#[serde(deny_unknown_fields)]`, so unknown
+//! fields surface as a `400` with the offending record's index — version
+//! skew is supposed to fail loudly. Unknown `kind` values produce the same
+//! `400` from the outer enum's tag check.
+//!
+//! ## Ingest envelope
+//!
+//! `POST /api/ingest` accepts one [`Envelope`] per request. The envelope
+//! wraps a heterogeneous batch of records (any mix of `kind`s):
+//!
+//! - `run_meta` — [`RunMeta`] with `benchmark_id`, `schema_version`
+//!   (must equal [`crate::schema::SCHEMA_VERSION`]), and `started_at`.
+//! - `commit` — [`CommitInfo`] with the columns of the `commits` dim table,
+//!   keyed by their column names with `commit_sha` renamed to `sha`. The
+//!   server upserts this row before applying any record.
+//! - `records` — array of per-`kind` records.
+//!
+//! `vortex-bench --gh-json-v3 <path>` writes JSONL of bare records only —
+//! the envelope (`run_meta` + `commit`) is added by the post-ingest script
+//! before POSTing, which keeps the Rust emitter dependency-light and lets
+//! CI fill the commit fields from `${{ github.sha }}` plus `git show`.
 
 use serde::Deserialize;
 
