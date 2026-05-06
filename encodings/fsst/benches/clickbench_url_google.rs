@@ -65,8 +65,12 @@ const LIKE_PATTERN_BYTES: &[u8] = b"%google%";
 static FSST_CB_URLS: LazyLock<FSSTArray> = LazyLock::new(|| make_fsst_clickbench_urls(N));
 
 /// Decompressed corpus, one `Vec<u8>` per URL, in the same order as the FSST array.
-static DECOMPRESSED_PER_STRING: LazyLock<Vec<Vec<u8>>> =
-    LazyLock::new(|| generate_clickbench_urls(N).into_iter().map(String::into_bytes).collect());
+static DECOMPRESSED_PER_STRING: LazyLock<Vec<Vec<u8>>> = LazyLock::new(|| {
+    generate_clickbench_urls(N)
+        .into_iter()
+        .map(String::into_bytes)
+        .collect()
+});
 
 /// Decompressed corpus concatenated into one buffer (no separators) plus the
 /// per-string offsets, for the global `memmem` variant.
@@ -117,7 +121,11 @@ fn dfa_inner_only(bencher: Bencher) {
     let codes = view.codes();
     #[expect(deprecated)]
     let offsets = codes.offsets().to_primitive();
-    let offsets: Vec<u32> = offsets.as_slice::<i32>().iter().map(|&v| v as u32).collect();
+    let offsets: Vec<u32> = offsets
+        .as_slice::<i32>()
+        .iter()
+        .map(|&v| v as u32)
+        .collect();
     let bytes = codes.bytes().as_slice().to_vec();
 
     let matcher = FsstMatcher::try_new(

@@ -25,6 +25,8 @@
 //! [`FlatContainsDfa`] remains in use for longer needles (128–254 bytes).
 
 use fsst::Symbol;
+use vortex_array::dtype::IntegerPType;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -93,7 +95,192 @@ impl FlatContainsDfa {
         })
     }
 
-    #[inline]
+    /// Scan `n` FSST-compressed strings to a bit-packed boolean output.
+    ///
+    /// Tight 64-string-block loop that packs per-string DFA results directly
+    /// into 64-bit words, avoiding the closure-call overhead of
+    /// `BitBuffer::collect_bool`. Uses the state-0 skip strategy as a global
+    /// anchor pre-scan only when it's a `Memchr1/2/3` (SIMD-friendly): the
+    /// non-candidate path then skips the per-string DFA call entirely.
+    /// Otherwise (Bitmap), goes directly to per-string DFA.
+    pub(crate) fn scan_to_bitbuf<T: IntegerPType>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+    ) -> BitBuffer {
+        let scan_skip: Option<&SkipStrategy> = match &self.skip {
+            SkipStrategy::Memchr1(_)
+            | SkipStrategy::Memchr2(_, _)
+            | SkipStrategy::Memchr3(_, _, _) => Some(&self.skip),
+            SkipStrategy::Bitmap(_) => None,
+        };
+
+        if let Some(skip) = scan_skip {
+            self.scan_with_anchor(n, offsets, all_bytes, negated, skip)
+        } else {
+            self.scan_no_anchor(n, offsets, all_bytes, negated)
+        }
+    }
+
+    fn scan_no_anchor<T: IntegerPType>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+    ) -> BitBuffer {
+        use vortex_buffer::BufferMut;
+        let mut out = BufferMut::<u64>::with_capacity(n.div_ceil(64));
+        let chunks = n / 64;
+        let remainder = n % 64;
+        let neg_word: u64 = if negated { u64::MAX } else { 0 };
+
+        for chunk in 0..chunks {
+            let mut packed_match: u64 = 0;
+            let base = chunk * 64;
+            for bit in 0..64usize {
+                let i = base + bit;
+                // SAFETY: i + 1 <= offsets.len() - 1.
+                let start: usize = unsafe { offsets.get_unchecked(i) }.as_();
+                let end: usize = unsafe { offsets.get_unchecked(i + 1) }.as_();
+                // SAFETY: s..e is valid in all_bytes.
+                let codes = unsafe { all_bytes.get_unchecked(start..end) };
+                if self.matches(codes) {
+                    packed_match |= 1u64 << bit;
+                }
+            }
+            let packed = packed_match ^ neg_word;
+            // SAFETY: out has capacity.
+            unsafe { out.push_unchecked(packed) };
+        }
+
+        if remainder != 0 {
+            let mut packed_match: u64 = 0;
+            let base = chunks * 64;
+            for bit in 0..remainder {
+                let i = base + bit;
+                // SAFETY: i + 1 <= offsets.len() - 1.
+                let start: usize = unsafe { offsets.get_unchecked(i) }.as_();
+                let end: usize = unsafe { offsets.get_unchecked(i + 1) }.as_();
+                // SAFETY: s..e is valid in all_bytes.
+                let codes = unsafe { all_bytes.get_unchecked(start..end) };
+                if self.matches(codes) {
+                    packed_match |= 1u64 << bit;
+                }
+            }
+            let mask = if remainder == 64 {
+                u64::MAX
+            } else {
+                (1u64 << remainder) - 1
+            };
+            let packed = (packed_match ^ neg_word) & mask;
+            // SAFETY: out has capacity.
+            unsafe { out.push_unchecked(packed) };
+        }
+
+        BitBuffer::new(out.into_byte_buffer().freeze(), n)
+    }
+
+    fn scan_with_anchor<T: IntegerPType>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+        skip: &SkipStrategy,
+    ) -> BitBuffer {
+        let candidates = skip.build_candidate_bits(n, offsets, all_bytes);
+        let cand_bytes = candidates.as_slice();
+
+        use vortex_buffer::BufferMut;
+        let mut out = BufferMut::<u64>::with_capacity(n.div_ceil(64));
+        let chunks = n / 64;
+        let remainder = n % 64;
+        let neg_word: u64 = if negated { u64::MAX } else { 0 };
+
+        for chunk in 0..chunks {
+            // SAFETY: chunk * 8 + 8 <= candidates byte capacity.
+            let cand_word: u64 = unsafe {
+                let p = cand_bytes.as_ptr().add(chunk * 8);
+                u64::from_le_bytes([
+                    *p,
+                    *p.add(1),
+                    *p.add(2),
+                    *p.add(3),
+                    *p.add(4),
+                    *p.add(5),
+                    *p.add(6),
+                    *p.add(7),
+                ])
+            };
+            let packed = if cand_word == 0 {
+                neg_word
+            } else {
+                let mut packed_match: u64 = 0;
+                let mut bm = cand_word;
+                while bm != 0 {
+                    let bit = bm.trailing_zeros() as usize;
+                    let i = chunk * 64 + bit;
+                    // SAFETY: i + 1 <= offsets.len() - 1.
+                    let start: usize = unsafe { offsets.get_unchecked(i) }.as_();
+                    let end: usize = unsafe { offsets.get_unchecked(i + 1) }.as_();
+                    // SAFETY: s..e is valid in all_bytes.
+                    let codes = unsafe { all_bytes.get_unchecked(start..end) };
+                    if self.matches(codes) {
+                        packed_match |= 1u64 << bit;
+                    }
+                    bm &= bm - 1;
+                }
+                packed_match ^ neg_word
+            };
+            // SAFETY: out has capacity.
+            unsafe { out.push_unchecked(packed) };
+        }
+
+        if remainder != 0 {
+            let chunk = chunks;
+            let cand_byte_off = chunk * 8;
+            let mut cand_word: u64 = 0;
+            let cand_bytes_left = cand_bytes.len() - cand_byte_off;
+            for j in 0..cand_bytes_left.min(8) {
+                // SAFETY: chunk*8 + j < cand_bytes.len().
+                cand_word |=
+                    (unsafe { *cand_bytes.get_unchecked(cand_byte_off + j) } as u64) << (j * 8);
+            }
+            let mask = if remainder == 64 {
+                u64::MAX
+            } else {
+                (1u64 << remainder) - 1
+            };
+            let packed = if cand_word & mask == 0 {
+                neg_word & mask
+            } else {
+                let mut packed_match: u64 = 0;
+                let mut bm = cand_word & mask;
+                while bm != 0 {
+                    let bit = bm.trailing_zeros() as usize;
+                    let i = chunk * 64 + bit;
+                    // SAFETY: i + 1 <= offsets.len() - 1.
+                    let start: usize = unsafe { offsets.get_unchecked(i) }.as_();
+                    let end: usize = unsafe { offsets.get_unchecked(i + 1) }.as_();
+                    // SAFETY: s..e is valid in all_bytes.
+                    let codes = unsafe { all_bytes.get_unchecked(start..end) };
+                    if self.matches(codes) {
+                        packed_match |= 1u64 << bit;
+                    }
+                    bm &= bm - 1;
+                }
+                (packed_match ^ neg_word) & mask
+            };
+            // SAFETY: out has capacity.
+            unsafe { out.push_unchecked(packed) };
+        }
+
+        BitBuffer::new(out.into_byte_buffer().freeze(), n)
+    }
+
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
         // Anchor prefilter: if the anchor code is absent, no match possible.
         if let Some(a) = self.anchor

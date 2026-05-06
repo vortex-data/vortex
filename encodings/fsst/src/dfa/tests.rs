@@ -278,6 +278,102 @@ fn test_folded_contains_rejects_len_128() {
     assert!(FoldedContainsDfa::new(&[], &[], &needle).is_err());
 }
 
+/// Randomized: `scan_to_bitbuf` must produce bit-identical results to
+/// looping `matches` per string. Tests both `FoldedContainsDfa` and
+/// `FlatContainsDfa` paths.
+#[test]
+fn test_scan_to_bitbuf_matches_per_string() -> VortexResult<()> {
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::prelude::StdRng;
+
+    let mut rng = StdRng::seed_from_u64(0xC0FFEE);
+    // Train a compressor on representative URL-ish data.
+    let raw_strings: Vec<String> = (0..2000)
+        .map(|_| {
+            let len = rng.random_range(5..120);
+            (0..len)
+                .map(|_| {
+                    // Mostly alphanumeric, sometimes punctuation.
+                    let r = rng.random_range(0u8..=10);
+                    if r < 7 {
+                        b'a' + rng.random_range(0..26u8)
+                    } else if r < 9 {
+                        b'0' + rng.random_range(0..10u8)
+                    } else {
+                        b"-./:?_=&"[rng.random_range(0..8) as usize]
+                    }
+                })
+                .map(|c| c as char)
+                .collect()
+        })
+        .collect();
+
+    let varbin = VarBinArray::from_iter(
+        raw_strings.iter().map(|s| Some(s.as_str())),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let compressor = fsst_train_compressor(&varbin);
+    let len = varbin.len();
+    let dtype = varbin.dtype().clone();
+    let fsst = fsst_compress(varbin, len, &dtype, &compressor);
+
+    use crate::FSSTArrayExt;
+    #[expect(deprecated)]
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::varbin::VarBinArrayExt;
+    let view = fsst.as_view();
+    let symbols = view.symbols().as_slice().to_vec();
+    let symbol_lengths = view.symbol_lengths().as_slice().to_vec();
+
+    let codes = view.codes();
+    #[expect(deprecated)]
+    let offsets_arr = codes.offsets().to_primitive();
+    let offsets: Vec<i32> = offsets_arr.as_slice::<i32>().to_vec();
+    let all_bytes: Vec<u8> = codes.bytes().as_slice().to_vec();
+    let n = codes.len();
+
+    // Run several random needles, comparing scan_to_bitbuf to a per-string
+    // loop. Cover both folded and flat DFA paths.
+    for _ in 0..20 {
+        let nlen = rng.random_range(1..7);
+        let needle: Vec<u8> = (0..nlen)
+            .map(|_| {
+                if rng.random_range(0..2) == 0 {
+                    b'a' + rng.random_range(0..26u8)
+                } else {
+                    b'0' + rng.random_range(0..10u8)
+                }
+            })
+            .collect();
+        let matcher = FsstMatcher::try_new(&symbols, &symbol_lengths, {
+            let mut p = b"%".to_vec();
+            p.extend_from_slice(&needle);
+            p.push(b'%');
+            // Leak: kept alive in this scope.
+            let p_box: Box<[u8]> = p.into_boxed_slice();
+            Box::leak(p_box)
+        })?
+        .expect("contains pattern must build matcher");
+
+        for &neg in &[false, true] {
+            let bb = matcher.scan_to_bitbuf(n, &offsets, &all_bytes, neg);
+            for i in 0..n {
+                let start = offsets[i] as usize;
+                let end = offsets[i + 1] as usize;
+                let expected = matcher.matches(&all_bytes[start..end]) != neg;
+                assert_eq!(
+                    bb.value(i),
+                    expected,
+                    "scan_to_bitbuf disagrees at i={i} needle={:?} neg={neg}",
+                    String::from_utf8_lossy(&needle)
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 /// `FsstMatcher` selects the folded DFA at the boundary length 127 and the
 /// flat DFA for length 128, and both produce correct results.
 #[test]
