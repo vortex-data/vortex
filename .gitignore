@@ -225,6 +225,7 @@ compile_commands.json
 # AI Agents
 .agents/settings.local.json
 .agents/worktrees/
+.claude/worktrees/
 .claude/settings.local.json
 .opencode
 
