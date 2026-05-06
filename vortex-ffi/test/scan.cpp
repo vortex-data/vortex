@@ -876,3 +876,72 @@ TEST_CASE("Scan to Arrow", "[scan]") {
     }
     compare_stream_with_sample(unique_stream);
 }
+
+TEST_CASE("Broken scan with DType mismatch in filter", "[filter]") {
+    vx_session *session = vx_session_new();
+    defer {
+        vx_session_free(session);
+    };
+    TempPath path = write_sample(session);
+    vx_error *error = nullptr;
+
+    vx_data_source_options ds_opts = {};
+    ds_opts.paths = path.c_str();
+    const vx_data_source *ds = vx_data_source_new(session, &ds_opts, &error);
+    require_no_error(error);
+    defer {
+        vx_data_source_free(ds);
+    };
+
+    vx_expression *root = vx_expression_root();
+    defer {
+        vx_expression_free(root);
+    };
+
+    vx_expression *age_col = vx_expression_get_item("age", root);
+    REQUIRE(age_col != nullptr);
+    defer {
+        vx_expression_free(age_col);
+    };
+
+    vx_scalar *lit = vx_scalar_new_i32(67, false);
+    defer {
+        vx_scalar_free(lit);
+    };
+
+    vx_expression *lit_expr = vx_expression_literal(lit, &error);
+    require_no_error(error);
+    defer {
+        vx_expression_free(lit_expr);
+    };
+
+    // DType mismatch between age_col (u8) and lit (i32)
+    vx_expression *filter = vx_expression_binary(VX_OPERATOR_EQ, age_col, lit_expr);
+    REQUIRE(filter != nullptr);
+    defer {
+        vx_expression_free(filter);
+    };
+
+    vx_scan_options scan_opts = {};
+    scan_opts.max_threads = 1;
+    scan_opts.filter = filter;
+
+    vx_scan *scan = vx_data_source_scan(ds, &scan_opts, nullptr, &error);
+    require_no_error(error);
+    defer {
+        vx_scan_free(scan);
+    };
+
+    vx_partition *partition = vx_scan_next_partition(scan, &error);
+    require_no_error(error);
+    REQUIRE(partition != nullptr);
+    defer {
+        vx_partition_free(partition);
+    };
+
+    // This call must set vx_error and return nullptr, not panic
+    const vx_array *array = vx_partition_next(partition, &error);
+    REQUIRE(array == nullptr);
+    REQUIRE(error != nullptr);
+    vx_error_free(error);
+}
