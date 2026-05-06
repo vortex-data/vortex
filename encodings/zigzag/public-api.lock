@@ -16,9 +16,9 @@ pub fn vortex_zigzag::ZigZag::fmt(&self, &mut core::fmt::Formatter<'_>) -> core:
 
 impl vortex_array::array::vtable::VTable for vortex_zigzag::ZigZag
 
-pub type vortex_zigzag::ZigZag::ArrayData = vortex_zigzag::ZigZagData
-
 pub type vortex_zigzag::ZigZag::OperationsVTable = vortex_zigzag::ZigZag
+
+pub type vortex_zigzag::ZigZag::TypedArrayData = vortex_zigzag::ZigZagData
 
 pub type vortex_zigzag::ZigZag::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 
@@ -42,7 +42,7 @@ pub fn vortex_zigzag::ZigZag::serialize(vortex_array::array::view::ArrayView<'_,
 
 pub fn vortex_zigzag::ZigZag::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
 
-pub fn vortex_zigzag::ZigZag::validate(&self, &Self::ArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_zigzag::ZigZag::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_zigzag::ZigZag> for vortex_zigzag::ZigZag
 

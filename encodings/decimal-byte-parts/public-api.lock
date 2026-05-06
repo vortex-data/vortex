@@ -16,9 +16,9 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::fmt(&self, &mut core::fmt::F
 
 impl vortex_array::array::vtable::VTable for vortex_decimal_byte_parts::DecimalByteParts
 
-pub type vortex_decimal_byte_parts::DecimalByteParts::ArrayData = vortex_decimal_byte_parts::DecimalBytePartsData
-
 pub type vortex_decimal_byte_parts::DecimalByteParts::OperationsVTable = vortex_decimal_byte_parts::DecimalByteParts
+
+pub type vortex_decimal_byte_parts::DecimalByteParts::TypedArrayData = vortex_decimal_byte_parts::DecimalBytePartsData
 
 pub type vortex_decimal_byte_parts::DecimalByteParts::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 
@@ -42,7 +42,7 @@ pub fn vortex_decimal_byte_parts::DecimalByteParts::serialize(vortex_array::arra
 
 pub fn vortex_decimal_byte_parts::DecimalByteParts::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
 
-pub fn vortex_decimal_byte_parts::DecimalByteParts::validate(&self, &Self::ArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_decimal_byte_parts::DecimalByteParts::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_decimal_byte_parts::DecimalByteParts> for vortex_decimal_byte_parts::DecimalByteParts
 

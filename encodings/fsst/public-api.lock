@@ -16,9 +16,9 @@ pub fn vortex_fsst::FSST::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt
 
 impl vortex_array::array::vtable::VTable for vortex_fsst::FSST
 
-pub type vortex_fsst::FSST::ArrayData = vortex_fsst::FSSTData
-
 pub type vortex_fsst::FSST::OperationsVTable = vortex_fsst::FSST
+
+pub type vortex_fsst::FSST::TypedArrayData = vortex_fsst::FSSTData
 
 pub type vortex_fsst::FSST::ValidityVTable = vortex_fsst::FSST
 
@@ -44,7 +44,7 @@ pub fn vortex_fsst::FSST::serialize(vortex_array::array::view::ArrayView<'_, Sel
 
 pub fn vortex_fsst::FSST::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
 
-pub fn vortex_fsst::FSST::validate(&self, &Self::ArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_fsst::FSST::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fsst::FSST> for vortex_fsst::FSST
 

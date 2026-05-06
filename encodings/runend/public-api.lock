@@ -40,9 +40,9 @@ pub fn vortex_runend::RunEnd::fmt(&self, &mut core::fmt::Formatter<'_>) -> core:
 
 impl vortex_array::array::vtable::VTable for vortex_runend::RunEnd
 
-pub type vortex_runend::RunEnd::ArrayData = vortex_runend::RunEndData
-
 pub type vortex_runend::RunEnd::OperationsVTable = vortex_runend::RunEnd
+
+pub type vortex_runend::RunEnd::TypedArrayData = vortex_runend::RunEndData
 
 pub type vortex_runend::RunEnd::ValidityVTable = vortex_runend::RunEnd
 
@@ -66,7 +66,7 @@ pub fn vortex_runend::RunEnd::serialize(vortex_array::array::view::ArrayView<'_,
 
 pub fn vortex_runend::RunEnd::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
 
-pub fn vortex_runend::RunEnd::validate(&self, &Self::ArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_runend::RunEnd::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_runend::RunEnd> for vortex_runend::RunEnd
 
