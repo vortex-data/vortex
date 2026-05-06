@@ -19,10 +19,10 @@
 //! whose expansion is a substring of the needle. If that code byte is absent
 //! from the compressed string, the needle can't match.
 //!
-//! TODO(joe): for short needles (≤7 bytes), a branchless escape-folded DFA
-//! with hierarchical 4-byte composition is ~2x faster. For needles ≤127 bytes,
-//! an escape-folded flat DFA (2N+1 states) avoids the sentinel branch.
-//! See commit 7faf9f36f for those implementations.
+//! For needles ≤ 127 bytes, [`super::folded_contains::FoldedContainsDfa`] is
+//! preferred — it encodes the post-escape state directly so the inner loop
+//! does a single table lookup per code byte with no sentinel branch.
+//! [`FlatContainsDfa`] remains in use for longer needles (128–254 bytes).
 
 use fsst::Symbol;
 use vortex_error::VortexExpect;

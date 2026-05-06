@@ -97,10 +97,11 @@
 //! escape-sentinel handling: when the scanner sees the sentinel value, it reads
 //! the next byte from a separate byte-level escape table.
 //!
-//! TODO(joe): for short contains needles (≤7 bytes), a branchless escape-folded
-//! DFA with hierarchical 4-byte composition is ~2x faster. For needles ≤127
-//! bytes, an escape-folded flat DFA (2N+1 states) avoids the sentinel branch.
-//! See commit 7faf9f36f for those implementations.
+//! For needles ≤ 127 bytes the contains DFA uses an **escape-folded** variant
+//! (see [`folded_contains`]) that encodes the post-escape "expecting a literal
+//! byte" status into the state space, removing the sentinel branch from the
+//! inner loop entirely. Longer needles (128–254 bytes) fall back to the plain
+//! [`flat_contains`] DFA.
 //!
 //! ## State-Space Limits
 //!
@@ -123,6 +124,7 @@
 //! not use FSST pushdown and must be evaluated through the fallback path.
 
 mod flat_contains;
+mod folded_contains;
 mod multi_contains;
 mod prefix;
 mod skip;
@@ -131,6 +133,7 @@ mod suffix;
 mod tests;
 
 use flat_contains::FlatContainsDfa;
+use folded_contains::FoldedContainsDfa;
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use multi_contains::MultiContainsDfa;
@@ -158,6 +161,10 @@ enum MatcherInner {
     MatchAll,
     Prefix(FlatPrefixDfa),
     Suffix(SuffixMatcher),
+    /// Escape-folded DFA for short needles (`<= 127` bytes). Eliminates the
+    /// per-byte sentinel branch from the inner loop.
+    FoldedContains(FoldedContainsDfa),
+    /// Plain flat DFA for needles in `128..=254` bytes.
     Contains(FlatContainsDfa),
     MultiContains(Box<MultiContainsDfa>),
 }
@@ -194,10 +201,17 @@ impl FsstMatcher {
                 MatcherInner::Suffix(SuffixMatcher::new(symbols, symbol_lengths, suffix)?)
             }
             LikeKind::Contains(needle) => {
-                if needle.len() > FlatContainsDfa::MAX_NEEDLE_LEN {
+                if needle.len() <= FoldedContainsDfa::MAX_NEEDLE_LEN {
+                    MatcherInner::FoldedContains(FoldedContainsDfa::new(
+                        symbols,
+                        symbol_lengths,
+                        needle,
+                    )?)
+                } else if needle.len() <= FlatContainsDfa::MAX_NEEDLE_LEN {
+                    MatcherInner::Contains(FlatContainsDfa::new(symbols, symbol_lengths, needle)?)
+                } else {
                     return Ok(None);
                 }
-                MatcherInner::Contains(FlatContainsDfa::new(symbols, symbol_lengths, needle)?)
             }
             LikeKind::MultiContains(segments) => {
                 let total_len: usize = segments.iter().map(|s| s.len()).sum();
@@ -221,6 +235,7 @@ impl FsstMatcher {
             MatcherInner::MatchAll => true,
             MatcherInner::Prefix(dfa) => dfa.matches(codes),
             MatcherInner::Suffix(dfa) => dfa.matches(codes),
+            MatcherInner::FoldedContains(dfa) => dfa.matches(codes),
             MatcherInner::Contains(dfa) => dfa.matches(codes),
             MatcherInner::MultiContains(dfa) => dfa.matches(codes),
         }
