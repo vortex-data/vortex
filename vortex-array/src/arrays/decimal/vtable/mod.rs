@@ -64,7 +64,7 @@ impl ArrayEq for DecimalData {
 }
 
 impl VTable for Decimal {
-    type ArrayData = DecimalData;
+    type TypedArrayData = DecimalData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;

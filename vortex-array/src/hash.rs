@@ -41,11 +41,11 @@ pub trait ArrayHash {
 }
 
 /// A dynamic version of [`ArrayHash`].
-pub trait DynArrayHash: private::SealedHash {
+pub trait DynArrayDataHash: private::SealedHash {
     fn dyn_array_hash(&self, state: &mut dyn Hasher, precision: Precision);
 }
 
-impl<T: ArrayHash + ?Sized> DynArrayHash for T {
+impl<T: ArrayHash + ?Sized> DynArrayDataHash for T {
     fn dyn_array_hash(&self, mut state: &mut dyn Hasher, precision: Precision) {
         ArrayHash::array_hash(self, &mut state, precision);
     }
@@ -62,11 +62,11 @@ pub trait ArrayEq {
 }
 
 /// A dynamic version of [`ArrayEq`].
-pub trait DynArrayEq: private::SealedEq {
+pub trait DynArrayDataEq: private::SealedEq {
     fn dyn_array_eq(&self, other: &dyn Any, precision: Precision) -> bool;
 }
 
-impl<T: ArrayEq + 'static> DynArrayEq for T {
+impl<T: ArrayEq + 'static> DynArrayDataEq for T {
     fn dyn_array_eq(&self, other: &dyn Any, precision: Precision) -> bool {
         other
             .downcast_ref::<Self>()

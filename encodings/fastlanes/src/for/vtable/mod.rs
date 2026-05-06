@@ -61,7 +61,7 @@ impl ArrayEq for FoRData {
 }
 
 impl VTable for FoR {
-    type ArrayData = FoRData;
+    type TypedArrayData = FoRData;
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
@@ -73,7 +73,7 @@ impl VTable for FoR {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

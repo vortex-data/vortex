@@ -60,7 +60,7 @@ impl ArrayEq for MaskedData {
 }
 
 impl VTable for Masked {
-    type ArrayData = MaskedData;
+    type TypedArrayData = MaskedData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;

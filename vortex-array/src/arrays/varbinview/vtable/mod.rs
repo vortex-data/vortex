@@ -65,7 +65,7 @@ impl ArrayEq for VarBinViewData {
 }
 
 impl VTable for VarBinView {
-    type ArrayData = VarBinViewData;
+    type TypedArrayData = VarBinViewData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;

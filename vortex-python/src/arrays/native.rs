@@ -247,8 +247,8 @@ pub trait AsArrayRef<T> {
     fn as_array_ref(&self) -> &T;
 }
 
-impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::ArrayData> for PyRef<'_, V> {
-    fn as_array_ref(&self) -> &<V::VTable as VTable>::ArrayData {
+impl<V: EncodingSubclass> AsArrayRef<<V::VTable as VTable>::TypedArrayData> for PyRef<'_, V> {
+    fn as_array_ref(&self) -> &<V::VTable as VTable>::TypedArrayData {
         self.as_super()
             .inner()
             .as_opt::<V::VTable>()

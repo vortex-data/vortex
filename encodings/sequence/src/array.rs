@@ -226,7 +226,7 @@ impl ArrayEq for SequenceData {
 }
 
 impl VTable for Sequence {
-    type ArrayData = SequenceData;
+    type TypedArrayData = SequenceData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -238,7 +238,7 @@ impl VTable for Sequence {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         _slots: &[Option<ArrayRef>],

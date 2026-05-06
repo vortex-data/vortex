@@ -16,9 +16,9 @@ pub fn vortex_pco::Pco::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::
 
 impl vortex_array::array::vtable::VTable for vortex_pco::Pco
 
-pub type vortex_pco::Pco::ArrayData = vortex_pco::PcoData
-
 pub type vortex_pco::Pco::OperationsVTable = vortex_pco::Pco
+
+pub type vortex_pco::Pco::TypedArrayData = vortex_pco::PcoData
 
 pub type vortex_pco::Pco::ValidityVTable = vortex_pco::Pco
 

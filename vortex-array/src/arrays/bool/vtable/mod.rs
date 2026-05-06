@@ -64,7 +64,7 @@ impl ArrayEq for BoolData {
 }
 
 impl VTable for Bool {
-    type ArrayData = BoolData;
+    type TypedArrayData = BoolData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;

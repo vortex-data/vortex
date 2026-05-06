@@ -126,7 +126,7 @@ impl ArrayEq for ZstdData {
 }
 
 impl VTable for Zstd {
-    type ArrayData = ZstdData;
+    type TypedArrayData = ZstdData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -138,7 +138,7 @@ impl VTable for Zstd {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

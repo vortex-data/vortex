@@ -63,7 +63,7 @@ struct ParquetVariantMetadataProto {
 pub type ParquetVariantArray = Array<ParquetVariant>;
 
 impl VTable for ParquetVariant {
-    type ArrayData = ParquetVariantData;
+    type TypedArrayData = ParquetVariantData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
@@ -74,7 +74,7 @@ impl VTable for ParquetVariant {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

@@ -68,7 +68,7 @@ impl ArrayEq for DictData {
 }
 
 impl VTable for Dict {
-    type ArrayData = DictData;
+    type TypedArrayData = DictData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
