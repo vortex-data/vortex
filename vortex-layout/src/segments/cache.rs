@@ -138,14 +138,14 @@ impl SegmentCacheSourceAdapter {
 impl SegmentSource for SegmentCacheSourceAdapter {
     fn request(&self, id: SegmentId) -> SegmentFuture {
         let cache = Arc::clone(&self.cache);
-        let source = Arc::clone(&self.source);
+        let delegate = self.source.request(id);
 
         async move {
             if let Ok(Some(segment)) = cache.get(id).await {
                 tracing::debug!("Resolved segment {} from cache", id);
                 return Ok(BufferHandle::new_host(segment));
             }
-            let delegate = source.request(id);
+
             let result = delegate.await?;
             // Cache only CPU buffers; device buffers are not cached.
             if let Some(buffer) = result.as_host_opt()
@@ -185,7 +185,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cache_hit_does_not_request_inner_source() -> VortexResult<()> {
+    async fn cache_hit_registers_inner_source_for_eager_io() -> VortexResult<()> {
         let id = SegmentId::from(0);
         let data = ByteBuffer::copy_from([1, 2, 3, 4]);
         let cache = Arc::new(MokaSegmentCache::new(1024));
@@ -197,7 +197,7 @@ mod tests {
         let result = adapter.request(id).await?;
 
         assert_eq!(result.unwrap_host(), data);
-        assert_eq!(source.request_count.load(Ordering::Relaxed), 0);
+        assert_eq!(source.request_count.load(Ordering::Relaxed), 1);
         Ok(())
     }
 
