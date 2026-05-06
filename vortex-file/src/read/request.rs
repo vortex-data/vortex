@@ -12,7 +12,7 @@ use vortex_buffer::Alignment;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 
 /// An I/O request, either a single read or a coalesced set of reads.
 #[derive(Debug)]
@@ -142,34 +142,31 @@ impl CoalescedRequest {
         alignment: Alignment,
         requests: Vec<ReadRequest>,
     ) -> VortexResult<Self> {
-        if range.start > range.end {
-            vortex_bail!(
-                "CoalescedRequest: range.start, {}, must be less than or equal to range.end, {}.",
+        vortex_ensure!(
+            range.start <= range.end,
+            "CoalescedRequest: range.start, {}, must be less than or equal to range.end, {}.",
+            range.start,
+            range.end,
+        );
+        for req in requests.iter() {
+            vortex_ensure!(
+                req.offset >= range.start,
+                "CoalescedRequest: sub-request for length {} at file offset {} precedes coalesced range: {}..{}. {:?}",
+                req.length,
+                req.offset,
                 range.start,
                 range.end,
-            )
-        }
-        for req in requests.iter() {
-            if req.offset < range.start {
-                vortex_bail!(
-                    "CoalescedRequest: sub-request for length {} at file offset {} precedes coalesced range: {}..{}. {:?}",
-                    req.length,
-                    req.offset,
-                    range.start,
-                    range.end,
-                    req,
-                )
-            }
-            if req.offset.saturating_add(req.length as u64) > range.end {
-                vortex_bail!(
-                    "CoalescedRequest: sub-request for length {} at file offset {} exceeds the coalesced range: {}..{}. {:?}",
-                    req.length,
-                    req.offset,
-                    range.start,
-                    range.end,
-                    req,
-                )
-            }
+                req,
+            );
+            vortex_ensure!(
+                req.offset.saturating_add(req.length as u64) <= range.end,
+                "CoalescedRequest: sub-request for length {} at file offset {} exceeds the coalesced range: {}..{}. {:?}",
+                req.length,
+                req.offset,
+                range.start,
+                range.end,
+                req,
+            );
         }
         Ok(Self {
             range,
