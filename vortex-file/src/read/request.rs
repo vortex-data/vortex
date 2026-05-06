@@ -175,12 +175,12 @@ impl CoalescedRequest {
         })
     }
 
-    #[allow_unused)]
+    #[allow(unused)]
     pub fn range(&self) -> &Range<u64> {
         &self.range
     }
 
-    #[allow_unused)]
+    #[allow(unused)]
     pub fn alignment(&self) -> Alignment {
         self.alignment
     }
