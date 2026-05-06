@@ -12,6 +12,9 @@ use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 
+pub mod trace;
+pub mod trace_arrays;
+
 /// Check that a named metadata matches its previous versioning.
 ///
 /// Goldenfile takes care of checking for equality against a checked-in file.
