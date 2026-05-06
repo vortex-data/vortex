@@ -159,14 +159,23 @@ Check new and modified lines against this list before finishing:
 - Updating expected test output to match buggy behavior without independently verifying the
   intended semantics.
 - Silently reducing the scope of an approved plan when implementation is harder than expected.
-- Skipping `cargo +nightly fmt --all -- --check` after editing Rust code. CI's `Rust Lint - Format`
-  step uses the nightly toolchain and rejects diffs even when stable `cargo fmt` looks clean.
-- For `vortex-duckdb` C/C++ FFI changes: assuming a DuckDB callback signature from memory or
-  upstream docs instead of reading the bundled DuckDB headers under
-  `target/*/build/vortex-duckdb-*/out/duckdb-source-v*/duckdb-*/src/include/duckdb/` for the
-  exact `typedef` (e.g. `copy_to_get_written_statistics_t`). DuckDB is vendored at a pinned
-  version, so the bundled headers are authoritative. A wrong shim signature only fails at C++
-  compile time inside `build.rs`, so always run `cargo build -p vortex-duckdb` before stopping.
+
+## Native FFI in vortex-duckdb
+
+`vortex-duckdb` vendors a pinned DuckDB version and compiles a C++ shim under
+`vortex-duckdb/cpp/` from `build.rs`. When writing or modifying any callback that DuckDB
+invokes through a C/C++ function pointer:
+
+- Treat the bundled DuckDB headers as the authoritative reference for callback signatures.
+  Read the `typedef` directly from
+  `target/*/build/vortex-duckdb-*/out/duckdb-source-v*/duckdb-*/src/include/duckdb/`
+  (for example `function/copy_function.hpp` for `copy_to_get_written_statistics_t`).
+  Do not rely on memory or upstream docs, which may describe a different DuckDB version.
+- Run `cargo build -p vortex-duckdb` before stopping. C++ signature mismatches only surface
+  at C++ compile time inside `build.rs`, so they are invisible to Rust-only checks.
+- Run `cargo +nightly fmt --all -- --check` to confirm formatting matches the nightly
+  toolchain CI uses; stable `cargo fmt` may accept code that the nightly `Rust Lint - Format`
+  step rejects.
 
 ## Summaries
 
