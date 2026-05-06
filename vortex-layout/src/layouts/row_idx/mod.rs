@@ -44,6 +44,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use crate::ArrayFuture;
 use crate::LayoutReader;
 use crate::layouts::partitioned::PartitionedExprEval;
+use crate::reader::empty_projection_if_mask_all_false;
 
 pub struct RowIdxLayoutReader {
     name: Arc<str>,
@@ -239,6 +240,11 @@ impl LayoutReader for RowIdxLayoutReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+        let dtype = expr.return_dtype(self.dtype())?;
+        if let Some(empty) = empty_projection_if_mask_all_false(&dtype, &mask) {
+            return Ok(empty);
+        }
+
         match &self.partition_expr(expr) {
             Partitioning::RowIdx(expr) => Ok(row_idx_array_future(
                 self.row_offset,
@@ -336,12 +342,15 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
 
     use crate::LayoutReader;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::row_idx::RowIdxLayoutReader;
     use crate::layouts::row_idx::row_idx;
+    use crate::segments::CountingSegmentSource;
+    use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
@@ -426,6 +435,46 @@ mod tests {
                 result,
                 BoolArray::from_iter([false, false, false, false, true])
             );
+        })
+    }
+
+    #[test]
+    fn row_idx_projection_known_false_mask_does_not_request_child_segments() {
+        block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let array = buffer![1..=5].into_array();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    ctx,
+                    Arc::<TestSegments>::clone(&segments),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await
+                .unwrap();
+
+            let counting = Arc::new(CountingSegmentSource::new(segments));
+            let source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&counting);
+            let result = RowIdxLayoutReader::new(
+                0,
+                layout.new_reader("".into(), source, &SESSION).unwrap(),
+                SESSION.clone(),
+            )
+            .projection_evaluation(
+                &(0..layout.row_count()),
+                &root(),
+                MaskFuture::ready(Mask::new_false(layout.row_count().try_into().unwrap())),
+            )
+            .unwrap()
+            .await
+            .unwrap();
+
+            assert_eq!(result.len(), 0);
+            assert_eq!(counting.request_count(), 0);
         })
     }
 

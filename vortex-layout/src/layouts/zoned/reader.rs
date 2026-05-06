@@ -25,6 +25,7 @@ use crate::LazyReaderChildren;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::pruning::PruningState;
 use crate::layouts::zoned::schema::stats_table_dtype;
+use crate::reader::empty_projection_if_mask_all_false;
 use crate::segments::SegmentSource;
 
 pub struct ZonedReader {
@@ -207,6 +208,11 @@ impl LayoutReader for ZonedReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
+        let dtype = expr.return_dtype(self.dtype())?;
+        if let Some(empty) = empty_projection_if_mask_all_false(&dtype, &mask) {
+            return Ok(empty);
+        }
+
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
         self.data_child()?
@@ -252,6 +258,7 @@ mod test {
     use crate::layouts::zoned::ZonedMetadata;
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::segments::CountingSegmentSource;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -320,6 +327,33 @@ mod test {
 
             let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
             assert_arrays_eq!(result, expected);
+        })
+    }
+
+    #[rstest]
+    fn zoned_projection_known_false_mask_does_not_request_child_segments(
+        #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) {
+        block_on(|handle| async {
+            let session = session_with_handle(handle);
+            let counting = Arc::new(CountingSegmentSource::new(segments));
+            let source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&counting);
+            let result = layout
+                .new_reader("".into(), source, &session)
+                .unwrap()
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::ready(Mask::new_false(
+                        usize::try_from(layout.row_count()).unwrap(),
+                    )),
+                )
+                .unwrap()
+                .await
+                .unwrap();
+
+            assert_eq!(result.len(), 0);
+            assert_eq!(counting.request_count(), 0);
         })
     }
 

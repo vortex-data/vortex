@@ -29,6 +29,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
+use crate::reader::empty_projection_if_mask_all_false;
 use crate::segments::SegmentSource;
 
 /// A [`LayoutReader`] for chunked layouts.
@@ -294,6 +295,10 @@ impl LayoutReader for ChunkedReader {
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let dtype = expr.return_dtype(self.dtype())?;
+        if let Some(empty) = empty_projection_if_mask_all_false(&dtype, &mask) {
+            return Ok(empty);
+        }
+
         if row_range.is_empty() {
             return Ok(future::ready(Ok(Canonical::empty(&dtype).into_array())).boxed());
         }
@@ -348,11 +353,13 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
 
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::CountingSegmentSource;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -413,6 +420,32 @@ mod test {
 
             let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
             assert_arrays_eq!(result, expected);
+        })
+    }
+
+    #[rstest]
+    fn chunked_projection_known_false_mask_does_not_request_child_segments(
+        #[from(chunked_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) {
+        block_on(|_h| async {
+            let counting = Arc::new(CountingSegmentSource::new(segments));
+            let source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&counting);
+            let result = layout
+                .new_reader("".into(), source, &SESSION)
+                .unwrap()
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::ready(Mask::new_false(
+                        usize::try_from(layout.row_count()).unwrap(),
+                    )),
+                )
+                .unwrap()
+                .await
+                .unwrap();
+
+            assert_eq!(result.len(), 0);
+            assert_eq!(counting.request_count(), 0);
         })
     }
 }

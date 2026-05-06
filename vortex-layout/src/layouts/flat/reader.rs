@@ -23,6 +23,7 @@ use vortex_session::VortexSession;
 use crate::LayoutReader;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
+use crate::reader::empty_projection_if_mask_all_false;
 use crate::segments::SegmentSource;
 
 /// The threshold of mask density below which we will evaluate the expression only over the
@@ -186,6 +187,11 @@ impl LayoutReader for FlatReader {
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
+        let dtype = expr.return_dtype(self.dtype())?;
+        if let Some(empty) = empty_projection_if_mask_all_false(&dtype, &mask) {
+            return Ok(empty);
+        }
+
         let name = Arc::clone(&self.name);
         let array = self.array_future();
         let expr = expr.clone();
@@ -240,9 +246,12 @@ mod test {
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_mask::Mask;
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::CountingSegmentSource;
+    use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
@@ -323,6 +332,44 @@ mod test {
 
             let expected = BoolArray::from_iter([false, false, false, true, true].map(Some));
             assert_arrays_eq!(result, expected);
+        })
+    }
+
+    #[test]
+    fn flat_projection_known_false_mask_does_not_request_segment() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
+            let ctx = ArrayContext::empty();
+
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let array =
+                PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).into_array();
+            let layout = FlatLayoutStrategy::default()
+                .write_stream(
+                    ctx,
+                    Arc::<TestSegments>::clone(&segments),
+                    array.to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let counting = Arc::new(CountingSegmentSource::new(segments));
+            let source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&counting);
+            let result = layout
+                .new_reader("".into(), source, &SESSION)?
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::ready(Mask::new_false(layout.row_count().try_into()?)),
+                )?
+                .await?;
+
+            assert_eq!(result.len(), 0);
+            assert_eq!(counting.request_count(), 0);
+
+            Ok(())
         })
     }
 

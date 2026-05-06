@@ -45,6 +45,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
+use crate::reader::empty_projection_if_mask_all_false;
 use crate::segments::SegmentSource;
 
 pub struct StructReader {
@@ -323,6 +324,11 @@ impl LayoutReader for StructReader {
         expr: &Expression,
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
+        let dtype = expr.return_dtype(self.dtype())?;
+        if let Some(empty) = empty_projection_if_mask_all_false(&dtype, &mask_fut) {
+            return Ok(empty);
+        }
+
         let validity_fut = self
             .validity()?
             .map(|reader| reader.projection_evaluation(row_range, &root(), mask_fut.clone()))
@@ -433,6 +439,7 @@ mod tests {
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::table::TableStrategy;
+    use crate::segments::CountingSegmentSource;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -646,6 +653,24 @@ mod tests {
         .unwrap();
         let expected = BoolArray::from_iter([true, false, false]);
         assert_arrays_eq!(result, expected);
+    }
+
+    #[rstest]
+    fn struct_projection_known_false_mask_does_not_request_child_segments(
+        #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
+    ) {
+        let counting = Arc::new(CountingSegmentSource::new(segments));
+        let source: Arc<dyn SegmentSource> = Arc::<CountingSegmentSource>::clone(&counting);
+        let reader = layout.new_reader("".into(), source, &SESSION).unwrap();
+        let result = block_on(|_| {
+            reader
+                .projection_evaluation(&(0..3), &root(), MaskFuture::ready(Mask::new_false(3)))
+                .unwrap()
+        })
+        .unwrap();
+
+        assert_eq!(result.len(), 0);
+        assert_eq!(counting.request_count(), 0);
     }
 
     #[rstest]

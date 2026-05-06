@@ -11,6 +11,8 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::FutureExt;
+use futures::future;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
@@ -202,6 +204,15 @@ impl LayoutReader for FileStatsLayoutReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
+        let dtype = expr.return_dtype(self.dtype())?;
+        match mask.clone().now_or_never() {
+            Some(Ok(mask)) if mask.all_false() => {
+                return Ok(future::ready(Ok(Canonical::empty(&dtype).into_array())).boxed());
+            }
+            Some(Err(err)) => return Ok(future::ready(Err(err)).boxed()),
+            Some(Ok(_)) | None => {}
+        }
+
         self.child.projection_evaluation(row_range, expr, mask)
     }
 

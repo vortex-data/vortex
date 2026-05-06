@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use futures::FutureExt;
@@ -34,6 +36,32 @@ impl SegmentSource for TestSegments {
                 .ok_or_else(|| vortex_err!("Segment not found"))
         }
         .boxed()
+    }
+}
+
+#[derive(Clone)]
+pub struct CountingSegmentSource {
+    inner: Arc<dyn SegmentSource>,
+    requests: Arc<AtomicUsize>,
+}
+
+impl CountingSegmentSource {
+    pub fn new(inner: Arc<dyn SegmentSource>) -> Self {
+        Self {
+            inner,
+            requests: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    pub fn request_count(&self) -> usize {
+        self.requests.load(Ordering::Relaxed)
+    }
+}
+
+impl SegmentSource for CountingSegmentSource {
+    fn request(&self, id: SegmentId) -> SegmentFuture {
+        self.requests.fetch_add(1, Ordering::Relaxed);
+        self.inner.request(id)
     }
 }
 

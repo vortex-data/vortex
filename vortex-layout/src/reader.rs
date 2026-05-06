@@ -6,10 +6,13 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::FutureExt;
+use futures::future;
 use futures::future::BoxFuture;
 use futures::try_join;
 use once_cell::sync::OnceCell;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::builtins::ArrayBuiltins;
@@ -93,6 +96,19 @@ pub trait LayoutReader: 'static + Send + Sync {
 }
 
 pub type ArrayFuture = BoxFuture<'static, VortexResult<ArrayRef>>;
+
+pub(crate) fn empty_projection_if_mask_all_false(
+    dtype: &DType,
+    mask: &MaskFuture,
+) -> Option<ArrayFuture> {
+    match mask.clone().now_or_never()? {
+        Ok(mask) if mask.all_false() => {
+            Some(future::ready(Ok(Canonical::empty(dtype).into_array())).boxed())
+        }
+        Ok(_) => None,
+        Err(err) => Some(future::ready(Err(err)).boxed()),
+    }
+}
 
 pub trait ArrayFutureExt {
     fn masked(self, mask: MaskFuture) -> Self;

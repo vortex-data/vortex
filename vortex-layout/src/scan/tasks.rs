@@ -136,9 +136,11 @@ pub fn split_exec<A: 'static + Send>(
         }
     };
 
-    // Step 4: execute the projection only if the filter kept rows.
-    let reader = Arc::clone(&ctx.reader);
-    let projection = ctx.projection.clone();
+    // Step 4: execute the projection, only at the mask for rows which match the filter.
+    let projection_future =
+        ctx.reader
+            .projection_evaluation(&row_range, &ctx.projection, filter_mask.clone())?;
+
     let mapper = Arc::clone(&ctx.mapper);
     let array_fut = async move {
         let mask = filter_mask.await?;
@@ -146,8 +148,6 @@ pub fn split_exec<A: 'static + Send>(
             return Ok(None);
         }
 
-        let projection_future =
-            reader.projection_evaluation(&row_range, &projection, MaskFuture::ready(mask))?;
         let array = projection_future.await?;
         mapper(array).map(Some)
     };
