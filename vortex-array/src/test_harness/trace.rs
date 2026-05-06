@@ -6,12 +6,16 @@ use std::cell::RefCell;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::ArrayId;
 use crate::ArrayRef;
+use crate::dtype::DType;
 
 /// Controls how much rule and kernel resolution detail is captured.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -138,6 +142,7 @@ pub fn trace_array_with<T>(
     options: TraceOptions,
     f: impl FnOnce() -> VortexResult<T>,
 ) -> VortexResult<Traced<T>> {
+    let interest = TraceInterest::from(options.resolution);
     ACTIVE_TRACE.with(|active| {
         let mut active = active.borrow_mut();
         if active.is_some() {
@@ -146,9 +151,13 @@ pub fn trace_array_with<T>(
         *active = Some(TraceRecorder::new(options));
         Ok(())
     })?;
-    TRACE_INTEREST.with(|interest| interest.set(TraceInterest::from(options.resolution)));
+    TRACE_INTEREST.with(|trace_interest| trace_interest.set(interest));
+    ACTIVE_TRACE_COUNT.fetch_add(1, Ordering::Relaxed);
+    if interest == TraceInterest::Attempts {
+        ATTEMPTS_TRACE_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
 
-    let guard = ActiveTraceGuard;
+    let guard = ActiveTraceGuard { interest };
     let output = f();
     let recorder = ACTIVE_TRACE.with(|active| {
         active
@@ -165,18 +174,19 @@ pub fn trace_array_with<T>(
 }
 
 /// Returns true when the current thread has an active trace recorder.
-#[inline]
+#[inline(always)]
 pub(crate) fn is_active() -> bool {
+    if ACTIVE_TRACE_COUNT.load(Ordering::Relaxed) == 0 {
+        return false;
+    }
     TRACE_INTEREST.with(|interest| interest.get().is_active())
 }
 
-#[inline]
-pub(crate) fn if_active<R>(enabled: impl FnOnce() -> R, disabled: impl FnOnce() -> R) -> R {
-    if is_active() { enabled() } else { disabled() }
-}
-
-#[inline]
+#[inline(always)]
 fn attempts_enabled() -> bool {
+    if ATTEMPTS_TRACE_COUNT.load(Ordering::Relaxed) == 0 {
+        return false;
+    }
     TRACE_INTEREST.with(|interest| interest.get() == TraceInterest::Attempts)
 }
 
@@ -236,17 +246,17 @@ impl From<TraceResolution> for TraceInterest {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ArraySummary {
-    encoding: String,
+    encoding: ArrayId,
     len: usize,
-    dtype: String,
+    dtype: DType,
 }
 
 impl ArraySummary {
     pub(crate) fn new(array: &ArrayRef) -> Self {
         Self {
-            encoding: array.encoding_id().to_string(),
+            encoding: array.encoding_id(),
             len: array.len(),
-            dtype: array.dtype().to_string(),
+            dtype: array.dtype().clone(),
         }
     }
 }
@@ -638,10 +648,11 @@ fn record(event: TraceEvent) {
 }
 
 fn record_attempt(event: TraceEvent) {
+    if !attempts_enabled() {
+        return;
+    }
     ACTIVE_TRACE.with(|active| {
-        if let Some(recorder) = active.borrow_mut().as_mut()
-            && recorder.options.resolution == TraceResolution::Attempts
-        {
+        if let Some(recorder) = active.borrow_mut().as_mut() {
             recorder.events.push(event);
         }
     });
@@ -680,10 +691,19 @@ thread_local! {
     static EXECUTE_PARENT_PHASE: Cell<&'static str> = const { Cell::new("execute_parent") };
 }
 
-struct ActiveTraceGuard;
+static ACTIVE_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+static ATTEMPTS_TRACE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+struct ActiveTraceGuard {
+    interest: TraceInterest,
+}
 
 impl Drop for ActiveTraceGuard {
     fn drop(&mut self) {
+        if self.interest == TraceInterest::Attempts {
+            ATTEMPTS_TRACE_COUNT.fetch_sub(1, Ordering::Relaxed);
+        }
+        ACTIVE_TRACE_COUNT.fetch_sub(1, Ordering::Relaxed);
         TRACE_INTEREST.with(|interest| interest.set(TraceInterest::Off));
         ACTIVE_TRACE.with(|active| {
             active.borrow_mut().take();
