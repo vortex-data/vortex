@@ -241,28 +241,6 @@ impl FsstMatcher {
             MatcherInner::MultiContains(dfa) => dfa.matches(codes),
         }
     }
-
-    /// Bulk-evaluate this matcher across a varbin-style codes layout, packing
-    /// the boolean results into a `BitBuffer`.
-    ///
-    /// For single-segment contains DFAs (`%needle%`), this dispatches to a
-    /// path that runs a single global SIMD anchor scan over the entire
-    /// `all_bytes` buffer to short-circuit per-string DFA calls on strings
-    /// that contain no anchor code. Other matcher shapes use the standard
-    /// per-string scan via [`dfa_scan_to_bitbuf`].
-    pub(crate) fn scan_to_bitbuf<T: vortex_array::dtype::IntegerPType>(
-        &self,
-        n: usize,
-        offsets: &[T],
-        all_bytes: &[u8],
-        negated: bool,
-    ) -> BitBuffer {
-        match &self.inner {
-            MatcherInner::FoldedContains(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
-            MatcherInner::Contains(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
-            _ => dfa_scan_to_bitbuf(n, offsets, all_bytes, negated, |c| self.matches(c)),
-        }
-    }
 }
 
 /// The subset of LIKE patterns we can handle without decompression.

@@ -17,6 +17,7 @@ use vortex_error::VortexResult;
 use crate::FSST;
 use crate::FSSTArrayExt;
 use crate::dfa::FsstMatcher;
+use crate::dfa::dfa_scan_to_bitbuf;
 
 impl LikeKernel for FSST {
     fn like(
@@ -66,7 +67,7 @@ impl LikeKernel for FSST {
 
         let result = match_each_integer_ptype!(offsets.ptype(), |T| {
             let off = offsets.as_slice::<T>();
-            matcher.scan_to_bitbuf(n, off, all_bytes, negated)
+            dfa_scan_to_bitbuf(n, off, all_bytes, negated, |codes| matcher.matches(codes))
         });
 
         // FSST delegates validity to its codes array, so we can read it
