@@ -200,6 +200,8 @@ pub fn vortex_datafusion::VortexSource::with_projection_pushdown(self, enabled: 
 
 pub fn vortex_datafusion::VortexSource::with_scan_concurrency(self, scan_concurrency: usize) -> Self
 
+pub fn vortex_datafusion::VortexSource::with_segment_cache(self, segment_cache: alloc::sync::Arc<dyn vortex_layout::segments::cache::SegmentCache>) -> Self
+
 pub fn vortex_datafusion::VortexSource::with_vortex_reader_factory(self, vortex_reader_factory: alloc::sync::Arc<dyn vortex_datafusion::reader::VortexReaderFactory>) -> Self
 
 impl core::clone::Clone for vortex_datafusion::VortexSource

@@ -15,6 +15,7 @@ use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
 use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
+use vortex::layout::segments::SegmentCache;
 use datafusion_physical_expr::conjunction;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr_adapter::DefaultPhysicalExprAdapterFactory;
@@ -192,6 +193,7 @@ pub struct VortexSource {
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
     file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
+    segment_cache: Option<Arc<dyn SegmentCache>>,
     /// Whether to enable expression pushdown into the underlying Vortex scan.
     options: VortexTableOptions,
 }
@@ -224,6 +226,7 @@ impl VortexSource {
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             file_metadata_cache: None,
+            segment_cache: None,
             options: VortexTableOptions::default(),
         }
     }
@@ -280,6 +283,16 @@ impl VortexSource {
         file_metadata_cache: Arc<dyn FileMetadataCache>,
     ) -> Self {
         self.file_metadata_cache = Some(file_metadata_cache);
+        self
+    }
+
+    /// Sets a [`SegmentCache`] to reuse decoded segment bytes across scans of the same file.
+    ///
+    /// Without a cache every query re-reads zone map and data segments from object storage.
+    /// Providing a shared [`MokaSegmentCache`](vortex::layout::segments::MokaSegmentCache)
+    /// eliminates those redundant reads for repeated queries on the same files.
+    pub fn with_segment_cache(mut self, segment_cache: Arc<dyn SegmentCache>) -> Self {
+        self.segment_cache = Some(segment_cache);
         self
     }
 
@@ -341,6 +354,7 @@ impl FileSource for VortexSource {
             has_output_ordering: !base_config.output_ordering.is_empty(),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: self.file_metadata_cache.clone(),
+            segment_cache: self.segment_cache.clone(),
             projection_pushdown: self.options.projection_pushdown,
             scan_concurrency: self.options.scan_concurrency,
         };
