@@ -165,7 +165,7 @@ pub(super) fn make_struct_slots(
     fields: &[ArrayRef],
     validity: &Validity,
     length: usize,
-) -> Vec<Option<ArrayRef>> {
+) -> Box<[Option<ArrayRef>]> {
     once(validity_to_child(validity, length))
         .chain(fields.iter().cloned().map(Some))
         .collect()
@@ -415,7 +415,7 @@ impl Array<Struct> {
             .as_ref()
             .vortex_expect("StructArray field slot")
             .clone();
-        let new_slots: Vec<Option<ArrayRef>> = self
+        let new_slots: Box<[Option<ArrayRef>]> = self
             .slots()
             .iter()
             .enumerate()

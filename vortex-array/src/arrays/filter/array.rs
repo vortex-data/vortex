@@ -95,7 +95,7 @@ impl Array<Filter> {
         let data = FilterData::new(mask);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Filter, dtype, len, data).with_slots(vec![Some(array)]),
+                ArrayParts::new(Filter, dtype, len, data).with_slots(Box::new([Some(array)])),
             )
         }
     }
@@ -107,7 +107,7 @@ impl Array<Filter> {
         let data = FilterData::try_new(array.len(), mask)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Filter, dtype, len, data).with_slots(vec![Some(array)]),
+                ArrayParts::new(Filter, dtype, len, data).with_slots(Box::new([Some(array)])),
             )
         })
     }

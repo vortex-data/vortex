@@ -410,7 +410,7 @@ impl ALP {
 }
 
 impl ALPData {
-    fn make_slots(encoded: &ArrayRef, patches: Option<&Patches>) -> Vec<Option<ArrayRef>> {
+    fn make_slots(encoded: &ArrayRef, patches: Option<&Patches>) -> Box<[Option<ArrayRef>]> {
         let (patch_indices, patch_values, patch_chunk_offsets) = match patches {
             Some(p) => (
                 Some(p.indices().clone()),
@@ -419,12 +419,12 @@ impl ALPData {
             ),
             None => (None, None, None),
         };
-        vec![
+        Box::new([
             Some(encoded.clone()),
             patch_indices,
             patch_values,
             patch_chunk_offsets,
-        ]
+        ])
     }
 
     #[inline]

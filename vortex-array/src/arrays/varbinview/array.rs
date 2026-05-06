@@ -124,8 +124,8 @@ impl VarBinViewData {
     }
 
     /// Build the slots vector for this array.
-    pub(super) fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
-        vec![validity_to_child(validity, len)]
+    pub(super) fn make_slots(validity: &Validity, len: usize) -> Box<[Option<ArrayRef>]> {
+        Box::new([validity_to_child(validity, len)])
     }
 
     /// Creates a new `VarBinViewArray`.
@@ -554,7 +554,7 @@ impl Array<VarBinView> {
     fn from_prevalidated_data(
         dtype: DType,
         data: VarBinViewData,
-        slots: Vec<Option<ArrayRef>>,
+        slots: Box<[Option<ArrayRef>]>,
     ) -> Self {
         let len = data.len();
         unsafe {

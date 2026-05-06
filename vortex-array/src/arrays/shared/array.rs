@@ -115,7 +115,7 @@ impl Array<Shared> {
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Shared, dtype, len, SharedData::new())
-                    .with_slots(vec![Some(source)]),
+                    .with_slots(Box::new([Some(source)])),
             )
         }
     }

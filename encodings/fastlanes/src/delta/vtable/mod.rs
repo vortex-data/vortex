@@ -168,7 +168,7 @@ impl VTable for Delta {
         let deltas = children.get(1, dtype, deltas_len)?;
 
         let data = DeltaData::try_new(metadata.offset as usize)?;
-        let slots = vec![Some(bases), Some(deltas)];
+        let slots = Box::new([Some(bases), Some(deltas)]);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -191,7 +191,7 @@ impl Delta {
     ) -> VortexResult<DeltaArray> {
         let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
         let data = DeltaData::try_new(offset)?;
-        let slots = vec![Some(bases), Some(deltas)];
+        let slots = Box::new([Some(bases), Some(deltas)]);
         Array::try_from_parts(ArrayParts::new(Delta, dtype, len, data).with_slots(slots))
     }
 

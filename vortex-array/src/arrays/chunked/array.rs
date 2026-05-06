@@ -137,7 +137,7 @@ impl ChunkedData {
     pub(super) fn make_slots(
         chunk_offsets: &[usize],
         chunks: &[ArrayRef],
-    ) -> Vec<Option<ArrayRef>> {
+    ) -> Box<[Option<ArrayRef>]> {
         let mut chunk_offsets_buf = BufferMut::<u64>::with_capacity(chunk_offsets.len());
         for &offset in chunk_offsets {
             let offset = u64::try_from(offset)
@@ -150,7 +150,7 @@ impl ChunkedData {
             PrimitiveArray::new(chunk_offsets_buf.freeze(), Validity::NonNullable).into_array(),
         ));
         slots.extend(chunks.iter().map(|c| Some(c.clone())));
-        slots
+        slots.into_boxed_slice()
     }
 
     /// Validates the components that would be used to create a `ChunkedArray`.
@@ -182,7 +182,7 @@ impl Array<Chunked> {
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Chunked, self.dtype().clone(), self.len(), data)
-                    .with_slots(self.slots().to_vec()),
+                    .with_slots(self.slots().into()),
             )
         }
         .with_stats_set(stats)

@@ -246,8 +246,8 @@ impl<T: TypedArrayRef<Primitive>> PrimitiveArrayExt for T {}
 // TODO(connor): There are a lot of places where we could be using `new_unchecked` in the codebase.
 impl PrimitiveData {
     /// Build the slots vector for this array.
-    pub(super) fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
-        vec![validity_to_child(validity, len)]
+    pub(super) fn make_slots(validity: &Validity, len: usize) -> Box<[Option<ArrayRef>]> {
+        Box::new([validity_to_child(validity, len)])
     }
 
     /// Create a new array from a buffer handle.

@@ -237,7 +237,7 @@ impl Patched {
     pub(crate) unsafe fn new_unchecked(
         dtype: DType,
         len: usize,
-        slots: Vec<Option<ArrayRef>>,
+        slots: Box<[Option<ArrayRef>]>,
         n_lanes: usize,
         offset: usize,
     ) -> Array<Patched> {
@@ -382,7 +382,8 @@ mod tests {
         let required = PrimitiveArray::new(buffer![1u8, 2, 3], Validity::NonNullable).into_array();
         let optional = PrimitiveArray::new(buffer![4u8, 5, 6], Validity::NonNullable).into_array();
 
-        let slot_vec = vec![Some(required.clone()), Some(optional.clone())];
+        let slot_vec: Box<[Option<ArrayRef>]> =
+            Box::new([Some(required.clone()), Some(optional.clone())]);
         let view = OptionalPatchedSlotsView::from_slots(&slot_vec);
         assert_eq!(view.required.len(), 3);
         assert_eq!(view.maybe.expect("optional slot").len(), 3);
@@ -391,12 +392,12 @@ mod tests {
         assert_eq!(cloned.required.len(), required.len());
         assert_eq!(cloned.maybe.expect("optional clone").len(), optional.len());
 
-        let rebuilt = PatchedSlots::from_slots(vec![
+        let rebuilt = PatchedSlots::from_slots(Box::new([
             Some(required.clone()),
             Some(optional.clone()),
             Some(required.clone()),
             Some(optional.clone()),
-        ]);
+        ]));
         assert_eq!(rebuilt.inner.len(), required.len());
         assert_eq!(rebuilt.patch_values.len(), optional.len());
     }

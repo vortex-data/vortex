@@ -425,9 +425,9 @@ impl VTable for ZstdBuffers {
         let metadata = ZstdBuffersMetadata::decode(metadata)?;
         let compressed_buffers: Vec<BufferHandle> = buffers.to_vec();
 
-        let slots: Vec<Option<ArrayRef>> = (0..children.len())
+        let slots: Box<[Option<ArrayRef>]> = (0..children.len())
             .map(|i| children.get(i, dtype, len).map(Some))
-            .collect::<VortexResult<Vec<_>>>()?;
+            .collect::<VortexResult<Box<[_]>>>()?;
 
         let data = ZstdBuffersData {
             inner_encoding_id: array_id_from_string(&metadata.inner_encoding_id),

@@ -250,11 +250,11 @@ impl VTable for FSST {
                 len,
                 &mut ctx,
             )?;
-            let slots = vec![
+            let slots = Box::new([
                 Some(uncompressed_lengths),
                 Some(codes_offsets),
                 validity_to_child(&codes_validity, len),
-            ];
+            ]);
             let data = FSSTData::try_new(symbols, symbol_lengths, codes_bytes, len)?;
             return Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots));
         }
@@ -479,8 +479,8 @@ impl FSST {
 }
 
 impl FSSTData {
-    fn make_slots(codes: &VarBinArray, uncompressed_lengths: &ArrayRef) -> Vec<Option<ArrayRef>> {
-        vec![
+    fn make_slots(codes: &VarBinArray, uncompressed_lengths: &ArrayRef) -> Box<[Option<ArrayRef>]> {
+        Box::new([
             Some(uncompressed_lengths.clone()),
             Some(codes.offsets().clone()),
             validity_to_child(
@@ -489,7 +489,7 @@ impl FSSTData {
                     .vortex_expect("FSST codes validity should be derivable"),
                 codes.len(),
             ),
-        ]
+        ])
     }
 
     /// Build FSST data from a set of `symbols`, `symbol_lengths`, and compressed codes bytes.

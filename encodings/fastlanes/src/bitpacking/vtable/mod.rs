@@ -233,7 +233,7 @@ impl VTable for BitPacked {
                 None => (None, None, None),
             };
             let validity_slot = validity_to_child(&validity, len);
-            vec![pi, pv, pco, validity_slot]
+            Box::new([pi, pv, pco, validity_slot])
         };
         let data = BitPackedData::try_new(
             packed,
@@ -331,7 +331,7 @@ impl BitPacked {
                 None => (None, None, None),
             };
             let validity_slot = validity_to_child(&validity, len);
-            vec![pi, pv, pco, validity_slot]
+            Box::new([pi, pv, pco, validity_slot])
         };
         let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
         Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))

@@ -86,7 +86,7 @@ impl Array<Masked> {
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Masked, dtype, len, data)
-                    .with_slots(vec![Some(child), validity_slot]),
+                    .with_slots(Box::new([Some(child), validity_slot])),
             )
         })
     }

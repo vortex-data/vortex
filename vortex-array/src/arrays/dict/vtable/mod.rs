@@ -161,7 +161,7 @@ impl VTable for Dict {
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, unsafe {
             DictData::new_unchecked().set_all_values_referenced(all_values_referenced)
         })
-        .with_slots(vec![Some(codes), Some(values)]))
+        .with_slots(Box::new([Some(codes), Some(values)])))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {

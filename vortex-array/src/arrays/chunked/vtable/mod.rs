@@ -216,7 +216,7 @@ impl VTable for Chunked {
             len,
             ChunkedData::new(chunk_offsets_usize),
         )
-        .with_slots(slots))
+        .with_slots(slots.into_boxed_slice()))
     }
 
     fn append_to_builder(

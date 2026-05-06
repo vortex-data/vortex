@@ -85,8 +85,8 @@ impl VarBinData {
         offsets: ArrayRef,
         validity: &Validity,
         len: usize,
-    ) -> Vec<Option<ArrayRef>> {
-        vec![Some(offsets), validity_to_child(validity, len)]
+    ) -> Box<[Option<ArrayRef>]> {
+        Box::new([Some(offsets), validity_to_child(validity, len)])
     }
 
     /// Constructs a new `VarBinArray`.

@@ -175,8 +175,8 @@ impl<T: TypedArrayRef<Decimal>> DecimalArrayExt for T {}
 
 impl DecimalData {
     /// Build the slots vector for this array.
-    pub(super) fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
-        vec![validity_to_child(validity, len)]
+    pub(super) fn make_slots(validity: &Validity, len: usize) -> Box<[Option<ArrayRef>]> {
+        Box::new([validity_to_child(validity, len)])
     }
 
     /// Creates a new [`DecimalArray`] using a host-native buffer.

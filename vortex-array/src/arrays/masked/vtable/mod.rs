@@ -154,7 +154,7 @@ impl VTable for Masked {
         )?;
         Ok(
             crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data)
-                .with_slots(vec![Some(child), validity_slot]),
+                .with_slots(Box::new([Some(child), validity_slot])),
         )
     }
 

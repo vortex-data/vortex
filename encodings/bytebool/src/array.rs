@@ -263,8 +263,8 @@ impl ByteBoolData {
         Ok(())
     }
 
-    fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
-        vec![validity_to_child(validity, len)]
+    fn make_slots(validity: &Validity, len: usize) -> Box<[Option<ArrayRef>]> {
+        Box::new([validity_to_child(validity, len)])
     }
 
     pub fn new(buffer: BufferHandle) -> Self {

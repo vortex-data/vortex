@@ -95,12 +95,12 @@ impl ParquetVariant {
             &dtype,
             len,
         )?;
-        let slots = vec![
+        let slots = Box::new([
             validity_to_child(&validity, len),
             Some(metadata),
             value,
             typed_value,
-        ];
+        ]);
         let data = ParquetVariantData;
         Array::try_from_parts(ArrayParts::new(ParquetVariant, dtype, len, data).with_slots(slots))
     }

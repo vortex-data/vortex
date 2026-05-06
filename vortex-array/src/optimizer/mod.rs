@@ -153,7 +153,7 @@ fn try_optimize_recursive(
     }
 
     if any_slot_optimized {
-        current_array = current_array.with_slots(new_slots)?;
+        current_array = current_array.with_slots(new_slots.into_boxed_slice())?;
         any_optimizations = true;
     }
 

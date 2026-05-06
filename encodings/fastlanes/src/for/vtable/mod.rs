@@ -132,7 +132,7 @@ impl VTable for FoR {
         let scalar_value = ScalarValue::from_proto_bytes(metadata, dtype, session)?;
         let reference = Scalar::try_new(dtype.clone(), scalar_value)?;
         let encoded = children.get(0, dtype, len)?;
-        let slots = vec![Some(encoded)];
+        let slots = Box::new([Some(encoded)]);
 
         let data = FoRData::try_new(reference)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
@@ -173,7 +173,7 @@ impl FoR {
         let reference = reference.cast(&dtype)?;
         let len = encoded.len();
         let data = FoRData::try_new(reference)?;
-        let slots = vec![Some(encoded)];
+        let slots = Box::new([Some(encoded)]);
         Array::try_from_parts(ArrayParts::new(FoR, dtype, len, data).with_slots(slots))
     }
 

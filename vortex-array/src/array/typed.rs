@@ -40,7 +40,7 @@ pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) len: usize,
     pub(crate) encoding_id: ArrayId,
     pub(crate) dtype: DType,
-    pub(crate) slots: Vec<Option<ArrayRef>>,
+    pub(crate) slots: Box<[Option<ArrayRef>]>,
     pub(crate) stats: ArrayStats,
     pub(crate) data: D, // must be last for unsized coercion
 }
@@ -51,7 +51,7 @@ pub struct ArrayParts<V: VTable> {
     pub dtype: DType,
     pub len: usize,
     pub data: V::TypedArrayData,
-    pub slots: Vec<Option<ArrayRef>>,
+    pub slots: Box<[Option<ArrayRef>]>,
 }
 
 impl<V: VTable> ArrayParts<V> {
@@ -61,11 +61,11 @@ impl<V: VTable> ArrayParts<V> {
             dtype,
             len,
             data,
-            slots: Vec::new(),
+            slots: Box::default(),
         }
     }
 
-    pub fn with_slots(mut self, slots: Vec<Option<ArrayRef>>) -> Self {
+    pub fn with_slots(mut self, slots: Box<[Option<ArrayRef>]>) -> Self {
         self.slots = slots;
         self
     }
@@ -125,7 +125,7 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
         len: usize,
         dtype: DType,
         data: V::TypedArrayData,
-        slots: Vec<Option<ArrayRef>>,
+        slots: Box<[Option<ArrayRef>]>,
         stats: ArrayStats,
     ) -> Self {
         ArrayInner {

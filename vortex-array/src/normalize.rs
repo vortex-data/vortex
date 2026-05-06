@@ -83,7 +83,7 @@ impl ArrayRef {
         }
 
         if any_slot_changed {
-            normalized = normalized.with_slots(normalized_slots)?;
+            normalized = normalized.with_slots(normalized_slots.into_boxed_slice())?;
         }
 
         Ok(normalized)

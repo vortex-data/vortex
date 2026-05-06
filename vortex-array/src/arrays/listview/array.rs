@@ -154,13 +154,13 @@ impl ListViewData {
         sizes: &ArrayRef,
         validity: &Validity,
         len: usize,
-    ) -> Vec<Option<ArrayRef>> {
-        vec![
+    ) -> Box<[Option<ArrayRef>]> {
+        Box::new([
             Some(elements.clone()),
             Some(offsets.clone()),
             Some(sizes.clone()),
             validity_to_child(validity, len),
-        ]
+        ])
     }
 
     /// Creates a new `ListViewArray`.
@@ -470,7 +470,7 @@ impl Array<ListView> {
         }
         let dtype = self.dtype().clone();
         let len = self.len();
-        let slots = self.slots().to_vec();
+        let slots: Box<[Option<ArrayRef>]> = self.slots().into();
         let data = unsafe { self.into_data().with_zero_copy_to_list(is_zctl) };
         unsafe {
             Array::from_parts_unchecked(

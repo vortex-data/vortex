@@ -144,8 +144,8 @@ impl BoolData {
         }
     }
 
-    pub(crate) fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
-        vec![validity_to_child(validity, len)]
+    pub(crate) fn make_slots(validity: &Validity, len: usize) -> Box<[Option<ArrayRef>]> {
+        Box::new([validity_to_child(validity, len)])
     }
 }
 

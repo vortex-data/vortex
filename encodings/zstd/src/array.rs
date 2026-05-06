@@ -220,7 +220,7 @@ impl VTable for Zstd {
             )
         };
 
-        let slots = vec![validity_to_child(&validity, len)];
+        let slots = Box::new([validity_to_child(&validity, len)]);
         let data = ZstdData::new(dictionary_buffer, compressed_buffers, metadata, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -257,7 +257,7 @@ impl Zstd {
     pub fn try_new(dtype: DType, data: ZstdData, validity: Validity) -> VortexResult<ZstdArray> {
         let len = data.len();
         data.validate(&dtype, len, &validity)?;
-        let slots = vec![validity_to_child(&validity, data.unsliced_n_rows())];
+        let slots = Box::new([validity_to_child(&validity, data.unsliced_n_rows())]);
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Zstd, dtype, len, data).with_slots(slots))
         })

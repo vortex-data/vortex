@@ -34,7 +34,8 @@ impl Array<Variant> {
         let stats = child.statistics().to_owned();
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Variant, dtype, len, EmptyArrayData).with_slots(vec![Some(child)]),
+                ArrayParts::new(Variant, dtype, len, EmptyArrayData)
+                    .with_slots(Box::new([Some(child)])),
             )
         }
         .with_stats_set(stats)

@@ -59,7 +59,7 @@ impl Array<Extension> {
         let len = storage_array.len();
 
         let parts = ArrayParts::new(Extension, dtype, len, EmptyArrayData)
-            .with_slots(vec![Some(storage_array)]);
+            .with_slots(Box::new([Some(storage_array)]));
 
         Ok(unsafe { Array::from_parts_unchecked(parts) })
     }

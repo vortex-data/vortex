@@ -117,12 +117,12 @@ impl ListData {
         offsets: &ArrayRef,
         validity: &Validity,
         len: usize,
-    ) -> Vec<Option<ArrayRef>> {
-        vec![
+    ) -> Box<[Option<ArrayRef>]> {
+        Box::new([
             Some(elements.clone()),
             Some(offsets.clone()),
             validity_to_child(validity, len),
-        ]
+        ])
     }
 
     /// Creates a new `ListArray`.

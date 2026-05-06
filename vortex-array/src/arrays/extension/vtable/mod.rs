@@ -163,7 +163,7 @@ impl VTable for Extension {
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
         Ok(
             ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
-                .with_slots(vec![Some(storage)]),
+                .with_slots(Box::new([Some(storage)])),
         )
     }
 

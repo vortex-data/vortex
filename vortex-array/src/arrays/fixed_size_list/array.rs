@@ -111,8 +111,8 @@ impl FixedSizeListData {
         elements: &ArrayRef,
         validity: &Validity,
         len: usize,
-    ) -> Vec<Option<ArrayRef>> {
-        vec![Some(elements.clone()), validity_to_child(validity, len)]
+    ) -> Box<[Option<ArrayRef>]> {
+        Box::new([Some(elements.clone()), validity_to_child(validity, len)])
     }
 
     /// Creates a new `FixedSizeListArray`.

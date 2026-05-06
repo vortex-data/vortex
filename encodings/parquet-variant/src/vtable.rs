@@ -200,12 +200,12 @@ impl VTable for ParquetVariant {
             dtype,
             len,
         )?;
-        let slots = vec![
+        let slots = Box::new([
             validity_to_child(&validity, len),
             Some(variant_metadata),
             value,
             typed_value,
-        ];
+        ]);
         let data = ParquetVariantData;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }

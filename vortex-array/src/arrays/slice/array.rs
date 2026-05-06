@@ -88,7 +88,7 @@ impl Array<Slice> {
         let data = SliceData::try_new(child.len(), range)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Slice, dtype, len, data).with_slots(vec![Some(child)]),
+                ArrayParts::new(Slice, dtype, len, data).with_slots(Box::new([Some(child)])),
             )
         })
     }
@@ -100,7 +100,7 @@ impl Array<Slice> {
         let data = SliceData::new(range);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Slice, dtype, len, data).with_slots(vec![Some(child)]),
+                ArrayParts::new(Slice, dtype, len, data).with_slots(Box::new([Some(child)])),
             )
         }
     }

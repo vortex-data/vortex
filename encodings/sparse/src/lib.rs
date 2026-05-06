@@ -324,12 +324,12 @@ impl SparseData {
         Ok(())
     }
 
-    fn make_slots(patches: &Patches) -> Vec<Option<ArrayRef>> {
-        vec![
+    fn make_slots(patches: &Patches) -> Box<[Option<ArrayRef>]> {
+        Box::new([
             Some(patches.indices().clone()),
             Some(patches.values().clone()),
             patches.chunk_offsets().clone(),
-        ]
+        ])
     }
 
     /// Build a new SparseArray from an existing set of patches.

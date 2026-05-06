@@ -51,11 +51,11 @@ use syn::spanned::Spanned;
 ///     pub const COUNT: usize = 4;
 ///     pub const NAMES: [&'static str; 4] = ["inner", "lane_offsets", "patch_indices", "patch_values"];
 ///
-///     /// Take ownership of slots from a `Vec<Option<ArrayRef>>`.
-///     pub fn from_slots(slots: Vec<Option<ArrayRef>>) -> Self { ... }
+///     /// Take ownership of slots from a `Box<[Option<ArrayRef>]>`.
+///     pub fn from_slots(slots: Box<[Option<ArrayRef>]>) -> Self { ... }
 ///
 ///     /// Convert back into storage order.
-///     pub fn into_slots(self) -> Vec<Option<ArrayRef>> { ... }
+///     pub fn into_slots(self) -> Box<[Option<ArrayRef>]> { ... }
 /// }
 ///
 /// // --- Borrowed view with &ArrayRef / Option<&ArrayRef> fields ---
@@ -92,7 +92,7 @@ use syn::spanned::Spanned;
 ///   The ext trait accessor returns `Option<&ArrayRef>`. The view field is
 ///   `Option<&'a ArrayRef>`.
 ///
-/// The underlying storage is always `Vec<Option<ArrayRef>>` — the field type only
+/// The underlying storage is always `Box<[Option<ArrayRef>]>` — the field type only
 /// controls whether the macro inserts a `.vortex_expect()` unwrap or not.
 #[proc_macro_attribute]
 pub fn array_slots(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -166,15 +166,16 @@ fn expand_array_slots(
             pub const NAMES: [&'static str; #slot_count] = [#(#slot_names),*];
 
             #[doc = "Convert owned slot storage into an owned slot struct."]
-            pub fn from_slots(mut slots: Vec<Option<::vortex_array::ArrayRef>>) -> Self {
+            #[allow(clippy::boxed_local)]
+            pub fn from_slots(mut slots: ::std::boxed::Box<[Option<::vortex_array::ArrayRef>]>) -> Self {
                 Self {
                     #(#owned_from_slots,)*
                 }
             }
 
             #[doc = "Convert this slot struct into storage order."]
-            pub fn into_slots(self) -> Vec<Option<::vortex_array::ArrayRef>> {
-                vec![#(#into_slots),*]
+            pub fn into_slots(self) -> ::std::boxed::Box<[Option<::vortex_array::ArrayRef>]> {
+                ::std::boxed::Box::new([#(#into_slots),*])
             }
         }
 

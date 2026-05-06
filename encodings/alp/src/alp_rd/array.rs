@@ -465,7 +465,7 @@ impl ALPRDData {
         left_parts: &ArrayRef,
         right_parts: &ArrayRef,
         patches: Option<&Patches>,
-    ) -> Vec<Option<ArrayRef>> {
+    ) -> Box<[Option<ArrayRef>]> {
         let (pi, pv, pco) = match patches {
             Some(p) => (
                 Some(p.indices().clone()),
@@ -474,13 +474,13 @@ impl ALPRDData {
             ),
             None => (None, None, None),
         };
-        vec![
+        Box::new([
             Some(left_parts.clone()),
             Some(right_parts.clone()),
             pi,
             pv,
             pco,
-        ]
+        ])
     }
 
     /// Return all the owned parts of the array

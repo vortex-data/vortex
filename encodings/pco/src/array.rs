@@ -206,7 +206,7 @@ impl VTable for Pco {
             .sum::<usize>();
         vortex_ensure!(pages.len() == expected_n_pages);
 
-        let slots = vec![validity_to_child(&validity, len)];
+        let slots = Box::new([validity_to_child(&validity, len)]);
         let data = PcoData::new(chunk_metas, pages, dtype.as_ptype(), metadata, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -291,7 +291,7 @@ impl Pco {
     ) -> VortexResult<PcoArray> {
         let len = data.len();
         data.validate(&dtype, len, &validity)?;
-        let slots = vec![validity_to_child(&validity, data.unsliced_n_rows())];
+        let slots = Box::new([validity_to_child(&validity, data.unsliced_n_rows())]);
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Pco, dtype, len, data).with_slots(slots))
         })
