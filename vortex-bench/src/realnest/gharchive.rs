@@ -43,12 +43,12 @@ impl GithubArchiveBenchmark {
     }
 
     pub fn with_remote_data_dir(use_remote_data_dir: Option<String>) -> anyhow::Result<Self> {
-        let data_url = Self::create_data_url(&use_remote_data_dir)?;
+        let data_url = Self::create_data_url(use_remote_data_dir.as_deref())?;
         Ok(Self { data_url })
     }
 
-    fn create_data_url(remote_data_dir: &Option<String>) -> anyhow::Result<Url> {
-        resolve_data_url(remote_data_dir.as_deref(), "gharchive")
+    fn create_data_url(remote_data_dir: Option<&str>) -> anyhow::Result<Url> {
+        resolve_data_url(remote_data_dir, "gharchive")
     }
 }
 

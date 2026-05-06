@@ -39,6 +39,8 @@ class BenchmarkExecutor:
         samply: bool = False,
         sample_rate: int | None = None,
         tracing: bool = False,
+        runner: str | None = None,
+        gh_json_v3: Path | None = None,
     ) -> list[str]:
         """Build the command used to execute a benchmark binary."""
         cmd = [
@@ -64,6 +66,10 @@ class BenchmarkExecutor:
             cmd.append("--track-memory")
         if tracing:
             cmd.append("--tracing")
+        if runner:
+            cmd.extend(["--runner", runner])
+        if gh_json_v3 is not None:
+            cmd.extend(["--gh-json-v3", str(gh_json_v3)])
         if options:
             for key, value in options.items():
                 cmd.extend(["--opt", f"{key}={value}"])
@@ -94,6 +100,8 @@ class BenchmarkExecutor:
         samply: bool = False,
         sample_rate: int | None = None,
         tracing: bool = False,
+        runner: str | None = None,
+        gh_json_v3: Path | None = None,
         on_result: Callable[[str], None] | None = None,
     ) -> list[str]:
         """
@@ -123,6 +131,8 @@ class BenchmarkExecutor:
             samply=samply,
             sample_rate=sample_rate,
             tracing=tracing,
+            runner=runner,
+            gh_json_v3=gh_json_v3,
         )
 
         if self.verbose:

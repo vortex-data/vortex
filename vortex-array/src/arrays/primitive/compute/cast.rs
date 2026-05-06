@@ -21,6 +21,37 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::cast::CastKernel;
+use crate::scalar_fn::fns::cast::CastReduce;
+
+impl CastReduce for Primitive {
+    fn cast(array: ArrayView<'_, Primitive>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        // Only the same ptype is reducible without execution; type changes need the kernel
+        // to verify values fit in the target range.
+        let DType::Primitive(new_ptype, new_nullability) = dtype else {
+            return Ok(None);
+        };
+        if *new_ptype != array.ptype() {
+            return Ok(None);
+        }
+
+        let Some(new_validity) = array
+            .validity()?
+            .trivially_cast_nullability(*new_nullability, array.len())?
+        else {
+            return Ok(None);
+        };
+
+        // SAFETY: validity and data buffer still have same length.
+        Ok(Some(unsafe {
+            PrimitiveArray::new_unchecked_from_handle(
+                array.buffer_handle().clone(),
+                array.ptype(),
+                new_validity,
+            )
+            .into_array()
+        }))
+    }
+}
 
 impl CastKernel for Primitive {
     fn cast(
@@ -36,7 +67,7 @@ impl CastKernel for Primitive {
         // First, check that the cast is compatible with the source array's validity
         let new_validity = array
             .validity()?
-            .cast_nullability(new_nullability, array.len())?;
+            .cast_nullability(new_nullability, array.len(), ctx)?;
 
         // Same ptype: zero-copy, just update validity.
         if array.ptype() == new_ptype {

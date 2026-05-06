@@ -162,8 +162,6 @@ async fn write_shard_streaming(
         .open(vortex_path)
         .await?;
 
-    // This will write in parallel, using `std::thread::available_parallelism()`.
-    // See `CompressingStrategy` for more details.
     flavor
         .create_write_options(&SESSION)
         .write(&mut output, stream)

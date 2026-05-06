@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::sync::Arc;
 
 use vortex_session::Ref;
 use vortex_session::SessionExt;
+use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 
 use crate::scalar_fn::ScalarFnPluginRef;
@@ -71,6 +73,16 @@ impl Default for ScalarFnSession {
         this.register(Select);
 
         this
+    }
+}
+
+impl SessionVar for ScalarFnSession {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 

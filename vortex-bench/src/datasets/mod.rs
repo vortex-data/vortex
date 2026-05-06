@@ -22,9 +22,31 @@ pub mod tpch_l_comment;
 
 use std::path::PathBuf;
 
+pub(crate) const DEFAULT_BENCHMARK_RUNNER_ID: &str = "unknown";
+
+pub(crate) fn normalize_benchmark_runner_id(benchmark_runner: &str) -> String {
+    let benchmark_runner = benchmark_runner.trim().replace('/', "_");
+    if benchmark_runner.is_empty() {
+        DEFAULT_BENCHMARK_RUNNER_ID.to_string()
+    } else {
+        benchmark_runner
+    }
+}
+
 #[async_trait]
 pub trait Dataset {
     fn name(&self) -> &str;
+
+    /// Map this dataset to the v3 `(dataset, dataset_variant)` pair.
+    ///
+    /// Default: `(name(), None)`. Override for suites that have a parent
+    /// namespace and a sub-dataset (e.g. Public-BI emits
+    /// `dataset = "public-bi"`, `dataset_variant = "<sub-dataset name>"`).
+    /// The convention matches the SQL query path; see the per-suite dim
+    /// values table in `benchmarks-website/planning/benchmark-mapping.md`.
+    fn v3_dataset_dims(&self) -> (&str, Option<&str>) {
+        (self.name(), None)
+    }
 
     async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef>;
 

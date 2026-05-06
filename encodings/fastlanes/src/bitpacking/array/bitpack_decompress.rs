@@ -67,8 +67,8 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
     let mut bit_packed_iter = array.unpacked_chunks()?;
     bit_packed_iter.decode_into(uninit_slice);
 
-    if let Some(ref patches) = array.patches() {
-        apply_patches_to_uninit_range(&mut uninit_range, patches, ctx)?;
+    if let Some(patches) = array.patches() {
+        apply_patches_to_uninit_range(&mut uninit_range, &patches, ctx)?;
     };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and

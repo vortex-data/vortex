@@ -54,59 +54,59 @@ pub vortex_error::VortexError::TryFromInt(core::num::error::TryFromIntError, all
 
 impl vortex_error::VortexError
 
-pub fn vortex_error::VortexError::with_context<T: core::convert::Into<vortex_error::ErrString>>(self, msg: T) -> Self
+pub fn vortex_error::VortexError::with_context<T: core::convert::Into<vortex_error::ErrString>>(self, T) -> Self
 
 impl core::convert::From<&alloc::sync::Arc<vortex_error::VortexError>> for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::from(e: &alloc::sync::Arc<vortex_error::VortexError>) -> Self
+pub fn vortex_error::VortexError::from(&alloc::sync::Arc<vortex_error::VortexError>) -> Self
 
 impl core::convert::From<alloc::sync::Arc<vortex_error::VortexError>> for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::from(value: alloc::sync::Arc<vortex_error::VortexError>) -> Self
+pub fn vortex_error::VortexError::from(alloc::sync::Arc<vortex_error::VortexError>) -> Self
 
 impl core::convert::From<arrow_schema::error::ArrowError> for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::from(value: arrow_schema::error::ArrowError) -> Self
+pub fn vortex_error::VortexError::from(arrow_schema::error::ArrowError) -> Self
 
 impl core::convert::From<core::convert::Infallible> for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::from(_: core::convert::Infallible) -> Self
+pub fn vortex_error::VortexError::from(core::convert::Infallible) -> Self
 
 impl core::convert::From<core::num::error::TryFromIntError> for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::from(value: core::num::error::TryFromIntError) -> Self
+pub fn vortex_error::VortexError::from(core::num::error::TryFromIntError) -> Self
 
 impl core::convert::From<flatbuffers::verifier::InvalidFlatbuffer> for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::from(value: flatbuffers::verifier::InvalidFlatbuffer) -> Self
+pub fn vortex_error::VortexError::from(flatbuffers::verifier::InvalidFlatbuffer) -> Self
 
 impl core::convert::From<jiff::error::Error> for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::from(value: jiff::error::Error) -> Self
+pub fn vortex_error::VortexError::from(jiff::error::Error) -> Self
 
 impl core::convert::From<object_store::Error> for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::from(value: object_store::Error) -> Self
+pub fn vortex_error::VortexError::from(object_store::Error) -> Self
 
 impl core::convert::From<prost::error::DecodeError> for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::from(value: prost::error::DecodeError) -> Self
+pub fn vortex_error::VortexError::from(prost::error::DecodeError) -> Self
 
 impl core::convert::From<prost::error::EncodeError> for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::from(value: prost::error::EncodeError) -> Self
+pub fn vortex_error::VortexError::from(prost::error::EncodeError) -> Self
 
 impl core::convert::From<prost::error::UnknownEnumValue> for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::from(value: prost::error::UnknownEnumValue) -> Self
+pub fn vortex_error::VortexError::from(prost::error::UnknownEnumValue) -> Self
 
 impl core::convert::From<std::io::error::Error> for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::from(value: std::io::error::Error) -> Self
+pub fn vortex_error::VortexError::from(std::io::error::Error) -> Self
 
 impl core::convert::From<tokio::runtime::task::error::JoinError> for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::from(value: tokio::runtime::task::error::JoinError) -> Self
+pub fn vortex_error::VortexError::from(tokio::runtime::task::error::JoinError) -> Self
 
 impl core::error::Error for vortex_error::VortexError
 
@@ -114,11 +114,11 @@ pub fn vortex_error::VortexError::source(&self) -> core::option::Option<&(dyn co
 
 impl core::fmt::Debug for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_error::VortexError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl core::fmt::Display for vortex_error::VortexError
 
-pub fn vortex_error::VortexError::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_error::VortexError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_error::ErrString(_)
 
@@ -128,11 +128,11 @@ pub fn vortex_error::ErrString::as_ref(&self) -> &str
 
 impl core::fmt::Debug for vortex_error::ErrString
 
-pub fn vortex_error::ErrString::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_error::ErrString::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl core::fmt::Display for vortex_error::ErrString
 
-pub fn vortex_error::ErrString::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_error::ErrString::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl core::ops::deref::Deref for vortex_error::ErrString
 
@@ -142,25 +142,25 @@ pub fn vortex_error::ErrString::deref(&self) -> &Self::Target
 
 impl<T> core::convert::From<T> for vortex_error::ErrString where T: core::convert::Into<alloc::borrow::Cow<'static, str>>
 
-pub fn vortex_error::ErrString::from(msg: T) -> Self
+pub fn vortex_error::ErrString::from(T) -> Self
 
 pub trait vortex_error::VortexExpect
 
 pub type vortex_error::VortexExpect::Output
 
-pub fn vortex_error::VortexExpect::vortex_expect(self, msg: &'static str) -> Self::Output
+pub fn vortex_error::VortexExpect::vortex_expect(self, &'static str) -> Self::Output
 
 impl<T, E> vortex_error::VortexExpect for core::result::Result<T, E> where E: core::convert::Into<vortex_error::VortexError>
 
 pub type core::result::Result<T, E>::Output = T
 
-pub fn core::result::Result<T, E>::vortex_expect(self, msg: &'static str) -> Self::Output
+pub fn core::result::Result<T, E>::vortex_expect(self, &'static str) -> Self::Output
 
 impl<T> vortex_error::VortexExpect for core::option::Option<T>
 
 pub type core::option::Option<T>::Output = T
 
-pub fn core::option::Option<T>::vortex_expect(self, msg: &'static str) -> Self::Output
+pub fn core::option::Option<T>::vortex_expect(self, &'static str) -> Self::Output
 
 pub type vortex_error::SharedVortexResult<T> = core::result::Result<T, alloc::sync::Arc<vortex_error::VortexError>>
 

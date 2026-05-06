@@ -4,24 +4,48 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::Bool;
 use crate::arrays::BoolArray;
 use crate::arrays::bool::BoolArrayExt;
 use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastKernel;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for Bool {
     fn cast(array: ArrayView<'_, Bool>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
-        if !matches!(dtype, DType::Bool(_)) {
+        if !dtype.is_boolean() {
             return Ok(None);
         }
 
-        let new_nullability = dtype.nullability();
-        let new_validity = array
+        let Some(new_validity) = array
             .validity()?
-            .cast_nullability(new_nullability, array.len())?;
+            .trivially_cast_nullability(dtype.nullability(), array.len())?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(
+            BoolArray::new(array.to_bit_buffer(), new_validity).into_array(),
+        ))
+    }
+}
+
+impl CastKernel for Bool {
+    fn cast(
+        array: ArrayView<'_, Bool>,
+        dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if !dtype.is_boolean() {
+            return Ok(None);
+        }
+
+        let new_validity =
+            array
+                .validity()?
+                .cast_nullability(dtype.nullability(), array.len(), ctx)?;
         Ok(Some(
             BoolArray::new(array.to_bit_buffer(), new_validity).into_array(),
         ))
@@ -30,14 +54,23 @@ impl CastReduce for Bool {
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
+    use std::sync::LazyLock;
 
+    use rstest::rstest;
+    use vortex_session::VortexSession;
+
+    use crate::Canonical;
     use crate::IntoArray;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::session::ArraySession;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn try_cast_bool_success() {
@@ -51,12 +84,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn try_cast_bool_fail() {
+        // When the validity array's min stat is not cached, the reduce rule defers and the
+        // failure surfaces during execution via the kernel (cast_nullability -> compute_min).
         let bool = BoolArray::from_iter(vec![Some(true), Some(false), None]);
-        bool.into_array()
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = bool
+            .into_array()
             .cast(DType::Bool(Nullability::NonNullable))
-            .unwrap();
+            .and_then(|a| a.execute::<Canonical>(&mut ctx).map(|c| c.into_array()));
+        assert!(result.is_err(), "Expected error, got: {result:?}");
     }
 
     #[rstest]

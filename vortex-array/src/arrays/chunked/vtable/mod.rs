@@ -44,6 +44,7 @@ use crate::serde::ArrayChildren;
 mod canonical;
 mod operations;
 mod validity;
+
 /// A [`Chunked`]-encoded Vortex array.
 pub type ChunkedArray = Array<Chunked>;
 
@@ -213,9 +214,7 @@ impl VTable for Chunked {
             self.clone(),
             dtype.clone(),
             len,
-            ChunkedData {
-                chunk_offsets: chunk_offsets_usize,
-            },
+            ChunkedData::new(chunk_offsets_usize),
         )
         .with_slots(slots))
     }
@@ -239,7 +238,27 @@ impl VTable for Chunked {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
+        match array.dtype() {
+            // Struct and List need special swizzling logic, use the existing canonicalize path.
+            DType::Struct(..) | DType::List(..) => {
+                // TODO(joe)[#7674]: iterative execution here too
+                Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
+            }
+            // For all other types, use the builder path via AppendChild.
+            _ => {
+                let slot_idx = array.next_builder_slot.max(CHUNKS_OFFSET);
+                if slot_idx < array.slots().len() {
+                    Ok(ExecutionResult::append_child(
+                        array.with_next_builder_slot(slot_idx + 1),
+                        slot_idx,
+                    ))
+                } else {
+                    Ok(ExecutionResult::done(
+                        Canonical::empty(array.dtype()).into_array(),
+                    ))
+                }
+            }
+        }
     }
 
     fn execute_parent(

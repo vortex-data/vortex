@@ -20,7 +20,7 @@ use crate::scalar::ScalarValue;
 ///
 /// This type provides a view into a binary scalar value, which can be either
 /// a valid byte buffer or null.
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone, Copy, Hash)]
 pub struct BinaryScalar<'a> {
     /// The data type of this scalar.
     dtype: &'a DType,

@@ -21,6 +21,7 @@ workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
+arc-swap = { workspace = true }
 arcref = { workspace = true }
 arrow-arith = { workspace = true }
 arrow-array = { workspace = true, features = ["ffi"] }
@@ -121,6 +122,10 @@ harness = false
 
 [[bench]]
 name = "scalar_at_struct"
+harness = false
+
+[[bench]]
+name = "patches_lookup"
 harness = false
 
 [[bench]]

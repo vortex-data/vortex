@@ -9,6 +9,8 @@ use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
+use vortex_array::arrays::arbitrary::ArbitraryArrayConfig;
+use vortex_array::arrays::arbitrary::ArbitraryWith;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -46,14 +48,28 @@ impl ArbitraryRunEndArray {
         if num_runs == 0 {
             // Empty RunEndArray
             let ends = PrimitiveArray::from_iter(Vec::<u64>::new()).into_array();
-            let values = ArbitraryArray::arbitrary_with(u, Some(0), dtype)?.0;
+            let values = ArbitraryArray::arbitrary_with_config(
+                u,
+                &ArbitraryArrayConfig {
+                    dtype: Some(dtype.clone()),
+                    len: 0..=0,
+                },
+            )?
+            .0;
             let runend_array = RunEnd::try_new(ends, values, &mut ctx)
                 .vortex_expect("Empty RunEndArray creation should succeed");
             return Ok(ArbitraryRunEndArray(runend_array));
         }
 
         // Generate arbitrary values for each run
-        let values = ArbitraryArray::arbitrary_with(u, Some(num_runs), dtype)?.0;
+        let values = ArbitraryArray::arbitrary_with_config(
+            u,
+            &ArbitraryArrayConfig {
+                dtype: Some(dtype.clone()),
+                len: num_runs..=num_runs,
+            },
+        )?
+        .0;
 
         // Generate strictly increasing ends
         // Each end must be > previous end, and first end must be >= 1

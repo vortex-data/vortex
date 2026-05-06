@@ -7,6 +7,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::Canonical;
+use crate::CanonicalView;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::Bool;
@@ -35,11 +36,12 @@ use crate::arrays::variant::VariantArrayExt;
 ///
 /// This is the core operation for dictionary decoding - it expands the dictionary
 /// by looking up each code in the values array.
-pub fn take_canonical(
-    values: Canonical,
+pub(crate) fn take_canonical(
+    values: CanonicalView,
     codes: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Canonical> {
+    let values = Canonical::from(values);
     Ok(match values {
         Canonical::Null(a) => Canonical::Null(take_null(&a, codes)),
         Canonical::Bool(a) => Canonical::Bool(take_bool(&a, codes, ctx)?),

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use itertools::Itertools as _;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -18,13 +19,11 @@ use crate::arrays::StructArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
-use crate::arrays::struct_::StructArrayExt;
 use crate::builders::builder_with_capacity_in;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
-use crate::dtype::StructFields;
 use crate::memory::HostAllocatorExt;
 use crate::validity::Validity;
 
@@ -41,9 +40,8 @@ pub(super) fn _canonicalize(
 
     let owned_chunks: Vec<ArrayRef> = array.iter_chunks().cloned().collect();
     Ok(match array.dtype() {
-        DType::Struct(struct_dtype, _) => {
-            let struct_array =
-                pack_struct_chunks(&owned_chunks, array.array().validity()?, struct_dtype, ctx)?;
+        DType::Struct(..) => {
+            let struct_array = pack_struct_chunks(owned_chunks, ctx)?;
             Canonical::Struct(struct_array)
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
@@ -64,36 +62,11 @@ pub(super) fn _canonicalize(
 /// field is a [`ChunkedArray`].
 ///
 /// The caller guarantees there are at least 2 chunks.
-fn pack_struct_chunks(
-    chunks: &[ArrayRef],
-    validity: Validity,
-    struct_dtype: &StructFields,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<StructArray> {
-    let len = chunks.iter().map(|chunk| chunk.len()).sum();
-    let mut field_arrays = Vec::new();
-
-    let executed_chunks: Vec<StructArray> = chunks
-        .iter()
-        .map(|c| c.clone().execute::<StructArray>(ctx))
-        .collect::<VortexResult<_>>()?;
-
-    for (field_idx, field_dtype) in struct_dtype.fields().enumerate() {
-        let mut field_chunks = Vec::with_capacity(chunks.len());
-        for struct_array in &executed_chunks {
-            let field = struct_array.unmasked_field(field_idx).clone();
-            field_chunks.push(field);
-        }
-
-        // SAFETY: field_chunks are extracted from valid StructArrays with matching dtypes.
-        // Each chunk's field array is guaranteed to be valid for field_dtype.
-        let field_array = unsafe { ChunkedArray::new_unchecked(field_chunks, field_dtype.clone()) };
-        field_arrays.push(field_array.into_array());
-    }
-
-    // SAFETY: field_arrays are built from corresponding chunks of same length, dtypes match by
-    // construction.
-    Ok(unsafe { StructArray::new_unchecked(field_arrays, struct_dtype.clone(), len, validity) })
+fn pack_struct_chunks(chunks: Vec<ArrayRef>, ctx: &mut ExecutionCtx) -> VortexResult<StructArray> {
+    chunks
+        .into_iter()
+        .map(|c| c.execute::<StructArray>(ctx))
+        .process_results(|iter| StructArray::try_concat(iter))?
 }
 
 /// Packs [`ListViewArray`]s together into a chunked `ListViewArray`.

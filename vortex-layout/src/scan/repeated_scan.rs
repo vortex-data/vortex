@@ -22,6 +22,7 @@ use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
 use crate::scan::filter::FilterExpr;
@@ -187,9 +188,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         row_range: Option<Range<u64>>,
     ) -> VortexResult<impl Stream<Item = VortexResult<A>> + Send + 'static + use<A>> {
         use futures::StreamExt;
-        let num_workers = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1);
+        let num_workers = get_available_parallelism().unwrap_or(1);
         let concurrency = self.concurrency * num_workers;
         let handle = self.session.handle();
 

@@ -118,10 +118,10 @@ pub(crate) fn fused_decompress<
     // Decode all chunks (initial, full, and trailer) in one call.
     unpacked.decode_into(uninit_slice);
 
-    if let Some(ref patches) = bp.patches() {
+    if let Some(patches) = bp.patches() {
         bitpack_decompress::apply_patches_to_uninit_range_fn(
             &mut uninit_range,
-            patches,
+            &patches,
             ctx,
             |v| v.wrapping_add(&ref_),
         )?;

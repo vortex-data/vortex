@@ -12,13 +12,29 @@ import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.FieldType;
 import dev.vortex.relocated.org.apache.arrow.vector.types.pojo.Schema;
 import java.util.ArrayList;
 import java.util.List;
-import org.apache.spark.sql.types.*;
+import org.apache.spark.sql.types.ArrayType;
+import org.apache.spark.sql.types.BinaryType;
+import org.apache.spark.sql.types.BooleanType;
+import org.apache.spark.sql.types.ByteType;
+import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DateType;
+import org.apache.spark.sql.types.DecimalType;
+import org.apache.spark.sql.types.DoubleType;
+import org.apache.spark.sql.types.FloatType;
+import org.apache.spark.sql.types.IntegerType;
+import org.apache.spark.sql.types.LongType;
+import org.apache.spark.sql.types.MapType;
+import org.apache.spark.sql.types.ShortType;
+import org.apache.spark.sql.types.StringType;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.types.TimestampNTZType;
+import org.apache.spark.sql.types.TimestampType;
 
 /**
  * Utility class for converting Spark SQL schemas to Arrow schemas.
  *
- * This enables the conversion of Spark DataFrames to Arrow format
- * for writing to Vortex files.
+ * <p>This enables the conversion of Spark DataFrames to Arrow format for writing to Vortex files.
  */
 public final class SparkToArrowSchema {
 

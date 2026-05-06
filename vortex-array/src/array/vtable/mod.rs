@@ -254,7 +254,7 @@ pub fn validity_to_child(validity: &Validity, len: usize) -> Option<ArrayRef> {
 ///
 /// This is the inverse of [`validity_to_child`].
 #[inline]
-pub fn child_to_validity(child: &Option<ArrayRef>, nullability: Nullability) -> Validity {
+pub fn child_to_validity(child: Option<&ArrayRef>, nullability: Nullability) -> Validity {
     match child {
         Some(arr) => {
             // Detect constant bool arrays created by validity_to_child.

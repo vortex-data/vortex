@@ -15,11 +15,9 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Factory for creating VortexDataWriter instances on Spark executors.
- * <p>
- * This factory is serialized and sent to executors where it creates
- * data writers for each task. When partition transforms are specified,
- * it creates partitioned writers that organize output into Hive-style
- * partition directories.
+ *
+ * <p>This factory is serialized and sent to executors where it creates data writers for each task. When partition
+ * transforms are specified, it creates partitioned writers that organize output into Hive-style partition directories.
  */
 public final class VortexDataWriterFactory implements DataWriterFactory, Serializable {
 
@@ -34,9 +32,9 @@ public final class VortexDataWriterFactory implements DataWriterFactory, Seriali
     /**
      * Creates a new VortexDataWriterFactory.
      *
-     * @param outputUri          the base path where Vortex files will be written
-     * @param schema             the schema of the data to write
-     * @param options            additional write options
+     * @param outputUri the base path where Vortex files will be written
+     * @param schema the schema of the data to write
+     * @param options additional write options
      * @param resolvedTransforms pre-resolved partition transforms (may be empty)
      */
     VortexDataWriterFactory(
@@ -52,13 +50,12 @@ public final class VortexDataWriterFactory implements DataWriterFactory, Seriali
 
     /**
      * Creates a new data writer for a specific partition and task.
-     * <p>
-     * Each task writes its data to a separate Vortex file to avoid conflicts.
-     * When partition transforms are configured, returns a {@link PartitionedVortexDataWriter}
-     * that creates Hive-style partition directories.
+     *
+     * <p>Each task writes its data to a separate Vortex file to avoid conflicts. When partition transforms are
+     * configured, returns a {@link PartitionedVortexDataWriter} that creates Hive-style partition directories.
      *
      * @param partitionId the partition ID
-     * @param taskId      the task ID
+     * @param taskId the task ID
      * @return a new DataWriter instance
      */
     @Override

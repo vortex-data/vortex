@@ -1,16 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::fmt::Debug;
 
 use vortex_error::VortexExpect;
 use vortex_session::SessionExt;
+use vortex_session::SessionVar;
 
 use crate::runtime::Handle;
 
 /// Session state for Vortex async runtimes.
 pub struct RuntimeSession {
     handle: Option<Handle>,
+}
+
+impl SessionVar for RuntimeSession {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
 }
 
 impl Default for RuntimeSession {

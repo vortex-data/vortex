@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod bench_config;
+
 use std::time::Duration;
 
 use criterion::BenchmarkId;
@@ -25,11 +27,7 @@ use vortex_cuda::zstd_kernel_prepare;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-const BENCH_ARGS: &[(usize, &str)] = &[
-    (1_000_000, "1M"),
-    (10_000_000, "10M"),
-    (100_000_000, "100M"),
-];
+use crate::bench_config::BENCH_SIZES;
 
 /// Generate compressible string data by repeating patterns.
 fn generate_string_data(count: usize) -> Vec<&'static str> {
@@ -125,9 +123,9 @@ async fn execute_zstd_kernel(
 
 /// Benchmark ZSTD CUDA decompression kernel performance
 fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
-    let mut group = c.benchmark_group("ZSTD_cuda");
+    let mut group = c.benchmark_group("cuda");
 
-    for (num_strings, label) in BENCH_ARGS {
+    for (num_strings, label) in BENCH_SIZES {
         let mut setup_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
         let (zstd_array, uncompressed_size) = make_zstd_array(*num_strings, &mut setup_ctx)
@@ -135,7 +133,7 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
 
         group.throughput(Throughput::Bytes(uncompressed_size as u64));
         group.bench_with_input(
-            BenchmarkId::new("decompress_kernel", label),
+            BenchmarkId::new("cuda/zstd/decompress", label),
             &zstd_array,
             |b, zstd_array| {
                 b.iter_custom(|iters| {
@@ -149,7 +147,7 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
                             frames, metadata, ..
                         } = {
                             let validity = child_to_validity(
-                                &zstd_array.as_ref().slots()[0],
+                                zstd_array.as_ref().slots()[0].as_ref(),
                                 zstd_array.dtype().nullability(),
                             );
                             zstd_array.clone().into_data().into_parts(validity)
@@ -173,11 +171,7 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
 
 criterion::criterion_group! {
     name = benches;
-    config = Criterion::default().without_plots()
-        .sample_size(10)
-        .warm_up_time(Duration::from_nanos(1))
-        .measurement_time(Duration::from_nanos(1))
-        .nresamples(10);
+    config = bench_config::cuda_bench_config();
     targets = benchmark_zstd_cuda_decompress
 }
 

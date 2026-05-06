@@ -49,7 +49,11 @@ pub enum VxScan {
     Started(PartitionStream),
     Finished,
 }
-crate::box_wrapper!(VxScan, vx_scan);
+crate::box_wrapper!(
+    /// A scan is a single traversal of a data source with projections and
+    /// filters. A scan can be consumed only once.
+    VxScan,
+    vx_scan);
 
 pub enum VxPartitionScan {
     Pending(Box<dyn Partition>),
@@ -114,8 +118,10 @@ pub struct vx_scan_options {
 }
 
 #[repr(C)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq, Default))]
 pub enum vx_estimate_type {
     /// No estimate is available.
+    #[cfg_attr(test, default)]
     VX_ESTIMATE_UNKNOWN = 0,
     /// The value in vx_estimate.estimate is exact.
     VX_ESTIMATE_EXACT = 1,
@@ -126,10 +132,11 @@ pub enum vx_estimate_type {
 /// Used for estimating number of partitions in a data source or number of rows
 /// in a partition.
 #[repr(C)]
+#[cfg_attr(test, derive(Default))]
 pub struct vx_estimate {
-    r#type: vx_estimate_type,
+    pub r#type: vx_estimate_type,
     /// Set only when "type" is not VX_ESTIMATE_UNKNOWN.
-    estimate: u64,
+    pub estimate: u64,
 }
 
 fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
@@ -182,6 +189,8 @@ fn scan_request(opts: *const vx_scan_options) -> VortexResult<ScanRequest> {
         selection,
         ordered,
         limit,
+        partition_selection: Selection::All,
+        partition_range: None,
     })
 }
 
@@ -250,7 +259,7 @@ pub unsafe extern "C-unwind" fn vx_scan_dtype(
 ) -> *const vx_dtype {
     try_or(err, ptr::null(), || {
         let scan = vx_scan::as_ref(scan);
-        let VxScan::Pending(ref scan) = *scan else {
+        let VxScan::Pending(scan) = scan else {
             vortex_bail!("dtype unavailable: scan already started");
         };
         Ok(vx_dtype::new_ref(scan.dtype()))
@@ -325,15 +334,15 @@ pub unsafe extern "C-unwind" fn vx_partition_row_count(
     })
 }
 
-// Scan partition to ArrowArrayStream.
-// Consumes partition fully: subsequent calls to vx_partition_scan_arrow or
-// vx_partition_next are undefined behaviour.
-// This call blocks current thread until underlying stream is fully consumed.
-//
-// Caller must not free partition after calling this function.
-//
-// On success, sets "stream" and returns 0.
-// On error, sets "err" and returns 1, freeing the partition.
+/// Scan partition to ArrowArrayStream.
+/// Consumes partition fully: subsequent calls to vx_partition_scan_arrow or
+/// vx_partition_next are undefined behaviour.
+/// This call blocks current thread until underlying stream is fully consumed.
+///
+/// Caller must not free partition after calling this function.
+///
+/// On success, sets "stream" and returns 0.
+/// On error, sets "err" and returns 1, freeing the partition.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_partition_scan_arrow(
     session: *const vx_session,
@@ -432,7 +441,6 @@ mod tests {
 
     use vortex::VortexSessionDefault;
     use vortex::array::arrays::StructArray;
-    use vortex::expr::lit;
     use vortex::session::VortexSession;
     use vortex_array::ExecutionCtx;
     use vortex_array::arrays::struct_::StructArrayExt;
@@ -444,11 +452,13 @@ mod tests {
     use crate::data_source::vx_data_source_new;
     use crate::data_source::vx_data_source_options;
     use crate::expression::vx_binary_operator;
-    use crate::expression::vx_expression;
     use crate::expression::vx_expression_binary;
     use crate::expression::vx_expression_free;
     use crate::expression::vx_expression_get_item;
+    use crate::expression::vx_expression_literal;
     use crate::expression::vx_expression_root;
+    use crate::scalar::vx_scalar_free;
+    use crate::scalar::vx_scalar_new_u64;
     use crate::scan::vx_data_source_scan;
     use crate::scan::vx_estimate;
     use crate::scan::vx_partition_free;
@@ -589,7 +599,11 @@ mod tests {
         unsafe {
             let root = vx_expression_root();
             let age_expr = vx_expression_get_item(c"age".as_ptr(), root);
-            let lit_100 = vx_expression::new(lit(100u64));
+            let value = vx_scalar_new_u64(100, false);
+            let mut error = ptr::null_mut();
+            let lit_100 = vx_expression_literal(value, &raw mut error);
+            assert_no_error(error);
+            vx_scalar_free(value);
             let filter =
                 vx_expression_binary(vx_binary_operator::VX_OPERATOR_GTE, age_expr, lit_100);
 
@@ -614,7 +628,11 @@ mod tests {
         unsafe {
             let root = vx_expression_root();
             let age_expr = vx_expression_get_item(c"age".as_ptr(), root);
-            let lit_100 = vx_expression::new(lit(100u64));
+            let value = vx_scalar_new_u64(100, false);
+            let mut error = ptr::null_mut();
+            let lit_100 = vx_expression_literal(value, &raw mut error);
+            assert_no_error(error);
+            vx_scalar_free(value);
             let filter =
                 vx_expression_binary(vx_binary_operator::VX_OPERATOR_GTE, age_expr, lit_100);
             let projection = vx_expression_get_item(c"age".as_ptr(), root);

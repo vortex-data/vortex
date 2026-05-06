@@ -70,7 +70,7 @@ impl VTable for Struct {
             );
         }
 
-        let validity = child_to_validity(&slots[VALIDITY_SLOT], *nullability);
+        let validity = child_to_validity(slots[VALIDITY_SLOT].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len()
             && validity_len != len
         {

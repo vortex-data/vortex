@@ -139,14 +139,13 @@ tasks.register("makeTestFiles") {
         }
 
         copy {
-            from("${rootProject.projectDir.absoluteFile.parentFile}/target/debug/libvortex_jni.dylib")
-            into("$projectDir/src/main/resources/native/darwin-aarch64")
+            from("${rootProject.projectDir.absoluteFile.parentFile}/target/debug/libvortex_jni.so")
+            into("$projectDir/src/main/resources/native/linux-aarch64")
         }
 
-        execOps.exec {
-            workingDir = rootProject.projectDir.absoluteFile.parentFile
-            executable = "cargo"
-            args("xtask", "java-test-files")
+        copy {
+            from("${rootProject.projectDir.absoluteFile.parentFile}/target/debug/libvortex_jni.dylib")
+            into("$projectDir/src/main/resources/native/darwin-aarch64")
         }
     }
 }

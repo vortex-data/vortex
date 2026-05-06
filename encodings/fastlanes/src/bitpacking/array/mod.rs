@@ -316,10 +316,7 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
 
     #[inline]
     fn validity(&self) -> Validity {
-        child_to_validity(
-            &self.validity_child().cloned(),
-            self.as_ref().dtype().nullability(),
-        )
+        child_to_validity(self.validity_child(), self.as_ref().dtype().nullability())
     }
 
     #[inline]
@@ -337,19 +334,25 @@ impl<T: TypedArrayRef<crate::BitPacked>> BitPackedArrayExt for T {}
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
+    use vortex_session::VortexSession;
 
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
 
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
     #[test]
     fn test_encode() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = [
             Some(1u64),
             None,
@@ -372,7 +375,7 @@ mod test {
 
     #[test]
     fn test_encode_too_wide() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values = [Some(1u8), None, Some(1), None, Some(1), None];
         let uncompressed = PrimitiveArray::from_option_iter(values);
         let _packed = BitPackedData::encode(&uncompressed.clone().into_array(), 8, &mut ctx)
@@ -383,7 +386,7 @@ mod test {
 
     #[test]
     fn signed_with_patches() {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Buffer<i32> = (0i32..=512).collect();
         let parray = values.clone().into_array();
 

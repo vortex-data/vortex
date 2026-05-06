@@ -22,7 +22,7 @@ use crate::scalar::ScalarValue;
 ///
 /// This type provides a view into a UTF-8 string scalar value, which can be either
 /// a valid UTF-8 string or null.
-#[derive(Debug, Clone, Hash, Eq)]
+#[derive(Debug, Clone, Copy, Hash, Eq)]
 pub struct Utf8Scalar<'a> {
     /// The data type of this scalar.
     dtype: &'a DType,

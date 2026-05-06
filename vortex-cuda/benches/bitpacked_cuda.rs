@@ -6,7 +6,8 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
-mod common;
+mod bench_config;
+mod timed_launch_strategy;
 
 use std::mem::size_of;
 use std::ops::Add;
@@ -31,14 +32,13 @@ use vortex::encodings::fastlanes::BitPackedData;
 use vortex::encodings::fastlanes::unpack_iter::BitPacked;
 use vortex::error::VortexExpect;
 use vortex::session::VortexSession;
+use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-use crate::common::TimedLaunchStrategy;
-
-const N_ROWS: usize = 100_000_000;
+use crate::timed_launch_strategy::TimedLaunchStrategy;
 
 /// Patch frequencies to benchmark (as fractions)
 const PATCH_FREQUENCIES: &[(f64, &str)] = &[(0.01, "1%"), (0.10, "10%")];
@@ -110,33 +110,39 @@ where
     T: BitPacked + NativePType + DeviceRepr + Add<Output = T> + From<u8>,
     T::Physical: DeviceRepr,
 {
-    let mut group = c.benchmark_group(format!("bitunpack_cuda_{}", type_name));
+    let mut group = c.benchmark_group("cuda");
 
-    let array = make_bitpacked_array::<T>(bit_width, N_ROWS);
-    let nbytes = N_ROWS * size_of::<T>();
+    for &(n_rows, size_str) in bench_config::BENCH_SIZES {
+        let array = make_bitpacked_array::<T>(bit_width, n_rows);
+        let nbytes = n_rows * size_of::<T>();
 
-    group.throughput(Throughput::Bytes(nbytes as u64));
+        group.throughput(Throughput::Bytes(nbytes as u64));
 
-    group.bench_with_input(
-        BenchmarkId::new("bitunpack", format!("{}bw", bit_width)),
-        &array,
-        |b, array| {
-            b.iter_custom(|iters| {
-                let timed = TimedLaunchStrategy::default();
-                let timer = timed.timer();
+        group.bench_with_input(
+            BenchmarkId::new(
+                format!("cuda/bitpacked_{}/unpack/{}bw", type_name, bit_width),
+                size_str,
+            ),
+            &array,
+            |b, array| {
+                b.iter_custom(|iters| {
+                    let timed = TimedLaunchStrategy::default();
+                    let timer = timed.timer();
 
-                let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                    .vortex_expect("failed to create execution context")
-                    .with_launch_strategy(Arc::new(timed));
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+                        .vortex_expect("failed to create execution context")
+                        .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
+                        .with_launch_strategy(Arc::new(timed));
 
-                for _ in 0..iters {
-                    block_on(array.clone().into_array().execute_cuda(&mut cuda_ctx)).unwrap();
-                }
+                    for _ in 0..iters {
+                        block_on(array.clone().into_array().execute_cuda(&mut cuda_ctx)).unwrap();
+                    }
 
-                Duration::from_nanos(timer.load(Ordering::Relaxed))
-            });
-        },
-    );
+                    Duration::from_nanos(timer.load(Ordering::Relaxed))
+                });
+            },
+        );
+    }
 
     group.finish();
 }
@@ -154,34 +160,45 @@ where
     T: BitPacked + NativePType + DeviceRepr + Add<Output = T> + From<u8>,
     T::Physical: DeviceRepr,
 {
-    let mut group = c.benchmark_group(format!("bitunpack_cuda_patched_{}", type_name));
+    let mut group = c.benchmark_group("cuda");
 
-    let nbytes = N_ROWS * size_of::<T>();
-    group.throughput(Throughput::Bytes(nbytes as u64));
+    for &(n_rows, size_str) in bench_config::BENCH_SIZES {
+        let nbytes = n_rows * size_of::<T>();
+        group.throughput(Throughput::Bytes(nbytes as u64));
 
-    for &(patch_freq, patch_label) in PATCH_FREQUENCIES {
-        let array = make_bitpacked_array_with_patches::<T>(N_ROWS, patch_freq);
+        for &(patch_freq, patch_label) in PATCH_FREQUENCIES {
+            let array = make_bitpacked_array_with_patches::<T>(n_rows, patch_freq);
 
-        group.bench_with_input(
-            BenchmarkId::new("bitunpack_patched", patch_label),
-            &array,
-            |b, array| {
-                b.iter_custom(|iters| {
-                    let timed = TimedLaunchStrategy::default();
-                    let timer = timed.timer();
+            group.bench_with_input(
+                BenchmarkId::new(
+                    format!(
+                        "cuda/bitpacked_patched_{}/unpack/{}",
+                        type_name, patch_label
+                    ),
+                    size_str,
+                ),
+                &array,
+                |b, array| {
+                    b.iter_custom(|iters| {
+                        let timed = TimedLaunchStrategy::default();
+                        let timer = timed.timer();
 
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                        .vortex_expect("failed to create execution context")
-                        .with_launch_strategy(Arc::new(timed));
+                        let mut cuda_ctx =
+                            CudaSession::create_execution_ctx(&VortexSession::empty())
+                                .vortex_expect("failed to create execution context")
+                                .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
+                                .with_launch_strategy(Arc::new(timed));
 
-                    for _ in 0..iters {
-                        block_on(array.clone().into_array().execute_cuda(&mut cuda_ctx)).unwrap();
-                    }
+                        for _ in 0..iters {
+                            block_on(array.clone().into_array().execute_cuda(&mut cuda_ctx))
+                                .unwrap();
+                        }
 
-                    Duration::from_nanos(timer.load(Ordering::Relaxed))
-                });
-            },
-        );
+                        Duration::from_nanos(timer.load(Ordering::Relaxed))
+                    });
+                },
+            );
+        }
     }
 
     group.finish();
@@ -196,11 +213,7 @@ fn benchmark_bitunpack_with_patches(c: &mut Criterion) {
 
 criterion::criterion_group! {
     name = benches;
-    config = Criterion::default().without_plots()
-        .sample_size(10)
-        .warm_up_time(Duration::from_nanos(1))
-        .measurement_time(Duration::from_nanos(1))
-        .nresamples(10);
+    config = bench_config::cuda_bench_config();
     targets = benchmark_bitunpack, benchmark_bitunpack_with_patches
 }
 

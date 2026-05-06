@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ../setup.slt
+
+query I
+COPY (SELECT * FROM (VALUES ('Hello'), ('Hi'), ('Hey')) AS t(str)) TO '$__TEST_DIR__/explain.vortex';
+----
+3
+
+query TT
+EXPLAIN (FORMAT json) SELECT * FROM '$__TEST_DIR__/explain.vortex';
+----
+physical_plan [
+    {
+        "name": "READ_VORTEX",
+        "children": [],
+        "extra_info": {
+            "Function": "Vortex Scan",
+            "Projections": "str",
+            "Estimated Cardinality": "3"
+        }
+    }
+]

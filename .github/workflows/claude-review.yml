@@ -19,12 +19,6 @@ name: Claude Code (Review)
 # - PR conversation comments on PRs already opened by the Claude App are handled by
 #   claude-write.yml so maintainers can ask Claude to make follow-up changes there.
 
-concurrency:
-  # `issue_comment` events on PRs expose the PR number via `github.event.issue.number`,
-  # so this falls back there when `github.event.pull_request.number` is unset.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
-  cancel-in-progress: true
-
 on:
   issue_comment:
     types: [created]
@@ -50,7 +44,7 @@ jobs:
     steps:
       - name: Check whether this PR event is allowed to reach Claude
         id: gate
-        uses: actions/github-script@v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
           github-token: ${{ github.token }}
           script: |
@@ -178,7 +172,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Comment with the refusal reason
-        uses: actions/github-script@v7
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
         with:
           script: |
             const reason = ${{ toJSON(needs.gate.outputs.reason) }};
@@ -226,6 +220,11 @@ jobs:
     if: needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    concurrency:
+      # `issue_comment` events on PRs expose the PR number via `github.event.issue.number`,
+      # so this falls back there when `github.event.pull_request.number` is unset.
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+      cancel-in-progress: true
     permissions:
       contents: read
       issues: write
@@ -233,7 +232,7 @@ jobs:
       actions: read
     steps:
       - name: Checkout same-repo PR contents
-        uses: actions/checkout@v6
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           ref: ${{ needs.gate.outputs.checkout_ref }}
           fetch-depth: 1

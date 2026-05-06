@@ -39,6 +39,7 @@ use crate::delta::array::DeltaArrayExt;
 use crate::delta::array::SLOT_NAMES;
 use crate::delta::array::delta_decompress::delta_decompress;
 use crate::delta::array::lane_count;
+use crate::delta_compress;
 
 mod operations;
 mod rules;
@@ -200,7 +201,7 @@ impl Delta {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<DeltaArray> {
         let logical_len = array.len();
-        let (bases, deltas) = crate::delta::array::delta_compress::delta_compress(array, ctx)?;
+        let (bases, deltas) = delta_compress(array, ctx)?;
         Self::try_new(bases.into_array(), deltas.into_array(), 0, logical_len)
     }
 }

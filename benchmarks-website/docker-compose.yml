@@ -5,6 +5,20 @@ services:
       - "80:3000"
     restart: unless-stopped
 
+  vortex-bench-server:
+    image: ghcr.io/vortex-data/vortex/vortex-bench-server:latest
+    ports:
+      - "3001:3000"
+    environment:
+      VORTEX_BENCH_DB: "/app/data/bench.duckdb"
+      VORTEX_BENCH_BIND: "0.0.0.0:3000"
+      VORTEX_BENCH_LOG: "info,vortex_bench_server=debug"
+    env_file:
+      - /etc/vortex-bench/secrets.env
+    volumes:
+      - /opt/benchmarks-website/data:/app/data
+    restart: unless-stopped
+
   watchtower:
     image: containrrr/watchtower
     volumes:

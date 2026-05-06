@@ -21,13 +21,29 @@ use url::Url;
 use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::io::compat::Compat;
+use vortex::io::filesystem::FileSystemRef;
+use vortex::io::object_store::ObjectStoreFileSystem;
+use vortex::io::runtime::Handle;
 use vortex::utils::aliases::hash_map::HashMap;
+
+pub(crate) fn object_store_fs(
+    url: &Url,
+    properties: &HashMap<String, String>,
+    handle: Handle,
+) -> VortexResult<FileSystemRef> {
+    let object_store = make_object_store(url, properties)?;
+    Ok(Arc::new(Compat::new(ObjectStoreFileSystem::new(
+        object_store,
+        handle,
+    ))))
+}
 
 #[expect(clippy::cognitive_complexity)]
 pub(crate) fn make_object_store(
     url: &Url,
     properties: &HashMap<String, String>,
-) -> VortexResult<(Arc<dyn ObjectStore>, ObjectStoreScheme)> {
+) -> VortexResult<Arc<dyn ObjectStore>> {
     static OBJECT_STORES: LazyLock<Mutex<HashMap<String, Arc<dyn ObjectStore>>>> =
         LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -40,7 +56,7 @@ pub(crate) fn make_object_store(
 
     {
         if let Some(cached) = OBJECT_STORES.lock().get(&cache_key) {
-            return Ok((Arc::clone(cached), scheme));
+            return Ok(Arc::clone(cached));
         }
         // guard dropped at close of scope
     }
@@ -128,15 +144,12 @@ pub(crate) fn make_object_store(
         }
     };
 
-    {
-        OBJECT_STORES.lock().insert(cache_key, Arc::clone(&store));
-        // Guard dropped at close of scope.
-    }
+    OBJECT_STORES.lock().insert(cache_key, Arc::clone(&store));
 
     let duration = start.elapsed();
     tracing::debug!("make_object_store latency = {duration:?}");
 
-    Ok((store, scheme))
+    Ok(store)
 }
 
 fn url_cache_key(url: &Url, properties: &HashMap<String, String>) -> String {

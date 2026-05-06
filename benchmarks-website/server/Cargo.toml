@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[package]
+name = "vortex-bench-server"
+version = "0.1.0-alpha.0"
+edition = "2024"
+rust-version = "1.91.0"
+license = "Apache-2.0"
+description = "bench.vortex.dev v3 alpha server: HTTP API + HTML + DuckDB on local disk"
+publish = false
+
+[lib]
+name = "vortex_bench_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vortex-bench-server"
+path = "src/main.rs"
+
+# This is a leaf binary, not part of the vortex-* public API surface.
+# Errors use anyhow / thiserror and the crate is intentionally outside
+# the workspace public-api lockfile set.
+
+[dependencies]
+anyhow = { workspace = true }
+axum = "0.8"
+base64 = "0.22"
+# track vortex-duckdb's bundled engine version (build.rs)
+duckdb = { version = "1.10502", features = ["bundled"] }
+maud = { version = "0.27", features = ["axum"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+subtle = "2.6"
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["compression-br", "compression-gzip", "trace"] }
+tracing = { workspace = true, features = ["std"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+twox-hash = "2.1"
+
+[dev-dependencies]
+flate2 = "1"
+insta = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }

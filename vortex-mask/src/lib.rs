@@ -614,12 +614,12 @@ impl Mask {
             return self;
         }
 
-        match self {
+        match &self {
             Mask::AllTrue(len) => {
                 Self::from_iter([Self::new_true(limit), Self::new_false(len - limit)])
             }
             Mask::AllFalse(_) => self,
-            Mask::Values(ref mask_values) => {
+            Mask::Values(mask_values) => {
                 if limit >= mask_values.true_count() {
                     return self;
                 }

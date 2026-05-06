@@ -27,8 +27,8 @@ use crate::arrays::FixedSizeList;
 use crate::arrays::ListView;
 use crate::arrays::Null;
 use crate::arrays::Primitive;
-use crate::arrays::Struct;
 use crate::arrays::VarBinView;
+use crate::arrays::struct_::compute::cast::struct_cast;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::expr::StatsCatalog;
@@ -198,7 +198,13 @@ impl ScalarFnVTable for Cast {
 }
 
 /// Cast a canonical array to the target dtype by dispatching to the appropriate
-/// [`CastReduce`] or [`CastKernel`] for each canonical encoding.
+/// [`CastKernel`] for each canonical encoding.
+///
+/// Canonical encodings that can manipulate validity directly all implement [`CastKernel`] —
+/// the kernel is the execution-time complement of their [`CastReduce`] rule and can compute
+/// statistics (e.g. min of the validity array) when the reduce rule had to give up.
+/// Encodings that delegate to scalars or storage (e.g. [`Null`], [`Constant`], [`Extension`])
+/// only implement [`CastReduce`] because they never need execution-level information.
 fn cast_canonical(
     canonical: CanonicalView<'_>,
     dtype: &DType,
@@ -206,13 +212,13 @@ fn cast_canonical(
 ) -> VortexResult<Option<ArrayRef>> {
     match canonical {
         CanonicalView::Null(a) => <Null as CastReduce>::cast(a, dtype),
-        CanonicalView::Bool(a) => <Bool as CastReduce>::cast(a, dtype),
+        CanonicalView::Bool(a) => <Bool as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::Primitive(a) => <Primitive as CastKernel>::cast(a, dtype, ctx),
         CanonicalView::Decimal(a) => <Decimal as CastKernel>::cast(a, dtype, ctx),
-        CanonicalView::VarBinView(a) => <VarBinView as CastReduce>::cast(a, dtype),
-        CanonicalView::List(a) => <ListView as CastReduce>::cast(a, dtype),
-        CanonicalView::FixedSizeList(a) => <FixedSizeList as CastReduce>::cast(a, dtype),
-        CanonicalView::Struct(a) => <Struct as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::VarBinView(a) => <VarBinView as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::List(a) => <ListView as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::FixedSizeList(a) => <FixedSizeList as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::Struct(a) => struct_cast(a, dtype, ctx),
         CanonicalView::Extension(a) => <Extension as CastReduce>::cast(a, dtype),
         CanonicalView::Variant(_) => {
             vortex_bail!("Variant arrays don't support casting")

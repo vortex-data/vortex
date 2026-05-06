@@ -6,7 +6,8 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
-mod common;
+mod bench_config;
+mod timed_launch_strategy;
 
 use std::mem::size_of;
 use std::ops::Add;
@@ -33,14 +34,14 @@ use vortex::encodings::fastlanes::FoRArray;
 use vortex::error::VortexExpect;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
+use vortex_cuda::CudaDispatchMode;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-use crate::common::TimedLaunchStrategy;
-
-const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M")];
+use crate::bench_config::BENCH_SIZES;
+use crate::timed_launch_strategy::TimedLaunchStrategy;
 const REFERENCE_VALUE: u8 = 10;
 
 /// Creates a FoR array with the specified type and length.
@@ -74,15 +75,15 @@ where
     T: NativePType + DeviceRepr + From<u8> + Add<Output = T>,
     Scalar: From<T>,
 {
-    let mut group = c.benchmark_group("for_cuda");
+    let mut group = c.benchmark_group("cuda");
 
-    for &(len, len_str) in BENCH_ARGS {
+    for &(len, len_str) in BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         let for_array = make_for_array_typed::<T>(len, false);
 
         group.bench_with_input(
-            BenchmarkId::new("for", format!("{len_str}_{type_name}")),
+            BenchmarkId::new(format!("cuda/for/{type_name}"), len_str),
             &for_array,
             |b, for_array| {
                 b.iter_custom(|iters| {
@@ -91,6 +92,7 @@ where
 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context")
+                        .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
@@ -112,15 +114,15 @@ where
     T: NativePType + DeviceRepr + From<u8> + Add<Output = T>,
     Scalar: From<T>,
 {
-    let mut group = c.benchmark_group("ffor_cuda");
+    let mut group = c.benchmark_group("cuda");
 
-    for &(len, len_str) in BENCH_ARGS {
+    for &(len, len_str) in BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
         let for_array = make_for_array_typed::<T>(len, true);
 
         group.bench_with_input(
-            BenchmarkId::new("for", format!("{len_str}_{type_name}")),
+            BenchmarkId::new(format!("cuda/ffor/{type_name}"), len_str),
             &for_array,
             |b, for_array| {
                 b.iter_custom(|iters| {
@@ -129,6 +131,7 @@ where
 
                     let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context")
+                        .with_dispatch_mode(CudaDispatchMode::StandaloneOnly)
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
@@ -163,11 +166,7 @@ fn benchmark_ffor(c: &mut Criterion) {
 
 criterion::criterion_group! {
     name = benches;
-    config = Criterion::default().without_plots()
-        .sample_size(10)
-        .warm_up_time(Duration::from_nanos(1))
-        .measurement_time(Duration::from_nanos(1))
-        .nresamples(10);
+    config = bench_config::cuda_bench_config();
     targets = benchmark_for, benchmark_ffor
 }
 

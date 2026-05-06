@@ -11,6 +11,7 @@ use vortex_array::arrays::dict::TakeExecute;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::match_each_integer_ptype;
+use vortex_array::scalar_fn::fns::cast::CastKernel;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::scalar_fn::fns::mask::MaskReduce;
 use vortex_array::validity::Validity;
@@ -24,20 +25,43 @@ impl CastReduce for ByteBool {
         // ByteBool is essentially a bool array stored as bytes
         // The main difference from BoolArray is the storage format
         // For casting, we can decode to canonical (BoolArray) and let it handle the cast
-
         // If just changing nullability, we can optimize
-        if array.dtype().eq_ignore_nullability(dtype) {
-            let new_validity = array
-                .validity()?
-                .cast_nullability(dtype.nullability(), array.len())?;
-
-            return Ok(Some(
-                ByteBool::new(array.buffer().clone(), new_validity).into_array(),
-            ));
+        if !dtype.is_boolean() {
+            return Ok(None);
         }
 
-        // For other casts, decode to canonical and let BoolArray handle it
-        Ok(None)
+        let Some(new_validity) = array
+            .validity()?
+            .trivially_cast_nullability(dtype.nullability(), array.len())?
+        else {
+            return Ok(None);
+        };
+
+        Ok(Some(
+            ByteBool::new(array.buffer().clone(), new_validity).into_array(),
+        ))
+    }
+}
+
+impl CastKernel for ByteBool {
+    fn cast(
+        array: ArrayView<'_, Self>,
+        dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Only handle nullability changes here; non-bool targets fall through to canonicalization.
+        if !dtype.is_boolean() {
+            return Ok(None);
+        }
+
+        let new_validity =
+            array
+                .validity()?
+                .cast_nullability(dtype.nullability(), array.len(), ctx)?;
+
+        Ok(Some(
+            ByteBool::new(array.buffer().clone(), new_validity).into_array(),
+        ))
     }
 }
 

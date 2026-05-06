@@ -72,7 +72,6 @@ fn slice(
             array.values().slice(slice_begin..slice_end)?,
             range.start + array.offset(),
             new_length,
-            ctx,
         )
         .into_array()
     })
