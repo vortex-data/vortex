@@ -4,10 +4,9 @@
 #[cfg(any(test, feature = "_test-harness"))]
 macro_rules! trace_array {
     ($($event:tt)*) => {
-        $crate::test_harness::trace::if_active(
-            || $crate::test_harness::trace::$($event)*,
-            || {},
-        )
+        if $crate::test_harness::trace::is_active() {
+            $crate::test_harness::trace::$($event)*
+        }
     };
 }
 
@@ -19,7 +18,11 @@ macro_rules! trace_array {
 #[cfg(any(test, feature = "_test-harness"))]
 macro_rules! trace_array_value {
     ($enabled:expr, $disabled:expr) => {
-        $crate::test_harness::trace::if_active(|| $enabled, || $disabled)
+        if $crate::test_harness::trace::is_active() {
+            $enabled
+        } else {
+            $disabled
+        }
     };
 }
 
