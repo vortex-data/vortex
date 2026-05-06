@@ -65,7 +65,7 @@ impl ArrayEq for ConstantData {
 }
 
 impl VTable for Constant {
-    type ArrayData = ConstantData;
+    type TypedArrayData = ConstantData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;

@@ -779,6 +779,8 @@ mod tests {
         }
     }
 
+    // TODO: re-enable under miri once parking_lot_core fixes strict-provenance violations
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_array_dtype_lifetime_pattern() {
         let array = {

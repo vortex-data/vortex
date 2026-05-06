@@ -1019,7 +1019,7 @@ impl Matcher for AnyCanonical {
             || array.is::<Variant>()
     }
 
-    fn try_match<'a>(array: &'a ArrayRef) -> Option<Self::Match<'a>> {
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
         if let Some(a) = array.as_opt::<Null>() {
             Some(CanonicalView::Null(a))
         } else if let Some(a) = array.as_opt::<Bool>() {

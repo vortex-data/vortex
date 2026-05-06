@@ -89,7 +89,7 @@ impl DateTimePartsMetadata {
 }
 
 impl VTable for DateTimeParts {
-    type ArrayData = DateTimePartsData;
+    type TypedArrayData = DateTimePartsData;
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
@@ -101,7 +101,7 @@ impl VTable for DateTimeParts {
 
     fn validate(
         &self,
-        _data: &Self::ArrayData,
+        _data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

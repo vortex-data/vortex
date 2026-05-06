@@ -99,7 +99,7 @@ impl ArrayEq for FSSTData {
 }
 
 impl VTable for FSST {
-    type ArrayData = FSSTData;
+    type TypedArrayData = FSSTData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
@@ -110,7 +110,7 @@ impl VTable for FSST {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

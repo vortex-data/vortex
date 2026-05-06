@@ -363,7 +363,7 @@ impl ArrayEq for ZstdBuffersData {
 }
 
 impl VTable for ZstdBuffers {
-    type ArrayData = ZstdBuffersData;
+    type TypedArrayData = ZstdBuffersData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
@@ -374,7 +374,7 @@ impl VTable for ZstdBuffers {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         _dtype: &DType,
         _len: usize,
         _slots: &[Option<ArrayRef>],

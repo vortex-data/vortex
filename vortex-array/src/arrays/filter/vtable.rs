@@ -62,7 +62,7 @@ impl ArrayEq for FilterData {
 }
 
 impl VTable for Filter {
-    type ArrayData = FilterData;
+    type TypedArrayData = FilterData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn id(&self) -> ArrayId {
@@ -72,7 +72,7 @@ impl VTable for Filter {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

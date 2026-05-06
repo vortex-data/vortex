@@ -20,9 +20,9 @@ pub fn vortex_sparse::Sparse::fmt(&self, &mut core::fmt::Formatter<'_>) -> core:
 
 impl vortex_array::array::vtable::VTable for vortex_sparse::Sparse
 
-pub type vortex_sparse::Sparse::ArrayData = vortex_sparse::SparseData
-
 pub type vortex_sparse::Sparse::OperationsVTable = vortex_sparse::Sparse
+
+pub type vortex_sparse::Sparse::TypedArrayData = vortex_sparse::SparseData
 
 pub type vortex_sparse::Sparse::ValidityVTable = vortex_sparse::Sparse
 
@@ -46,7 +46,7 @@ pub fn vortex_sparse::Sparse::serialize(vortex_array::array::view::ArrayView<'_,
 
 pub fn vortex_sparse::Sparse::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
 
-pub fn vortex_sparse::Sparse::validate(&self, &Self::ArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_sparse::Sparse::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_sparse::Sparse> for vortex_sparse::Sparse
 

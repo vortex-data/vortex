@@ -45,7 +45,7 @@ use crate::zigzag_decode;
 pub type ZigZagArray = Array<ZigZag>;
 
 impl VTable for ZigZag {
-    type ArrayData = ZigZagData;
+    type TypedArrayData = ZigZagData;
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
@@ -57,7 +57,7 @@ impl VTable for ZigZag {
 
     fn validate(
         &self,
-        _data: &Self::ArrayData,
+        _data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

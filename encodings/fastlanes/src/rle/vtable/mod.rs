@@ -75,7 +75,7 @@ impl ArrayEq for RLEData {
 }
 
 impl VTable for RLE {
-    type ArrayData = RLEData;
+    type TypedArrayData = RLEData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -87,7 +87,7 @@ impl VTable for RLE {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

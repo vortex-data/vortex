@@ -71,7 +71,7 @@ impl ArrayEq for DeltaData {
 }
 
 impl VTable for Delta {
-    type ArrayData = DeltaData;
+    type TypedArrayData = DeltaData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -83,7 +83,7 @@ impl VTable for Delta {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
