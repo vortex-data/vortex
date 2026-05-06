@@ -175,6 +175,16 @@ impl CoalescedRequest {
         })
     }
 
+    #[allow_unused)]
+    pub fn range(&self) -> &Range<u64> {
+        &self.range
+    }
+
+    #[allow_unused)]
+    pub fn alignment(&self) -> Alignment {
+        self.alignment
+    }
+
     pub fn requests(&self) -> &[ReadRequest] {
         &self.requests
     }
