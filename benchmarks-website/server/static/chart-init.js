@@ -81,6 +81,14 @@
 //                                     replaced the payload.
 //   canvas.__bench_full_fetch_pending true while a `?n=all` refetch is in
 //                                     flight; dedupes the pan-frame retry.
+//   canvas.__bench_prefetch_pending   Promise of an in-flight background
+//                                     prefetch; set by startBackgroundPrefetch
+//                                     so toggle / re-prefetch deduplicates.
+//   canvas.__bench_built_offscreen    true if `constructChart` ran while the
+//                                     enclosing `<details>` was closed; the
+//                                     toggle handler calls `chart.resize()`
+//                                     on these to recompute layout once the
+//                                     container is visible.
 //
 // Per-card DOM contract — every selector the chart cards are queried by:
 //   .chart-card[data-chart-index][data-chart-slug]    The card itself.
@@ -117,6 +125,21 @@
   var PAN_THROTTLE_MS = 50;      // pan/zoom throttle — looser than slider
   var FETCH_N = "all";           // lazy-fetch the entire raw history
   var DEFAULT_VISIBLE = 100;     // initial visible window (last 100 of fetched)
+  // Groups that should default to the full commit history instead of the
+  // 100-commit window. Compression Size has very low variance, so the
+  // default window hides most of the interesting history.
+  var WIDE_DEFAULT_GROUPS = new Set(["Compression Size"]);
+
+  // Resolve the default scope for a chart card based on its enclosing group's
+  // name. Returns either `"all"` for groups in `WIDE_DEFAULT_GROUPS` or
+  // `DEFAULT_VISIBLE` otherwise. Used at construction time and when seeding
+  // the toolbar slider's initial value.
+  function defaultScopeForCard(card) {
+    var group = card && card.closest && card.closest(".group-details");
+    var name = group && group.dataset ? group.dataset.groupName : null;
+    if (name && WIDE_DEFAULT_GROUPS.has(name)) return "all";
+    return DEFAULT_VISIBLE;
+  }
   // Mirror of `LANDING_INLINE_N` in `server/src/html.rs`. The first group's
   // inline JSON is capped at this many commits to keep the cold landing
   // page small. When the user zooms wider than what's inlined we lazy-fetch
@@ -229,6 +252,17 @@
       return false;
     }
     return true;
+  }
+
+  // Per-group filter layer. State is a single `hiddenSeries` array of dataset
+  // labels the user has toggled off via the group's filter dropdown. Engine
+  // and format chips in the dropdown are macros: clicking them bulk-toggles
+  // every known series whose `engine`/`format` matches (see
+  // `applyMacroToHiddenSeries`). The series list itself populates as charts
+  // in the group hydrate and surface their `payload.series_meta`.
+  function seriesPassesGroupFilter(filter, label) {
+    if (!filter || !filter.hiddenSeries) return true;
+    return filter.hiddenSeries.indexOf(label) === -1;
   }
 
   // -----------------------------------------------------------------------
@@ -975,6 +1009,12 @@
     }
     chart.data.labels = newLabels;
     chart.data.datasets = newDatasets;
+    // Re-evaluate per-group + global filter on the swapped dataset so the
+    // visibility state matches what was on screen before the refetch. Also
+    // refresh the group's series chip row in case the wider window surfaces
+    // a series that was absent from the inline payload.
+    applyFiltersToChart(card);
+    noteSeriesFromCard(card);
     var newMaxIdx = Math.max(0, newLabels.length - 1);
     var zoomLimits = chart.options.plugins
       && chart.options.plugins.zoom
@@ -1068,7 +1108,8 @@
       canvas.__bench_full_loaded = !canvas.__bench_inline_trimmed;
     }
 
-    var state = canvas.__bench_state || { y: "linear", scope: DEFAULT_VISIBLE };
+    var state = canvas.__bench_state
+      || { y: "linear", scope: defaultScopeForCard(card) };
     canvas.__bench_state = state;
     // Series labels the user has explicitly toggled on this card. Once a
     // label lands here, the global filter no longer drives that series's
@@ -1228,6 +1269,12 @@
     rebuildVisibleAndUpdate(card, chart, range.min, range.max);
     bindRangeStrip(card, chart);
     if (canvas.__bench_strip_render) canvas.__bench_strip_render();
+    // `buildDatasets` seeded `hidden` from the global filter; reapply through
+    // the layered helper so a per-group filter set before this card hydrated
+    // also takes effect. Then surface this card's series labels to the
+    // group's filter dropdown so the chip row picks them up.
+    applyFiltersToChart(card);
+    noteSeriesFromCard(card);
     return chart;
   }
 
@@ -1400,7 +1447,9 @@
     slider.step = String(step);
     var current = parseInt(slider.value, 10);
     if (!Number.isFinite(current) || current > max) {
-      slider.value = String(Math.min(DEFAULT_VISIBLE, max));
+      var def = defaultScopeForCard(card);
+      var seed = def === "all" ? max : Math.min(def, max);
+      slider.value = String(seed);
     }
   }
 
@@ -1487,10 +1536,17 @@
     if (canvas.__bench_strip_render) canvas.__bench_strip_render();
   }
 
-  function applyY(card, yValue) {
+  // `userInitiated` defaults to true. Once set, the chart is "sticky" — the
+  // per-group Y apply pass skips it on subsequent group-level clicks,
+  // honouring the user's explicit per-card choice. The per-group toolbar
+  // passes `false` so it doesn't pollute the flag while broadcasting.
+  function applyY(card, yValue, userInitiated) {
     var canvas = card.querySelector("canvas");
     var chart = canvas && canvas.__bench_chart;
     if (!chart) return;
+    if (userInitiated !== false) {
+      canvas.__bench_y_user_set = true;
+    }
     canvas.__bench_state.y = yValue;
     chart.options.scales.y.type = yValue === "log" ? "logarithmic" : "linear";
     chart.options.scales.y.beginAtZero = yValue !== "log";
@@ -1540,10 +1596,27 @@
     var canvas = card.querySelector("canvas");
     if (!canvas) return Promise.resolve();
     if (canvas.__bench_chart) return Promise.resolve();
-    // `constructChart` reads inline JSON (`<script id="chart-data-N">`)
-    // when there's no payload on the canvas yet. The first group's
-    // payloads are inlined server-side, so try a synchronous construct
-    // before hitting the network.
+    // If a background prefetch is mid-flight for this slug, ride on its
+    // promise rather than constructing from inline JSON straight away.
+    // First-group inline payloads are trimmed at `LANDING_INLINE_N`; using
+    // them on toggle would render a partial chart that immediately upgrades
+    // when the prefetch arrives, which is exactly the visible "100 commits
+    // then it grows" flash we want to avoid. Waiting for the prefetch
+    // gives the user one render at the full range.
+    var pending = canvas.__bench_prefetch_pending;
+    if (pending) {
+      showCardLoading(card, true);
+      return pending
+        .then(function () { showCardLoading(card, false); })
+        .then(function () { return fetchAndConstruct(card); });
+    }
+    // No prefetch in flight: try a synchronous construct from inline JSON
+    // (`<script id="chart-data-N">`) or any payload already on the canvas.
+    // `constructChart` short-circuits when `__bench_payload` is populated
+    // (the prefetch resolved + `prefetch_pending` is now null). For cards
+    // whose prefetch failed, this is the inline fallback path; the chart
+    // renders the trimmed slice and `maybeRefetchFullPayload` retries the
+    // upgrade on the next pan that covers the loaded range.
     if (constructChart(card)) {
       bindToolbar(card);
       return Promise.resolve();
@@ -1608,16 +1681,31 @@
   //   3. Sync the URL with `history.replaceState` so a refresh / share
   //      preserves the view.
   // -----------------------------------------------------------------------
-  function applyGlobalFilterToChart(card) {
+  // Apply the layered filter on a single card. Layer order matches the
+  // resolution rule documented at the top of the file:
+  //   1. Per-card legend overrides (`canvas.__bench_overrides`) win.
+  //   2. Per-group filter (`section.__bench_group_filter`) hides next.
+  //   3. Global filter hides last.
+  //   4. Otherwise show.
+  // Used by every code path that mutates filter state (global chip clicks,
+  // per-group chip clicks, post-construction seeding).
+  function applyFiltersToChart(card) {
     var canvas = card.querySelector("canvas");
     var chart = canvas && canvas.__bench_chart;
     if (!chart) return;
     var overrides = canvas.__bench_overrides || {};
+    var section = card.closest(".group-details");
+    var groupFilter = section && section.__bench_group_filter;
     var datasets = chart.data.datasets || [];
     for (var i = 0; i < datasets.length; i++) {
       var ds = datasets[i];
       if (overrides[ds.label]) continue;
-      var hidden = !seriesPassesFilter(ds.benchMeta);
+      var hidden = false;
+      if (!seriesPassesGroupFilter(groupFilter, ds.label)) {
+        hidden = true;
+      } else if (!seriesPassesFilter(ds.benchMeta)) {
+        hidden = true;
+      }
       // Use the dataset.hidden field directly so the legend stays in sync;
       // setDatasetVisibility writes into a separate visibility map.
       ds.hidden = hidden;
@@ -1627,7 +1715,7 @@
 
   function applyGlobalFilterEverywhere() {
     document.querySelectorAll(".chart-card[data-chart-index]").forEach(function (card) {
-      applyGlobalFilterToChart(card);
+      applyFiltersToChart(card);
     });
   }
 
@@ -1763,6 +1851,316 @@
   }
 
   // -----------------------------------------------------------------------
+  // Per-group toolbar wiring.
+  //
+  // Each `.group-details` section carries a `[data-role="group-toolbar"]`
+  // with Y-axis buttons and a centered filter dropdown. State lives on the
+  // section node:
+  //   section.__bench_group_filter = { hiddenSeries: [<dataset.label>, ...] }
+  //   section.__bench_group_y      = "linear" | "log" | null
+  //   section.__bench_known_series = { <label>: { engine, format, ... } }
+  //
+  // Empty `hiddenSeries` and `null` Y mean "no group override; defer to the
+  // next layer". Engine and format chips in the dropdown are macros: a click
+  // computes every known series whose `engine`/`format` matches and bulk-
+  // toggles their membership in `hiddenSeries`. The series chips are
+  // populated lazily via `noteSeriesFromCard` as charts in the group hydrate.
+  // -----------------------------------------------------------------------
+  function ensureGroupFilter(section) {
+    if (!section.__bench_group_filter) {
+      section.__bench_group_filter = { hiddenSeries: [] };
+    } else if (!section.__bench_group_filter.hiddenSeries) {
+      section.__bench_group_filter.hiddenSeries = [];
+    }
+    return section.__bench_group_filter;
+  }
+
+  function ensureKnownSeries(section) {
+    if (!section.__bench_known_series) {
+      section.__bench_known_series = {};
+    }
+    return section.__bench_known_series;
+  }
+
+  // Pull every series label from the card's payload into the section's
+  // running set. Returns true when at least one new label was added so the
+  // caller knows whether to re-render the chip row.
+  function harvestSeriesFromCanvas(section, canvas) {
+    var payload = canvas && canvas.__bench_payload;
+    var meta = payload && payload.series_meta;
+    if (!meta) return false;
+    var known = ensureKnownSeries(section);
+    var added = false;
+    Object.keys(meta).forEach(function (label) {
+      if (!known[label]) {
+        known[label] = meta[label] || {};
+        added = true;
+      }
+    });
+    return added;
+  }
+
+  // Render one button per known series into the dropdown's series row.
+  // Wipes and rebuilds — the row is small (typically <10 chips) so this is
+  // cheap and avoids tracking per-label DOM nodes. Visibility state is then
+  // resynced via `syncGroupChipsUi`.
+  function renderGroupSeriesChips(section) {
+    var container = section.querySelector('[data-role="group-series-chips"]');
+    if (!container) return;
+    var known = ensureKnownSeries(section);
+    var labels = Object.keys(known).sort();
+    while (container.firstChild) container.removeChild(container.firstChild);
+    labels.forEach(function (label) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "filter-chip";
+      btn.setAttribute("data-group-filter", "series");
+      btn.setAttribute("data-value", label);
+      btn.textContent = label;
+      container.appendChild(btn);
+    });
+  }
+
+  // Called whenever a card's payload becomes available (constructChart,
+  // replaceChartPayload). Folds new series labels into the section's
+  // running set, refreshes the dropdown chip row when the set grew, and
+  // re-syncs all chip + badge visuals against the current filter state.
+  function noteSeriesFromCard(card) {
+    var section = card.closest && card.closest(".group-details");
+    if (!section) return;
+    var canvas = card.querySelector("canvas");
+    if (!canvas) return;
+    if (harvestSeriesFromCanvas(section, canvas)) {
+      renderGroupSeriesChips(section);
+    }
+    syncGroupChipsUi(section);
+    syncGroupFilterBadge(section);
+  }
+
+  // Toggle a single series label in/out of the hidden set.
+  function toggleGroupSeriesValue(section, label) {
+    var filter = ensureGroupFilter(section);
+    var idx = filter.hiddenSeries.indexOf(label);
+    if (idx === -1) filter.hiddenSeries.push(label);
+    else filter.hiddenSeries.splice(idx, 1);
+  }
+
+  // Apply an engine/format macro click. Find every known series whose meta
+  // matches. If every match is currently visible, hide them all; otherwise
+  // (any match already hidden) show them all. The result is that the macro
+  // chip toggles between "all matching visible" and "all matching hidden",
+  // which mirrors the chip's own active-state semantics.
+  function applyMacroToHiddenSeries(section, dim, value) {
+    var filter = ensureGroupFilter(section);
+    var known = ensureKnownSeries(section);
+    var matching = [];
+    Object.keys(known).forEach(function (label) {
+      if (known[label] && known[label][dim] === value) matching.push(label);
+    });
+    if (!matching.length) return;
+    var allVisible = matching.every(function (l) {
+      return filter.hiddenSeries.indexOf(l) === -1;
+    });
+    if (allVisible) {
+      matching.forEach(function (l) {
+        if (filter.hiddenSeries.indexOf(l) === -1) filter.hiddenSeries.push(l);
+      });
+    } else {
+      filter.hiddenSeries = filter.hiddenSeries.filter(function (l) {
+        return matching.indexOf(l) === -1;
+      });
+    }
+  }
+
+  function syncGroupChipsUi(section) {
+    var filter = ensureGroupFilter(section);
+    var known = ensureKnownSeries(section);
+    section.querySelectorAll(
+      '[data-role="group-toolbar"] .filter-chip[data-group-filter]',
+    ).forEach(function (chip) {
+      var dim = chip.getAttribute("data-group-filter");
+      var value = chip.getAttribute("data-value");
+      var active;
+      if (value === "*") {
+        // The "all" chip is a one-shot reset, never a "current state"
+        // indicator — leave it inactive in every row.
+        active = false;
+      } else if (dim === "series") {
+        active = filter.hiddenSeries.indexOf(value) === -1;
+      } else if (dim === "engine" || dim === "format") {
+        // Macro chip is active iff at least one known series matches this
+        // dim AND every match is currently visible. When no series in the
+        // group has this engine/format the chip is inert — show it inactive
+        // so the dropdown doesn't falsely advertise irrelevant filters.
+        var matching = Object.keys(known).filter(function (l) {
+          return known[l] && known[l][dim] === value;
+        });
+        if (matching.length === 0) {
+          active = false;
+        } else {
+          active = matching.every(function (l) {
+            return filter.hiddenSeries.indexOf(l) === -1;
+          });
+        }
+      } else {
+        active = false;
+      }
+      chip.classList.toggle("filter-chip--active", active);
+      chip.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
+
+  // Show a count of hidden series on the trigger button when at least one
+  // is hidden; remove the badge cleanly when the filter is empty so the
+  // resting state stays noise-free. Mirrors `syncFilterBadge` for the
+  // global filter.
+  function syncGroupFilterBadge(section) {
+    var trigger = section.querySelector('[data-role="group-filter-trigger"]');
+    if (!trigger) return;
+    var filter = ensureGroupFilter(section);
+    var hidden = filter.hiddenSeries.length;
+    var badge = trigger.querySelector('[data-role="group-filter-badge"]');
+    if (hidden === 0) {
+      if (badge) badge.remove();
+      return;
+    }
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "filter-badge";
+      badge.setAttribute("data-role", "group-filter-badge");
+      trigger.appendChild(badge);
+    }
+    badge.textContent = String(hidden);
+  }
+
+  // Highlight whichever group-Y button matches the current state. `null`
+  // (the resting default and the post-Reset state) is treated as "linear"
+  // for the visual — matches each chart's own default — even though the
+  // resolution rule still distinguishes "no override" from an explicit
+  // user click for `applyGroupYTo`'s revert-to-linear semantics.
+  function syncGroupYUi(section) {
+    var y = section.__bench_group_y;
+    var visual = y === "log" ? "log" : "linear";
+    section.querySelectorAll(
+      '[data-role="group-toolbar"] .toolbar-btn[data-group-y]',
+    ).forEach(function (b) {
+      var match = b.getAttribute("data-group-y") === visual;
+      b.classList.toggle("toolbar-btn--active", match);
+    });
+  }
+
+  // Re-evaluate every chart-card in the section under the unified filter
+  // resolution. Per-group filter changes cascade through `applyFiltersToChart`
+  // because that function reads the section's filter on every call.
+  function applyGroupFilterTo(section) {
+    section.querySelectorAll(".chart-card[data-chart-index]").forEach(function (card) {
+      applyFiltersToChart(card);
+    });
+  }
+
+  // Broadcast the per-group Y-axis setting. Skips cards with
+  // `__bench_y_user_set` so the user's per-chart click stays sticky. When
+  // the section's group Y is null (e.g. after Reset), revert non-overridden
+  // cards to the default linear scale.
+  function applyGroupYTo(section) {
+    var y = section.__bench_group_y;
+    var target = (y === "linear" || y === "log") ? y : "linear";
+    section.querySelectorAll(".chart-card[data-chart-index]").forEach(function (card) {
+      var canvas = card.querySelector("canvas");
+      if (!canvas || !canvas.__bench_chart) return;
+      if (canvas.__bench_y_user_set) return;
+      applyY(card, target, false);
+    });
+  }
+
+  // Open/close behaviour for the per-group filter dropdown. Mirrors
+  // `bindFilterDropdown` for the global filter — click outside or press
+  // Escape to close. The trigger calls `e.stopPropagation()` so the
+  // document-level "click outside" listener doesn't immediately reclose
+  // the panel on the same click that opened it.
+  function bindGroupFilterDropdown(section) {
+    var dropdown = section.querySelector('[data-role="group-filter-dropdown"]');
+    if (!dropdown || dropdown.__bench_bound) return;
+    dropdown.__bench_bound = true;
+    var trigger = dropdown.querySelector('[data-role="group-filter-trigger"]');
+    var panel = dropdown.querySelector('[data-role="group-filter-panel"]');
+    if (!trigger || !panel) return;
+    function setOpen(open) {
+      if (open) {
+        panel.removeAttribute("hidden");
+      } else {
+        panel.setAttribute("hidden", "");
+      }
+      trigger.setAttribute("aria-expanded", open ? "true" : "false");
+      dropdown.classList.toggle("group-filter-dropdown--open", open);
+    }
+    trigger.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var isOpen = !panel.hasAttribute("hidden");
+      setOpen(!isOpen);
+    });
+    document.addEventListener("click", function (e) {
+      if (!dropdown.contains(e.target)) setOpen(false);
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") setOpen(false);
+    });
+  }
+
+  function bindGroupToolbar(section) {
+    var toolbar = section.querySelector('[data-role="group-toolbar"]');
+    if (!toolbar || toolbar.__bench_bound) return;
+    toolbar.__bench_bound = true;
+    bindGroupFilterDropdown(section);
+    toolbar.addEventListener("click", function (e) {
+      var target = e.target;
+      var resetBtn = target.closest && target.closest('[data-role="group-toolbar-reset"]');
+      if (resetBtn && toolbar.contains(resetBtn)) {
+        section.__bench_group_filter = { hiddenSeries: [] };
+        section.__bench_group_y = null;
+        syncGroupChipsUi(section);
+        syncGroupYUi(section);
+        syncGroupFilterBadge(section);
+        applyGroupYTo(section);
+        applyGroupFilterTo(section);
+        return;
+      }
+      var yBtn = target.closest && target.closest('.toolbar-btn[data-group-y]');
+      if (yBtn && toolbar.contains(yBtn)) {
+        section.__bench_group_y = yBtn.getAttribute("data-group-y");
+        syncGroupYUi(section);
+        applyGroupYTo(section);
+        return;
+      }
+      var chip = target.closest && target.closest('.filter-chip[data-group-filter]');
+      if (chip && toolbar.contains(chip)) {
+        var dim = chip.getAttribute("data-group-filter");
+        var value = chip.getAttribute("data-value");
+        if (!dim || !value) return;
+        if (value === "*") {
+          ensureGroupFilter(section).hiddenSeries = [];
+        } else if (dim === "series") {
+          toggleGroupSeriesValue(section, value);
+        } else {
+          applyMacroToHiddenSeries(section, dim, value);
+        }
+        syncGroupChipsUi(section);
+        syncGroupFilterBadge(section);
+        applyGroupFilterTo(section);
+      }
+    });
+  }
+
+  function initGroupToolbars() {
+    document.querySelectorAll(".group-details").forEach(function (section) {
+      bindGroupToolbar(section);
+      syncGroupChipsUi(section);
+      syncGroupYUi(section);
+      syncGroupFilterBadge(section);
+    });
+  }
+
+  // -----------------------------------------------------------------------
   // Header controls
   // -----------------------------------------------------------------------
   function effectiveTheme() {
@@ -1799,6 +2197,7 @@
     if (!group) return;
     group.querySelectorAll(".chart-card[data-chart-slug]").forEach(function (card) {
       fetchAndConstruct(card);
+      wakeUpChart(card);
     });
   }
 
@@ -1822,6 +2221,34 @@
     });
     document.querySelectorAll('[data-action="collapse-all"]').forEach(function (btn) {
       btn.addEventListener("click", function () { setAllGroups(false); });
+    });
+    bindMobileNav();
+  }
+
+  // Hamburger toggle for the mobile-only nav panel. The panel itself is
+  // `.nav-controls`; CSS hides it at < 769px until `.nav-controls--open`
+  // is planted on it. Mirrors the open/close-on-outside-click pattern used
+  // by the global filter dropdown.
+  function bindMobileNav() {
+    var toggle = document.querySelector('[data-role="nav-mobile-toggle"]');
+    var nav = document.querySelector('[data-role="nav-controls"]');
+    if (!toggle || !nav) return;
+    function setOpen(open) {
+      nav.classList.toggle("nav-controls--open", open);
+      toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+    toggle.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var isOpen = nav.classList.contains("nav-controls--open");
+      setOpen(!isOpen);
+    });
+    document.addEventListener("click", function (e) {
+      if (!nav.contains(e.target) && !toggle.contains(e.target)) {
+        setOpen(false);
+      }
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") setOpen(false);
     });
   }
 
@@ -1870,11 +2297,221 @@
     });
   }
 
+  // Background prefetch of closed-group chart payloads, kicked off after
+  // `init()`. Each card's `?n=all` JSON is fetched and stashed on
+  // `canvas.__bench_payload`; once a payload lands we enqueue a Chart.js
+  // construction so the toggle path becomes a no-op (chart already built).
+  // Constructions are serialized through a single-slot queue, with each
+  // card running in its own task, so input handlers can run between heavy
+  // `constructChart` calls. We use `requestIdleCallback` with a short
+  // timeout so the queue never stalls behind a busy main thread (default
+  // idle callbacks can defer for seconds during initial paint).
+  //
+  // For Chart.js to measure the canvas at real dimensions, the
+  // `body.bench-prebuilding` class temporarily overrides
+  // `.group-disclosure:not([open]) ~ .chart-grid { display: none }` and
+  // moves closed-group grids to a hidden offscreen position with the
+  // measured `<main>` width (`--bench-prebuild-width`). Without that
+  // override, charts construct at 0x0 and the on-toggle resize shows a
+  // brief blank, full-zoomed flash before paint. The class is added when
+  // we kick off the sweep and removed once every prefetch and construct
+  // has settled.
+  var PREFETCH_IDLE_TIMEOUT_MS = 100;
+  var constructQueue = [];
+  var constructDraining = false;
+  var prebuildPendingFetches = 0;
+  var prebuildQueuedConstructs = 0;
+
+  function scheduleIdle(cb) {
+    if (window.requestIdleCallback) {
+      return window.requestIdleCallback(cb, { timeout: PREFETCH_IDLE_TIMEOUT_MS });
+    }
+    return setTimeout(cb, 0);
+  }
+
+  function enqueueConstruct(card) {
+    constructQueue.push(card);
+    prebuildQueuedConstructs++;
+    if (!constructDraining) drainConstructQueue();
+  }
+
+  function drainConstructQueue() {
+    if (!constructQueue.length) {
+      constructDraining = false;
+      checkPrebuildSettled();
+      return;
+    }
+    constructDraining = true;
+    scheduleIdle(function () {
+      var card = constructQueue.shift();
+      if (card) buildOffscreenChart(card);
+      prebuildQueuedConstructs--;
+      drainConstructQueue();
+    });
+  }
+
+  // The disclosure is a *sibling* of `.chart-grid` inside the same
+  // `section.group-details`, not an ancestor of the chart card. Walk up to
+  // the section and pick the disclosure from there. Returns `null` for
+  // pages that have no group structure (single-chart and group pages).
+  function disclosureForCard(card) {
+    var section = card.closest(".group-details");
+    if (!section) return null;
+    return section.querySelector(":scope > details.group-disclosure");
+  }
+
+  function buildOffscreenChart(card) {
+    var canvas = card.querySelector("canvas");
+    if (!canvas) return;
+    if (canvas.__bench_chart) return;
+    // Don't gate on `__bench_payload`: `constructChart` reads inline
+    // `<script id="chart-data-N">` data directly when no payload is on the
+    // canvas yet, and we deliberately leave that path intact for first-group
+    // cards so its `payloadFromInline` detection stays accurate (otherwise
+    // `__bench_inline_trimmed` would be wrongly cleared and
+    // `maybeRefetchFullPayload` could never upgrade to the full history).
+    var details = disclosureForCard(card);
+    var offscreen = !!(details && !details.open);
+    if (constructChart(card)) {
+      bindToolbar(card);
+      if (offscreen) canvas.__bench_built_offscreen = true;
+    }
+  }
+
+  function checkPrebuildSettled() {
+    if (prebuildPendingFetches > 0) return;
+    if (prebuildQueuedConstructs > 0) return;
+    if (constructDraining) return;
+    document.body.classList.remove("bench-prebuilding");
+  }
+
+  // Resolve a card's payload either from a prior prefetch, an inline
+  // `<script id="chart-data-N">` tag (first group on the landing page),
+  // or a fresh `?n=all` GET. Inline payloads skip the network entirely so
+  // first-group cards are eligible for offscreen construction immediately
+  // after `init()` returns.
+  function prefetchCard(card) {
+    var canvas = card.querySelector("canvas");
+    if (!canvas) return Promise.resolve();
+    if (canvas.__bench_chart) return Promise.resolve();
+    if (canvas.__bench_payload) {
+      enqueueConstruct(card);
+      return Promise.resolve();
+    }
+    // Cards with an inline `<script id="chart-data-N">` (first group on the
+    // landing page) get one of two treatments:
+    //
+    //   * If the inline payload's commit count is below `LANDING_INLINE_N`,
+    //     the server didn't trim — inline IS the full history, so skip the
+    //     network and enqueue construction directly.
+    //   * If the inline payload reached the cap, the server trimmed it. We
+    //     fall through to fire `?n=all` instead of using the partial slice,
+    //     so the user's first view of the chart shows the unbounded history
+    //     rather than the visible "100 commits, then a few hundred ms later
+    //     it grows to the full range" upgrade flash that
+    //     `maybeRefetchFullPayload` would otherwise produce.
+    //
+    // The inline payload is still the toggle-time fallback if the network
+    // fetch fails; `fetchAndConstruct` will let `constructChart` read the
+    // inline `<script>` directly when no prefetch is in flight.
+    var idx = card.getAttribute("data-chart-index");
+    if (idx != null) {
+      var inline = readInlinePayload(idx);
+      if (inline) {
+        var inlineN = (inline.commits || []).length;
+        if (inlineN < LANDING_INLINE_N) {
+          enqueueConstruct(card);
+          return Promise.resolve();
+        }
+      }
+    }
+    if (canvas.__bench_prefetch_pending) return canvas.__bench_prefetch_pending;
+    var slug = card.getAttribute("data-chart-slug");
+    if (!slug) return Promise.resolve();
+    var url = "/api/chart/" + encodeURIComponent(slug)
+      + "?n=" + encodeURIComponent(FETCH_N);
+    prebuildPendingFetches++;
+    var p = fetch(url, { headers: { "accept": "application/json" } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (payload) {
+        if (payload && !canvas.__bench_payload) {
+          canvas.__bench_payload = payload;
+          enqueueConstruct(card);
+        }
+      })
+      .catch(function () {})
+      .then(function () {
+        canvas.__bench_prefetch_pending = null;
+        prebuildPendingFetches--;
+        checkPrebuildSettled();
+      });
+    canvas.__bench_prefetch_pending = p;
+    return p;
+  }
+
+  function startBackgroundPrefetch() {
+    var cards = Array.prototype.slice.call(
+      document.querySelectorAll(".chart-card[data-chart-slug]")
+    ).filter(function (card) {
+      var details = disclosureForCard(card);
+      return details && !details.open;
+    });
+    if (!cards.length) return;
+    // Capture the visible `.group-details` width so the offscreen chart-grids
+    // during prebuild render at the same dimensions they will have when the
+    // user toggles a group open. The summary stays in flow even when the
+    // grid below is hidden, so `.group-details.clientWidth` is the right
+    // measurement; Chart.js then sees per-card dimensions identical to the
+    // visible state, and the on-toggle resize is a no-op. Falls back to
+    // `<main>` and finally `100vw` for layouts that lack groups.
+    var sample = document.querySelector(".group-details")
+      || document.querySelector("main");
+    var sampleWidth = sample ? sample.clientWidth : 0;
+    if (sampleWidth > 0) {
+      document.body.style.setProperty(
+        "--bench-prebuild-width", sampleWidth + "px",
+      );
+    }
+    document.body.classList.add("bench-prebuilding");
+    // Fire every prefetch immediately so the browser starts dispatching
+    // them on the same tick as page-load. With no JS-side concurrency cap,
+    // the only queueing is at the HTTP layer (browser per-host limits and
+    // the server's own concurrency); on HTTP/2 the fan-out is effectively
+    // unlimited. By the time the user clicks any group the responses are
+    // either already in flight or already parsed, so the toggle path
+    // hits the synchronous-construct branch instead of the on-toggle
+    // fetch fallback.
+    for (var i = 0; i < cards.length; i++) prefetchCard(cards[i]);
+    checkPrebuildSettled();
+  }
+
+  // Force a layout recompute on charts that were constructed while their
+  // enclosing `<details>` was closed. Chart.js measures the canvas parent
+  // at construction time, and a `display: none` ancestor means it cached
+  // a 0x0 size; once the disclosure opens we re-measure and redraw.
+  function wakeUpChart(card) {
+    var canvas = card.querySelector("canvas");
+    var chart = canvas && canvas.__bench_chart;
+    if (!chart || !canvas.__bench_built_offscreen) return;
+    canvas.__bench_built_offscreen = false;
+    chart.resize();
+    chart.update("none");
+  }
+
   function init() {
     initHeaderControls();
     initGlobalFilterBar();
+    initGroupToolbars();
     initDetailsToggle();
     initOpenCharts();
+    // Kick off the prefetch sweep on the same tick as `init()` so every
+    // card's `/api/chart/` request is queued before the user has a chance
+    // to click. `fetch()` returns a promise immediately and the actual
+    // request dispatch is async, so calling it for N cards here does not
+    // block the main thread; it just hands the requests to the browser
+    // network layer as early as possible. Chart.js construction, which is
+    // CPU-bound, is still scheduled via the idle queue downstream.
+    startBackgroundPrefetch();
   }
 
   if (document.readyState === "loading") {

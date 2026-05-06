@@ -178,6 +178,13 @@ a:hover { text-decoration: underline; }
   min-width: 0;
 }
 
+/* Hamburger button + the mobile-only GitHub link inside `.nav-controls`
+ * are hidden by default; the mobile media query below flips them on. The
+ * compound selector beats `.control-btn` / `.repo-link` on specificity so
+ * those generic display rules don't accidentally re-show them on desktop. */
+.header-left .nav-mobile-toggle { display: none; }
+.nav-controls .nav-controls-github { display: none; }
+
 .logo-link {
   flex: 0 0 auto;
   text-decoration: none;
@@ -476,6 +483,28 @@ main {
   display: none;
 }
 
+/*
+ * During the post-load Chart.js prebuild, render closed groups' chart
+ * grids in a hidden offscreen position so each canvas has real layout
+ * dimensions for Chart.js to measure. Without this override, charts
+ * construct against a 0x0 parent (the closed-group rule above), and the
+ * eventual on-toggle resize leaves a brief flash of a blank, full-zoomed
+ * canvas before the next frame paints. The width matches the visible
+ * content area via `--bench-prebuild-width` (set by `chart-init.js` from
+ * the live `<main>` width) so the build dimensions are close enough to
+ * the actual on-screen dimensions that Chart.js's ResizeObserver-driven
+ * adjust on toggle is a no-op or a single sub-frame tick.
+ */
+body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
+  display: grid !important;
+  position: fixed !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  top: -10000px !important;
+  left: 0 !important;
+  width: var(--bench-prebuild-width, 100vw);
+}
+
 .group-details > .chart-grid .chart-card:last-child {
   margin-bottom: 0;
 }
@@ -698,6 +727,89 @@ main {
   width: 12rem;
   accent-color: var(--accent);
 }
+
+/* ----------------------------------------------------------------------
+ * Per-group toolbar — sits between the group's score summary and the
+ * chart grid. Y-axis buttons on the left, a centered "Filter series"
+ * dropdown trigger, and a Reset button on the right. The dropdown panel
+ * holds engine/format macro chips and a series row populated by JS as
+ * charts in the group hydrate. Hidden alongside `.chart-grid` when the
+ * disclosure is closed via the same `:not([open]) ~` rule.
+ * ---------------------------------------------------------------------- */
+.group-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  padding: 0.4rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 0.78rem;
+}
+.group-disclosure:not([open]) ~ .group-toolbar {
+  display: none;
+}
+.group-toolbar-y {
+  flex: 0 0 auto;
+  gap: 0.25rem;
+}
+.group-filter-dropdown {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  justify-content: center;
+}
+.group-filter-trigger {
+  min-height: 28px;
+  padding: 0.25rem 0.85rem;
+  font-size: 0.78rem;
+}
+.group-filter-panel {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 24rem;
+  max-width: min(90vw, 42rem);
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-md);
+}
+.group-filter-panel[hidden] { display: none; }
+.group-series-row { align-items: flex-start; }
+.group-series-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.group-toolbar-reset {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0.1rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.group-toolbar-reset:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* ----------------------------------------------------------------------
  * Single-chart + group-page chart card
  * ---------------------------------------------------------------------- */
@@ -988,23 +1100,53 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   }
   .header-center {
     position: static;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
     transform: none;
   }
   .header-right {
     gap: 0.35rem;
-    margin-left: 0;
+    margin-left: auto;
   }
   .site-title {
     display: none;
   }
-  .nav-controls {
-    gap: 0.35rem;
-    overflow-x: auto;
-    scrollbar-width: none;
+  /* Mobile nav: collapse `.nav-controls` into a hamburger panel docked
+   * under the header. The hamburger toggle plants `.nav-controls--open`
+   * to surface the panel. The desktop GitHub link in `.header-right` is
+   * hidden; the panel-internal `.nav-controls-github` link takes over. */
+  .header-left .nav-mobile-toggle {
+    display: inline-flex;
+    padding: 0.4rem 0.55rem;
+    min-height: 32px;
   }
-  .nav-controls::-webkit-scrollbar {
+  .header-right .repo-link-desktop { display: none; }
+  .nav-controls .nav-controls-github { display: inline-flex; }
+  .nav-controls {
     display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+    position: absolute;
+    top: var(--header-height);
+    left: 0;
+    right: 0;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--card-bg);
+    box-shadow: var(--shadow-md);
+    z-index: 1100;
+  }
+  .nav-controls.nav-controls--open {
+    display: flex;
+  }
+  .nav-controls .filter-dropdown { width: 100%; }
+  .nav-controls .filter-trigger { width: 100%; justify-content: center; }
+  .nav-controls .filter-panel {
+    left: 0;
+    right: 0;
+    transform: none;
+    min-width: 0;
+    max-width: none;
   }
   .control-btn,
   .repo-link {
@@ -1052,6 +1194,21 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   }
   .benchmark-scores-summary {
     padding: 0.6rem 1rem;
+  }
+  .group-toolbar {
+    padding: 0.4rem 0.75rem;
+    gap: 0.35rem 0.5rem;
+  }
+  .group-filter-panel {
+    min-width: 0;
+    width: 92vw;
+    max-width: 92vw;
+  }
+  .group-series-chips {
+    /* Wraps onto multiple lines on narrow screens; chip count stays modest
+     * (typically <10) so vertical wrap is fine. */
+    max-height: 50vh;
+    overflow-y: auto;
   }
   .toolbar--card {
     gap: 0.35rem 0.6rem;
