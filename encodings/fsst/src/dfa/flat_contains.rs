@@ -25,6 +25,7 @@
 //! [`FlatContainsDfa`] remains in use for longer needles (128–254 bytes).
 
 use fsst::Symbol;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -32,6 +33,7 @@ use vortex_error::vortex_bail;
 use super::build_fused_table;
 use super::build_symbol_transitions;
 use super::kmp_byte_transitions;
+use super::scan_to_bitbuf_with;
 use super::skip::SkipStrategy;
 
 /// Flat `u8` transition table DFA for contains matching.
@@ -132,6 +134,23 @@ impl FlatContainsDfa {
             }
         }
         false
+    }
+
+    /// Specialized scan over `n` strings, returning a `BitBuffer` of accept
+    /// results (XOR `negated`). The `matches` body is monomorphized into the
+    /// bit-packing loop.
+    #[inline]
+    pub(crate) fn scan_to_bitbuf<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        scan_to_bitbuf_with(n, offsets, all_bytes, negated, |codes| self.matches(codes))
     }
 }
 
