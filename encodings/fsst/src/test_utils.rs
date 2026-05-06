@@ -20,6 +20,24 @@ use crate::FSSTArray;
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
 
+/// Build a closure that runs the FSST contains/prefix/suffix DFA matcher for
+/// `pattern` on raw FSST code slices. Exposed for benches that want to time the
+/// inner DFA loop without the surrounding scan / bitbuf machinery.
+///
+/// Returns `None` if the pattern shape cannot be pushed down via FSST DFA.
+pub fn build_fsst_test_matcher(
+    fsst: &FSSTArray,
+    pattern: &[u8],
+) -> Option<Box<dyn Fn(&[u8]) -> bool + Send + Sync>> {
+    let view = fsst.as_view();
+    let symbols = view.symbols().as_slice().to_vec();
+    let symbol_lengths = view.symbol_lengths().as_slice().to_vec();
+    let pattern = pattern.to_vec();
+    let matcher =
+        crate::dfa::FsstMatcher::try_new(&symbols, &symbol_lengths, &pattern).ok().flatten()?;
+    Some(Box::new(move |codes| matcher.matches(codes)))
+}
+
 pub fn gen_fsst_test_data(len: usize, avg_str_len: usize, unique_chars: u8) -> ArrayRef {
     let mut rng = StdRng::seed_from_u64(0);
     let mut strings = Vec::with_capacity(len);
