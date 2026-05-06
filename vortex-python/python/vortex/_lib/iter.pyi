@@ -8,6 +8,7 @@ import pyarrow as pa
 
 from .arrays import Array
 from .dtype import DType
+from .session import Session
 
 @final
 class ArrayIterator:
@@ -18,4 +19,4 @@ class ArrayIterator:
     def __next__(self) -> Array: ...
     def to_arrow(self) -> pa.RecordBatchReader: ...
     @staticmethod
-    def from_iter(dtype: DType, iter: Iterator[Array]) -> ArrayIterator: ...
+    def from_iter(dtype: DType, iter: Iterator[Array], *, session: Session) -> ArrayIterator: ...

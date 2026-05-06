@@ -17,6 +17,14 @@ from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
 from .arrays import array
 from .arrow.expression import ensure_vortex_expression
 from .expr import Expr, and_
+from .session import Session
+
+
+def _warn_use_threads() -> None:
+    warnings.warn(
+        "Vortex threading is configured through vortex.runtime. Ignoring use_threads=True.",
+        stacklevel=2,
+    )
 
 
 @final
@@ -33,12 +41,16 @@ class VortexDataset(pyarrow.dataset.Dataset):
         self._filters: list[Expr] = filters or []
 
     @staticmethod
-    def from_url(url: str):
-        return VortexDataset(_dataset.dataset_from_url(url))
+    def from_url(url: str, *, session: Session):
+        return VortexDataset(_dataset.dataset_from_url(url, session=session))
 
     @staticmethod
-    def from_path(path: str):
-        return VortexDataset(_file.open(path).to_dataset())
+    def from_path(path: str, *, session: Session):
+        return VortexDataset(_file.open(path, session=session).to_dataset())
+
+    @property
+    def session(self) -> Session:
+        return self._dataset.session
 
     @property
     @override
@@ -66,7 +78,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         if fragment_scan_options is not None:
             raise ValueError("fragment_scan_options not supported")
         if use_threads:
-            warnings.warn("Vortex does not support threading. Ignoring use_threads=True")
+            _warn_use_threads()
         if cache_metadata is not None:
             warnings.warn("Vortex does not support cache_metadata. Ignoring cache_metadata setting.")
         del memory_pool
@@ -151,7 +163,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         if fragment_scan_options is not None:
             raise ValueError("fragment_scan_options not supported")
         if use_threads:
-            warnings.warn("Vortex does not support threading. Ignoring use_threads=True")
+            _warn_use_threads()
         if columns is not None and len(columns) == 0:
             raise ValueError("empty projections are not currently supported")
         if cache_metadata is not None:
@@ -165,7 +177,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
                 row_range=_row_range,
             )
             .slice(0, num_rows)
-            .to_arrow_table()
+            .to_arrow_table(session=self.session)
         )
 
     @override
@@ -321,7 +333,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             row_filter=self._filter_expression(filter),
             indices=array(indices.cast(pa.uint64())),
             row_range=_row_range,
-        ).to_arrow_table()
+        ).to_arrow_table(session=self.session)
 
     def to_record_batch_reader(
         self,
@@ -370,7 +382,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         if fragment_scan_options is not None:
             raise ValueError("fragment_scan_options not supported")
         if use_threads:
-            warnings.warn("Vortex does not support threading. Ignoring use_threads=True")
+            _warn_use_threads()
         if cache_metadata is not None:
             warnings.warn("Vortex does not support cache_metadata. Ignoring cache_metadata setting.")
         if columns is not None and len(columns) == 0:
@@ -491,7 +503,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         if fragment_scan_options is not None:
             raise ValueError("fragment_scan_options not supported")
         if use_threads:
-            warnings.warn("Vortex does not support threading. Ignoring use_threads=True")
+            _warn_use_threads()
         if cache_metadata is not None:
             warnings.warn("Vortex does not support cache_metadata. Ignoring cache_metadata setting.")
         if columns is not None and len(columns) == 0:
@@ -505,11 +517,11 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
         return self._dataset.to_array(
             columns=columns, row_filter=self._filter_expression(filter), row_range=_row_range
-        ).to_arrow_table()
+        ).to_arrow_table(session=self.session)
 
 
-def from_url(url: str) -> VortexDataset:
-    return VortexDataset(_dataset.dataset_from_url(url))
+def from_url(url: str, *, session: Session) -> VortexDataset:
+    return VortexDataset(_dataset.dataset_from_url(url, session=session))
 
 
 @final

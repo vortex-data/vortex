@@ -3,11 +3,11 @@
 
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
+use async_fs::File;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3_object_store::PyObjectStore;
-use tokio::fs::File;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -24,10 +24,10 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
+use vortex::io::runtime::BlockingRuntime;
 
 use crate::PyVortex;
-use crate::SESSION;
-use crate::TOKIO_RUNTIME;
+use crate::RUNTIME;
 use crate::arrays::PyArray;
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
@@ -40,6 +40,7 @@ use crate::install_module;
 use crate::iter::PyArrayIterator;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
+use crate::session::PyVortexSession;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;
@@ -129,7 +130,8 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ```
 ///
 #[pyfunction]
-#[pyo3(signature = (url, *, store = None, projection = None, row_filter = None, indices = None, row_range = None))]
+#[pyo3(signature = (url, *, store = None, projection = None, row_filter = None, indices = None, row_range = None, session))]
+#[expect(clippy::too_many_arguments, reason = "PyO3 binding mirrors Python API")]
 pub fn read_url<'py>(
     py: Python<'py>,
     url: &str,
@@ -138,6 +140,7 @@ pub fn read_url<'py>(
     row_filter: Option<&Bound<'py, PyExpr>>,
     indices: Option<PyArrayRef>,
     row_range: Option<(u64, u64)>,
+    session: &Bound<PyVortexSession>,
 ) -> PyVortexResult<PyArrayRef> {
     let store_arc = if let Some(store_obj) = store {
         let py_store: PyObjectStore = store_obj.extract()?;
@@ -146,9 +149,10 @@ pub fn read_url<'py>(
         None
     };
 
+    let session = session.get().inner().clone();
     let dataset =
-        py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?;
-    dataset.to_array(projection, row_filter, indices, row_range)
+        py.detach(move || RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc, session)))?;
+    dataset.to_array_inner(py, projection, row_filter, indices, row_range)
 }
 
 /// Write an array to a Vortex file.
@@ -205,19 +209,21 @@ pub fn read_url<'py>(
 ///
 /// :func:`vortex.io.VortexWriteOptions`
 #[pyfunction]
-#[pyo3(signature = (iter, path, *, store = None))]
+#[pyo3(signature = (iter, path, *, store = None, session))]
 pub fn write(
     py: Python,
     iter: PyIntoArrayIterator,
     path: &str,
     store: Option<PyObjectStore>,
+    session: &Bound<PyVortexSession>,
 ) -> PyVortexResult<()> {
+    let session = session.get().inner().clone();
     py.detach(|| {
-        TOKIO_RUNTIME.block_on(async move {
+        RUNTIME.block_on(async move {
             match resolve_store(path, store.map(|x| x.into_inner()))? {
                 ResolvedStore::ObjectStore(store, path) => {
                     let mut store = ObjectStoreWrite::new(store, &path).await?;
-                    SESSION
+                    session
                         .write_options()
                         .write(&mut store, iter.into_inner().into_array_stream())
                         .await?;
@@ -226,7 +232,7 @@ pub fn write(
                 }
                 ResolvedStore::Path(path) => {
                     let mut w = File::create(path).await?;
-                    SESSION
+                    session
                         .write_options()
                         .write(&mut w, iter.into_inner().into_array_stream())
                         .await?;
@@ -342,14 +348,16 @@ impl PyVortexWriteOptions {
     /// --------
     ///
     /// :func:`vortex.io.write`
-    #[pyo3(signature = (iter, path, *, store = None))]
+    #[pyo3(signature = (iter, path, *, store = None, session))]
     pub fn write(
         &self,
         py: Python,
         iter: PyIntoArrayIterator,
         path: &str,
         store: Option<PyObjectStore>,
+        session: &Bound<PyVortexSession>,
     ) -> PyVortexResult<()> {
+        let session = session.get().inner().clone();
         py.detach(|| {
             let mut strategy = WriteStrategyBuilder::default();
             if self.use_compact_encodings {
@@ -357,11 +365,11 @@ impl PyVortexWriteOptions {
                     .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
             }
             let strategy = strategy.build();
-            TOKIO_RUNTIME.block_on(async move {
+            RUNTIME.block_on(async move {
                 match resolve_store(path, store.map(|x| x.into_inner()))? {
                     ResolvedStore::ObjectStore(store, path) => {
                         let mut store = ObjectStoreWrite::new(store, &path).await?;
-                        SESSION
+                        session
                             .write_options()
                             .with_strategy(strategy)
                             .write(&mut store, iter.into_inner().into_array_stream())
@@ -371,7 +379,7 @@ impl PyVortexWriteOptions {
                     }
                     ResolvedStore::Path(path) => {
                         let mut w = File::create(path).await?;
-                        SESSION
+                        session
                             .write_options()
                             .with_strategy(strategy)
                             .write(&mut w, iter.into_inner().into_array_stream())

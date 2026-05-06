@@ -8,6 +8,7 @@ import pyarrow as pa
 
 from .arrays import Array
 from .dtype import DType
+from .session import Session
 
 @final
 class SerializedArray:
@@ -23,13 +24,16 @@ class SerializedArray:
     def nchildren(self) -> int: ...
     @property
     def children(self) -> list[SerializedArray]: ...
-    def decode(self, ctx: ArrayContext, dtype: DType, len: int) -> pa.Array[pa.Scalar[pa.DataType]]: ...
+    def decode(self, ctx: ArrayContext, dtype: DType, len: int, *, session: Session) -> Array: ...
 
 @final
 class ArrayContext:
     def __len__(self) -> int: ...
 
-def decode_ipc_array(array_bytes: bytes, dtype_bytes: bytes) -> Array: ...
+def decode_ipc_array(array_bytes: bytes, dtype_bytes: bytes, *, session: Session) -> Array: ...
 def decode_ipc_array_buffers(
-    array_buffers: Sequence[bytes | memoryview], dtype_buffers: Sequence[bytes | memoryview]
+    array_buffers: Sequence[bytes | memoryview],
+    dtype_buffers: Sequence[bytes | memoryview],
+    *,
+    session: Session,
 ) -> Array: ...

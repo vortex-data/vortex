@@ -3,7 +3,7 @@
 
 import importlib.metadata
 
-from . import _lib, arrays, dataset, expr, file, io, ray, registry, scan
+from . import _lib, arrays, dataset, expr, file, io, ray, registry, runtime, scan, session
 from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     AlpArray,
     AlpRdArray,
@@ -75,6 +75,7 @@ from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
     scalar,
 )
 from ._lib.serde import ArrayContext, SerializedArray  # pyright: ignore[reportMissingModuleSource]
+from ._lib.session import Session  # pyright: ignore[reportMissingModuleSource]
 from .arrays import (
     Array,
     PyArray,
@@ -105,10 +106,13 @@ __all__ = [
     "scan",
     "io",
     "registry",
+    "runtime",
+    "session",
     "ray",
     # --- Objects and Functions ---
     "array",
     "compress",
+    "Session",
     # Arrays
     "Array",
     "PyArray",

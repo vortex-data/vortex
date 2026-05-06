@@ -16,6 +16,7 @@ from vortex._lib.serde import (  # pyright: ignore[reportMissingModuleSource]
     SerializedArray,
     decode_ipc_array_buffers,
 )
+from vortex._lib.session import Session  # pyright: ignore[reportMissingModuleSource]
 
 try:
     import pandas
@@ -59,7 +60,7 @@ def arrow_table_from_struct_array(
     return pyarrow.Table.from_struct_array(array)
 
 
-def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
+def _Array_to_arrow_table(self: _arrays.Array, *, session: Session) -> pyarrow.Table:
     """Construct an Arrow table from this Vortex array.
 
     .. seealso::
@@ -93,7 +94,7 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
     name: [["Joseph","Narendra","Angela","Mikhail"]]
 
     """
-    array = self.to_arrow_array()
+    array = self.to_arrow_array(session=session)
     assert isinstance(array, pyarrow.StructArray | pyarrow.ChunkedArray)
     return arrow_table_from_struct_array(array)
 
@@ -101,7 +102,7 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
 Array.to_arrow_table = _Array_to_arrow_table
 
 
-def _Array_to_pandas(self: _arrays.Array) -> pandas.DataFrame:
+def _Array_to_pandas(self: _arrays.Array, *, session: Session) -> pandas.DataFrame:
     """Construct a Pandas dataframe from this Vortex array.
 
     Warning
@@ -134,7 +135,7 @@ def _Array_to_pandas(self: _arrays.Array) -> pandas.DataFrame:
     """
     import pandas
 
-    return self.to_arrow_table().to_pandas(types_mapper=pandas.ArrowDtype)  # pyright: ignore[reportUnknownMemberType]
+    return self.to_arrow_table(session=session).to_pandas(types_mapper=pandas.ArrowDtype)  # pyright: ignore[reportUnknownMemberType]
 
 
 Array.to_pandas = _Array_to_pandas
@@ -142,6 +143,8 @@ Array.to_pandas = _Array_to_pandas
 
 def _Array_to_polars_dataframe(
     self: _arrays.Array,
+    *,
+    session: Session,
 ):  # -> 'polars.DataFrame':  # breaks docs due to Polars issue #7027
     """Construct a Polars dataframe from this Vortex array.
 
@@ -186,13 +189,17 @@ def _Array_to_polars_dataframe(
     """
     import polars
 
-    return polars.from_arrow(self.to_arrow_table())  # pyright: ignore[reportUnknownMemberType]
+    return polars.from_arrow(self.to_arrow_table(session=session))  # pyright: ignore[reportUnknownMemberType]
 
 
 setattr(Array, "to_polars_dataframe", _Array_to_polars_dataframe)
 
 
-def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # breaks docs due to Polars issue #7027
+def _Array_to_polars_series(
+    self: _arrays.Array,
+    *,
+    session: Session,
+):  # -> 'polars.Series':  # breaks docs due to Polars issue #7027
     """Construct a Polars series from this Vortex array.
 
     .. seealso::
@@ -254,13 +261,18 @@ def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # brea
     """
     import polars
 
-    return polars.from_arrow(self.to_arrow_array())  # pyright: ignore[reportUnknownMemberType]
+    return polars.from_arrow(self.to_arrow_array(session=session))  # pyright: ignore[reportUnknownMemberType]
 
 
 setattr(Array, "to_polars_series", _Array_to_polars_series)
 
 
-def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> numpy.ndarray:
+def _Array_to_numpy(
+    self: _arrays.Array,
+    *,
+    session: Session,
+    zero_copy_only: bool = True,
+) -> numpy.ndarray:
     """Construct a NumPy array from this Vortex array.
 
     This is an alias for :code:`self.to_arrow_array().to_numpy(zero_copy_only)`
@@ -285,13 +297,13 @@ def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> nump
     array([1, 0, 0, 1])
 
     """
-    return self.to_arrow_array().to_numpy(zero_copy_only=zero_copy_only)
+    return self.to_arrow_array(session=session).to_numpy(zero_copy_only=zero_copy_only)
 
 
 Array.to_numpy = _Array_to_numpy
 
 
-def _Array_to_pylist(self: _arrays.Array) -> list[Any]:  # pyright: ignore[reportExplicitAny]
+def _Array_to_pylist(self: _arrays.Array, *, session: Session) -> list[Any]:  # pyright: ignore[reportExplicitAny]
     """Deeply copy an Array into a Python list.
 
     Returns
@@ -310,7 +322,7 @@ def _Array_to_pylist(self: _arrays.Array) -> list[Any]:  # pyright: ignore[repor
     [{'age': 25, 'name': 'Joseph'}, {'age': 31, 'name': 'Narendra'}, {'age': 33, 'name': 'Angela'}]
 
     """
-    return self.to_arrow_table().to_pylist()
+    return self.to_arrow_table(session=session).to_pylist()
 
 
 Array.to_pylist = _Array_to_pylist
@@ -472,7 +484,12 @@ class PyArray(Array, metaclass=abc.ABCMeta):
         """
 
 
-def _unpickle_array(array_buffers: Sequence[bytes | memoryview], dtype_buffers: Sequence[bytes | memoryview]) -> Array:  # pyright: ignore[reportUnusedFunction]
+def _unpickle_array(
+    array_buffers: Sequence[bytes | memoryview],
+    dtype_buffers: Sequence[bytes | memoryview],
+    *,
+    session: Session,
+) -> Array:  # pyright: ignore[reportUnusedFunction]
     """Unpickle a Vortex array from IPC-encoded buffer lists.
 
     This is an internal function used by the pickle module for both protocol 4 and 5.
@@ -481,4 +498,4 @@ def _unpickle_array(array_buffers: Sequence[bytes | memoryview], dtype_buffers: 
     For protocol 5, receives list[PickleBuffer/memoryview] from __reduce_ex__.
     Both use decode_ipc_array_buffers which concatenates the buffers during deserialization.
     """
-    return decode_ipc_array_buffers(array_buffers, dtype_buffers)
+    return decode_ipc_array_buffers(array_buffers, dtype_buffers, session=session)

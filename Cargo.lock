@@ -11013,6 +11013,7 @@ dependencies = [
  "arrow-array 58.2.0",
  "arrow-data 58.2.0",
  "arrow-schema 58.2.0",
+ "async-fs",
  "bytes",
  "itertools 0.14.0",
  "log",

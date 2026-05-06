@@ -27,29 +27,22 @@ mod iter;
 mod object_store;
 mod python_repr;
 mod registry;
+mod runtime;
 pub mod scalar;
 mod scan;
 mod serde;
+mod session;
 mod store;
 
-use tokio::runtime::Runtime;
-use vortex::VortexSessionDefault;
-use vortex::error::VortexError;
-use vortex::error::VortexExpect as _;
-use vortex::io::runtime::BlockingRuntime;
-use vortex::io::runtime::tokio::TokioRuntime;
-use vortex::io::session::RuntimeSessionExt;
-use vortex::session::VortexSession;
+use vortex::io::runtime::current::CurrentThreadRuntime;
+use vortex::io::runtime::current::CurrentThreadWorkerPool;
 
-static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
-    Runtime::new()
-        .map_err(VortexError::from)
-        .vortex_expect("tokio runtime must not fail to start")
-});
-static RUNTIME: LazyLock<TokioRuntime> =
-    LazyLock::new(|| TokioRuntime::new(TOKIO_RUNTIME.handle().clone()));
-static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
+/// Shared current-thread runtime backing Python Vortex operations.
+pub(crate) static RUNTIME: LazyLock<CurrentThreadRuntime> =
+    LazyLock::new(CurrentThreadRuntime::new);
+
+/// Shared worker pool that can drive [`RUNTIME`]'s executor in the background.
+pub(crate) static POOL: LazyLock<CurrentThreadWorkerPool> = LazyLock::new(|| RUNTIME.new_pool());
 
 /// Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
 #[cfg(feature = "extension-module")]
@@ -74,10 +67,12 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     file::init(py, m)?;
     io::init(py, m)?;
     iter::init(py, m)?;
+    runtime::init(py, m)?;
     store::init(py, m)?;
     registry::init(py, m)?;
     scalar::init(py, m)?;
     serde::init(py, m)?;
+    session::init(py, m)?;
     scan::init(py, m)?;
 
     Ok(())

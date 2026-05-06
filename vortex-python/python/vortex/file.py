@@ -15,6 +15,7 @@ from ._lib.expr import Expr  # pyright: ignore[reportMissingModuleSource]
 from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
 from .dataset import VortexDataset
 from .scan import RepeatedScan
+from .session import Session
 from .store import (
     AzureStore,
     GCSStore,
@@ -34,6 +35,7 @@ def open(
     *,
     store: AzureStore | GCSStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
     without_segment_cache: bool = False,
+    session: Session,
 ) -> VortexFile:
     """
     Lazily open a Vortex file located at the given path or URL.
@@ -59,7 +61,9 @@ def open(
     See also: :class:`vortex.dataset.VortexDataset`
     """
 
-    return VortexFile(_file.open(path, store=store, without_segment_cache=without_segment_cache))
+    return VortexFile(
+        _file.open(path, store=store, without_segment_cache=without_segment_cache, session=session)
+    )
 
 
 @final
@@ -74,6 +78,11 @@ class VortexFile:
     def dtype(self) -> DType:
         """The dtype of the file."""
         return self._file.dtype
+
+    @property
+    def session(self) -> Session:
+        """The Vortex session used by this file."""
+        return self._file.session
 
     def splits(self) -> list[tuple[int, int]]:
         return self._file.splits()
