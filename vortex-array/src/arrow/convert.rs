@@ -680,6 +680,7 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Fields;
     use arrow_schema::Schema;
+    use rstest::rstest;
 
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -703,157 +704,68 @@ mod tests {
     use crate::extension::datetime::TimeUnit;
     use crate::extension::datetime::Timestamp;
 
-    // Test primitive array conversions
-    #[test]
-    fn test_int8_array_conversion() {
-        let arrow_array = Int8Array::from(vec![Some(1), None, Some(3), Some(4)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
-
-        let arrow_array_non_null = Int8Array::from(vec![1, 2, 3, 4]);
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
-
-        assert_eq!(vortex_array.len(), 4);
-        assert_eq!(vortex_array_non_null.len(), 4);
-
-        // Verify metadata - should be PrimitiveArray with I8 ptype
-        let primitive_array = vortex_array.as_::<Primitive>();
-        assert_eq!(primitive_array.ptype(), PType::I8);
-
-        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
-        assert_eq!(primitive_array_non_null.ptype(), PType::I8);
-    }
-
-    #[test]
-    fn test_int16_array_conversion() {
-        let arrow_array = Int16Array::from(vec![Some(100), None, Some(300), Some(400)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
-
-        let arrow_array_non_null = Int16Array::from(vec![100, 200, 300, 400]);
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
-
-        assert_eq!(vortex_array.len(), 4);
-        assert_eq!(vortex_array_non_null.len(), 4);
-
-        // Verify metadata - should be PrimitiveArray with I16 ptype
-        let primitive_array = vortex_array.as_::<Primitive>();
-        assert_eq!(primitive_array.ptype(), PType::I16);
-
-        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
-        assert_eq!(primitive_array_non_null.ptype(), PType::I16);
-    }
-
-    #[test]
-    fn test_int32_array_conversion() {
-        let arrow_array = Int32Array::from(vec![Some(1000), None, Some(3000), Some(4000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
-
-        let arrow_array_non_null = Int32Array::from(vec![1000, 2000, 3000, 4000]);
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
-
-        assert_eq!(vortex_array.len(), 4);
-        assert_eq!(vortex_array_non_null.len(), 4);
-
-        // Verify metadata - should be PrimitiveArray with I32 ptype
-        let primitive_array = vortex_array.as_::<Primitive>();
-        assert_eq!(primitive_array.ptype(), PType::I32);
-
-        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
-        assert_eq!(primitive_array_non_null.ptype(), PType::I32);
-    }
-
-    #[test]
-    fn test_int64_array_conversion() {
-        let arrow_array = Int64Array::from(vec![Some(10000), None, Some(30000), Some(40000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
-
-        let arrow_array_non_null = Int64Array::from(vec![10000_i64, 20000, 30000, 40000]);
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
-
-        assert_eq!(vortex_array.len(), 4);
-        assert_eq!(vortex_array_non_null.len(), 4);
-
-        // Verify metadata - should be PrimitiveArray with I64 ptype
-        let primitive_array = vortex_array.as_::<Primitive>();
-        assert_eq!(primitive_array.ptype(), PType::I64);
-
-        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
-        assert_eq!(primitive_array_non_null.ptype(), PType::I64);
-    }
-
-    #[test]
-    fn test_uint8_array_conversion() {
-        let arrow_array = UInt8Array::from(vec![Some(1), None, Some(3), Some(4)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
-
-        let arrow_array_non_null = UInt8Array::from(vec![1_u8, 2, 3, 4]);
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
-
-        assert_eq!(vortex_array.len(), 4);
-        assert_eq!(vortex_array_non_null.len(), 4);
-
-        // Verify metadata - should be PrimitiveArray with U8 ptype
-        let primitive_array = vortex_array.as_::<Primitive>();
-        assert_eq!(primitive_array.ptype(), PType::U8);
-
-        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
-        assert_eq!(primitive_array_non_null.ptype(), PType::U8);
-    }
-
-    #[test]
-    fn test_uint16_array_conversion() {
-        let arrow_array = UInt16Array::from(vec![Some(100), None, Some(300), Some(400)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
-
-        let arrow_array_non_null = UInt16Array::from(vec![100_u16, 200, 300, 400]);
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
-
-        assert_eq!(vortex_array.len(), 4);
-        assert_eq!(vortex_array_non_null.len(), 4);
-
-        // Verify metadata - should be PrimitiveArray with U16 ptype
-        let primitive_array = vortex_array.as_::<Primitive>();
-        assert_eq!(primitive_array.ptype(), PType::U16);
-
-        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
-        assert_eq!(primitive_array_non_null.ptype(), PType::U16);
-    }
-
-    #[test]
-    fn test_uint32_array_conversion() {
-        let arrow_array = UInt32Array::from(vec![Some(1000), None, Some(3000), Some(4000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
-
-        let arrow_array_non_null = UInt32Array::from(vec![1000_u32, 2000, 3000, 4000]);
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
-
-        assert_eq!(vortex_array.len(), 4);
-        assert_eq!(vortex_array_non_null.len(), 4);
-
-        // Verify metadata - should be PrimitiveArray with U32 ptype
-        let primitive_array = vortex_array.as_::<Primitive>();
-        assert_eq!(primitive_array.ptype(), PType::U32);
-
-        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
-        assert_eq!(primitive_array_non_null.ptype(), PType::U32);
-    }
-
-    #[test]
-    fn test_uint64_array_conversion() {
-        let arrow_array = UInt64Array::from(vec![Some(10000), None, Some(30000), Some(40000)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
-
-        let arrow_array_non_null = UInt64Array::from(vec![10000_u64, 20000, 30000, 40000]);
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
-
-        assert_eq!(vortex_array.len(), 4);
-        assert_eq!(vortex_array_non_null.len(), 4);
-
-        // Verify metadata - should be PrimitiveArray with U64 ptype
-        let primitive_array = vortex_array.as_::<Primitive>();
-        assert_eq!(primitive_array.ptype(), PType::U64);
-
-        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
-        assert_eq!(primitive_array_non_null.ptype(), PType::U64);
+    #[rstest]
+    #[case::i8(
+        Arc::new(Int8Array::from(vec![Some(1), None, Some(3), Some(4)])),
+        Arc::new(Int8Array::from(vec![1, 2, 3, 4])),
+        PType::I8,
+    )]
+    #[case::i16(
+        Arc::new(Int16Array::from(vec![Some(100), None, Some(300), Some(400)])),
+        Arc::new(Int16Array::from(vec![100, 200, 300, 400])),
+        PType::I16,
+    )]
+    #[case::i32(
+        Arc::new(Int32Array::from(vec![Some(1000), None, Some(3000), Some(4000)])),
+        Arc::new(Int32Array::from(vec![1000, 2000, 3000, 4000])),
+        PType::I32,
+    )]
+    #[case::i64(
+        Arc::new(Int64Array::from(vec![Some(10000), None, Some(30000), Some(40000)])),
+        Arc::new(Int64Array::from(vec![10000_i64, 20000, 30000, 40000])),
+        PType::I64,
+    )]
+    #[case::u8(
+        Arc::new(UInt8Array::from(vec![Some(1), None, Some(3), Some(4)])),
+        Arc::new(UInt8Array::from(vec![1_u8, 2, 3, 4])),
+        PType::U8,
+    )]
+    #[case::u16(
+        Arc::new(UInt16Array::from(vec![Some(100), None, Some(300), Some(400)])),
+        Arc::new(UInt16Array::from(vec![100_u16, 200, 300, 400])),
+        PType::U16,
+    )]
+    #[case::u32(
+        Arc::new(UInt32Array::from(vec![Some(1000), None, Some(3000), Some(4000)])),
+        Arc::new(UInt32Array::from(vec![1000_u32, 2000, 3000, 4000])),
+        PType::U32,
+    )]
+    #[case::u64(
+        Arc::new(UInt64Array::from(vec![Some(10000), None, Some(30000), Some(40000)])),
+        Arc::new(UInt64Array::from(vec![10000_u64, 20000, 30000, 40000])),
+        PType::U64,
+    )]
+    #[case::f32(
+        Arc::new(Float32Array::from(vec![Some(1.5), None, Some(3.5), Some(4.5)])),
+        Arc::new(Float32Array::from(vec![1.5_f32, 2.5, 3.5, 4.5])),
+        PType::F32,
+    )]
+    #[case::f64(
+        Arc::new(Float64Array::from(vec![Some(1.5), None, Some(3.5), Some(4.5)])),
+        Arc::new(Float64Array::from(vec![1.5_f64, 2.5, 3.5, 4.5])),
+        PType::F64,
+    )]
+    fn test_primitive_array_conversion(
+        #[case] nullable: Arc<dyn ArrowArray>,
+        #[case] non_nullable: Arc<dyn ArrowArray>,
+        #[case] expected_ptype: PType,
+    ) {
+        let v_null = ArrayRef::from_arrow(nullable.as_ref(), true).unwrap();
+        let v_non_null = ArrayRef::from_arrow(non_nullable.as_ref(), false).unwrap();
+        assert_eq!(v_null.len(), 4);
+        assert_eq!(v_non_null.len(), 4);
+        assert_eq!(v_null.as_::<Primitive>().ptype(), expected_ptype);
+        assert_eq!(v_non_null.as_::<Primitive>().ptype(), expected_ptype);
     }
 
     #[test]
@@ -883,44 +795,6 @@ mod tests {
 
         let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
         assert_eq!(primitive_array_non_null.ptype(), PType::F16);
-    }
-
-    #[test]
-    fn test_float32_array_conversion() {
-        let arrow_array = Float32Array::from(vec![Some(1.5), None, Some(3.5), Some(4.5)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
-
-        let arrow_array_non_null = Float32Array::from(vec![1.5_f32, 2.5, 3.5, 4.5]);
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
-
-        assert_eq!(vortex_array.len(), 4);
-        assert_eq!(vortex_array_non_null.len(), 4);
-
-        // Verify metadata - should be PrimitiveArray with F32 ptype
-        let primitive_array = vortex_array.as_::<Primitive>();
-        assert_eq!(primitive_array.ptype(), PType::F32);
-
-        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
-        assert_eq!(primitive_array_non_null.ptype(), PType::F32);
-    }
-
-    #[test]
-    fn test_float64_array_conversion() {
-        let arrow_array = Float64Array::from(vec![Some(1.5), None, Some(3.5), Some(4.5)]);
-        let vortex_array = ArrayRef::from_arrow(&arrow_array, true).unwrap();
-
-        let arrow_array_non_null = Float64Array::from(vec![1.5_f64, 2.5, 3.5, 4.5]);
-        let vortex_array_non_null = ArrayRef::from_arrow(&arrow_array_non_null, false).unwrap();
-
-        assert_eq!(vortex_array.len(), 4);
-        assert_eq!(vortex_array_non_null.len(), 4);
-
-        // Verify metadata - should be PrimitiveArray with F64 ptype
-        let primitive_array = vortex_array.as_::<Primitive>();
-        assert_eq!(primitive_array.ptype(), PType::F64);
-
-        let primitive_array_non_null = vortex_array_non_null.as_::<Primitive>();
-        assert_eq!(primitive_array_non_null.ptype(), PType::F64);
     }
 
     // Test decimal array conversions
