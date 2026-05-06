@@ -20,7 +20,7 @@
 //!   HTML; the rest are shells fetched on first toggle.
 //! - `GET /chart/{slug}` — single-chart permalink.
 //! - `GET /group/{slug}` — every chart in one group on a single page.
-//! - `GET /static/...` — the bundled JS / CSS / PNGs.
+//! - `GET /static/...` — the bundled JS / CSS / logos.
 //! - `GET /api/groups` — flat list of every group with chart-link metadata.
 //! - `GET /api/chart/{slug}` — one chart's payload (`commits`, `series`,
 //!   `unit_kind`, ...).

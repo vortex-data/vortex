@@ -15,7 +15,8 @@
 //! | Malformed JSON or unknown field at the envelope level               | 400                                               |
 //! | Unknown `kind`, unknown record field, or per-record validation fail | 400 with the offending record's index             |
 //! | Missing or invalid bearer token                                     | 401 (raised by [`crate::auth::require_bearer`])   |
-//! | Schema version newer than this server expects                       | 409                                               |
+//! | Schema version newer than this server expects                      | 409                                               |
+//! | Schema version older than this server expects                       | 400 (via the malformed-envelope path)             |
 //! | Other server error                                                  | 500                                               |
 //!
 //! All-or-nothing semantics: a single failed record fails the whole batch

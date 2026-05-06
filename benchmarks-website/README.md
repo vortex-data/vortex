@@ -96,8 +96,8 @@ re-running `vortex-bench-migrate run --output ...` is safe.
 The work to flip `bench.vortex.dev` from v2 to v3 is tracked outside this
 repo. The relevant code-side bits:
 
-- v3 deploys today on a separate EC2 host and is exercised by CI's dual-write
-  step against a test bearer token.
+- v3 runs alongside v2 on the same EC2 host today (v2 on `:80`, v3 on
+  `:3001`) and is fed by CI's dual-write `--gh-json-v3` path.
 - v2 keeps shipping unchanged until DNS flips. **Do not touch the top-level
   v2 files unless you are doing the cleanup PR opened post-flip.**
 - The v2 cleanup PR removes everything top-level under `benchmarks-website/`

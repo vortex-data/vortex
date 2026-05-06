@@ -4,7 +4,8 @@
 //! Axum [`Router`] composition and shared [`AppState`].
 //!
 //! The router mounts:
-//! - `/api/groups`, `/api/chart/{slug}`, `/health` (read API)
+//! - `/api/groups`, `/api/chart/{slug}`, `/api/group/{slug}`, `/health`
+//!   (read API)
 //! - `/api/ingest` (gated by [`crate::auth::require_bearer`])
 //! - HTML routes contributed by [`crate::html::router`]
 //!

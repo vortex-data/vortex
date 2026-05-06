@@ -134,7 +134,10 @@ pub struct QueryMeasurement {
     /// TPC SF as a string. Populated for TPC-H/TPC-DS, NULL elsewhere.
     #[serde(default)]
     pub scale_factor: Option<String>,
-    /// 1-based query index inside the suite.
+    /// Query index within the suite. The convention (0-based or 1-based) is
+    /// fixed per suite by the producing bench loop; the migrate classifier
+    /// matches it by parsing literal digits out of `q07`-style v2 chart
+    /// names.
     pub query_idx: i32,
     /// Storage backend the run targeted: `nvme` or `s3`. Validated on insert.
     pub storage: String,

@@ -75,10 +75,11 @@ pub(crate) fn chart_payload(
 /// Collect every chart inside one group. Returns `None` if the group has no
 /// data at all (callers should render a 404).
 ///
-/// Known N+1: this re-runs the entire [`collect_groups`] discovery pass per
-/// call before fetching each chart, so the landing page is
+/// TODO(#7812): this re-runs the entire [`collect_groups`] discovery pass
+/// per call before fetching each chart, so the landing page is
 /// O(groups * charts_per_group) DB queries plus the discovery scan. Fine
-/// for the current dataset; the rewrite is owned outside this branch.
+/// for the current dataset; tracked for the refactor that collapses it
+/// into a single query.
 pub(crate) fn collect_group_charts(
     conn: &Connection,
     key: &GroupKey,

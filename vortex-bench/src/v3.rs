@@ -134,7 +134,10 @@ pub struct QueryMeasurementRecord {
     /// a per-suite scale factor.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scale_factor: Option<String>,
-    /// 1-based query index within the suite.
+    /// Query index within the suite. The convention (0-based or 1-based) is
+    /// fixed per suite by the producing bench loop; the migrate classifier
+    /// matches it by parsing literal digits out of `q07`-style v2 chart
+    /// names.
     pub query_idx: u32,
     /// Storage backend the run targeted (`nvme` or `s3`).
     pub storage: String,
@@ -282,7 +285,7 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 ///
 /// | `BenchmarkDataset` | `dataset` | `dataset_variant` | `scale_factor` | Notes |
 /// |---|---|---|---|---|
-/// | `TpcH { scale_factor }`     | `tpch`         | `None`              | TPC SF as string (`"1"`, `"10"`, `"100"`, `"1000"`) | Run through [`canonical_tpc_scale_factor`] so `"1.0"` and `"1"` collapse. |
+/// | `TpcH { scale_factor }`     | `tpch`         | `None`              | TPC SF as string (`"1"`, `"10"`, `"100"`, `"1000"`) | Run through `canonical_tpc_scale_factor` so `"1.0"` and `"1"` collapse. |
 /// | `TpcDS { scale_factor }`    | `tpcds`        | `None`              | TPC SF as string                                    | Same canonicalization as TPC-H. |
 /// | `ClickBench { flavor: _ }`  | `clickbench`   | `None`              | `None`                                              | Migrate path drops flavor; live emitter matches so historical and live merge. |
 /// | `StatPopGen { n_rows: _ }`  | `statpopgen`   | `None`              | `None`                                              | Migrate path carries no SF for this suite; live drops it for the same reason. |
