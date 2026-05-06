@@ -313,6 +313,13 @@ fn format_to_engine(format: Format) -> Engine {
     }
 }
 
+fn table_targets(formats: &[Format]) -> Vec<Target> {
+    formats
+        .iter()
+        .map(|format| Target::new(format_to_engine(*format), *format))
+        .collect()
+}
+
 /// Open a random accessor for any supported format.
 ///
 /// For Vortex and Parquet, the path comes from [`BenchDataset::path`].
@@ -385,7 +392,7 @@ async fn run_random_access(
         .sum();
     let progress = ProgressBar::new(total_steps as u64);
 
-    let mut targets = Vec::new();
+    let targets = table_targets(&formats);
     let mut measurements = Vec::new();
     let mut v3_records: Vec<v3::V3Record> = Vec::new();
 
@@ -417,7 +424,6 @@ async fn run_random_access(
                         None,
                         reopen,
                     );
-                    targets.push(measurement.target);
                     measurements.push(measurement);
                     progress.inc(1);
                 }
@@ -450,7 +456,6 @@ async fn run_random_access(
                         Some(*pattern),
                         reopen,
                     );
-                    targets.push(measurement.target);
                     measurements.push(measurement);
                     progress.inc(1);
                 }
@@ -530,5 +535,18 @@ mod tests {
             v3::V3Record::RandomAccessTime(record) => assert_eq!(record.dataset, "taxi/uniform"),
             other => panic!("expected random-access record, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn table_targets_has_one_column_per_format() {
+        let targets = table_targets(&[Format::Parquet, Format::OnDiskVortex]);
+
+        assert_eq!(
+            targets,
+            vec![
+                Target::new(Engine::Arrow, Format::Parquet),
+                Target::new(Engine::Vortex, Format::OnDiskVortex),
+            ]
+        );
     }
 }
