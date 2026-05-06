@@ -13760,6 +13760,24 @@ pub fn vortex_array::ArrayRef::optimize_recursive(&self, &vortex_session::Vortex
 
 pub mod vortex_array::patches
 
+pub struct vortex_array::patches::PatchSlotIndices
+
+pub vortex_array::patches::PatchSlotIndices::chunk_offsets: usize
+
+pub vortex_array::patches::PatchSlotIndices::indices: usize
+
+pub vortex_array::patches::PatchSlotIndices::values: usize
+
+impl core::clone::Clone for vortex_array::patches::PatchSlotIndices
+
+pub fn vortex_array::patches::PatchSlotIndices::clone(&self) -> vortex_array::patches::PatchSlotIndices
+
+impl core::fmt::Debug for vortex_array::patches::PatchSlotIndices
+
+pub fn vortex_array::patches::PatchSlotIndices::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_array::patches::PatchSlotIndices
+
 pub struct vortex_array::patches::Patches
 
 impl vortex_array::patches::Patches
@@ -13844,19 +13862,17 @@ pub struct vortex_array::patches::PatchesData
 
 impl vortex_array::patches::PatchesData
 
+pub const vortex_array::patches::PatchesData::NUM_SLOTS: usize
+
 pub fn vortex_array::patches::PatchesData::from_patches(&vortex_array::patches::Patches) -> Self
-
-pub fn vortex_array::patches::PatchesData::make_optional_slots(core::option::Option<&vortex_array::patches::Patches>) -> (core::option::Option<vortex_array::ArrayRef>, core::option::Option<vortex_array::ArrayRef>, core::option::Option<vortex_array::ArrayRef>)
-
-pub fn vortex_array::patches::PatchesData::make_slots(&vortex_array::patches::Patches) -> (vortex_array::ArrayRef, vortex_array::ArrayRef, core::option::Option<vortex_array::ArrayRef>)
 
 pub fn vortex_array::patches::PatchesData::offset(&self) -> usize
 
 pub fn vortex_array::patches::PatchesData::offset_within_chunk(&self) -> core::option::Option<usize>
 
-pub fn vortex_array::patches::PatchesData::to_optional_patches(core::option::Option<&Self>, usize, core::option::Option<&vortex_array::ArrayRef>, core::option::Option<&vortex_array::ArrayRef>, core::option::Option<&vortex_array::ArrayRef>) -> core::option::Option<vortex_array::patches::Patches>
+pub fn vortex_array::patches::PatchesData::patches_from_slots(core::option::Option<&Self>, usize, &[core::option::Option<vortex_array::ArrayRef>], vortex_array::patches::PatchSlotIndices) -> core::option::Option<vortex_array::patches::Patches>
 
-pub fn vortex_array::patches::PatchesData::to_patches(&self, usize, vortex_array::ArrayRef, vortex_array::ArrayRef, core::option::Option<vortex_array::ArrayRef>) -> vortex_array::patches::Patches
+pub fn vortex_array::patches::PatchesData::push_slots(&mut alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>, core::option::Option<&vortex_array::patches::Patches>)
 
 impl core::clone::Clone for vortex_array::patches::PatchesData
 

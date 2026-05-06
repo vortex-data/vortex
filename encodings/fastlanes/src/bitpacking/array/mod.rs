@@ -15,6 +15,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::validity::Validity;
@@ -43,6 +44,12 @@ pub struct BitPackedSlots {
     /// The validity bitmap indicating which elements are non-null.
     pub validity_child: Option<ArrayRef>,
 }
+
+pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
+    indices: BitPackedSlots::PATCH_INDICES,
+    values: BitPackedSlots::PATCH_VALUES,
+    chunk_offsets: BitPackedSlots::PATCH_CHUNK_OFFSETS,
+};
 
 pub struct BitPackedDataParts {
     pub offset: u16,
@@ -286,12 +293,11 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
 
     #[inline]
     fn patches(&self) -> Option<Patches> {
-        PatchesData::to_optional_patches(
+        PatchesData::patches_from_slots(
             self.patches_data.as_ref(),
             self.as_ref().len(),
-            self.patch_indices(),
-            self.patch_values(),
-            self.patch_chunk_offsets(),
+            self.as_ref().slots(),
+            PATCH_SLOTS,
         )
     }
 

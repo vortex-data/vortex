@@ -30,6 +30,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
@@ -320,6 +321,11 @@ pub(super) const LEFT_PARTS_SLOT: usize = 0;
 /// The right (least significant) parts of the real-double encoded values.
 pub(super) const RIGHT_PARTS_SLOT: usize = 1;
 /// The indices of left-parts exception values that could not be dictionary-encoded.
+pub(super) const LP_PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
+    indices: LP_PATCH_INDICES_SLOT,
+    values: LP_PATCH_VALUES_SLOT,
+    chunk_offsets: LP_PATCH_CHUNK_OFFSETS_SLOT,
+};
 pub(super) const LP_PATCH_INDICES_SLOT: usize = 2;
 /// The exception values for left-parts that could not be dictionary-encoded.
 pub(super) const LP_PATCH_VALUES_SLOT: usize = 3;
@@ -452,14 +458,9 @@ impl ALPRDData {
         right_parts: &ArrayRef,
         patches: Option<&Patches>,
     ) -> Vec<Option<ArrayRef>> {
-        let (pi, pv, pco) = PatchesData::make_optional_slots(patches);
-        vec![
-            Some(left_parts.clone()),
-            Some(right_parts.clone()),
-            pi,
-            pv,
-            pco,
-        ]
+        let mut slots = vec![Some(left_parts.clone()), Some(right_parts.clone())];
+        PatchesData::push_slots(&mut slots, patches);
+        slots
     }
 
     /// Return all the owned parts of the array
@@ -501,13 +502,7 @@ fn patches_from_slots(
     patches_data: Option<&PatchesData>,
     len: usize,
 ) -> Option<Patches> {
-    PatchesData::to_optional_patches(
-        patches_data,
-        len,
-        slots[LP_PATCH_INDICES_SLOT].as_ref(),
-        slots[LP_PATCH_VALUES_SLOT].as_ref(),
-        slots[LP_PATCH_CHUNK_OFFSETS_SLOT].as_ref(),
-    )
+    PatchesData::patches_from_slots(patches_data, len, slots, LP_PATCH_SLOTS)
 }
 
 fn validate_parts(

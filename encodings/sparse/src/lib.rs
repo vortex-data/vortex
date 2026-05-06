@@ -29,6 +29,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
@@ -219,6 +220,11 @@ impl VTable for Sparse {
 pub(crate) const NUM_SLOTS: usize = 3;
 pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
     ["patch_indices", "patch_values", "patch_chunk_offsets"];
+const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
+    indices: 0,
+    values: 1,
+    chunk_offsets: 2,
+};
 
 #[derive(Clone, Debug)]
 pub struct SparseData {
@@ -333,22 +339,15 @@ impl SparseData {
     }
 
     fn make_slots(patches: &Patches) -> Vec<Option<ArrayRef>> {
-        let (indices, values, chunk_offsets) = PatchesData::make_slots(patches);
-        vec![Some(indices), Some(values), chunk_offsets]
+        let mut slots = Vec::with_capacity(NUM_SLOTS);
+        PatchesData::push_slots(&mut slots, Some(patches));
+        slots
     }
 
     /// Reconstruct a [`Patches`] from the stored metadata and the array's slots.
     fn patches_from_slots(data: &SparseData, len: usize, slots: &[Option<ArrayRef>]) -> Patches {
-        data.patches_data.to_patches(
-            len,
-            slots[0]
-                .clone()
-                .vortex_expect("SparseArray patch_indices slot"),
-            slots[1]
-                .clone()
-                .vortex_expect("SparseArray patch_values slot"),
-            slots[2].clone(),
-        )
+        PatchesData::patches_from_slots(Some(&data.patches_data), len, slots, PATCH_SLOTS)
+            .vortex_expect("SparseArray patch slots must be present")
     }
 
     /// Build a new SparseData from an existing set of patches, normalizing dtypes.

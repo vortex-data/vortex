@@ -25,6 +25,7 @@ use vortex_array::arrays::Primitive;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
+use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
@@ -82,15 +83,10 @@ impl VTable for ALP {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let slots = ALPSlotsView::from_slots(slots);
-        let patches = PatchesData::to_optional_patches(
-            data.patches_data.as_ref(),
-            len,
-            slots.patch_indices,
-            slots.patch_values,
-            slots.patch_chunk_offsets,
-        );
-        validate_parts(dtype, len, data.exponents, slots.encoded, patches)
+        let alp_slots = ALPSlotsView::from_slots(slots);
+        let patches =
+            PatchesData::patches_from_slots(data.patches_data.as_ref(), len, slots, PATCH_SLOTS);
+        validate_parts(dtype, len, data.exponents, alp_slots.encoded, patches)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -212,6 +208,12 @@ pub struct ALPSlots {
     /// Chunk offsets for the patch indices/values.
     pub patch_chunk_offsets: Option<ArrayRef>,
 }
+
+const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
+    indices: ALPSlots::PATCH_INDICES,
+    values: ALPSlots::PATCH_VALUES,
+    chunk_offsets: ALPSlots::PATCH_CHUNK_OFFSETS,
+};
 
 #[derive(Clone, Debug)]
 pub struct ALPData {
@@ -398,14 +400,9 @@ impl ALP {
 
 impl ALPData {
     fn make_slots(encoded: &ArrayRef, patches: Option<&Patches>) -> Vec<Option<ArrayRef>> {
-        let (patch_indices, patch_values, patch_chunk_offsets) =
-            PatchesData::make_optional_slots(patches);
-        vec![
-            Some(encoded.clone()),
-            patch_indices,
-            patch_values,
-            patch_chunk_offsets,
-        ]
+        let mut slots = vec![Some(encoded.clone())];
+        PatchesData::push_slots(&mut slots, patches);
+        slots
     }
 
     #[inline]
@@ -420,13 +417,11 @@ pub trait ALPArrayExt: ALPArraySlotsExt {
     }
 
     fn patches(&self) -> Option<Patches> {
-        let slots = self.slots_view();
-        PatchesData::to_optional_patches(
+        PatchesData::patches_from_slots(
             self.patches_data.as_ref(),
             self.as_ref().len(),
-            slots.patch_indices,
-            slots.patch_values,
-            slots.patch_chunk_offsets,
+            self.as_ref().slots(),
+            PATCH_SLOTS,
         )
     }
 }

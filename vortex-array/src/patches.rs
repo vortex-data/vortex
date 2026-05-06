@@ -10,6 +10,7 @@ use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -132,7 +133,18 @@ pub struct PatchesData {
     offset_within_chunk: Option<usize>,
 }
 
+/// Slot indices for the three patch components within a slot array.
+#[derive(Copy, Clone, Debug)]
+pub struct PatchSlotIndices {
+    pub indices: usize,
+    pub values: usize,
+    pub chunk_offsets: usize,
+}
+
 impl PatchesData {
+    /// The number of slots used by patches (indices, values, chunk_offsets).
+    pub const NUM_SLOTS: usize = 3;
+
     /// Extract patch metadata from an existing [`Patches`].
     pub fn from_patches(patches: &Patches) -> Self {
         Self {
@@ -141,74 +153,50 @@ impl PatchesData {
         }
     }
 
-    /// Reconstruct a [`Patches`] from this metadata and the slot arrays.
+    /// Reconstruct patches from the given slot positions.
     ///
-    /// # Safety
-    /// Caller must ensure the slot arrays satisfy the `Patches` invariants.
-    pub fn to_patches(
-        &self,
-        len: usize,
-        indices: ArrayRef,
-        values: ArrayRef,
-        chunk_offsets: Option<ArrayRef>,
-    ) -> Patches {
-        unsafe {
-            Patches::new_unchecked(
-                len,
-                self.offset,
-                indices,
-                values,
-                chunk_offsets,
-                self.offset_within_chunk,
-            )
-        }
-    }
-
-    /// Reconstruct an optional [`Patches`] from optional metadata and slot arrays.
-    ///
-    /// Returns `None` if `patches_data` is `None` or if indices/values slots are missing.
-    pub fn to_optional_patches(
+    /// Returns `None` if `patches_data` is `None`.
+    /// Panics if `patches_data` is `Some` but the indices or values slots are missing.
+    pub fn patches_from_slots(
         patches_data: Option<&Self>,
         len: usize,
-        indices: Option<&ArrayRef>,
-        values: Option<&ArrayRef>,
-        chunk_offsets: Option<&ArrayRef>,
+        slots: &[Option<ArrayRef>],
+        slot_idx: PatchSlotIndices,
     ) -> Option<Patches> {
         let data = patches_data?;
-        match (indices, values) {
-            (Some(indices), Some(values)) => Some(unsafe {
-                Patches::new_unchecked(
-                    len,
-                    data.offset,
-                    indices.clone(),
-                    values.clone(),
-                    chunk_offsets.cloned(),
-                    data.offset_within_chunk,
-                )
-            }),
-            _ => None,
-        }
+        let indices = slots[slot_idx.indices]
+            .as_ref()
+            .vortex_expect("patches_data is set but patch_indices slot is missing");
+        let values = slots[slot_idx.values]
+            .as_ref()
+            .vortex_expect("patches_data is set but patch_values slot is missing");
+        Some(unsafe {
+            Patches::new_unchecked(
+                len,
+                data.offset,
+                indices.clone(),
+                values.clone(),
+                slots[slot_idx.chunk_offsets].clone(),
+                data.offset_within_chunk,
+            )
+        })
     }
 
-    /// Extract the slot arrays (indices, values, chunk_offsets) from a [`Patches`].
-    pub fn make_slots(patches: &Patches) -> (ArrayRef, ArrayRef, Option<ArrayRef>) {
-        (
-            patches.indices().clone(),
-            patches.values().clone(),
-            patches.chunk_offsets().clone(),
-        )
-    }
-
-    /// Extract optional slot arrays from an optional [`Patches`].
-    pub fn make_optional_slots(
-        patches: Option<&Patches>,
-    ) -> (Option<ArrayRef>, Option<ArrayRef>, Option<ArrayRef>) {
+    /// Push 3 patch slots (indices, values, chunk_offsets) onto a slot vector.
+    ///
+    /// If `patches` is `None`, pushes three `None` entries.
+    pub fn push_slots(slots: &mut Vec<Option<ArrayRef>>, patches: Option<&Patches>) {
         match patches {
             Some(p) => {
-                let (indices, values, chunk_offsets) = Self::make_slots(p);
-                (Some(indices), Some(values), chunk_offsets)
+                slots.push(Some(p.indices().clone()));
+                slots.push(Some(p.values().clone()));
+                slots.push(p.chunk_offsets().clone());
             }
-            None => (None, None, None),
+            None => {
+                slots.push(None);
+                slots.push(None);
+                slots.push(None);
+            }
         }
     }
 

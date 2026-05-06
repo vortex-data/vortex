@@ -46,6 +46,7 @@ use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::array::BitPackedSlots;
 use crate::bitpacking::array::BitPackedSlotsView;
+use crate::bitpacking::array::PATCH_SLOTS;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 use crate::bitpacking::vtable::rules::RULES;
 mod kernels;
@@ -102,16 +103,11 @@ impl VTable for BitPacked {
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let slots = BitPackedSlotsView::from_slots(slots);
+        let bp_slots = BitPackedSlotsView::from_slots(slots);
 
-        let validity = child_to_validity(slots.validity_child, dtype.nullability());
-        let patches = PatchesData::to_optional_patches(
-            data.patches_data.as_ref(),
-            len,
-            slots.patch_indices,
-            slots.patch_values,
-            slots.patch_chunk_offsets,
-        );
+        let validity = child_to_validity(bp_slots.validity_child, dtype.nullability());
+        let patches =
+            PatchesData::patches_from_slots(data.patches_data.as_ref(), len, slots, PATCH_SLOTS);
         BitPackedData::validate(
             &data.packed,
             dtype.as_ptype(),
@@ -212,9 +208,10 @@ impl VTable for BitPacked {
             .transpose()?;
 
         let slots = {
-            let (pi, pv, pco) = PatchesData::make_optional_slots(patches.as_ref());
-            let validity_slot = validity_to_child(&validity, len);
-            vec![pi, pv, pco, validity_slot]
+            let mut s = Vec::with_capacity(4);
+            PatchesData::push_slots(&mut s, patches.as_ref());
+            s.push(validity_to_child(&validity, len));
+            s
         };
         let data = BitPackedData::try_new(
             packed,
@@ -303,9 +300,10 @@ impl BitPacked {
     ) -> VortexResult<BitPackedArray> {
         let dtype = DType::Primitive(ptype, validity.nullability());
         let slots = {
-            let (pi, pv, pco) = PatchesData::make_optional_slots(patches.as_ref());
-            let validity_slot = validity_to_child(&validity, len);
-            vec![pi, pv, pco, validity_slot]
+            let mut s = Vec::with_capacity(4);
+            PatchesData::push_slots(&mut s, patches.as_ref());
+            s.push(validity_to_child(&validity, len));
+            s
         };
         let data = BitPackedData::try_new(packed, patches, bit_width, offset)?;
         Array::try_from_parts(ArrayParts::new(BitPacked, dtype, len, data).with_slots(slots))
