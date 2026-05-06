@@ -207,7 +207,7 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
     render_page(
         "bench.vortex.dev",
         "Vortex benchmarks (v3 alpha)",
-        landing_body(&groups),
+        landing_body(&groups, &universe),
         scripts,
         Some(&universe),
         &filter,

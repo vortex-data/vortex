@@ -13,6 +13,7 @@ use maud::PreEscaped;
 use maud::html;
 
 use super::render::escape_json_for_script;
+use super::render::filter_icon;
 use super::summary::summary_markup;
 use super::toolbar::per_chart_toolbar;
 use super::toolbar::range_strip;
@@ -48,7 +49,7 @@ pub(super) struct LandingGroup {
 /// Render the landing-page body — one `<section>` per group, each wrapping a
 /// `<details>` disclosure. The `chart-data-N` script ids are globally
 /// indexed so `chart-init.js` can find every payload by integer.
-pub(super) fn landing_body(groups: &[LandingGroup]) -> Markup {
+pub(super) fn landing_body(groups: &[LandingGroup], universe: &api::FilterUniverse) -> Markup {
     if groups.is_empty() {
         return html! {
             p.empty { "No data ingested yet." }
@@ -73,6 +74,7 @@ pub(super) fn landing_body(groups: &[LandingGroup]) -> Markup {
                     }
                 }
                 (summary_markup(group.summary.as_ref()))
+                (per_group_toolbar(universe))
                 div.chart-grid {
                     @for (chart_idx, link) in group.chart_links.iter().enumerate() {
                         @let idx = idx_iter.next().expect("indices match charts");
@@ -84,6 +86,102 @@ pub(super) fn landing_body(groups: &[LandingGroup]) -> Markup {
         }
         noscript {
             p.no-script { "JavaScript is required to render the charts." }
+        }
+    }
+}
+
+/// Render the per-group toolbar that lets the user override the global filter
+/// and Y-axis scale across every chart in the group. The toolbar is a sibling
+/// of `.chart-grid`; CSS hides it when the enclosing `<details>` is closed,
+/// mirroring the rule that hides `.chart-grid` itself.
+///
+/// Layout: Y-axis buttons on the left, a centered "Filter series" dropdown
+/// trigger, and a Reset button on the right. The dropdown panel contains
+/// engine and format macro chips (which expand to "toggle every series with
+/// this engine/format") plus a series row whose chips are populated by JS as
+/// charts in the group hydrate and surface their `payload.series_meta`.
+///
+/// Resolution layering (driven by `chart-init.js`):
+/// - Per-card legend overrides win over everything.
+/// - The per-group filter (`hiddenSeries`) hides next.
+/// - The global filter hides last.
+/// - The Y-axis pass skips charts where the user previously clicked the
+///   per-chart Y toolbar (`canvas.__bench_y_user_set`).
+fn per_group_toolbar(universe: &api::FilterUniverse) -> Markup {
+    html! {
+        section.group-toolbar data-role="group-toolbar" {
+            div.toolbar-group.group-toolbar-y role="group" aria-label="Group Y-axis scale" {
+                span.toolbar-label { "Y" }
+                // Linear is the resting default (matches each chart's
+                // own default) so it ships highlighted; the JS keeps it
+                // lit while the per-group Y is unset or explicitly linear.
+                button.toolbar-btn.toolbar-btn--active
+                    type="button" data-group-y="linear" { "linear" }
+                button.toolbar-btn type="button" data-group-y="log" { "log" }
+            }
+            div.group-filter-dropdown data-role="group-filter-dropdown" {
+                button.control-btn.filter-trigger.group-filter-trigger
+                    type="button"
+                    data-role="group-filter-trigger"
+                    aria-haspopup="true"
+                    aria-expanded="false" {
+                    (filter_icon())
+                    span { "Filter series" }
+                }
+                div.filter-panel.group-filter-panel data-role="group-filter-panel" hidden {
+                    (group_macro_row("Engine", "engine", &universe.engines))
+                    (group_macro_row("Format", "format", &universe.formats))
+                    div.global-filter-row.group-series-row {
+                        span.global-filter-label { "Series" }
+                        button.filter-chip.filter-chip--all
+                            type="button"
+                            data-group-filter="series"
+                            data-value="*"
+                            aria-pressed="false" {
+                            "all"
+                        }
+                        // Series chips hydrate client-side once a chart in this
+                        // group exposes its `payload.series_meta`. Until then
+                        // the row only shows the Engine/Format macros above.
+                        div.group-series-chips data-role="group-series-chips" {}
+                    }
+                }
+            }
+            button.group-toolbar-reset
+                type="button"
+                data-role="group-toolbar-reset" {
+                "Reset group"
+            }
+        }
+    }
+}
+
+/// Render an engine/format macro row inside the per-group filter panel. The
+/// macro chip click bulk-toggles every known series whose `engine`/`format`
+/// matches; the chip's active state reflects "every matching series is
+/// currently visible". `data-group-filter` distinguishes these chips from the
+/// global filter's `data-filter` ones so the click handler can route them to
+/// the per-group state.
+fn group_macro_row(label: &str, dim: &str, universe: &[String]) -> Markup {
+    html! {
+        div.global-filter-row.group-macro-row {
+            span.global-filter-label { (label) }
+            button.filter-chip.filter-chip--all
+                type="button"
+                data-group-filter=(dim)
+                data-value="*"
+                aria-pressed="false" {
+                "all"
+            }
+            @for value in universe {
+                button.filter-chip.filter-chip--active
+                    type="button"
+                    data-group-filter=(dim)
+                    data-value=(value)
+                    aria-pressed="true" {
+                    (value)
+                }
+            }
         }
     }
 }
