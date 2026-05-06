@@ -159,6 +159,14 @@ Check new and modified lines against this list before finishing:
 - Updating expected test output to match buggy behavior without independently verifying the
   intended semantics.
 - Silently reducing the scope of an approved plan when implementation is harder than expected.
+- Skipping `cargo +nightly fmt --all -- --check` after editing Rust code. CI's `Rust Lint - Format`
+  step uses the nightly toolchain and rejects diffs even when stable `cargo fmt` looks clean.
+- For `vortex-duckdb` C/C++ FFI changes: assuming a DuckDB callback signature from memory or
+  upstream docs instead of reading the bundled DuckDB headers under
+  `target/*/build/vortex-duckdb-*/out/duckdb-source-v*/duckdb-*/src/include/duckdb/` for the
+  exact `typedef` (e.g. `copy_to_get_written_statistics_t`). DuckDB is vendored at a pinned
+  version, so the bundled headers are authoritative. A wrong shim signature only fails at C++
+  compile time inside `build.rs`, so always run `cargo build -p vortex-duckdb` before stopping.
 
 ## Summaries
 

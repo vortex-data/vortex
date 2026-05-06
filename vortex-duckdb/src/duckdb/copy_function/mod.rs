@@ -104,8 +104,7 @@ impl DatabaseRef {
         vtab.init_local = Some(local_callback::<T>);
         vtab.copy_to_sink = Some(copy_to_sink_callback::<T>);
         vtab.copy_to_finalize = Some(copy_to_finalize_callback::<T>);
-        vtab.copy_to_get_written_statistics =
-            Some(copy_to_get_written_statistics_callback::<T>);
+        vtab.copy_to_get_written_statistics = Some(copy_to_get_written_statistics_callback::<T>);
 
         duckdb_try!(
             unsafe { cpp::duckdb_vx_copy_func_register_vtab_one(self.as_ptr()) },

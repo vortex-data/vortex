@@ -134,32 +134,31 @@ void copy_to_finalize(ClientContext & /*context*/, FunctionData &bind_data, Glob
     }
 }
 
-vector<Value> c_get_written_statistics(ClientContext & /*context*/,
-                                       FunctionData &bind_data,
-                                       GlobalFunctionData &gstate) {
+void c_get_written_statistics(ClientContext & /*context*/,
+                              FunctionData &bind_data,
+                              GlobalFunctionData &gstate,
+                              CopyFunctionFileStatistics &statistics) {
     auto &bind = bind_data.Cast<CCopyBindData>();
     auto &global = gstate.Cast<CCopyGlobalData>();
     if (!bind.vtab.copy_to_get_written_statistics) {
-        return {};
+        return;
     }
 
     duckdb_vx_error error_out = nullptr;
     duckdb_vx_written_statistics_t stats = {};
     bool has_stats = bind.vtab.copy_to_get_written_statistics(bind.ffi_data->DataPtr(),
-                                                               global.ffi_data->DataPtr(),
-                                                               &stats,
-                                                               &error_out);
+                                                              global.ffi_data->DataPtr(),
+                                                              &stats,
+                                                              &error_out);
     if (error_out) {
         throw ExecutorException(IntoErrString(error_out));
     }
     if (!has_stats) {
-        return {};
+        return;
     }
 
-    child_list_t<Value> struct_vals;
-    struct_vals.emplace_back("row_count", Value::UBIGINT(stats.row_count));
-    struct_vals.emplace_back("file_size_bytes", Value::UBIGINT(stats.file_size_bytes));
-    return {Value::STRUCT(std::move(struct_vals))};
+    statistics.row_count = stats.row_count;
+    statistics.file_size_bytes = stats.file_size_bytes;
 }
 
 extern "C" duckdb_vx_copy_func_vtab_t *get_vtab_one() {

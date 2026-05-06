@@ -162,9 +162,12 @@ impl CopyFunction for VortexCopyFunction {
         _bind_data: &Self::BindData,
         global_state: &Self::GlobalState,
     ) -> VortexResult<Option<WrittenStatistics>> {
-        Ok(global_state.write_summary.as_ref().map(|s| WrittenStatistics {
-            row_count: s.row_count(),
-            file_size_bytes: s.size(),
-        }))
+        Ok(global_state
+            .write_summary
+            .as_ref()
+            .map(|s| WrittenStatistics {
+                row_count: s.row_count(),
+                file_size_bytes: s.size(),
+            }))
     }
 }
