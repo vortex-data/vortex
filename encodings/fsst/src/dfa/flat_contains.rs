@@ -24,7 +24,6 @@
 //! an escape-folded flat DFA (2N+1 states) avoids the sentinel branch.
 //! See commit 7faf9f36f for those implementations.
 
-use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -33,18 +32,7 @@ use vortex_error::vortex_bail;
 use super::build_fused_table;
 use super::build_symbol_transitions;
 use super::kmp_byte_transitions;
-
-/// How to skip non-progressing codes when in state 0.
-enum SkipStrategy {
-    /// 1 advancing code — `memchr::memchr` (SIMD, 32+ bytes/cycle).
-    Memchr1(u8),
-    /// 2 advancing codes — `memchr::memchr2` (SIMD).
-    Memchr2(u8, u8),
-    /// 3 advancing codes — `memchr::memchr3` (SIMD).
-    Memchr3(u8, u8, u8),
-    /// 4+ advancing codes — packed bitmap, 1 cache line.
-    Bitmap([u64; 4]),
-}
+use super::skip::SkipStrategy;
 
 /// Flat `u8` transition table DFA for contains matching.
 pub(crate) struct FlatContainsDfa {
@@ -87,27 +75,7 @@ impl FlatContainsDfa {
             build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
         let transitions = build_fused_table(&sym_trans, symbols.len(), n_states, |_| sentinel, 0);
 
-        // Collect advancing code bytes (those that move DFA past state 0).
-        let mut adv: Vec<u8> = Vec::new();
-        for code in 0..=255u8 {
-            if transitions[usize::from(code)] != 0 || code == ESCAPE_CODE {
-                adv.push(code);
-            }
-        }
-
-        let skip = match adv.len() {
-            0 => SkipStrategy::Bitmap([0u64; 4]),
-            1 => SkipStrategy::Memchr1(adv[0]),
-            2 => SkipStrategy::Memchr2(adv[0], adv[1]),
-            3 => SkipStrategy::Memchr3(adv[0], adv[1], adv[2]),
-            _ => {
-                let mut bm = [0u64; 4];
-                for &c in &adv {
-                    bm[usize::from(c >> 6)] |= 1u64 << (c & 63);
-                }
-                SkipStrategy::Bitmap(bm)
-            }
-        };
+        let skip = SkipStrategy::from_transition_row(&transitions[0..256], 0);
 
         // NOTE: anchor prefilter disabled — FSST greedy compression means a
         // symbol's expansion can be a substring of the needle without that code
@@ -127,10 +95,10 @@ impl FlatContainsDfa {
 
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
         // Anchor prefilter: if the anchor code is absent, no match possible.
-        if let Some(a) = self.anchor {
-            if memchr::memchr(a, codes).is_none() {
-                return false;
-            }
+        if let Some(a) = self.anchor
+            && memchr::memchr(a, codes).is_none()
+        {
+            return false;
         }
 
         let mut state = 0u8;
@@ -138,26 +106,8 @@ impl FlatContainsDfa {
         while pos < codes.len() {
             // State-0 fast path: SIMD skip to next advancing code.
             if state == 0 {
-                let rest = &codes[pos..];
-                let found = match &self.skip {
-                    SkipStrategy::Memchr1(a) => memchr::memchr(*a, rest),
-                    SkipStrategy::Memchr2(a, b) => memchr::memchr2(*a, *b, rest),
-                    SkipStrategy::Memchr3(a, b, c) => memchr::memchr3(*a, *b, *c, rest),
-                    SkipStrategy::Bitmap(bm) => {
-                        let mut i = 0;
-                        loop {
-                            if i >= rest.len() {
-                                break None;
-                            }
-                            if bm[usize::from(rest[i] >> 6)] & (1u64 << (rest[i] & 63)) != 0 {
-                                break Some(i);
-                            }
-                            i += 1;
-                        }
-                    }
-                };
-                match found {
-                    Some(offset) => pos += offset,
+                match self.skip.find_next_progressing(codes, pos) {
+                    Some(next) => pos = next,
                     None => return false,
                 }
             }
@@ -188,11 +138,7 @@ impl FlatContainsDfa {
 ///
 /// Scans all symbols to find one whose expansion is the longest substring of
 /// the needle. Returns `None` if no multi-byte symbol matches.
-fn find_anchor_symbol(
-    symbols: &[Symbol],
-    symbol_lengths: &[u8],
-    needle: &[u8],
-) -> Option<u8> {
+fn find_anchor_symbol(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Option<u8> {
     if needle.is_empty() {
         return None;
     }
@@ -212,7 +158,7 @@ fn find_anchor_symbol(
         for start in 0..=needle.len() - sym_len {
             if &needle[start..start + sym_len] == expansion {
                 best_len = sym_len;
-                best_code = Some(code as u8);
+                best_code = u8::try_from(code).ok();
                 break;
             }
         }

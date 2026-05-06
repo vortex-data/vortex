@@ -28,8 +28,20 @@
 //! The `%` between segments is implicit: once phase k accepts, phase k+1
 //! searches for its needle anywhere in the remaining input.
 //!
+//! ## Optimizations
+//!
+//! Two optimizations, mirroring [`super::flat_contains::FlatContainsDfa`]:
+//!
+//! - **Per-phase SIMD seek-verify**: at each phase start state, use
+//!   [`super::skip::SkipStrategy`] (memchr or bitmap) to skip non-progressing
+//!   codes. A `[u64; 4]` bitmap provides O(1) phase-start detection.
+//!
+//! - **Decompress+memmem fallback**: for long strings (>28 codes), decompress
+//!   the FSST codes and run sequential `memmem::find()` per segment.
+//!
 //! Uses the same escape-sentinel strategy as [`super::flat_contains::FlatContainsDfa`].
 
+use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -38,13 +50,9 @@ use vortex_error::vortex_bail;
 use super::build_fused_table;
 use super::build_symbol_transitions;
 use super::kmp_failure_table;
+use super::skip::SkipStrategy;
 
 /// Flat `u8` transition table DFA for multi-wildcard contains matching.
-///
-/// Supports patterns like `%abc%def%ghi%` by chaining per-segment KMP
-/// automata into one linear state space. The scanner is identical to
-/// [`super::flat_contains::FlatContainsDfa`]: a single forward pass with
-/// escape-sentinel handling.
 pub(crate) struct MultiContainsDfa {
     /// `transitions[state * 256 + code_byte]` -> next state.
     transitions: Vec<u8>,
@@ -52,6 +60,24 @@ pub(crate) struct MultiContainsDfa {
     escape_transitions: Vec<u8>,
     accept_state: u8,
     sentinel: u8,
+    /// Per-phase skip strategy. `phase_skips[k]` is the strategy for phase k's
+    /// start state.
+    phase_skips: Vec<SkipStrategy>,
+    /// Bitmap: bit `s` is set if state `s` is a phase start state.
+    /// Indexed as `phase_start_bitmap[s >> 6] & (1 << (s & 63))`.
+    phase_start_bitmap: [u64; 4],
+    /// Maps a phase-start state to its index in `phase_skips`.
+    /// Only valid for states where the corresponding bit is set in `phase_start_bitmap`.
+    phase_index: [u8; 256],
+    /// Symbol expansion table for decompress+memmem fallback.
+    /// Layout: `expansions[code * 8 .. code * 8 + exp_lens[code]]`.
+    expansions: Vec<u8>,
+    /// Length of each symbol's expansion.
+    exp_lens: Vec<u8>,
+    /// Owned segment bytes for memmem fallback.
+    segments: Vec<Vec<u8>>,
+    /// If a compressed string has more codes than this, use decompress+memmem.
+    decompress_threshold: usize,
 }
 
 impl MultiContainsDfa {
@@ -82,18 +108,74 @@ impl MultiContainsDfa {
             build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
         let transitions = build_fused_table(&sym_trans, symbols.len(), n_states, |_| sentinel, 0);
 
+        // Compute phase offsets and build per-phase skip strategies.
+        let mut phase_skips = Vec::with_capacity(segments.len());
+        let mut phase_start_bitmap = [0u64; 4];
+        let mut phase_index = [0u8; 256];
+        let mut off = 0usize;
+        for (k, seg) in segments.iter().enumerate() {
+            let state = u8::try_from(off)
+                .vortex_expect("MultiContainsDfa: phase start state must fit in u8");
+            let row_start = usize::from(state) * 256;
+            phase_skips.push(SkipStrategy::from_transition_row(
+                &transitions[row_start..row_start + 256],
+                state,
+            ));
+            phase_start_bitmap[usize::from(state >> 6)] |= 1u64 << (state & 63);
+            phase_index[usize::from(state)] =
+                u8::try_from(k).vortex_expect("MultiContainsDfa: phase index must fit in u8");
+            off += seg.len();
+        }
+
+        // Build expansion table for decompress+memmem fallback.
+        let n_symbols = symbols.len();
+        let mut expansions = vec![0u8; n_symbols * 8];
+        let mut exp_lens = vec![0u8; n_symbols];
+        for (i, (sym, &len)) in symbols.iter().zip(symbol_lengths.iter()).enumerate() {
+            let bytes = sym.to_u64().to_le_bytes();
+            expansions[i * 8..i * 8 + usize::from(len)].copy_from_slice(&bytes[..usize::from(len)]);
+            exp_lens[i] = len;
+        }
+
+        let segments_owned: Vec<Vec<u8>> = segments.iter().map(|s| s.to_vec()).collect();
+
         Ok(Self {
             transitions,
             escape_transitions: byte_table,
             accept_state,
             sentinel,
+            phase_skips,
+            phase_start_bitmap,
+            phase_index,
+            expansions,
+            exp_lens,
+            segments: segments_owned,
+            decompress_threshold: 28,
         })
     }
 
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
+        if codes.len() > self.decompress_threshold {
+            return self.matches_decompress(codes);
+        }
+        self.matches_dfa(codes)
+    }
+
+    /// DFA path with per-phase seek-verify.
+    #[inline]
+    fn matches_dfa(&self, codes: &[u8]) -> bool {
         let mut state = 0u8;
         let mut pos = 0;
         while pos < codes.len() {
+            // Phase-start fast path: SIMD-seek to next progressing code.
+            if self.phase_start_bitmap[usize::from(state >> 6)] & (1u64 << (state & 63)) != 0 {
+                let idx = usize::from(self.phase_index[usize::from(state)]);
+                match self.phase_skips[idx].find_next_progressing(codes, pos) {
+                    Some(next) => pos = next,
+                    None => return false,
+                }
+            }
+
             let code = codes[pos];
             pos += 1;
             let next = self.transitions[usize::from(state) * 256 + usize::from(code)];
@@ -112,6 +194,40 @@ impl MultiContainsDfa {
             }
         }
         false
+    }
+
+    /// Decompress+memmem fallback: decompress FSST codes and run sequential
+    /// `memmem::find()` for each segment (greedy-first-match).
+    #[inline]
+    fn matches_decompress(&self, codes: &[u8]) -> bool {
+        let mut raw = Vec::with_capacity(codes.len() * 3);
+        let mut pos = 0;
+        while pos < codes.len() {
+            let code = codes[pos];
+            pos += 1;
+            if code == ESCAPE_CODE {
+                if pos < codes.len() {
+                    raw.push(codes[pos]);
+                    pos += 1;
+                }
+            } else {
+                let c = usize::from(code);
+                if c < self.exp_lens.len() {
+                    let len = usize::from(self.exp_lens[c]);
+                    raw.extend_from_slice(&self.expansions[c * 8..c * 8 + len]);
+                }
+            }
+        }
+
+        // Greedy sequential memmem: find each segment in order.
+        let mut search_start = 0;
+        for segment in &self.segments {
+            match memchr::memmem::find(&raw[search_start..], segment) {
+                Some(offset) => search_start += offset + segment.len(),
+                None => return false,
+            }
+        }
+        true
     }
 }
 

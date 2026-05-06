@@ -50,7 +50,11 @@ pub struct RunArgs {
     #[arg(long, default_value_t = 10)]
     pub iterations: usize,
 
-    /// Only run queries matching this type (like_prefix, like_substr, regex_basic)
+    /// Query workload JSON file. Defaults to the dataset's mined query file.
+    #[arg(long)]
+    pub queries_file: Option<PathBuf>,
+
+    /// Only run queries matching this type (like_prefix, like_substr, like_suffix, regex_basic)
     #[arg(long)]
     pub query_type: Option<String>,
 }
@@ -105,7 +109,7 @@ pub fn run(args: RunArgs) -> Result<()> {
     let fsst_array: FSSTArray = fsst_compress(varbin.clone(), len, &dtype, &compressor);
 
     // Load mined queries
-    let queries = load_queries(&args.dataset)?;
+    let queries = load_queries(&args.dataset, args.queries_file.as_deref())?;
     let queries: Vec<&MinedQuery> = queries
         .iter()
         .filter(|q| args.query_type.as_ref().is_none_or(|t| &q.query_type == t))
@@ -431,8 +435,10 @@ fn truncate_pattern(s: &str) -> String {
     }
 }
 
-fn load_queries(dataset: &DatasetName) -> Result<Vec<MinedQuery>> {
-    let path = query_miner::queries_path(dataset);
+fn load_queries(dataset: &DatasetName, override_path: Option<&std::path::Path>) -> Result<Vec<MinedQuery>> {
+    let path = override_path
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(|| query_miner::queries_path(dataset));
     if !path.exists() {
         anyhow::bail!("Queries not mined yet. Run `mine {dataset}` first.",);
     }

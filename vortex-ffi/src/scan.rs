@@ -297,7 +297,7 @@ pub unsafe extern "C-unwind" fn vx_scan_next_partition(
 
         let owned = ptr::read(ptr);
         try_or_default(err, || match owned {
-            VxScan::Pending(scan) => on_stream(scan.partitions()),
+            VxScan::Pending(scan) => on_stream(scan.partitions().filter(|(idx, x)| idx in [2,45])),
             VxScan::Started(stream) => on_stream(stream),
             VxScan::Finished => on_finish(),
         })

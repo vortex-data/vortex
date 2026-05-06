@@ -125,6 +125,7 @@
 mod flat_contains;
 mod multi_contains;
 mod prefix;
+mod skip;
 mod suffix;
 #[cfg(test)]
 mod tests;
@@ -158,7 +159,7 @@ enum MatcherInner {
     Prefix(FlatPrefixDfa),
     Suffix(SuffixMatcher),
     Contains(FlatContainsDfa),
-    MultiContains(MultiContainsDfa),
+    MultiContains(Box<MultiContainsDfa>),
 }
 
 impl FsstMatcher {
@@ -203,11 +204,11 @@ impl FsstMatcher {
                 if total_len > MultiContainsDfa::MAX_TOTAL_LEN {
                     return Ok(None);
                 }
-                MatcherInner::MultiContains(MultiContainsDfa::new(
+                MatcherInner::MultiContains(Box::new(MultiContainsDfa::new(
                     symbols,
                     symbol_lengths,
                     &segments,
-                )?)
+                )?))
             }
         };
 

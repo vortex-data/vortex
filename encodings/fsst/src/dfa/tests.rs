@@ -361,6 +361,118 @@ fn test_multi_contains_matcher_handles() {
 }
 
 // ---------------------------------------------------------------------------
+// Seek-verify and decompress+memmem tests
+// ---------------------------------------------------------------------------
+
+/// Long input (>28 escaped codes) triggers decompress+memmem fallback.
+#[test]
+fn test_multi_contains_decompress_fallback() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"ab", b"cd"])?;
+
+    // 30+ escaped bytes → exceeds decompress_threshold of 28
+    let mut long_match = escaped(&[b'x'; 20]);
+    long_match.extend_from_slice(&escaped(b"ab"));
+    long_match.extend_from_slice(&escaped(&[b'y'; 5]));
+    long_match.extend_from_slice(&escaped(b"cd"));
+    long_match.extend_from_slice(&escaped(&[b'z'; 5]));
+    assert!(dfa.matches(&long_match));
+
+    // Same length, wrong order
+    let mut long_no_match = escaped(&[b'x'; 20]);
+    long_no_match.extend_from_slice(&escaped(b"cd"));
+    long_no_match.extend_from_slice(&escaped(&[b'y'; 5]));
+    long_no_match.extend_from_slice(&escaped(b"ab"));
+    long_no_match.extend_from_slice(&escaped(&[b'z'; 5]));
+    assert!(!dfa.matches(&long_no_match));
+
+    Ok(())
+}
+
+/// Decompress+memmem with three segments on a long string.
+#[test]
+fn test_multi_contains_decompress_three_segments() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"foo", b"bar", b"baz"])?;
+
+    let mut long = escaped(&[b'x'; 15]);
+    long.extend_from_slice(&escaped(b"foo"));
+    long.extend_from_slice(&escaped(&[b'y'; 5]));
+    long.extend_from_slice(&escaped(b"bar"));
+    long.extend_from_slice(&escaped(&[b'z'; 5]));
+    long.extend_from_slice(&escaped(b"baz"));
+    assert!(dfa.matches(&long));
+
+    // Missing middle segment
+    let mut long_miss = escaped(&[b'x'; 15]);
+    long_miss.extend_from_slice(&escaped(b"foo"));
+    long_miss.extend_from_slice(&escaped(&[b'y'; 10]));
+    long_miss.extend_from_slice(&escaped(b"baz"));
+    assert!(!dfa.matches(&long_miss));
+
+    Ok(())
+}
+
+/// Seek-verify with symbols: many non-progressing codes followed by match.
+/// With code 0 = "ab", code 1 = "cd", code 2 = "xx":
+/// Phase 0 has few progressing codes (code 0 and ESCAPE_CODE) → memchr skip.
+#[test]
+fn test_multi_contains_seek_verify_with_symbols() -> VortexResult<()> {
+    let symbols = [sym(b"ab"), sym(b"cd"), sym(b"xx")];
+    let lengths = [2u8, 2, 2];
+    let dfa = MultiContainsDfa::new(&symbols, &lengths, &[b"ab", b"cd"])?;
+
+    // Many non-progressing codes (2 = "xx") then match
+    assert!(dfa.matches(&[2, 2, 2, 2, 2, 0, 2, 2, 1]));
+    assert!(dfa.matches(&[2, 2, 2, 2, 2, 0, 1]));
+    // Wrong order
+    assert!(!dfa.matches(&[2, 2, 2, 2, 2, 1, 0]));
+    // Only first segment
+    assert!(!dfa.matches(&[2, 2, 2, 2, 2, 0, 2, 2, 2]));
+
+    Ok(())
+}
+
+/// DFA and decompress paths must agree on the same input.
+#[test]
+fn test_multi_contains_dfa_decompress_consistency() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"abc", b"def"])?;
+
+    let cases: &[(&[u8], bool)] = &[
+        (b"abcdef", true),
+        (b"xxabcxxdefxx", true),
+        (b"defabc", false),
+        (b"abc", false),
+        (b"def", false),
+        (b"xabcdefx", true),
+    ];
+
+    for &(input, expected) in cases {
+        let short_codes = escaped(input);
+        // Force DFA path (short input)
+        assert_eq!(
+            dfa.matches(&short_codes),
+            expected,
+            "DFA mismatch on {:?}",
+            input
+        );
+        // Force decompress path (pad to >28 codes)
+        let mut long_codes = escaped(&[b'_'; 20]);
+        long_codes.extend_from_slice(&escaped(input));
+        // The padded string has "_"*20 + input, so pattern must be adjusted:
+        // We need segments to appear in the padded string too.
+        // Actually, "_"*20 doesn't contain "abc", so if input starts with "abc"
+        // the match is still found after the padding.
+        assert_eq!(
+            dfa.matches(&long_codes),
+            expected,
+            "decompress mismatch on {:?}",
+            input
+        );
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // End-to-end edge cases: FSST compress → LIKE → compare booleans
 // ---------------------------------------------------------------------------
 
