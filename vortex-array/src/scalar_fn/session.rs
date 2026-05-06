@@ -28,7 +28,6 @@ use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::Select;
 
 /// Registry of scalar function vtables.
-/// Registry of scalar function vtables.
 pub type ScalarFnRegistry = Registry<ScalarFnPluginRef>;
 
 /// Session state for scalar function vtables and rewrite rules.

@@ -18,9 +18,9 @@ pub fn vortex_sequence::Sequence::fmt(&self, &mut core::fmt::Formatter<'_>) -> c
 
 impl vortex_array::array::vtable::VTable for vortex_sequence::Sequence
 
-pub type vortex_sequence::Sequence::ArrayData = vortex_sequence::SequenceData
-
 pub type vortex_sequence::Sequence::OperationsVTable = vortex_sequence::Sequence
+
+pub type vortex_sequence::Sequence::TypedArrayData = vortex_sequence::SequenceData
 
 pub type vortex_sequence::Sequence::ValidityVTable = vortex_sequence::Sequence
 
@@ -44,7 +44,7 @@ pub fn vortex_sequence::Sequence::serialize(vortex_array::array::view::ArrayView
 
 pub fn vortex_sequence::Sequence::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
 
-pub fn vortex_sequence::Sequence::validate(&self, &Self::ArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_sequence::Sequence::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_sequence::Sequence> for vortex_sequence::Sequence
 

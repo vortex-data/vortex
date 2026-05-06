@@ -121,7 +121,7 @@ impl ArrayEq for PcoData {
 }
 
 impl VTable for Pco {
-    type ArrayData = PcoData;
+    type TypedArrayData = PcoData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;

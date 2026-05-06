@@ -18,7 +18,7 @@ use crate::validity::Validity;
 /// A lightweight, `Copy`-able typed view into an [`ArrayRef`].
 pub struct ArrayView<'a, V: VTable> {
     array: &'a ArrayRef,
-    data: &'a V::ArrayData,
+    data: &'a V::TypedArrayData,
 }
 
 impl<V: VTable> Copy for ArrayView<'_, V> {}
@@ -31,8 +31,8 @@ impl<V: VTable> Clone for ArrayView<'_, V> {
 
 impl<'a, V: VTable> ArrayView<'a, V> {
     /// # Safety
-    /// Caller must ensure `data` is the `V::ArrayData` stored inside `array`.
-    pub(crate) unsafe fn new_unchecked(array: &'a ArrayRef, data: &'a V::ArrayData) -> Self {
+    /// Caller must ensure `data` is the `V::TypedArrayData` stored inside `array`.
+    pub(crate) unsafe fn new_unchecked(array: &'a ArrayRef, data: &'a V::TypedArrayData) -> Self {
         debug_assert!(array.is::<V>());
         Self { array, data }
     }
@@ -41,7 +41,7 @@ impl<'a, V: VTable> ArrayView<'a, V> {
         self.array
     }
 
-    pub fn data(&self) -> &'a V::ArrayData {
+    pub fn data(&self) -> &'a V::TypedArrayData {
         self.data
     }
 
@@ -86,9 +86,9 @@ impl<V: VTable> AsRef<ArrayRef> for ArrayView<'_, V> {
 }
 
 impl<V: VTable> Deref for ArrayView<'_, V> {
-    type Target = V::ArrayData;
+    type Target = V::TypedArrayData;
 
-    fn deref(&self) -> &V::ArrayData {
+    fn deref(&self) -> &V::TypedArrayData {
         self.data
     }
 }

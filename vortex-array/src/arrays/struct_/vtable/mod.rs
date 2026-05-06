@@ -37,7 +37,7 @@ use crate::array::ArrayId;
 pub type StructArray = Array<Struct>;
 
 impl VTable for Struct {
-    type ArrayData = EmptyArrayData;
+    type TypedArrayData = EmptyArrayData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;

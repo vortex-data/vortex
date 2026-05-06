@@ -372,7 +372,7 @@ impl AggregateFnVTable for IsConstant {
                     return Ok(());
                 }
 
-                // Convert to ArrayRef for DynArray methods.
+                // Convert to ArrayRef for DynArrayData methods.
                 let array_ref = c.clone().into_array();
 
                 let all_invalid = array_ref.all_invalid(ctx)?;

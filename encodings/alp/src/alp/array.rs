@@ -67,7 +67,7 @@ impl ArrayEq for ALPData {
 }
 
 impl VTable for ALP {
-    type ArrayData = ALPData;
+    type TypedArrayData = ALPData;
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;

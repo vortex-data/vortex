@@ -60,7 +60,7 @@ impl ArrayEq for SliceData {
 }
 
 impl VTable for Slice {
-    type ArrayData = SliceData;
+    type TypedArrayData = SliceData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     fn id(&self) -> ArrayId {
@@ -70,7 +70,7 @@ impl VTable for Slice {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

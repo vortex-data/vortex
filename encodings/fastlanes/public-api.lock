@@ -136,9 +136,9 @@ pub fn vortex_fastlanes::BitPacked::fmt(&self, &mut core::fmt::Formatter<'_>) ->
 
 impl vortex_array::array::vtable::VTable for vortex_fastlanes::BitPacked
 
-pub type vortex_fastlanes::BitPacked::ArrayData = vortex_fastlanes::BitPackedData
-
 pub type vortex_fastlanes::BitPacked::OperationsVTable = vortex_fastlanes::BitPacked
+
+pub type vortex_fastlanes::BitPacked::TypedArrayData = vortex_fastlanes::BitPackedData
 
 pub type vortex_fastlanes::BitPacked::ValidityVTable = vortex_fastlanes::BitPacked
 
@@ -164,7 +164,7 @@ pub fn vortex_fastlanes::BitPacked::serialize(vortex_array::array::view::ArrayVi
 
 pub fn vortex_fastlanes::BitPacked::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
 
-pub fn vortex_fastlanes::BitPacked::validate(&self, &Self::ArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_fastlanes::BitPacked::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fastlanes::BitPacked> for vortex_fastlanes::BitPacked
 
@@ -296,9 +296,9 @@ pub fn vortex_fastlanes::Delta::fmt(&self, &mut core::fmt::Formatter<'_>) -> cor
 
 impl vortex_array::array::vtable::VTable for vortex_fastlanes::Delta
 
-pub type vortex_fastlanes::Delta::ArrayData = vortex_fastlanes::DeltaData
-
 pub type vortex_fastlanes::Delta::OperationsVTable = vortex_fastlanes::Delta
+
+pub type vortex_fastlanes::Delta::TypedArrayData = vortex_fastlanes::DeltaData
 
 pub type vortex_fastlanes::Delta::ValidityVTable = vortex_fastlanes::Delta
 
@@ -320,7 +320,7 @@ pub fn vortex_fastlanes::Delta::serialize(vortex_array::array::view::ArrayView<'
 
 pub fn vortex_fastlanes::Delta::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
 
-pub fn vortex_fastlanes::Delta::validate(&self, &Self::ArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_fastlanes::Delta::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fastlanes::Delta> for vortex_fastlanes::Delta
 
@@ -382,9 +382,9 @@ pub fn vortex_fastlanes::FoR::fmt(&self, &mut core::fmt::Formatter<'_>) -> core:
 
 impl vortex_array::array::vtable::VTable for vortex_fastlanes::FoR
 
-pub type vortex_fastlanes::FoR::ArrayData = vortex_fastlanes::FoRData
-
 pub type vortex_fastlanes::FoR::OperationsVTable = vortex_fastlanes::FoR
+
+pub type vortex_fastlanes::FoR::TypedArrayData = vortex_fastlanes::FoRData
 
 pub type vortex_fastlanes::FoR::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 
@@ -408,7 +408,7 @@ pub fn vortex_fastlanes::FoR::serialize(vortex_array::array::view::ArrayView<'_,
 
 pub fn vortex_fastlanes::FoR::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
 
-pub fn vortex_fastlanes::FoR::validate(&self, &Self::ArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_fastlanes::FoR::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fastlanes::FoR> for vortex_fastlanes::FoR
 
@@ -488,9 +488,9 @@ pub fn vortex_fastlanes::RLE::fmt(&self, &mut core::fmt::Formatter<'_>) -> core:
 
 impl vortex_array::array::vtable::VTable for vortex_fastlanes::RLE
 
-pub type vortex_fastlanes::RLE::ArrayData = vortex_fastlanes::RLEData
-
 pub type vortex_fastlanes::RLE::OperationsVTable = vortex_fastlanes::RLE
+
+pub type vortex_fastlanes::RLE::TypedArrayData = vortex_fastlanes::RLEData
 
 pub type vortex_fastlanes::RLE::ValidityVTable = vortex_fastlanes::RLE
 
@@ -514,7 +514,7 @@ pub fn vortex_fastlanes::RLE::serialize(vortex_array::array::view::ArrayView<'_,
 
 pub fn vortex_fastlanes::RLE::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
 
-pub fn vortex_fastlanes::RLE::validate(&self, &Self::ArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_fastlanes::RLE::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fastlanes::RLE> for vortex_fastlanes::RLE
 

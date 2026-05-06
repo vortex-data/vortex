@@ -62,7 +62,7 @@ impl ArrayEq for ListData {
 }
 
 impl VTable for List {
-    type ArrayData = ListData;
+    type TypedArrayData = ListData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;

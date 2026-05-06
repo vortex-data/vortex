@@ -89,7 +89,7 @@ impl ValidityVTable<ForeignArray> for ForeignValidityVTable {
 }
 
 impl VTable for ForeignArray {
-    type ArrayData = ForeignArrayData;
+    type TypedArrayData = ForeignArrayData;
     type OperationsVTable = NotSupported;
     type ValidityVTable = ForeignValidityVTable;
 
@@ -99,7 +99,7 @@ impl VTable for ForeignArray {
 
     fn validate(
         &self,
-        _data: &Self::ArrayData,
+        _data: &Self::TypedArrayData,
         _dtype: &DType,
         _len: usize,
         _slots: &[Option<ArrayRef>],

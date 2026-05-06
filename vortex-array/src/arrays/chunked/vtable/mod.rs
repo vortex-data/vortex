@@ -54,20 +54,20 @@ pub struct Chunked;
 impl ArrayHash for ChunkedData {
     fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {
         // Chunk offsets are cached derived data. Slot 0 already stores the logical offsets array,
-        // and ArrayInner hashing includes every slot before ArrayData.
+        // and ArrayData hashing includes every slot before TypedArrayData.
     }
 }
 
 impl ArrayEq for ChunkedData {
     fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
         // Chunk offsets are cached derived data. Slot 0 already stores the logical offsets array,
-        // and ArrayInner equality compares every slot before ArrayData.
+        // and ArrayData equality compares every slot before TypedArrayData.
         true
     }
 }
 
 impl VTable for Chunked {
-    type ArrayData = ChunkedData;
+    type TypedArrayData = ChunkedData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;

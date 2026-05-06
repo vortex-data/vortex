@@ -20,9 +20,9 @@ pub fn vortex_bytebool::ByteBool::fmt(&self, &mut core::fmt::Formatter<'_>) -> c
 
 impl vortex_array::array::vtable::VTable for vortex_bytebool::ByteBool
 
-pub type vortex_bytebool::ByteBool::ArrayData = vortex_bytebool::ByteBoolData
-
 pub type vortex_bytebool::ByteBool::OperationsVTable = vortex_bytebool::ByteBool
+
+pub type vortex_bytebool::ByteBool::TypedArrayData = vortex_bytebool::ByteBoolData
 
 pub type vortex_bytebool::ByteBool::ValidityVTable = vortex_bytebool::ByteBool
 
@@ -46,7 +46,7 @@ pub fn vortex_bytebool::ByteBool::serialize(vortex_array::array::view::ArrayView
 
 pub fn vortex_bytebool::ByteBool::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
 
-pub fn vortex_bytebool::ByteBool::validate(&self, &Self::ArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_bytebool::ByteBool::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_bytebool::ByteBool> for vortex_bytebool::ByteBool
 
