@@ -172,8 +172,8 @@ pub struct VortexLocal {
     remaining_rows: u64,
     /// Split task claimed under DuckDB's multi-file scheduling lock.
     task: Option<ScanTask>,
-    /// Current chunk being drained for this local scan assignment.
-    exporter: Option<ArrayExporter>,
+    /// Export batches being drained for this local scan assignment.
+    exporters: VecDeque<ArrayExporter>,
 }
 
 /// Per-file scan state. Holds the open [`VortexFile`] plus immutable scan
@@ -530,7 +530,7 @@ impl BaseFileReader<VortexGlobal, VortexLocal> for VortexFileReader {
         }
         local.remaining_rows = 0;
         local.task = None;
-        local.exporter = None;
+        local.exporters.clear();
 
         if self.metadata_only_count() {
             if self.metadata_only_claimed.swap(true, Ordering::AcqRel) {
@@ -563,16 +563,17 @@ impl BaseFileReader<VortexGlobal, VortexLocal> for VortexFileReader {
             return Ok(());
         }
 
-        local.exporter = array
+        local.exporters = array
             .map(|array| {
-                make_exporter(
+                make_exporters(
                     array,
                     &self.cache,
                     self.field_positions.clone(),
                     self.scan_column_count,
                 )
             })
-            .transpose()?;
+            .transpose()?
+            .unwrap_or_default();
         Ok(())
     }
 
@@ -589,8 +590,8 @@ impl BaseFileReader<VortexGlobal, VortexLocal> for VortexFileReader {
             return self.scan_remaining_rows(local, chunk);
         }
 
-        // Drain the in-flight split array if we have one.
-        if let Some(exporter) = local.exporter.as_mut() {
+        // Drain the in-flight split arrays if we have any.
+        while let Some(exporter) = local.exporters.front_mut() {
             let has_more = exporter.export(
                 chunk,
                 self.file_index_column_pos,
@@ -605,9 +606,7 @@ impl BaseFileReader<VortexGlobal, VortexLocal> for VortexFileReader {
                 self.rows_scanned.fetch_add(chunk.len(), Ordering::Relaxed);
                 return Ok(());
             }
-            local.exporter = None;
-            chunk.set_len(0);
-            return Ok(());
+            local.exporters.pop_front();
         }
 
         chunk.set_len(0);
@@ -837,6 +836,18 @@ fn make_exporter(
     )
 }
 
+fn make_exporters(
+    array: ArrayRef,
+    cache: &ConversionCache,
+    field_positions: Vec<usize>,
+    scan_column_count: usize,
+) -> VortexResult<VecDeque<ArrayExporter>> {
+    array
+        .to_array_iterator()
+        .map(|array| make_exporter(array?, cache, field_positions.clone(), scan_column_count))
+        .collect()
+}
+
 fn column_dtypes(file: &VortexFile) -> Vec<(String, DType)> {
     file.dtype()
         .as_struct_fields_opt()
@@ -936,8 +947,11 @@ mod tests {
     use std::sync::Arc;
 
     use vortex::array::IntoArray;
+    use vortex::array::arrays::ChunkedArray;
+    use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
+    use vortex::array::arrays::VarBinViewArray;
     use vortex::array::stream::ArrayStreamAdapter;
     use vortex::expr::lit;
     use vortex::expr::lt_eq;
@@ -999,8 +1013,8 @@ mod tests {
         reader.prepare_scan(&global, &mut second_local)?;
         assert!(first_local.task.is_none());
         assert!(second_local.task.is_none());
-        assert!(first_local.exporter.is_some());
-        assert!(second_local.exporter.is_some());
+        assert!(!first_local.exporters.is_empty());
+        assert!(!second_local.exporters.is_empty());
 
         let mut chunk = DataChunk::new([LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER)]);
         reader.scan(&global, &mut first_local, &mut chunk)?;
@@ -1268,6 +1282,31 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn make_exporters_unwraps_chunked_struct_batches_before_export() -> VortexResult<()> {
+        let first = struct_with_dict_strings(["a", "b"], [0u32, 1, 0])?;
+        let second = struct_with_dict_strings(["c", "d"], [1u32, 0, 1])?;
+        let dtype = first.dtype().clone();
+        let array = ChunkedArray::try_new(vec![first.into_array(), second.into_array()], dtype)?
+            .into_array();
+
+        let mut exporters = make_exporters(array, &ConversionCache::default(), vec![0], 1)?;
+
+        assert_eq!(exporters.len(), 2);
+
+        let mut first_exporter = exporters.pop_front().unwrap();
+        let mut chunk = DataChunk::new([LogicalType::varchar()]);
+        assert!(first_exporter.export(&mut chunk, None, None)?);
+        let display = String::try_from(&*chunk)?;
+
+        assert!(
+            display.contains("DICTIONARY VARCHAR"),
+            "expected dictionary export, got:\n{display}"
+        );
+
+        Ok(())
+    }
+
     fn write_chunked_struct_file(
         chunk_count: usize,
         rows_per_chunk: i32,
@@ -1332,5 +1371,15 @@ mod tests {
             let file = SESSION.open_options().open_path(temp_file.path()).await?;
             Ok((temp_file, file))
         })
+    }
+
+    fn struct_with_dict_strings<const N: usize>(
+        values: [&str; 2],
+        codes: [u32; N],
+    ) -> VortexResult<StructArray> {
+        let values = VarBinViewArray::from_iter_str(values).into_array();
+        let codes = PrimitiveArray::from_iter(codes).into_array();
+        let strings = DictArray::new(codes, values).into_array();
+        StructArray::from_fields(&[("s", strings)])
     }
 }

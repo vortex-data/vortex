@@ -12,10 +12,20 @@ DUCKDB_INCLUDES_BEGIN
 #include <duckdb/main/client_context.hpp>
 DUCKDB_INCLUDES_END
 
+#include <memory>
 #include <utility>
 
 using namespace duckdb;
 using vortex::SetError;
+
+struct duckdb_vx_file_handle_ {
+    explicit duckdb_vx_file_handle_(shared_ptr<ClientContext> context, unique_ptr<FileHandle> handle)
+        : context(std::move(context)), handle(std::move(handle)) {
+    }
+
+    shared_ptr<ClientContext> context;
+    unique_ptr<FileHandle> handle;
+};
 
 extern "C" duckdb_vx_file_handle
 duckdb_vx_fs_open(duckdb_client_context ctx, const char *path, duckdb_vx_error *error_out) {
@@ -29,7 +39,7 @@ duckdb_vx_fs_open(duckdb_client_context ctx, const char *path, duckdb_vx_error *
     try {
         auto &fs = FileSystem::GetFileSystem(*client_context);
         auto handle = fs.OpenFile(path, FileFlags::FILE_FLAGS_READ | FileFlags::FILE_FLAGS_PARALLEL_ACCESS);
-        return reinterpret_cast<duckdb_vx_file_handle>(handle.release());
+        return new duckdb_vx_file_handle_(client_context->shared_from_this(), std::move(handle));
     } catch (const std::exception &e) {
         SetError(error_out, e.what());
         return nullptr;
@@ -50,7 +60,7 @@ duckdb_vx_fs_create(duckdb_client_context ctx, const char *path, duckdb_vx_error
     try {
         auto &fs = FileSystem::GetFileSystem(*client_context);
         auto handle = fs.OpenFile(path, flags);
-        return reinterpret_cast<duckdb_vx_file_handle>(handle.release());
+        return new duckdb_vx_file_handle_(client_context->shared_from_this(), std::move(handle));
     } catch (const std::exception &e) {
         SetError(error_out, e.what());
         return nullptr;
@@ -59,7 +69,7 @@ duckdb_vx_fs_create(duckdb_client_context ctx, const char *path, duckdb_vx_error
 
 extern "C" void duckdb_vx_fs_close(duckdb_vx_file_handle *handle) {
     if (handle && *handle) {
-        delete reinterpret_cast<FileHandle *>(std::exchange(*handle, nullptr));
+        delete std::exchange(*handle, nullptr);
     }
 }
 
@@ -70,7 +80,7 @@ duckdb_vx_fs_get_size(duckdb_vx_file_handle handle, idx_t *size_out, duckdb_vx_e
     }
 
     try {
-        *size_out = reinterpret_cast<FileHandle *>(handle)->GetFileSize();
+        *size_out = handle->handle->GetFileSize();
     } catch (const std::exception &e) {
         return SetError(error_out, e.what());
     }
@@ -88,7 +98,7 @@ extern "C" duckdb_state duckdb_vx_fs_read(duckdb_vx_file_handle handle,
     }
 
     try {
-        reinterpret_cast<FileHandle *>(handle)->Read(buffer, len, offset);
+        handle->handle->Read(buffer, len, offset);
         *out_len = len;
     } catch (const std::exception &e) {
         return SetError(error_out, e.what());
@@ -107,7 +117,7 @@ extern "C" duckdb_state duckdb_vx_fs_write(duckdb_vx_file_handle handle,
     }
 
     try {
-        reinterpret_cast<FileHandle *>(handle)->Write(QueryContext(), buffer, len, offset);
+        handle->handle->Write(QueryContext(), buffer, len, offset);
         *out_len = len;
     } catch (const std::exception &e) {
         return SetError(error_out, e.what());
@@ -144,7 +154,7 @@ extern "C" duckdb_state duckdb_vx_fs_sync(duckdb_vx_file_handle handle, duckdb_v
     }
 
     try {
-        reinterpret_cast<FileHandle *>(handle)->Sync();
+        handle->handle->Sync();
     } catch (const std::exception &e) {
         return SetError(error_out, e.what());
     }
