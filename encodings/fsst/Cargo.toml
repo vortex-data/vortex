@@ -33,6 +33,7 @@ _test-harness = ["dep:rand", "vortex-array/_test-harness"]
 divan = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
+test-with = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [[bench]]

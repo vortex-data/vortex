@@ -24,6 +24,8 @@ mod slice;
 pub mod test_utils;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_large;
 
 pub use array::*;
 pub use compress::*;
