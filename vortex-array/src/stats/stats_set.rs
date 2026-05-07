@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 
-use enum_iterator::Sequence;
 use enum_iterator::all;
 use num_traits::CheckedAdd;
 use smallvec::SmallVec;
@@ -33,9 +32,11 @@ use crate::expr::stats::UncompressedSizeInBytes;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
+pub type StatsArray = [(Stat, Precision<ScalarValue>); 4];
+
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
-    values: SmallVec<[(Stat, Precision<ScalarValue>); Stat::CARDINALITY]>,
+    values: SmallVec<StatsArray>,
 }
 
 impl StatsSet {
@@ -44,9 +45,7 @@ impl StatsSet {
     /// # Safety
     ///
     /// This method will not panic or trigger UB, but may lead to duplicate stats being stored.
-    pub unsafe fn new_unchecked(
-        values: SmallVec<[(Stat, Precision<ScalarValue>); Stat::CARDINALITY]>,
-    ) -> Self {
+    pub unsafe fn new_unchecked(values: SmallVec<StatsArray>) -> Self {
         Self { values }
     }
 
@@ -150,9 +149,7 @@ impl StatsSet {
 /// Owned iterator over the stats.
 ///
 /// See [IntoIterator].
-pub struct StatsSetIntoIter(
-    smallvec::IntoIter<[(Stat, Precision<ScalarValue>); Stat::CARDINALITY]>,
-);
+pub struct StatsSetIntoIter(smallvec::IntoIter<StatsArray>);
 
 impl Iterator for StatsSetIntoIter {
     type Item = (Stat, Precision<ScalarValue>);
