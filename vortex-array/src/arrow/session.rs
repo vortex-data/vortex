@@ -11,8 +11,11 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use arrow_array::Array as _;
 use arrow_array::ArrayRef as ArrowArrayRef;
+use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use vortex_error::VortexResult;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
@@ -23,7 +26,10 @@ use vortex_session::registry::Registry;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arrow::FromArrowArray;
+use crate::arrow::executor::canonical_execute_arrow;
 use crate::dtype::DType;
+use crate::dtype::FromArrowType;
 use crate::dtype::extension::ExtId;
 use crate::extension::datetime::Date;
 use crate::extension::datetime::Time;
@@ -38,7 +44,7 @@ pub trait ArrowVTable: 'static + Send + Sync + Debug {
 
     /// The name of the Vortex extension type handled by this plugin (e.g. `"arrow.uuid"`), if any.
     fn arrow_ext_name(&self) -> Option<&'static str> {
-        Nones
+        None
     }
 
     /// Build the Arrow [`Field`] that represents `dtype` (which carries this plugin's

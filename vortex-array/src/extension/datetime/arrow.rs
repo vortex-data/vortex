@@ -27,7 +27,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
-use crate::ArrayPlugin;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::ExtensionArray;
@@ -36,7 +35,7 @@ use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrow::ArrowVTable;
 use crate::arrow::to_null_buffer;
 use crate::dtype::NativePType;
-use crate::dtype::extension::ExtId;
+use crate::dtype::extension::{ExtId, ExtVTable};
 use crate::extension::datetime::Date;
 use crate::extension::datetime::Time;
 use crate::extension::datetime::TimeUnit;
@@ -247,7 +246,7 @@ impl ArrowVTable for Timestamp {
 
 fn unit_for<V>(dtype: &crate::dtype::DType) -> VortexResult<TimeUnit>
 where
-    V: crate::dtype::extension::ExtVTable<Metadata = TimeUnit>,
+    V: ExtVTable<Metadata = TimeUnit>,
 {
     let ext = dtype
         .as_extension_opt()
