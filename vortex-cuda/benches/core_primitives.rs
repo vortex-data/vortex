@@ -20,11 +20,15 @@ use cudarc::driver::CudaStream;
 use cudarc::driver::HostSlice;
 use cudarc::driver::SyncOnDrop;
 use cudarc::driver::result;
+use cudarc::driver::sys;
 use cudarc::driver::sys::CU_MEMHOSTALLOC_WRITECOMBINED;
+use cudarc::driver::sys::CUmemPool_attribute_enum;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-const LOAD_SIZES: &[(usize, &str)] = &[(1024 * 1024 * 1024, "1GiB")];
+const BUFFER_SIZE: usize = 1024 * 1024 * 1024;
+const BUFFER_SIZE_NAME: &str = "1GiB";
+const DEVICE_MEM_POOL_RELEASE_THRESHOLD_PERCENT: usize = 50;
 const CPU_WORK_DURATION: Duration = Duration::from_millis(4);
 
 const HOST_MEMORY_KINDS: &[(&str, Option<u32>)] = &[
@@ -107,18 +111,150 @@ impl Drop for CudaHostBuffer {
     }
 }
 
+fn device_mem_pool_release_threshold(pool: sys::CUmemoryPool) -> u64 {
+    let mut threshold = 0_u64;
+    unsafe {
+        result::mem_pool::get_attribute(
+            pool,
+            CUmemPool_attribute_enum::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
+            (&raw mut threshold).cast(),
+        )
+    }
+    .expect("get cuda memory pool release threshold");
+    threshold
+}
+
+fn set_device_mem_pool_release_threshold(pool: sys::CUmemoryPool, threshold: u64) {
+    let mut threshold = threshold;
+    unsafe {
+        result::mem_pool::set_attribute(
+            pool,
+            CUmemPool_attribute_enum::CU_MEMPOOL_ATTR_RELEASE_THRESHOLD,
+            (&raw mut threshold).cast(),
+        )
+    }
+    .expect("set cuda memory pool release threshold");
+}
+
+fn cuda_default_mem_pool() -> sys::CUmemoryPool {
+    let device = result::device::get(0).expect("cuda device");
+    unsafe { result::device::get_mem_pool(device) }.expect("cuda device memory pool")
+}
+
+// The CUDA default mempool setting is shared across this benchmark process.
+// Restore it so later benchmark groups do not inherit the tuned threshold.
+struct ThresholdGuard {
+    pool: sys::CUmemoryPool,
+    original_threshold: u64,
+}
+
+impl ThresholdGuard {
+    fn set(pool: sys::CUmemoryPool, threshold: u64) -> Self {
+        let original_threshold = device_mem_pool_release_threshold(pool);
+        set_device_mem_pool_release_threshold(pool, threshold);
+        Self {
+            pool,
+            original_threshold,
+        }
+    }
+}
+
+impl Drop for ThresholdGuard {
+    fn drop(&mut self) {
+        set_device_mem_pool_release_threshold(self.pool, self.original_threshold);
+    }
+}
+
+fn high_device_mem_pool_release_threshold(ctx: &CudaContext) -> u64 {
+    let (_, total_memory) = ctx.mem_get_info().expect("cuda memory info");
+
+    // Cap retention at 50% of device memory so a peak allocation does not let the
+    // pool unnecessarily hold the entire GPU and increase OOM/coexistence risk.
+    (total_memory / 100 * DEVICE_MEM_POOL_RELEASE_THRESHOLD_PERCENT) as u64
+}
+
 fn benchmark_core_primitives(c: &mut Criterion) {
+    // Measures steady-state host-call latency for CUDA device allocation strategies after
+    // each allocation has been returned to the pool and the stream has synchronized.
+    let mut device_alloc_group = c.benchmark_group("cuda/core_primitives/device_alloc_reuse");
+
+    device_alloc_group.bench_with_input(
+        BenchmarkId::new("default_pool", BUFFER_SIZE_NAME),
+        &BUFFER_SIZE,
+        |b, &size| {
+            let cuda_ctx = CudaContext::new(0).expect("cuda ctx");
+            let stream = cuda_ctx.new_stream().expect("cuda stream");
+
+            // Seed the pool so the timed loop measures reuse after free+sync.
+            let dest = unsafe { stream.alloc::<u8>(size) }.expect("allocate device buffer");
+            drop(dest);
+            stream.synchronize().expect("synchronize stream");
+
+            b.iter_custom(|iters| {
+                let mut elapsed = Duration::ZERO;
+
+                for _ in 0..iters {
+                    let start = Instant::now();
+                    let dest = unsafe { stream.alloc::<u8>(size) }.expect("allocate device buffer");
+                    elapsed += start.elapsed();
+
+                    drop(dest);
+                    stream.synchronize().expect("synchronize stream");
+                }
+
+                elapsed
+            });
+        },
+    );
+
+    device_alloc_group.bench_with_input(
+        BenchmarkId::new("default_pool_75pct_threshold", BUFFER_SIZE_NAME),
+        &BUFFER_SIZE,
+        |b, &size| {
+            let cuda_ctx = CudaContext::new(0).expect("cuda ctx");
+            let stream = cuda_ctx.new_stream().expect("cuda stream");
+
+            let pool = cuda_default_mem_pool();
+            let _release_threshold_guard =
+                ThresholdGuard::set(pool, high_device_mem_pool_release_threshold(&cuda_ctx));
+
+            // Seed the pool so the timed loop measures reuse after free+sync.
+            let dest = unsafe { stream.alloc::<u8>(size) }.expect("allocate device buffer");
+            drop(dest);
+            stream.synchronize().expect("synchronize stream");
+
+            b.iter_custom(|iters| {
+                let mut elapsed = Duration::ZERO;
+
+                for _ in 0..iters {
+                    let start = Instant::now();
+                    let dest = unsafe { stream.alloc::<u8>(size) }.expect("allocate device buffer");
+                    elapsed += start.elapsed();
+
+                    drop(dest);
+                    stream.synchronize().expect("synchronize stream");
+                }
+
+                elapsed
+            });
+        },
+    );
+
+    device_alloc_group.finish();
+
     // Measures a synchronized host-to-device copy after both host source and device
     // destination have already been allocated and the source has been initialized.
     // This isolates copy throughput for each host allocation mode as much as possible.
     let mut copy_group =
         c.benchmark_group("cuda/core_primitives/allocated_host_to_device_copy_and_sync");
 
-    for &(size, size_name) in LOAD_SIZES {
-        copy_group.throughput(Throughput::Bytes(size as u64));
+    copy_group.throughput(Throughput::Bytes(BUFFER_SIZE as u64));
 
-        for &(name, flags) in HOST_MEMORY_KINDS {
-            copy_group.bench_with_input(BenchmarkId::new(name, size_name), &size, |b, &size| {
+    for &(name, flags) in HOST_MEMORY_KINDS {
+        copy_group.bench_with_input(
+            BenchmarkId::new(name, BUFFER_SIZE_NAME),
+            &BUFFER_SIZE,
+            |b, &size| {
                 let cuda_ctx = CudaContext::new(0).expect("cuda ctx");
                 let stream = cuda_ctx.new_stream().expect("cuda stream");
 
@@ -152,8 +288,8 @@ fn benchmark_core_primitives(c: &mut Criterion) {
                         BatchSize::PerIteration,
                     ),
                 }
-            });
-        }
+            },
+        );
     }
 
     copy_group.finish();
@@ -165,11 +301,13 @@ fn benchmark_core_primitives(c: &mut Criterion) {
         "cuda/core_primitives/allocated_host_to_device_copy_4ms_cpu_work_then_sync",
     );
 
-    for &(size, size_name) in LOAD_SIZES {
-        overlap_group.throughput(Throughput::Bytes(size as u64));
+    overlap_group.throughput(Throughput::Bytes(BUFFER_SIZE as u64));
 
-        for &(name, flags) in HOST_MEMORY_KINDS {
-            overlap_group.bench_with_input(BenchmarkId::new(name, size_name), &size, |b, &size| {
+    for &(name, flags) in HOST_MEMORY_KINDS {
+        overlap_group.bench_with_input(
+            BenchmarkId::new(name, BUFFER_SIZE_NAME),
+            &BUFFER_SIZE,
+            |b, &size| {
                 let cuda_ctx = CudaContext::new(0).expect("cuda ctx");
                 let stream = cuda_ctx.new_stream().expect("cuda stream");
 
@@ -205,8 +343,8 @@ fn benchmark_core_primitives(c: &mut Criterion) {
                         BatchSize::PerIteration,
                     ),
                 }
-            });
-        }
+            },
+        );
     }
 
     overlap_group.finish();
@@ -217,50 +355,48 @@ fn benchmark_core_primitives(c: &mut Criterion) {
     let mut alloc_copy_group =
         c.benchmark_group("cuda/core_primitives/device_alloc_host_to_device_copy_and_sync");
 
-    for &(size, size_name) in LOAD_SIZES {
-        alloc_copy_group.throughput(Throughput::Bytes(size as u64));
+    alloc_copy_group.throughput(Throughput::Bytes(BUFFER_SIZE as u64));
 
-        for &(name, flags) in HOST_MEMORY_KINDS {
-            alloc_copy_group.bench_with_input(
-                BenchmarkId::new(name, size_name),
-                &size,
-                |b, &size| {
-                    let cuda_ctx = CudaContext::new(0).expect("cuda ctx");
-                    let stream = cuda_ctx.new_stream().expect("cuda stream");
+    for &(name, flags) in HOST_MEMORY_KINDS {
+        alloc_copy_group.bench_with_input(
+            BenchmarkId::new(name, BUFFER_SIZE_NAME),
+            &BUFFER_SIZE,
+            |b, &size| {
+                let cuda_ctx = CudaContext::new(0).expect("cuda ctx");
+                let stream = cuda_ctx.new_stream().expect("cuda stream");
 
-                    match flags {
-                        Some(flags) => b.iter_batched(
-                            || {
-                                let mut source = CudaHostBuffer::alloc(&cuda_ctx, size, flags);
-                                source.as_mut_slice().fill(0xA5);
-                                source
-                            },
-                            |source| {
-                                let mut dest = unsafe { stream.alloc::<u8>(size) }
-                                    .expect("allocate device buffer");
-                                stream.memcpy_htod(&source, &mut dest).expect("memcpy_htod");
-                                stream.synchronize().expect("synchronize stream");
-                            },
-                            BatchSize::PerIteration,
-                        ),
-                        None => b.iter_batched(
-                            || {
-                                let mut source = vec![0u8; size];
-                                source.fill(0xA5);
-                                source
-                            },
-                            |source| {
-                                let mut dest = unsafe { stream.alloc::<u8>(size) }
-                                    .expect("allocate device buffer");
-                                stream.memcpy_htod(&source, &mut dest).expect("memcpy_htod");
-                                stream.synchronize().expect("synchronize stream");
-                            },
-                            BatchSize::PerIteration,
-                        ),
-                    }
-                },
-            );
-        }
+                match flags {
+                    Some(flags) => b.iter_batched(
+                        || {
+                            let mut source = CudaHostBuffer::alloc(&cuda_ctx, size, flags);
+                            source.as_mut_slice().fill(0xA5);
+                            source
+                        },
+                        |source| {
+                            let mut dest = unsafe { stream.alloc::<u8>(size) }
+                                .expect("allocate device buffer");
+                            stream.memcpy_htod(&source, &mut dest).expect("memcpy_htod");
+                            stream.synchronize().expect("synchronize stream");
+                        },
+                        BatchSize::PerIteration,
+                    ),
+                    None => b.iter_batched(
+                        || {
+                            let mut source = vec![0u8; size];
+                            source.fill(0xA5);
+                            source
+                        },
+                        |source| {
+                            let mut dest = unsafe { stream.alloc::<u8>(size) }
+                                .expect("allocate device buffer");
+                            stream.memcpy_htod(&source, &mut dest).expect("memcpy_htod");
+                            stream.synchronize().expect("synchronize stream");
+                        },
+                        BatchSize::PerIteration,
+                    ),
+                }
+            },
+        );
     }
 
     alloc_copy_group.finish();
