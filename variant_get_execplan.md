@@ -21,8 +21,8 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 - [x] (2026-05-07T15:02Z) Implemented the unshredded Parquet Variant fallback for direct `ParquetVariant` arrays by delegating to `parquet-variant-compute`.
 - [x] (2026-05-07T15:35Z) Implemented shredded fast-path and partial-shredding merge behavior for direct `ParquetVariant`, canonical variants with a canonical `shredded` child, and canonical variants whose `core_storage` child still exposes encoding-specific shredded data.
 - [x] (2026-05-07T16:28Z) Hardened canonical shredded extraction after self-review by carrying nested struct validity, supporting untyped typed-row merging for canonical shredded children, avoiding raw fallback when a fully shredded path is sufficient, and adding regressions for those cases.
-- [ ] Wire the narrowest useful higher-level integration after core behavior is covered.
-- [ ] Complete final review, validation, and signed-off commits.
+- [x] (2026-05-07T13:12Z) Wired the narrowest useful higher-level integration by teaching the DataFusion physical-expression converter to push down Databricks-shaped `variant_get(payload, "$.a", "INT")` projection expressions as Vortex `VariantGet`.
+- [x] (2026-05-07T13:12Z) Completed final diff review and validation for the DataFusion integration commit.
 
 ## Surprises & Discoveries
 
@@ -62,6 +62,9 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 - Observation: Canonical `VariantGet` should not require raw fallback execution when the requested typed path is fully shredded.
   Evidence: Self-review found the fallback was computed before checking whether the typed child was all valid; `arrays::variant::tests::variant_get_uses_fully_shredded_path_without_core_fallback` now uses chunked constant core storage that cannot execute the path, proving the fully shredded result is returned directly.
 
+- Observation: The current higher-level DataFusion integration can express `variant_get` as a physical scalar function for projection pushdown, but not yet as a registered SQL UDF with runtime evaluation.
+  Evidence: `vortex-datafusion/src/convert/exprs.rs` now recognizes physical scalar functions named `variant_get` with literal path and type arguments; `test_split_projection_pushes_down_variant_get` proves the expression is pushed into the Vortex scan projection.
+
 ## Decision Log
 
 - Decision: Treat RFC 0015, RFC 0058, and the Parquet specs as normative; use `adamg/variant-array` only as implementation inspiration.
@@ -90,7 +93,7 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 
 ## Outcomes & Retrospective
 
-The planning, baseline-test, canonical shape, row-preserving transformation, `VariantGet` skeleton, unshredded fallback, and shredded Parquet Variant extraction milestones are complete. The current implementation exposes a required `core_storage` child and optional `shredded` child from canonical `VariantArray`, validates row alignment, preserves the existing one-child constructor for compatibility, serializes the optional shredded dtype, canonicalizes Parquet Variant `typed_value` into the canonical shredded child, and keeps both canonical Variant children aligned through slice, filter, take, masking, canonical validity execution, and recursive canonicalization. The scalar expression layer now has a registered `vortex.variant_get` function with strict path and optional dtype options, nullable return dtype inference, SQL/display formatting, expression helper support, and protobuf roundtrips. Parquet Variant execution delegates to `parquet-variant-compute` for unshredded, shredded, and partially shredded paths. Canonical Variant execution computes the raw fallback from `core_storage`, carries nested shredded validity, overlays compatible typed paths from canonical `shredded` when present, and can merge typed rows into nullable Variant output when no concrete dtype is requested. The next milestone can wire the narrowest useful higher-level integration.
+The planning, baseline-test, canonical shape, row-preserving transformation, `VariantGet` skeleton, unshredded fallback, shredded Parquet Variant extraction, and narrow DataFusion projection integration milestones are complete. The current implementation exposes a required `core_storage` child and optional `shredded` child from canonical `VariantArray`, validates row alignment, preserves the existing one-child constructor for compatibility, serializes the optional shredded dtype, canonicalizes Parquet Variant `typed_value` into the canonical shredded child, and keeps both canonical Variant children aligned through slice, filter, take, masking, canonical validity execution, and recursive canonicalization. The scalar expression layer now has a registered `vortex.variant_get` function with strict path and optional dtype options, nullable return dtype inference, SQL/display formatting, expression helper support, and protobuf roundtrips. Parquet Variant execution delegates to `parquet-variant-compute` for unshredded, shredded, and partially shredded paths. Canonical Variant execution computes the raw fallback from `core_storage`, carries nested shredded validity, overlays compatible typed paths from canonical `shredded` when present, and can merge typed rows into nullable Variant output when no concrete dtype is requested. DataFusion projection conversion can now push down physical scalar functions named `variant_get` with literal path and type arguments into Vortex scan projections.
 
 ## Context and Orientation
 
@@ -346,6 +349,19 @@ Shredded VariantGet validation commands run on 2026-05-07:
     cargo +nightly fmt --all
     cargo fmt --check
     cargo +nightly fmt --all --check
+    cargo clippy --all-targets -- -D warnings
+
+All commands passed. Stable `cargo fmt --check` emitted the repository's usual nightly-only rustfmt option warnings but exited successfully. No public Rust API changed in this milestone, so `./scripts/public-api.sh` was not required.
+
+DataFusion VariantGet integration validation commands run on 2026-05-07:
+
+    cargo nextest run -p vortex-datafusion test_split_projection_pushes_down_variant_get
+    cargo nextest run -p vortex-datafusion
+    cargo nextest run -p vortex-array
+    cargo nextest run -p vortex-parquet-variant
+    cargo +nightly fmt --all
+    cargo fmt --check
+    git diff --check
     cargo clippy --all-targets -- -D warnings
 
 All commands passed. Stable `cargo fmt --check` emitted the repository's usual nightly-only rustfmt option warnings but exited successfully. No public Rust API changed in this milestone, so `./scripts/public-api.sh` was not required.
