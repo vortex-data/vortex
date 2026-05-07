@@ -5,6 +5,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -17,11 +19,15 @@ use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::arrays::DecimalArray;
+use crate::arrays::Filter;
+use crate::arrays::FilterArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::StructArray;
+use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::extension::ExtensionArrayExt;
+use crate::arrays::filter::FilterArrayExt;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::list::ListArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
@@ -62,16 +68,18 @@ pub fn all_identical(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> Vort
         return Ok(true);
     }
 
+    let Some(shared_validity) = shared_validity_mask(a, b, ctx)? else {
+        return Ok(false);
+    };
+    if shared_validity.true_count() == 0 {
+        return Ok(true);
+    }
+
     let struct_dtype = make_all_identical_input_dtype(a.dtype());
-    let struct_array = StructArray::try_new(
-        NAMES.clone(),
-        vec![a.clone(), b.clone()],
-        a.len(),
-        Validity::NonNullable,
-    )?;
+    let batch = make_all_identical_batch(a, b, shared_validity)?;
 
     let mut acc = Accumulator::try_new(AllIdentical, EmptyOptions, struct_dtype)?;
-    acc.accumulate(&struct_array.into_array(), ctx)?;
+    acc.accumulate(&batch, ctx)?;
     let result = acc.finish()?;
 
     Ok(result.as_bool().value().unwrap_or(false))
@@ -88,6 +96,46 @@ fn make_all_identical_input_dtype(element_dtype: &DType) -> DType {
         ),
         Nullability::NonNullable,
     )
+}
+
+fn shared_validity_mask(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Mask>> {
+    let lhs_validity = lhs.validity()?;
+    let rhs_validity = rhs.validity()?;
+    if lhs_validity.no_nulls() && rhs_validity.no_nulls() {
+        return Ok(Some(Mask::new_true(lhs.len())));
+    }
+
+    let lhs_mask = lhs_validity.execute_mask(lhs.len(), ctx)?;
+    let rhs_mask = rhs_validity.execute_mask(rhs.len(), ctx)?;
+    if lhs_mask != rhs_mask {
+        return Ok(None);
+    }
+
+    Ok(Some(lhs_mask))
+}
+
+fn make_all_identical_batch(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    shared_validity: Mask,
+) -> VortexResult<ArrayRef> {
+    let struct_array = StructArray::try_new(
+        NAMES.clone(),
+        vec![lhs.clone(), rhs.clone()],
+        lhs.len(),
+        Validity::NonNullable,
+    )?
+    .into_array();
+
+    if shared_validity.true_count() == lhs.len() {
+        return Ok(struct_array);
+    }
+
+    Ok(FilterArray::try_new(struct_array, shared_validity)?.into_array())
 }
 
 /// Aggregation function that checks if two arrays are element-wise identical.
@@ -164,6 +212,28 @@ impl AggregateFnVTable for AllIdentical {
     #[inline]
     fn is_saturated(&self, partial: &Self::Partial) -> bool {
         !partial.all_identical
+    }
+
+    fn try_accumulate(
+        &self,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        let Some(filtered) = batch.as_opt::<Filter>() else {
+            return Ok(false);
+        };
+        let Some(struct_batch) = filtered.child().as_opt::<crate::arrays::Struct>() else {
+            return Ok(false);
+        };
+
+        partial.all_identical = check_masked_identical(
+            struct_batch.unmasked_field(0),
+            struct_batch.unmasked_field(1),
+            filtered.filter_mask(),
+            ctx,
+        )?;
+        Ok(true)
     }
 
     fn accumulate(
@@ -331,6 +401,211 @@ fn check_decimal_identical(lhs: &DecimalArray, rhs: &DecimalArray) -> VortexResu
             })
         })
     })
+}
+
+fn check_masked_identical(
+    lhs: &ArrayRef,
+    rhs: &ArrayRef,
+    mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool> {
+    if let (Some(lhs), Some(rhs)) = (
+        lhs.as_opt::<crate::arrays::Primitive>(),
+        rhs.as_opt::<crate::arrays::Primitive>(),
+    ) {
+        return check_masked_primitive_identical(&lhs, &rhs, mask);
+    }
+
+    if let (Some(lhs), Some(rhs)) = (
+        lhs.as_opt::<crate::arrays::Bool>(),
+        rhs.as_opt::<crate::arrays::Bool>(),
+    ) {
+        return check_masked_bool_identical(&lhs, &rhs, mask);
+    }
+
+    if let (Some(lhs), Some(rhs)) = (
+        lhs.as_opt::<crate::arrays::Decimal>(),
+        rhs.as_opt::<crate::arrays::Decimal>(),
+    ) {
+        return check_masked_decimal_identical(&lhs, &rhs, mask);
+    }
+
+    if let (Some(lhs), Some(rhs)) = (
+        lhs.as_opt::<crate::arrays::FixedSizeList>(),
+        rhs.as_opt::<crate::arrays::FixedSizeList>(),
+    ) {
+        return check_masked_fixed_size_list_identical(&lhs, &rhs, mask, ctx);
+    }
+
+    match mask.slices() {
+        AllOr::All => all_identical(lhs, rhs, ctx),
+        AllOr::None => Ok(true),
+        AllOr::Some(slices) => {
+            let avg_run_len = mask.true_count() / slices.len();
+            if slices.len() > MAX_RECURSIVE_RUNS && avg_run_len <= MIN_AVG_RECURSIVE_RUN_LEN {
+                let lhs_filtered = lhs.filter(mask.clone())?;
+                let rhs_filtered = rhs.filter(mask.clone())?;
+                return all_identical(&lhs_filtered, &rhs_filtered, ctx);
+            }
+
+            for &(start, end) in slices {
+                let lhs_slice = lhs.slice(start..end)?;
+                let rhs_slice = rhs.slice(start..end)?;
+                if !all_identical(&lhs_slice, &rhs_slice, ctx)? {
+                    return Ok(false);
+                }
+            }
+
+            Ok(true)
+        }
+    }
+}
+
+fn check_masked_fixed_size_list_identical<L, R>(
+    lhs: &L,
+    rhs: &R,
+    mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<bool>
+where
+    L: FixedSizeListArrayExt,
+    R: FixedSizeListArrayExt,
+{
+    debug_assert_eq!(lhs.list_size(), rhs.list_size());
+
+    let list_size = lhs.list_size() as usize;
+    if list_size == 0 {
+        return Ok(true);
+    }
+
+    let elements_mask = match mask.slices() {
+        AllOr::All => Mask::new_true(lhs.elements().len()),
+        AllOr::None => return Ok(true),
+        AllOr::Some(slices) => Mask::from_slices(
+            lhs.elements().len(),
+            slices
+                .iter()
+                .map(|&(start, end)| (start * list_size, end * list_size))
+                .collect(),
+        ),
+    };
+
+    check_masked_identical(lhs.elements(), rhs.elements(), &elements_mask, ctx)
+}
+
+const MAX_RECURSIVE_RUNS: usize = 16;
+const MIN_AVG_RECURSIVE_RUN_LEN: usize = 8;
+
+fn check_masked_bool_identical<L, R>(lhs: &L, rhs: &R, mask: &Mask) -> VortexResult<bool>
+where
+    L: crate::arrays::bool::BoolArrayExt,
+    R: crate::arrays::bool::BoolArrayExt,
+{
+    let lhs_values = lhs.to_bit_buffer();
+    let rhs_values = rhs.to_bit_buffer();
+
+    match mask.slices() {
+        AllOr::All => Ok(lhs_values == rhs_values),
+        AllOr::None => Ok(true),
+        AllOr::Some(slices) => {
+            for &(start, end) in slices {
+                if lhs_values.slice(start..end) != rhs_values.slice(start..end) {
+                    return Ok(false);
+                }
+            }
+
+            Ok(true)
+        }
+    }
+}
+
+fn check_masked_primitive_identical<L, R>(lhs: &L, rhs: &R, mask: &Mask) -> VortexResult<bool>
+where
+    L: crate::arrays::primitive::PrimitiveArrayExt,
+    R: crate::arrays::primitive::PrimitiveArrayExt,
+{
+    match_each_native_ptype!(lhs.ptype(), |P| {
+        let lhs_values = lhs.as_slice::<P>();
+        let rhs_values = rhs.as_slice::<P>();
+
+        match mask.slices() {
+            AllOr::All => Ok(lhs_values == rhs_values),
+            AllOr::None => Ok(true),
+            AllOr::Some(slices) => {
+                for &(start, end) in slices {
+                    if lhs_values[start..end] != rhs_values[start..end] {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+        }
+    })
+}
+
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "masked decimal widening depends on both source value types and the chosen widest type"
+)]
+fn check_masked_decimal_identical<L, R>(lhs: &L, rhs: &R, mask: &Mask) -> VortexResult<bool>
+where
+    L: DecimalArrayExt,
+    R: DecimalArrayExt,
+{
+    if lhs.values_type() == rhs.values_type() {
+        return match_each_decimal_value_type!(lhs.values_type(), |S| {
+            let lhs_values = lhs.buffer::<S>();
+            let rhs_values = rhs.buffer::<S>();
+
+            match mask.slices() {
+                AllOr::All => Ok(lhs_values.as_ref() == rhs_values.as_ref()),
+                AllOr::None => Ok(true),
+                AllOr::Some(slices) => {
+                    for &(start, end) in slices {
+                        if lhs_values[start..end] != rhs_values[start..end] {
+                            return Ok(false);
+                        }
+                    }
+
+                    Ok(true)
+                }
+            }
+        });
+    }
+
+    match mask.slices() {
+        AllOr::All => check_decimal_identical(&lhs.to_owned(), &rhs.to_owned()),
+        AllOr::None => Ok(true),
+        AllOr::Some(slices) => {
+            let widest = lhs.values_type().max(rhs.values_type());
+            match_each_decimal_value_type!(lhs.values_type(), |Lvt| {
+                match_each_decimal_value_type!(rhs.values_type(), |Rvt| {
+                    match_each_decimal_value_type!(widest, |Wvt| {
+                        let lhs_values = lhs.buffer::<Lvt>();
+                        let rhs_values = rhs.buffer::<Rvt>();
+
+                        for &(start, end) in slices {
+                            if !lhs_values[start..end]
+                                .iter()
+                                .zip(rhs_values[start..end].iter())
+                                .all(|(lhs, rhs)| {
+                                    <Wvt as BigCast>::from(*lhs)
+                                        .vortex_expect("decimal widening should succeed")
+                                        == <Wvt as BigCast>::from(*rhs)
+                                            .vortex_expect("decimal widening should succeed")
+                                })
+                            {
+                                return Ok(false);
+                            }
+                        }
+
+                        Ok(true)
+                    })
+                })
+            })
+        }
+    }
 }
 
 fn check_struct_identical(
