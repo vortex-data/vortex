@@ -550,30 +550,8 @@ impl BaseFileReader<VortexGlobal, VortexLocal> for VortexFileReader {
     }
 
     fn prepare_scan(&self, _global: &VortexGlobal, local: &mut VortexLocal) -> VortexResult<()> {
-        if self.metadata_only_count() {
-            return Ok(());
-        }
-        let Some(task) = local.task.take() else {
-            return Ok(());
-        };
-
-        let array = RUNTIME.block_on(task)?;
-        if self.row_count_only() {
-            local.remaining_rows = array.map(|array| array.len() as u64).unwrap_or(0);
-            return Ok(());
-        }
-
-        local.exporters = array
-            .map(|array| {
-                make_exporters(
-                    array,
-                    &self.cache,
-                    self.field_positions.clone(),
-                    self.scan_column_count,
-                )
-            })
-            .transpose()?
-            .unwrap_or_default();
+        local.remaining_rows = 0;
+        local.exporters.clear();
         Ok(())
     }
 
@@ -587,30 +565,40 @@ impl BaseFileReader<VortexGlobal, VortexLocal> for VortexFileReader {
             return self.scan_metadata_only(local, chunk);
         }
         if self.row_count_only() {
+            if local.remaining_rows == 0 && local.task.is_some() {
+                self.prepare_count_rows(local)?;
+            }
             return self.scan_remaining_rows(local, chunk);
         }
 
-        // Drain the in-flight split arrays if we have any.
-        while let Some(exporter) = local.exporters.front_mut() {
-            let has_more = exporter.export(
-                chunk,
-                self.file_index_column_pos,
-                self.file_row_number_column_pos,
-            )?;
-            if has_more {
-                if let Some(pos) = self.file_index_column_pos {
-                    chunk
-                        .get_vector_mut(pos)
-                        .reference_value(&crate::duckdb::Value::from(self.file_idx as u64));
+        loop {
+            // Drain the in-flight split arrays if we have any.
+            while let Some(exporter) = local.exporters.front_mut() {
+                let has_more = exporter.export(
+                    chunk,
+                    self.file_index_column_pos,
+                    self.file_row_number_column_pos,
+                )?;
+                if has_more {
+                    if let Some(pos) = self.file_index_column_pos {
+                        chunk
+                            .get_vector_mut(pos)
+                            .reference_value(&crate::duckdb::Value::from(self.file_idx as u64));
+                    }
+                    self.rows_scanned.fetch_add(chunk.len(), Ordering::Relaxed);
+                    return Ok(());
                 }
-                self.rows_scanned.fetch_add(chunk.len(), Ordering::Relaxed);
-                return Ok(());
+                local.exporters.pop_front();
             }
-            local.exporters.pop_front();
-        }
 
-        chunk.set_len(0);
-        Ok(())
+            if local.task.is_some() {
+                self.prepare_exporters(local)?;
+                continue;
+            }
+
+            chunk.set_len(0);
+            return Ok(());
+        }
     }
 
     fn get_statistics(&self, name: &str) -> Option<ColumnStatistics> {
@@ -728,6 +716,36 @@ impl VortexFileReader {
         local.remaining_rows -= chunk_len as u64;
         self.rows_scanned
             .fetch_add(chunk_len as u64, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn prepare_count_rows(&self, local: &mut VortexLocal) -> VortexResult<()> {
+        let Some(task) = local.task.take() else {
+            return Ok(());
+        };
+        local.remaining_rows = RUNTIME
+            .block_on(task)?
+            .map(|array| array.len() as u64)
+            .unwrap_or(0);
+        Ok(())
+    }
+
+    fn prepare_exporters(&self, local: &mut VortexLocal) -> VortexResult<()> {
+        let Some(task) = local.task.take() else {
+            return Ok(());
+        };
+        local.exporters = RUNTIME
+            .block_on(task)?
+            .map(|array| {
+                make_exporters(
+                    array,
+                    &self.cache,
+                    self.field_positions.clone(),
+                    self.scan_column_count,
+                )
+            })
+            .transpose()?
+            .unwrap_or_default();
         Ok(())
     }
 
@@ -1011,15 +1029,17 @@ mod tests {
         assert_eq!(reader.tasks.lock().len(), task_count - 2);
         reader.prepare_scan(&global, &mut first_local)?;
         reader.prepare_scan(&global, &mut second_local)?;
-        assert!(first_local.task.is_none());
-        assert!(second_local.task.is_none());
-        assert!(!first_local.exporters.is_empty());
-        assert!(!second_local.exporters.is_empty());
+        assert!(first_local.task.is_some());
+        assert!(second_local.task.is_some());
+        assert!(first_local.exporters.is_empty());
+        assert!(second_local.exporters.is_empty());
 
         let mut chunk = DataChunk::new([LogicalType::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER)]);
         reader.scan(&global, &mut first_local, &mut chunk)?;
+        assert!(first_local.task.is_none());
         assert!(!chunk.is_empty());
         reader.scan(&global, &mut second_local, &mut chunk)?;
+        assert!(second_local.task.is_none());
         assert!(!chunk.is_empty());
 
         Ok(())
