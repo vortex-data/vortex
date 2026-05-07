@@ -3,12 +3,12 @@
 
 //! Datetime extension DTypes, compatible with Apache Arrow.
 
+mod arrow;
 mod date;
 mod matcher;
 mod time;
 mod timestamp;
 mod unit;
-mod arrow;
 
 pub use date::*;
 pub use matcher::*;
