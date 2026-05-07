@@ -98,7 +98,7 @@ fn try_optimize(
                     array_ref.find_reduce_parent(current_array.encoding_id(), child.encoding_id())
             {
                 for (plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
-                    crate::trace_array_use!(plugin_idx);
+                    crate::trace_array!(use(plugin_idx));
                     if let Some(new_array) = plugin(child, &current_array, slot_idx)? {
                         crate::trace_array!(record_parent_reduce_applied(
                             &current_array,

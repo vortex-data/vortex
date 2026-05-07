@@ -65,7 +65,7 @@ impl<V: VTable> ParentKernelSet<V> {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         for (kernel_idx, kernel) in self.kernels.iter().enumerate() {
-            crate::trace_array_use!(kernel_idx);
+            crate::trace_array!(use(kernel_idx));
             if !kernel.matches(parent) {
                 crate::trace_array!(record_execute_parent_attempt(
                     crate::test_harness::trace::current_execute_parent_phase(),
