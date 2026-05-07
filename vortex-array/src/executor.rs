@@ -163,6 +163,7 @@ impl ArrayRef {
     /// partially consumes `current_array`: some slots already live in the builder, so a
     /// parent rewrite would observe inconsistent state and could discard accumulated builder
     /// data.
+    #[expect(clippy::cognitive_complexity)]
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
@@ -174,7 +175,7 @@ impl ArrayRef {
         crate::trace_array!(record_execute_until_start::<M>(&current_array));
 
         for iteration in 0..max_iterations {
-            crate::trace_array_use!(iteration);
+            crate::trace_array!(use(iteration));
             crate::trace_array!(record_execute_until_iteration(
                 iteration + 1,
                 &current_array,
@@ -203,17 +204,17 @@ impl ArrayRef {
                         return Ok(current_array);
                     }
                     Some(frame) => {
-                        let trace_pop_frame = crate::trace_array_value!(
+                        let trace_pop_frame = crate::trace_array!(value(
                             Some((
                                 frame.parent_array.clone(),
                                 current_array.clone(),
                                 frame.slot_idx
                             )),
                             None::<(ArrayRef, ArrayRef, usize)>
-                        );
+                        ));
                         (current_array, current_builder) = pop_frame(frame, current_array)?;
                         if let Some((parent_before, child_before, slot_idx)) = trace_pop_frame {
-                            crate::trace_array_use!(parent_before, child_before, slot_idx,);
+                            crate::trace_array!(use(parent_before, child_before, slot_idx,));
                             crate::trace_array!(record_execute_until_pop_frame(
                                 &parent_before,
                                 slot_idx,
@@ -633,11 +634,11 @@ fn execute_parent_for_child(
     kernels: &ParentExecutionKernels,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    crate::trace_array_use!(phase);
+    crate::trace_array!(use(phase));
     let key = execute_parent_key(parent.encoding_id(), child.encoding_id());
     if let Some(plugins) = kernels.get(&key) {
         for (plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
-            crate::trace_array_use!(plugin_idx);
+            crate::trace_array!(use(plugin_idx));
             if let Some(result) = plugin.execute_parent(child, parent, slot_idx, ctx)? {
                 if cfg!(debug_assertions) {
                     vortex_ensure!(

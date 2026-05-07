@@ -1,50 +1,46 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[cfg(all(any(test, feature = "_test-harness"), not(codspeed)))]
 macro_rules! trace_array {
-    ($($event:tt)*) => {
-        if $crate::test_harness::trace::is_active() {
-            $crate::test_harness::trace::$($event)*
+    (@when_enabled { $($enabled:tt)* } else { $($disabled:tt)* }) => {{
+        #[cfg(all(any(test, feature = "_test-harness"), not(codspeed)))]
+        {
+            $($enabled)*
         }
-    };
-}
 
-#[cfg(any(not(any(test, feature = "_test-harness")), codspeed))]
-macro_rules! trace_array {
-    ($($event:tt)*) => {{}};
-}
+        #[cfg(any(not(any(test, feature = "_test-harness")), codspeed))]
+        {
+            $($disabled)*
+        }
+    }};
 
-#[cfg(all(any(test, feature = "_test-harness"), not(codspeed)))]
-macro_rules! trace_array_value {
-    ($enabled:expr, $disabled:expr) => {
-        if $crate::test_harness::trace::is_active() {
-            $enabled
+    (@if_active { $($enabled:tt)* } else { $($disabled:tt)* }) => {
+        $crate::trace_array!(@when_enabled {
+            if $crate::test_harness::trace::is_active() {
+                $($enabled)*
+            } else {
+                $($disabled)*
+            }
         } else {
-            $disabled
-        }
+            $($disabled)*
+        })
     };
-}
 
-#[cfg(any(not(any(test, feature = "_test-harness")), codspeed))]
-macro_rules! trace_array_value {
-    ($enabled:expr, $disabled:expr) => {
-        $disabled
+    (use($($value:expr),* $(,)?)) => {
+        $crate::trace_array!(@when_enabled {} else {
+            let _ = ($(&$value),*);
+        })
     };
-}
 
-#[cfg(all(any(test, feature = "_test-harness"), not(codspeed)))]
-macro_rules! trace_array_use {
-    ($($value:expr),* $(,)?) => {{}};
-}
+    (value($enabled:expr, $disabled:expr)) => {
+        $crate::trace_array!(@if_active { $enabled } else { $disabled })
+    };
 
-#[cfg(any(not(any(test, feature = "_test-harness")), codspeed))]
-macro_rules! trace_array_use {
-    ($($value:expr),* $(,)?) => {
-        let _ = ($(&$value),*);
+    ($($event:tt)*) => {
+        $crate::trace_array!(@if_active {
+            $crate::test_harness::trace::$($event)*
+        } else {})
     };
 }
 
 pub(crate) use trace_array;
-pub(crate) use trace_array_use;
-pub(crate) use trace_array_value;

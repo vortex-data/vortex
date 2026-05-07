@@ -107,8 +107,6 @@ pub mod aggregate_fn;
 pub mod aliases;
 mod trace_macros;
 pub(crate) use trace_macros::trace_array;
-pub(crate) use trace_macros::trace_array_use;
-pub(crate) use trace_macros::trace_array_value;
 mod array;
 pub mod arrays;
 pub mod buffer;
