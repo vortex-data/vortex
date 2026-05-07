@@ -79,13 +79,7 @@ fn sparse_validity(
     } else {
         Validity::AllInvalid
     };
-    let patch_validity = Validity::from_mask(
-        patches
-            .values()
-            .validity()?
-            .execute_mask(patches.values().len(), ctx)?,
-        Nullability::Nullable,
-    );
+    let patch_validity = patches.values().validity()?.into_nullable();
 
     fill_validity.patch(
         len,
