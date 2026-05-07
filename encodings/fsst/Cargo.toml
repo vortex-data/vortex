@@ -41,6 +41,11 @@ harness = false
 required-features = ["_test-harness"]
 
 [[bench]]
+name = "fsst_decode"
+harness = false
+required-features = ["_test-harness"]
+
+[[bench]]
 name = "fsst_like"
 harness = false
 required-features = ["_test-harness"]

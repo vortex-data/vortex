@@ -68,11 +68,15 @@ pub(crate) fn fsst_decode_views(
             .sum()
     });
 
-    // Bulk-decompress the entire array.
-    let decompressor = fsst_array.decompressor();
+    // Bulk-decompress the entire array. We use the local `Decoder` rather than
+    // `fsst::Decompressor` so the hot inner loop can issue 8 independent stores
+    // per non-escape block instead of chaining through `out_ptr += len[code]`.
+    let decoder = crate::decoder::Decoder::new(
+        fsst_array.symbols().as_slice(),
+        fsst_array.symbol_lengths().as_slice(),
+    );
     let mut uncompressed_bytes = ByteBufferMut::with_capacity(total_size + 7);
-    let len =
-        decompressor.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
+    let len = decoder.decompress_into(bytes.as_slice(), uncompressed_bytes.spare_capacity_mut());
     unsafe { uncompressed_bytes.set_len(len) };
 
     // Directly create the binary views.

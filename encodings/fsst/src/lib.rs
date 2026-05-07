@@ -15,6 +15,7 @@ mod array;
 mod canonical;
 mod compress;
 mod compute;
+mod decoder;
 mod dfa;
 mod kernel;
 mod ops;
@@ -27,3 +28,13 @@ mod tests;
 
 pub use array::*;
 pub use compress::*;
+
+/// Re-export of the local FSST decoder for use from benchmarks.
+///
+/// Hidden behind `_test-harness` because the decoder is an implementation
+/// detail of canonicalization; downstream crates should keep going through
+/// `execute::<Canonical>`.
+#[cfg(feature = "_test-harness")]
+pub mod bench_decoder {
+    pub use crate::decoder::Decoder;
+}
