@@ -97,7 +97,7 @@ name = "throughput_cuda"
 harness = false
 
 [[bench]]
-name = "load_to_device_cuda"
+name = "core_primitives"
 harness = false
 
 [[bench]]

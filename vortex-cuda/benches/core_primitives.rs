@@ -8,6 +8,8 @@ mod bench_config;
 const _: &[(usize, &str)] = bench_config::BENCH_SIZES;
 
 use std::sync::Arc;
+use std::time::Duration;
+use std::time::Instant;
 
 use criterion::BatchSize;
 use criterion::BenchmarkId;
@@ -23,6 +25,7 @@ use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
 const LOAD_SIZES: &[(usize, &str)] = &[(1024 * 1024 * 1024, "1GiB")];
+const CPU_WORK_DURATION: Duration = Duration::from_millis(4);
 
 const HOST_MEMORY_KINDS: &[(&str, Option<u32>)] = &[
     // Pageable host memory allocated through the Rust global allocator. CUDA may need to stage or
@@ -34,6 +37,17 @@ const HOST_MEMORY_KINDS: &[(&str, Option<u32>)] = &[
     // makes CPU reads from it expensive.
     ("pinned_write_combined", Some(CU_MEMHOSTALLOC_WRITECOMBINED)),
 ];
+
+fn synthetic_cpu_work(duration: Duration) {
+    let start = Instant::now();
+    let mut work = 0_u64;
+
+    while start.elapsed() < duration {
+        work = std::hint::black_box(work.wrapping_mul(31).wrapping_add(1));
+    }
+
+    std::hint::black_box(work);
+}
 
 struct CudaHostBuffer {
     ctx: Arc<CudaContext>,
@@ -93,11 +107,12 @@ impl Drop for CudaHostBuffer {
     }
 }
 
-fn benchmark_load_to_device(c: &mut Criterion) {
+fn benchmark_core_primitives(c: &mut Criterion) {
     // Measures a synchronized host-to-device copy after both host source and device
     // destination have already been allocated and the source has been initialized.
     // This isolates copy throughput for each host allocation mode as much as possible.
-    let mut copy_group = c.benchmark_group("cuda/load_to_device/memcpy_htod");
+    let mut copy_group =
+        c.benchmark_group("cuda/core_primitives/allocated_host_to_device_copy_and_sync");
 
     for &(size, size_name) in LOAD_SIZES {
         copy_group.throughput(Throughput::Bytes(size as u64));
@@ -143,10 +158,64 @@ fn benchmark_load_to_device(c: &mut Criterion) {
 
     copy_group.finish();
 
+    // Measures host-to-device copy with a fixed CPU-side workload between enqueue
+    // and synchronization. Pinned host memory should let memcpy_htod return after
+    // enqueueing the DMA, so more of the CPU work can overlap the transfer.
+    let mut overlap_group = c.benchmark_group(
+        "cuda/core_primitives/allocated_host_to_device_copy_4ms_cpu_work_then_sync",
+    );
+
+    for &(size, size_name) in LOAD_SIZES {
+        overlap_group.throughput(Throughput::Bytes(size as u64));
+
+        for &(name, flags) in HOST_MEMORY_KINDS {
+            overlap_group.bench_with_input(BenchmarkId::new(name, size_name), &size, |b, &size| {
+                let cuda_ctx = CudaContext::new(0).expect("cuda ctx");
+                let stream = cuda_ctx.new_stream().expect("cuda stream");
+
+                match flags {
+                    Some(flags) => b.iter_batched(
+                        || {
+                            let mut source = CudaHostBuffer::alloc(&cuda_ctx, size, flags);
+                            source.as_mut_slice().fill(0xA5);
+                            let dest = unsafe { stream.alloc::<u8>(size) }
+                                .expect("allocate device buffer");
+                            (source, dest)
+                        },
+                        |(source, mut dest)| {
+                            stream.memcpy_htod(&source, &mut dest).expect("memcpy_htod");
+                            synthetic_cpu_work(CPU_WORK_DURATION);
+                            stream.synchronize().expect("synchronize stream");
+                        },
+                        BatchSize::PerIteration,
+                    ),
+                    None => b.iter_batched(
+                        || {
+                            let mut source = vec![0u8; size];
+                            source.fill(0xA5);
+                            let dest = unsafe { stream.alloc::<u8>(size) }
+                                .expect("allocate device buffer");
+                            (source, dest)
+                        },
+                        |(source, mut dest)| {
+                            stream.memcpy_htod(&source, &mut dest).expect("memcpy_htod");
+                            synthetic_cpu_work(CPU_WORK_DURATION);
+                            stream.synchronize().expect("synchronize stream");
+                        },
+                        BatchSize::PerIteration,
+                    ),
+                }
+            });
+        }
+    }
+
+    overlap_group.finish();
+
     // Measures device allocation plus host-to-device copy. Host source allocation and
     // initialization stay in Criterion setup, so this separates device allocation cost
     // from host allocation cost.
-    let mut alloc_copy_group = c.benchmark_group("cuda/load_to_device/device_alloc_memcpy_htod");
+    let mut alloc_copy_group =
+        c.benchmark_group("cuda/core_primitives/device_alloc_host_to_device_copy_and_sync");
 
     for &(size, size_name) in LOAD_SIZES {
         alloc_copy_group.throughput(Throughput::Bytes(size as u64));
@@ -200,7 +269,7 @@ fn benchmark_load_to_device(c: &mut Criterion) {
 criterion::criterion_group! {
     name = benches;
     config = bench_config::cuda_bench_config();
-    targets = benchmark_load_to_device
+    targets = benchmark_core_primitives
 }
 
 #[cuda_available]
