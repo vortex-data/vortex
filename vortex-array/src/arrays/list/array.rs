@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
+use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -119,7 +120,7 @@ impl ListData {
         validity: &Validity,
         len: usize,
     ) -> ArraySlots {
-        vec![
+        smallvec![
             Some(elements.clone()),
             Some(offsets.clone()),
             validity_to_child(validity, len),

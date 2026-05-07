@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use num_traits::AsPrimitive;
+use smallvec::smallvec;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -87,7 +88,7 @@ impl VarBinData {
         validity: &Validity,
         len: usize,
     ) -> ArraySlots {
-        vec![Some(offsets), validity_to_child(validity, len)]
+        smallvec![Some(offsets), validity_to_child(validity, len)]
     }
 
     /// Constructs a new `VarBinArray`.

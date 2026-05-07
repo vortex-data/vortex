@@ -482,6 +482,7 @@ impl ALPRDData {
             pv,
             pco,
         ]
+        .into()
     }
 
     /// Return all the owned parts of the array

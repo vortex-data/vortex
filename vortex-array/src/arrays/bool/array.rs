@@ -10,6 +10,7 @@ use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use smallvec::smallvec;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -146,7 +147,7 @@ impl BoolData {
     }
 
     pub(crate) fn make_slots(validity: &Validity, len: usize) -> ArraySlots {
-        vec![validity_to_child(validity, len)]
+        smallvec![validity_to_child(validity, len)]
     }
 }
 

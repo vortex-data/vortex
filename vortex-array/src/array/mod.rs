@@ -43,11 +43,16 @@ pub use vtable::*;
 mod view;
 pub use view::*;
 
+use smallvec::SmallVec;
+
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 
 /// The slots of an array: a collection of optional child arrays.
-pub type ArraySlots = Vec<Option<ArrayRef>>;
+///
+/// Most encodings have 4 or fewer slots, so we use a `SmallVec` to avoid
+/// heap allocation in the common case.
+pub type ArraySlots = SmallVec<[Option<ArrayRef>; 4]>;
 
 /// The public API trait for all Vortex arrays.
 ///

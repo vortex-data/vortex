@@ -87,7 +87,7 @@ impl ZstdBuffers {
             uncompressed_sizes,
             buffer_alignments,
         };
-        let slots = children.into_iter().map(Some).collect();
+        let slots: ArraySlots = children.into_iter().map(Some).collect();
         let compressed = Array::try_from_parts(
             ArrayParts::new(ZstdBuffers, array.dtype().clone(), array.len(), data)
                 .with_slots(slots),
@@ -428,7 +428,8 @@ impl VTable for ZstdBuffers {
 
         let slots: ArraySlots = (0..children.len())
             .map(|i| children.get(i, dtype, len).map(Some))
-            .collect::<VortexResult<Vec<_>>>()?;
+            .collect::<VortexResult<Vec<_>>>()?
+            .into();
 
         let data = ZstdBuffersData {
             inner_encoding_id: array_id_from_string(&metadata.inner_encoding_id),

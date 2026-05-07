@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use smallvec::smallvec;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -154,7 +155,7 @@ impl VTable for Masked {
         )?;
         Ok(
             crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, data)
-                .with_slots(vec![Some(child), validity_slot]),
+                .with_slots(smallvec![Some(child), validity_slot]),
         )
     }
 

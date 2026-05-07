@@ -8,6 +8,7 @@ use std::ops::Range;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
+use smallvec::smallvec;
 
 use crate::ArrayRef;
 use crate::array::Array;
@@ -88,7 +89,7 @@ impl Array<Slice> {
         let data = SliceData::try_new(child.len(), range)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Slice, dtype, len, data).with_slots(vec![Some(child)]),
+                ArrayParts::new(Slice, dtype, len, data).with_slots(smallvec![Some(child)]),
             )
         })
     }
@@ -100,7 +101,7 @@ impl Array<Slice> {
         let data = SliceData::new(range);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Slice, dtype, len, data).with_slots(vec![Some(child)]),
+                ArrayParts::new(Slice, dtype, len, data).with_slots(smallvec![Some(child)]),
             )
         }
     }

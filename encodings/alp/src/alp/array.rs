@@ -426,6 +426,7 @@ impl ALPData {
             patch_values,
             patch_chunk_offsets,
         ]
+        .into()
     }
 
     #[inline]

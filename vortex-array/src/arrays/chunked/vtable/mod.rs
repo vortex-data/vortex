@@ -198,7 +198,7 @@ impl VTable for Chunked {
                     .map_err(|_| vortex_err!("chunk offset {offset} exceeds usize range"))
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        let mut slots = Vec::with_capacity(children.len());
+        let mut slots = smallvec::SmallVec::with_capacity(children.len());
         slots.push(Some(chunk_offsets));
         for (idx, (start, end)) in chunk_offsets_usize
             .iter()

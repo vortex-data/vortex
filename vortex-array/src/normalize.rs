@@ -6,6 +6,8 @@ use vortex_error::vortex_bail;
 use vortex_session::registry::Id;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use smallvec::SmallVec;
+
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 
@@ -65,7 +67,7 @@ impl ArrayRef {
 
         // Now we've normalized the root, we need to ensure the children are normalized also.
         let slots = normalized.slots();
-        let mut normalized_slots = Vec::with_capacity(slots.len());
+        let mut normalized_slots = SmallVec::with_capacity(slots.len());
         let mut any_slot_changed = false;
 
         for slot in slots {

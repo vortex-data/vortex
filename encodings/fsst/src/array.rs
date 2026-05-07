@@ -481,7 +481,7 @@ impl FSST {
 
 impl FSSTData {
     fn make_slots(codes: &VarBinArray, uncompressed_lengths: &ArrayRef) -> ArraySlots {
-        vec![
+        vortex_array::smallvec::smallvec![
             Some(uncompressed_lengths.clone()),
             Some(codes.offsets().clone()),
             validity_to_child(

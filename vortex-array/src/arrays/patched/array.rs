@@ -388,16 +388,19 @@ mod tests {
         assert_eq!(view.required.len(), 3);
         assert_eq!(view.maybe.expect("optional slot").len(), 3);
 
-        let cloned = OptionalPatchedSlots::from_slots(slot_vec);
+        let cloned = OptionalPatchedSlots::from_slots(slot_vec.into());
         assert_eq!(cloned.required.len(), required.len());
         assert_eq!(cloned.maybe.expect("optional clone").len(), optional.len());
 
-        let rebuilt = PatchedSlots::from_slots(vec![
-            Some(required.clone()),
-            Some(optional.clone()),
-            Some(required.clone()),
-            Some(optional.clone()),
-        ]);
+        let rebuilt = PatchedSlots::from_slots(
+            vec![
+                Some(required.clone()),
+                Some(optional.clone()),
+                Some(required.clone()),
+                Some(optional.clone()),
+            ]
+            .into(),
+        );
         assert_eq!(rebuilt.inner.len(), required.len());
         assert_eq!(rebuilt.patch_values.len(), optional.len());
     }

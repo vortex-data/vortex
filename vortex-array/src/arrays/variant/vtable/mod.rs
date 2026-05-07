@@ -8,6 +8,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
+use smallvec::smallvec;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -119,7 +120,7 @@ impl VTable for Variant {
         let child = children.get(0, dtype, len)?;
         Ok(
             crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
-                .with_slots(vec![Some(child)]),
+                .with_slots(smallvec![Some(child)]),
         )
     }
 

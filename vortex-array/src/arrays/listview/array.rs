@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
+use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -156,7 +157,7 @@ impl ListViewData {
         validity: &Validity,
         len: usize,
     ) -> ArraySlots {
-        vec![
+        smallvec![
             Some(elements.clone()),
             Some(offsets.clone()),
             Some(sizes.clone()),
@@ -471,7 +472,7 @@ impl Array<ListView> {
         }
         let dtype = self.dtype().clone();
         let len = self.len();
-        let slots = self.slots().to_vec();
+        let slots: ArraySlots = self.slots().iter().cloned().collect();
         let data = unsafe { self.into_data().with_zero_copy_to_list(is_zctl) };
         unsafe {
             Array::from_parts_unchecked(

@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::iter;
 
+use smallvec::smallvec;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -248,7 +249,7 @@ impl<T: TypedArrayRef<Primitive>> PrimitiveArrayExt for T {}
 impl PrimitiveData {
     /// Build the slots vector for this array.
     pub(super) fn make_slots(validity: &Validity, len: usize) -> ArraySlots {
-        vec![validity_to_child(validity, len)]
+        smallvec![validity_to_child(validity, len)]
     }
 
     /// Create a new array from a buffer handle.

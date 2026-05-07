@@ -265,7 +265,7 @@ impl ByteBoolData {
     }
 
     fn make_slots(validity: &Validity, len: usize) -> ArraySlots {
-        vec![validity_to_child(validity, len)]
+        vec![validity_to_child(validity, len)].into()
     }
 
     pub fn new(buffer: BufferHandle) -> Self {

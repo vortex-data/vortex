@@ -8,6 +8,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use smallvec::smallvec;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
@@ -163,7 +164,7 @@ impl VTable for Extension {
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
         Ok(
             ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
-                .with_slots(vec![Some(storage)]),
+                .with_slots(smallvec![Some(storage)]),
         )
     }
 

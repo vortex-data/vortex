@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
+use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -113,7 +114,7 @@ impl FixedSizeListData {
         validity: &Validity,
         len: usize,
     ) -> ArraySlots {
-        vec![Some(elements.clone()), validity_to_child(validity, len)]
+        smallvec![Some(elements.clone()), validity_to_child(validity, len)]
     }
 
     /// Creates a new `FixedSizeListArray`.

@@ -463,7 +463,7 @@ impl ArrayRef {
     ///
     /// Takes ownership to allow in-place mutation when the refcount is 1.
     pub fn with_slot(self, slot_idx: usize, replacement: ArrayRef) -> VortexResult<ArrayRef> {
-        let slots = self.slots().to_vec();
+        let mut slots: ArraySlots = self.slots().iter().cloned().collect();
         let nslots = slots.len();
         vortex_ensure!(
             slot_idx < nslots,
@@ -488,7 +488,6 @@ impl ArrayRef {
             existing.len(),
             replacement.len()
         );
-        let mut slots = slots;
         slots[slot_idx] = Some(replacement);
         self.with_slots(slots)
     }
@@ -522,7 +521,7 @@ impl ArrayRef {
             .vortex_expect("take_slot_unchecked cannot take an absent slot")
             .clone();
 
-        let mut new_slots = self.slots().to_vec();
+        let mut new_slots: ArraySlots = self.slots().iter().cloned().collect();
         new_slots[slot_idx] = None;
 
         // SAFETY: ensured by the caller — the None slot is either put back or driven to completion
@@ -548,7 +547,7 @@ impl ArrayRef {
             return Ok(self);
         }
 
-        let mut slots = self.slots().to_vec();
+        let mut slots: ArraySlots = self.slots().iter().cloned().collect();
         slots[slot_idx] = Some(replacement);
         self.0.data.with_slots(&self, slots)
     }
@@ -557,7 +556,8 @@ impl ArrayRef {
     ///
     /// This is only valid for physical rewrites: slot count, presence, logical `DType`, and
     /// logical `len` must remain unchanged.
-    pub fn with_slots(self, slots: ArraySlots) -> VortexResult<ArrayRef> {
+    pub fn with_slots(self, slots: impl Into<ArraySlots>) -> VortexResult<ArrayRef> {
+        let slots = slots.into();
         let old_slots = self.slots();
         vortex_ensure!(
             old_slots.len() == slots.len(),

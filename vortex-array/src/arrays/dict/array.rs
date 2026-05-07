@@ -10,8 +10,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
+use smallvec::smallvec;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
@@ -237,7 +239,7 @@ impl Array<Dict> {
         let len = codes.len();
         let data = DictData::try_new(codes.dtype())?;
         Array::try_from_parts(
-            ArrayParts::new(Dict, dtype, len, data).with_slots(vec![Some(codes), Some(values)]),
+            ArrayParts::new(Dict, dtype, len, data).with_slots(smallvec![Some(codes), Some(values)]),
         )
     }
 
@@ -254,7 +256,7 @@ impl Array<Dict> {
         let data = unsafe { DictData::new_unchecked() };
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Dict, dtype, len, data).with_slots(vec![Some(codes), Some(values)]),
+                ArrayParts::new(Dict, dtype, len, data).with_slots(smallvec![Some(codes), Some(values)]),
             )
         }
     }
@@ -267,7 +269,7 @@ impl Array<Dict> {
     pub unsafe fn set_all_values_referenced(self, all_values_referenced: bool) -> Self {
         let dtype = self.dtype().clone();
         let len = self.len();
-        let slots = self.slots().to_vec();
+        let slots: ArraySlots = self.slots().iter().cloned().collect();
         let data = unsafe {
             self.into_data()
                 .set_all_values_referenced(all_values_referenced)

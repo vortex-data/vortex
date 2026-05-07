@@ -10,6 +10,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use futures::stream;
+use smallvec::SmallVec;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -146,7 +147,7 @@ impl ChunkedData {
             unsafe { chunk_offsets_buf.push_unchecked(offset) }
         }
 
-        let mut slots = Vec::with_capacity(1 + chunks.len());
+        let mut slots = SmallVec::with_capacity(1 + chunks.len());
         slots.push(Some(
             PrimitiveArray::new(chunk_offsets_buf.freeze(), Validity::NonNullable).into_array(),
         ));
@@ -183,7 +184,7 @@ impl Array<Chunked> {
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Chunked, self.dtype().clone(), self.len(), data)
-                    .with_slots(self.slots().to_vec()),
+                    .with_slots(self.slots().iter().cloned().collect::<ArraySlots>()),
             )
         }
         .with_stats_set(stats)

@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use itertools::Itertools;
+use smallvec::smallvec;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
@@ -177,7 +178,7 @@ impl<T: TypedArrayRef<Decimal>> DecimalArrayExt for T {}
 impl DecimalData {
     /// Build the slots vector for this array.
     pub(super) fn make_slots(validity: &Validity, len: usize) -> ArraySlots {
-        vec![validity_to_child(validity, len)]
+        smallvec![validity_to_child(validity, len)]
     }
 
     /// Creates a new [`DecimalArray`] using a host-native buffer.

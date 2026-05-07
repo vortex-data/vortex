@@ -10332,6 +10332,7 @@ dependencies = [
  "serde_json",
  "serde_test",
  "simdutf8",
+ "smallvec",
  "static_assertions",
  "tabled",
  "termtree",

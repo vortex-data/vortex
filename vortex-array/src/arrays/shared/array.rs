@@ -11,6 +11,7 @@ use async_lock::Mutex as AsyncMutex;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use smallvec::smallvec;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -115,7 +116,7 @@ impl Array<Shared> {
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Shared, dtype, len, SharedData::new())
-                    .with_slots(vec![Some(source)]),
+                    .with_slots(smallvec![Some(source)]),
             )
         }
     }

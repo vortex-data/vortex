@@ -62,12 +62,12 @@ impl<V: VTable> ArrayParts<V> {
             dtype,
             len,
             data,
-            slots: Vec::new(),
+            slots: ArraySlots::new(),
         }
     }
 
-    pub fn with_slots(mut self, slots: ArraySlots) -> Self {
-        self.slots = slots;
+    pub fn with_slots(mut self, slots: impl Into<ArraySlots>) -> Self {
+        self.slots = slots.into();
         self
     }
 }

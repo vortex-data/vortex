@@ -174,7 +174,7 @@ fn expand_array_slots(
 
             #[doc = "Convert this slot struct into storage order."]
             pub fn into_slots(self) -> ::vortex_array::ArraySlots {
-                vec![#(#into_slots),*]
+                ::vortex_array::smallvec::smallvec![#(#into_slots),*]
             }
         }
 

@@ -326,7 +326,7 @@ impl SparseData {
     }
 
     fn make_slots(patches: &Patches) -> ArraySlots {
-        vec![
+        vortex_array::smallvec::smallvec![
             Some(patches.indices().clone()),
             Some(patches.values().clone()),
             patches.chunk_offsets().clone(),

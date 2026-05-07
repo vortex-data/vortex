@@ -4,6 +4,7 @@
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
+use smallvec::smallvec;
 
 use crate::ArrayRef;
 use crate::EmptyArrayData;
@@ -59,7 +60,7 @@ impl Array<Extension> {
         let len = storage_array.len();
 
         let parts = ArrayParts::new(Extension, dtype, len, EmptyArrayData)
-            .with_slots(vec![Some(storage_array)]);
+            .with_slots(smallvec![Some(storage_array)]);
 
         Ok(unsafe { Array::from_parts_unchecked(parts) })
     }
