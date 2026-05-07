@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use arrow_array::AnyDictionaryArray;
 use arrow_array::Array as ArrowArray;
 use arrow_array::ArrowPrimitiveType;
 use arrow_array::BooleanArray as ArrowBooleanArray;
@@ -49,15 +48,17 @@ use arrow_array::types::UInt8Type;
 use arrow_array::types::UInt16Type;
 use arrow_array::types::UInt32Type;
 use arrow_array::types::UInt64Type;
+use arrow_array::{AnyDictionaryArray, ArrayRef as ArrowArrayRef};
 use arrow_buffer::ArrowNativeType;
 use arrow_buffer::BooleanBuffer;
 use arrow_buffer::Buffer as ArrowBuffer;
 use arrow_buffer::ScalarBuffer;
 use arrow_buffer::buffer::NullBuffer;
 use arrow_buffer::buffer::OffsetBuffer;
-use arrow_schema::DataType;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
+use arrow_schema::{DataType, Field};
 use itertools::Itertools;
+use vortex_array::arrow::session::ArrowVTable;
 use vortex_buffer::Alignment;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
@@ -66,7 +67,7 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
-
+use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -476,7 +477,7 @@ impl<K: ArrowDictionaryKeyType> FromArrowArray<&DictionaryArray<K>> for DictArra
     }
 }
 
-fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
+pub(crate) fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
     if nullable {
         nulls
             .map(|nulls| {
@@ -624,6 +625,78 @@ impl FromArrowArray<RecordBatch> for ArrayRef {
 impl FromArrowArray<&RecordBatch> for ArrayRef {
     fn from_arrow(array: &RecordBatch, nullable: bool) -> VortexResult<Self> {
         Self::from_arrow(array.clone(), nullable)
+    }
+}
+
+#[derive(Debug)]
+struct CanonicalArrowVTable;
+
+impl ArrowVTable for CanonicalArrowVTable {
+    fn preferred_physical_type(&self, array: &ArrayRef) -> VortexResult<Option<DataType>> {
+        todo!()
+    }
+
+    fn from_arrow_array(
+        &self,
+        _array: ArrowArrayRef,
+        _field: &Field,
+    ) -> VortexResult<Option<ArrayRef>> {
+        todo!()
+    }
+
+    fn from_arrow_field(&self, _field: &Field) -> VortexResult<Option<DType>> {
+        todo!()
+    }
+
+    fn execute_arrow(
+        &self,
+        _array: ArrayRef,
+        _physical_type: &Field,
+        _session: &VortexSession,
+    ) -> VortexResult<Option<ArrowArrayRef>> {
+        todo!()
+    }
+
+    fn to_arrow_field(&self, name: &str, dtype: &DType, session: &VortexSession) -> VortexResult<Option<Field>> {
+        let (data_type, is_nullable) = match dtype {
+            DType::Null => (DataType::Null, true),
+            DType::Bool(nullability) => (DataType::Boolean, nullability.is_nullable()),
+            DType::Primitive(ptype, nullability) => {
+                let data_type = match ptype {
+                    PType::U8 => DataType::UInt8,
+                    PType::U16 => {}
+                    PType::U32 => {}
+                    PType::U64 => {}
+                    PType::I8 => {}
+                    PType::I16 => {}
+                    PType::I32 => {}
+                    PType::I64 => {}
+                    PType::F16 => {}
+                    PType::F32 => {}
+                    PType::F64 => {}
+                };
+
+                (data_type, nullability.is_nullable())
+            }
+            DType::Decimal(decimal_type, nullability) => {
+                // Conversion for decimal?
+            }
+            DType::Utf8(nullability) => {
+                (DataType::Utf8, nullability.is_nullable())
+            }
+            DType::Binary(nullability) => {
+                (DataType::Binary, nullability.is_nullable())
+            }
+            DType::List(elem, nullability) => {
+                // We might need to query the field type recursively...
+            }
+            DType::FixedSizeList(_, _, _) => {}
+            DType::Struct(_, _) => {}
+            DType::Extension(_) => {}
+            DType::Variant(_) => {}
+        };
+
+        Ok(Some(Field::new(name.to_string(), data_type, is_nullable)))
     }
 }
 
@@ -909,8 +982,10 @@ mod tests {
         Arc::new(Date32Array::from(vec![18000_i32, 18001, 18002, 18003])),
     )]
     #[case::date64(
-        Arc::new(Date64Array::from(vec![Some(1555200000000), None, Some(1555286400000), Some(1555372800000)])),
-        Arc::new(Date64Array::from(vec![1555200000000_i64, 1555213600000, 1555286400000, 1555372800000])),
+        Arc::new(Date64Array::from(vec![Some(1555200000000), None, Some(1555286400000), Some(1555372800000)]
+        )),
+        Arc::new(Date64Array::from(vec![1555200000000_i64, 1555213600000, 1555286400000, 1555372800000]
+        )),
     )]
     fn test_temporal_array_conversion(
         #[case] nullable: Arc<dyn ArrowArray>,
