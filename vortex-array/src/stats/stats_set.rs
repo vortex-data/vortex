@@ -32,6 +32,7 @@ use crate::expr::stats::UncompressedSizeInBytes;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
+/// Type of the SmallVec stored inside StatsSet
 pub type StatsArray = [(Stat, Precision<ScalarValue>); 4];
 
 #[derive(Default, Debug, Clone)]
