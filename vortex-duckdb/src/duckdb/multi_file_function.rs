@@ -27,13 +27,18 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 
 use crate::cpp;
+use crate::duckdb::Cardinality;
 use crate::duckdb::ClientContext;
 use crate::duckdb::ClientContextRef;
 use crate::duckdb::ColumnStatistics;
 use crate::duckdb::DataChunk;
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::DatabaseRef;
+use crate::duckdb::DuckdbStringMap;
+use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::LogicalTypeRef;
+use crate::duckdb::TableFilterSet;
+use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::try_or;
 use crate::duckdb_try;
 
@@ -94,6 +99,16 @@ pub trait MultiFileFunction: Sized + Debug {
         file_path: &str,
         file_idx: usize,
     ) -> VortexResult<Self::Reader>;
+
+    /// Estimated cardinality across `file_count` files. Default returns
+    /// [`Cardinality::Unknown`] (DuckDB falls back to its own heuristic).
+    fn cardinality(_bind_data: &Self::BindData, _file_count: usize) -> Cardinality {
+        Cardinality::Unknown
+    }
+
+    /// Populate the bind-time EXPLAIN map with key/value pairs (typical keys:
+    /// `Function`, `Files`, `Projection`, `Filters`). Default no-op.
+    fn to_string(_bind_data: &Self::BindData, _map: &mut DuckdbStringMapRef) {}
 }
 
 /// Per-file reader contract. Implementations are owned by DuckDB once handed
@@ -108,6 +123,22 @@ pub trait MultiFileFunction: Sized + Debug {
 pub trait BaseFileReader {
     type GlobalState;
     type LocalState;
+
+    /// Configure projection and filter pushdown. Called once after the reader
+    /// is created and before any [`Self::try_initialize_scan`] call.
+    /// `projection` is the ordered list of column names DuckDB needs the
+    /// chunks to contain (one entry per chunk column). `filters` carries any
+    /// filters DuckDB pushed down for this scan.
+    ///
+    /// Default: no-op (reader scans all columns, no filter pushdown).
+    fn prepare_reader(
+        &mut self,
+        projection: &[&str],
+        filters: Option<&TableFilterSetRef>,
+    ) -> VortexResult<()> {
+        let _ = (projection, filters);
+        Ok(())
+    }
 
     /// Set up scan state for the next batch. Called under DuckDB's per-file
     /// lock; should not block on I/O. Return `false` once exhausted.
@@ -182,10 +213,13 @@ impl DatabaseRef {
             free_local: Some(free_local::<T>),
             create_reader: Some(create_reader::<T>),
             free_reader: Some(free_reader::<T>),
+            prepare_reader: Some(prepare_reader::<T>),
             try_initialize_scan: Some(try_initialize_scan::<T>),
             scan: Some(scan::<T>),
             get_statistics: Some(get_statistics::<T>),
             progress_in_file: Some(progress_in_file::<T>),
+            cardinality: Some(cardinality::<T>),
+            to_string: Some(to_string::<T>),
         };
 
         duckdb_try!(
@@ -322,6 +356,33 @@ unsafe extern "C-unwind" fn free_reader<T: MultiFileFunction>(reader: cpp::duckd
     }
 }
 
+unsafe extern "C-unwind" fn prepare_reader<T: MultiFileFunction>(
+    reader: cpp::duckdb_vx_mff_reader,
+    projection: *const cpp::duckdb_vx_mff_column,
+    projection_count: usize,
+    filters: cpp::duckdb_vx_table_filter_set,
+    error_out: *mut cpp::duckdb_vx_error,
+) {
+    let reader = unsafe { reader.cast::<T::Reader>().as_mut() }.vortex_expect("reader null");
+    let filter_ref = if filters.is_null() {
+        None
+    } else {
+        Some(unsafe { TableFilterSet::borrow(filters) })
+    };
+    try_or(error_out, || {
+        // Materialize column names into &str borrows scoped to this call.
+        let mut names: Vec<&str> = Vec::with_capacity(projection_count);
+        for i in 0..projection_count {
+            let col = unsafe { &*projection.add(i) };
+            let bytes = unsafe { slice::from_raw_parts(col.name.cast::<u8>(), col.name_len) };
+            let name = std::str::from_utf8(bytes)
+                .map_err(|e| vortex_err!("projection column name not UTF-8: {e}"))?;
+            names.push(name);
+        }
+        reader.prepare_reader(&names, filter_ref)
+    });
+}
+
 unsafe extern "C-unwind" fn try_initialize_scan<T: MultiFileFunction>(
     reader: cpp::duckdb_vx_mff_reader,
     global: cpp::duckdb_vx_mff_global,
@@ -385,6 +446,41 @@ unsafe extern "C-unwind" fn progress_in_file<T: MultiFileFunction>(
 ) -> f64 {
     let reader = unsafe { reader.cast::<T::Reader>().as_ref() }.vortex_expect("reader null");
     reader.progress_in_file()
+}
+
+unsafe extern "C-unwind" fn cardinality<T: MultiFileFunction>(
+    bind_data: cpp::duckdb_vx_mff_bind_data,
+    file_count: usize,
+    out: *mut cpp::duckdb_vx_node_statistics,
+) -> bool {
+    let bind_data =
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null");
+    let out = unsafe { &mut *out };
+    match T::cardinality(bind_data, file_count) {
+        Cardinality::Unknown => false,
+        Cardinality::Estimate(c) => {
+            out.has_estimated_cardinality = true;
+            out.estimated_cardinality = c;
+            true
+        }
+        Cardinality::Maximum(c) => {
+            out.has_max_cardinality = true;
+            out.max_cardinality = c;
+            out.has_estimated_cardinality = true;
+            out.estimated_cardinality = c;
+            true
+        }
+    }
+}
+
+unsafe extern "C-unwind" fn to_string<T: MultiFileFunction>(
+    bind_data: cpp::duckdb_vx_mff_bind_data,
+    map: cpp::duckdb_vx_string_map,
+) {
+    let bind_data =
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null");
+    let map = unsafe { DuckdbStringMap::borrow_mut(map) };
+    T::to_string(bind_data, map);
 }
 
 // ---------------------------------------------------------------------------

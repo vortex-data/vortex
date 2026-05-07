@@ -55,16 +55,17 @@ static SESSION: LazyLock<VortexSession> =
 /// to off so the existing scan remains the path of record.
 ///
 /// Known gaps in the v2 path (compared to v1) at time of writing:
-///   - no projection pushdown: scans always read every column, which mis-sizes
-///     output chunks when DuckDB only requested a subset.
-///   - no Vortex filesystem integration: the `vortex_filesystem` extension
-///     option is ignored; DuckDB's filesystem opens the files.
-///   - no `read_vortex(['a.vortex','b.vortex'])` list-of-paths overload.
-///   - no filter pushdown into `Vortex` scans (DuckDB still applies filters
-///     after reading).
-///   - no support for `union_by_name`.
-/// These are tracked as follow-up work; for now `read_vortex_v2` exists for
-/// benchmark comparisons of the orchestration layer rather than feature parity.
+/// - No batch parallelism within a file (`TryInitializeScan` is one-shot, so
+///   each Vortex file is scanned by a single worker).
+/// - No `union_by_name`, hive partitioning columns, or `filename` /
+///   `file_row_number` virtual columns wired through.
+/// - No support for the named parameters DuckDB's `MultiFileReader` adds
+///   (`union_by_name`, `hive_partitioning`, …) — `ParseOption` returns false.
+/// - No `COPY ... FROM 'x.vortex'` via this path.
+///
+/// These are tracked as follow-up work; for now `read_vortex_v2` exists
+/// alongside `read_vortex` so orchestration paths can be benchmarked
+/// side-by-side.
 fn use_multi_file_function() -> bool {
     matches!(
         std::env::var("VX_DUCKDB_MULTI_FILE_FUNCTION").as_deref(),

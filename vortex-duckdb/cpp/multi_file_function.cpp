@@ -152,6 +152,29 @@ public:
         return "vortex";
     }
 
+    void PrepareReader(ClientContext &, GlobalTableFunctionState &) override {
+        // Translate the multi-file column ids into projected column names, then
+        // hand DuckDB's TableFilterSet through to Rust as a borrow. The reader
+        // stores the resulting projection/filter so it can apply them when the
+        // scan starts.
+        std::vector<duckdb_vx_mff_column> ffi_proj;
+        ffi_proj.reserve(column_ids.size());
+        for (idx_t i = 0; i < column_ids.size(); i++) {
+            auto local_id = column_ids[MultiFileLocalIndex(i)];
+            // `local_id` is an index into our local `columns` schema. The
+            // multi-file reader only routes physical columns here; virtual
+            // columns are handled separately and never reach this list.
+            const auto &col = columns[local_id];
+            ffi_proj.push_back({col.name.c_str(), col.name.size()});
+        }
+        auto filter_ptr = reinterpret_cast<duckdb_vx_table_filter_set>(filters.get());
+        duckdb_vx_error error_out = nullptr;
+        vtab.prepare_reader(handle, ffi_proj.data(), ffi_proj.size(), filter_ptr, &error_out);
+        if (error_out) {
+            throw IOException(IntoErrString(error_out));
+        }
+    }
+
     bool TryInitializeScan(ClientContext &,
                            GlobalTableFunctionState &gstate,
                            LocalTableFunctionState &lstate) override {
@@ -345,6 +368,21 @@ public:
         return reader;
     }
 
+    unique_ptr<NodeStatistics> GetCardinality(ClientContext &context, const MultiFileBindData &data,
+                                              idx_t file_count) override {
+        auto &vortex_bind = data.bind_data->Cast<VortexMultiFileBindData>();
+        duckdb_vx_node_statistics stats = {};
+        if (!vtab.cardinality(vortex_bind.handle, file_count, &stats)) {
+            return MultiFileReaderInterface::GetCardinality(context, data, file_count);
+        }
+        auto out = make_uniq<NodeStatistics>();
+        out->has_estimated_cardinality = stats.has_estimated_cardinality;
+        out->estimated_cardinality = stats.estimated_cardinality;
+        out->has_max_cardinality = stats.has_max_cardinality;
+        out->max_cardinality = stats.max_cardinality;
+        return out;
+    }
+
     unique_ptr<MultiFileReaderInterface> Copy() override {
         return make_uniq<VortexMultiFileReaderInterface>(vtab);
     }
@@ -402,10 +440,32 @@ extern "C" duckdb_state duckdb_vx_mff_register(duckdb_database ffi_db, const duc
     MultiFileFunction<VortexMultiFileFunctionOp> mff(vtab->name);
     mff.function_info = info;
 
+    // Bind-time EXPLAIN output. Adds keys like "Function", "Files",
+    // "Projection", "Filters". MultiFileFunction also installs a
+    // dynamic_to_string that lists files at scan time; we leave that as-is.
+    mff.to_string = [](TableFunctionToStringInput &input) {
+        InsertionOrderPreservingMap<string> result;
+        const auto &bind = input.bind_data->Cast<MultiFileBindData>();
+        const auto &vortex_bind = bind.bind_data->Cast<VortexMultiFileBindData>();
+        auto map = reinterpret_cast<duckdb_vx_mff_string_map>(&result);
+        vortex_bind.vtab.to_string(vortex_bind.handle, map);
+        return result;
+    };
+
+    // Late materialization is not enabled yet: it requires the per-file reader
+    // to accept AddVirtualColumn calls for file_index / file_row_number and
+    // produce those columns at scan time. Until that's wired (see follow-up),
+    // we leave `late_materialization = false` so DuckDB doesn't request
+    // virtual columns through paths the reader can't satisfy.
+
     try {
+        // CreateFunctionSet returns a TableFunctionSet that bundles both the
+        // single-VARCHAR and LIST(VARCHAR) overloads (matching read_parquet's
+        // shape). This is what enables `read_vortex_v2(['a.vortex','b.vortex'])`.
+        auto function_set = MultiFileReader::CreateFunctionSet(mff);
         auto &system_catalog = Catalog::GetSystemCatalog(db);
         auto data = CatalogTransaction::GetSystemTransaction(db);
-        CreateTableFunctionInfo tf_info(mff);
+        CreateTableFunctionInfo tf_info(function_set);
         tf_info.on_conflict = OnCreateConflict::ALTER_ON_CONFLICT;
         system_catalog.CreateFunction(data, tf_info);
     } catch (const std::exception &e) {

@@ -30,7 +30,7 @@ use crate::filesystem::resolve_filesystem;
 /// Accepts full URLs (e.g. `s3://bucket/prefix/*.vortex`, `file:///data/*.vortex`) as well as
 /// bare file paths. For bare paths, the path is made absolute (without requiring it to exist)
 /// so that relative paths such as `./data/*.vortex` or `../data/*.vortex` are resolved correctly.
-fn parse_glob_url(glob_url_str: &str) -> VortexResult<Url> {
+pub(crate) fn parse_glob_url(glob_url_str: &str) -> VortexResult<Url> {
     Url::parse(glob_url_str).or_else(|_| {
         let path = absolute(Path::new(glob_url_str))
             .map_err(|e| vortex_err!("Failed making {glob_url_str} absolute: {e}"))?;

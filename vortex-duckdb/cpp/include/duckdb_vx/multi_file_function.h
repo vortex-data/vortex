@@ -35,6 +35,17 @@ typedef struct duckdb_vx_mff_reader_ *duckdb_vx_mff_reader;
 // Opaque writers populated by the extension during bind.
 typedef struct duckdb_vx_mff_schema_writer_ *duckdb_vx_mff_schema_writer;
 
+// A single projected column passed to prepare_reader. `name` is borrowed for
+// the duration of the call.
+typedef struct {
+    const char *name;
+    size_t name_len;
+} duckdb_vx_mff_column;
+
+// Opaque writer for EXPLAIN/to_string output. Same shape as
+// duckdb_vx_string_map but kept distinct for FFI hygiene.
+typedef duckdb_vx_string_map duckdb_vx_mff_string_map;
+
 /**
  * Append a column to the bind schema. The name is copied; the logical type is
  * cloned. Both arguments remain owned by the caller.
@@ -117,6 +128,19 @@ typedef struct {
     void (*free_reader)(duckdb_vx_mff_reader reader);
 
     /**
+     * Configure the reader with the columns it should produce and any filters
+     * pushed down by DuckDB. Called once per (reader, scan) pair before any
+     * try_initialize_scan / scan calls. `projection` is the ordered list of
+     * column names the output chunks must contain (one entry per chunk
+     * column). `filters` may be null when no filters were pushed down.
+     */
+    void (*prepare_reader)(duckdb_vx_mff_reader reader,
+                           const duckdb_vx_mff_column *projection,
+                           size_t projection_count,
+                           duckdb_vx_table_filter_set filters,
+                           duckdb_vx_error *error);
+
+    /**
      * Try to initialize a scan over `reader`. Returns true if a scan can begin,
      * false if the reader is exhausted. Called with the multi-file global lock
      * held; must not block on I/O.
@@ -149,6 +173,21 @@ typedef struct {
 
     /** Scan progress within a file in [0.0, 100.0]. */
     double (*progress_in_file)(duckdb_vx_mff_reader reader);
+
+    /**
+     * Estimated cardinality across `file_count` files. Returning false leaves
+     * cardinality unknown (DuckDB falls back to its own heuristic).
+     */
+    bool (*cardinality)(duckdb_vx_mff_bind_data bind_data,
+                        size_t file_count,
+                        duckdb_vx_node_statistics *out);
+
+    /**
+     * Populate the bind-time EXPLAIN map with key/value pairs (e.g. "Filters",
+     * "Projection"). Called whenever DuckDB renders the table function in an
+     * EXPLAIN output.
+     */
+    void (*to_string)(duckdb_vx_mff_bind_data bind_data, duckdb_vx_mff_string_map map);
 } duckdb_vx_mff_vtab_t;
 
 /**
