@@ -280,7 +280,9 @@ impl VTable for Sparse {
                     parts.slots[SparseSlots::PATCH_CHUNK_OFFSETS] = None;
                     unsafe { Array::from_parts_unchecked(parts) }
                 }
-                Err(array) => Sparse::try_new_from_patches(patches, array.fill_scalar().clone())?,
+                Err(array) => unsafe {
+                    Sparse::new_unchecked(patches, array.fill_scalar().clone())
+                },
             }
         } else {
             array
