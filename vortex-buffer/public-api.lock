@@ -256,7 +256,7 @@ pub fn vortex_buffer::BitBuffer::empty() -> Self
 
 pub fn vortex_buffer::BitBuffer::false_count(&self) -> usize
 
-pub fn vortex_buffer::BitBuffer::from_indices(usize, &[usize]) -> vortex_buffer::BitBuffer
+pub fn vortex_buffer::BitBuffer::from_indices(usize, impl core::iter::traits::collect::IntoIterator<Item = usize>) -> vortex_buffer::BitBuffer
 
 pub fn vortex_buffer::BitBuffer::full(bool, usize) -> Self
 
@@ -452,7 +452,7 @@ pub fn vortex_buffer::BitBufferMut::freeze(self) -> vortex_buffer::BitBuffer
 
 pub fn vortex_buffer::BitBufferMut::from_buffer(vortex_buffer::ByteBufferMut, usize, usize) -> Self
 
-pub fn vortex_buffer::BitBufferMut::from_indices(usize, &[usize]) -> vortex_buffer::BitBufferMut
+pub fn vortex_buffer::BitBufferMut::from_indices(usize, impl core::iter::traits::collect::IntoIterator<Item = usize>) -> vortex_buffer::BitBufferMut
 
 pub fn vortex_buffer::BitBufferMut::full(bool, usize) -> Self
 
