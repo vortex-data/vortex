@@ -74,10 +74,12 @@ pub(crate) fn chart_payload(
 
 /// Collect every chart inside one group. Returns `None` if the group has no
 /// data at all (callers should render a 404).
-// TODO: this currently re-runs the entire `collect_groups` discovery pass
-// (api.rs) per call before fetching each chart, which makes the landing page
-// O(groups * charts_per_group) DB queries plus the discovery scan. Fine for
-// the current dataset; revisit when chart counts grow.
+///
+/// TODO(#7812): this re-runs the entire [`collect_groups`] discovery pass
+/// per call before fetching each chart, so the landing page is
+/// O(groups * charts_per_group) DB queries plus the discovery scan. Fine
+/// for the current dataset; tracked for the refactor that collapses it
+/// into a single query.
 pub(crate) fn collect_group_charts(
     conn: &Connection,
     key: &GroupKey,

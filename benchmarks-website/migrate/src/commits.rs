@@ -91,5 +91,7 @@ fn optional_field(field: &Option<String>) -> Option<String> {
 /// Per-call warning bag returned to the caller for logging.
 #[derive(Debug, Default)]
 pub struct UpsertOutcome {
+    /// Human-readable warnings — typically one per missing required field on
+    /// the v2 commit (timestamp, tree_id, url).
     pub warnings: Vec<String>,
 }

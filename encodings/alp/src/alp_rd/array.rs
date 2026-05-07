@@ -90,7 +90,7 @@ impl ArrayEq for ALPRDData {
 }
 
 impl VTable for ALPRD {
-    type ArrayData = ALPRDData;
+    type TypedArrayData = ALPRDData;
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;

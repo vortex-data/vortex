@@ -3,13 +3,71 @@
 
 //! v3 wire-format records emitted by `--gh-json-v3`.
 //!
-//! See `benchmarks-website/planning/02-contracts.md` for the discriminated record
-//! format and `benchmarks-website/planning/01-schema.md` for the destination
-//! tables. The records emitted here are bare: the post-ingest envelope
-//! (`run_meta` + `commit`) is added by `scripts/post-ingest.py` before POSTing
-//! to `/api/ingest`.
+//! Each record on the wire is one of five `kind`-discriminated shapes that
+//! map 1:1 to the v3 fact tables. The records here are **bare**: the
+//! ingest envelope (`run_meta` + `commit`) is added by
+//! `scripts/post-ingest.py` before POSTing to
+//! `bench.vortex.dev/api/ingest` — keeps the Rust emitter dependency-light
+//! and lets CI fill the commit fields from `${{ github.sha }}` plus
+//! `git show`.
 //!
-//! This module is purely additive to the existing `gh-json` emission path.
+//! Wire-shape source of truth: [`vortex_bench_server::records`]. When
+//! changing a shape, change both sides in the same commit and run the
+//! server's snapshot tests.
+//!
+//! ## Producer mapping
+//!
+//! Every emitter / measurement type in `vortex-bench` maps to exactly one
+//! `kind`:
+//!
+//! | Source measurement                                                       | Wire `kind`           | Notes                                                                                                                  |
+//! |--------------------------------------------------------------------------|-----------------------|------------------------------------------------------------------------------------------------------------------------|
+//! | [`crate::measurements::QueryMeasurement`] (+ paired `MemoryMeasurement`) | `query_measurement`   | Two structs collapse into **one** record; memory fields omitted if `--track-memory` was off.                           |
+//! | [`crate::measurements::TimingMeasurement`] (random-access only)          | `random_access_time`  |                                                                                                                        |
+//! | [`crate::measurements::CompressionTimingMeasurement`]                    | `compression_time`    | `op` is decided by which side of `compress-bench`'s timing loop produced it.                                           |
+//! | `CompressionSizeMeasurement` (in `vortex-bench/src/compress/mod.rs`)     | `compression_size`    | Was previously a `CustomUnitMeasurement` with a byte unit; now extracted explicitly.                                   |
+//! | Cross-format ratio `CustomUnitMeasurement` rows                          | **dropped**           | Computed on read from `compression_sizes`.                                                                             |
+//! | `ScanTiming` (vector-search)                                             | `vector_search_run`   | Carries timing **and** the three side counters in the same row.                                                        |
+//!
+//! ## Per-binary inventory
+//!
+//! - `benchmarks/datafusion-bench` and `benchmarks/duckdb-bench` produce
+//!   `QueryMeasurement` (+ `MemoryMeasurement` when `--track-memory`) →
+//!   `query_measurements` with `engine = "datafusion"` or `"duckdb"`.
+//! - `benchmarks/lance-bench` is three things in one crate: a query runner
+//!   (`format = lance`) → `query_measurements`; a compression runner →
+//!   `compression_times` + `compression_sizes` with `format = lance`; a
+//!   random-access runner → `random_access_times` with `format = lance`.
+//! - `benchmarks/compress-bench` produces encode + decode
+//!   `CompressionTimingMeasurement` → `compression_times` (with
+//!   `op ∈ {encode, decode}`) and on-disk-size measurements →
+//!   `compression_sizes`. Ratio `CustomUnitMeasurement` rows are dropped;
+//!   the reader recomputes ratios.
+//! - `benchmarks/random-access-bench` produces `TimingMeasurement` →
+//!   `random_access_times`. Datasets here (chimp, taxi, ...) are a
+//!   different namespace from the SQL query suites.
+//! - `benchmarks/vector-search-bench` produces `ScanTiming` →
+//!   `vector_search_runs`. `dataset`, `layout`, `flavor`, and `threshold`
+//!   live on the binary's `Args`; the emitter plumbs them through to the
+//!   record, since the timing struct itself does not carry them.
+//!
+//! ## Per-suite query dim values
+//!
+//! For SQL query suites (everything that flows through `query_measurements`),
+//! the dim columns are populated as documented on
+//! [`benchmark_dataset_dims`].
+//!
+//! ## Historical-data side
+//!
+//! [`vortex_bench_migrate::classifier`] is the bug-for-bug port of v2's
+//! `getGroup` that recovers the same `(kind, dim tuple)` triple from the
+//! v2 S3 dump. It exists only for the one-shot migration; once cutover
+//! lands and the historical archive is loaded, both the migrator and its
+//! classifier go away. For new ingest, no classifier is needed — the
+//! emitter writes v3-shape records directly.
+//!
+//! [`vortex_bench_server::records`]: ../../../benchmarks-website/server/src/records.rs
+//! [`vortex_bench_migrate::classifier`]: ../../../benchmarks-website/migrate/src/classifier.rs
 
 use std::io::Write;
 use std::sync::LazyLock;
@@ -76,7 +134,10 @@ pub struct QueryMeasurementRecord {
     /// a per-suite scale factor.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scale_factor: Option<String>,
-    /// 1-based query index within the suite.
+    /// Query index within the suite. The convention (0-based or 1-based) is
+    /// fixed per suite by the producing bench loop; the migrate classifier
+    /// matches it by parsing literal digits out of `q07`-style v2 chart
+    /// names.
     pub query_idx: u32,
     /// Storage backend the run targeted (`nvme` or `s3`).
     pub storage: String,
@@ -218,8 +279,20 @@ fn canonical_tpc_scale_factor(scale_factor: &str) -> String {
 /// Map a [`BenchmarkDataset`] to the `(dataset, dataset_variant, scale_factor)`
 /// triple emitted in `query_measurement` records.
 ///
-/// Mirrors the `Per-suite dim values` table in
-/// `benchmarks-website/planning/benchmark-mapping.md`.
+/// The mapping is fixed because v3's chart grouping reads the dim columns
+/// directly. Live records must use the same shape the v2 → v3 migrator
+/// produces so the two streams collapse onto one chart group.
+///
+/// | `BenchmarkDataset` | `dataset` | `dataset_variant` | `scale_factor` | Notes |
+/// |---|---|---|---|---|
+/// | `TpcH { scale_factor }`     | `tpch`         | `None`              | TPC SF as string (`"1"`, `"10"`, `"100"`, `"1000"`) | Run through `canonical_tpc_scale_factor` so `"1.0"` and `"1"` collapse. |
+/// | `TpcDS { scale_factor }`    | `tpcds`        | `None`              | TPC SF as string                                    | Same canonicalization as TPC-H. |
+/// | `ClickBench { flavor: _ }`  | `clickbench`   | `None`              | `None`                                              | Migrate path drops flavor; live emitter matches so historical and live merge. |
+/// | `StatPopGen { n_rows: _ }`  | `statpopgen`   | `None`              | `None`                                              | Migrate path carries no SF for this suite; live drops it for the same reason. |
+/// | `PolarSignals { n_rows: _ }`| `polarsignals` | `None`              | `None`                                              | Same as StatPopGen. |
+/// | `Fineweb`                   | `fineweb`      | `None`              | `None`                                              | |
+/// | `GhArchive`                 | `gharchive`    | `None`              | `None`                                              | |
+/// | `PublicBi { name }`         | `public-bi`    | dataset name (e.g. `cms-provider`) | `None`               | Sub-dataset name lives in `dataset_variant`. |
 pub fn benchmark_dataset_dims(d: &BenchmarkDataset) -> (String, Option<String>, Option<String>) {
     match d {
         BenchmarkDataset::TpcH { scale_factor } => (

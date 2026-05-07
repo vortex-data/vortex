@@ -68,7 +68,7 @@ impl ArrayEq for ListViewData {
 }
 
 impl VTable for ListView {
-    type ArrayData = ListViewData;
+    type TypedArrayData = ListViewData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;

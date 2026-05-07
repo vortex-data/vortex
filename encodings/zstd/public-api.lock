@@ -24,9 +24,9 @@ pub fn vortex_zstd::Zstd::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt
 
 impl vortex_array::array::vtable::VTable for vortex_zstd::Zstd
 
-pub type vortex_zstd::Zstd::ArrayData = vortex_zstd::ZstdData
-
 pub type vortex_zstd::Zstd::OperationsVTable = vortex_zstd::Zstd
+
+pub type vortex_zstd::Zstd::TypedArrayData = vortex_zstd::ZstdData
 
 pub type vortex_zstd::Zstd::ValidityVTable = vortex_zstd::Zstd
 
@@ -48,7 +48,7 @@ pub fn vortex_zstd::Zstd::serialize(vortex_array::array::view::ArrayView<'_, Sel
 
 pub fn vortex_zstd::Zstd::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
 
-pub fn vortex_zstd::Zstd::validate(&self, &Self::ArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+pub fn vortex_zstd::Zstd::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_zstd::Zstd> for vortex_zstd::Zstd
 

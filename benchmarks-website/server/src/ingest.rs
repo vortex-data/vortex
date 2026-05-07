@@ -3,9 +3,34 @@
 
 //! `POST /api/ingest` handler.
 //!
-//! All-or-nothing per envelope: every record is upserted in a single DuckDB
-//! transaction or none of them are. The reported `inserted`/`updated` counts
-//! aggregate across all five fact tables.
+//! Accepts a single [`crate::records::Envelope`] per POST and applies every
+//! record inside one DuckDB transaction. Bearer auth is enforced one layer
+//! up by [`crate::auth::require_bearer`] before the body is read.
+//!
+//! ## HTTP matrix
+//!
+//! | Condition                                                           | Status                                            |
+//! |---------------------------------------------------------------------|---------------------------------------------------|
+//! | Happy path                                                          | 200 with `{ "inserted": N, "updated": M }`        |
+//! | Malformed JSON or unknown field at the envelope level               | 400                                               |
+//! | Unknown `kind`, unknown record field, or per-record validation fail | 400 with the offending record's index             |
+//! | Missing or invalid bearer token                                     | 401 (raised by [`crate::auth::require_bearer`])   |
+//! | Schema version newer than this server expects                      | 409                                               |
+//! | Schema version older than this server expects                       | 400 (via the malformed-envelope path)             |
+//! | Other server error                                                  | 500                                               |
+//!
+//! All-or-nothing semantics: a single failed record fails the whole batch
+//! and the transaction is rolled back. The reported `inserted` and `updated`
+//! counts aggregate across all five fact tables.
+//!
+//! ## measurement_id is server-internal
+//!
+//! Every fact-table row's primary key is computed by
+//! [`crate::db::measurement_id_query`] et al. just before the INSERT and
+//! never crosses a process boundary; emitters do not (and should not) send
+//! one. Re-ingesting the same `(commit_sha, dim tuple)` pair is the upsert
+//! case — `ON CONFLICT (measurement_id) DO UPDATE` overwrites the value
+//! columns and bumps the `updated` counter instead of `inserted`.
 
 use anyhow::Context as _;
 use anyhow::Result;
@@ -35,7 +60,9 @@ use crate::schema::SCHEMA_VERSION;
 /// Successful ingest response body.
 #[derive(Debug, Serialize)]
 pub struct IngestResponse {
+    /// Rows inserted across all five fact tables in this transaction.
     pub inserted: u64,
+    /// Rows that hit `ON CONFLICT (measurement_id) DO UPDATE`.
     pub updated: u64,
 }
 

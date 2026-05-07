@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Integration tests covering the acceptance criteria from
-//! `benchmarks-website/planning/components/server.md`.
+//! Integration tests for `POST /api/ingest` — round-trips the bearer
+//! check, the all-or-nothing transaction, the schema-version gate, and
+//! the upsert path.
 
 use std::net::SocketAddr;
 

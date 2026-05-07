@@ -174,7 +174,7 @@ impl State {
                 IoRequest::new_single(request)
             }),
             Some(window) => self.next_coalesced(window).map(|request| {
-                match request.requests.len() {
+                match request.requests().len() {
                     1 => self.metrics.individual_requests.add(1),
                     num_requests => {
                         self.metrics.coalesced_requests.add(1);
@@ -311,11 +311,14 @@ impl State {
             current_end - aligned_start,
         );
 
-        Some(CoalescedRequest {
-            range: aligned_start..current_end,
-            alignment: self.coalesced_buffer_alignment,
-            requests,
-        })
+        Some(
+            CoalescedRequest::try_new(
+                aligned_start..current_end,
+                self.coalesced_buffer_alignment,
+                requests,
+            )
+            .vortex_expect("each request is correctly constructed and range.start <= range.end"),
+        )
     }
 }
 
@@ -438,8 +441,8 @@ mod tests {
 
         match outputs[0].inner() {
             IoRequestInner::Coalesced(coalesced) => {
-                assert_eq!(coalesced.range, 0..30);
-                assert_eq!(coalesced.requests.len(), 3);
+                assert_eq!(*coalesced.range(), 0..30);
+                assert_eq!(coalesced.requests().len(), 3);
             }
             _ => panic!("Expected coalesced request"),
         }
@@ -467,7 +470,7 @@ mod tests {
         .await;
         assert_eq!(outputs.len(), 1);
         match outputs[0].inner() {
-            IoRequestInner::Coalesced(c) => assert_eq!(c.requests.len(), 2),
+            IoRequestInner::Coalesced(c) => assert_eq!(c.requests().len(), 2),
             _ => panic!("Expected coalesced"),
         }
     }
@@ -512,10 +515,10 @@ mod tests {
         assert_eq!(outputs.len(), 1);
         match outputs[0].inner() {
             IoRequestInner::Coalesced(coalesced) => {
-                assert_eq!(coalesced.range.start, 4);
-                assert_eq!(coalesced.alignment, Alignment::new(4));
-                for req in &coalesced.requests {
-                    let rel = req.offset - coalesced.range.start;
+                assert_eq!(coalesced.range().start, 4);
+                assert_eq!(coalesced.alignment(), Alignment::new(4));
+                for req in coalesced.requests() {
+                    let rel = req.offset - coalesced.range().start;
                     assert_eq!(rel % *req.alignment as u64, 0);
                 }
             }
@@ -657,12 +660,12 @@ mod tests {
 
         match outputs[0].inner() {
             IoRequestInner::Coalesced(coalesced) => {
-                assert_eq!(coalesced.range, 0..110);
-                assert_eq!(coalesced.requests.len(), 3);
+                assert_eq!(*coalesced.range(), 0..110);
+                assert_eq!(coalesced.requests().len(), 3);
                 // Should be sorted by offset
-                assert_eq!(coalesced.requests[0].offset, 0);
-                assert_eq!(coalesced.requests[1].offset, 50);
-                assert_eq!(coalesced.requests[2].offset, 100);
+                assert_eq!(coalesced.requests()[0].offset, 0);
+                assert_eq!(coalesced.requests()[1].offset, 50);
+                assert_eq!(coalesced.requests()[2].offset, 100);
             }
             _ => panic!("Expected coalesced request"),
         }

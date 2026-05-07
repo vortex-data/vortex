@@ -24,9 +24,14 @@ use crate::classifier::QUERY_SUITES;
 /// Result of one `verify` run.
 #[derive(Debug, Default)]
 pub struct VerifyReport {
+    /// Group display names present in both v2 and v3.
     pub matched_groups: Vec<String>,
+    /// Group display names that exist in v3 but not v2.
     pub only_in_v3: Vec<String>,
+    /// Group display names that exist in v2 but not v3 — these gate the CLI's
+    /// non-zero exit.
     pub only_in_v2: Vec<String>,
+    /// Per-group chart-count diffs for groups present on both sides.
     pub chart_diffs: Vec<ChartDiff>,
 }
 
@@ -34,8 +39,11 @@ pub struct VerifyReport {
 /// group is structurally present on both sides but the counts differ.
 #[derive(Debug, Clone)]
 pub struct ChartDiff {
+    /// Group display name.
     pub group: String,
+    /// Number of charts v2 reported for this group.
     pub v2_count: usize,
+    /// Number of charts the migrated v3 DuckDB has for this group.
     pub v3_count: usize,
 }
 

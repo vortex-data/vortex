@@ -52,7 +52,7 @@ impl ArrayEq for PrimitiveData {
 }
 
 impl VTable for Primitive {
-    type ArrayData = PrimitiveData;
+    type TypedArrayData = PrimitiveData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;

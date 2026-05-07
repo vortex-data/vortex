@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Opaque slugs for `/api/chart/:slug`.
+//! Opaque slugs for `/api/chart/:slug` and `/api/group/:slug`.
 //!
-//! Per `02-contracts.md`, the web-ui treats slugs as opaque strings: it
-//! receives them from `/api/groups` and feeds them back unchanged to
-//! `/api/chart/:slug`. The server is free to choose any format.
-//!
-//! Slugs here are `<prefix>.<base64url-of-json>` where `<prefix>` names the
-//! source fact table and the JSON encodes the chart key. Round-tripping the
-//! slug back gives a strongly-typed [`ChartKey`].
+//! The web-ui treats slugs as opaque strings: it receives them from
+//! `/api/groups` and feeds them back unchanged. The server is free to
+//! choose any format — slugs here are
+//! `<prefix>.<base64url-of-json>`, where `<prefix>` names the source
+//! fact table and the JSON encodes the chart or group key. Round-tripping
+//! the slug back gives a strongly-typed [`ChartKey`] or [`GroupKey`].
 
 use anyhow::Context as _;
 use anyhow::Result;
@@ -35,9 +34,10 @@ const PREFIX_VECTOR_SEARCH_GROUP: &str = "vsg";
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "k")]
 pub enum ChartKey {
-    /// `query_measurements` chart: `(dataset, query_idx)` per `01-schema.md`.
-    /// Group context (`dataset_variant`, `scale_factor`, `storage`) is carried
-    /// alongside so the slug fully specifies the chart.
+    /// `query_measurements` chart: `(dataset, query_idx)` is the chart key
+    /// per [`crate::schema`]. Group context (`dataset_variant`,
+    /// `scale_factor`, `storage`) is carried alongside so the slug fully
+    /// specifies the chart.
     QueryMeasurement {
         dataset: String,
         dataset_variant: Option<String>,

@@ -86,7 +86,7 @@ impl ArrayEq for BitPackedData {
 }
 
 impl VTable for BitPacked {
-    type ArrayData = BitPackedData;
+    type TypedArrayData = BitPackedData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -98,7 +98,7 @@ impl VTable for BitPacked {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

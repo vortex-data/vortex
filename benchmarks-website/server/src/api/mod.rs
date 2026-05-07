@@ -4,9 +4,10 @@
 //! Read-side API: `/api/groups`, `/api/chart/{slug}`, `/api/group/{slug}`,
 //! `/health`.
 //!
-//! Group / chart / series fit follows
-//! `benchmarks-website/planning/01-schema.md`. Slugs round-trip through
-//! [`crate::slug::ChartKey`] / [`crate::slug::GroupKey`].
+//! Group / chart / series fit follows the layout in [`crate::schema`]:
+//! one fact table per measurement family, each with a known group / chart /
+//! series tuple. Slugs round-trip through [`crate::slug::ChartKey`] and
+//! [`crate::slug::GroupKey`].
 //!
 //! Submodules:
 //! - [`mod@dto`]          — every wire-shape struct (`Group`, `ChartResponse`, …).

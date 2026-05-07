@@ -56,7 +56,7 @@ impl ArrayEq for FixedSizeListData {
 }
 
 impl VTable for FixedSizeList {
-    type ArrayData = FixedSizeListData;
+    type TypedArrayData = FixedSizeListData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;

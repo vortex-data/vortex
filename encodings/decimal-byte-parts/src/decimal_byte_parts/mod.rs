@@ -70,7 +70,7 @@ pub struct DecimalBytesPartsMetadata {
 }
 
 impl VTable for DecimalByteParts {
-    type ArrayData = DecimalBytePartsData;
+    type TypedArrayData = DecimalBytePartsData;
 
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
@@ -82,7 +82,7 @@ impl VTable for DecimalByteParts {
 
     fn validate(
         &self,
-        _data: &Self::ArrayData,
+        _data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

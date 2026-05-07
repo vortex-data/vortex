@@ -31,7 +31,7 @@ pub type VariantArray = Array<Variant>;
 pub struct Variant;
 
 impl VTable for Variant {
-    type ArrayData = EmptyArrayData;
+    type TypedArrayData = EmptyArrayData;
 
     type OperationsVTable = Self;
 
@@ -44,7 +44,7 @@ impl VTable for Variant {
 
     fn validate(
         &self,
-        _data: &Self::ArrayData,
+        _data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

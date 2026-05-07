@@ -22,9 +22,9 @@ pub fn vortex_alp::ALP::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::
 
 impl vortex_array::array::vtable::VTable for vortex_alp::ALP
 
-pub type vortex_alp::ALP::ArrayData = vortex_alp::ALPData
-
 pub type vortex_alp::ALP::OperationsVTable = vortex_alp::ALP
+
+pub type vortex_alp::ALP::TypedArrayData = vortex_alp::ALPData
 
 pub type vortex_alp::ALP::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 
@@ -158,9 +158,9 @@ pub fn vortex_alp::ALPRD::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt
 
 impl vortex_array::array::vtable::VTable for vortex_alp::ALPRD
 
-pub type vortex_alp::ALPRD::ArrayData = vortex_alp::ALPRDData
-
 pub type vortex_alp::ALPRD::OperationsVTable = vortex_alp::ALPRD
+
+pub type vortex_alp::ALPRD::TypedArrayData = vortex_alp::ALPRDData
 
 pub type vortex_alp::ALPRD::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
 

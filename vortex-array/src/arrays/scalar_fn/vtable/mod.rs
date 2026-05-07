@@ -66,7 +66,7 @@ impl ArrayEq for ScalarFnData {
 }
 
 impl VTable for ScalarFn {
-    type ArrayData = ScalarFnData;
+    type TypedArrayData = ScalarFnData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 

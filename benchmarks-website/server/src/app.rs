@@ -4,7 +4,8 @@
 //! Axum [`Router`] composition and shared [`AppState`].
 //!
 //! The router mounts:
-//! - `/api/groups`, `/api/chart/{slug}`, `/health` (read API)
+//! - `/api/groups`, `/api/chart/{slug}`, `/api/group/{slug}`, `/health`
+//!   (read API)
 //! - `/api/ingest` (gated by [`crate::auth::require_bearer`])
 //! - HTML routes contributed by [`crate::html::router`]
 //!
@@ -34,8 +35,11 @@ use crate::ingest;
 /// or a small `String`).
 #[derive(Clone)]
 pub struct AppState {
+    /// Mutex-guarded DuckDB connection. See [`crate::db`].
     pub db: DbHandle,
+    /// Bearer token expected on `/api/ingest`. Compared via constant-time eq.
     pub bearer_token: Arc<String>,
+    /// On-disk path of the DuckDB file. Surfaced on `/health`.
     pub db_path: Arc<PathBuf>,
 }
 

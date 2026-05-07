@@ -93,7 +93,7 @@ pub struct AnyColumnar;
 impl Matcher for AnyColumnar {
     type Match<'a> = ColumnarView<'a>;
 
-    fn try_match<'a>(array: &'a ArrayRef) -> Option<Self::Match<'a>> {
+    fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
         if let Some(constant) = array.as_opt::<Constant>() {
             Some(ColumnarView::Constant(constant))
         } else {

@@ -12,8 +12,10 @@ use vortex_buffer::Alignment;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 
 /// An I/O request, either a single read or a coalesced set of reads.
+#[derive(Debug)]
 pub(crate) struct IoRequest(IoRequestInner);
 
 impl IoRequest {
@@ -37,8 +39,10 @@ impl IoRequest {
     pub fn len(&self) -> usize {
         match &self.0 {
             IoRequestInner::Single(r) => r.length,
-            IoRequestInner::Coalesced(r) => usize::try_from(r.range.end - r.range.start)
-                .vortex_expect("range too big for usize"),
+            IoRequestInner::Coalesced(r) => {
+                usize::try_from(r.range.end.saturating_sub(r.range.start))
+                    .vortex_expect("range too big for usize")
+            }
         }
     }
 
@@ -78,6 +82,7 @@ impl IoRequest {
     }
 }
 
+#[derive(Debug)]
 pub(crate) enum IoRequestInner {
     Single(ReadRequest),
     Coalesced(CoalescedRequest),
@@ -115,9 +120,9 @@ impl ReadRequest {
 
 /// A set of I/O requests that have been coalesced into a single larger request.
 pub(crate) struct CoalescedRequest {
-    pub(crate) range: Range<u64>,
-    pub(crate) alignment: Alignment, // Global max segment alignment used for the coalesced range.
-    pub(crate) requests: Vec<ReadRequest>, // TODO(ngates): we could have enum of Single/Many to avoid Vec.
+    range: Range<u64>,
+    alignment: Alignment, // Global max segment alignment used for the coalesced range.
+    requests: Vec<ReadRequest>, // TODO(ngates): we could have enum of Single/Many to avoid Vec.
 }
 
 impl Debug for CoalescedRequest {
@@ -132,6 +137,58 @@ impl Debug for CoalescedRequest {
 }
 
 impl CoalescedRequest {
+    pub fn try_new(
+        range: Range<u64>,
+        alignment: Alignment,
+        requests: Vec<ReadRequest>,
+    ) -> VortexResult<Self> {
+        vortex_ensure!(
+            range.start <= range.end,
+            "CoalescedRequest: range.start, {}, must be less than or equal to range.end, {}.",
+            range.start,
+            range.end,
+        );
+        for req in requests.iter() {
+            vortex_ensure!(
+                req.offset >= range.start,
+                "CoalescedRequest: sub-request for length {} at file offset {} precedes coalesced range: {}..{}. {:?}",
+                req.length,
+                req.offset,
+                range.start,
+                range.end,
+                req,
+            );
+            vortex_ensure!(
+                req.offset.saturating_add(req.length as u64) <= range.end,
+                "CoalescedRequest: sub-request for length {} at file offset {} exceeds the coalesced range: {}..{}. {:?}",
+                req.length,
+                req.offset,
+                range.start,
+                range.end,
+                req,
+            );
+        }
+        Ok(Self {
+            range,
+            alignment,
+            requests,
+        })
+    }
+
+    #[allow(unused)]
+    pub fn range(&self) -> &Range<u64> {
+        &self.range
+    }
+
+    #[allow(unused)]
+    pub fn alignment(&self) -> Alignment {
+        self.alignment
+    }
+
+    pub fn requests(&self) -> &[ReadRequest] {
+        &self.requests
+    }
+
     pub fn resolve(self, result: VortexResult<BufferHandle>) {
         match result {
             Ok(buffer) => {

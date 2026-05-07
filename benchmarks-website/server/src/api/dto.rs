@@ -4,10 +4,10 @@
 //! Wire-shape data transfer objects for the read API.
 //!
 //! These structs are the JSON the server emits on `/api/groups`,
-//! `/api/group/{slug}`, `/api/chart/{slug}`, and `/health`. The shapes match
-//! the contracts documented in `planning/02-contracts.md`; renaming or
-//! reordering fields is a wire-compat break and must be coordinated with
-//! the emitter and migrator.
+//! `/api/group/{slug}`, `/api/chart/{slug}`, and `/health`. Renaming or
+//! reordering fields is a wire-compat break — coordinate with
+//! `chart-init.js` (and the emitter / migrator if the change is on the
+//! ingest side, see [`crate::records`]).
 
 use std::collections::BTreeMap;
 

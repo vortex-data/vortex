@@ -56,7 +56,7 @@ impl ArrayEq for ByteBoolData {
 }
 
 impl VTable for ByteBool {
-    type ArrayData = ByteBoolData;
+    type TypedArrayData = ByteBoolData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
@@ -68,7 +68,7 @@ impl VTable for ByteBool {
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],

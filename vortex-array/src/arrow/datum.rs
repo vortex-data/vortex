@@ -42,7 +42,7 @@ impl Datum {
         }
     }
 
-    /// Create a new [`Datum`] from an `DynArray`, which can then be passed to Arrow compute.
+    /// Create a new [`Datum`] from an `DynArrayData`, which can then be passed to Arrow compute.
     /// This not try and convert the array to a scalar if it is constant.
     pub fn try_new_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         Ok(Self {
