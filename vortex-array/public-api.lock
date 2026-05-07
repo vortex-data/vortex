@@ -19344,7 +19344,7 @@ pub fn vortex_array::stats::StatsSet::as_mut_typed_ref<'a, 'b>(&'a mut self, &'b
 
 pub fn vortex_array::stats::StatsSet::as_typed_ref<'a, 'b>(&'a self, &'b vortex_array::dtype::DType) -> vortex_array::stats::TypedStatsSetRef<'a, 'b>
 
-pub unsafe fn vortex_array::stats::StatsSet::new_unchecked(alloc::vec::Vec<(vortex_array::expr::stats::Stat, vortex_array::expr::stats::Precision<vortex_array::scalar::ScalarValue>)>) -> Self
+pub unsafe fn vortex_array::stats::StatsSet::new_unchecked(smallvec::SmallVec<vortex_array::stats::StatsArray>) -> Self
 
 pub fn vortex_array::stats::StatsSet::of(vortex_array::expr::stats::Stat, vortex_array::expr::stats::Precision<vortex_array::scalar::ScalarValue>) -> Self
 
@@ -19507,6 +19507,8 @@ pub const vortex_array::stats::PRUNING_STATS: &[vortex_array::expr::stats::Stat]
 pub fn vortex_array::stats::as_stat_bitset_bytes(&[vortex_array::expr::stats::Stat]) -> alloc::vec::Vec<u8>
 
 pub fn vortex_array::stats::stats_from_bitset_bytes(&[u8]) -> alloc::vec::Vec<vortex_array::expr::stats::Stat>
+
+pub type vortex_array::stats::StatsArray = [(vortex_array::expr::stats::Stat, vortex_array::expr::stats::Precision<vortex_array::scalar::ScalarValue>); 4]
 
 pub mod vortex_array::stream
 
