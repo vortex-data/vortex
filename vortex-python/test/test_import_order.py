@@ -24,7 +24,7 @@ import pytest
     ],
     ids=["pyarrow_first", "vortex_first"],
 )
-def test_import_order_no_crash(script):
+def test_import_order_no_crash(script: str) -> None:
     result = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
