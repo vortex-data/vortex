@@ -21,4 +21,5 @@ pub mod pack;
 pub mod root;
 pub mod select;
 pub mod stat;
+pub mod variant_get;
 pub mod zip;

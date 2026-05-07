@@ -17,7 +17,7 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 - [x] (2026-05-07T12:42Z) Added and identified baseline tests for current variant behavior: explicit outer null versus present `variantnull`, Arrow Parquet Variant storage roundtrips including a present Variant null with a separate outer null row, and slice/filter/take over typed-only shredded Parquet Variant arrays.
 - [x] (2026-05-07T13:24Z) Implemented the canonical `VariantArray` shape change with `core_storage` and optional `shredded` slots, checked constructors, serde metadata for shredded dtype, validation, accessors, scalar/validity delegation to core storage, Parquet canonicalization that exposes `typed_value` as canonical shredded data, and focused tests.
 - [x] (2026-05-07T14:06Z) Updated row-preserving canonical Variant transformations so slice, filter, take, mask validity execution, canonical-validity execution, and recursive canonicalization transform `core_storage` and optional `shredded` together; added regression tests that assert both children follow the same row selection.
-- [ ] Add and register a `VariantGet` scalar function skeleton.
+- [x] (2026-05-07T12:15Z) Added and registered the `VariantGet` scalar function skeleton with strict path options, optional dtype options, expression helper, nullable return dtype inference, SQL/display formatting, protobuf serialization, generated proto bindings, public API locks, and construction/type-error/serde tests.
 - [ ] Implement the unshredded Parquet Variant fallback.
 - [ ] Implement shredded fast-path extraction and partial-shredding merge behavior for direct `ParquetVariant`, canonical variants with a canonical `shredded` child, and canonical variants whose `core_storage` child still exposes encoding-specific shredded data.
 - [ ] Wire the narrowest useful higher-level integration after core behavior is covered.
@@ -45,6 +45,12 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 
 - Observation: Direct slicing of canonical variants needs a `Variant` parent reduce rule, not only the generic `SliceArray` execution path.
   Evidence: `vortex-array/src/arrays/variant/compute/slice.rs` now implements `SliceReduce` for `Variant`, and `vortex-array/src/arrays/variant/compute/rules.rs` registers slice, filter, and take parent reduce adapters for `Variant`.
+
+- Observation: `vortex-proto` has no crate-local tests, so `cargo nextest run -p vortex-proto` compiles the crate and then exits with "no tests to run".
+  Evidence: The skeleton milestone reran that validation as `cargo nextest run -p vortex-proto --no-tests pass`, which passed after the exact command compiled successfully but returned nextest's no-tests exit code.
+
+- Observation: Regenerating public API locks for the `VariantGet` public API also picked up public reduce impl entries from the preceding Variant row-preserving transform milestone.
+  Evidence: `./scripts/public-api.sh` updated `vortex-array/public-api.lock` for the new `variant_get` module and helper, and also added `Variant` slice/filter/take reduce entries that were already present in Rust code.
 
 ## Decision Log
 
@@ -74,7 +80,7 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 
 ## Outcomes & Retrospective
 
-The planning, baseline-test, canonical shape, and row-preserving transformation milestones are complete. The current implementation exposes a required `core_storage` child and optional `shredded` child from canonical `VariantArray`, validates row alignment, preserves the existing one-child constructor for compatibility, serializes the optional shredded dtype, canonicalizes Parquet Variant `typed_value` into the canonical shredded child, and keeps both canonical Variant children aligned through slice, filter, take, masking, canonical validity execution, and recursive canonicalization. The next milestone can add the `VariantGet` scalar function skeleton on top of this stable array shape.
+The planning, baseline-test, canonical shape, row-preserving transformation, and `VariantGet` skeleton milestones are complete. The current implementation exposes a required `core_storage` child and optional `shredded` child from canonical `VariantArray`, validates row alignment, preserves the existing one-child constructor for compatibility, serializes the optional shredded dtype, canonicalizes Parquet Variant `typed_value` into the canonical shredded child, and keeps both canonical Variant children aligned through slice, filter, take, masking, canonical validity execution, and recursive canonicalization. The scalar expression layer now has a registered `vortex.variant_get` function with strict path and optional dtype options, nullable return dtype inference, SQL/display formatting, expression helper support, and protobuf roundtrips. The next milestone can implement the unshredded Parquet Variant execution fallback behind that expression.
 
 ## Context and Orientation
 
@@ -176,6 +182,8 @@ Run all commands from `/Users/adamgs/code/vortex`.
 
        cargo nextest run -p vortex-array variant_get
        cargo nextest run -p vortex-proto
+
+   VariantGet skeleton milestone status: completed on 2026-05-07T12:15Z. New code defines `VariantGet`, `VariantGetOptions`, `VariantPath`, and `VariantPathElement`; registers `vortex.variant_get`; exposes `expr::variant_get`; serializes path elements and optional dtype through `VariantGetOpts`; and tests path parsing/display, nullable dtype inference, non-variant input rejection, SQL formatting, options serde, and expression serde. `cargo nextest run -p vortex-proto` compiles but reports no tests, so the passing command for that crate is `cargo nextest run -p vortex-proto --no-tests pass`.
 
 6. Parquet Variant unshredded fallback.
 
