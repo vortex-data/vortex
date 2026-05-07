@@ -275,14 +275,12 @@ impl VTable for Sparse {
             // Decompose, update in place, and reassemble without re-validation.
             match array.try_into_parts() {
                 Ok(mut parts) => {
-                    *parts.data.patches_mut() = patches;
+                    parts.data.patches_data = PatchesData::from_patches(&patches);
                     parts.slots[SparseSlots::PATCH_INDICES] = Some(resolved_indices);
                     parts.slots[SparseSlots::PATCH_CHUNK_OFFSETS] = None;
                     unsafe { Array::from_parts_unchecked(parts) }
                 }
-                Err(array) => {
-                    Sparse::try_new_from_patches(patches, array.fill_scalar().clone())?
-                }
+                Err(array) => Sparse::try_new_from_patches(patches, array.fill_scalar().clone())?,
             }
         } else {
             array
@@ -307,6 +305,12 @@ impl VTable for Sparse {
         execute_sparse(parts, ctx).map(ExecutionResult::done)
     }
 }
+
+const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
+    indices: SparseSlots::PATCH_INDICES,
+    values: SparseSlots::PATCH_VALUES,
+    chunk_offsets: SparseSlots::PATCH_CHUNK_OFFSETS,
+};
 
 #[derive(Clone, Debug)]
 pub struct SparseData {
@@ -421,7 +425,7 @@ impl SparseData {
     }
 
     fn make_slots(patches: &Patches) -> Vec<Option<ArrayRef>> {
-        let mut slots = Vec::with_capacity(NUM_SLOTS);
+        let mut slots = Vec::with_capacity(SparseSlots::COUNT);
         PatchesData::push_slots(&mut slots, Some(patches));
         slots
     }
@@ -473,32 +477,8 @@ impl SparseData {
 
     /// Returns the offset of the patches within the parent array.
     #[inline]
-    pub fn patches(&self) -> &Patches {
-        &self.patches
-    }
-
-    #[inline]
-    pub(crate) fn patches_mut(&mut self) -> &mut Patches {
-        &mut self.patches
-    }
-
-    #[inline]
-    pub fn resolved_patches(&self) -> VortexResult<Patches> {
-        let patches = self.patches();
-        let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
-        let indices = patches.indices().binary(
-            ConstantArray::new(indices_offset, patches.indices().len()).into_array(),
-            Operator::Sub,
-        )?;
-
-        Patches::new(
-            patches.array_len(),
-            0,
-            indices,
-            patches.values().clone(),
-            // TODO(0ax1): handle chunk offsets
-            None,
-        )
+    pub fn offset(&self) -> usize {
+        self.patches_data.offset()
     }
 
     #[inline]
