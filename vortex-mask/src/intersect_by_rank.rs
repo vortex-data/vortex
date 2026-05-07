@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use vortex_buffer::BitBuffer;
-use vortex_buffer::BitChunkIterator;
 use vortex_buffer::BufferMut;
 
 use crate::Mask;
@@ -117,6 +116,102 @@ fn trailing_zeros_byte(value: u8) -> usize {
     value.trailing_zeros() as usize
 }
 
+struct BitWords<'a> {
+    buffer: &'a BitBuffer,
+    bytes: Option<&'a [u8]>,
+    chunk_len: usize,
+    remainder_len: usize,
+}
+
+impl<'a> BitWords<'a> {
+    fn new(buffer: &'a BitBuffer) -> Self {
+        Self {
+            buffer,
+            bytes: (buffer.offset() == 0)
+                .then(|| &buffer.inner().as_slice()[..buffer.len().div_ceil(8)]),
+            chunk_len: buffer.len() / 64,
+            remainder_len: buffer.len() % 64,
+        }
+    }
+
+    #[inline]
+    fn chunk_len(&self) -> usize {
+        self.chunk_len
+    }
+
+    #[inline]
+    fn remainder_len(&self) -> usize {
+        self.remainder_len
+    }
+
+    #[inline]
+    fn word(&self, chunk_idx: usize) -> u64 {
+        debug_assert!(chunk_idx < self.chunk_len);
+        if let Some(bytes) = self.bytes {
+            return read_u64(&bytes[chunk_idx * 8..chunk_idx * 8 + 8]);
+        }
+
+        self.pack_bits(chunk_idx * 64, 64)
+    }
+
+    #[inline]
+    fn remainder_bits(&self) -> u64 {
+        if self.remainder_len == 0 {
+            return 0;
+        }
+
+        if let Some(bytes) = self.bytes {
+            let start = self.chunk_len * 8;
+            return read_u64(&bytes[start..]) & low_bits(self.remainder_len);
+        }
+
+        self.pack_bits(self.chunk_len * 64, self.remainder_len)
+    }
+
+    #[inline]
+    fn iter(&self) -> BitWordsIter<'_, 'a> {
+        BitWordsIter {
+            words: self,
+            chunk_idx: 0,
+        }
+    }
+
+    #[inline]
+    fn pack_bits(&self, start: usize, bit_count: usize) -> u64 {
+        let mut word = 0u64;
+        for bit_idx in 0..bit_count {
+            word |= (self.buffer.value(start + bit_idx) as u64) << bit_idx;
+        }
+        word
+    }
+}
+
+struct BitWordsIter<'w, 'a> {
+    words: &'w BitWords<'a>,
+    chunk_idx: usize,
+}
+
+impl Iterator for BitWordsIter<'_, '_> {
+    type Item = u64;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.chunk_idx == self.words.chunk_len {
+            return None;
+        }
+
+        let word = self.words.word(self.chunk_idx);
+        self.chunk_idx += 1;
+        Some(word)
+    }
+}
+
+#[inline]
+fn read_u64(bytes: &[u8]) -> u64 {
+    let mut value = [0; 8];
+    value[..bytes.len().min(8)].copy_from_slice(&bytes[..bytes.len().min(8)]);
+    u64::from_le_bytes(value)
+}
+
 #[cfg(target_arch = "x86_64")]
 struct Bmi2Deposit;
 
@@ -165,7 +260,8 @@ unsafe fn select_bit_position_bmi2(word: u64, rank: usize) -> usize {
 /// funnel shift via `u128` to extract bits at any offset without branching. The shift
 /// pattern compiles to a single funnel-shift / SHRD-style sequence on x86_64.
 struct RankBitReader<'a> {
-    chunks: BitChunkIterator<'a>,
+    chunks: BitWords<'a>,
+    chunk_idx: usize,
     remainder: u64,
     current: u64,
     next: u64,
@@ -175,31 +271,52 @@ struct RankBitReader<'a> {
 
 impl<'a> RankBitReader<'a> {
     fn new(buffer: &'a BitBuffer) -> Self {
-        let chunks = buffer.chunks();
+        let chunks = BitWords::new(buffer);
         let remainder = chunks.remainder_bits();
-        let mut iter = chunks.iter();
+        let mut chunk_idx = 0usize;
         let mut remainder_loaded = false;
 
-        let current = iter.next().unwrap_or_else(|| {
+        let current = if chunks.chunk_len() == 0 {
             remainder_loaded = true;
             remainder
-        });
-        let next = iter.next().unwrap_or_else(|| {
-            if !remainder_loaded {
-                remainder_loaded = true;
-                remainder
-            } else {
-                0
-            }
-        });
+        } else {
+            let word = chunks.word(chunk_idx);
+            chunk_idx += 1;
+            word
+        };
+        let next = if chunk_idx < chunks.chunk_len() {
+            let word = chunks.word(chunk_idx);
+            chunk_idx += 1;
+            word
+        } else if !remainder_loaded {
+            remainder_loaded = true;
+            remainder
+        } else {
+            0
+        };
 
         Self {
-            chunks: iter,
+            chunks,
+            chunk_idx,
             remainder,
             current,
             next,
             bit_offset: 0,
             remainder_loaded,
+        }
+    }
+
+    #[inline]
+    fn fetch_next(&mut self) -> u64 {
+        if self.chunk_idx < self.chunks.chunk_len() {
+            let word = self.chunks.word(self.chunk_idx);
+            self.chunk_idx += 1;
+            word
+        } else if !self.remainder_loaded {
+            self.remainder_loaded = true;
+            self.remainder
+        } else {
+            0
         }
     }
 
@@ -226,18 +343,6 @@ impl<'a> RankBitReader<'a> {
         }
 
         bits
-    }
-
-    #[inline]
-    fn fetch_next(&mut self) -> u64 {
-        if let Some(chunk) = self.chunks.next() {
-            chunk
-        } else if !self.remainder_loaded {
-            self.remainder_loaded = true;
-            self.remainder
-        } else {
-            0
-        }
     }
 }
 
@@ -309,7 +414,7 @@ fn intersect_bit_buffers<D: DepositBits>(
     let len = self_buffer.len();
     let mut result = BufferMut::with_capacity(len.div_ceil(64));
     let mut reader = RankBitReader::new(mask_buffer);
-    let self_chunks = self_buffer.chunks();
+    let self_chunks = BitWords::new(self_buffer);
 
     for self_chunk in self_chunks.iter() {
         let self_count = count_ones(self_chunk);
@@ -336,7 +441,7 @@ fn intersect_bit_buffer_by_rank_indices<D: DepositBits>(
 ) -> Mask {
     let len = self_buffer.len();
     let mut result = BufferMut::with_capacity(len.div_ceil(64));
-    let self_chunks = self_buffer.chunks();
+    let self_chunks = BitWords::new(self_buffer);
     let mut rank_base = 0usize;
     let mut rank_idx = 0usize;
 
@@ -380,7 +485,7 @@ where
         return Mask::new_false(len);
     }
 
-    let chunks = self_buffer.chunks();
+    let chunks = BitWords::new(self_buffer);
     let remainder = chunks.remainder_bits();
     let mut chunk_iter = chunks.iter();
 
@@ -442,14 +547,11 @@ fn rank_bits_for_chunk(
 fn intersect_by_rank_indices(len: usize, self_indices: &[usize], mask_indices: &[usize]) -> Mask {
     Mask::from_indices(
         len,
-        mask_indices
-            .iter()
-            .map(|idx| {
-                // SAFETY: mask indices are ranks into self_indices, because
-                // mask.len() == self.true_count() == self_indices.len().
-                unsafe { *self_indices.get_unchecked(*idx) }
-            })
-            .collect(),
+        mask_indices.iter().map(|idx| {
+            // SAFETY: mask indices are ranks into self_indices, because
+            // mask.len() == self.true_count() == self_indices.len().
+            unsafe { *self_indices.get_unchecked(*idx) }
+        }),
     )
 }
 

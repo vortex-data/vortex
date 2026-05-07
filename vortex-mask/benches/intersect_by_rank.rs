@@ -68,12 +68,7 @@ fn create_random_mask(len: usize, selectivity: f64) -> Mask {
 fn create_random_indices_mask(len: usize, selectivity: f64) -> Mask {
     #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let threshold = (selectivity * 1000.0) as usize;
-    Mask::from_indices(
-        len,
-        (0..len)
-            .filter(|&i| (i * 7 + 13) % 1000 < threshold)
-            .collect(),
-    )
+    Mask::from_indices(len, (0..len).filter(|&i| (i * 7 + 13) % 1000 < threshold))
 }
 
 fn create_runs_mask(len: usize, run_len: usize, gap_len: usize) -> Mask {

@@ -226,9 +226,7 @@ mod test {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 6, &mut ctx).unwrap();
-        let filtered = bitpacked
-            .filter(Mask::from_indices(4096, (0..1024).collect()))
-            .unwrap();
+        let filtered = bitpacked.filter(Mask::from_indices(4096, 0..1024)).unwrap();
         let filtered_prim = filtered.execute::<PrimitiveArray>(&mut ctx).unwrap();
         assert_arrays_eq!(
             filtered_prim,
@@ -243,7 +241,7 @@ mod test {
         let unpacked = PrimitiveArray::new(values.clone(), Validity::NonNullable);
         let bitpacked = BitPackedData::encode(&unpacked.into_array(), 9, &mut ctx).unwrap();
         let filtered = bitpacked
-            .filter(Mask::from_indices(values.len(), (0..250).collect()))
+            .filter(Mask::from_indices(values.len(), 0..250))
             .unwrap()
             .execute::<PrimitiveArray>(&mut ctx)
             .unwrap();

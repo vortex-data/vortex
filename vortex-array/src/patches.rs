@@ -1630,7 +1630,7 @@ mod test {
         .unwrap();
 
         // Keep all indices (mask with indices 0-9)
-        let mask = Mask::from_indices(10, (0..10).collect());
+        let mask = Mask::from_indices(10, 0..10);
         let filtered = patches
             .filter(&mask, &mut LEGACY_SESSION.create_execution_ctx())
             .unwrap()

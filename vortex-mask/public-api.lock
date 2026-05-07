@@ -56,7 +56,7 @@ pub fn vortex_mask::Mask::from_buffer(vortex_buffer::bit::buf::BitBuffer) -> Sel
 
 pub fn vortex_mask::Mask::from_excluded_indices(usize, impl core::iter::traits::collect::IntoIterator<Item = usize>) -> Self
 
-pub fn vortex_mask::Mask::from_indices(usize, alloc::vec::Vec<usize>) -> Self
+pub fn vortex_mask::Mask::from_indices(usize, impl core::iter::traits::collect::IntoIterator<Item = usize>) -> Self
 
 pub fn vortex_mask::Mask::from_intersection_indices(usize, impl core::iter::traits::iterator::Iterator<Item = usize>, impl core::iter::traits::iterator::Iterator<Item = usize>) -> Self
 
