@@ -28,9 +28,10 @@ default = ["extension-module", "tui"]
 # duplicate PyInit__lib symbols.
 extension-module = []
 tui = ["dep:vortex-tui"]
-# Set the default allocator to mimalloc, this is enabled by default
-# for the maturin wheels, but it is not a default feature to not conflict
-# with users that set a different global allocator.
+# Set the process-global allocator to mimalloc. This must NOT be enabled
+# for the maturin wheels: a cdylib that overrides the global allocator can
+# corrupt other native extensions (e.g. pyarrow) loaded in the same process,
+# leading to SIGSEGV. See https://github.com/vortex-data/vortex/issues/7760.
 mimalloc = ["dep:mimalloc"]
 
 [dependencies]
