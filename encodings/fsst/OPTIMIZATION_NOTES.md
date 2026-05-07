@@ -33,6 +33,65 @@ generalises whenever the state-0 progressing-code set is large enough that
 3 substantial wins, 0 regressions. Patterns where the 0% rows occur use
 `Memchr1/2/3` skip already — that path was already optimal.
 
+## Ablation matrix
+
+Systematic 2-runs-per-config measurement of each subset of {Folded DFA (F),
+Monomorphic dispatch (M), Anchor scan (A)} on this host. Numbers are
+`like_google_full` median across 2 interleaved bench runs.
+
+| Config | Median | vs HEAD |
+|---|---|---|
+| 000 (baseline `FlatContainsDfa`) | 45.43 ms | +97% |
+| 100 (F only) | 42.86 ms | +86% |
+| 010 (M only) | 40.86 ms | +77% |
+| 110 (F + M) | 39.14 ms | +70% |
+| 111 (F + M + A, HEAD) | **22.99 ms** | — |
+
+**Total reduction 000 → 111: −49.4%**.
+
+### Marginal contributions
+
+| Step | Δ Median | Headline win |
+|---|---|---|
+| F alone (000 → 100) | −5.6% | Modest. Sentinel-branch removal helps when the inner DFA loop is hot — usually it isn't, because state-0 skip dominates. |
+| M alone (000 → 010) | −10.0% | Monomorphising `FsstMatcher` dispatch into the bit-packing closure. |
+| F + M (000 → 110) | −13.8% | F and M roughly additive, slight sub-additive overlap. |
+| A on top of F+M (110 → 111) | **−41.2%** | The dominant optimization. AVX2 PSHUFB-Mula bitmap scan + tzcnt-driven state-0 advance. |
+
+### Interactions
+
+- **A's win does not depend on M** for `%google%`. A's `scan_with_anchor_bitset`
+  → `matches_with_bitset` path bypasses the `scan_to_bitbuf_with` closure that
+  M monomorphises. So when A fires, M contributes ~0 to the hot path.
+- **M's win is only measurable when A is absent** — i.e., on patterns that
+  use `Memchr1/2/3` skip (email, json, rare) where A doesn't fire and the
+  generic scan_to_bitbuf path is taken. M is "polish that matters when A
+  isn't doing the heavy lifting."
+- **A depends architecturally on F**. A's bitset routines are methods on
+  `FoldedContainsDfa`. Configurations 001, 011, 101 are not cleanly
+  buildable: there's no host DFA for A's logic without F. The algorithm
+  could in principle apply to `FlatContainsDfa`, but the implementation as
+  committed does not.
+
+### Is the stack justified?
+
+Each layer pulls weight, but unevenly:
+
+| Layer | Standalone marginal win | Why it's there |
+|---|---|---|
+| F (folded DFA) | ~5–6% | Modest as perf, but it is the structural foundation A is built on. |
+| M (monomorphic) | ~9% standalone; ~0% when A fires | Independent polish. Helps non-A patterns and the general scan_to_bitbuf path (Flat / Prefix / Suffix / Multi). |
+| A (anchor scan) | ~41% on Bitmap-skip patterns | Dominant. Justifies the entire stack on its own. |
+
+No layer is redundant. The most defensible framing: **F is plumbing for A;
+A is the headline; M is independent polish that helps when A is absent.**
+
+`dfa_inner_only` (per-string `FsstMatcher::matches`, no scan_to_bitbuf):
+all five configs land at 41 ± 1 ms. None of F / M / A acts on the per-string
+`matches` path itself — they all act on the surrounding scan/bitbuf
+machinery. This confirms the inner DFA step is NOT the bottleneck for
+`%google%` on this corpus; the time is in everything else.
+
 ## What shipped, and why each piece earns its place
 
 ### 1. Folded 2N+1 escape-aware DFA (`encodings/fsst/src/dfa/folded_contains.rs`)
