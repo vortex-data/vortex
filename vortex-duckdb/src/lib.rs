@@ -22,6 +22,7 @@ use crate::duckdb::LogicalType;
 use crate::duckdb::Value;
 use crate::multi_file::VortexMultiFileScan;
 use crate::multi_file::VortexMultiFileScanList;
+use crate::multi_file_function::VortexMultiFileFunction;
 
 mod convert;
 mod datasource;
@@ -29,6 +30,7 @@ pub mod duckdb;
 mod exporter;
 mod filesystem;
 mod multi_file;
+mod multi_file_function;
 
 #[rustfmt::skip]
 #[path = "./cpp.rs"]
@@ -45,6 +47,31 @@ static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRunt
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
 
+/// Returns true if the user has opted into the experimental MultiFileFunction-
+/// backed scan path via `VX_DUCKDB_MULTI_FILE_FUNCTION=1` (or `=true`).
+///
+/// Used to switch between the existing TableFunction-driven `read_vortex` and
+/// the new `MultiFileFunction<OP>`-driven path during benchmarking. Defaults
+/// to off so the existing scan remains the path of record.
+///
+/// Known gaps in the v2 path (compared to v1) at time of writing:
+///   - no projection pushdown: scans always read every column, which mis-sizes
+///     output chunks when DuckDB only requested a subset.
+///   - no Vortex filesystem integration: the `vortex_filesystem` extension
+///     option is ignored; DuckDB's filesystem opens the files.
+///   - no `read_vortex(['a.vortex','b.vortex'])` list-of-paths overload.
+///   - no filter pushdown into `Vortex` scans (DuckDB still applies filters
+///     after reading).
+///   - no support for `union_by_name`.
+/// These are tracked as follow-up work; for now `read_vortex_v2` exists for
+/// benchmark comparisons of the orchestration layer rather than feature parity.
+fn use_multi_file_function() -> bool {
+    matches!(
+        std::env::var("VX_DUCKDB_MULTI_FILE_FUNCTION").as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE")
+    )
+}
+
 /// Initialize the Vortex extension by registering the extension functions.
 /// Note: This also registers extension options. If you want to register options
 /// separately (e.g., before creating connections), call `register_extension_options` first.
@@ -55,11 +82,23 @@ pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
         LogicalType::varchar(),
         Value::from("vortex"),
     )?;
-    db.register_table_function::<VortexMultiFileScan>(c"vortex_scan")?;
-    db.register_table_function::<VortexMultiFileScan>(c"read_vortex")?;
-    // Register list overloads for multi-glob scanning (e.g., read_vortex(['a.vortex', 'b.vortex']))
-    db.register_table_function::<VortexMultiFileScanList>(c"vortex_scan")?;
-    db.register_table_function::<VortexMultiFileScanList>(c"read_vortex")?;
+    if use_multi_file_function() {
+        // Replace the table-function-based scan with the MultiFileFunction<OP>
+        // path under the canonical names. Also expose under v2 names so an A/B
+        // test can run both registrations side-by-side.
+        db.register_multi_file_function::<VortexMultiFileFunction>(c"vortex_scan")?;
+        db.register_multi_file_function::<VortexMultiFileFunction>(c"read_vortex")?;
+    } else {
+        db.register_table_function::<VortexMultiFileScan>(c"vortex_scan")?;
+        db.register_table_function::<VortexMultiFileScan>(c"read_vortex")?;
+        // Register list overloads for multi-glob scanning (e.g., read_vortex(['a.vortex', 'b.vortex']))
+        db.register_table_function::<VortexMultiFileScanList>(c"vortex_scan")?;
+        db.register_table_function::<VortexMultiFileScanList>(c"read_vortex")?;
+    }
+    // Always expose the v2 path under its own name so it can be invoked
+    // explicitly without flipping the env var (useful for A/B testing within
+    // a single process).
+    db.register_multi_file_function::<VortexMultiFileFunction>(c"read_vortex_v2")?;
     db.register_copy_function::<VortexCopyFunction>(c"vortex", c"vortex")
 }
 

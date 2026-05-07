@@ -993,3 +993,66 @@ fn test_vortex_encodings_roundtrip() {
     let fixed_child_values = fixed_child.as_slice_with_len::<i32>(10); // 10 total child elements
     assert_eq!(fixed_child_values, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 }
+
+#[test]
+fn test_read_vortex_v2_basic() {
+    let file = RUNTIME.block_on(async {
+        let numbers = buffer![1i32, 2, 3, 4, 5];
+        write_single_column_vortex_file("number", numbers).await
+    });
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+    let result = conn
+        .query(&format!(
+            "SELECT SUM(number) FROM read_vortex_v2('{file_path}')"
+        ))
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let sum = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
+    assert_eq!(sum, 15);
+}
+
+#[test]
+fn test_read_vortex_v2_strings() {
+    let file = RUNTIME.block_on(async {
+        let strings = VarBinArray::from(vec!["alpha", "beta", "gamma"]);
+        write_single_column_vortex_file("s", strings).await
+    });
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+    let result = conn
+        .query(&format!(
+            "SELECT string_agg(s, ',') FROM read_vortex_v2('{file_path}')"
+        ))
+        .unwrap();
+    let mut chunk = result.into_iter().next().unwrap();
+    let len = chunk.len().as_();
+    let vec = chunk.get_vector_mut(0);
+    let mut s = unsafe { vec.as_slice_mut::<duckdb_string_t>(len) }[0];
+    let path = unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut s)).to_string_lossy() };
+    let aggregated: String = path.into_owned();
+    assert_eq!(aggregated, "alpha,beta,gamma");
+}
+
+#[test]
+fn test_read_vortex_v2_multiple_files() {
+    let (tempdir, _f1, _f2) = RUNTIME.block_on(async {
+        let tempdir = tempfile::tempdir().unwrap();
+        let f1 = write_vortex_file_to_dir(tempdir.path(), "numbers", buffer![10i32, 20, 30]).await;
+        let f2 = write_vortex_file_to_dir(tempdir.path(), "numbers", buffer![40i32, 50, 60]).await;
+        (tempdir, f1, f2)
+    });
+
+    let glob_pattern = format!("{}/*.vortex", tempdir.path().display());
+    let conn = database_connection();
+    let result = conn
+        .query(&format!(
+            "SELECT SUM(numbers) FROM read_vortex_v2('{glob_pattern}')"
+        ))
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let total = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
+    assert_eq!(total, 210);
+}
