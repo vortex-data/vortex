@@ -86,110 +86,13 @@ impl ArrowArrayExecutor for ArrayRef {
         data_type: Option<&DataType>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
-        let len = self.len();
-
-        // Resolve the DataType if it is a leaf type
-        // we should likely make this extensible.
-        let resolved_type: DataType = match data_type {
-            Some(dt) => dt.clone(),
-            None => preferred_arrow_type(&self)?,
-        };
-
-        // Extension dispatch: if this Vortex array carries an extension dtype with a registered
-        // ArrowVTable plugin, hand the conversion off to the plugin. Falls through to the
-        // canonical match below for all other arrays.
-        let plugin = self
-            .dtype()
-            .as_extension_opt()
-            .and_then(|ext| ctx.session().arrow().for_vortex_ext(&ext.id()));
-        if let Some(plugin) = plugin {
-            let target = Field::new("", resolved_type.clone(), self.dtype().is_nullable());
-            let arrow = plugin.execute_arrow(self, &target, ctx)?;
-            vortex_ensure!(
-                arrow.len() == len,
-                "Arrow array length does not match Vortex array length after conversion to {:?}",
-                arrow
-            );
-            return Ok(arrow);
-        }
-
-        let arrow = match &resolved_type {
-            DataType::Null => to_arrow_null(self, ctx),
-            DataType::Boolean => to_arrow_bool(self, ctx),
-            DataType::Int8 => to_arrow_primitive::<Int8Type>(self, ctx),
-            DataType::Int16 => to_arrow_primitive::<Int16Type>(self, ctx),
-            DataType::Int32 => to_arrow_primitive::<Int32Type>(self, ctx),
-            DataType::Int64 => to_arrow_primitive::<Int64Type>(self, ctx),
-            DataType::UInt8 => to_arrow_primitive::<UInt8Type>(self, ctx),
-            DataType::UInt16 => to_arrow_primitive::<UInt16Type>(self, ctx),
-            DataType::UInt32 => to_arrow_primitive::<UInt32Type>(self, ctx),
-            DataType::UInt64 => to_arrow_primitive::<UInt64Type>(self, ctx),
-            DataType::Float16 => to_arrow_primitive::<Float16Type>(self, ctx),
-            DataType::Float32 => to_arrow_primitive::<Float32Type>(self, ctx),
-            DataType::Float64 => to_arrow_primitive::<Float64Type>(self, ctx),
-            DataType::Binary => to_arrow_byte_array::<BinaryType>(self, ctx),
-            DataType::LargeBinary => to_arrow_byte_array::<LargeBinaryType>(self, ctx),
-            DataType::Utf8 => to_arrow_byte_array::<Utf8Type>(self, ctx),
-            DataType::LargeUtf8 => to_arrow_byte_array::<LargeUtf8Type>(self, ctx),
-            DataType::BinaryView => to_arrow_byte_view::<BinaryViewType>(self, ctx),
-            DataType::Utf8View => to_arrow_byte_view::<StringViewType>(self, ctx),
-            // TODO(joe): pass down preferred
-            DataType::List(elements_field) => to_arrow_list::<i32>(self, elements_field, ctx),
-            // TODO(joe): pass down preferred
-            DataType::LargeList(elements_field) => to_arrow_list::<i64>(self, elements_field, ctx),
-            // TODO(joe): pass down preferred
-            DataType::FixedSizeList(elements_field, list_size) => {
-                to_arrow_fixed_list(self, *list_size, elements_field, ctx)
-            }
-            // TODO(joe): pass down preferred
-            DataType::ListView(elements_field) => {
-                to_arrow_list_view::<i32>(self, elements_field, ctx)
-            }
-            // TODO(joe): pass down preferred
-            DataType::LargeListView(elements_field) => {
-                to_arrow_list_view::<i64>(self, elements_field, ctx)
-            }
-            DataType::Struct(fields) => {
-                let fields = if data_type.is_none() {
-                    None
-                } else {
-                    Some(fields)
-                };
-                to_arrow_struct(self, fields, ctx)
-            }
-            // TODO(joe): pass down preferred
-            DataType::Dictionary(codes_type, values_type) => {
-                to_arrow_dictionary(self, codes_type, values_type, ctx)
-            }
-            dt @ DataType::Decimal32(..) => to_arrow_decimal(self, dt, ctx),
-            dt @ DataType::Decimal64(..) => to_arrow_decimal(self, dt, ctx),
-            dt @ DataType::Decimal128(..) => to_arrow_decimal(self, dt, ctx),
-            dt @ DataType::Decimal256(..) => to_arrow_decimal(self, dt, ctx),
-            // TODO(joe): pass down preferred
-            DataType::RunEndEncoded(ends_type, values_type) => {
-                to_arrow_run_end(self, ends_type.data_type(), values_type, ctx)
-            }
-            DataType::FixedSizeBinary(_)
-            | DataType::Map(..)
-            | DataType::Duration(_)
-            | DataType::Interval(_)
-            | DataType::Union(..)
-            | DataType::Date32
-            | DataType::Date64
-            | DataType::Time32(_)
-            | DataType::Time64(_)
-            | DataType::Timestamp(..) => {
-                vortex_bail!("Conversion to Arrow type {resolved_type} is not supported");
-            }
-        }?;
-
-        vortex_ensure!(
-            arrow.len() == len,
-            "Arrow array length does not match Vortex array length after conversion to {:?}",
-            arrow
-        );
-
-        Ok(arrow)
+        // Clone the session out of `ctx` to break the immutable borrow chain that prevents
+        // `ctx` from being passed back through to the session method.
+        let target = data_type.map(|dt| Field::new("", dt.clone(), self.dtype().is_nullable()));
+        ctx.session()
+            .clone()
+            .arrow()
+            .execute_arrow(self, target.as_ref(), ctx)
     }
 
     fn execute_record_batches(
@@ -201,6 +104,100 @@ impl ArrowArrayExecutor for ArrayRef {
             .map(|a| a?.execute_record_batch(schema, ctx))
             .try_collect()
     }
+}
+
+/// Canonical Vortex → Arrow conversion, dispatched by Arrow [`DataType`].
+///
+/// This is the fallback path used by [`crate::arrow::ArrowSession::execute_arrow`] when no
+/// extension plugin matches. Callers normally go through the session; this is `pub(crate)`
+/// purely so the session can hand off after its own dispatch.
+pub(crate) fn canonical_execute_arrow(
+    array: ArrayRef,
+    data_type: Option<&DataType>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef> {
+    let len = array.len();
+
+    let resolved_type: DataType = match data_type {
+        Some(dt) => dt.clone(),
+        None => preferred_arrow_type(&array)?,
+    };
+
+    let arrow = match &resolved_type {
+        DataType::Null => to_arrow_null(array, ctx),
+        DataType::Boolean => to_arrow_bool(array, ctx),
+        DataType::Int8 => to_arrow_primitive::<Int8Type>(array, ctx),
+        DataType::Int16 => to_arrow_primitive::<Int16Type>(array, ctx),
+        DataType::Int32 => to_arrow_primitive::<Int32Type>(array, ctx),
+        DataType::Int64 => to_arrow_primitive::<Int64Type>(array, ctx),
+        DataType::UInt8 => to_arrow_primitive::<UInt8Type>(array, ctx),
+        DataType::UInt16 => to_arrow_primitive::<UInt16Type>(array, ctx),
+        DataType::UInt32 => to_arrow_primitive::<UInt32Type>(array, ctx),
+        DataType::UInt64 => to_arrow_primitive::<UInt64Type>(array, ctx),
+        DataType::Float16 => to_arrow_primitive::<Float16Type>(array, ctx),
+        DataType::Float32 => to_arrow_primitive::<Float32Type>(array, ctx),
+        DataType::Float64 => to_arrow_primitive::<Float64Type>(array, ctx),
+        DataType::Binary => to_arrow_byte_array::<BinaryType>(array, ctx),
+        DataType::LargeBinary => to_arrow_byte_array::<LargeBinaryType>(array, ctx),
+        DataType::Utf8 => to_arrow_byte_array::<Utf8Type>(array, ctx),
+        DataType::LargeUtf8 => to_arrow_byte_array::<LargeUtf8Type>(array, ctx),
+        DataType::BinaryView => to_arrow_byte_view::<BinaryViewType>(array, ctx),
+        DataType::Utf8View => to_arrow_byte_view::<StringViewType>(array, ctx),
+        // TODO(joe): pass down preferred
+        DataType::List(elements_field) => to_arrow_list::<i32>(array, elements_field, ctx),
+        // TODO(joe): pass down preferred
+        DataType::LargeList(elements_field) => to_arrow_list::<i64>(array, elements_field, ctx),
+        // TODO(joe): pass down preferred
+        DataType::FixedSizeList(elements_field, list_size) => {
+            to_arrow_fixed_list(array, *list_size, elements_field, ctx)
+        }
+        // TODO(joe): pass down preferred
+        DataType::ListView(elements_field) => to_arrow_list_view::<i32>(array, elements_field, ctx),
+        // TODO(joe): pass down preferred
+        DataType::LargeListView(elements_field) => {
+            to_arrow_list_view::<i64>(array, elements_field, ctx)
+        }
+        DataType::Struct(fields) => {
+            let fields = if data_type.is_none() {
+                None
+            } else {
+                Some(fields)
+            };
+            to_arrow_struct(array, fields, ctx)
+        }
+        // TODO(joe): pass down preferred
+        DataType::Dictionary(codes_type, values_type) => {
+            to_arrow_dictionary(array, codes_type, values_type, ctx)
+        }
+        dt @ DataType::Decimal32(..) => to_arrow_decimal(array, dt, ctx),
+        dt @ DataType::Decimal64(..) => to_arrow_decimal(array, dt, ctx),
+        dt @ DataType::Decimal128(..) => to_arrow_decimal(array, dt, ctx),
+        dt @ DataType::Decimal256(..) => to_arrow_decimal(array, dt, ctx),
+        // TODO(joe): pass down preferred
+        DataType::RunEndEncoded(ends_type, values_type) => {
+            to_arrow_run_end(array, ends_type.data_type(), values_type, ctx)
+        }
+        DataType::FixedSizeBinary(_)
+        | DataType::Map(..)
+        | DataType::Duration(_)
+        | DataType::Interval(_)
+        | DataType::Union(..)
+        | DataType::Date32
+        | DataType::Date64
+        | DataType::Time32(_)
+        | DataType::Time64(_)
+        | DataType::Timestamp(..) => {
+            vortex_bail!("Conversion to Arrow type {resolved_type} is not supported");
+        }
+    }?;
+
+    vortex_ensure!(
+        arrow.len() == len,
+        "Arrow array length does not match Vortex array length after conversion to {:?}",
+        arrow
+    );
+
+    Ok(arrow)
 }
 
 /// Determine the preferred (cheapest) Arrow type for an array.

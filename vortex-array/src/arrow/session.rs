@@ -13,7 +13,6 @@ use std::sync::Arc;
 
 use arrow_array::Array as _;
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use vortex_error::VortexResult;
@@ -29,7 +28,7 @@ use crate::ExecutionCtx;
 use crate::arrow::FromArrowArray;
 use crate::arrow::executor::canonical_execute_arrow;
 use crate::dtype::DType;
-use crate::dtype::FromArrowType;
+use crate::dtype::arrow::FromArrowType;
 use crate::dtype::extension::ExtId;
 use crate::extension::datetime::Date;
 use crate::extension::datetime::Time;
@@ -126,6 +125,94 @@ impl ArrowSession {
     /// Look up the plugin registered for the given Arrow extension name.
     pub fn for_arrow_ext(&self, name: &str) -> Option<ArrowVTableRef> {
         self.by_arrow_ext.find(&Id::new(name))
+    }
+
+    /// Build the Arrow [`Field`] for a Vortex [`DType`].
+    ///
+    /// Routes through the registered plugin for extension dtypes; otherwise builds a canonical
+    /// Field via [`DType::to_arrow_dtype`].
+    pub fn to_arrow_field(
+        &self,
+        name: &str,
+        dtype: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<Field> {
+        if let Some(ext) = dtype.as_extension_opt()
+            && let Some(plugin) = self.for_vortex_ext(&ext.id())
+        {
+            return plugin.to_arrow_field(name, dtype, session);
+        }
+        Ok(Field::new(name, dtype.to_arrow_dtype()?, dtype.is_nullable()))
+    }
+
+    /// Build the Vortex [`DType`] for an Arrow [`Field`].
+    ///
+    /// Routes through the registered plugin if the field carries an Arrow extension name we
+    /// recognize; otherwise uses the canonical Arrow → Vortex type mapping.
+    pub fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
+        if let Some(name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY)
+            && let Some(plugin) = self.for_arrow_ext(name)
+        {
+            return plugin.from_arrow_field(field);
+        }
+        Ok(DType::from_arrow(field))
+    }
+
+    /// Execute a Vortex array into an Arrow array.
+    ///
+    /// Routes through the registered plugin for extension arrays; otherwise dispatches via
+    /// the canonical Vortex → Arrow conversion. When `target` is `None`, the array's preferred
+    /// Arrow type is used and a synthetic [`Field`] is built with no name or metadata.
+    pub fn execute_arrow(
+        &self,
+        array: ArrayRef,
+        target: Option<&Field>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrowArrayRef> {
+        let plugin = array
+            .dtype()
+            .as_extension_opt()
+            .and_then(|ext| self.for_vortex_ext(&ext.id()));
+        if let Some(plugin) = plugin {
+            let synthesized;
+            let target_field: &Field = match target {
+                Some(f) => f,
+                None => {
+                    synthesized = Field::new(
+                        "",
+                        array.dtype().to_arrow_dtype()?,
+                        array.dtype().is_nullable(),
+                    );
+                    &synthesized
+                }
+            };
+            let len = array.len();
+            let arrow = plugin.execute_arrow(array, target_field, ctx)?;
+            vortex_error::vortex_ensure!(
+                arrow.len() == len,
+                "Arrow array length does not match Vortex array length after conversion to {:?}",
+                arrow
+            );
+            return Ok(arrow);
+        }
+        canonical_execute_arrow(array, target.map(Field::data_type), ctx)
+    }
+
+    /// Decode an Arrow array into a Vortex array.
+    ///
+    /// Routes through the registered plugin if the field carries an Arrow extension name we
+    /// recognize; otherwise uses the canonical Arrow → Vortex array conversion.
+    pub fn from_arrow_array(
+        &self,
+        array: ArrowArrayRef,
+        field: &Field,
+    ) -> VortexResult<ArrayRef> {
+        if let Some(name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY)
+            && let Some(plugin) = self.for_arrow_ext(name)
+        {
+            return plugin.from_arrow_array(array, field);
+        }
+        ArrayRef::from_arrow(array.as_ref(), field.is_nullable())
     }
 }
 
