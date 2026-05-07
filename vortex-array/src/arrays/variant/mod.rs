@@ -84,13 +84,18 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
     use crate::arrays::VariantArray;
     use crate::arrays::variant::VariantArrayExt;
     use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::expr::root;
+    use crate::expr::variant_get;
     use crate::scalar::Scalar;
+    use crate::scalar_fn::fns::variant_get::VariantPath;
 
     fn core_storage(len: usize) -> ArrayRef {
         ConstantArray::new(
@@ -287,5 +292,31 @@ mod tests {
             &[Some(0), None, Some(2), None, Some(4)],
             &[Some(10), None, Some(12), None, Some(14)],
         )
+    }
+
+    #[test]
+    fn variant_get_uses_fully_shredded_path_without_core_fallback() -> VortexResult<()> {
+        let core_storage = row_storage([1, 2, 3])?;
+        let shredded = StructArray::try_from_iter([(
+            "a",
+            PrimitiveArray::from_iter([10i32, 20, 30]).into_array(),
+        )])?;
+        let variant = VariantArray::try_new(core_storage, Some(shredded.into_array()))?;
+        let expr = variant_get(
+            root(),
+            VariantPath::field("a"),
+            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        );
+
+        let result = variant
+            .into_array()
+            .apply(&expr)?
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)])
+        );
+        Ok(())
     }
 }

@@ -18,8 +18,9 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 - [x] (2026-05-07T13:24Z) Implemented the canonical `VariantArray` shape change with `core_storage` and optional `shredded` slots, checked constructors, serde metadata for shredded dtype, validation, accessors, scalar/validity delegation to core storage, Parquet canonicalization that exposes `typed_value` as canonical shredded data, and focused tests.
 - [x] (2026-05-07T14:06Z) Updated row-preserving canonical Variant transformations so slice, filter, take, mask validity execution, canonical-validity execution, and recursive canonicalization transform `core_storage` and optional `shredded` together; added regression tests that assert both children follow the same row selection.
 - [x] (2026-05-07T12:15Z) Added and registered the `VariantGet` scalar function skeleton with strict path options, optional dtype options, expression helper, nullable return dtype inference, SQL/display formatting, protobuf serialization, generated proto bindings, public API locks, and construction/type-error/serde tests.
-- [ ] Implement the unshredded Parquet Variant fallback.
-- [ ] Implement shredded fast-path extraction and partial-shredding merge behavior for direct `ParquetVariant`, canonical variants with a canonical `shredded` child, and canonical variants whose `core_storage` child still exposes encoding-specific shredded data.
+- [x] (2026-05-07T15:02Z) Implemented the unshredded Parquet Variant fallback for direct `ParquetVariant` arrays by delegating to `parquet-variant-compute`.
+- [x] (2026-05-07T15:35Z) Implemented shredded fast-path and partial-shredding merge behavior for direct `ParquetVariant`, canonical variants with a canonical `shredded` child, and canonical variants whose `core_storage` child still exposes encoding-specific shredded data.
+- [x] (2026-05-07T16:28Z) Hardened canonical shredded extraction after self-review by carrying nested struct validity, supporting untyped typed-row merging for canonical shredded children, avoiding raw fallback when a fully shredded path is sufficient, and adding regressions for those cases.
 - [ ] Wire the narrowest useful higher-level integration after core behavior is covered.
 - [ ] Complete final review, validation, and signed-off commits.
 
@@ -52,6 +53,15 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 - Observation: Regenerating public API locks for the `VariantGet` public API also picked up public reduce impl entries from the preceding Variant row-preserving transform milestone.
   Evidence: `./scripts/public-api.sh` updated `vortex-array/public-api.lock` for the new `variant_get` module and helper, and also added `Variant` slice/filter/take reduce entries that were already present in Rust code.
 
+- Observation: Canonical shredded path extraction must preserve struct validity while walking unmasked fields.
+  Evidence: Self-review found that `typed_shredded_path` selected unmasked nested fields without carrying parent struct validity; `kernel::tests::test_variant_get_canonical_shredded_respects_nested_validity` now proves a null shredded parent falls back to raw `core_storage`.
+
+- Observation: Untyped `VariantGet` over canonical shredded storage needs a row-wise typed-to-Variant merge for correctness, but raw Parquet fallback numeric widths are not guaranteed to match the test's requested integer width.
+  Evidence: `kernel::tests::test_variant_get_canonical_shredded_untyped_uses_typed_rows` compares variant numeric values after casting the nested scalar to i32 instead of assuming raw JSON integers decode as i32.
+
+- Observation: Canonical `VariantGet` should not require raw fallback execution when the requested typed path is fully shredded.
+  Evidence: Self-review found the fallback was computed before checking whether the typed child was all valid; `arrays::variant::tests::variant_get_uses_fully_shredded_path_without_core_fallback` now uses chunked constant core storage that cannot execute the path, proving the fully shredded result is returned directly.
+
 ## Decision Log
 
 - Decision: Treat RFC 0015, RFC 0058, and the Parquet specs as normative; use `adamg/variant-array` only as implementation inspiration.
@@ -80,7 +90,7 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 
 ## Outcomes & Retrospective
 
-The planning, baseline-test, canonical shape, row-preserving transformation, and `VariantGet` skeleton milestones are complete. The current implementation exposes a required `core_storage` child and optional `shredded` child from canonical `VariantArray`, validates row alignment, preserves the existing one-child constructor for compatibility, serializes the optional shredded dtype, canonicalizes Parquet Variant `typed_value` into the canonical shredded child, and keeps both canonical Variant children aligned through slice, filter, take, masking, canonical validity execution, and recursive canonicalization. The scalar expression layer now has a registered `vortex.variant_get` function with strict path and optional dtype options, nullable return dtype inference, SQL/display formatting, expression helper support, and protobuf roundtrips. The next milestone can implement the unshredded Parquet Variant execution fallback behind that expression.
+The planning, baseline-test, canonical shape, row-preserving transformation, `VariantGet` skeleton, unshredded fallback, and shredded Parquet Variant extraction milestones are complete. The current implementation exposes a required `core_storage` child and optional `shredded` child from canonical `VariantArray`, validates row alignment, preserves the existing one-child constructor for compatibility, serializes the optional shredded dtype, canonicalizes Parquet Variant `typed_value` into the canonical shredded child, and keeps both canonical Variant children aligned through slice, filter, take, masking, canonical validity execution, and recursive canonicalization. The scalar expression layer now has a registered `vortex.variant_get` function with strict path and optional dtype options, nullable return dtype inference, SQL/display formatting, expression helper support, and protobuf roundtrips. Parquet Variant execution delegates to `parquet-variant-compute` for unshredded, shredded, and partially shredded paths. Canonical Variant execution computes the raw fallback from `core_storage`, carries nested shredded validity, overlays compatible typed paths from canonical `shredded` when present, and can merge typed rows into nullable Variant output when no concrete dtype is requested. The next milestone can wire the narrowest useful higher-level integration.
 
 ## Context and Orientation
 
@@ -203,6 +213,8 @@ Run all commands from `/Users/adamgs/code/vortex`.
        cargo nextest run -p vortex-parquet-variant variant_get
        cargo nextest run -p vortex-array variant
 
+   Shredded extraction milestone status: completed on 2026-05-07T16:28Z. The Parquet Variant `VariantGet` execute-parent kernel now delegates to `parquet-variant-compute` even when `typed_value` is present. Canonical `VariantArray` overlays compatible typed paths from canonical `shredded`, carries nested shredded struct validity, supports typed-row merging for untyped nullable Variant output, avoids raw fallback when a fully shredded typed path is sufficient, and still lets encoding-specific shredded data remain available through `core_storage` when no canonical shredded child exists. Rows with missing typed values compute fallback through `core_storage`; paths absent from `shredded` still go directly to `core_storage`. New tests cover direct Parquet Variant extraction over partially shredded objects, typed values taking priority over raw object storage, field-level raw fallback rows, raw extraction for an unshredded path, canonical variants with `shredded`, a raw-only core plus canonical shredded child, nested shredded validity, untyped canonical typed-row merging, fully shredded execution without core fallback, and canonical variants whose `core_storage` still exposes Parquet `typed_value`.
+
 8. Final validation before any Rust behavior commit that contributes to the feature.
 
    The two required feature test commands are:
@@ -321,6 +333,19 @@ Initial unshredded VariantGet validation commands run on 2026-05-07:
     cargo fmt --check
     cargo +nightly fmt --all --check
     git diff --check
+    cargo clippy --all-targets -- -D warnings
+
+All commands passed. Stable `cargo fmt --check` emitted the repository's usual nightly-only rustfmt option warnings but exited successfully. No public Rust API changed in this milestone, so `./scripts/public-api.sh` was not required.
+
+Shredded VariantGet validation commands run on 2026-05-07:
+
+    cargo nextest run -p vortex-parquet-variant variant_get
+    cargo nextest run -p vortex-array variant
+    cargo nextest run -p vortex-array
+    cargo nextest run -p vortex-parquet-variant
+    cargo +nightly fmt --all
+    cargo fmt --check
+    cargo +nightly fmt --all --check
     cargo clippy --all-targets -- -D warnings
 
 All commands passed. Stable `cargo fmt --check` emitted the repository's usual nightly-only rustfmt option warnings but exited successfully. No public Rust API changed in this milestone, so `./scripts/public-api.sh` was not required.
