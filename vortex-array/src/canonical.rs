@@ -655,14 +655,26 @@ impl Executable for CanonicalValidity {
                 ),
             ))),
             Canonical::Variant(variant) => {
-                Ok(CanonicalValidity(Canonical::Variant(VariantArray::new(
-                    variant
-                        .child()
-                        .clone()
-                        .execute::<CanonicalValidity>(ctx)?
-                        .0
-                        .into_array(),
-                ))))
+                let core_storage = variant
+                    .core_storage()
+                    .clone()
+                    .execute::<CanonicalValidity>(ctx)?
+                    .0
+                    .into_array();
+                let shredded = if let Some(shredded) = variant.shredded() {
+                    Some(
+                        shredded
+                            .clone()
+                            .execute::<CanonicalValidity>(ctx)?
+                            .0
+                            .into_array(),
+                    )
+                } else {
+                    None
+                };
+                Ok(CanonicalValidity(Canonical::Variant(
+                    VariantArray::try_new(core_storage, shredded)?,
+                )))
             }
         }
     }
@@ -794,14 +806,26 @@ impl Executable for RecursiveCanonical {
                 ),
             ))),
             Canonical::Variant(variant) => {
-                Ok(RecursiveCanonical(Canonical::Variant(VariantArray::new(
-                    variant
-                        .child()
-                        .clone()
-                        .execute::<RecursiveCanonical>(ctx)?
-                        .0
-                        .into_array(),
-                ))))
+                let core_storage = variant
+                    .core_storage()
+                    .clone()
+                    .execute::<RecursiveCanonical>(ctx)?
+                    .0
+                    .into_array();
+                let shredded = if let Some(shredded) = variant.shredded() {
+                    Some(
+                        shredded
+                            .clone()
+                            .execute::<RecursiveCanonical>(ctx)?
+                            .0
+                            .into_array(),
+                    )
+                } else {
+                    None
+                };
+                Ok(RecursiveCanonical(Canonical::Variant(
+                    VariantArray::try_new(core_storage, shredded)?,
+                )))
             }
         }
     }

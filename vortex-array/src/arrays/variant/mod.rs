@@ -3,7 +3,8 @@
 
 mod vtable;
 
-use smallvec::smallvec;
+pub(crate) mod compute;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -71,22 +72,106 @@ impl Array<Variant> {
 mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
+    use vortex_mask::Mask;
 
+    use crate::ArrayRef;
+    use crate::Canonical;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VariantArray;
     use crate::arrays::variant::VariantArrayExt;
+    use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
 
-    fn core_storage(len: usize) -> crate::ArrayRef {
+    fn core_storage(len: usize) -> ArrayRef {
         ConstantArray::new(
             Scalar::variant(Scalar::primitive(1i32, Nullability::NonNullable)),
             len,
         )
         .into_array()
+    }
+
+    fn row_storage(values: impl IntoIterator<Item = i32>) -> VortexResult<ArrayRef> {
+        let chunks = values
+            .into_iter()
+            .map(|value| {
+                ConstantArray::new(
+                    Scalar::variant(Scalar::primitive(value, Nullability::NonNullable)),
+                    1,
+                )
+                .into_array()
+            })
+            .collect();
+
+        Ok(ChunkedArray::try_new(chunks, DType::Variant(Nullability::NonNullable))?.into_array())
+    }
+
+    fn variant_with_shredded(
+        core_values: impl IntoIterator<Item = i32>,
+        shredded_values: impl IntoIterator<Item = i32>,
+    ) -> VortexResult<VariantArray> {
+        VariantArray::try_new(
+            row_storage(core_values)?,
+            Some(PrimitiveArray::from_iter(shredded_values).into_array()),
+        )
+    }
+
+    fn execute_variant(array: ArrayRef) -> VortexResult<VariantArray> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let Canonical::Variant(variant) = array.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+        Ok(variant)
+    }
+
+    fn assert_variant_rows(
+        array: &VariantArray,
+        expected_core: &[Option<i32>],
+        expected_shredded: &[Option<i32>],
+    ) -> VortexResult<()> {
+        assert_eq!(array.len(), expected_core.len());
+        assert_eq!(array.len(), expected_shredded.len());
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        for (idx, expected) in expected_core.iter().enumerate() {
+            let scalar = array.core_storage().execute_scalar(idx, &mut ctx)?;
+            let variant = scalar.as_variant();
+            match expected {
+                Some(expected) => {
+                    let value = variant
+                        .value()
+                        .ok_or_else(|| vortex_err!("expected non-null variant row"))?;
+                    assert_eq!(value.as_primitive().typed_value::<i32>(), Some(*expected));
+                }
+                None => assert!(variant.is_null()),
+            }
+        }
+
+        let shredded = array
+            .shredded()
+            .ok_or_else(|| vortex_err!("expected shredded child"))?;
+        let shredded = shredded.clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let expected_shredded_array = if let Some(values) = expected_shredded
+            .iter()
+            .copied()
+            .collect::<Option<Vec<_>>>()
+        {
+            PrimitiveArray::from_iter(values)
+        } else {
+            PrimitiveArray::from_option_iter(expected_shredded.iter().copied())
+        };
+        assert_arrays_eq!(shredded, expected_shredded_array);
+
+        Ok(())
     }
 
     #[test]
@@ -141,5 +226,66 @@ mod tests {
         let shredded = buffer![10i32, 20].into_array();
 
         assert!(VariantArray::try_new(core_storage, Some(shredded)).is_err());
+    }
+
+    #[test]
+    fn slice_preserves_core_storage_and_shredded_rows() -> VortexResult<()> {
+        let variant = variant_with_shredded(0..5, 10..15)?;
+
+        let sliced = execute_variant(variant.into_array().slice(1..4)?)?;
+
+        assert_variant_rows(
+            &sliced,
+            &[Some(1), Some(2), Some(3)],
+            &[Some(11), Some(12), Some(13)],
+        )
+    }
+
+    #[test]
+    fn filter_preserves_core_storage_and_shredded_rows() -> VortexResult<()> {
+        let variant = variant_with_shredded(0..5, 10..15)?;
+
+        let filtered = execute_variant(
+            variant
+                .into_array()
+                .filter(Mask::from_iter([true, false, true, false, true]))?,
+        )?;
+
+        assert_variant_rows(
+            &filtered,
+            &[Some(0), Some(2), Some(4)],
+            &[Some(10), Some(12), Some(14)],
+        )
+    }
+
+    #[test]
+    fn take_preserves_core_storage_and_shredded_rows() -> VortexResult<()> {
+        let variant = variant_with_shredded(0..5, 10..15)?;
+
+        let taken = execute_variant(
+            variant
+                .into_array()
+                .take(buffer![4u64, 1, 3].into_array())?,
+        )?;
+
+        assert_variant_rows(
+            &taken,
+            &[Some(4), Some(1), Some(3)],
+            &[Some(14), Some(11), Some(13)],
+        )
+    }
+
+    #[test]
+    fn mask_preserves_core_storage_and_shredded_rows() -> VortexResult<()> {
+        let variant = variant_with_shredded(0..5, 10..15)?;
+        let mask = BoolArray::from_iter([true, false, true, false, true]).into_array();
+
+        let masked = execute_variant(variant.into_array().mask(mask)?)?;
+
+        assert_variant_rows(
+            &masked,
+            &[Some(0), None, Some(2), None, Some(4)],
+            &[Some(10), None, Some(12), None, Some(14)],
+        )
     }
 }

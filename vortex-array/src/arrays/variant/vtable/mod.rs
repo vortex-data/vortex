@@ -25,6 +25,7 @@ use crate::arrays::variant::CORE_STORAGE_SLOT;
 use crate::arrays::variant::NUM_SLOTS;
 use crate::arrays::variant::SHREDDED_SLOT;
 use crate::arrays::variant::SLOT_NAMES;
+use crate::arrays::variant::compute::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::serde::ArrayChildren;
@@ -177,6 +178,14 @@ impl VTable for Variant {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(array))
+    }
+
+    fn reduce_parent(
+        array: ArrayView<'_, Self>,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

@@ -16,7 +16,7 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 - [x] (2026-05-07T12:08Z) Added a detailed implementation inventory covering the current single-child canonical `VariantArray`, the RFC 0058 target shape, existing Parquet Variant hooks, the scalar function patterns used by `GetItem`, and the canonicalization contract for moving encoding-specific shredded children into canonical `VariantArray::shredded`.
 - [x] (2026-05-07T12:42Z) Added and identified baseline tests for current variant behavior: explicit outer null versus present `variantnull`, Arrow Parquet Variant storage roundtrips including a present Variant null with a separate outer null row, and slice/filter/take over typed-only shredded Parquet Variant arrays.
 - [x] (2026-05-07T13:24Z) Implemented the canonical `VariantArray` shape change with `core_storage` and optional `shredded` slots, checked constructors, serde metadata for shredded dtype, validation, accessors, scalar/validity delegation to core storage, Parquet canonicalization that exposes `typed_value` as canonical shredded data, and focused tests.
-- [ ] Update row-preserving transformations so `core_storage` and optional `shredded` stay row-aligned.
+- [x] (2026-05-07T14:06Z) Updated row-preserving canonical Variant transformations so slice, filter, take, mask validity execution, canonical-validity execution, and recursive canonicalization transform `core_storage` and optional `shredded` together; added regression tests that assert both children follow the same row selection.
 - [ ] Add and register a `VariantGet` scalar function skeleton.
 - [ ] Implement the unshredded Parquet Variant fallback.
 - [ ] Implement shredded fast-path extraction and partial-shredding merge behavior for direct `ParquetVariant`, canonical variants with a canonical `shredded` child, and canonical variants whose `core_storage` child still exposes encoding-specific shredded data.
@@ -42,6 +42,9 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 
 - Observation: Keeping `VariantArrayExt::child()` as a compatibility shim lets existing transformation call sites continue compiling, but those call sites still rebuild from core storage only until the next milestone migrates them.
   Evidence: `VariantArrayExt::child()` now delegates to `core_storage()`, while the planned row-preserving transform work still covers `filter`, `take`, `mask`, and canonical execution paths.
+
+- Observation: Direct slicing of canonical variants needs a `Variant` parent reduce rule, not only the generic `SliceArray` execution path.
+  Evidence: `vortex-array/src/arrays/variant/compute/slice.rs` now implements `SliceReduce` for `Variant`, and `vortex-array/src/arrays/variant/compute/rules.rs` registers slice, filter, and take parent reduce adapters for `Variant`.
 
 ## Decision Log
 
@@ -71,7 +74,7 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 
 ## Outcomes & Retrospective
 
-The planning, baseline-test, and canonical shape milestones are complete. The current implementation exposes a required `core_storage` child and optional `shredded` child from canonical `VariantArray`, validates row alignment, preserves the existing one-child constructor for compatibility, serializes the optional shredded dtype, and canonicalizes Parquet Variant `typed_value` into the canonical shredded child. The next milestone must migrate row-preserving transformations so existing canonical operations do not drop the optional shredded child.
+The planning, baseline-test, canonical shape, and row-preserving transformation milestones are complete. The current implementation exposes a required `core_storage` child and optional `shredded` child from canonical `VariantArray`, validates row alignment, preserves the existing one-child constructor for compatibility, serializes the optional shredded dtype, canonicalizes Parquet Variant `typed_value` into the canonical shredded child, and keeps both canonical Variant children aligned through slice, filter, take, masking, canonical validity execution, and recursive canonicalization. The next milestone can add the `VariantGet` scalar function skeleton on top of this stable array shape.
 
 ## Context and Orientation
 
@@ -162,6 +165,8 @@ Run all commands from `/Users/adamgs/code/vortex`.
 
        cargo nextest run -p vortex-array variant
        cargo nextest run -p vortex-parquet-variant
+
+   Row-preserving transform milestone status: completed on 2026-05-07T14:06Z. `Variant` now has parent reduce rules for slice, filter, and take, and fallback canonical execution paths rebuild variants with both transformed children. New tests cover slice, filter, take, and mask over a canonical Variant whose core storage and shredded child contain distinct row values.
 
 5. `VariantGet` skeleton.
 
@@ -290,6 +295,16 @@ Canonical shape validation commands run on 2026-05-07:
 
 All commands passed. The repository uses nightly-only rustfmt configuration, so the repository-required nightly fmt check was used for formatting validation.
 
+Row-preserving transform validation commands run on 2026-05-07:
+
+    cargo nextest run -p vortex-array variant
+    cargo nextest run -p vortex-array
+    cargo nextest run -p vortex-parquet-variant
+    cargo +nightly fmt --all --check
+    cargo clippy --all-targets -- -D warnings
+
+All commands passed. No public Rust API changed in this milestone, so `./scripts/public-api.sh` was not required.
+
 ## Interfaces and Dependencies
 
 The expected canonical variant API in `vortex-array` is:
@@ -345,3 +360,5 @@ The initial path model is a strict sequence of object field names and zero-based
 2026-05-07T12:42Z: Added baseline tests before changing canonical variant shape. This revision records the new coverage for outer null versus present `variantnull`, a roundtrip containing both null kinds, and filter/take over typed-only shredded Parquet Variant storage, plus the validation commands that passed for this Rust-only baseline milestone.
 
 2026-05-07T13:24Z: Implemented the canonical `VariantArray` shape with `core_storage` and optional `shredded` slots, checked construction, serde support, validation, Parquet canonicalization of `typed_value`, public API lock updates, and focused tests. The compatibility `child()` shim remains until the row-preserving transform milestone migrates callers.
+
+2026-05-07T14:06Z: Added row-preserving `Variant` slice/filter/take reduce rules and updated canonical filter, dict take, mask validity, canonical-validity, and recursive canonicalization paths to transform optional shredded storage with the same row operation as core storage. Regression tests now assert both children after slice, filter, take, and mask.
