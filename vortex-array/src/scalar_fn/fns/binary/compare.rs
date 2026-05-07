@@ -23,7 +23,7 @@ use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
-use crate::arrow::ArrowArrayExecutor;
+use crate::arrow::ArrowSessionExt;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
 use crate::dtype::DType;
@@ -154,8 +154,9 @@ fn arrow_compare_arrays(
     // Arrow's vectorized comparison kernels don't support nested types.
     // For nested types, fall back to `make_comparator` which does element-wise comparison.
     let arrow_array: BooleanArray = if left.dtype().is_nested() || right.dtype().is_nested() {
-        let rhs = right.clone().execute_arrow(None, ctx)?;
-        let lhs = left.clone().execute_arrow(Some(rhs.data_type()), ctx)?;
+        let session = ctx.session().clone();
+        let rhs = session.arrow().execute_arrow(right.clone(), None, ctx)?;
+        let lhs = session.arrow().execute_arrow(left.clone(), None, ctx)?;
 
         assert!(
             lhs.data_type().equals_datatype(rhs.data_type()),

@@ -29,7 +29,7 @@ arrow-buffer = { workspace = true }
 arrow-cast = { workspace = true }
 arrow-data = { workspace = true }
 arrow-ord = { workspace = true }
-arrow-schema = { workspace = true }
+arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
 async-lock = { workspace = true }
@@ -200,4 +200,8 @@ harness = false
 
 [[bench]]
 name = "slice_dict_primitive"
+harness = false
+
+[[bench]]
+name = "to_arrow"
 harness = false

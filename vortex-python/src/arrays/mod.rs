@@ -25,13 +25,12 @@ use pyo3_bytes::PyBytes;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
-use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::BoolArray;
 use vortex::array::arrays::Chunked;
 use vortex::array::arrays::bool::BoolArrayExt;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
-use vortex::array::arrow::ArrowArrayExecutor;
+use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::DType;
@@ -42,6 +41,7 @@ use vortex::ipc::messages::MessageEncoder;
 use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::PyVortex;
+use crate::SESSION;
 use crate::arrays::native::PyNativeArray;
 use crate::arrays::py::PyPythonArray;
 use crate::arrays::py::PythonArray;
@@ -333,19 +333,22 @@ impl PyArray {
         if let Some(chunked_array) = array.as_opt::<Chunked>() {
             // We figure out a single Arrow Data Type to convert all chunks into, otherwise
             // the preferred type of each chunk may be different.
-            let arrow_dtype = chunked_array.dtype().to_arrow_dtype()?;
+            let arrow_field = SESSION.arrow().to_arrow_field("", chunked_array.dtype())?;
 
             let chunks = chunked_array
                 .iter_chunks()
                 .map(|chunk| -> PyVortexResult<_> {
-                    Ok(chunk.clone().execute_arrow(
-                        Some(&arrow_dtype),
-                        &mut LEGACY_SESSION.create_execution_ctx(),
+                    Ok(SESSION.arrow().execute_arrow(
+                        chunk.clone(),
+                        Some(&arrow_field),
+                        &mut SESSION.create_execution_ctx(),
                     )?)
                 })
                 .collect::<Result<Vec<ArrowArrayRef>, _>>()?;
 
-            let pa_data_type = arrow_dtype.clone().to_pyarrow(py)?;
+            // NOTE(aduffy): pyarrow.chunked_array() constructor only takes DataType and not Field,
+            //  which probably loses the extension information?
+            let pa_data_type = arrow_field.data_type().clone().to_pyarrow(py)?;
             let chunks = chunks
                 .iter()
                 .map(|arrow_array| arrow_array.into_data().to_pyarrow(py))
@@ -361,8 +364,9 @@ impl PyArray {
                 Some(&kwargs),
             )?)
         } else {
-            Ok(array
-                .execute_arrow(None, &mut LEGACY_SESSION.create_execution_ctx())?
+            Ok(SESSION
+                .arrow()
+                .execute_arrow(array, None, &mut SESSION.create_execution_ctx())?
                 .into_data()
                 .to_pyarrow(py)?
                 .into_bound(py))
@@ -533,9 +537,9 @@ impl PyArray {
     /// ```
     fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         // PyArray/PyArrayRef do not currently carry a VortexSession; threading one
-        // through would change the FromPyObject contract. Use LEGACY_SESSION until
+        // through would change the FromPyObject contract. Use SESSION until
         // the wrappers are refactored.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         let mask_bool = (&*mask as &ArrayRef)
             .clone()
@@ -618,9 +622,9 @@ impl PyArray {
     // TODO(ngates): return a vortex.Scalar
     fn scalar_at(slf: Bound<Self>, index: usize) -> PyVortexResult<Bound<PyScalar>> {
         // PyArray/PyArrayRef do not currently carry a VortexSession; threading one
-        // through would change the FromPyObject contract. Use LEGACY_SESSION until
+        // through would change the FromPyObject contract. Use SESSION until
         // the wrappers are refactored.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
         let py = slf.py();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         if index >= slf.len() {

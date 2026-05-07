@@ -5,10 +5,13 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
 
+use arrow_schema::Field;
 use arrow_schema::Schema;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
+use datafusion_common::arrow::array::AsArray;
+use datafusion_common::arrow::array::RecordBatch;
 use datafusion_common::exec_datafusion_err;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
@@ -33,7 +36,7 @@ use itertools::Itertools;
 use object_store::path::Path;
 use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrow::ArrowArrayExecutor;
+use vortex::array::arrow::ArrowSessionExt;
 use vortex::dtype::FieldMask;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
@@ -216,6 +219,7 @@ impl FileOpener for VortexOpener {
             let this_file_schema = Arc::new(calculate_physical_schema(
                 vxf.dtype(),
                 &unified_file_schema,
+                &session.arrow(),
             )?);
 
             let projected_physical_schema = projection.project_schema(&unified_file_schema)?;
@@ -273,7 +277,8 @@ impl FileOpener for VortexOpener {
                     .collect();
                 Schema::new(fields)
             };
-            let stream_schema = calculate_physical_schema(&scan_dtype, &scan_reference_schema)?;
+            let stream_schema =
+                calculate_physical_schema(&scan_dtype, &scan_reference_schema, &session.arrow())?;
 
             let leftover_projection = leftover_projection
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
@@ -386,6 +391,7 @@ impl FileOpener for VortexOpener {
                 scan_builder = scan_builder.with_concurrency(concurrency);
             }
 
+            let stream_target_field = Field::new_struct("", stream_schema.fields().clone(), false);
             let stream = scan_builder
                 .with_metrics_registry(metrics_registry)
                 .with_projection(scan_projection)
@@ -393,7 +399,13 @@ impl FileOpener for VortexOpener {
                 .with_ordered(has_output_ordering)
                 .map(move |chunk| {
                     let mut ctx = session.create_execution_ctx();
-                    chunk.execute_record_batch(&stream_schema, &mut ctx)
+                    let arrow_session = ctx.session().clone();
+                    let arrow = arrow_session.arrow().execute_arrow(
+                        chunk,
+                        Some(&stream_target_field),
+                        &mut ctx,
+                    )?;
+                    Ok(RecordBatch::from(arrow.as_struct().clone()))
                 })
                 .into_stream()
                 .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?

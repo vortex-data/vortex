@@ -16,6 +16,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
 use vortex_array::arrays::VariantArray;
+#[expect(deprecated, reason = "TODO(aduffy): convert this to ArrowExportVTable")]
 use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::arrow::to_arrow_null_buffer;
@@ -235,6 +236,7 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
         self.as_ref().slots()[TYPED_VALUE_SLOT].as_ref()
     }
 
+    #[expect(deprecated, reason = "TODO(aduffy): convert this to ArrowExportVTable")]
     fn to_arrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrowVariantArray> {
         let metadata = self.metadata_array();
         let len = metadata.len();

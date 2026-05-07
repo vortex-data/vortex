@@ -19,6 +19,7 @@ use arrow_array::cast::AsArray;
 use arrow_array::ffi_stream::FFI_ArrowArrayStream;
 use arrow_schema::ArrowError;
 use arrow_schema::DataType;
+use arrow_schema::Field;
 use futures::StreamExt;
 use jni::EnvUnowned;
 use jni::objects::JClass;
@@ -28,7 +29,7 @@ use jni::sys::jlong;
 use vortex::array::ArrayRef;
 use vortex::array::ExecutionCtx;
 use vortex::array::VortexSessionExecute;
-use vortex::array::arrow::ArrowArrayExecutor;
+use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::stream::SendableArrayStream;
 use vortex::buffer::Buffer;
 use vortex::error::VortexResult;
@@ -329,7 +330,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
             _ => unreachable!("Vortex DType always exports as a struct"),
         };
         let schema = Arc::new(arrow_schema::Schema::new(fields));
-        let data_type = DataType::Struct(schema.fields().clone());
+        let target = Field::new_struct("", schema.fields().clone(), false);
 
         let session = unsafe { session_ref(session_ptr) };
 
@@ -339,7 +340,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_scanArrow(
                 move |chunk: VortexResult<ArrayRef>| -> VortexResult<RecordBatch> {
                     let chunk: ArrayRef = chunk?;
                     let mut ctx: ExecutionCtx = session.create_execution_ctx();
-                    let arrow = chunk.execute_arrow(Some(&data_type), &mut ctx)?;
+                    let arrow = session
+                        .arrow()
+                        .execute_arrow(chunk, Some(&target), &mut ctx)?;
                     Ok(RecordBatch::from(arrow.as_struct().clone()))
                 },
             )
