@@ -13,8 +13,35 @@
 //!   - [`MultiFileFunction`] ↔ `MultiFileReaderInterface`
 //!   - [`BaseFileReader`]    ↔ `BaseFileReader`
 //!
-//! Both are non-object-safe with associated types so each implementation gets
-//! statically-monomorphised callbacks (no per-call dyn dispatch).
+//! The wrapper is generic over one [`MultiFileFunction`] implementation so each
+//! registered function gets statically-monomorphised callbacks (no per-call dyn
+//! dispatch).
+//!
+//! Callback lifecycle, matching DuckDB's `MultiFileFunction` / Parquet reader
+//! model:
+//!
+//! 1. Bind: [`MultiFileFunction::create_options`],
+//!    [`MultiFileFunction::initialize_bind_data`], and
+//!    [`MultiFileFunction::bind_reader`] run once to collect options, bind-time
+//!    state, and schema.
+//! 2. Query init: [`MultiFileFunction::init_global`] and
+//!    [`MultiFileFunction::init_local`] create per-query and per-worker state.
+//! 3. File open: [`MultiFileFunction::create_reader`] is called when DuckDB
+//!    decides to open a file. DuckDB does not hold the global multi-file
+//!    scheduling mutex while opening; it switches to a per-file mutex so other
+//!    workers can wait for that specific reader.
+//! 4. Reader preparation: [`BaseFileReader::prepare_reader`] maps projection
+//!    and filters onto the opened reader. It happens once per reader before any
+//!    scan assignment for that reader.
+//! 5. Scan assignment: [`BaseFileReader::try_initialize_scan`] is called while
+//!    DuckDB holds its global multi-file scheduling mutex. This must be a cheap
+//!    claim of one independent unit of work, e.g. a row group or row range. It
+//!    must not perform I/O, block on async work, or construct expensive scan
+//!    pipelines.
+//! 6. Scan execution: DuckDB releases the scheduling mutex before calling its
+//!    `PrepareScan` hook, exposed here as [`BaseFileReader::prepare_scan`].
+//!    Reader implementations should build per-assignment local scan state
+//!    there, then [`BaseFileReader::scan`] drains that local state into chunks.
 
 use std::ffi::CStr;
 use std::ffi::CString;
@@ -36,6 +63,7 @@ use crate::duckdb::DataChunkRef;
 use crate::duckdb::DatabaseRef;
 use crate::duckdb::DuckdbStringMap;
 use crate::duckdb::DuckdbStringMapRef;
+use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::TableFilterSet;
 use crate::duckdb::TableFilterSetRef;
@@ -53,7 +81,7 @@ pub trait MultiFileFunction: Sized + Debug {
 
     /// Bind-time data, populated from options and (the schema of) the first
     /// file. Must be `Send` because DuckDB may move it across threads.
-    type BindData: Send;
+    type BindData: Clone + Send;
 
     /// Global state for one query invocation. Shared across worker threads.
     type GlobalState: Send + Sync;
@@ -62,21 +90,47 @@ pub trait MultiFileFunction: Sized + Debug {
     type LocalState;
 
     /// Per-file reader. Created when DuckDB first opens a file, dropped when
-    /// scanning of that file finishes.
-    type Reader: BaseFileReader<GlobalState = Self::GlobalState, LocalState = Self::LocalState>;
+    /// scanning of that file finishes. DuckDB stores it in a shared pointer and
+    /// may call read-only scan callbacks from multiple workers, so shared
+    /// callbacks must be thread-safe.
+    type Reader: BaseFileReader<Self::GlobalState, Self::LocalState> + Sync;
+
+    /// Whether DuckDB may pass pushed table filters to
+    /// [`BaseFileReader::prepare_reader`].
+    const FILTER_PUSHDOWN: bool = false;
+
+    /// Whether DuckDB may omit filter-only columns from final table-scan
+    /// output.
+    ///
+    /// Only meaningful when [`Self::FILTER_PUSHDOWN`] is true.
+    const FILTER_PRUNE: bool = false;
 
     /// Construct default options. Called once per bind.
     fn create_options(ctx: &ClientContextRef) -> VortexResult<Self::ReaderOptions>;
+
+    /// Push a complex filter expression into bind data.
+    ///
+    /// Returning `true` tells DuckDB the filter is handled exactly and may be
+    /// removed from the remaining plan. Returning `false` leaves it for DuckDB
+    /// to apply above the scan or turn into a regular table filter.
+    fn pushdown_complex_filter(
+        bind_data: &mut Self::BindData,
+        expr: &ExpressionRef,
+    ) -> VortexResult<bool> {
+        let _ = (bind_data, expr);
+        Ok(false)
+    }
 
     /// Build bind data from options. Takes ownership of the options struct.
     fn initialize_bind_data(options: Self::ReaderOptions) -> VortexResult<Self::BindData>;
 
     /// Populate the result schema. DuckDB picks the first file in the file list
     /// to bind against; the implementation should open it (cheaply, metadata-
-    /// only if possible) and append columns to `schema`.
+    /// only if possible), record any bind-time metadata it needs, and append
+    /// columns to `schema`.
     fn bind_reader(
         ctx: &ClientContextRef,
-        bind_data: &Self::BindData,
+        bind_data: &mut Self::BindData,
         first_file: &str,
         schema: &mut SchemaBuilder,
     ) -> VortexResult<()>;
@@ -91,7 +145,10 @@ pub trait MultiFileFunction: Sized + Debug {
     fn init_local(global: &Self::GlobalState) -> Self::LocalState;
 
     /// Open a per-file reader. Called once per file, on the thread that won the
-    /// race to open it.
+    /// race to open it. DuckDB has dropped the global multi-file scheduling
+    /// mutex before this call, but holds a per-file mutex for this reader. It is
+    /// reasonable to open file metadata here; do not do per-scan or per-split
+    /// work here because projection/filter state is not fully prepared yet.
     fn create_reader(
         ctx: &ClientContextRef,
         global: &Self::GlobalState,
@@ -106,54 +163,105 @@ pub trait MultiFileFunction: Sized + Debug {
         Cardinality::Unknown
     }
 
+    /// Exact partition statistics for a file, if already available cheaply.
+    ///
+    /// DuckDB uses these to fold aggregates such as `COUNT(*)` during
+    /// optimization. Returning `None` leaves the scan plan unchanged.
+    fn partition_stats(
+        _ctx: &ClientContextRef,
+        _bind_data: &Self::BindData,
+        _file_path: &str,
+    ) -> VortexResult<Option<PartitionStats>> {
+        Ok(None)
+    }
+
     /// Populate the bind-time EXPLAIN map with key/value pairs (typical keys:
     /// `Function`, `Files`, `Projection`, `Filters`). Default no-op.
     fn to_string(_bind_data: &Self::BindData, _map: &mut DuckdbStringMapRef) {}
+}
+
+/// Exact per-file partition statistics exposed to DuckDB's optimizer.
+#[derive(Clone, Copy, Debug)]
+pub struct PartitionStats {
+    /// Exact number of rows in this file.
+    pub row_count: u64,
+}
+
+/// A column DuckDB asks a [`BaseFileReader`] to produce in the intermediate
+/// scan chunk.
+#[derive(Clone, Copy, Debug)]
+pub struct ProjectedColumn<'a> {
+    /// Column name in the file-local scan chunk.
+    pub name: &'a str,
+    /// DuckDB column id. Physical columns use a file-local id; virtual columns
+    /// use DuckDB's global virtual column id.
+    pub column_id: u64,
+    /// True when this column is one of DuckDB's virtual columns.
+    pub is_virtual: bool,
+    /// True when DuckDB's final output expressions reference this column.
+    ///
+    /// False columns are filter-only: the reader may use them for pushed filter
+    /// evaluation, but does not need to materialize them into the scan chunk.
+    pub is_projected: bool,
 }
 
 /// Per-file reader contract. Implementations are owned by DuckDB once handed
 /// off via [`MultiFileFunction::create_reader`] and dropped when scanning of
 /// that file completes.
 ///
-/// Note: this trait is intentionally not `Send`. DuckDB's `MultiFileFunction`
-/// guarantees one-thread-at-a-time access to a given reader (it threads them
-/// through `MultiFileLocalState` and acquires per-file locks on transitions);
-/// requiring `Send` here would force `BaseFileReader` impls to wrap their
-/// scan iterators in synchronization primitives unnecessarily.
-pub trait BaseFileReader {
-    type GlobalState;
-    type LocalState;
-
+/// DuckDB calls [`Self::try_initialize_scan`] while holding its global
+/// multi-file lock. That method should claim one independent unit of scan work
+/// and store only its descriptor in `LocalState`. [`Self::prepare_scan`] then
+/// initializes actual per-worker state outside that lock. [`Self::scan`] drains
+/// only that local state and may overlap with later
+/// [`Self::try_initialize_scan`] calls on the same reader.
+pub trait BaseFileReader<GlobalState, LocalState> {
     /// Configure projection and filter pushdown. Called once after the reader
     /// is created and before any [`Self::try_initialize_scan`] call.
-    /// `projection` is the ordered list of column names DuckDB needs the
-    /// chunks to contain (one entry per chunk column). `filters` carries any
+    /// `projection` is the ordered list of intermediate scan columns DuckDB
+    /// allocated for this reader. Filter-only columns have
+    /// [`ProjectedColumn::is_projected`] set to false. `filters` carries any
     /// filters DuckDB pushed down for this scan.
     ///
     /// Default: no-op (reader scans all columns, no filter pushdown).
     fn prepare_reader(
         &mut self,
-        projection: &[&str],
+        projection: &[ProjectedColumn<'_>],
         filters: Option<&TableFilterSetRef>,
     ) -> VortexResult<()> {
         let _ = (projection, filters);
         Ok(())
     }
 
-    /// Set up scan state for the next batch. Called under DuckDB's per-file
-    /// lock; should not block on I/O. Return `false` once exhausted.
+    /// Set up scan state for the next batch. Called under DuckDB's global
+    /// multi-file scheduling lock; this should only claim work into `local`.
+    /// Do not open readers, call `block_on`, or construct scan iterators here.
+    /// Return `false` once exhausted.
     fn try_initialize_scan(
-        &mut self,
-        global: &Self::GlobalState,
-        local: &mut Self::LocalState,
+        &self,
+        global: &GlobalState,
+        local: &mut LocalState,
     ) -> VortexResult<bool>;
 
+    /// Initialize local scan state for the work claimed by
+    /// [`Self::try_initialize_scan`]. DuckDB calls this outside its global
+    /// multi-file scheduling lock, so implementations may open per-split
+    /// iterators, block on async setup, or build scan pipelines here.
+    ///
+    /// Default: no-op.
+    fn prepare_scan(&self, global: &GlobalState, local: &mut LocalState) -> VortexResult<()> {
+        let _ = (global, local);
+        Ok(())
+    }
+
     /// Produce the next batch into `chunk`. Setting `chunk` to size 0 signals
-    /// end-of-file; otherwise non-empty implies more may follow.
+    /// end-of-assignment; otherwise non-empty implies more may follow. This is
+    /// called outside DuckDB's global multi-file scheduling lock after
+    /// [`Self::prepare_scan`].
     fn scan(
-        &mut self,
-        global: &Self::GlobalState,
-        local: &mut Self::LocalState,
+        &self,
+        global: &GlobalState,
+        local: &mut LocalState,
         chunk: &mut DataChunkRef,
     ) -> VortexResult<()>;
 
@@ -202,9 +310,13 @@ impl DatabaseRef {
     ) -> VortexResult<()> {
         let vtab = cpp::duckdb_vx_mff_vtab_t {
             name: name.as_ptr(),
+            filter_pushdown: T::FILTER_PUSHDOWN,
+            filter_prune: T::FILTER_PRUNE,
+            pushdown_complex_filter: Some(pushdown_complex_filter::<T>),
             create_options: Some(create_options::<T>),
             free_options: Some(free_options::<T>),
             initialize_bind_data: Some(initialize_bind_data::<T>),
+            clone_bind_data: Some(clone_bind_data::<T>),
             free_bind_data: Some(free_bind_data::<T>),
             bind_reader: Some(bind_reader::<T>),
             init_global: Some(init_global::<T>),
@@ -215,10 +327,12 @@ impl DatabaseRef {
             free_reader: Some(free_reader::<T>),
             prepare_reader: Some(prepare_reader::<T>),
             try_initialize_scan: Some(try_initialize_scan::<T>),
+            prepare_scan: Some(prepare_scan::<T>),
             scan: Some(scan::<T>),
             get_statistics: Some(get_statistics::<T>),
             progress_in_file: Some(progress_in_file::<T>),
             cardinality: Some(cardinality::<T>),
+            partition_stats: Some(partition_stats::<T>),
             to_string: Some(to_string::<T>),
         };
 
@@ -273,6 +387,28 @@ unsafe extern "C-unwind" fn free_bind_data<T: MultiFileFunction>(
     }
 }
 
+unsafe extern "C-unwind" fn clone_bind_data<T: MultiFileFunction>(
+    bind_data: cpp::duckdb_vx_mff_bind_data,
+    error_out: *mut cpp::duckdb_vx_error,
+) -> cpp::duckdb_vx_mff_bind_data {
+    let bind_data =
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null");
+    try_or(error_out, || {
+        Ok(Box::into_raw(Box::new(bind_data.clone())).cast())
+    })
+}
+
+unsafe extern "C-unwind" fn pushdown_complex_filter<T: MultiFileFunction>(
+    bind_data: cpp::duckdb_vx_mff_bind_data,
+    expr: cpp::duckdb_vx_expr,
+    error_out: *mut cpp::duckdb_vx_error,
+) -> bool {
+    let bind_data =
+        unsafe { bind_data.cast::<T::BindData>().as_mut() }.vortex_expect("bind_data null");
+    let expr = unsafe { crate::duckdb::Expression::borrow(expr) };
+    try_or(error_out, || T::pushdown_complex_filter(bind_data, expr))
+}
+
 unsafe extern "C-unwind" fn bind_reader<T: MultiFileFunction>(
     ctx: cpp::duckdb_client_context,
     bind_data: cpp::duckdb_vx_mff_bind_data,
@@ -283,7 +419,7 @@ unsafe extern "C-unwind" fn bind_reader<T: MultiFileFunction>(
 ) {
     let ctx = unsafe { ClientContext::borrow(ctx) };
     let bind_data =
-        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null");
+        unsafe { bind_data.cast::<T::BindData>().as_mut() }.vortex_expect("bind_data null");
     let mut builder = SchemaBuilder { raw: schema_writer };
     try_or(error_out, || {
         let path_bytes = unsafe { slice::from_raw_parts(file_path.cast::<u8>(), path_len) };
@@ -370,16 +506,21 @@ unsafe extern "C-unwind" fn prepare_reader<T: MultiFileFunction>(
         Some(unsafe { TableFilterSet::borrow(filters) })
     };
     try_or(error_out, || {
-        // Materialize column names into &str borrows scoped to this call.
-        let mut names: Vec<&str> = Vec::with_capacity(projection_count);
+        // Materialize column metadata with &str borrows scoped to this call.
+        let mut projected_columns = Vec::with_capacity(projection_count);
         for i in 0..projection_count {
             let col = unsafe { &*projection.add(i) };
             let bytes = unsafe { slice::from_raw_parts(col.name.cast::<u8>(), col.name_len) };
             let name = std::str::from_utf8(bytes)
                 .map_err(|e| vortex_err!("projection column name not UTF-8: {e}"))?;
-            names.push(name);
+            projected_columns.push(ProjectedColumn {
+                name,
+                column_id: col.column_id,
+                is_virtual: col.is_virtual,
+                is_projected: col.is_projected,
+            });
         }
-        reader.prepare_reader(&names, filter_ref)
+        reader.prepare_reader(&projected_columns, filter_ref)
     });
 }
 
@@ -389,10 +530,22 @@ unsafe extern "C-unwind" fn try_initialize_scan<T: MultiFileFunction>(
     local: cpp::duckdb_vx_mff_local,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> bool {
-    let reader = unsafe { reader.cast::<T::Reader>().as_mut() }.vortex_expect("reader null");
+    let reader = unsafe { reader.cast::<T::Reader>().as_ref() }.vortex_expect("reader null");
     let global = unsafe { global.cast::<T::GlobalState>().as_ref() }.vortex_expect("global null");
     let local = unsafe { local.cast::<T::LocalState>().as_mut() }.vortex_expect("local null");
     try_or(error_out, || reader.try_initialize_scan(global, local))
+}
+
+unsafe extern "C-unwind" fn prepare_scan<T: MultiFileFunction>(
+    reader: cpp::duckdb_vx_mff_reader,
+    global: cpp::duckdb_vx_mff_global,
+    local: cpp::duckdb_vx_mff_local,
+    error_out: *mut cpp::duckdb_vx_error,
+) {
+    let reader = unsafe { reader.cast::<T::Reader>().as_ref() }.vortex_expect("reader null");
+    let global = unsafe { global.cast::<T::GlobalState>().as_ref() }.vortex_expect("global null");
+    let local = unsafe { local.cast::<T::LocalState>().as_mut() }.vortex_expect("local null");
+    try_or(error_out, || reader.prepare_scan(global, local))
 }
 
 unsafe extern "C-unwind" fn scan<T: MultiFileFunction>(
@@ -402,7 +555,7 @@ unsafe extern "C-unwind" fn scan<T: MultiFileFunction>(
     chunk: cpp::duckdb_data_chunk,
     error_out: *mut cpp::duckdb_vx_error,
 ) -> bool {
-    let reader = unsafe { reader.cast::<T::Reader>().as_mut() }.vortex_expect("reader null");
+    let reader = unsafe { reader.cast::<T::Reader>().as_ref() }.vortex_expect("reader null");
     let global = unsafe { global.cast::<T::GlobalState>().as_ref() }.vortex_expect("global null");
     let local = unsafe { local.cast::<T::LocalState>().as_mut() }.vortex_expect("local null");
     let chunk_ref = unsafe { DataChunk::borrow_mut(chunk) };
@@ -471,6 +624,30 @@ unsafe extern "C-unwind" fn cardinality<T: MultiFileFunction>(
             true
         }
     }
+}
+
+unsafe extern "C-unwind" fn partition_stats<T: MultiFileFunction>(
+    ctx: cpp::duckdb_client_context,
+    bind_data: cpp::duckdb_vx_mff_bind_data,
+    file_path: *const std::os::raw::c_char,
+    path_len: usize,
+    out: *mut cpp::duckdb_vx_mff_partition_stats,
+    error_out: *mut cpp::duckdb_vx_error,
+) -> bool {
+    let ctx = unsafe { ClientContext::borrow(ctx) };
+    let bind_data =
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null");
+    try_or(error_out, || {
+        let path_bytes = unsafe { slice::from_raw_parts(file_path.cast::<u8>(), path_len) };
+        let path = std::str::from_utf8(path_bytes)
+            .map_err(|e| vortex_err!("file path is not UTF-8: {e}"))?;
+        let Some(stats) = T::partition_stats(ctx, bind_data, path)? else {
+            return Ok(false);
+        };
+        let out = unsafe { &mut *out };
+        out.row_count = stats.row_count;
+        Ok(true)
+    })
 }
 
 unsafe extern "C-unwind" fn to_string<T: MultiFileFunction>(

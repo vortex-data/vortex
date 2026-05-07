@@ -14,6 +14,7 @@ mod file_system;
 mod logical_type;
 mod macro_;
 mod multi_file_function;
+mod object_cache;
 mod query_result;
 mod reusable_dict;
 mod scalar_function;

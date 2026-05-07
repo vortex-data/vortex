@@ -57,8 +57,8 @@ static SESSION: LazyLock<VortexSession> =
 /// Known gaps in the v2 path (compared to v1) at time of writing:
 /// - No batch parallelism within a file (`TryInitializeScan` is one-shot, so
 ///   each Vortex file is scanned by a single worker).
-/// - No `union_by_name`, hive partitioning columns, or `filename` /
-///   `file_row_number` virtual columns wired through.
+/// - No `union_by_name`, hive partitioning columns, or `filename` virtual
+///   column wired through.
 /// - No support for the named parameters DuckDB's `MultiFileReader` adds
 ///   (`union_by_name`, `hive_partitioning`, …) — `ParseOption` returns false.
 /// - No `COPY ... FROM 'x.vortex'` via this path.
@@ -82,6 +82,12 @@ pub fn initialize(db: &DatabaseRef) -> VortexResult<()> {
         "Whether to use Vortex's filesystem ('vortex') or DuckDB's filesystems ('duckdb').",
         LogicalType::varchar(),
         Value::from("vortex"),
+    )?;
+    db.config().add_extension_options(
+        "vortex_metadata_cache",
+        "Cache Vortex file metadata - useful when reading the same files multiple times.",
+        LogicalType::bool(),
+        Value::from(false),
     )?;
     if use_multi_file_function() {
         // Replace the table-function-based scan with the MultiFileFunction<OP>

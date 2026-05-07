@@ -21,6 +21,8 @@
 #include "duckdb_vx/multi_file_function.h"
 
 #include <cstring>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 DUCKDB_INCLUDES_BEGIN
@@ -31,12 +33,15 @@ DUCKDB_INCLUDES_BEGIN
 #include "duckdb/common/multi_file/multi_file_function.hpp"
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "duckdb/common/multi_file/multi_file_states.hpp"
+#include "duckdb/function/partition_stats.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 DUCKDB_INCLUDES_END
 
 using namespace duckdb;
 using vortex::IntoErrString;
+constexpr column_t COLUMN_IDENTIFIER_FILE_INDEX = MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX;
+constexpr column_t COLUMN_IDENTIFIER_FILE_ROW_NUMBER = MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER;
 
 namespace {
 
@@ -93,6 +98,15 @@ struct VortexMultiFileBindData : public TableFunctionData {
         return false;
     }
 
+    unique_ptr<FunctionData> Copy() const override {
+        duckdb_vx_error error_out = nullptr;
+        auto cloned = vtab.clone_bind_data(handle, &error_out);
+        if (error_out) {
+            throw InternalException(IntoErrString(error_out));
+        }
+        return make_uniq<VortexMultiFileBindData>(vtab, cloned);
+    }
+
     const duckdb_vx_mff_vtab_t &vtab;
     duckdb_vx_mff_bind_data handle;
 };
@@ -103,8 +117,10 @@ struct VortexMultiFileBindData : public TableFunctionData {
  */
 class VortexInterfaceGlobalState : public GlobalTableFunctionState {
 public:
-    VortexInterfaceGlobalState(const duckdb_vx_mff_vtab_t &vtab, duckdb_vx_mff_global handle)
-        : vtab(vtab), handle(handle) {
+    VortexInterfaceGlobalState(const duckdb_vx_mff_vtab_t &vtab,
+                               duckdb_vx_mff_global handle,
+                               const MultiFileGlobalState &multi_file_state)
+        : vtab(vtab), handle(handle), multi_file_state(&multi_file_state) {
     }
     ~VortexInterfaceGlobalState() override {
         if (handle) {
@@ -114,6 +130,7 @@ public:
 
     const duckdb_vx_mff_vtab_t &vtab;
     duckdb_vx_mff_global handle;
+    const MultiFileGlobalState *multi_file_state;
 };
 
 class VortexInterfaceLocalState : public LocalTableFunctionState {
@@ -152,20 +169,45 @@ public:
         return "vortex";
     }
 
-    void PrepareReader(ClientContext &, GlobalTableFunctionState &) override {
+    void AddVirtualColumn(column_t virtual_column_id) override {
+        if (columns.empty()) {
+            throw InternalException("Vortex reader received virtual column before column registration");
+        }
+        virtual_column_ids[columns.size() - 1] = virtual_column_id;
+    }
+
+    void PrepareReader(ClientContext &, GlobalTableFunctionState &gstate) override {
         // Translate the multi-file column ids into projected column names, then
         // hand DuckDB's TableFilterSet through to Rust as a borrow. The reader
         // stores the resulting projection/filter so it can apply them when the
         // scan starts.
+        auto &g = gstate.Cast<VortexInterfaceGlobalState>();
+        std::unordered_set<column_t> projected_column_ids;
+        if (g.multi_file_state && !g.multi_file_state->projection_ids.empty()) {
+            projected_column_ids.reserve(g.multi_file_state->projection_ids.size());
+            for (const auto &projection_id : g.multi_file_state->projection_ids) {
+                if (projection_id >= g.multi_file_state->column_indexes.size()) {
+                    throw InternalException("Vortex projection id out of range");
+                }
+                projected_column_ids.insert(g.multi_file_state->column_indexes[projection_id].GetPrimaryIndex());
+            }
+        }
+
         std::vector<duckdb_vx_mff_column> ffi_proj;
         ffi_proj.reserve(column_ids.size());
         for (idx_t i = 0; i < column_ids.size(); i++) {
             auto local_id = column_ids[MultiFileLocalIndex(i)];
-            // `local_id` is an index into our local `columns` schema. The
-            // multi-file reader only routes physical columns here; virtual
-            // columns are handled separately and never reach this list.
+            // `local_id` is an index into our local `columns` schema. Physical
+            // columns use their local id directly; non-constant virtual columns
+            // are appended to `columns` by DuckDB's mapper and announced via
+            // AddVirtualColumn.
             const auto &col = columns[local_id];
-            ffi_proj.push_back({col.name.c_str(), col.name.size()});
+            auto virtual_entry = virtual_column_ids.find(local_id.GetId());
+            const bool is_virtual = virtual_entry != virtual_column_ids.end();
+            const auto column_id = is_virtual ? virtual_entry->second : local_id.GetId();
+            const bool is_projected =
+                projected_column_ids.empty() || projected_column_ids.find(column_id) != projected_column_ids.end();
+            ffi_proj.push_back({col.name.c_str(), col.name.size(), column_id, is_virtual, is_projected});
         }
         auto filter_ptr = reinterpret_cast<duckdb_vx_table_filter_set>(filters.get());
         duckdb_vx_error error_out = nullptr;
@@ -186,6 +228,18 @@ public:
             throw IOException(IntoErrString(error_out));
         }
         return ok;
+    }
+
+    void PrepareScan(ClientContext &,
+                     GlobalTableFunctionState &gstate,
+                     LocalTableFunctionState &lstate) override {
+        auto &g = gstate.Cast<VortexInterfaceGlobalState>();
+        auto &l = lstate.Cast<VortexInterfaceLocalState>();
+        duckdb_vx_error error_out = nullptr;
+        vtab.prepare_scan(handle, g.handle, l.handle, &error_out);
+        if (error_out) {
+            throw IOException(IntoErrString(error_out));
+        }
     }
 
     AsyncResult Scan(ClientContext &,
@@ -255,6 +309,7 @@ public:
 private:
     const duckdb_vx_mff_vtab_t &vtab;
     duckdb_vx_mff_reader handle;
+    std::unordered_map<idx_t, column_t> virtual_column_ids;
 };
 
 /**
@@ -264,11 +319,15 @@ private:
  */
 class VortexMultiFileReaderInterface : public MultiFileReaderInterface {
 public:
-    explicit VortexMultiFileReaderInterface(const duckdb_vx_mff_vtab_t &vtab_p) : vtab(vtab_p) {
-    }
+    VortexMultiFileReaderInterface() = default;
 
     unique_ptr<BaseFileReaderOptions> InitializeOptions(ClientContext &context,
-                                                        optional_ptr<TableFunctionInfo>) override {
+                                                        optional_ptr<TableFunctionInfo> info) override {
+        if (!info) {
+            throw BinderException("Vortex multi-file function requires TableFunctionInfo");
+        }
+        vtab = &info->Cast<VortexMultiFileFunctionInfo>().vtab;
+        auto &vtab = Vtab();
         duckdb_vx_error error_out = nullptr;
         auto ctx = reinterpret_cast<duckdb_client_context>(&context);
         auto handle = vtab.create_options(ctx, &error_out);
@@ -290,6 +349,7 @@ public:
 
     unique_ptr<TableFunctionData> InitializeBindData(MultiFileBindData &,
                                                      unique_ptr<BaseFileReaderOptions> options) override {
+        auto &vtab = Vtab();
         auto &vortex_options = options->Cast<VortexBaseFileReaderOptions>();
         // Take ownership of the options handle and pass it to the FFI.
         duckdb_vx_error error_out = nullptr;
@@ -302,6 +362,7 @@ public:
 
     void BindReader(ClientContext &context, vector<LogicalType> &return_types, vector<string> &names,
                     MultiFileBindData &bind_data) override {
+        auto &vtab = Vtab();
         auto first_file = bind_data.file_list->GetFirstFile();
         auto &vortex_bind = bind_data.bind_data->Cast<VortexMultiFileBindData>();
 
@@ -323,7 +384,8 @@ public:
 
     unique_ptr<GlobalTableFunctionState> InitializeGlobalState(ClientContext &context,
                                                                 MultiFileBindData &bind_data,
-                                                                MultiFileGlobalState &) override {
+                                                                MultiFileGlobalState &multi_file_state) override {
+        auto &vtab = Vtab();
         auto &vortex_bind = bind_data.bind_data->Cast<VortexMultiFileBindData>();
         duckdb_vx_error error_out = nullptr;
         auto ctx = reinterpret_cast<duckdb_client_context>(&context);
@@ -331,14 +393,20 @@ public:
         if (error_out) {
             throw BinderException(IntoErrString(error_out));
         }
-        return make_uniq<VortexInterfaceGlobalState>(vtab, handle);
+        return make_uniq<VortexInterfaceGlobalState>(vtab, handle, multi_file_state);
     }
 
     unique_ptr<LocalTableFunctionState> InitializeLocalState(ExecutionContext &,
                                                               GlobalTableFunctionState &gstate) override {
+        auto &vtab = Vtab();
         auto &g = gstate.Cast<VortexInterfaceGlobalState>();
         auto handle = vtab.init_local(g.handle);
         return make_uniq<VortexInterfaceLocalState>(vtab, handle);
+    }
+
+    void GetVirtualColumns(ClientContext &, MultiFileBindData &, virtual_column_map_t &result) override {
+        result.insert(make_pair(COLUMN_IDENTIFIER_FILE_ROW_NUMBER,
+                                TableColumn("file_row_number", LogicalType::BIGINT)));
     }
 
     shared_ptr<BaseFileReader> CreateReader(ClientContext &, GlobalTableFunctionState &, BaseUnionData &,
@@ -350,6 +418,7 @@ public:
     shared_ptr<BaseFileReader> CreateReader(ClientContext &context, GlobalTableFunctionState &gstate,
                                             const OpenFileInfo &file, idx_t file_idx,
                                             const MultiFileBindData &bind_data) override {
+        auto &vtab = Vtab();
         auto &vortex_bind = bind_data.bind_data->Cast<VortexMultiFileBindData>();
         auto &vortex_g = gstate.Cast<VortexInterfaceGlobalState>();
         duckdb_vx_error error_out = nullptr;
@@ -370,6 +439,7 @@ public:
 
     unique_ptr<NodeStatistics> GetCardinality(ClientContext &context, const MultiFileBindData &data,
                                               idx_t file_count) override {
+        auto &vtab = Vtab();
         auto &vortex_bind = data.bind_data->Cast<VortexMultiFileBindData>();
         duckdb_vx_node_statistics stats = {};
         if (!vtab.cardinality(vortex_bind.handle, file_count, &stats)) {
@@ -384,11 +454,20 @@ public:
     }
 
     unique_ptr<MultiFileReaderInterface> Copy() override {
-        return make_uniq<VortexMultiFileReaderInterface>(vtab);
+        auto copy = make_uniq<VortexMultiFileReaderInterface>();
+        copy->vtab = vtab;
+        return copy;
     }
 
 private:
-    const duckdb_vx_mff_vtab_t &vtab;
+    const duckdb_vx_mff_vtab_t &Vtab() const {
+        if (!vtab) {
+            throw InternalException("VortexMultiFileReaderInterface used before InitializeOptions");
+        }
+        return *vtab;
+    }
+
+    const duckdb_vx_mff_vtab_t *vtab = nullptr;
 };
 
 /**
@@ -396,17 +475,77 @@ private:
  * CreateInterface can construct a VortexMultiFileReaderInterface bound to it.
  */
 struct VortexMultiFileFunctionOp {
-    static const duckdb_vx_mff_vtab_t *current_vtab;
-
     static unique_ptr<MultiFileReaderInterface> CreateInterface(ClientContext &) {
-        if (!current_vtab) {
-            throw InternalException("VortexMultiFileFunctionOp::CreateInterface called without a registered vtab");
-        }
-        return make_uniq<VortexMultiFileReaderInterface>(*current_vtab);
+        return make_uniq<VortexMultiFileReaderInterface>();
     }
 };
 
-const duckdb_vx_mff_vtab_t *VortexMultiFileFunctionOp::current_vtab = nullptr;
+void mff_pushdown_complex_filter(ClientContext &context,
+                                 LogicalGet &get,
+                                 FunctionData *bind_data_p,
+                                 vector<unique_ptr<Expression>> &filters) {
+    auto &data = bind_data_p->Cast<MultiFileBindData>();
+
+    MultiFilePushdownInfo info(get);
+    auto new_list =
+        data.multi_file_reader->ComplexFilterPushdown(context, *data.file_list, data.file_options, info, filters);
+
+    if (new_list) {
+        data.file_list = std::move(new_list);
+        MultiFileReader::PruneReaders(data, *data.file_list);
+    }
+
+    auto &vortex_bind = data.bind_data->Cast<VortexMultiFileBindData>();
+    duckdb_vx_error error_out = nullptr;
+    for (auto iter = filters.begin(); iter != filters.end();) {
+        duckdb_vx_expr ffi_expr = reinterpret_cast<duckdb_vx_expr>(iter->get());
+        const bool pushed = vortex_bind.vtab.pushdown_complex_filter(vortex_bind.handle, ffi_expr, &error_out);
+        if (error_out) {
+            throw BinderException(IntoErrString(error_out));
+        }
+        iter = pushed ? filters.erase(iter) : std::next(iter);
+    }
+}
+
+vector<PartitionStatistics> mff_get_partition_stats(ClientContext &context, GetPartitionStatsInput &input) {
+    vector<PartitionStatistics> result;
+    if (!input.bind_data) {
+        return result;
+    }
+
+    auto &data = input.bind_data->Cast<MultiFileBindData>();
+    if (!data.bind_data || !data.file_list) {
+        return result;
+    }
+
+    auto &vortex_bind = data.bind_data->Cast<VortexMultiFileBindData>();
+    if (!vortex_bind.vtab.partition_stats) {
+        return result;
+    }
+
+    auto ctx = reinterpret_cast<duckdb_client_context>(&context);
+    idx_t row_start = 0;
+    for (const auto &file : data.file_list->Files()) {
+        duckdb_vx_mff_partition_stats ffi_stats = {};
+        duckdb_vx_error error_out = nullptr;
+        const bool found = vortex_bind.vtab.partition_stats(ctx, vortex_bind.handle, file.path.c_str(),
+                                                            file.path.size(), &ffi_stats, &error_out);
+        if (error_out) {
+            throw IOException(IntoErrString(error_out));
+        }
+        if (!found) {
+            return {};
+        }
+
+        PartitionStatistics stats;
+        stats.row_start = optional_idx(row_start);
+        stats.count = static_cast<idx_t>(ffi_stats.row_count);
+        stats.count_type = CountType::COUNT_EXACT;
+        result.push_back(std::move(stats));
+        row_start += static_cast<idx_t>(ffi_stats.row_count);
+    }
+    return result;
+}
 
 } // namespace
 
@@ -430,15 +569,21 @@ extern "C" duckdb_state duckdb_vx_mff_register(duckdb_database ffi_db, const duc
     const auto &wrapper = *reinterpret_cast<DatabaseWrapper *>(ffi_db);
     auto &db = *wrapper.database->instance;
 
-    // Capture the vtab pointer so MultiFileFunction<OP>::MultiFileBind can find it
-    // when DuckDB re-enters CreateInterface during bind. The catalog will also
-    // hold a copy via TableFunctionInfo so this stays alive for the lifetime of
-    // the registered function.
+    // The catalog-owned TableFunctionInfo carries the vtab copy that each bind
+    // resolves through InitializeOptions. Keeping it there avoids a shared
+    // global pointer across databases/tests.
     auto info = make_shared_ptr<VortexMultiFileFunctionInfo>(*vtab);
-    VortexMultiFileFunctionOp::current_vtab = &info->vtab;
 
     MultiFileFunction<VortexMultiFileFunctionOp> mff(vtab->name);
     mff.function_info = info;
+    mff.filter_pushdown = vtab->filter_pushdown;
+    mff.filter_prune = vtab->filter_prune;
+    mff.pushdown_complex_filter = mff_pushdown_complex_filter;
+    mff.get_partition_stats = mff_get_partition_stats;
+    mff.late_materialization = true;
+    mff.get_row_id_columns = [](ClientContext &, optional_ptr<FunctionData>) -> vector<column_t> {
+        return {COLUMN_IDENTIFIER_FILE_INDEX, COLUMN_IDENTIFIER_FILE_ROW_NUMBER};
+    };
 
     // Bind-time EXPLAIN output. Adds keys like "Function", "Files",
     // "Projection", "Filters". MultiFileFunction also installs a
@@ -451,12 +596,6 @@ extern "C" duckdb_state duckdb_vx_mff_register(duckdb_database ffi_db, const duc
         vortex_bind.vtab.to_string(vortex_bind.handle, map);
         return result;
     };
-
-    // Late materialization is not enabled yet: it requires the per-file reader
-    // to accept AddVirtualColumn calls for file_index / file_row_number and
-    // produce those columns at scan time. Until that's wired (see follow-up),
-    // we leave `late_materialization = false` so DuckDB doesn't request
-    // virtual columns through paths the reader can't satisfy.
 
     try {
         // CreateFunctionSet returns a TableFunctionSet that bundles both the

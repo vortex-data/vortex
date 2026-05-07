@@ -185,7 +185,7 @@ impl VortexFile {
 
     pub fn splits(&self) -> VortexResult<Vec<Range<u64>>> {
         let reader = self.layout_reader()?;
-        Ok(SplitBy::Layout
+        Ok(SplitBy::layout()
             .splits(reader.as_ref(), &(0..reader.row_count()), &[FieldMask::All])?
             .into_iter()
             .tuple_windows()

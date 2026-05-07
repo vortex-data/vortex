@@ -46,6 +46,11 @@ pub struct ArrayExporter {
     /// Columns DuckDB requested to read from file. If empty, it's a zero-column
     /// projection and should be handled accordingly, see ArrayExporter::export.
     fields: Vec<Box<dyn ColumnExporter>>,
+    /// Optional sparse mapping from Vortex struct fields to DuckDB chunk
+    /// vectors. Used by DuckDB's multi-file scan when filter-only columns are
+    /// present in the intermediate chunk but not materialized by Vortex.
+    field_positions: Option<Vec<usize>>,
+    chunk_column_count: Option<usize>,
     array_len: usize,
     remaining: usize,
 }
@@ -67,6 +72,41 @@ impl ArrayExporter {
         Ok(Self {
             ctx,
             fields,
+            field_positions: None,
+            chunk_column_count: None,
+            array_len: array.len(),
+            remaining: array.len(),
+        })
+    }
+
+    pub fn try_new_with_positions(
+        array: &StructArray,
+        cache: &ConversionCache,
+        mut ctx: ExecutionCtx,
+        field_positions: Vec<usize>,
+        chunk_column_count: usize,
+    ) -> VortexResult<Self> {
+        let validity = array.validity()?.execute_mask(array.len(), &mut ctx)?;
+        assert!(validity.all_true());
+
+        let fields = array
+            .iter_unmasked_fields()
+            .map(|field| new_array_exporter(field.clone(), cache, &mut ctx))
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        if fields.len() != field_positions.len() {
+            vortex_bail!(
+                "Expected {} output positions for {} fields",
+                fields.len(),
+                field_positions.len()
+            );
+        }
+
+        Ok(Self {
+            ctx,
+            fields,
+            field_positions: Some(field_positions),
+            chunk_column_count: Some(chunk_column_count),
             array_len: array.len(),
             remaining: array.len(),
         })
@@ -87,6 +127,32 @@ impl ArrayExporter {
         }
 
         let zero_projection = self.fields.is_empty();
+
+        if let Some(field_positions) = &self.field_positions {
+            let expected_cols = self
+                .chunk_column_count
+                .vortex_expect("sparse exporter missing chunk column count");
+            let chunk_cols = chunk.column_count();
+            if chunk_cols != expected_cols {
+                vortex_bail!("Expected {expected_cols} columns in output chunk, got {chunk_cols}");
+            }
+
+            let chunk_len = duckdb_vector_size().min(self.remaining);
+            let position = self.array_len - self.remaining;
+            self.remaining -= chunk_len;
+            chunk.set_len(chunk_len);
+
+            for (field, pos) in self.fields.iter().zip(field_positions.iter().copied()) {
+                field.export(
+                    position,
+                    chunk_len,
+                    chunk.get_vector_mut(pos),
+                    &mut self.ctx,
+                )?;
+            }
+
+            return Ok(true);
+        }
 
         // file_row_number column is already populated in scan construction
         let expected_cols = self.fields.len() + file_index_column_pos.is_some() as usize;

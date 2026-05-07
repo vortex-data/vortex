@@ -43,6 +43,7 @@ use vortex_utils::parallelism::get_available_parallelism;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::layouts::row_idx::RowIdxLayoutReader;
+use crate::layouts::row_idx::extract_row_idx_filter;
 use crate::scan::repeated_scan::RepeatedScan;
 use crate::scan::split_by::SplitBy;
 use crate::scan::splits::Splits;
@@ -87,7 +88,7 @@ impl ScanBuilder<ArrayRef> {
             ordered: true,
             row_range: None,
             selection: Default::default(),
-            split_by: SplitBy::Layout,
+            split_by: SplitBy::layout(),
             // We default to four tasks per worker thread, which allows for some I/O lookahead
             // without too much impact on work-stealing.
             concurrency: 4,
@@ -261,30 +262,39 @@ impl<A: 'static + Send> ScanBuilder<A> {
         // Normalize and simplify the expressions.
         let projection = self.projection.optimize_recursive(layout_reader.dtype())?;
 
-        let filter = self
+        let mut filter = self
             .filter
             .map(|f| f.optimize_recursive(layout_reader.dtype()))
             .transpose()?;
+        let mut row_range = self.row_range.clone();
+        let mut selection = self.selection.clone();
+
+        if let (Selection::All, Some(filter_expr)) = (&selection, filter.as_ref()) {
+            let extracted =
+                extract_row_idx_filter(filter_expr, self.row_offset, layout_reader.row_count());
+            filter = extracted.filter;
+            selection = extracted.selection;
+            row_range = intersect_optional_ranges(row_range, extracted.row_range);
+            normalize_selection_and_range(&mut selection, &mut row_range);
+        }
 
         // Construct field masks and compute the row splits of the scan.
         let (filter_mask, projection_mask) =
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
 
-        let splits =
-            if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
-                Splits::Ranges(ranges)
-            } else {
-                let split_range = self
-                    .row_range
-                    .clone()
-                    .unwrap_or_else(|| 0..layout_reader.row_count());
-                Splits::Natural(self.split_by.splits(
-                    layout_reader.as_ref(),
-                    &split_range,
-                    &field_mask,
-                )?)
-            };
+        let splits = if let Some(ranges) = attempt_split_ranges(&selection, row_range.as_ref()) {
+            Splits::Ranges(ranges)
+        } else {
+            let split_range = row_range
+                .clone()
+                .unwrap_or_else(|| 0..layout_reader.row_count());
+            Splits::Natural(self.split_by.splits(
+                layout_reader.as_ref(),
+                &split_range,
+                &field_mask,
+            )?)
+        };
 
         Ok(RepeatedScan::new(
             self.session.clone(),
@@ -292,8 +302,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
             projection,
             filter,
             self.ordered,
-            self.row_range,
-            self.selection,
+            row_range,
+            selection,
             splits,
             self.concurrency,
             self.map_fn,
@@ -327,6 +337,38 @@ impl<A: 'static + Send> ScanBuilder<A> {
         let stream = self.into_stream()?;
         Ok(runtime.block_on_stream(stream))
     }
+}
+
+fn intersect_optional_ranges(
+    left: Option<Range<u64>>,
+    right: Option<Range<u64>>,
+) -> Option<Range<u64>> {
+    match (left, right) {
+        (None, None) => None,
+        (Some(range), None) | (None, Some(range)) => Some(range),
+        (Some(left), Some(right)) => Some(left.start.max(right.start)..left.end.min(right.end)),
+    }
+}
+
+fn normalize_selection_and_range(selection: &mut Selection, row_range: &mut Option<Range<u64>>) {
+    if row_range.as_ref().is_some_and(|range| range.is_empty()) {
+        *selection = Selection::IncludeByIndex(Buffer::from_iter(std::iter::empty::<u64>()));
+        *row_range = None;
+        return;
+    }
+
+    if !matches!(selection, Selection::IncludeByIndex(_)) {
+        return;
+    }
+
+    let Some(range) = row_range.take() else {
+        return;
+    };
+
+    let Selection::IncludeByIndex(indices) = selection else {
+        unreachable!("checked selection kind before taking row range");
+    };
+    *indices = Buffer::from_iter(indices.iter().copied().filter(|idx| range.contains(idx)));
 }
 
 enum LazyScanState<A: 'static + Send> {
@@ -473,6 +515,8 @@ mod test {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::eq;
+    use vortex_array::expr::lit;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
@@ -482,6 +526,7 @@ mod test {
     use super::ScanBuilder;
     use crate::ArrayFuture;
     use crate::LayoutReader;
+    use crate::layouts::row_idx::row_idx;
 
     #[derive(Debug)]
     struct CountingLayoutReader {
@@ -679,6 +724,63 @@ mod test {
 
         assert_eq!(calls.load(Ordering::Relaxed), 1);
         assert_eq!(values.as_ref(), [0, 1, 2, 3]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn row_idx_equality_filter_uses_exact_selection_before_splitting() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
+
+        let runtime = SingleThreadRuntime::default();
+        let session = crate::scan::test::session_with_handle(runtime.handle());
+
+        let stream = ScanBuilder::new(session, reader)
+            .with_filter(eq(row_idx(), lit(2u64)))
+            .into_stream()?;
+        let mut iter = runtime.block_on_stream(stream);
+
+        let mut values = Vec::new();
+        for chunk in &mut iter {
+            let prim = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
+            values.extend(prim.into_buffer::<i32>());
+        }
+
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            0,
+            "row_idx equality should be converted to an exact row selection before natural split planning"
+        );
+        assert_eq!(values.as_ref(), [2]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn row_idx_equality_filter_accounts_for_row_offset() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
+
+        let runtime = SingleThreadRuntime::default();
+        let session = crate::scan::test::session_with_handle(runtime.handle());
+
+        let stream = ScanBuilder::new(session, reader)
+            .with_row_offset(10)
+            .with_filter(eq(row_idx(), lit(12u64)))
+            .into_stream()?;
+        let mut iter = runtime.block_on_stream(stream);
+
+        let mut values = Vec::new();
+        for chunk in &mut iter {
+            let prim = chunk?.execute::<PrimitiveArray>(&mut ctx)?;
+            values.extend(prim.into_buffer::<i32>());
+        }
+
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        assert_eq!(values.as_ref(), [2]);
 
         Ok(())
     }

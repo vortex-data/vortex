@@ -468,7 +468,7 @@ fn natural_split_ranges_for_file(
 fn compute_natural_split_ranges(layout_reader: &dyn LayoutReader) -> DFResult<Arc<[Range<u64>]>> {
     let row_count = layout_reader.row_count();
     let row_range = 0..row_count;
-    let split_points: Vec<_> = SplitBy::Layout
+    let split_points: Vec<_> = SplitBy::layout()
         .splits(layout_reader, &row_range, &[FieldMask::All])
         .map_err(|e| exec_datafusion_err!("Failed to compute Vortex natural splits: {e}"))?
         .into_iter()

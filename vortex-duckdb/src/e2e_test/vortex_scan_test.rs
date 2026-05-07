@@ -3,7 +3,6 @@
 
 //! This module contains tests for the `vortex_scan` table function.
 
-use std::ffi::CStr;
 use std::io::Write;
 use std::net::TcpListener;
 use std::path::Path;
@@ -185,8 +184,7 @@ fn test_scan_function_registration() {
     let chunk = result.into_iter().next().unwrap();
     let vec = chunk.get_vector(0);
     let mut result = vec.as_slice_with_len::<duckdb_string_t>(chunk.len().as_())[0];
-    let string =
-        unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut result)).to_string_lossy() };
+    let string = String::from_duckdb_value(&mut result);
 
     assert_eq!(string, "vortex_scan");
 }
@@ -1030,8 +1028,7 @@ fn test_read_vortex_v2_strings() {
     let len = chunk.len().as_();
     let vec = chunk.get_vector_mut(0);
     let mut s = unsafe { vec.as_slice_mut::<duckdb_string_t>(len) }[0];
-    let path = unsafe { CStr::from_ptr(cpp::duckdb_string_t_data(&raw mut s)).to_string_lossy() };
-    let aggregated: String = path.into_owned();
+    let aggregated = String::from_duckdb_value(&mut s);
     assert_eq!(aggregated, "alpha,beta,gamma");
 }
 
@@ -1055,4 +1052,240 @@ fn test_read_vortex_v2_multiple_files() {
     let vec = chunk.get_vector(0);
     let total = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
     assert_eq!(total, 210);
+}
+
+#[test]
+fn test_read_vortex_v2_filters_on_unprojected_column() {
+    let file = RUNTIME.block_on(async {
+        write_vortex_file(
+            [
+                (
+                    "payload",
+                    PrimitiveArray::from_iter([10i32, 20, 30, 40, 50]),
+                ),
+                ("unused_a", PrimitiveArray::from_iter([1i32, 1, 1, 1, 1])),
+                ("unused_b", PrimitiveArray::from_iter([2i32, 2, 2, 2, 2])),
+                ("filter_key", PrimitiveArray::from_iter([1i32, 2, 3, 4, 5])),
+            ]
+            .into_iter(),
+        )
+        .await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+    let result = conn
+        .query(&format!(
+            "SELECT SUM(payload) FROM read_vortex_v2('{file_path}') WHERE filter_key <= 2"
+        ))
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let total = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
+    assert_eq!(total, 30);
+}
+
+#[test]
+fn test_read_vortex_v2_exposes_dynamic_filter_pushdown() {
+    let file = RUNTIME.block_on(async {
+        let numbers = PrimitiveArray::from_iter(0i32..10_000);
+        write_single_column_vortex_file("number", numbers).await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+    let result = conn
+        .query(&format!(
+            "EXPLAIN SELECT number FROM read_vortex_v2('{file_path}') ORDER BY number LIMIT 5"
+        ))
+        .unwrap();
+
+    let mut explain = String::new();
+    for mut chunk in result {
+        let len = chunk.len().as_();
+        for column_idx in 0..chunk.column_count() {
+            let vector = chunk.get_vector_mut(column_idx);
+            for value in unsafe { vector.as_slice_mut::<duckdb_string_t>(len) } {
+                explain.push_str(&String::from_duckdb_value(value));
+                explain.push('\n');
+            }
+        }
+    }
+
+    assert!(
+        explain.contains("Dynamic Filter"),
+        "expected read_vortex_v2 EXPLAIN to include a pushed dynamic filter, got:\n{explain}"
+    );
+}
+
+#[test]
+fn test_read_vortex_v2_pushes_complex_contains_filter() {
+    let file = RUNTIME.block_on(async {
+        write_vortex_file(
+            [
+                (
+                    "URL",
+                    VarBinArray::from(vec![
+                        "https://example.com",
+                        "https://www.google.com/search",
+                        "https://mail.google.com",
+                        "https://vortex.dev",
+                    ])
+                    .into_array(),
+                ),
+                (
+                    "EventTime",
+                    PrimitiveArray::from_iter([40i32, 30, 20, 10]).into_array(),
+                ),
+            ]
+            .into_iter(),
+        )
+        .await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+    let count = conn
+        .query(&format!(
+            "SELECT COUNT(*) FROM read_vortex_v2('{file_path}') WHERE URL LIKE '%google%'"
+        ))
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap()
+        .get_vector(0)
+        .as_slice_with_len::<i64>(1)[0];
+    assert_eq!(count, 2);
+
+    let result = conn
+        .query(&format!(
+            "EXPLAIN SELECT * FROM read_vortex_v2('{file_path}') WHERE URL LIKE '%google%' ORDER BY EventTime LIMIT 10"
+        ))
+        .unwrap();
+
+    let mut explain = String::new();
+    for mut chunk in result {
+        let len = chunk.len().as_();
+        for column_idx in 0..chunk.column_count() {
+            let vector = chunk.get_vector_mut(column_idx);
+            for value in unsafe { vector.as_slice_mut::<duckdb_string_t>(len) } {
+                explain.push_str(&String::from_duckdb_value(value));
+                explain.push('\n');
+            }
+        }
+    }
+
+    assert!(
+        !explain.contains("│           FILTER          │"),
+        "expected the URL contains filter to be removed from the standalone DuckDB FILTER, got:\n{explain}"
+    );
+    assert!(
+        !explain.contains("contains(URL, 'google')"),
+        "expected the URL contains filter to be fully pushed into read_vortex_v2, got:\n{explain}"
+    );
+}
+
+#[test]
+fn test_read_vortex_v2_uses_late_materialization_for_top_n() {
+    let file = RUNTIME.block_on(async {
+        write_vortex_file(
+            [
+                (
+                    "URL",
+                    VarBinArray::from(vec![
+                        "https://example.com",
+                        "https://www.google.com/search",
+                        "https://mail.google.com",
+                        "https://vortex.dev",
+                    ])
+                    .into_array(),
+                ),
+                (
+                    "EventTime",
+                    PrimitiveArray::from_iter([40i32, 30, 20, 10]).into_array(),
+                ),
+                (
+                    "WatchID",
+                    PrimitiveArray::from_iter([100i64, 200, 300, 400]).into_array(),
+                ),
+                (
+                    "JavaEnable",
+                    PrimitiveArray::from_iter([1i8, 0, 1, 0]).into_array(),
+                ),
+            ]
+            .into_iter(),
+        )
+        .await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+    let result = conn
+        .query(&format!(
+            "SELECT string_agg(URL, ',') FROM (SELECT * FROM read_vortex_v2('{file_path}') WHERE URL LIKE '%google%' ORDER BY EventTime LIMIT 2)"
+        ))
+        .unwrap();
+    let mut chunk = result.into_iter().next().unwrap();
+    let len = chunk.len().as_();
+    let vector = chunk.get_vector_mut(0);
+    let mut value = unsafe { vector.as_slice_mut::<duckdb_string_t>(len) }[0];
+    assert_eq!(
+        String::from_duckdb_value(&mut value),
+        "https://mail.google.com,https://www.google.com/search"
+    );
+
+    let result = conn
+        .query(&format!(
+            "EXPLAIN SELECT * FROM read_vortex_v2('{file_path}') WHERE URL LIKE '%google%' ORDER BY EventTime LIMIT 2"
+        ))
+        .unwrap();
+
+    let mut explain = String::new();
+    for mut chunk in result {
+        let len = chunk.len().as_();
+        for column_idx in 0..chunk.column_count() {
+            let vector = chunk.get_vector_mut(column_idx);
+            for value in unsafe { vector.as_slice_mut::<duckdb_string_t>(len) } {
+                explain.push_str(&String::from_duckdb_value(value));
+                explain.push('\n');
+            }
+        }
+    }
+
+    assert!(
+        explain.contains("HASH_JOIN") && explain.contains("SEMI"),
+        "expected read_vortex_v2 TopN plan to use a late-materialization semi join, got:\n{explain}"
+    );
+    assert!(
+        explain.contains("file_row_number"),
+        "expected late materialization to project file_row_number as a row id, got:\n{explain}"
+    );
+}
+
+#[test]
+fn test_read_vortex_v2_many_large_files_parallel_scan() {
+    let (tempdir, _files) = RUNTIME.block_on(async {
+        let tempdir = tempfile::tempdir().unwrap();
+        let mut files = Vec::new();
+        for file_idx in 0..32 {
+            let start = file_idx * 10_000;
+            let numbers = PrimitiveArray::from_iter(start..start + 10_000);
+            files.push(write_vortex_file_to_dir(tempdir.path(), "number", numbers).await);
+        }
+        (tempdir, files)
+    });
+
+    let conn = database_connection();
+    conn.query("SET threads = 8").unwrap();
+
+    let glob_pattern = format!("{}/*.vortex", tempdir.path().display());
+    let result = conn
+        .query(&format!(
+            "SELECT SUM(number) FROM read_vortex_v2('{glob_pattern}')"
+        ))
+        .unwrap();
+    let chunk = result.into_iter().next().unwrap();
+    let vec = chunk.get_vector(0);
+    let total = vec.as_slice_with_len::<i64>(chunk.len().as_())[0];
+    assert_eq!(total, 51_199_840_000);
 }

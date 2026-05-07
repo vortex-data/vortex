@@ -27,15 +27,24 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
+use vortex_array::expr::and_collect;
+use vortex_array::expr::forms::conjuncts;
 use vortex_array::expr::is_root;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
 use vortex_array::expr::transform::replace;
 use vortex_array::scalar::PValue;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::list_contains::ListContains;
+use vortex_array::scalar_fn::fns::literal::Literal;
+use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_scan::selection::Selection;
 use vortex_sequence::Sequence;
 use vortex_sequence::SequenceArray;
 use vortex_session::VortexSession;
@@ -115,6 +124,227 @@ impl RowIdxLayoutReader {
 
         Ok(Partitioning::Partitioned(Arc::new(partitioned)))
     }
+}
+
+pub(crate) struct ExtractedRowIdxFilter {
+    pub(crate) filter: Option<Expression>,
+    pub(crate) selection: Selection,
+    pub(crate) row_range: Option<Range<u64>>,
+}
+
+pub(crate) fn extract_row_idx_filter(
+    filter: &Expression,
+    row_offset: u64,
+    row_count: u64,
+) -> ExtractedRowIdxFilter {
+    let mut remaining = Vec::new();
+    let mut selection = Selection::All;
+    let mut row_range = None;
+
+    for conjunct in conjuncts(filter) {
+        match extract_row_idx_conjunct(&conjunct, row_offset, row_count) {
+            Some(RowIdxFilterPart::Selection(indices)) => {
+                intersect_selection(&mut selection, indices);
+            }
+            Some(RowIdxFilterPart::Range(range)) => {
+                intersect_row_range(&mut row_range, range);
+            }
+            None => remaining.push(conjunct),
+        }
+    }
+
+    normalize_selection_and_range(&mut selection, &mut row_range);
+
+    ExtractedRowIdxFilter {
+        filter: and_collect(remaining),
+        selection,
+        row_range,
+    }
+}
+
+enum RowIdxFilterPart {
+    Selection(Buffer<u64>),
+    Range(Range<u64>),
+}
+
+fn extract_row_idx_conjunct(
+    expr: &Expression,
+    row_offset: u64,
+    row_count: u64,
+) -> Option<RowIdxFilterPart> {
+    extract_row_idx_binary(expr, row_offset, row_count)
+        .or_else(|| extract_row_idx_in_list(expr, row_offset, row_count))
+}
+
+fn extract_row_idx_binary(
+    expr: &Expression,
+    row_offset: u64,
+    row_count: u64,
+) -> Option<RowIdxFilterPart> {
+    let operator = *expr.as_opt::<Binary>()?;
+    let (operator, scalar) = if expr.child(0).is::<RowIdx>() {
+        (operator, expr.child(1).as_opt::<Literal>()?)
+    } else if expr.child(1).is::<RowIdx>() {
+        (swap_operator(operator)?, expr.child(0).as_opt::<Literal>()?)
+    } else {
+        return None;
+    };
+
+    let Some(value) = literal_to_u64(scalar)? else {
+        return Some(RowIdxFilterPart::Selection(empty_indices()));
+    };
+
+    match operator {
+        Operator::Eq => Some(RowIdxFilterPart::Selection(Buffer::from_iter(
+            relative_index(value, row_offset, row_count),
+        ))),
+        Operator::Gt => Some(RowIdxFilterPart::Range(relative_range(
+            value.saturating_add(1)..u64::MAX,
+            row_offset,
+            row_count,
+        ))),
+        Operator::Gte => Some(RowIdxFilterPart::Range(relative_range(
+            value..u64::MAX,
+            row_offset,
+            row_count,
+        ))),
+        Operator::Lt => Some(RowIdxFilterPart::Range(relative_range(
+            0..value,
+            row_offset,
+            row_count,
+        ))),
+        Operator::Lte => Some(RowIdxFilterPart::Range(relative_range(
+            0..value.saturating_add(1),
+            row_offset,
+            row_count,
+        ))),
+        _ => None,
+    }
+}
+
+fn extract_row_idx_in_list(
+    expr: &Expression,
+    row_offset: u64,
+    row_count: u64,
+) -> Option<RowIdxFilterPart> {
+    expr.as_opt::<ListContains>()?;
+
+    if !expr.child(1).is::<RowIdx>() {
+        return None;
+    }
+
+    let list = expr.child(0).as_opt::<Literal>()?.as_list_opt()?;
+    let mut indices = Vec::new();
+    for scalar in list.elements()? {
+        let Some(value) = literal_to_u64(&scalar)? else {
+            continue;
+        };
+        indices.extend(relative_index(value, row_offset, row_count));
+    }
+    indices.sort_unstable();
+    indices.dedup();
+
+    Some(RowIdxFilterPart::Selection(Buffer::from_iter(indices)))
+}
+
+fn swap_operator(operator: Operator) -> Option<Operator> {
+    Some(match operator {
+        Operator::Eq => Operator::Eq,
+        Operator::Gt => Operator::Lt,
+        Operator::Gte => Operator::Lte,
+        Operator::Lt => Operator::Gt,
+        Operator::Lte => Operator::Gte,
+        _ => return None,
+    })
+}
+
+fn literal_to_u64(scalar: &Scalar) -> Option<Option<u64>> {
+    scalar.as_primitive_opt()?.as_opt::<u64>()
+}
+
+fn relative_index(value: u64, row_offset: u64, row_count: u64) -> Option<u64> {
+    let row_end = row_offset.saturating_add(row_count);
+    (row_offset..row_end)
+        .contains(&value)
+        .then(|| value - row_offset)
+}
+
+fn relative_range(range: Range<u64>, row_offset: u64, row_count: u64) -> Range<u64> {
+    let row_end = row_offset.saturating_add(row_count);
+    let start = range.start.max(row_offset);
+    let end = range.end.min(row_end);
+
+    if start >= end {
+        0..0
+    } else {
+        start - row_offset..end - row_offset
+    }
+}
+
+fn empty_indices() -> Buffer<u64> {
+    Buffer::from_iter(std::iter::empty::<u64>())
+}
+
+fn intersect_selection(selection: &mut Selection, indices: Buffer<u64>) {
+    match selection {
+        Selection::All => {
+            *selection = Selection::IncludeByIndex(indices);
+        }
+        Selection::IncludeByIndex(existing) => {
+            *selection = Selection::IncludeByIndex(Buffer::from_iter(intersect_sorted(
+                existing.as_slice(),
+                indices.as_slice(),
+            )));
+        }
+        Selection::ExcludeByIndex(_)
+        | Selection::IncludeRoaring(_)
+        | Selection::ExcludeRoaring(_) => {}
+    }
+}
+
+fn intersect_sorted(left: &[u64], right: &[u64]) -> Vec<u64> {
+    let mut result = Vec::new();
+    let (mut left_idx, mut right_idx) = (0, 0);
+    while left_idx < left.len() && right_idx < right.len() {
+        match left[left_idx].cmp(&right[right_idx]) {
+            std::cmp::Ordering::Equal => {
+                result.push(left[left_idx]);
+                left_idx += 1;
+                right_idx += 1;
+            }
+            std::cmp::Ordering::Less => left_idx += 1,
+            std::cmp::Ordering::Greater => right_idx += 1,
+        }
+    }
+    result
+}
+
+fn intersect_row_range(row_range: &mut Option<Range<u64>>, next: Range<u64>) {
+    *row_range = Some(match row_range.take() {
+        Some(existing) => existing.start.max(next.start)..existing.end.min(next.end),
+        None => next,
+    });
+}
+
+fn normalize_selection_and_range(selection: &mut Selection, row_range: &mut Option<Range<u64>>) {
+    if row_range.as_ref().is_some_and(|range| range.is_empty()) {
+        *selection = Selection::IncludeByIndex(empty_indices());
+        *row_range = None;
+        return;
+    }
+
+    if !matches!(selection, Selection::IncludeByIndex(_)) {
+        return;
+    }
+
+    let Some(range) = row_range.take() else {
+        return;
+    };
+
+    let Selection::IncludeByIndex(indices) = selection else {
+        unreachable!("row range only removed for include-by-index selection");
+    };
+    *indices = Buffer::from_iter(indices.iter().copied().filter(|idx| range.contains(idx)));
 }
 
 #[derive(Clone)]

@@ -1116,9 +1116,17 @@ pub enum vortex_layout::scan::split_by::SplitBy
 
 pub vortex_layout::scan::split_by::SplitBy::Layout
 
+pub vortex_layout::scan::split_by::SplitBy::Layout::max_rows: core::option::Option<usize>
+
+pub vortex_layout::scan::split_by::SplitBy::Layout::min_rows: core::option::Option<usize>
+
 pub vortex_layout::scan::split_by::SplitBy::RowCount(usize)
 
 impl vortex_layout::scan::split_by::SplitBy
+
+pub const fn vortex_layout::scan::split_by::SplitBy::layout() -> Self
+
+pub const fn vortex_layout::scan::split_by::SplitBy::layout_with_row_limits(core::option::Option<usize>, core::option::Option<usize>) -> Self
 
 pub fn vortex_layout::scan::split_by::SplitBy::splits(&self, &dyn vortex_layout::LayoutReader, &core::ops::range::Range<u64>, &[vortex_array::dtype::field_mask::FieldMask]) -> vortex_error::VortexResult<alloc::collections::btree::set::BTreeSet<u64>>
 
@@ -1128,7 +1136,7 @@ pub fn vortex_layout::scan::split_by::SplitBy::clone(&self) -> vortex_layout::sc
 
 impl core::default::Default for vortex_layout::scan::split_by::SplitBy
 
-pub fn vortex_layout::scan::split_by::SplitBy::default() -> vortex_layout::scan::split_by::SplitBy
+pub fn vortex_layout::scan::split_by::SplitBy::default() -> Self
 
 impl core::fmt::Debug for vortex_layout::scan::split_by::SplitBy
 
