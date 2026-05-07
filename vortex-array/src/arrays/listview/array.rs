@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
@@ -154,7 +155,7 @@ impl ListViewData {
         sizes: &ArrayRef,
         validity: &Validity,
         len: usize,
-    ) -> Vec<Option<ArrayRef>> {
+    ) -> ArraySlots {
         vec![
             Some(elements.clone()),
             Some(offsets.clone()),

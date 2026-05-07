@@ -12,6 +12,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
@@ -263,7 +264,7 @@ impl ByteBoolData {
         Ok(())
     }
 
-    fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
+    fn make_slots(validity: &Validity, len: usize) -> ArraySlots {
         vec![validity_to_child(validity, len)]
     }
 

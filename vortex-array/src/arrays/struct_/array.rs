@@ -12,6 +12,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -165,7 +166,7 @@ pub(super) fn make_struct_slots(
     fields: &[ArrayRef],
     validity: &Validity,
     length: usize,
-) -> Vec<Option<ArrayRef>> {
+) -> ArraySlots {
     once(validity_to_child(validity, length))
         .chain(fields.iter().cloned().map(Some))
         .collect()
@@ -415,7 +416,7 @@ impl Array<Struct> {
             .as_ref()
             .vortex_expect("StructArray field slot")
             .clone();
-        let new_slots: Vec<Option<ArrayRef>> = self
+        let new_slots: ArraySlots = self
             .slots()
             .iter()
             .enumerate()

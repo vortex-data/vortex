@@ -33,6 +33,7 @@ use crate::aggregate_fn::fns::sum::sum;
 use crate::array::ArrayData;
 use crate::array::ArrayId;
 use crate::array::ArrayInner;
+use crate::array::ArraySlots;
 use crate::array::DynArrayData;
 use crate::arrays::Bool;
 use crate::arrays::Constant;
@@ -556,7 +557,7 @@ impl ArrayRef {
     ///
     /// This is only valid for physical rewrites: slot count, presence, logical `DType`, and
     /// logical `len` must remain unchanged.
-    pub fn with_slots(self, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
+    pub fn with_slots(self, slots: ArraySlots) -> VortexResult<ArrayRef> {
         let old_slots = self.slots();
         vortex_ensure!(
             old_slots.len() == slots.len(),

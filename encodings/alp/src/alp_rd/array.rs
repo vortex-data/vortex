@@ -15,6 +15,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -465,7 +466,7 @@ impl ALPRDData {
         left_parts: &ArrayRef,
         right_parts: &ArrayRef,
         patches: Option<&Patches>,
-    ) -> Vec<Option<ArrayRef>> {
+    ) -> ArraySlots {
         let (pi, pv, pco) = match patches {
             Some(p) => (
                 Some(p.indices().clone()),

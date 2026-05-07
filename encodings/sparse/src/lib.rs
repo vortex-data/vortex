@@ -15,6 +15,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -324,7 +325,7 @@ impl SparseData {
         Ok(())
     }
 
-    fn make_slots(patches: &Patches) -> Vec<Option<ArrayRef>> {
+    fn make_slots(patches: &Patches) -> ArraySlots {
         vec![
             Some(patches.indices().clone()),
             Some(patches.values().clone()),

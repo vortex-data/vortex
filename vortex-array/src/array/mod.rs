@@ -46,6 +46,9 @@ pub use view::*;
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
 
+/// The slots of an array: a collection of optional child arrays.
+pub type ArraySlots = Vec<Option<ArrayRef>>;
+
 /// The public API trait for all Vortex arrays.
 ///
 /// This trait is sealed and cannot be implemented outside of `vortex-array`.
@@ -118,7 +121,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     fn dyn_array_eq(&self, other: &ArrayRef, precision: crate::Precision) -> bool;
 
     /// Returns a new array with the given slots.
-    fn with_slots(&self, this: &ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef>;
+    fn with_slots(&self, this: &ArrayRef, slots: ArraySlots) -> VortexResult<ArrayRef>;
 
     /// Returns a new array with the given slots, bypassing encoding-level validation.
     ///
@@ -135,7 +138,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     unsafe fn with_slots_unchecked(
         &self,
         this: &ArrayRef,
-        slots: Vec<Option<ArrayRef>>,
+        slots: ArraySlots,
     ) -> ArrayRef;
 
     /// Attempt to reduce the array to a simpler representation.
@@ -353,7 +356,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             .is_some_and(|other_inner| self.data.array_eq(&other_inner.data, precision))
     }
 
-    fn with_slots(&self, this: &ArrayRef, slots: Vec<Option<ArrayRef>>) -> VortexResult<ArrayRef> {
+    fn with_slots(&self, this: &ArrayRef, slots: ArraySlots) -> VortexResult<ArrayRef> {
         let stats = this.statistics().to_owned();
         Ok(Array::<V>::try_from_parts(
             ArrayParts::new(
@@ -371,7 +374,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     unsafe fn with_slots_unchecked(
         &self,
         this: &ArrayRef,
-        slots: Vec<Option<ArrayRef>>,
+        slots: ArraySlots,
     ) -> ArrayRef {
         // SAFETY: we intentionally skip `V::validate` here. Caller guarantees that the resulting
         // array is either repaired or not externally observed.

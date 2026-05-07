@@ -12,6 +12,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -237,7 +238,7 @@ impl Patched {
     pub(crate) unsafe fn new_unchecked(
         dtype: DType,
         len: usize,
-        slots: Vec<Option<ArrayRef>>,
+        slots: ArraySlots,
         n_lanes: usize,
         offset: usize,
     ) -> Array<Patched> {

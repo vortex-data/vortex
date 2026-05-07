@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -111,7 +112,7 @@ impl FixedSizeListData {
         elements: &ArrayRef,
         validity: &Validity,
         len: usize,
-    ) -> Vec<Option<ArrayRef>> {
+    ) -> ArraySlots {
         vec![Some(elements.clone()), validity_to_child(validity, len)]
     }
 

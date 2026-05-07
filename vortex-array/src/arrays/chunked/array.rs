@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -137,7 +138,7 @@ impl ChunkedData {
     pub(super) fn make_slots(
         chunk_offsets: &[usize],
         chunks: &[ArrayRef],
-    ) -> Vec<Option<ArrayRef>> {
+    ) -> ArraySlots {
         let mut chunk_offsets_buf = BufferMut::<u64>::with_capacity(chunk_offsets.len());
         for &offset in chunk_offsets {
             let offset = u64::try_from(offset)

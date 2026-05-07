@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::Array;
@@ -144,7 +145,7 @@ impl BoolData {
         }
     }
 
-    pub(crate) fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
+    pub(crate) fn make_slots(validity: &Validity, len: usize) -> ArraySlots {
         vec![validity_to_child(validity, len)]
     }
 }

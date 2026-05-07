@@ -14,6 +14,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
@@ -410,7 +411,7 @@ impl ALP {
 }
 
 impl ALPData {
-    fn make_slots(encoded: &ArrayRef, patches: Option<&Patches>) -> Vec<Option<ArrayRef>> {
+    fn make_slots(encoded: &ArrayRef, patches: Option<&Patches>) -> ArraySlots {
         let (patch_indices, patch_values, patch_chunk_offsets) = match patches {
             Some(p) => (
                 Some(p.indices().clone()),
