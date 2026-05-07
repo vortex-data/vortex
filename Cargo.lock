@@ -11080,6 +11080,7 @@ dependencies = [
  "tokio",
  "url",
  "vortex",
+ "vortex-array",
  "vortex-tui",
 ]
 
