@@ -13,7 +13,6 @@ pub mod null;
 pub mod primitive;
 mod run_end;
 mod struct_;
-mod temporal;
 mod validity;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
@@ -46,7 +45,7 @@ use crate::arrow::executor::null::to_arrow_null;
 use crate::arrow::executor::primitive::to_arrow_primitive;
 use crate::arrow::executor::run_end::to_arrow_run_end;
 use crate::arrow::executor::struct_::to_arrow_struct;
-use crate::arrow::executor::temporal::to_arrow_temporal;
+use crate::arrow::session::ArrowSessionExt;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
@@ -96,6 +95,24 @@ impl ArrowArrayExecutor for ArrayRef {
             None => preferred_arrow_type(&self)?,
         };
 
+        // Extension dispatch: if this Vortex array carries an extension dtype with a registered
+        // ArrowVTable plugin, hand the conversion off to the plugin. Falls through to the
+        // canonical match below for all other arrays.
+        let plugin = self
+            .dtype()
+            .as_extension_opt()
+            .and_then(|ext| ctx.session().arrow().for_vortex_ext(&ext.id()));
+        if let Some(plugin) = plugin {
+            let target = Field::new("", resolved_type.clone(), self.dtype().is_nullable());
+            let arrow = plugin.execute_arrow(self, &target, ctx)?;
+            vortex_ensure!(
+                arrow.len() == len,
+                "Arrow array length does not match Vortex array length after conversion to {:?}",
+                arrow
+            );
+            return Ok(arrow);
+        }
+
         let arrow = match &resolved_type {
             DataType::Null => to_arrow_null(self, ctx),
             DataType::Boolean => to_arrow_bool(self, ctx),
@@ -110,11 +127,6 @@ impl ArrowArrayExecutor for ArrayRef {
             DataType::Float16 => to_arrow_primitive::<Float16Type>(self, ctx),
             DataType::Float32 => to_arrow_primitive::<Float32Type>(self, ctx),
             DataType::Float64 => to_arrow_primitive::<Float64Type>(self, ctx),
-            DataType::Timestamp(..)
-            | DataType::Date32
-            | DataType::Date64
-            | DataType::Time32(_)
-            | DataType::Time64(_) => to_arrow_temporal(self, &resolved_type, ctx),
             DataType::Binary => to_arrow_byte_array::<BinaryType>(self, ctx),
             DataType::LargeBinary => to_arrow_byte_array::<LargeBinaryType>(self, ctx),
             DataType::Utf8 => to_arrow_byte_array::<Utf8Type>(self, ctx),
@@ -161,7 +173,12 @@ impl ArrowArrayExecutor for ArrayRef {
             | DataType::Map(..)
             | DataType::Duration(_)
             | DataType::Interval(_)
-            | DataType::Union(..) => {
+            | DataType::Union(..)
+            | DataType::Date32
+            | DataType::Date64
+            | DataType::Time32(_)
+            | DataType::Time64(_)
+            | DataType::Timestamp(..) => {
                 vortex_bail!("Conversion to Arrow type {resolved_type} is not supported");
             }
         }?;

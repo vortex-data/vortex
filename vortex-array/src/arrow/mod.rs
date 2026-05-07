@@ -15,13 +15,13 @@ mod null_buffer;
 mod record_batch;
 mod session;
 
-pub use convert::*;
+pub(crate) use convert::nulls;
 pub use datum::*;
 pub use executor::*;
 pub use iter::*;
-pub use session::*;
 pub use null_buffer::to_arrow_null_buffer;
 pub use null_buffer::to_null_buffer;
+pub use session::*;
 
 use crate::ArrayRef;
 use crate::LEGACY_SESSION;
