@@ -2,8 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::BinaryArray;
+use arrow_array::LargeBinaryArray;
+use arrow_array::LargeStringArray;
 use arrow_array::StringArray;
 use arrow_ord::cmp;
+use arrow_schema::DataType;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
@@ -82,15 +85,27 @@ impl CompareKernel for VarBin {
 
             let lhs = Datum::try_new(lhs.array(), ctx)?;
 
-            // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
-            // produced by Datum::try_new (which uses execute_arrow(None, ctx))
-            let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {
-                DType::Utf8(_) => &rhs_const
+            // The RHS scalar must match the LHS Arrow data type. VarBin with i64
+            // offsets is converted to LargeBinary/LargeUtf8 (see
+            // `preferred_arrow_type`), and Arrow refuses to compare LargeBinary
+            // with Binary (or LargeUtf8 with Utf8).
+            let arrow_rhs: &dyn arrow_array::Datum = match (rhs_const.dtype(), lhs.data_type()) {
+                (DType::Utf8(_), DataType::LargeUtf8) => &rhs_const
+                    .as_utf8()
+                    .value()
+                    .map(LargeStringArray::new_scalar)
+                    .unwrap_or_else(|| arrow_array::Scalar::new(LargeStringArray::new_null(1))),
+                (DType::Utf8(_), _) => &rhs_const
                     .as_utf8()
                     .value()
                     .map(StringArray::new_scalar)
                     .unwrap_or_else(|| arrow_array::Scalar::new(StringArray::new_null(1))),
-                DType::Binary(_) => &rhs_const
+                (DType::Binary(_), DataType::LargeBinary) => &rhs_const
+                    .as_binary()
+                    .value()
+                    .map(LargeBinaryArray::new_scalar)
+                    .unwrap_or_else(|| arrow_array::Scalar::new(LargeBinaryArray::new_null(1))),
+                (DType::Binary(_), _) => &rhs_const
                     .as_binary()
                     .value()
                     .map(BinaryArray::new_scalar)

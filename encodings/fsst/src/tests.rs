@@ -112,13 +112,14 @@ fn test_fsst_array_ops() {
 }
 
 /// Regression for #7833: `fsst_compress` must accept inputs whose cumulative
-/// compressed bytes exceed `i32::MAX`. Today this panics in
-/// `vortex-array/src/arrays/varbin/builder.rs:62` because `fsst_compress_iter`
-/// (`encodings/fsst/src/compress.rs:72`) hardcodes `VarBinBuilder::<i32>` for
-/// the FSST output buffer regardless of input size.
+/// compressed bytes exceed `i32::MAX`. Before the fix, `fsst_compress_iter`
+/// (`encodings/fsst/src/compress.rs`) used a `VarBinBuilder::<i32>` for the
+/// FSST output regardless of input size, which panicked in
+/// `VarBinBuilder::<i32>::append_value` once cumulative compressed bytes
+/// crossed `i32::MAX`. The output builder is now `VarBinBuilder::<i64>`.
 ///
-/// The input is built with `VarBinBuilder::<i64>` to confirm that widening the
-/// input alone does not help — the overflow is on the FSST output side.
+/// The input is built with `VarBinBuilder::<i64>` so the test exercises the
+/// large-output path without hitting an unrelated overflow on the input side.
 ///
 /// Marked `#[ignore]` because the test allocates ~2.5 GiB for the input and
 /// ~2.5 GiB for the FSST output (~5 GiB total), which is too much to run by
@@ -127,10 +128,6 @@ fn test_fsst_array_ops() {
 /// ```text
 /// cargo test --release -p vortex-fsst -- --ignored fsst_compress_offsets
 /// ```
-///
-/// Until the underlying overflow is fixed, the test panics in
-/// `VarBinBuilder::<i32>::append_value` once cumulative compressed bytes pass
-/// `i32::MAX`. After the fix it must succeed with the row count preserved.
 #[test]
 #[ignore = "allocates ~5 GiB; run with --ignored"]
 fn fsst_compress_offsets_overflow_i32() {
