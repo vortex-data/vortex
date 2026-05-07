@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#[cfg(any(test, feature = "_test-harness"))]
+#[cfg(all(any(test, feature = "_test-harness"), not(codspeed)))]
 macro_rules! trace_array {
     ($($event:tt)*) => {
         if $crate::test_harness::trace::is_active() {
@@ -10,12 +10,12 @@ macro_rules! trace_array {
     };
 }
 
-#[cfg(not(any(test, feature = "_test-harness")))]
+#[cfg(any(not(any(test, feature = "_test-harness")), codspeed))]
 macro_rules! trace_array {
     ($($event:tt)*) => {{}};
 }
 
-#[cfg(any(test, feature = "_test-harness"))]
+#[cfg(all(any(test, feature = "_test-harness"), not(codspeed)))]
 macro_rules! trace_array_value {
     ($enabled:expr, $disabled:expr) => {
         if $crate::test_harness::trace::is_active() {
@@ -26,19 +26,19 @@ macro_rules! trace_array_value {
     };
 }
 
-#[cfg(not(any(test, feature = "_test-harness")))]
+#[cfg(any(not(any(test, feature = "_test-harness")), codspeed))]
 macro_rules! trace_array_value {
     ($enabled:expr, $disabled:expr) => {
         $disabled
     };
 }
 
-#[cfg(any(test, feature = "_test-harness"))]
+#[cfg(all(any(test, feature = "_test-harness"), not(codspeed)))]
 macro_rules! trace_array_use {
     ($($value:expr),* $(,)?) => {{}};
 }
 
-#[cfg(not(any(test, feature = "_test-harness")))]
+#[cfg(any(not(any(test, feature = "_test-harness")), codspeed))]
 macro_rules! trace_array_use {
     ($($value:expr),* $(,)?) => {
         let _ = ($(&$value),*);
