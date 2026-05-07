@@ -14,6 +14,7 @@ mod metadata;
 pub use metadata::UuidMetadata;
 
 pub(crate) mod vtable;
+mod arrow;
 
 /// The VTable for the UUID extension type.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]

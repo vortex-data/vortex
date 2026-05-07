@@ -13,10 +13,13 @@ mod executor;
 mod iter;
 mod null_buffer;
 mod record_batch;
+mod session;
 
+pub use convert::*;
 pub use datum::*;
 pub use executor::*;
 pub use iter::*;
+pub use session::*;
 pub use null_buffer::to_arrow_null_buffer;
 pub use null_buffer::to_null_buffer;
 
