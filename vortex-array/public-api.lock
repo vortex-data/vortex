@@ -5612,9 +5612,17 @@ pub trait vortex_array::arrays::variant::VariantArrayExt: vortex_array::TypedArr
 
 pub fn vortex_array::arrays::variant::VariantArrayExt::child(&self) -> &vortex_array::ArrayRef
 
+pub fn vortex_array::arrays::variant::VariantArrayExt::core_storage(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::variant::VariantArrayExt::shredded(&self) -> core::option::Option<&vortex_array::ArrayRef>
+
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::Variant>> vortex_array::arrays::variant::VariantArrayExt for T
 
 pub fn T::child(&self) -> &vortex_array::ArrayRef
+
+pub fn T::core_storage(&self) -> &vortex_array::ArrayRef
+
+pub fn T::shredded(&self) -> core::option::Option<&vortex_array::ArrayRef>
 
 pub type vortex_array::arrays::variant::VariantArray = vortex_array::Array<vortex_array::arrays::Variant>
 
@@ -22739,6 +22747,8 @@ pub fn vortex_array::Array<vortex_array::arrays::VarBinView>::try_new(vortex_buf
 impl vortex_array::Array<vortex_array::arrays::Variant>
 
 pub fn vortex_array::Array<vortex_array::arrays::Variant>::new(vortex_array::ArrayRef) -> Self
+
+pub fn vortex_array::Array<vortex_array::arrays::Variant>::try_new(vortex_array::ArrayRef, core::option::Option<vortex_array::ArrayRef>) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::Array<vortex_array::arrays::dict::Dict>
 

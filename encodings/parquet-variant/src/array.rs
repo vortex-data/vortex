@@ -196,9 +196,10 @@ impl ParquetVariantData {
             .typed_value_field()
             .map(|tv| ArrayRef::from_arrow(tv.as_ref(), typed_value_nullable))
             .transpose()?;
+        let shredded = typed_value.clone();
 
         let pv = ParquetVariant::try_new(validity, metadata, value, typed_value)?;
-        Ok(VariantArray::new(pv.into_array()).into_array())
+        Ok(VariantArray::try_new(pv.into_array(), shredded)?.into_array())
     }
 }
 
@@ -410,6 +411,7 @@ mod tests {
         let variant_arr = vortex_arr
             .as_opt::<Variant>()
             .ok_or_else(|| vortex_err!("expected variant array"))?;
+        assert!(variant_arr.shredded().is_some());
         let inner = variant_arr
             .child()
             .as_opt::<ParquetVariant>()

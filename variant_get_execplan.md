@@ -15,7 +15,7 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 - [x] (2026-05-07T11:21Z) Read the ExecPlan guide, the two local RFCs, the Parquet Variant encoding and shredding specs, the local `parquet-variant-compute` `variant_get` implementation, current Vortex `VariantArray`, `GetItem`, and Parquet Variant files, plus the `adamg/variant-array` reference branch for inspiration.
 - [x] (2026-05-07T12:08Z) Added a detailed implementation inventory covering the current single-child canonical `VariantArray`, the RFC 0058 target shape, existing Parquet Variant hooks, the scalar function patterns used by `GetItem`, and the canonicalization contract for moving encoding-specific shredded children into canonical `VariantArray::shredded`.
 - [x] (2026-05-07T12:42Z) Added and identified baseline tests for current variant behavior: explicit outer null versus present `variantnull`, Arrow Parquet Variant storage roundtrips including a present Variant null with a separate outer null row, and slice/filter/take over typed-only shredded Parquet Variant arrays.
-- [ ] Implement the canonical `VariantArray` shape change with checked constructors, slot names, and accessors.
+- [x] (2026-05-07T13:24Z) Implemented the canonical `VariantArray` shape change with `core_storage` and optional `shredded` slots, checked constructors, serde metadata for shredded dtype, validation, accessors, scalar/validity delegation to core storage, Parquet canonicalization that exposes `typed_value` as canonical shredded data, and focused tests.
 - [ ] Update row-preserving transformations so `core_storage` and optional `shredded` stay row-aligned.
 - [ ] Add and register a `VariantGet` scalar function skeleton.
 - [ ] Implement the unshredded Parquet Variant fallback.
@@ -36,6 +36,12 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 
 - Observation: The existing baseline already covered many Parquet Variant cases, but filter and take over typed-only shredded arrays were not tested next to the existing slice case.
   Evidence: Before this milestone, `encodings/parquet-variant/src/kernel.rs` had `test_slice_shredded_typed_value` but no corresponding filter or take tests for typed-only shredded storage.
+
+- Observation: The canonical `VariantArray` serde path needs the optional shredded child's dtype in metadata because the child dtype list only contains present child dtypes, while slot 1 can be absent.
+  Evidence: `vortex-array/src/arrays/variant/vtable/mod.rs` now stores `shredded_dtype` in the variant metadata and deserializes children as `core_storage` plus optional `shredded`.
+
+- Observation: Keeping `VariantArrayExt::child()` as a compatibility shim lets existing transformation call sites continue compiling, but those call sites still rebuild from core storage only until the next milestone migrates them.
+  Evidence: `VariantArrayExt::child()` now delegates to `core_storage()`, while the planned row-preserving transform work still covers `filter`, `take`, `mask`, and canonical execution paths.
 
 ## Decision Log
 
@@ -59,9 +65,13 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
   Rationale: Canonical arrays are the stable boundary for generic Vortex operations. Moving Parquet `typed_value` or another encoding's shredded tree into the canonical child prevents generic code from depending on encoding-specific slot layouts, while still allowing direct encoding-specific `VariantGet` kernels before canonicalization.
   Date/Author: 2026-05-07 / Codex.
 
+- Decision: The first shape-change implementation exposes Parquet `typed_value` as canonical `shredded` without physically stripping it from the Parquet `core_storage` child.
+  Rationale: This preserves direct Parquet Variant execution behavior and avoids rewriting encoding-specific storage while still satisfying the canonical contract that generic callers find logical shredded data through `VariantArray::shredded()`.
+  Date/Author: 2026-05-07 / Codex.
+
 ## Outcomes & Retrospective
 
-The planning and baseline-test milestones are complete. The current tests now lock down the existing one-child canonical variant behavior indirectly through Parquet Variant conversion, the distinction between an outer nullable Variant slot and a present `variantnull` payload, Arrow storage roundtrips for value-only, typed-only, value-plus-typed, outer-null, and variant-null cases, and row-preserving slice/filter/take behavior for both unshredded and typed-only shredded Parquet Variant arrays. The next milestone can change canonical `VariantArray` shape with clearer regression coverage.
+The planning, baseline-test, and canonical shape milestones are complete. The current implementation exposes a required `core_storage` child and optional `shredded` child from canonical `VariantArray`, validates row alignment, preserves the existing one-child constructor for compatibility, serializes the optional shredded dtype, and canonicalizes Parquet Variant `typed_value` into the canonical shredded child. The next milestone must migrate row-preserving transformations so existing canonical operations do not drop the optional shredded child.
 
 ## Context and Orientation
 
@@ -141,6 +151,8 @@ Run all commands from `/Users/adamgs/code/vortex`.
    Focused validation:
 
        cargo nextest run -p vortex-array variant
+
+   Canonical shape milestone status: completed on 2026-05-07T13:24Z. New tests cover `VariantArray::try_new` with and without shredded storage, non-variant core storage rejection, shredded length mismatch rejection, Arrow Parquet Variant imports exposing `typed_value` as canonical `shredded`, and direct Parquet Variant canonical execution exposing `typed_value` as canonical `shredded`. Because this milestone changed public Rust APIs, `./scripts/public-api.sh` updated `vortex-array/public-api.lock`.
 
 4. Row-preserving transforms.
 
@@ -267,6 +279,17 @@ Baseline validation commands run on 2026-05-07:
 
 All commands passed. Stable `cargo fmt --check` was also attempted, but this repository's rustfmt configuration uses nightly-only settings and stable rustfmt exited with configuration warnings, so the repository-required nightly fmt check was used for formatting validation.
 
+Canonical shape validation commands run on 2026-05-07:
+
+    cargo nextest run -p vortex-array variant
+    cargo nextest run -p vortex-parquet-variant
+    cargo nextest run -p vortex-array
+    ./scripts/public-api.sh
+    cargo clippy --all-targets -- -D warnings
+    cargo +nightly fmt --all --check
+
+All commands passed. The repository uses nightly-only rustfmt configuration, so the repository-required nightly fmt check was used for formatting validation.
+
 ## Interfaces and Dependencies
 
 The expected canonical variant API in `vortex-array` is:
@@ -303,12 +326,12 @@ The initial path model is a strict sequence of object field names and zero-based
 
 ## Unresolved Decisions
 
-- Decide whether canonicalization physically removes encoding-specific shredded children from `core_storage` or allows `core_storage` to retain them for direct encoding kernels. Either choice must preserve the public canonical contract that `VariantArray::shredded` exposes the logical shredded tree when canonicalization can identify one.
+- Decide whether a later cleanup should physically remove encoding-specific shredded children from `core_storage`. The current implementation allows `core_storage` to retain them for direct encoding kernels while still exposing the logical canonical `shredded` child.
 - Decide final typed cast semantics. RFC 0015 leans toward null for mismatches, `parquet-variant-compute` supports safe nulling, and Databricks `variant_get` raises `INVALID_VARIANT_CAST` while `try_variant_get` nulls. The implementation must make the chosen behavior explicit in tests.
 - Decide the exact path parser grammar. The minimum is field names and zero-based list indexes; escaping, quoted field names, negative indexes, and wildcards remain out of scope until explicitly added.
 - Decide how much numeric coercion is allowed for typed extraction. Numeric widening is plausible; lossy casts, string parsing, timestamps, decimals, and timezone-sensitive casts need explicit tests before support.
 - Decide how to validate consistency between raw `core_storage` and `shredded` when both can represent the same logical path. The Parquet spec says writers must avoid conflicts, but Vortex constructors may still need checked errors or debug assertions.
-- Decide the public API and serialization compatibility story for the canonical shape change. Any public API change needs doc comments and `./scripts/public-api.sh`.
+- Decide whether `VariantArrayExt::child()` should be removed after row-preserving transformations and callers are migrated to `core_storage()`.
 - Decide the narrowest higher-level integration after core tests pass. DataFusion or scan/projection wiring should wait until the core expression and Parquet behavior are stable.
 
 ## Revision Notes
@@ -320,3 +343,5 @@ The initial path model is a strict sequence of object field names and zero-based
 2026-05-07T12:08Z: Added the first implementation inventory. This revision records the exact current one-child canonical variant shape, the RFC 0058 target shape, Parquet Variant storage and transformation hooks, `GetItem` scalar function patterns to reuse, and the logical canonicalization contract for surfacing Parquet `typed_value` as canonical `VariantArray::shredded`.
 
 2026-05-07T12:42Z: Added baseline tests before changing canonical variant shape. This revision records the new coverage for outer null versus present `variantnull`, a roundtrip containing both null kinds, and filter/take over typed-only shredded Parquet Variant storage, plus the validation commands that passed for this Rust-only baseline milestone.
+
+2026-05-07T13:24Z: Implemented the canonical `VariantArray` shape with `core_storage` and optional `shredded` slots, checked construction, serde support, validation, Parquet canonicalization of `typed_value`, public API lock updates, and focused tests. The compatibility `child()` shim remains until the row-preserving transform milestone migrates callers.

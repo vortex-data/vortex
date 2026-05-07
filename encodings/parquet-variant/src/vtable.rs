@@ -212,8 +212,9 @@ impl VTable for ParquetVariant {
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+        let shredded = array.typed_value_array().cloned();
         Ok(ExecutionResult::done(
-            VariantArray::new(array.as_ref().clone().into_array()).into_array(),
+            VariantArray::try_new(array.as_ref().clone().into_array(), shredded)?.into_array(),
         ))
     }
 
@@ -242,10 +243,14 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::ArrayEq;
     use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
     use vortex_array::Precision;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
+    use vortex_array::arrays::variant::VariantArrayExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -257,6 +262,8 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
@@ -285,6 +292,32 @@ mod tests {
         parts
             .decode(&dtype, len, &ReadContext::new(ctx.to_ids()), &session)
             .unwrap()
+    }
+
+    #[test]
+    fn test_execute_exposes_typed_value_as_canonical_shredded() -> VortexResult<()> {
+        let metadata =
+            VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
+        let typed_value = buffer![10i32, 20, 30].into_array();
+
+        let parquet_variant =
+            ParquetVariant::try_new(Validity::NonNullable, metadata, None, Some(typed_value))?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let Canonical::Variant(variant) = parquet_variant
+            .into_array()
+            .execute::<Canonical>(&mut ctx)?
+        else {
+            return Err(vortex_err!("expected canonical variant"));
+        };
+
+        assert!(variant.core_storage().as_opt::<ParquetVariant>().is_some());
+        let shredded = variant
+            .shredded()
+            .ok_or_else(|| vortex_err!("expected canonical shredded child"))?;
+        assert_eq!(shredded.dtype(), &DType::from(PType::I32));
+
+        Ok(())
     }
 
     #[test]

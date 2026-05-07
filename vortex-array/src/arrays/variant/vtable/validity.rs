@@ -11,6 +11,6 @@ use crate::validity::Validity;
 
 impl ValidityVTable<Variant> for Variant {
     fn validity(array: ArrayView<'_, Variant>) -> VortexResult<Validity> {
-        array.child().validity()
+        array.core_storage().validity()
     }
 }
