@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 
 use crate::ConstantArray;
 use crate::Sparse;
+use crate::SparseExt as _;
 impl TakeExecute for Sparse {
     fn take(
         array: ArrayView<'_, Self>,

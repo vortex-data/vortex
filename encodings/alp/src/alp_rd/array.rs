@@ -31,7 +31,9 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
+use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
 use vortex_array::require_patches;
@@ -75,8 +77,7 @@ impl ArrayHash for ALPRDData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
         self.left_parts_dictionary.array_hash(state, precision);
         self.right_bit_width.hash(state);
-        self.patch_offset.hash(state);
-        self.patch_offset_within_chunk.hash(state);
+        self.patches_data.hash(state);
     }
 }
 
@@ -85,8 +86,7 @@ impl ArrayEq for ALPRDData {
         self.left_parts_dictionary
             .array_eq(&other.left_parts_dictionary, precision)
             && self.right_bit_width == other.right_bit_width
-            && self.patch_offset == other.patch_offset
-            && self.patch_offset_within_chunk == other.patch_offset_within_chunk
+            && self.patches_data == other.patches_data
     }
 }
 
@@ -113,13 +113,7 @@ impl VTable for ALPRD {
             len,
             left_parts_from_slots(slots),
             right_parts_from_slots(slots),
-            patches_from_slots(
-                slots,
-                data.patch_offset,
-                data.patch_offset_within_chunk,
-                len,
-            )
-            .as_ref(),
+            patches_from_slots(slots, data.patches_data.as_ref(), len).as_ref(),
         )
     }
 
@@ -328,6 +322,11 @@ pub(super) const LEFT_PARTS_SLOT: usize = 0;
 /// The right (least significant) parts of the real-double encoded values.
 pub(super) const RIGHT_PARTS_SLOT: usize = 1;
 /// The indices of left-parts exception values that could not be dictionary-encoded.
+pub(super) const LP_PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
+    indices: LP_PATCH_INDICES_SLOT,
+    values: LP_PATCH_VALUES_SLOT,
+    chunk_offsets: LP_PATCH_CHUNK_OFFSETS_SLOT,
+};
 pub(super) const LP_PATCH_INDICES_SLOT: usize = 2;
 /// The exception values for left-parts that could not be dictionary-encoded.
 pub(super) const LP_PATCH_VALUES_SLOT: usize = 3;
@@ -344,8 +343,7 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = [
 
 #[derive(Clone, Debug)]
 pub struct ALPRDData {
-    patch_offset: Option<usize>,
-    patch_offset_within_chunk: Option<usize>,
+    patches_data: Option<PatchesData>,
     left_parts_dictionary: Buffer<u16>,
     right_bit_width: u8,
 }
@@ -353,8 +351,8 @@ pub struct ALPRDData {
 impl Display for ALPRDData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "right_bit_width: {}", self.right_bit_width)?;
-        if let Some(offset) = self.patch_offset {
-            write!(f, ", patch_offset: {offset}")?;
+        if let Some(pd) = &self.patches_data {
+            write!(f, ", patch_offset: {}", pd.offset())?;
         }
         Ok(())
     }
@@ -439,14 +437,8 @@ impl ALPRDData {
         right_bit_width: u8,
         left_parts_patches: Option<Patches>,
     ) -> Self {
-        let (patch_offset, patch_offset_within_chunk) = match &left_parts_patches {
-            Some(patches) => (Some(patches.offset()), patches.offset_within_chunk()),
-            None => (None, None),
-        };
-
         Self {
-            patch_offset,
-            patch_offset_within_chunk,
+            patches_data: left_parts_patches.as_ref().map(PatchesData::from_patches),
             left_parts_dictionary,
             right_bit_width,
         }
@@ -467,22 +459,9 @@ impl ALPRDData {
         right_parts: &ArrayRef,
         patches: Option<&Patches>,
     ) -> ArraySlots {
-        let (pi, pv, pco) = match patches {
-            Some(p) => (
-                Some(p.indices().clone()),
-                Some(p.values().clone()),
-                p.chunk_offsets().clone(),
-            ),
-            None => (None, None, None),
-        };
-        vec![
-            Some(left_parts.clone()),
-            Some(right_parts.clone()),
-            pi,
-            pv,
-            pco,
-        ]
-        .into()
+        let mut slots: ArraySlots = vortex_array::smallvec::smallvec![Some(left_parts.clone()), Some(right_parts.clone())];
+        PatchesData::push_slots(&mut slots, patches);
+        slots
     }
 
     /// Return all the owned parts of the array
@@ -521,26 +500,10 @@ fn right_parts_from_slots(slots: &[Option<ArrayRef>]) -> &ArrayRef {
 
 fn patches_from_slots(
     slots: &[Option<ArrayRef>],
-    patch_offset: Option<usize>,
-    patch_offset_within_chunk: Option<usize>,
+    patches_data: Option<&PatchesData>,
     len: usize,
 ) -> Option<Patches> {
-    match (&slots[LP_PATCH_INDICES_SLOT], &slots[LP_PATCH_VALUES_SLOT]) {
-        (Some(indices), Some(values)) => {
-            let patch_offset = patch_offset.vortex_expect("ALPRDArray patch slots without offset");
-            Some(unsafe {
-                Patches::new_unchecked(
-                    len,
-                    patch_offset,
-                    indices.clone(),
-                    values.clone(),
-                    slots[LP_PATCH_CHUNK_OFFSETS_SLOT].clone(),
-                    patch_offset_within_chunk,
-                )
-            })
-        }
-        _ => None,
-    }
+    PatchesData::patches_from_slots(patches_data, len, slots, LP_PATCH_SLOTS)
 }
 
 fn validate_parts(
@@ -628,8 +591,7 @@ pub trait ALPRDArrayExt: TypedArrayRef<ALPRD> {
     fn left_parts_patches(&self) -> Option<Patches> {
         patches_from_slots(
             self.as_ref().slots(),
-            self.patch_offset,
-            self.patch_offset_within_chunk,
+            self.patches_data.as_ref(),
             self.as_ref().len(),
         )
     }

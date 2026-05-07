@@ -8,6 +8,7 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 
 use crate::Sparse;
+use crate::SparseExt as _;
 
 impl OperationsVTable<Sparse> for Sparse {
     fn scalar_at(

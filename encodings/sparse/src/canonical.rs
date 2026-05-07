@@ -57,6 +57,7 @@ use vortex_error::vortex_bail;
 use crate::ConstantArray;
 use crate::Sparse;
 use crate::SparseArray;
+use crate::SparseExt as _;
 pub(super) fn execute_sparse(
     array: &SparseArray,
     ctx: &mut ExecutionCtx,
@@ -84,7 +85,7 @@ pub(super) fn execute_sparse(
             struct_fields,
             array.fill_scalar().as_struct(),
             array.dtype().nullability(),
-            array.patches(),
+            &array.patches(),
             array.len(),
             ctx,
         )?,
@@ -97,7 +98,7 @@ pub(super) fn execute_sparse(
                     *decimal_dtype,
                     *nullability,
                     fill_value,
-                    array.patches(),
+                    &array.patches(),
                     array.len(),
                     ctx,
                 )?

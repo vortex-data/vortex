@@ -10,6 +10,7 @@ use num_traits::NumCast;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -19,6 +20,7 @@ use vortex_mask::Mask;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
@@ -119,6 +121,93 @@ impl PatchesMetadata {
             "Patch indices must be unsigned integers"
         );
         Ok(DType::Primitive(ptype, NonNullable))
+    }
+}
+
+/// Metadata stored in an array's data struct for reconstructing [`Patches`] from slots.
+///
+/// The actual patch arrays (indices, values, chunk_offsets) live in the array's
+/// slots. This struct stores only the scalar metadata needed to reassemble them.
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct PatchesData {
+    offset: usize,
+    offset_within_chunk: Option<usize>,
+}
+
+/// Slot indices for the three patch components within a slot array.
+#[derive(Copy, Clone, Debug)]
+pub struct PatchSlotIndices {
+    pub indices: usize,
+    pub values: usize,
+    pub chunk_offsets: usize,
+}
+
+impl PatchesData {
+    /// Extract patch metadata from an existing [`Patches`].
+    pub fn from_patches(patches: &Patches) -> Self {
+        Self {
+            offset: patches.offset(),
+            offset_within_chunk: patches.offset_within_chunk(),
+        }
+    }
+
+    /// Reconstruct patches from the given slot positions.
+    ///
+    /// Returns `None` if `patches_data` is `None`.
+    /// Panics if `patches_data` is `Some` but the indices or values slots are missing.
+    pub fn patches_from_slots(
+        patches_data: Option<&Self>,
+        len: usize,
+        slots: &[Option<ArrayRef>],
+        slot_idx: PatchSlotIndices,
+    ) -> Option<Patches> {
+        let data = patches_data?;
+        let indices = slots[slot_idx.indices]
+            .as_ref()
+            .vortex_expect("patches_data is set but patch_indices slot is missing");
+        let values = slots[slot_idx.values]
+            .as_ref()
+            .vortex_expect("patches_data is set but patch_values slot is missing");
+        Some(unsafe {
+            Patches::new_unchecked(
+                len,
+                data.offset,
+                indices.clone(),
+                values.clone(),
+                slots[slot_idx.chunk_offsets].clone(),
+                data.offset_within_chunk,
+            )
+        })
+    }
+
+    /// Push 3 patch slots (indices, values, chunk_offsets) onto a slot vector.
+    ///
+    /// If `patches` is `None`, pushes three `None` entries.
+    pub fn push_slots(slots: &mut ArraySlots, patches: Option<&Patches>) {
+        match patches {
+            Some(p) => {
+                slots.push(Some(p.indices().clone()));
+                slots.push(Some(p.values().clone()));
+                slots.push(p.chunk_offsets().clone());
+            }
+            None => {
+                slots.push(None);
+                slots.push(None);
+                slots.push(None);
+            }
+        }
+    }
+
+    /// Returns the patch offset.
+    #[inline]
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
+    /// Returns the offset within the first chunk, if chunk offsets are present.
+    #[inline]
+    pub fn offset_within_chunk(&self) -> Option<usize> {
+        self.offset_within_chunk
     }
 }
 

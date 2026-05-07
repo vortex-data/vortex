@@ -42,6 +42,7 @@ use vortex_runend::RunEnd;
 use vortex_runend::compress::runend_encode;
 use vortex_sequence::sequence_encode;
 use vortex_sparse::Sparse;
+use vortex_sparse::SparseExt as _;
 use vortex_zigzag::ZigZag;
 use vortex_zigzag::ZigZagArrayExt;
 use vortex_zigzag::zigzag_encode;
