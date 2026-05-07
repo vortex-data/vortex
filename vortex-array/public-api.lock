@@ -13872,7 +13872,7 @@ pub fn vortex_array::patches::PatchesData::offset_within_chunk(&self) -> core::o
 
 pub fn vortex_array::patches::PatchesData::patches_from_slots(core::option::Option<&Self>, usize, &[core::option::Option<vortex_array::ArrayRef>], vortex_array::patches::PatchSlotIndices) -> core::option::Option<vortex_array::patches::Patches>
 
-pub fn vortex_array::patches::PatchesData::push_slots(&mut alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>, core::option::Option<&vortex_array::patches::Patches>)
+pub fn vortex_array::patches::PatchesData::push_slots(&mut vortex_array::ArraySlots, core::option::Option<&vortex_array::patches::Patches>)
 
 impl core::clone::Clone for vortex_array::patches::PatchesData
 
