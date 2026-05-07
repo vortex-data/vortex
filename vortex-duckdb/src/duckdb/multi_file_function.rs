@@ -175,6 +175,12 @@ pub trait MultiFileFunction: Sized + Debug {
         Ok(None)
     }
 
+    /// Per-column statistics available from bind-time metadata. Default
+    /// returns `None`.
+    fn statistics(_bind_data: &Self::BindData, _name: &str) -> Option<ColumnStatistics> {
+        None
+    }
+
     /// Populate the bind-time EXPLAIN map with key/value pairs (typical keys:
     /// `Function`, `Files`, `Projection`, `Filters`). Default no-op.
     fn to_string(_bind_data: &Self::BindData, _map: &mut DuckdbStringMapRef) {}
@@ -329,6 +335,7 @@ impl DatabaseRef {
             try_initialize_scan: Some(try_initialize_scan::<T>),
             prepare_scan: Some(prepare_scan::<T>),
             scan: Some(scan::<T>),
+            statistics: Some(statistics::<T>),
             get_statistics: Some(get_statistics::<T>),
             progress_in_file: Some(progress_in_file::<T>),
             cardinality: Some(cardinality::<T>),
@@ -586,12 +593,35 @@ unsafe extern "C-unwind" fn get_statistics<T: MultiFileFunction>(
     let Some(stats) = reader.get_statistics(name) else {
         return false;
     };
+    write_column_statistics(stats_out, stats);
+    true
+}
+
+unsafe extern "C-unwind" fn statistics<T: MultiFileFunction>(
+    bind_data: cpp::duckdb_vx_mff_bind_data,
+    name: *const std::os::raw::c_char,
+    name_len: usize,
+    stats_out: *mut cpp::duckdb_column_statistics,
+) -> bool {
+    let bind_data =
+        unsafe { bind_data.cast::<T::BindData>().as_ref() }.vortex_expect("bind_data null");
+    let name = unsafe { slice::from_raw_parts(name.cast::<u8>(), name_len) };
+    let Ok(name) = std::str::from_utf8(name) else {
+        return false;
+    };
+    let Some(stats) = T::statistics(bind_data, name) else {
+        return false;
+    };
+    write_column_statistics(stats_out, stats);
+    true
+}
+
+fn write_column_statistics(stats_out: *mut cpp::duckdb_column_statistics, stats: ColumnStatistics) {
     let out = unsafe { &mut *stats_out };
     out.min = stats.min.map_or(ptr::null_mut(), |v| v.into_ptr());
     out.max = stats.max.map_or(ptr::null_mut(), |v| v.into_ptr());
     out.max_string_length = stats.max_string_length;
     out.has_null = stats.has_null;
-    true
 }
 
 unsafe extern "C-unwind" fn progress_in_file<T: MultiFileFunction>(

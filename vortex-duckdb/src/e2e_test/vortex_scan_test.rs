@@ -1186,6 +1186,112 @@ fn test_read_vortex_v2_pushes_complex_contains_filter() {
 }
 
 #[test]
+fn test_read_vortex_v2_leaves_non_consumed_complex_or_filter_to_duckdb() {
+    let file = RUNTIME.block_on(async {
+        write_vortex_file(
+            [
+                ("a", PrimitiveArray::from_iter([1i32, 2, 3, 4]).into_array()),
+                (
+                    "b",
+                    PrimitiveArray::from_iter([10i32, 20, 20, 40]).into_array(),
+                ),
+            ]
+            .into_iter(),
+        )
+        .await
+    });
+
+    let conn = database_connection();
+    let file_path = file.path().to_string_lossy();
+    let count = conn
+        .query(&format!(
+            "SELECT COUNT(*) FROM read_vortex_v2('{file_path}') WHERE a = 1 OR b = 20"
+        ))
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap()
+        .get_vector(0)
+        .as_slice_with_len::<i64>(1)[0];
+    assert_eq!(count, 3);
+
+    let result = conn
+        .query(&format!(
+            "EXPLAIN SELECT * FROM read_vortex_v2('{file_path}') WHERE a = 1 OR b = 20"
+        ))
+        .unwrap();
+
+    let mut explain = String::new();
+    for mut chunk in result {
+        let len = chunk.len().as_();
+        for column_idx in 0..chunk.column_count() {
+            let vector = chunk.get_vector_mut(column_idx);
+            for value in unsafe { vector.as_slice_mut::<duckdb_string_t>(len) } {
+                explain.push_str(&String::from_duckdb_value(value));
+                explain.push('\n');
+            }
+        }
+    }
+
+    assert!(
+        !explain.contains("$.a") && !explain.contains("$.b"),
+        "expected the non-consumed OR filter to stay out of read_vortex_v2, got:\n{explain}"
+    );
+    assert!(
+        explain.contains("│           FILTER          │"),
+        "expected DuckDB to keep its standalone OR filter for planning, got:\n{explain}"
+    );
+}
+
+#[test]
+fn test_read_vortex_v2_uses_file_stats_for_join_filter_pushdown() {
+    let fact = RUNTIME.block_on(async {
+        write_single_column_vortex_file("k", PrimitiveArray::from_iter(0i32..1000)).await
+    });
+    let dim = RUNTIME.block_on(async {
+        write_single_column_vortex_file("k", PrimitiveArray::from_iter(10i32..21)).await
+    });
+
+    let conn = database_connection();
+    let fact_path = fact.path().to_string_lossy();
+    let dim_path = dim.path().to_string_lossy();
+    let count = conn
+        .query(&format!(
+            "SELECT COUNT(*) FROM read_vortex_v2('{fact_path}') fact JOIN read_vortex_v2('{dim_path}') dim USING (k)"
+        ))
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap()
+        .get_vector(0)
+        .as_slice_with_len::<i64>(1)[0];
+    assert_eq!(count, 11);
+
+    let result = conn
+        .query(&format!(
+            "EXPLAIN SELECT COUNT(*) FROM read_vortex_v2('{fact_path}') fact JOIN read_vortex_v2('{dim_path}') dim USING (k)"
+        ))
+        .unwrap();
+
+    let mut explain = String::new();
+    for mut chunk in result {
+        let len = chunk.len().as_();
+        for column_idx in 0..chunk.column_count() {
+            let vector = chunk.get_vector_mut(column_idx);
+            for value in unsafe { vector.as_slice_mut::<duckdb_string_t>(len) } {
+                explain.push_str(&String::from_duckdb_value(value));
+                explain.push('\n');
+            }
+        }
+    }
+
+    assert!(
+        explain.contains("k>=10") && explain.contains("k<=20"),
+        "expected file statistics to produce a join-derived scan filter, got:\n{explain}"
+    );
+}
+
+#[test]
 fn test_read_vortex_v2_uses_late_materialization_for_top_n() {
     let file = RUNTIME.block_on(async {
         write_vortex_file(

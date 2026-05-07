@@ -63,7 +63,6 @@ use vortex_utils::parallelism::get_available_parallelism;
 use crate::RUNTIME;
 use crate::SESSION;
 use crate::convert::ToDuckDBScalar;
-use crate::convert::try_from_bound_expression;
 use crate::convert::try_from_table_filter;
 use crate::convert::try_from_virtual_column_filter;
 use crate::duckdb::BindInputRef;
@@ -497,23 +496,13 @@ impl<T: DataSourceTableFunction> TableFunction for T {
     }
 
     fn pushdown_complex_filter(
-        bind_data: &mut Self::BindData,
+        _bind_data: &mut Self::BindData,
         expr: &ExpressionRef,
     ) -> VortexResult<bool> {
         tracing::debug!("Attempting to push down filter expression: {expr}");
-        let Some(expr) = try_from_bound_expression(expr)? else {
-            return Ok(false);
-        };
-        bind_data.filter_exprs.push(expr);
-
-        // NOTE(ngates): Vortex does indeed run exact filters, so in theory we should return `true`
-        //  here to tell DuckDB we've handled the filter. However, DuckDB applies some crude
-        //  cardinality estimation heuristics (e.g. an equality filter => 20% selectivity) that
-        //  means by returning false, DuckDB runs an additional filter (a little bit of overhead)
-        //  but tends to end up with a better query plan.
-        //  If we plumb row count estimation into the layout tree, perhaps we could use zone maps
-        //  etc. to return estimates. But this function is probably called too late anyway. Maybe
-        //  we need our own cardinality heuristics.
+        // Returning false keeps DuckDB's cardinality heuristics in the plan. Since DuckDB will
+        // still evaluate the filter, do not also push it into Vortex: that only evaluates the same
+        // predicate twice.
         Ok(false)
     }
 

@@ -148,6 +148,90 @@ public:
     duckdb_vx_mff_local handle;
 };
 
+static Value &UnwrapValue(duckdb_value value) {
+    return *(reinterpret_cast<Value *>(value));
+}
+
+void DestroyValues(duckdb_column_statistics &stats) {
+    if (stats.min) {
+        duckdb_destroy_value(&stats.min);
+    }
+    if (stats.max) {
+        duckdb_destroy_value(&stats.max);
+    }
+}
+
+unique_ptr<BaseStatistics> NumericStatsFrom(duckdb_column_statistics &stats, const LogicalType &type) {
+    BaseStatistics out = BaseStatistics::CreateUnknown(type);
+    if (stats.min) {
+        NumericStats::SetMin(out, UnwrapValue(stats.min));
+        duckdb_destroy_value(&stats.min);
+    }
+    if (stats.max) {
+        NumericStats::SetMax(out, UnwrapValue(stats.max));
+        duckdb_destroy_value(&stats.max);
+    }
+    if (!stats.has_null) {
+        out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
+    }
+    return out.ToUnique();
+}
+
+unique_ptr<BaseStatistics> StringStatsFrom(duckdb_column_statistics &stats, const LogicalType &type) {
+    BaseStatistics out = BaseStatistics::CreateUnknown(type);
+    if (stats.min) {
+        StringStats::SetMin(out, StringValue::Get(UnwrapValue(stats.min)));
+        duckdb_destroy_value(&stats.min);
+    }
+    if (stats.max) {
+        StringStats::SetMax(out, StringValue::Get(UnwrapValue(stats.max)));
+        duckdb_destroy_value(&stats.max);
+    }
+    if (stats.max_string_length >> 63) {
+        StringStats::SetMaxStringLength(out, uint32_t(stats.max_string_length));
+    }
+    if (!stats.has_null) {
+        out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
+    }
+    return out.ToUnique();
+}
+
+unique_ptr<BaseStatistics> BaseStatsFrom(duckdb_column_statistics &stats, const LogicalType &type) {
+    BaseStatistics out = BaseStatistics::CreateUnknown(type);
+    DestroyValues(stats);
+    if (!stats.has_null) {
+        out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
+    }
+    return out.ToUnique();
+}
+
+unique_ptr<BaseStatistics> ColumnStatsFrom(duckdb_column_statistics &stats, const LogicalType &type) {
+    switch (type.id()) {
+    case LogicalTypeId::BOOLEAN:
+    case LogicalTypeId::TINYINT:
+    case LogicalTypeId::SMALLINT:
+    case LogicalTypeId::INTEGER:
+    case LogicalTypeId::BIGINT:
+    case LogicalTypeId::FLOAT:
+    case LogicalTypeId::DOUBLE:
+    case LogicalTypeId::UTINYINT:
+    case LogicalTypeId::USMALLINT:
+    case LogicalTypeId::UINTEGER:
+    case LogicalTypeId::UBIGINT:
+    case LogicalTypeId::UHUGEINT:
+    case LogicalTypeId::HUGEINT:
+        return NumericStatsFrom(stats, type);
+    case LogicalTypeId::VARCHAR:
+    case LogicalTypeId::BLOB:
+        return StringStatsFrom(stats, type);
+    case LogicalTypeId::STRUCT:
+        DestroyValues(stats);
+        return nullptr;
+    default:
+        return BaseStatsFrom(stats, type);
+    }
+}
+
 /**
  * Per-file reader adapter. DuckDB's MultiFileFunction<OP> drives one of these
  * per opened file; each Scan call asks the extension for the next chunk.
@@ -261,43 +345,15 @@ public:
     }
 
     unique_ptr<BaseStatistics> GetStatistics(ClientContext &, const string &name) override {
-        duckdb_column_statistics stats = {};
-        if (!vtab.get_statistics(handle, name.c_str(), name.size(), &stats)) {
-            return nullptr;
-        }
-        // Materialize into a BaseStatistics matching the column's type. We reuse the
-        // logic in cpp/table_function.cpp by constructing an Unknown stats and setting
-        // the bits we have. Because we don't carry the type here (BaseFileReader has
-        // it via columns), look it up.
         for (auto &col : columns) {
             if (col.name != name) {
                 continue;
             }
-            BaseStatistics out = BaseStatistics::CreateUnknown(col.type);
-            if (stats.min) {
-                auto min_val = *reinterpret_cast<Value *>(stats.min);
-                duckdb_destroy_value(&stats.min);
-                if (col.type.IsNumeric()) {
-                    NumericStats::SetMin(out, min_val);
-                } else if (col.type.id() == LogicalTypeId::VARCHAR ||
-                           col.type.id() == LogicalTypeId::BLOB) {
-                    StringStats::SetMin(out, StringValue::Get(min_val));
-                }
+            duckdb_column_statistics stats = {};
+            if (!vtab.get_statistics(handle, name.c_str(), name.size(), &stats)) {
+                return nullptr;
             }
-            if (stats.max) {
-                auto max_val = *reinterpret_cast<Value *>(stats.max);
-                duckdb_destroy_value(&stats.max);
-                if (col.type.IsNumeric()) {
-                    NumericStats::SetMax(out, max_val);
-                } else if (col.type.id() == LogicalTypeId::VARCHAR ||
-                           col.type.id() == LogicalTypeId::BLOB) {
-                    StringStats::SetMax(out, StringValue::Get(max_val));
-                }
-            }
-            if (!stats.has_null) {
-                out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
-            }
-            return out.ToUnique();
+            return ColumnStatsFrom(stats, col.type);
         }
         return nullptr;
     }
@@ -507,6 +563,38 @@ void mff_pushdown_complex_filter(ClientContext &context,
     }
 }
 
+unique_ptr<BaseStatistics> mff_statistics(ClientContext &context, const FunctionData *bind_data_p,
+                                          column_t column_index) {
+    auto stats = MultiFileFunction<VortexMultiFileFunctionOp>::MultiFileScanStats(context, bind_data_p,
+                                                                                  column_index);
+    if (stats) {
+        return stats;
+    }
+
+    auto &data = bind_data_p->Cast<MultiFileBindData>();
+    if (IsVirtualColumn(column_index) || !data.bind_data || !data.file_list) {
+        return nullptr;
+    }
+    if (data.file_list->GetExpandResult() == FileExpandResult::MULTIPLE_FILES) {
+        return nullptr;
+    }
+    if (column_index >= data.names.size() || column_index >= data.types.size()) {
+        return nullptr;
+    }
+
+    auto &vortex_bind = data.bind_data->Cast<VortexMultiFileBindData>();
+    if (!vortex_bind.vtab.statistics) {
+        return nullptr;
+    }
+
+    duckdb_column_statistics raw_stats = {};
+    const auto &name = data.names[column_index];
+    if (!vortex_bind.vtab.statistics(vortex_bind.handle, name.c_str(), name.size(), &raw_stats)) {
+        return nullptr;
+    }
+    return ColumnStatsFrom(raw_stats, data.types[column_index]);
+}
+
 vector<PartitionStatistics> mff_get_partition_stats(ClientContext &context, GetPartitionStatsInput &input) {
     vector<PartitionStatistics> result;
     if (!input.bind_data) {
@@ -576,6 +664,7 @@ extern "C" duckdb_state duckdb_vx_mff_register(duckdb_database ffi_db, const duc
 
     MultiFileFunction<VortexMultiFileFunctionOp> mff(vtab->name);
     mff.function_info = info;
+    mff.statistics = mff_statistics;
     mff.filter_pushdown = vtab->filter_pushdown;
     mff.filter_prune = vtab->filter_prune;
     mff.pushdown_complex_filter = mff_pushdown_complex_filter;

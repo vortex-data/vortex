@@ -48,7 +48,6 @@ use vortex::file::VortexFile;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::Task;
 use vortex::layout::layouts::row_idx::row_idx;
-use vortex::layout::scan::split_by::SplitBy;
 use vortex::scalar_fn::fns::pack::Pack;
 use vortex::scan::selection::Selection;
 
@@ -86,10 +85,6 @@ const VORTEX_FOOTER_CACHE_TYPE: &CStr = c"vortex_footer";
 const DEFAULT_FOOTER_CACHE_BYTES: usize = 10 * 1024;
 const FILE_ROW_NUMBER_COLUMN_ID: u64 = 9223372036854775809;
 const FILE_INDEX_COLUMN_ID: u64 = 9223372036854775810;
-// DuckDB drains one multi-file reader at a time, so raw layout-level splits can
-// create thousands of tiny scan assignments for ClickBench-sized shards.
-const MULTI_FILE_SCAN_MIN_SPLIT_ROWS: usize = 131_072;
-const MULTI_FILE_SCAN_MAX_SPLIT_ROWS: usize = MULTI_FILE_SCAN_MIN_SPLIT_ROWS * 2;
 
 /// Open a [`VortexFile`] using whichever filesystem the user has configured
 /// via the `vortex_filesystem` extension option. DuckDB has already expanded
@@ -149,9 +144,16 @@ pub struct VortexReaderOptions;
 pub struct VortexBindData {
     /// Metadata and open handle for the file DuckDB selected for binding.
     first_file: Option<BoundFirstFile>,
-    /// Exact complex filters pushed at optimizer time. These are copied into
+    /// Exact complex filters consumed at optimizer time. These are copied into
     /// every per-file reader before scan planning.
+    ///
+    /// Non-consumed complex filters remain DuckDB-owned so DuckDB's cardinality
+    /// heuristics still guide planning and Vortex does not evaluate the same
+    /// predicate again inside the scan.
     complex_filter_exprs: Vec<Expression>,
+    /// True when pushed complex filters are removed from DuckDB's plan, so
+    /// file-level row counts are no longer exact output cardinality.
+    complex_filters_change_cardinality: bool,
 }
 
 #[derive(Clone)]
@@ -266,6 +268,7 @@ impl MultiFileFunction for VortexMultiFileFunction {
             return Ok(false);
         };
         bind_data.complex_filter_exprs.push(expr);
+        bind_data.complex_filters_change_cardinality = true;
         Ok(true)
     }
 
@@ -340,7 +343,7 @@ impl MultiFileFunction for VortexMultiFileFunction {
     }
 
     fn cardinality(bind_data: &Self::BindData, file_count: usize) -> Cardinality {
-        if !bind_data.complex_filter_exprs.is_empty() {
+        if bind_data.complex_filters_change_cardinality {
             return Cardinality::Unknown;
         }
         let first_file_row_count = bind_data
@@ -361,7 +364,7 @@ impl MultiFileFunction for VortexMultiFileFunction {
         bind_data: &Self::BindData,
         file_path: &str,
     ) -> VortexResult<Option<PartitionStats>> {
-        if !bind_data.complex_filter_exprs.is_empty() {
+        if bind_data.complex_filters_change_cardinality {
             return Ok(None);
         }
         if let Some(first_file) = bind_data
@@ -387,6 +390,11 @@ impl MultiFileFunction for VortexMultiFileFunction {
         Ok(Some(PartitionStats {
             row_count: footer.row_count(),
         }))
+    }
+
+    fn statistics(bind_data: &Self::BindData, name: &str) -> Option<ColumnStatistics> {
+        let first_file = bind_data.first_file.as_ref()?;
+        column_statistics_for_file(&first_file.file, name)
     }
 
     fn to_string(bind_data: &Self::BindData, map: &mut DuckdbStringMapRef) {
@@ -602,9 +610,7 @@ impl BaseFileReader<VortexGlobal, VortexLocal> for VortexFileReader {
     }
 
     fn get_statistics(&self, name: &str) -> Option<ColumnStatistics> {
-        let stats = self.file.file_stats()?;
-        let (stats_set, dtype) = stats.get_by_name(self.file.dtype(), name)?;
-        Some(make_column_statistics(stats_set, dtype))
+        column_statistics_for_file(&self.file, name)
     }
 
     fn progress_in_file(&self) -> f64 {
@@ -615,6 +621,12 @@ impl BaseFileReader<VortexGlobal, VortexLocal> for VortexFileReader {
         let pct = (rows_scanned as f64 / self.total_rows as f64) * 100.0;
         pct.clamp(0.0, 100.0)
     }
+}
+
+fn column_statistics_for_file(file: &VortexFile, name: &str) -> Option<ColumnStatistics> {
+    let stats = file.file_stats()?;
+    let (stats_set, dtype) = stats.get_by_name(file.dtype(), name)?;
+    Some(make_column_statistics(stats_set, dtype))
 }
 
 fn contains_string_filter(expr: &ExpressionRef) -> bool {
@@ -783,13 +795,7 @@ impl VortexFileReader {
     }
 
     fn build_scan_tasks(&self) -> VortexResult<VecDeque<ScanTask>> {
-        let mut builder = self
-            .file
-            .scan()?
-            .with_split_by(SplitBy::layout_with_row_limits(
-                Some(MULTI_FILE_SCAN_MIN_SPLIT_ROWS),
-                Some(MULTI_FILE_SCAN_MAX_SPLIT_ROWS),
-            ));
+        let mut builder = self.file.scan()?;
         // Apply projection. `None` (prepare not called) defaults to all
         // columns; `Some` (including the empty case for SELECT count(*))
         // applies an explicit `select` so the resulting struct arrays contain
@@ -983,9 +989,7 @@ mod tests {
 
     #[test]
     fn try_initialize_scan_assigns_independent_splits() -> VortexResult<()> {
-        let rows_per_chunk = i32::try_from(MULTI_FILE_SCAN_MIN_SPLIT_ROWS)
-            .map_err(|_| vortex_err!("split row count does not fit i32"))?;
-        let (_temp_file, file) = write_chunked_struct_file(4, rows_per_chunk)?;
+        let (_temp_file, file) = write_chunked_struct_file(4, 16)?;
         let total_rows = file.row_count();
         let mut reader = VortexFileReader {
             file,
@@ -1221,6 +1225,7 @@ mod tests {
                 file,
             }),
             complex_filter_exprs: vec![],
+            complex_filters_change_cardinality: false,
         };
 
         let Cardinality::Maximum(42) = VortexMultiFileFunction::cardinality(&bind_data, 1) else {
@@ -1248,10 +1253,21 @@ mod tests {
                 file,
             }),
             complex_filter_exprs: vec![root()],
+            complex_filters_change_cardinality: false,
+        };
+
+        let Cardinality::Maximum(42) = VortexMultiFileFunction::cardinality(&bind_data, 1) else {
+            panic!("duplicate pushed filters should preserve exact file cardinality");
+        };
+
+        let bind_data = VortexBindData {
+            first_file: bind_data.first_file,
+            complex_filter_exprs: bind_data.complex_filter_exprs,
+            complex_filters_change_cardinality: true,
         };
 
         let Cardinality::Unknown = VortexMultiFileFunction::cardinality(&bind_data, 1) else {
-            panic!("cardinality should be unknown after pushing a complex filter into Vortex");
+            panic!("cardinality should be unknown after consuming a complex filter in Vortex");
         };
 
         Ok(())
@@ -1270,6 +1286,7 @@ mod tests {
                 file,
             }),
             complex_filter_exprs: vec![root()],
+            complex_filters_change_cardinality: true,
         };
 
         assert!(
@@ -1290,6 +1307,7 @@ mod tests {
                 file,
             }),
             complex_filter_exprs: vec![],
+            complex_filters_change_cardinality: false,
         };
 
         let Some((cached, cached_dtypes)) = cached_first_file(&bind_data, "first.vortex") else {

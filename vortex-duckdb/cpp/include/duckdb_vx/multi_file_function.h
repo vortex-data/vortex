@@ -218,6 +218,16 @@ typedef struct {
                  duckdb_vx_error *error);
 
     /**
+     * Get bind-time per-column statistics by name. Used when DuckDB asks for
+     * scan stats after copying bind data, before a per-file reader exists.
+     * Returns false if no stats are available.
+     */
+    bool (*statistics)(duckdb_vx_mff_bind_data bind_data,
+                       const char *col_name,
+                       size_t name_len,
+                       duckdb_column_statistics *stats_out);
+
+    /**
      * Get per-column statistics by name. Returns false if no stats are
      * available. Same convention as duckdb_vx_tfunc_vtab_t::statistics.
      */
