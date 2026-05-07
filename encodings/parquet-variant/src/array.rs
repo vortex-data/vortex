@@ -161,6 +161,20 @@ impl ParquetVariantData {
     /// Converts an Arrow `parquet_variant_compute::VariantArray` into a Vortex `ArrayRef`
     /// wrapping `VariantArray(ParquetVariantArray(...))`.
     pub fn from_arrow_variant(arrow_variant: &ArrowVariantArray) -> VortexResult<ArrayRef> {
+        Self::from_arrow_variant_impl(arrow_variant, None)
+    }
+
+    pub(crate) fn from_arrow_variant_with_nullability(
+        arrow_variant: &ArrowVariantArray,
+        nullability: Nullability,
+    ) -> VortexResult<ArrayRef> {
+        Self::from_arrow_variant_impl(arrow_variant, Some(nullability))
+    }
+
+    fn from_arrow_variant_impl(
+        arrow_variant: &ArrowVariantArray,
+        forced_nullability: Option<Nullability>,
+    ) -> VortexResult<ArrayRef> {
         let storage = arrow_variant.inner();
         let value_nullable = storage
             .fields()
@@ -183,7 +197,10 @@ impl ParquetVariantData {
                     Validity::from(BitBuffer::from(nulls.inner().clone()))
                 }
             })
-            .unwrap_or(Validity::NonNullable);
+            .unwrap_or(match forced_nullability {
+                Some(Nullability::Nullable) => Validity::AllValid,
+                Some(Nullability::NonNullable) | None => Validity::NonNullable,
+            });
         let metadata =
             ArrayRef::from_arrow(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
 

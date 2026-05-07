@@ -313,6 +313,18 @@ Row-preserving transform validation commands run on 2026-05-07:
 
 All commands passed. No public Rust API changed in this milestone, so `./scripts/public-api.sh` was not required.
 
+Initial unshredded VariantGet validation commands run on 2026-05-07:
+
+    cargo nextest run -p vortex-parquet-variant variant_get
+    cargo nextest run -p vortex-parquet-variant
+    cargo nextest run -p vortex-array
+    cargo fmt --check
+    cargo +nightly fmt --all --check
+    git diff --check
+    cargo clippy --all-targets -- -D warnings
+
+All commands passed. Stable `cargo fmt --check` emitted the repository's usual nightly-only rustfmt option warnings but exited successfully. No public Rust API changed in this milestone, so `./scripts/public-api.sh` was not required.
+
 ## Interfaces and Dependencies
 
 The expected canonical variant API in `vortex-array` is:
@@ -370,3 +382,5 @@ The initial path model is a strict sequence of object field names and zero-based
 2026-05-07T13:24Z: Implemented the canonical `VariantArray` shape with `core_storage` and optional `shredded` slots, checked construction, serde support, validation, Parquet canonicalization of `typed_value`, public API lock updates, and focused tests. The compatibility `child()` shim remains until the row-preserving transform milestone migrates callers.
 
 2026-05-07T14:06Z: Added row-preserving `Variant` slice/filter/take reduce rules and updated canonical filter, dict take, mask validity, canonical-validity, and recursive canonicalization paths to transform optional shredded storage with the same row operation as core storage. Regression tests now assert both children after slice, filter, take, and mask.
+
+2026-05-07T15:02Z: Implemented the initial unshredded `VariantGet` fallback for direct `ParquetVariant` arrays by registering a parent execution kernel that converts unshredded storage through Arrow and delegates to `parquet_variant_compute::variant_get`. The kernel intentionally declines arrays with `typed_value`; shredded fast paths, partial merge semantics, and canonical `VariantArray` execution shapes remain the next milestone. New tests cover typed object-field extraction, list indexes, missing paths, outer nulls, present variant nulls, type mismatches, and untyped Variant output.
