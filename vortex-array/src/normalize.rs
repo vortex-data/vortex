@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use smallvec::SmallVec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::Id;
 use vortex_utils::aliases::hash_set::HashSet;
-
-use smallvec::SmallVec;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;

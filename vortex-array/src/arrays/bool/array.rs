@@ -5,12 +5,12 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use arrow_array::BooleanArray;
+use smallvec::smallvec;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use smallvec::smallvec;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;

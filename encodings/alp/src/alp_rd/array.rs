@@ -459,7 +459,8 @@ impl ALPRDData {
         right_parts: &ArrayRef,
         patches: Option<&Patches>,
     ) -> ArraySlots {
-        let mut slots: ArraySlots = vortex_array::smallvec::smallvec![Some(left_parts.clone()), Some(right_parts.clone())];
+        let mut slots: ArraySlots =
+            vortex_array::smallvec::smallvec![Some(left_parts.clone()), Some(right_parts.clone())];
         PatchesData::push_slots(&mut slots, patches);
         slots
     }

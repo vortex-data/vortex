@@ -552,11 +552,7 @@ impl<T: TypedArrayRef<VarBinView>> VarBinViewArrayExt for T {}
 
 impl Array<VarBinView> {
     #[inline]
-    fn from_prevalidated_data(
-        dtype: DType,
-        data: VarBinViewData,
-        slots: ArraySlots,
-    ) -> Self {
+    fn from_prevalidated_data(dtype: DType, data: VarBinViewData, slots: ArraySlots) -> Self {
         let len = data.len();
         unsafe {
             Array::from_parts_unchecked(

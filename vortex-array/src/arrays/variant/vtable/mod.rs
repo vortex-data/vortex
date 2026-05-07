@@ -4,11 +4,11 @@
 mod operations;
 mod validity;
 
+use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use smallvec::smallvec;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 

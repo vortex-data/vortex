@@ -83,11 +83,7 @@ impl VarBinData {
         Self::try_build_from_handle(offset, bytes, dtype, validity).vortex_expect("VarBinArray new")
     }
 
-    pub(crate) fn make_slots(
-        offsets: ArrayRef,
-        validity: &Validity,
-        len: usize,
-    ) -> ArraySlots {
+    pub(crate) fn make_slots(offsets: ArrayRef, validity: &Validity, len: usize) -> ArraySlots {
         smallvec![Some(offsets), validity_to_child(validity, len)]
     }
 

@@ -626,7 +626,14 @@ mod tests {
         let array = make_patched_array(vec![0u16; 1024], &[1, 2, 3], &[10, 20, 30])?;
 
         // Get original children via accessor methods
-        let slots = PatchedSlots::from_slots(array.as_array().slots().iter().cloned().collect::<ArraySlots>());
+        let slots = PatchedSlots::from_slots(
+            array
+                .as_array()
+                .slots()
+                .iter()
+                .cloned()
+                .collect::<ArraySlots>(),
+        );
         let view = PatchedSlotsView::from_slots(array.as_array().slots());
         assert_eq!(view.inner.len(), array.inner().len());
 

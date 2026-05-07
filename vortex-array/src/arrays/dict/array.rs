@@ -4,13 +4,13 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use smallvec::smallvec;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
-use smallvec::smallvec;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
@@ -239,7 +239,8 @@ impl Array<Dict> {
         let len = codes.len();
         let data = DictData::try_new(codes.dtype())?;
         Array::try_from_parts(
-            ArrayParts::new(Dict, dtype, len, data).with_slots(smallvec![Some(codes), Some(values)]),
+            ArrayParts::new(Dict, dtype, len, data)
+                .with_slots(smallvec![Some(codes), Some(values)]),
         )
     }
 
@@ -256,7 +257,8 @@ impl Array<Dict> {
         let data = unsafe { DictData::new_unchecked() };
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Dict, dtype, len, data).with_slots(smallvec![Some(codes), Some(values)]),
+                ArrayParts::new(Dict, dtype, len, data)
+                    .with_slots(smallvec![Some(codes), Some(values)]),
             )
         }
     }

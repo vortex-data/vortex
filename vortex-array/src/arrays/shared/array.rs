@@ -8,10 +8,10 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 
 use async_lock::Mutex as AsyncMutex;
+use smallvec::smallvec;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use smallvec::smallvec;
 
 use crate::ArrayRef;
 use crate::Canonical;

@@ -5,10 +5,10 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ops::Range;
 
+use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use smallvec::smallvec;
 
 use crate::ArrayRef;
 use crate::array::Array;

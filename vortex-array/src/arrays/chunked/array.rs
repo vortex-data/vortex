@@ -136,10 +136,7 @@ impl ChunkedData {
         chunk_offsets
     }
 
-    pub(super) fn make_slots(
-        chunk_offsets: &[usize],
-        chunks: &[ArrayRef],
-    ) -> ArraySlots {
+    pub(super) fn make_slots(chunk_offsets: &[usize], chunks: &[ArrayRef]) -> ArraySlots {
         let mut chunk_offsets_buf = BufferMut::<u64>::with_capacity(chunk_offsets.len());
         for &offset in chunk_offsets {
             let offset = u64::try_from(offset)

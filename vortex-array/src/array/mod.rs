@@ -41,9 +41,8 @@ pub mod vtable;
 pub use vtable::*;
 
 mod view;
-pub use view::*;
-
 use smallvec::SmallVec;
+pub use view::*;
 
 use crate::hash::ArrayEq;
 use crate::hash::ArrayHash;
@@ -140,11 +139,7 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
     /// The array returned may have slots whose content does not match the encoding's normal
     /// invariants. Callers must re-establish those invariants before handing the array to
     /// anything outside the executor.
-    unsafe fn with_slots_unchecked(
-        &self,
-        this: &ArrayRef,
-        slots: ArraySlots,
-    ) -> ArrayRef;
+    unsafe fn with_slots_unchecked(&self, this: &ArrayRef, slots: ArraySlots) -> ArrayRef;
 
     /// Attempt to reduce the array to a simpler representation.
     fn reduce(&self, this: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
@@ -376,11 +371,7 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         .into_array())
     }
 
-    unsafe fn with_slots_unchecked(
-        &self,
-        this: &ArrayRef,
-        slots: ArraySlots,
-    ) -> ArrayRef {
+    unsafe fn with_slots_unchecked(&self, this: &ArrayRef, slots: ArraySlots) -> ArrayRef {
         // SAFETY: we intentionally skip `V::validate` here. Caller guarantees that the resulting
         // array is either repaired or not externally observed.
         let store = unsafe {

@@ -109,11 +109,7 @@ pub struct FixedSizeListDataParts {
 }
 
 impl FixedSizeListData {
-    pub(crate) fn make_slots(
-        elements: &ArrayRef,
-        validity: &Validity,
-        len: usize,
-    ) -> ArraySlots {
+    pub(crate) fn make_slots(elements: &ArrayRef, validity: &Validity, len: usize) -> ArraySlots {
         smallvec![Some(elements.clone()), validity_to_child(validity, len)]
     }
 
