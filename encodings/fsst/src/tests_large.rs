@@ -18,8 +18,8 @@ use vortex_array::dtype::Nullability;
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
 
-/// Regression: `fsst_compress` must accept inputs whose cumulative compressed
-/// bytes exceed `i32::MAX`. Today this panics in
+/// Regression for #7833: `fsst_compress` must accept inputs whose cumulative
+/// compressed bytes exceed `i32::MAX`. Today this panics in
 /// `vortex-array/src/arrays/varbin/builder.rs:62` because `fsst_compress_iter`
 /// (`encodings/fsst/src/compress.rs:72`) hardcodes `VarBinBuilder::<i32>` for
 /// the FSST output buffer regardless of input size.
