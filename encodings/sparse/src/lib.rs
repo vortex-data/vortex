@@ -9,6 +9,7 @@ use std::hash::Hasher;
 
 use kernel::PARENT_KERNELS;
 use prost::Message as _;
+use vortex_array::AnyCanonical;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
@@ -23,6 +24,7 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::buffer::BufferHandle;
@@ -33,6 +35,8 @@ use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
+use vortex_array::require_child;
+use vortex_array::require_opt_child;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::operators::Operator;
@@ -65,6 +69,47 @@ mod slice;
 
 /// A [`Sparse`]-encoded Vortex array.
 pub type SparseArray = Array<Sparse>;
+
+#[vortex_array::array_slots(Sparse)]
+pub struct SparseSlots {
+    pub patch_indices: ArrayRef,
+    pub patch_values: ArrayRef,
+    pub patch_chunk_offsets: Option<ArrayRef>,
+}
+
+/// Concrete parts of a [`SparseArray`] after iterative execution.
+pub(crate) struct SparseParts {
+    pub patches: Patches,
+    pub fill_value: Scalar,
+    pub dtype: DType,
+    pub len: usize,
+}
+
+pub(crate) trait SparseOwnedExt {
+    fn into_parts(self) -> VortexResult<SparseParts>;
+}
+
+impl SparseOwnedExt for Array<Sparse> {
+    fn into_parts(self) -> VortexResult<SparseParts> {
+        let patches = Patches::new(
+            self.len(),
+            self.patches().offset(),
+            self.as_ref().slots()[SparseSlots::PATCH_INDICES]
+                .clone()
+                .vortex_expect("indices"),
+            self.as_ref().slots()[SparseSlots::PATCH_VALUES]
+                .clone()
+                .vortex_expect("values"),
+            self.as_ref().slots()[SparseSlots::PATCH_CHUNK_OFFSETS].clone(),
+        )?;
+        Ok(SparseParts {
+            patches,
+            fill_value: self.fill_scalar().clone(),
+            dtype: self.dtype().clone(),
+            len: self.len(),
+        })
+    }
+}
 
 #[derive(Clone, prost::Message)]
 #[repr(C)]
@@ -192,7 +237,7 @@ impl VTable for Sparse {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        SparseSlots::NAMES[idx].to_string()
     }
 
     fn reduce_parent(
@@ -213,17 +258,60 @@ impl VTable for Sparse {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        execute_sparse(&array, ctx).map(ExecutionResult::done)
+        // Resolve offset first: wrap indices in Binary(indices, offset, Sub) and
+        // reassemble with offset=0. Uses slot children (not data) since the executor
+        // may have updated slots via reduce_parent/execute_parent.
+        let array = if array.patches().offset() != 0 {
+            let offset = array.patches().offset();
+            let indices = array.patch_indices();
+            let values = array.patch_values().clone();
+            let len = array.len();
+            let offset_scalar = Scalar::from(offset).cast(indices.dtype())?;
+            let resolved_indices = indices.binary(
+                ConstantArray::new(offset_scalar, indices.len()).into_array(),
+                Operator::Sub,
+            )?;
+            let patches = Patches::new(len, 0, resolved_indices.clone(), values, None)?;
+            // Decompose, update in place, and reassemble without re-validation.
+            match array.try_into_parts() {
+                Ok(mut parts) => {
+                    parts.data.patches_data = PatchesData::from_patches(&patches);
+                    parts.slots[SparseSlots::PATCH_INDICES] = Some(resolved_indices);
+                    parts.slots[SparseSlots::PATCH_CHUNK_OFFSETS] = None;
+                    unsafe { Array::from_parts_unchecked(parts) }
+                }
+                Err(array) => unsafe {
+                    Sparse::new_unchecked(patches, array.fill_scalar().clone())
+                },
+            }
+        } else {
+            array
+        };
+
+        // Require children to be executed through the scheduler,
+        // enabling cross-step optimization via reduce_parent rules.
+        let array = require_child!(
+            array, array.patch_indices(), SparseSlots::PATCH_INDICES => Primitive
+        );
+        let array = require_child!(
+            array, array.patch_values(), SparseSlots::PATCH_VALUES => AnyCanonical
+        );
+        require_opt_child!(
+            array,
+            array.patch_chunk_offsets(),
+            SparseSlots::PATCH_CHUNK_OFFSETS => Primitive
+        );
+
+        let parts = array.into_parts()?;
+        // TODO(joe): remove ctx from execute_sparse since all slots should be canonical.
+        execute_sparse(parts, ctx).map(ExecutionResult::done)
     }
 }
 
-pub(crate) const NUM_SLOTS: usize = 3;
-pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
-    ["patch_indices", "patch_values", "patch_chunk_offsets"];
 const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
-    indices: 0,
-    values: 1,
-    chunk_offsets: 2,
+    indices: SparseSlots::PATCH_INDICES,
+    values: SparseSlots::PATCH_VALUES,
+    chunk_offsets: SparseSlots::PATCH_CHUNK_OFFSETS,
 };
 
 #[derive(Clone, Debug)]
@@ -339,7 +427,7 @@ impl SparseData {
     }
 
     fn make_slots(patches: &Patches) -> Vec<Option<ArrayRef>> {
-        let mut slots = Vec::with_capacity(NUM_SLOTS);
+        let mut slots = Vec::with_capacity(SparseSlots::COUNT);
         PatchesData::push_slots(&mut slots, Some(patches));
         slots
     }
