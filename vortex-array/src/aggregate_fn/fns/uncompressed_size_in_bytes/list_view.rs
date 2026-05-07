@@ -9,7 +9,6 @@ use super::validity_uncompressed_size_in_bytes;
 use crate::ExecutionCtx;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArrayExt;
-use crate::arrays::listview::ListViewRebuildMode;
 
 pub(super) fn list_view_uncompressed_size_in_bytes(
     array: &ListViewArray,
@@ -18,8 +17,7 @@ pub(super) fn list_view_uncompressed_size_in_bytes(
     let mut size = if array.is_empty() {
         0
     } else {
-        let rebuilt = array.rebuild(ListViewRebuildMode::MakeExact)?;
-        uncompressed_size_in_bytes_u64(rebuilt.elements(), ctx)?
+        uncompressed_size_in_bytes_u64(array.elements(), ctx)?
     };
 
     let view_buffer_size = u64::try_from(array.len())
