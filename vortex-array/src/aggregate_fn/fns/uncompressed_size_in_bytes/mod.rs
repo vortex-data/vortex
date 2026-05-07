@@ -42,8 +42,6 @@ use crate::array::ArrayView;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::varbinview::BinaryView;
-#[cfg(test)]
-use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
 use crate::dtype::Nullability::NonNullable;
@@ -90,7 +88,7 @@ fn uncompressed_size_in_bytes_u64(array: &ArrayRef, ctx: &mut ExecutionCtx) -> V
     Ok(size)
 }
 
-/// Sum the canonical, recursively **uncompressed** data size for an array.
+/// The byte size of all buffers in children in their canonical representation.
 ///
 /// Applies to all types and returns a non-null `u64`. Encoding kernels can return this aggregate
 /// directly from metadata to avoid decoding arrays whose uncompressed size is known.
@@ -308,15 +306,6 @@ fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
     }
 }
 
-#[cfg(test)]
-fn materialized_uncompressed_size_in_bytes(array: &ArrayRef) -> u64 {
-    let mut builder = builder_with_capacity(array.dtype(), array.len());
-    unsafe {
-        builder.extend_from_array_unchecked(array);
-    }
-    builder.finish().nbytes()
-}
-
 pub(crate) fn validity_uncompressed_size_in_bytes(validity: Mask) -> VortexResult<u64> {
     match validity {
         Mask::AllTrue(_) => Ok(0),
@@ -345,7 +334,6 @@ mod tests {
     use crate::aggregate_fn::DynAccumulator;
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-    use crate::aggregate_fn::fns::uncompressed_size_in_bytes::materialized_uncompressed_size_in_bytes;
     use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
@@ -359,6 +347,7 @@ mod tests {
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::VariantArray;
+    use crate::builders::builder_with_capacity;
     use crate::dtype::DType;
     use crate::dtype::DecimalDType;
     use crate::dtype::FieldNames;
@@ -372,6 +361,14 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
     use crate::validity::Validity;
+
+    fn materialized_uncompressed_size_in_bytes(array: &ArrayRef) -> u64 {
+        let mut builder = builder_with_capacity(array.dtype(), array.len());
+        unsafe {
+            builder.extend_from_array_unchecked(array);
+        }
+        builder.finish().nbytes()
+    }
 
     fn aggregate(array: &ArrayRef) -> VortexResult<u64> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
