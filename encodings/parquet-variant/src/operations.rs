@@ -440,6 +440,44 @@ mod tests {
     }
 
     #[test]
+    fn test_outer_null_and_variant_null_are_distinct() -> VortexResult<()> {
+        let mut builder = VariantArrayBuilder::new(3);
+        builder.append_variant(PqVariant::Null);
+        builder.append_variant(PqVariant::from(42i32));
+        builder.append_variant(PqVariant::from("present"));
+        let inner = builder.build().into_inner();
+
+        let null_struct = StructArray::try_new(
+            inner.fields().clone(),
+            inner.columns().to_vec(),
+            Some(NullBuffer::from(vec![true, false, true])),
+        )?;
+
+        let arrow_variant = ArrowVariantArray::try_new(&null_struct)?;
+        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+
+        let present_variant_null =
+            vortex_arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert!(!present_variant_null.is_null());
+        assert_eq!(
+            present_variant_null.as_variant().is_variant_null(),
+            Some(true)
+        );
+
+        let outer_null =
+            vortex_arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert!(outer_null.is_null());
+        assert_eq!(outer_null.as_variant().is_variant_null(), None);
+
+        let present_value =
+            vortex_arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert!(!present_value.is_null());
+        assert_eq!(present_value.as_variant().is_variant_null(), Some(false));
+
+        Ok(())
+    }
+
+    #[test]
     fn test_from_arrow_variant_all_nulls() -> VortexResult<()> {
         let mut builder = VariantArrayBuilder::new(2);
         builder.append_variant(PqVariant::from(1i32));

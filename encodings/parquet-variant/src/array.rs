@@ -524,4 +524,21 @@ mod tests {
 
         assert_arrow_variant_storage_roundtrip(struct_array)
     }
+
+    #[test]
+    fn test_arrow_variant_roundtrip_with_variant_null_and_outer_null() -> VortexResult<()> {
+        let mut builder = VariantArrayBuilder::new(3);
+        builder.append_variant(PqVariant::Null);
+        builder.append_variant(PqVariant::from(42i32));
+        builder.append_variant(PqVariant::from("present"));
+        let inner = builder.build().into_inner();
+
+        let struct_array = StructArray::try_new(
+            inner.fields().clone(),
+            inner.columns().to_vec(),
+            Some(NullBuffer::from(vec![true, false, true])),
+        )?;
+
+        assert_arrow_variant_storage_roundtrip(struct_array)
+    }
 }

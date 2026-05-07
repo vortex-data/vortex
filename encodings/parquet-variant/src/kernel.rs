@@ -292,8 +292,7 @@ mod tests {
         Arc::new(builder.finish())
     }
 
-    #[test]
-    fn test_slice_shredded_typed_value() -> VortexResult<()> {
+    fn make_shredded_typed_array() -> VortexResult<ArrayRef> {
         let metadata = binary_view_array(&[b"\x01\x00", b"\x01\x00", b"\x01\x00"]);
         let typed_value: ArrowArrayRef = Arc::new(arrow_array::Int32Array::from(vec![10, 20, 30]));
 
@@ -307,7 +306,12 @@ mod tests {
             None,
         )?;
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
-        let arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        ParquetVariantData::from_arrow_variant(&arrow_variant)
+    }
+
+    #[test]
+    fn test_slice_shredded_typed_value() -> VortexResult<()> {
+        let arr = make_shredded_typed_array()?;
 
         let sliced = arr.slice(1..3)?;
         assert_eq!(sliced.len(), 2);
@@ -317,6 +321,46 @@ mod tests {
         );
         assert_eq!(
             sliced.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_filter_shredded_typed_value() -> VortexResult<()> {
+        let arr = make_shredded_typed_array()?;
+        let filtered = arr.filter(Mask::from_iter([true, false, true]))?;
+
+        assert_eq!(filtered.len(), 2);
+        assert_eq!(
+            filtered.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
+        assert_eq!(
+            filtered.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_take_shredded_typed_value() -> VortexResult<()> {
+        let arr = make_shredded_typed_array()?;
+        let taken = arr.take(PrimitiveArray::from_iter([2u64, 0, 2]).into_array())?;
+
+        assert_eq!(taken.len(), 3);
+        assert_eq!(
+            taken.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
+        assert_eq!(
+            taken.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
+            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
+        );
+        assert_eq!(
+            taken.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?,
             arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
         );
 

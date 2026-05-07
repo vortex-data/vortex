@@ -14,7 +14,7 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 
 - [x] (2026-05-07T11:21Z) Read the ExecPlan guide, the two local RFCs, the Parquet Variant encoding and shredding specs, the local `parquet-variant-compute` `variant_get` implementation, current Vortex `VariantArray`, `GetItem`, and Parquet Variant files, plus the `adamg/variant-array` reference branch for inspiration.
 - [x] (2026-05-07T12:08Z) Added a detailed implementation inventory covering the current single-child canonical `VariantArray`, the RFC 0058 target shape, existing Parquet Variant hooks, the scalar function patterns used by `GetItem`, and the canonicalization contract for moving encoding-specific shredded children into canonical `VariantArray::shredded`.
-- [ ] Add or identify baseline tests for current variant behavior before changing canonical shape or expression semantics.
+- [x] (2026-05-07T12:42Z) Added and identified baseline tests for current variant behavior: explicit outer null versus present `variantnull`, Arrow Parquet Variant storage roundtrips including a present Variant null with a separate outer null row, and slice/filter/take over typed-only shredded Parquet Variant arrays.
 - [ ] Implement the canonical `VariantArray` shape change with checked constructors, slot names, and accessors.
 - [ ] Update row-preserving transformations so `core_storage` and optional `shredded` stay row-aligned.
 - [ ] Add and register a `VariantGet` scalar function skeleton.
@@ -33,6 +33,9 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 
 - Observation: `parquet-variant-compute` already implements much of the desired path semantics, including traversal through shredded object fields, row-wise fallback to raw value bytes, and optional typed output.
   Evidence: `/Users/adamgs/code/arrow-rs/parquet-variant-compute/src/variant_get.rs` has `follow_shredded_path_element`, `shredded_get_path`, `try_perfect_shredding`, and `GetOptions`.
+
+- Observation: The existing baseline already covered many Parquet Variant cases, but filter and take over typed-only shredded arrays were not tested next to the existing slice case.
+  Evidence: Before this milestone, `encodings/parquet-variant/src/kernel.rs` had `test_slice_shredded_typed_value` but no corresponding filter or take tests for typed-only shredded storage.
 
 ## Decision Log
 
@@ -58,7 +61,7 @@ The end-to-end behavior is demonstrated by tests that build Parquet Variant arra
 
 ## Outcomes & Retrospective
 
-No implementation milestone has completed yet. This initial revision records the sources, target behavior, validation contract, and unresolved decisions so subsequent changes can proceed incrementally.
+The planning and baseline-test milestones are complete. The current tests now lock down the existing one-child canonical variant behavior indirectly through Parquet Variant conversion, the distinction between an outer nullable Variant slot and a present `variantnull` payload, Arrow storage roundtrips for value-only, typed-only, value-plus-typed, outer-null, and variant-null cases, and row-preserving slice/filter/take behavior for both unshredded and typed-only shredded Parquet Variant arrays. The next milestone can change canonical `VariantArray` shape with clearer regression coverage.
 
 ## Context and Orientation
 
@@ -128,6 +131,8 @@ Run all commands from `/Users/adamgs/code/vortex`.
        cargo nextest run -p vortex-array variant
 
    Expected result: tests pass before the shape change and describe current behavior precisely enough that later failures identify regressions.
+
+   Baseline milestone status: completed on 2026-05-07T12:42Z. New tests are `array::tests::test_arrow_variant_roundtrip_with_variant_null_and_outer_null`, `operations::tests::test_outer_null_and_variant_null_are_distinct`, `kernel::tests::test_filter_shredded_typed_value`, and `kernel::tests::test_take_shredded_typed_value`. Existing tests cover unshredded slice/filter/take, typed-only slice, and the other `ParquetVariantData::from_arrow_variant` roundtrips.
 
 3. Canonical `VariantArray` shape.
 
@@ -251,6 +256,17 @@ Reference URLs:
 - https://github.com/apache/parquet-format/blob/master/VariantShredding.md
 - https://docs.databricks.com/aws/en/sql/language-manual/functions/variant_get
 
+Baseline validation commands run on 2026-05-07:
+
+    cargo nextest run -p vortex-parquet-variant
+    cargo nextest run -p vortex-array variant
+    cargo nextest run -p vortex-array
+    cargo +nightly fmt --check
+    cargo +nightly fmt --all --check
+    cargo clippy --all-targets -- -D warnings
+
+All commands passed. Stable `cargo fmt --check` was also attempted, but this repository's rustfmt configuration uses nightly-only settings and stable rustfmt exited with configuration warnings, so the repository-required nightly fmt check was used for formatting validation.
+
 ## Interfaces and Dependencies
 
 The expected canonical variant API in `vortex-array` is:
@@ -302,3 +318,5 @@ The initial path model is a strict sequence of object field names and zero-based
 2026-05-07T11:45Z: Clarified the canonicalization boundary for shredded data. Encoding-specific shredded children such as Parquet `typed_value` should surface as the canonical `VariantArray::shredded` child, while `VariantGet` must also support direct execution on `ParquetVariant` and canonical variants whose `core_storage` still exposes encoding-specific shredded data.
 
 2026-05-07T12:08Z: Added the first implementation inventory. This revision records the exact current one-child canonical variant shape, the RFC 0058 target shape, Parquet Variant storage and transformation hooks, `GetItem` scalar function patterns to reuse, and the logical canonicalization contract for surfacing Parquet `typed_value` as canonical `VariantArray::shredded`.
+
+2026-05-07T12:42Z: Added baseline tests before changing canonical variant shape. This revision records the new coverage for outer null versus present `variantnull`, a roundtrip containing both null kinds, and filter/take over typed-only shredded Parquet Variant storage, plus the validation commands that passed for this Rust-only baseline milestone.
