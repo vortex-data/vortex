@@ -140,6 +140,8 @@ pub fn vortex_file::FileStatistics::from_flatbuffer<'a>(&vortex_flatbuffers::foo
 
 pub fn vortex_file::FileStatistics::get(&self, usize) -> (&vortex_array::stats::stats_set::StatsSet, &vortex_array::dtype::DType)
 
+pub fn vortex_file::FileStatistics::get_by_name(&self, &vortex_array::dtype::DType, &str) -> core::option::Option<(&vortex_array::stats::stats_set::StatsSet, &vortex_array::dtype::DType)>
+
 pub fn vortex_file::FileStatistics::new(alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>, alloc::sync::Arc<[vortex_array::dtype::DType]>) -> Self
 
 pub fn vortex_file::FileStatistics::new_with_dtype(alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>, &vortex_array::dtype::DType) -> Self

@@ -146,6 +146,20 @@ impl FileStatistics {
     pub fn get(&self, field_idx: usize) -> (&StatsSet, &DType) {
         (&self.stats[field_idx], &self.dtypes[field_idx])
     }
+
+    /// Returns the statistics and data type for a struct field, looked up by name.
+    ///
+    /// This is a convenience for callers that key columns by name (e.g. DuckDB's
+    /// `BaseFileReader::GetStatistics`). Requires `file_dtype` to be a struct so
+    /// that field names can be matched against the stats indices.
+    ///
+    /// Returns `None` if `file_dtype` is not a struct or if `name` does not match
+    /// a field.
+    pub fn get_by_name(&self, file_dtype: &DType, name: &str) -> Option<(&StatsSet, &DType)> {
+        let fields = file_dtype.as_struct_fields_opt()?;
+        let idx = fields.names().iter().position(|n| n.as_ref() == name)?;
+        Some(self.get(idx))
+    }
 }
 
 impl<'a> IntoIterator for &'a FileStatistics {
