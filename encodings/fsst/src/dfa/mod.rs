@@ -97,10 +97,11 @@
 //! escape-sentinel handling: when the scanner sees the sentinel value, it reads
 //! the next byte from a separate byte-level escape table.
 //!
-//! TODO(joe): for short contains needles (≤7 bytes), a branchless escape-folded
-//! DFA with hierarchical 4-byte composition is ~2x faster. For needles ≤127
-//! bytes, an escape-folded flat DFA (2N+1 states) avoids the sentinel branch.
-//! See commit 7faf9f36f for those implementations.
+//! For needles ≤ 127 bytes the contains DFA uses an **escape-folded** variant
+//! (see [`folded_contains`]) that encodes the post-escape "expecting a literal
+//! byte" status into the state space, removing the sentinel branch from the
+//! inner loop entirely. Longer needles (128–254 bytes) fall back to the plain
+//! [`flat_contains`] DFA.
 //!
 //! ## State-Space Limits
 //!
@@ -122,7 +123,9 @@
 //! Patterns beyond those limits are still valid LIKE patterns; they simply do
 //! not use FSST pushdown and must be evaluated through the fallback path.
 
+mod anchor_scan;
 mod flat_contains;
+mod folded_contains;
 mod multi_contains;
 mod prefix;
 mod skip;
@@ -131,6 +134,7 @@ mod suffix;
 mod tests;
 
 use flat_contains::FlatContainsDfa;
+use folded_contains::FoldedContainsDfa;
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use multi_contains::MultiContainsDfa;
@@ -158,6 +162,10 @@ enum MatcherInner {
     MatchAll,
     Prefix(FlatPrefixDfa),
     Suffix(SuffixMatcher),
+    /// Escape-folded DFA for short needles (`<= 127` bytes). Eliminates the
+    /// per-byte sentinel branch from the inner loop.
+    FoldedContains(FoldedContainsDfa),
+    /// Plain flat DFA for needles in `128..=254` bytes.
     Contains(FlatContainsDfa),
     MultiContains(Box<MultiContainsDfa>),
 }
@@ -194,10 +202,17 @@ impl FsstMatcher {
                 MatcherInner::Suffix(SuffixMatcher::new(symbols, symbol_lengths, suffix)?)
             }
             LikeKind::Contains(needle) => {
-                if needle.len() > FlatContainsDfa::MAX_NEEDLE_LEN {
+                if needle.len() <= FoldedContainsDfa::MAX_NEEDLE_LEN {
+                    MatcherInner::FoldedContains(FoldedContainsDfa::new(
+                        symbols,
+                        symbol_lengths,
+                        needle,
+                    )?)
+                } else if needle.len() <= FlatContainsDfa::MAX_NEEDLE_LEN {
+                    MatcherInner::Contains(FlatContainsDfa::new(symbols, symbol_lengths, needle)?)
+                } else {
                     return Ok(None);
                 }
-                MatcherInner::Contains(FlatContainsDfa::new(symbols, symbol_lengths, needle)?)
             }
             LikeKind::MultiContains(segments) => {
                 let total_len: usize = segments.iter().map(|s| s.len()).sum();
@@ -216,13 +231,54 @@ impl FsstMatcher {
     }
 
     /// Run the matcher on a single FSST-compressed code sequence.
+    ///
+    /// In the production path, [`FsstMatcher::scan_to_bitbuf`] is the entry
+    /// point used by the `LikeKernel`. This single-string method is retained
+    /// for tests and ad-hoc validation.
+    #[inline]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
         match &self.inner {
             MatcherInner::MatchAll => true,
             MatcherInner::Prefix(dfa) => dfa.matches(codes),
             MatcherInner::Suffix(dfa) => dfa.matches(codes),
+            MatcherInner::FoldedContains(dfa) => dfa.matches(codes),
             MatcherInner::Contains(dfa) => dfa.matches(codes),
             MatcherInner::MultiContains(dfa) => dfa.matches(codes),
+        }
+    }
+
+    /// Scan `n` strings (delimited by `offsets` over `all_bytes`) and return a
+    /// `BitBuffer` whose `i`-th bit is set iff the matcher accepts the `i`-th
+    /// string (XOR `negated`).
+    ///
+    /// Performs ONE enum dispatch per call — i.e., per `LIKE` invocation, not
+    /// per string — routing to a specialized scan loop with the matcher logic
+    /// monomorphized into the bit-packing loop.
+    #[inline]
+    pub fn scan_to_bitbuf<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        match &self.inner {
+            MatcherInner::MatchAll => {
+                if negated {
+                    BitBuffer::new_unset(n)
+                } else {
+                    BitBuffer::new_set(n)
+                }
+            }
+            MatcherInner::Prefix(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
+            MatcherInner::Suffix(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
+            MatcherInner::FoldedContains(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
+            MatcherInner::Contains(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
+            MatcherInner::MultiContains(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
         }
     }
 }
@@ -281,21 +337,43 @@ impl<'a> LikeKind<'a> {
 // ---------------------------------------------------------------------------
 
 // TODO: add N-way ILP overrun scan for higher throughput on short strings.
-pub(crate) fn dfa_scan_to_bitbuf<T, F>(
+//
+// `scan_to_bitbuf_with` is the shared inner loop used by every DFA's
+// `scan_to_bitbuf` method. Marked `#[inline(always)]` so that, when invoked
+// from a DFA-specific `scan_to_bitbuf` with a concrete closure that calls
+// that DFA's `matches`, the closure body is fully monomorphized into the
+// bit-packing loop and the per-string enum dispatch present in
+// `FsstMatcher::matches` is eliminated entirely.
+//
+// SAFETY contract for callers: `offsets` must contain `n + 1` entries that are
+// monotonically non-decreasing and whose final entry does not exceed
+// `all_bytes.len()`. This mirrors the invariant the upstream `varbin`
+// representation already guarantees.
+#[inline(always)]
+pub(crate) fn scan_to_bitbuf_with<T, F>(
     n: usize,
     offsets: &[T],
     all_bytes: &[u8],
     negated: bool,
-    matcher: F,
+    mut matches: F,
 ) -> BitBuffer
 where
     T: vortex_array::dtype::IntegerPType,
-    F: Fn(&[u8]) -> bool,
+    F: FnMut(&[u8]) -> bool,
 {
-    let mut start: usize = offsets[0].as_();
+    debug_assert!(offsets.len() > n);
+    // SAFETY: caller guarantees `offsets.len() > n`, i.e. at least `n + 1`
+    // entries.
+    let mut start: usize = unsafe { *offsets.get_unchecked(0) }.as_();
     BitBuffer::collect_bool(n, |i| {
-        let end: usize = offsets[i + 1].as_();
-        let result = matcher(&all_bytes[start..end]) != negated;
+        // SAFETY: `i < n` (BitBuffer::collect_bool invariant) and
+        // `offsets.len() >= n + 1` so `i + 1 < offsets.len()`.
+        let end: usize = unsafe { *offsets.get_unchecked(i + 1) }.as_();
+        debug_assert!(start <= end && end <= all_bytes.len());
+        // SAFETY: caller guarantees `start <= end <= all_bytes.len()` via the
+        // monotonicity / bounds invariants on `offsets`.
+        let codes = unsafe { all_bytes.get_unchecked(start..end) };
+        let result = matches(codes) != negated;
         start = end;
         result
     })

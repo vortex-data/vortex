@@ -26,6 +26,7 @@ use vortex_session::VortexSession;
 use super::FsstMatcher;
 use super::LikeKind;
 use super::flat_contains::FlatContainsDfa;
+use super::folded_contains::FoldedContainsDfa;
 use super::multi_contains::MultiContainsDfa;
 use super::prefix::FlatPrefixDfa;
 use crate::FSSTArray;
@@ -235,6 +236,69 @@ fn test_contains_pushdown_rejects_len_255() {
             .unwrap()
             .is_none()
     );
+}
+
+/// Folded contains DFA boundary check: matches and rejects across the full
+/// supported needle length range.
+#[rstest]
+#[case(1)]
+#[case(7)]
+#[case(8)]
+#[case(127)]
+fn test_folded_contains_needle_len_boundaries(#[case] n: usize) -> VortexResult<()> {
+    let needle: Vec<u8> = (0..n)
+        .map(|i| b'a' + u8::try_from(i % 26).expect("i%26 fits in u8"))
+        .collect();
+    let dfa = FoldedContainsDfa::new(&[], &[], &needle)?;
+
+    // Plain match: needle itself, escaped.
+    assert!(dfa.matches(&escaped(&needle)));
+
+    // Match in the middle of a longer string.
+    let mut wrapped = escaped(b"prefix");
+    wrapped.extend_from_slice(&escaped(&needle));
+    wrapped.extend_from_slice(&escaped(b"suffix"));
+    assert!(dfa.matches(&wrapped));
+
+    // Near-miss (last byte changed).
+    let mut mismatch = needle;
+    mismatch[n - 1] = mismatch[n - 1].wrapping_add(1);
+    assert!(!dfa.matches(&escaped(&mismatch)));
+
+    // Empty input never matches a non-empty needle.
+    assert!(!dfa.matches(&[]));
+
+    Ok(())
+}
+
+/// `FoldedContainsDfa::new` rejects needles longer than its max.
+#[test]
+fn test_folded_contains_rejects_len_128() {
+    let needle = vec![b'a'; FoldedContainsDfa::MAX_NEEDLE_LEN + 1];
+    assert!(FoldedContainsDfa::new(&[], &[], &needle).is_err());
+}
+
+/// `FsstMatcher` selects the folded DFA at the boundary length 127 and the
+/// flat DFA for length 128, and both produce correct results.
+#[test]
+fn test_contains_matcher_routing_at_folded_boundary() -> VortexResult<()> {
+    for n in [127usize, 128] {
+        let needle = "a".repeat(n);
+        let pattern = format!("%{needle}%");
+        let matcher = FsstMatcher::try_new(&[], &[], pattern.as_bytes())?
+            .expect("contains pattern must produce a matcher");
+        assert!(
+            matcher.matches(&escaped(needle.as_bytes())),
+            "match failed for needle length {n}"
+        );
+        let mut mismatch = needle.into_bytes();
+        mismatch[n - 1] = b'b';
+        assert!(
+            !matcher.matches(&escaped(&mismatch)),
+            "false match for needle length {n}"
+        );
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -597,5 +661,62 @@ fn test_like_edge_cases(
     )?;
     let expected_arr = BoolArray::from_iter(expected.iter().copied());
     assert_arrays_eq!(&result, &expected_arr);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Randomized cross-check vs ground truth `String::contains`
+// ---------------------------------------------------------------------------
+//
+// Exercises the FSST `%needle%` DFA path (including the global-anchor-scan
+// fast path used by `FoldedContainsDfa::scan_to_bitbuf` for ≤8 progressing
+// codes) against random ClickBench-style URLs and random short needles.
+
+/// Verify that the FSST `%needle%` DFA agrees with naive `String::contains`
+/// across many random needles applied to random ClickBench-style URLs.
+///
+/// Gated on `_test-harness` because it pulls the synthetic ClickBench URL
+/// generator out of `test_utils`.
+#[cfg(feature = "_test-harness")]
+#[test]
+fn test_random_needles_match_naive_contains() -> VortexResult<()> {
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::prelude::StdRng;
+
+    use crate::test_utils::generate_clickbench_urls;
+    use crate::test_utils::make_fsst_clickbench_urls;
+
+    const N_STRINGS: usize = 10_000;
+    const N_NEEDLES: usize = 32;
+
+    let urls = generate_clickbench_urls(N_STRINGS);
+    let fsst = make_fsst_clickbench_urls(N_STRINGS);
+
+    let mut rng = StdRng::seed_from_u64(0xCAFE_BABE);
+
+    // A pool of bytes most likely to occur in URLs, so most needles actually
+    // match something in the corpus and exercise both branches.
+    const URL_BYTES: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789-./";
+
+    for _ in 0..N_NEEDLES {
+        let len = rng.random_range(1..=7);
+        let needle: Vec<u8> = (0..len)
+            .map(|_| URL_BYTES[rng.random_range(0..URL_BYTES.len())])
+            .collect();
+        let needle_str = std::str::from_utf8(&needle).expect("ascii");
+        let pattern = format!("%{needle_str}%");
+
+        let result = run_like(
+            fsst.clone(),
+            ConstantArray::new(pattern.as_str(), N_STRINGS).into_array(),
+        )?;
+
+        let expected_bits: Vec<bool> = urls.iter().map(|u| u.contains(needle_str)).collect();
+        let expected = BoolArray::from_iter(expected_bits.iter().copied());
+
+        assert_arrays_eq!(&result, &expected);
+    }
+
     Ok(())
 }

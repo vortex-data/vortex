@@ -19,12 +19,13 @@
 //! whose expansion is a substring of the needle. If that code byte is absent
 //! from the compressed string, the needle can't match.
 //!
-//! TODO(joe): for short needles (≤7 bytes), a branchless escape-folded DFA
-//! with hierarchical 4-byte composition is ~2x faster. For needles ≤127 bytes,
-//! an escape-folded flat DFA (2N+1 states) avoids the sentinel branch.
-//! See commit 7faf9f36f for those implementations.
+//! For needles ≤ 127 bytes, [`super::folded_contains::FoldedContainsDfa`] is
+//! preferred — it encodes the post-escape state directly so the inner loop
+//! does a single table lookup per code byte with no sentinel branch.
+//! [`FlatContainsDfa`] remains in use for longer needles (128–254 bytes).
 
 use fsst::Symbol;
+use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -32,6 +33,7 @@ use vortex_error::vortex_bail;
 use super::build_fused_table;
 use super::build_symbol_transitions;
 use super::kmp_byte_transitions;
+use super::scan_to_bitbuf_with;
 use super::skip::SkipStrategy;
 
 /// Flat `u8` transition table DFA for contains matching.
@@ -93,6 +95,7 @@ impl FlatContainsDfa {
         })
     }
 
+    #[inline]
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
         // Anchor prefilter: if the anchor code is absent, no match possible.
         if let Some(a) = self.anchor
@@ -131,6 +134,23 @@ impl FlatContainsDfa {
             }
         }
         false
+    }
+
+    /// Specialized scan over `n` strings, returning a `BitBuffer` of accept
+    /// results (XOR `negated`). The `matches` body is monomorphized into the
+    /// bit-packing loop.
+    #[inline]
+    pub(crate) fn scan_to_bitbuf<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        scan_to_bitbuf_with(n, offsets, all_bytes, negated, |codes| self.matches(codes))
     }
 }
 
