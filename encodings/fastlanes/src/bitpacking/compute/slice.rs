@@ -6,8 +6,11 @@ use std::ops::Range;
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::arrays::slice::SliceReduce;
+use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
@@ -15,32 +18,55 @@ use crate::bitpacking::array::BitPackedArrayExt;
 
 impl SliceReduce for BitPacked {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let offset_start = range.start + array.offset() as usize;
-        let offset_stop = range.end + array.offset() as usize;
-        let offset = offset_start % 1024;
-        let block_start = max(0, offset_start - offset);
-        let block_stop = offset_stop.div_ceil(1024) * 1024;
+        // We cannot access buffers (to slice the patches).
+        if array.patches().is_some() {
+            return Ok(None);
+        }
 
-        let encoded_start = (block_start / 8) * array.bit_width() as usize;
-        let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
-
-        Ok(Some(
-            BitPacked::try_new(
-                array.packed().slice(encoded_start..encoded_stop),
-                array.dtype().as_ptype(),
-                array.validity()?.slice(range.clone())?,
-                array
-                    .patches()
-                    .map(|p| p.slice(range.clone()))
-                    .transpose()?
-                    .flatten(),
-                array.bit_width(),
-                range.len(),
-                offset as u16,
-            )?
-            .into_array(),
-        ))
+        Ok(Some(slice_bitpacked(array, range, None)?))
     }
+}
+
+impl SliceKernel for BitPacked {
+    fn slice(
+        array: ArrayView<'_, Self>,
+        range: Range<usize>,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let patches = array
+            .patches()
+            .map(|p| p.slice(range.clone()))
+            .transpose()?
+            .flatten();
+
+        Ok(Some(slice_bitpacked(array, range, patches)?))
+    }
+}
+
+fn slice_bitpacked(
+    array: ArrayView<'_, BitPacked>,
+    range: Range<usize>,
+    patches: Option<Patches>,
+) -> VortexResult<ArrayRef> {
+    let offset_start = range.start + array.offset() as usize;
+    let offset_stop = range.end + array.offset() as usize;
+    let offset = offset_start % 1024;
+    let block_start = max(0, offset_start - offset);
+    let block_stop = offset_stop.div_ceil(1024) * 1024;
+
+    let encoded_start = (block_start / 8) * array.bit_width() as usize;
+    let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
+
+    Ok(BitPacked::try_new(
+        array.packed().slice(encoded_start..encoded_stop),
+        array.dtype().as_ptype(),
+        array.validity()?.slice(range.clone())?,
+        patches,
+        array.bit_width(),
+        range.len(),
+        offset as u16,
+    )?
+    .into_array())
 }
 
 #[cfg(test)]

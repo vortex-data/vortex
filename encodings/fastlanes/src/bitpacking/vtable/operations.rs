@@ -150,8 +150,16 @@ mod test {
         let patch_indices = array.patches().unwrap().indices().clone();
         assert_eq!(patch_indices.len(), 1);
 
-        // Slicing drops the empty patches array.
-        let sliced_bp = slice_via_reduce(&array, 0..64);
+        // Slicing with patches requires the execute path (not reduce) since patches.slice()
+        // reads buffers. The slice range 0..64 excludes the patch at index 64, so the
+        // resulting array should have no patches.
+        let array_ref = array.into_array();
+        let slice_array = SliceArray::new(array_ref.clone(), 0..64);
+        let sliced = array_ref
+            .execute_parent(&slice_array.into_array(), 0, &mut ctx)
+            .expect("execute_parent failed")
+            .expect("expected slice kernel to execute");
+        let sliced_bp = sliced.as_::<BitPacked>().into_owned();
         assert!(sliced_bp.patches().is_none());
     }
 
