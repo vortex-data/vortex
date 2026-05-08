@@ -20,6 +20,7 @@ use divan::Bencher;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::bench_utils::scan_baseline_contains;
 use vortex_fsst::bench_utils::scan_classes_contains;
+use vortex_fsst::bench_utils::scan_decompress_memmem_contains;
 use vortex_fsst::bench_utils::scan_pre_classified_contains;
 use vortex_fsst::bench_utils::scan_shufti_contains;
 use vortex_fsst::test_utils::NUM_STRINGS;
@@ -163,6 +164,43 @@ fn pre_contains_email(bencher: Bencher) {
 #[divan::bench]
 fn pre_contains_rare(bencher: Bencher) {
     bencher.bench(|| scan_pre_classified_contains(&FSST_RARE_MATCH, NEEDLE_RARE));
+}
+
+// ─── variant D: decompress + memmem (delegate to off-the-shelf matcher) ────
+
+#[divan::bench]
+fn memmem_contains_urls(bencher: Bencher) {
+    bencher.bench(|| scan_decompress_memmem_contains(&FSST_URLS, NEEDLE_URLS));
+}
+
+#[divan::bench]
+fn memmem_contains_cb(bencher: Bencher) {
+    bencher.bench(|| scan_decompress_memmem_contains(&FSST_CB_URLS, NEEDLE_CB_URLS));
+}
+
+#[divan::bench]
+fn memmem_contains_log(bencher: Bencher) {
+    bencher.bench(|| scan_decompress_memmem_contains(&FSST_LOG_LINES, NEEDLE_LOG));
+}
+
+#[divan::bench]
+fn memmem_contains_json(bencher: Bencher) {
+    bencher.bench(|| scan_decompress_memmem_contains(&FSST_JSON_STRINGS, NEEDLE_JSON));
+}
+
+#[divan::bench]
+fn memmem_contains_path(bencher: Bencher) {
+    bencher.bench(|| scan_decompress_memmem_contains(&FSST_FILE_PATHS, NEEDLE_PATH));
+}
+
+#[divan::bench]
+fn memmem_contains_email(bencher: Bencher) {
+    bencher.bench(|| scan_decompress_memmem_contains(&FSST_EMAILS, NEEDLE_EMAIL));
+}
+
+#[divan::bench]
+fn memmem_contains_rare(bencher: Bencher) {
+    bencher.bench(|| scan_decompress_memmem_contains(&FSST_RARE_MATCH, NEEDLE_RARE));
 }
 
 // ─── shufti (per-state skip) ───────────────────────────────────────────────

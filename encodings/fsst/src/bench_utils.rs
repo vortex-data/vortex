@@ -142,6 +142,93 @@ where
     })
 }
 
+/// Variant D: decompress each FSST string and run `memchr::memmem::Finder` (the
+/// same literal matcher `regex-automata` delegates to for literal patterns).
+///
+/// This is the "delegation" baseline: no FSST-code-level DFA at all; use a
+/// gold-standard byte-level substring matcher on the decoded text. It tests
+/// whether the FSST-code-level DFA pushdown is worth the complexity vs simply
+/// decompressing per row and using an off-the-shelf matcher.
+pub fn scan_decompress_memmem_contains(fsst: &FSSTArray, needle: &[u8]) -> usize {
+    let symbols = fsst.symbols();
+    let symbols = symbols.as_slice();
+    let symbol_lengths = fsst.symbol_lengths();
+    let symbol_lengths = symbol_lengths.as_slice();
+
+    let n_symbols = symbols.len();
+    let mut expansions = vec![0u8; n_symbols * 8];
+    let mut exp_lens = vec![0u8; n_symbols];
+    for (i, (sym, &len)) in symbols.iter().zip(symbol_lengths.iter()).enumerate() {
+        let bytes = sym.to_u64().to_le_bytes();
+        let len_usize = usize::from(len);
+        expansions[i * 8..i * 8 + len_usize].copy_from_slice(&bytes[..len_usize]);
+        exp_lens[i] = len;
+    }
+
+    let codes = fsst.codes();
+    #[expect(deprecated)]
+    let offsets = codes.offsets().to_primitive();
+    let all_bytes_buf = codes.bytes();
+    let all_bytes = all_bytes_buf.as_slice();
+    let n = codes.len();
+
+    let finder = memchr::memmem::Finder::new(needle);
+
+    let result: BitBuffer = match_each_integer_ptype!(offsets.ptype(), |T| {
+        scan_decompress_memmem_inner::<T>(
+            n,
+            offsets.as_slice::<T>(),
+            all_bytes,
+            &expansions,
+            &exp_lens,
+            &finder,
+        )
+    });
+    result.true_count()
+}
+
+fn scan_decompress_memmem_inner<T>(
+    n: usize,
+    offsets: &[T],
+    all_bytes: &[u8],
+    expansions: &[u8],
+    exp_lens: &[u8],
+    finder: &memchr::memmem::Finder<'_>,
+) -> BitBuffer
+where
+    T: IntegerPType,
+{
+    use fsst::ESCAPE_CODE;
+
+    let mut start: usize = offsets[0].as_();
+    let mut decoded: Vec<u8> = Vec::with_capacity(256);
+    BitBuffer::collect_bool(n, |i| {
+        let end: usize = offsets[i + 1].as_();
+        let s = &all_bytes[start..end];
+        start = end;
+
+        decoded.clear();
+        let mut p = 0usize;
+        while p < s.len() {
+            let c = s[p];
+            p += 1;
+            if c == ESCAPE_CODE {
+                if p < s.len() {
+                    decoded.push(s[p]);
+                    p += 1;
+                }
+            } else {
+                let cu = usize::from(c);
+                if cu < exp_lens.len() {
+                    let len = usize::from(exp_lens[cu]);
+                    decoded.extend_from_slice(&expansions[cu * 8..cu * 8 + len]);
+                }
+            }
+        }
+        finder.find(&decoded).is_some()
+    })
+}
+
 /// Scan all strings in `fsst` with the shufti `FlatContainsDfa` for `needle`.
 ///
 /// Returns the count of set bits in the result bitmask.
