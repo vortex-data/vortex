@@ -22,6 +22,8 @@ mod rules;
 mod slice;
 #[cfg(feature = "_test-harness")]
 pub mod test_utils;
+#[cfg(feature = "_test-harness")]
+pub mod bench_utils;
 #[cfg(test)]
 mod tests;
 
