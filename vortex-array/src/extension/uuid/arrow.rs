@@ -18,6 +18,7 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
 use arrow_schema::extension::Uuid as ArrowUuid;
+use vortex_array::arrow::has_valid_extension_type;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -99,7 +100,7 @@ impl ArrowImportVTable for Uuid {
     }
 
     fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
-        if !field.has_valid_extension_type::<ArrowUuid>() {
+        if !has_valid_extension_type::<ArrowUuid>(field) {
             return Ok(None);
         }
 
