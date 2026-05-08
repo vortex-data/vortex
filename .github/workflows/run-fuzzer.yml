@@ -150,7 +150,7 @@ jobs:
             echo "## Active compute processes"
             nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader || true
             echo
-          } >> fuzz_output.log
+          }
 
       - name: Run fuzzing target
         id: fuzz
@@ -196,7 +196,7 @@ jobs:
             echo "## Active compute processes"
             nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader || true
             echo
-          } >> fuzz_output.log
+          }
 
       - name: Check for crashes
         id: check
@@ -262,6 +262,10 @@ jobs:
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
+          if [ "${GITHUB_REF}" != "refs/heads/develop" ]; then
+            echo "Skipping corpus upload for ${GITHUB_REF}; only develop updates the shared fuzz corpus."
+            exit 0
+          fi
           python3 scripts/s3-corpus-merge-upload.py \
             --bucket vortex-fuzz-corpus \
             --key "${FUZZ_NAME}_corpus.tar.zst" \
