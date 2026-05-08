@@ -271,6 +271,81 @@ Force a deploy right now (don't wait for the next tick):
 sudo systemctl start vortex-bench-deploy.service
 ```
 
+### "Which build is actually running?"
+
+Three equivalent identifiers, in increasing levels of certainty:
+
+```bash
+# What the deploy timer last successfully rolled out:
+cat /var/lib/vortex-bench/last-deployed-sha
+
+# Which versioned binary the symlink currently points at:
+readlink /var/lib/vortex-bench/bin/vortex-bench-server
+# → /var/lib/vortex-bench/bin/vortex-bench-server.<UTC ts of build>
+
+# What the live process baked in at compile time:
+curl -fsS http://127.0.0.1:3000/health | jq '{build_sha, db_path, schema_version}'
+```
+
+`build_sha` is the source of truth — it's the git SHA `cargo build`
+saw when it produced the running binary. If it disagrees with
+`last-deployed-sha`, the running process is stale (e.g. a manual
+binary swap, or systemd is still running an older PID).
+
+### "How do I manually rebuild and restart, outside the timer?"
+
+You shouldn't normally need this — the deploy timer covers all
+ordinary cases — but it's useful when you want to test an unmerged
+branch or recover from a stuck timer. Three knobs:
+
+**(a) Restart the running binary, no rebuild.** Cheapest restart;
+useful after editing `/etc/vortex-bench.env` or recovering from a
+hung connection.
+
+```bash
+sudo systemctl restart vortex-bench-server
+journalctl -fu vortex-bench-server               # confirm it came up
+curl -fsS http://127.0.0.1:3000/health | jq      # build_sha unchanged
+```
+
+**(b) Force a deploy of the configured branch right now.** Triggers
+exactly the same flow the timer runs, including build, atomic symlink
+swap, and `/health` rollback if anything fails.
+
+```bash
+sudo systemctl start vortex-bench-deploy.service
+journalctl -fu vortex-bench-deploy.service       # watch it
+```
+
+**(c) Manually build a binary from the current working tree and
+install it.** Use this to test a branch that isn't `$DEPLOY_BRANCH`
+without flipping the env file. The deploy timer will overwrite your
+manual binary on the next tick that sees a relevant change, so you
+probably want to pause it first:
+
+```bash
+. /etc/vortex-bench.env
+sudo systemctl stop vortex-bench-deploy.timer    # pause auto-deploy
+cd "$REPO_DIR"
+git fetch origin
+git checkout --force --detach origin/<branch>    # pin to whatever you want
+cargo build --release -p vortex-bench-server
+ts=$(date -u +%Y%m%dT%H%M%SZ)
+sudo install -m 0755 -o ec2-user -g ec2-user \
+    target/release/vortex-bench-server \
+    "/var/lib/vortex-bench/bin/vortex-bench-server.manual-${ts}"
+ln -sfnT "/var/lib/vortex-bench/bin/vortex-bench-server.manual-${ts}" \
+         /var/lib/vortex-bench/bin/vortex-bench-server
+sudo systemctl restart vortex-bench-server
+curl -fsS http://127.0.0.1:3000/health | jq .build_sha   # verify new SHA
+# When done testing:
+sudo systemctl start vortex-bench-deploy.timer   # resume auto-deploy
+```
+
+The timer's next fire (within 60s) will overwrite your manual binary
+with whatever `origin/$DEPLOY_BRANCH` produces, which is usually what
+you want — manual binaries are scratch space, not a long-term state.
+
 ### "A vortex-array PR landed — does the website rebuild?"
 
 No. The path filter ignores anything outside the directories listed
