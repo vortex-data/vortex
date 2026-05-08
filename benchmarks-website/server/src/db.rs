@@ -3,9 +3,11 @@
 
 //! DuckDB connection management plus the deterministic `measurement_id` hash.
 //!
-//! The server holds a single [`duckdb::Connection`] inside an async
-//! [`tokio::sync::Mutex`]. All DB work runs inside `spawn_blocking` so the
-//! Tokio runtime is never blocked on synchronous DuckDB calls.
+//! The server holds an [`r2d2::Pool`] of [`duckdb::Connection`]s. All DB
+//! work runs inside `spawn_blocking`, where a connection is checked out
+//! from the pool for the duration of the call. This lets Axum's concurrent
+//! requests run on independent DuckDB connections instead of serializing
+//! through a single mutex.
 //!
 //! `measurement_id` is a server-internal xxhash64 over `commit_sha` plus
 //! each table's dimensional tuple. Including `commit_sha` makes every
@@ -16,12 +18,12 @@
 
 use std::hash::Hasher as _;
 use std::path::Path;
-use std::sync::Arc;
 
 use anyhow::Context as _;
 use anyhow::Result;
 use duckdb::Connection;
-use tokio::sync::Mutex;
+use duckdb::DuckdbConnectionManager;
+use r2d2::Pool;
 use twox_hash::XxHash64;
 
 use crate::records::CompressionSize;
@@ -31,21 +33,30 @@ use crate::records::RandomAccessTime;
 use crate::records::VectorSearchRun;
 use crate::schema::SCHEMA_DDL;
 
-/// A connection guard the rest of the crate hands around.
-pub type DbHandle = Arc<Mutex<Connection>>;
+/// A pool of DuckDB connections shared across all handlers. Cheap to clone
+/// (internally an `Arc`).
+pub type DbHandle = Pool<DuckdbConnectionManager>;
 
-/// Open the DuckDB file at `path` (creating it if absent) and apply the
-/// schema DDL. Returns a handle ready to be cloned into the Axum state.
+/// Open the DuckDB file at `path` (creating it if absent), apply the schema
+/// DDL once, and return a connection pool ready to be cloned into the Axum
+/// state.
 pub fn open<P: AsRef<Path>>(path: P) -> Result<DbHandle> {
-    let conn = Connection::open(path.as_ref())
+    let manager = DuckdbConnectionManager::file(path.as_ref())
         .with_context(|| format!("opening DuckDB at {}", path.as_ref().display()))?;
+    let pool = Pool::builder()
+        .build(manager)
+        .context("building DuckDB connection pool")?;
+    let conn = pool
+        .get()
+        .context("acquiring DuckDB connection from pool")?;
     conn.execute_batch(SCHEMA_DDL)
         .context("applying schema DDL")?;
-    Ok(Arc::new(Mutex::new(conn)))
+    Ok(pool)
 }
 
-/// Run a synchronous DB operation on the blocking pool, holding the connection
-/// mutex for the duration of the call.
+/// Run a synchronous DB operation on the blocking pool. A connection is
+/// checked out from the r2d2 pool inside `spawn_blocking` (which may block
+/// if the pool is saturated) and released when the closure returns.
 pub async fn run_blocking<F, T>(handle: &DbHandle, f: F) -> Result<T>
 where
     F: FnOnce(&mut Connection) -> Result<T> + Send + 'static,
@@ -53,8 +64,10 @@ where
 {
     let handle = handle.clone();
     tokio::task::spawn_blocking(move || {
-        let mut guard = handle.blocking_lock();
-        f(&mut guard)
+        let mut conn = handle
+            .get()
+            .context("acquiring DuckDB connection from pool")?;
+        f(&mut conn)
     })
     .await
     .context("DB task panicked")?

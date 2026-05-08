@@ -27,8 +27,9 @@ anyhow = { workspace = true }
 axum = "0.8"
 base64 = "0.22"
 # track vortex-duckdb's bundled engine version (build.rs)
-duckdb = { version = "1.10502", features = ["bundled"] }
+duckdb = { version = "1.10502", features = ["bundled", "r2d2"] }
 maud = { version = "0.27", features = ["axum"] }
+r2d2 = "0.8"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 subtle = "2.6"

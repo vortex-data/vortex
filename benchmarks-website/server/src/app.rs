@@ -22,6 +22,7 @@ use anyhow::Result;
 use axum::Router;
 use axum::routing::get;
 use axum::routing::post;
+use tokio::sync::Mutex;
 use tower_http::compression::CompressionLayer;
 
 use crate::api;
@@ -35,8 +36,11 @@ use crate::ingest;
 /// or a small `String`).
 #[derive(Clone)]
 pub struct AppState {
-    /// Mutex-guarded DuckDB connection. See [`crate::db`].
+    /// r2d2 pool of DuckDB connections. See [`crate::db`].
     pub db: DbHandle,
+    /// Serializes `/api/ingest` so concurrent ingests can't race on the same
+    /// rows and trigger a DuckDB write-write conflict. Reads are unaffected.
+    pub ingest_lock: Arc<Mutex<()>>,
     /// Bearer token expected on `/api/ingest`. Compared via constant-time eq.
     pub bearer_token: Arc<String>,
     /// On-disk path of the DuckDB file. Surfaced on `/health`.
@@ -50,6 +54,7 @@ impl AppState {
         let db = db::open(&path)?;
         Ok(Self {
             db,
+            ingest_lock: Arc::new(Mutex::new(())),
             bearer_token: Arc::new(bearer_token),
             db_path: Arc::new(path),
         })

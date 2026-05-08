@@ -77,6 +77,7 @@ pub async fn handle(
         serde_json::from_value(value).map_err(|e| IngestError::Malformed(e.to_string()))?;
     validate_envelope(&envelope)?;
 
+    let _ingest_guard = state.ingest_lock.lock().await;
     let response = db::run_blocking(&state.db, move |conn| apply_envelope(conn, envelope))
         .await
         .map_err(|err| match err.downcast::<IngestError>() {
