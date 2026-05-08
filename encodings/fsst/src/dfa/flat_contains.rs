@@ -30,6 +30,15 @@
 //! `FlatContainsDfaBaseline` preserves the original state-0-only skip for
 //! side-by-side benchmarking.
 //!
+//! ## Byte-class minimization (Variant B)
+//!
+//! `FlatContainsDfaClasses` collapses equivalent code bytes into classes,
+//! shrinking the transition table from `n_states × 256` to `n_states × n_classes`.
+//! Two code bytes are equivalent iff they produce the same successor in **every**
+//! state. The inner loop adds one indirection (`code_to_class[code]`) but the
+//! transition table is typically 5–15× smaller — so for long needles the table
+//! fits in L1 even when the baseline doesn't.
+//!
 //! TODO(joe): for short needles (≤7 bytes), a branchless escape-folded DFA
 //! with hierarchical 4-byte composition is ~2x faster. For needles ≤127 bytes,
 //! an escape-folded flat DFA (2N+1 states) avoids the sentinel branch.
@@ -268,6 +277,147 @@ impl FlatContainsDfa {
         }
         false
     }
+}
+
+// ---------------------------------------------------------------------------
+// Variant B: byte-class minimization
+// ---------------------------------------------------------------------------
+
+/// Flat transition table DFA for contains matching with byte-class minimization.
+///
+/// Collapses code bytes that produce the same successor in every state into
+/// equivalence classes, shrinking the transition table from `n_states * 256` to
+/// `n_states * n_classes`. Inner loop adds a `code_to_class` indirection.
+pub(crate) struct FlatContainsDfaClasses {
+    /// Compact transitions: `class_trans[state * n_classes + class]` -> next state.
+    class_trans: Vec<u8>,
+    /// Escape-byte transition table; uses raw byte alphabet (no class compression).
+    escape_transitions: Vec<u8>,
+    /// `code_to_class[code]` -> class id.
+    code_to_class: [u8; 256],
+    accept_state: u8,
+    sentinel: u8,
+    n_classes: u16,
+    /// State-0 skip strategy on the raw code alphabet (same as baseline).
+    skip: SkipStrategy,
+}
+
+impl FlatContainsDfaClasses {
+    pub(crate) const MAX_NEEDLE_LEN: usize = u8::MAX as usize - 1;
+
+    pub(crate) fn new(
+        symbols: &[Symbol],
+        symbol_lengths: &[u8],
+        needle: &[u8],
+    ) -> VortexResult<Self> {
+        if needle.len() > Self::MAX_NEEDLE_LEN {
+            vortex_bail!(
+                "needle length {} exceeds maximum {} for flat contains DFA",
+                needle.len(),
+                Self::MAX_NEEDLE_LEN
+            );
+        }
+
+        let accept_state = u8::try_from(needle.len())
+            .vortex_expect("FlatContainsDfaClasses: accept state must fit into u8");
+        let n_states = accept_state + 1;
+        let sentinel = n_states;
+
+        let byte_table = kmp_byte_transitions(needle);
+        let sym_trans =
+            build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
+        let transitions = build_fused_table(&sym_trans, symbols.len(), n_states, |_| sentinel, 0);
+
+        let (code_to_class, n_classes, class_trans) = compute_byte_classes(&transitions, n_states);
+
+        let skip = SkipStrategy::from_transition_row(&transitions[0..256], 0);
+
+        Ok(Self {
+            class_trans,
+            escape_transitions: byte_table,
+            code_to_class,
+            accept_state,
+            sentinel,
+            n_classes,
+            skip,
+        })
+    }
+
+    /// Number of equivalence classes (1..=256).
+    pub(crate) fn n_classes(&self) -> u16 {
+        self.n_classes
+    }
+
+    pub(crate) fn matches(&self, codes: &[u8]) -> bool {
+        let mut state = 0u8;
+        let mut pos = 0;
+        let n_classes = usize::from(self.n_classes);
+        while pos < codes.len() {
+            if state == 0 {
+                match self.skip.find_next_progressing(codes, pos) {
+                    Some(next) => pos = next,
+                    None => return false,
+                }
+            }
+
+            let code = codes[pos];
+            pos += 1;
+            let class = self.code_to_class[usize::from(code)];
+            let next = self.class_trans[usize::from(state) * n_classes + usize::from(class)];
+            if next == self.sentinel {
+                if pos >= codes.len() {
+                    return false;
+                }
+                let b = codes[pos];
+                pos += 1;
+                state = self.escape_transitions[usize::from(state) * 256 + usize::from(b)];
+            } else {
+                state = next;
+            }
+            if state == self.accept_state {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// Compute byte equivalence classes from a 256-wide transition table.
+///
+/// Two code bytes are equivalent if for every state they map to the same
+/// successor state. Returns `(code_to_class, n_classes, class_trans)` where
+/// `class_trans` is laid out as `[state * n_classes + class]`.
+fn compute_byte_classes(transitions: &[u8], n_states: u8) -> ([u8; 256], u16, Vec<u8>) {
+    use std::collections::HashMap;
+
+    let n = usize::from(n_states);
+    let mut code_to_class = [0u8; 256];
+    let mut class_columns: Vec<Vec<u8>> = Vec::new();
+    let mut map: HashMap<Vec<u8>, u8> = HashMap::new();
+
+    for code in 0..256usize {
+        let column: Vec<u8> = (0..n).map(|s| transitions[s * 256 + code]).collect();
+        let class_id = if let Some(&existing) = map.get(&column) {
+            existing
+        } else {
+            let id = u8::try_from(class_columns.len())
+                .vortex_expect("byte-class id fits in u8 (at most 256 classes)");
+            map.insert(column.clone(), id);
+            class_columns.push(column);
+            id
+        };
+        code_to_class[code] = class_id;
+    }
+
+    let n_classes = u16::try_from(class_columns.len()).vortex_expect("n_classes ≤ 256");
+    let n_classes_usize = class_columns.len();
+    let mut class_trans = vec![0u8; n * n_classes_usize];
+    for (class_idx, col) in class_columns.iter().enumerate() {
+        for (s, &v) in col.iter().enumerate() {
+            class_trans[s * n_classes_usize + class_idx] = v;
+        }
+    }
+    (code_to_class, n_classes, class_trans)
 }
 
 /// Find the best "anchor" symbol for the memchr prefilter.
