@@ -474,7 +474,12 @@ async fn arrow_uuid_extension_roundtrip() -> anyhow::Result<()> {
         .collect()
         .await?;
 
-    assert!(result[0].schema_ref().field(0).has_valid_extension_type::<Uuid>());
+    assert!(
+        result[0]
+            .schema_ref()
+            .field(0)
+            .has_valid_extension_type::<Uuid>()
+    );
 
     assert_batches_sorted_eq!(
         [
@@ -541,7 +546,10 @@ async fn arrow_uuid_extension_roundtrip_nested_struct() -> anyhow::Result<()> {
 
     let read_payload = result[0].schema_ref().field(0);
     let DataType::Struct(read_inner) = read_payload.data_type() else {
-        panic!("expected Struct payload, got {:?}", read_payload.data_type());
+        panic!(
+            "expected Struct payload, got {:?}",
+            read_payload.data_type()
+        );
     };
     assert!(read_inner[0].has_valid_extension_type::<Uuid>());
 

@@ -83,27 +83,20 @@ pub enum ArrowImport {
 
 /// Plugin layer for exporting a Vortex array to an Arrow extension type.
 ///
-/// Plugins are dispatched purely by [`arrow_ext_id`][Self::arrow_ext_id]: when the caller
-/// asks the session to export to an Arrow [`Field`] whose `ARROW:extension:name` matches,
-/// this plugin's [`execute_arrow`][Self::execute_arrow] is invoked.
-///
-/// [`vortex_ext_id`][Self::vortex_ext_id] is **not** used for dispatch. It is consulted only
-/// by [`ArrowSession::to_arrow_field`] / [`ArrowSession::to_arrow_schema`] so that a Vortex
-/// extension `DType` can be turned into a proper Arrow [`Field`] (with the right
-/// `ARROW:extension:name` metadata) when no target schema is supplied — for example when
-/// DataFusion is asking Vortex to describe a file's schema.
+/// This is purely an implementation trait, its methods should not be called directly. Instead,
+/// use the methods on [`ArrowSession`].
 pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
-    /// The Arrow extension Id this plugin produces.
+    /// The Arrow extension ID this plugin produces.
     fn arrow_ext_id(&self) -> Id;
 
-    /// The Vortex extension Id this plugin maps from. Used only for inference by
+    /// The Vortex extension ID this plugin maps from. Used only for inference by
     /// [`ArrowSession::to_arrow_field`] / [`ArrowSession::to_arrow_schema`]; never as a
     /// dispatch key for [`execute_arrow`][Self::execute_arrow].
     fn vortex_ext_id(&self) -> ExtId;
 
     /// Build the Arrow [`Field`] this plugin produces for the given Vortex extension
     /// `dtype`. Used during schema inference.
-    fn to_arrow_field(&self, name: &str, dtype: &ExtDTypeRef) -> VortexResult<Field>;
+    fn to_arrow_field(&self, name: &str, dtype: &ExtDTypeRef) -> VortexResult<Option<Field>>;
 
     /// Convert a Vortex array into an Arrow array shaped to `target`.
     ///
@@ -119,9 +112,10 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
 
 /// Plugin layer for importing an Arrow extension-typed array into a Vortex extension array.
 ///
-/// Plugins are dispatched by [`arrow_ext_name`][Self::arrow_ext_name]: when the session sees
-/// an Arrow [`Field`] whose `ARROW:extension:name` matches, this plugin's
-/// [`from_arrow_array`][Self::from_arrow_array] is invoked.
+/// Plugins are dispatched by `arrow_ext_id`.
+///
+/// This is purely an implementation trait, its methods should not be called directly. Instead,
+/// use the methods on [`ArrowSession`].
 pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
     /// The Arrow extension name this plugin handles.
     fn arrow_ext_id(&self) -> Id;
@@ -129,7 +123,7 @@ pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
     /// Build the Vortex [`DType`] that corresponds to `field` (which carries this plugin's
     /// Arrow extension metadata).
     #[allow(clippy::wrong_self_convention)]
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<DType>;
+    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>>;
 
     /// Convert an Arrow array into a Vortex extension array of `dtype`.
     ///
@@ -232,17 +226,19 @@ impl ArrowSession {
 
     /// Build the Arrow [`Field`] for a Vortex [`DType`].
     ///
-    /// For [`DType::Extension`]s, the first plugin registered against the extension's
-    /// Vortex Id is consulted to produce a [`Field`] carrying the appropriate Arrow
-    /// extension metadata. Container types ([`DType::List`], [`DType::FixedSizeList`],
-    /// [`DType::Struct`]) recurse through this method so extension metadata on nested
-    /// fields is preserved. Other dtypes use [`Self::to_arrow_data_type`] for the
-    /// physical type.
+    /// For [`DType::Extension`]s, plugins registered against the extension's Vortex Id
+    /// are tried in registration order; the first plugin to return `Some(field)` wins.
+    /// If every registered plugin returns `None` (or none are registered) the field is
+    /// built from [`Self::to_arrow_data_type`]. Container types ([`DType::List`],
+    /// [`DType::FixedSizeList`], [`DType::Struct`]) recurse through this method so
+    /// extension metadata on nested fields is preserved.
     pub fn to_arrow_field(&self, name: &str, dtype: &DType) -> VortexResult<Field> {
-        if let Some(ext) = dtype.as_extension_opt()
-            && let Some(plugin) = self.exporters_by_vortex(&ext.id()).first()
-        {
-            return plugin.to_arrow_field(name, ext);
+        if let Some(ext) = dtype.as_extension_opt() {
+            for plugin in self.exporters_by_vortex(&ext.id()) {
+                if let Some(field) = plugin.to_arrow_field(name, ext)? {
+                    return Ok(field);
+                }
+            }
         }
         Ok(Field::new(
             name,
@@ -261,10 +257,16 @@ impl ArrowSession {
     pub fn to_arrow_data_type(&self, dtype: &DType) -> VortexResult<DataType> {
         Ok(match dtype {
             DType::Extension(ext) => {
-                if let Some(plugin) = self.exporters_by_vortex(&ext.id()).first() {
-                    plugin.to_arrow_field("", ext)?.data_type().clone()
-                } else {
-                    dtype.to_arrow_dtype()?
+                let mut data_type = None;
+                for plugin in self.exporters_by_vortex(&ext.id()) {
+                    if let Some(field) = plugin.to_arrow_field("", ext)? {
+                        data_type = Some(field.data_type().clone());
+                        break;
+                    }
+                }
+                match data_type {
+                    Some(dt) => dt,
+                    None => dtype.to_arrow_dtype()?,
                 }
             }
             DType::List(elem, _) => DataType::List(Arc::new(self.to_arrow_field("item", elem)?)),
@@ -300,16 +302,18 @@ impl ArrowSession {
 
     /// Build the Vortex [`DType`] for an Arrow [`Field`].
     ///
-    /// Routes through the registered import plugin if the field carries an Arrow
-    /// extension name we recognize. Otherwise recurses into container types
-    /// ([`DataType::List`] family, [`DataType::FixedSizeList`], [`DataType::Struct`]) so
-    /// extension metadata on nested element/struct fields is preserved. Leaf types use
-    /// the canonical Arrow → Vortex mapping via [`DType::from_arrow`].
+    /// Plugins registered against the field's Arrow extension name are tried in
+    /// registration order; the first plugin to return `Some(dtype)` wins. If none
+    /// match (or all return `None`), recurses into container types ([`DataType::List`]
+    /// family, [`DataType::FixedSizeList`], [`DataType::Struct`]) so extension metadata
+    /// on nested element/struct fields is preserved. Leaf types use the canonical
+    /// Arrow → Vortex mapping via [`DType::from_arrow`].
     pub fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
         if let Some(name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
-            let importers = self.importers(&Id::new(name));
-            if let Some(plugin) = importers.first() {
-                return plugin.from_arrow_field(field);
+            for plugin in self.importers(&Id::new(name)) {
+                if let Some(dtype) = plugin.from_arrow_field(field)? {
+                    return Ok(dtype);
+                }
             }
         }
         let nullability: Nullability = field.is_nullable().into();

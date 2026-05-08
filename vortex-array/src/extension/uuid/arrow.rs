@@ -22,7 +22,6 @@ use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
 use vortex_session::registry::Id;
 
@@ -64,7 +63,7 @@ impl ArrowExportVTable for Uuid {
         Uuid.id()
     }
 
-    fn to_arrow_field(&self, name: &str, dtype: &ExtDTypeRef) -> VortexResult<Field> {
+    fn to_arrow_field(&self, name: &str, dtype: &ExtDTypeRef) -> VortexResult<Option<Field>> {
         let mut field = Field::new(
             name.to_string(),
             DataType::FixedSizeBinary(UUID_BYTE_LEN),
@@ -73,7 +72,7 @@ impl ArrowExportVTable for Uuid {
         field
             .try_with_extension_type(ArrowUuid)
             .vortex_expect("FixedSizeBinary[16] is correct type for ArrowUuid");
-        Ok(field)
+        Ok(Some(field))
     }
 
     fn execute_arrow(
@@ -99,21 +98,20 @@ impl ArrowImportVTable for Uuid {
         *ARROW_UUID
     }
 
-    fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
-        if !matches!(field.data_type(), DataType::FixedSizeBinary(UUID_BYTE_LEN)) {
-            vortex_bail!(
-                "UUID plugin requires FixedSizeBinary({UUID_BYTE_LEN}), got {}",
-                field.data_type()
-            );
+    fn from_arrow_field(&self, field: &Field) -> VortexResult<Option<DType>> {
+        if !field.has_valid_extension_type::<ArrowUuid>() {
+            return Ok(None);
         }
+
         let storage_dtype = DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
             UUID_BYTE_LEN as u32,
             field.is_nullable().into(),
         );
-        Ok(DType::Extension(
+
+        Ok(Some(DType::Extension(
             ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage_dtype)?.erased(),
-        ))
+        )))
     }
 
     fn from_arrow_array(
