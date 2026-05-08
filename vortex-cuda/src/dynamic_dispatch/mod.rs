@@ -498,6 +498,7 @@ impl MaterializedPlan {
 
 #[cfg(test)]
 mod tests {
+    use std::f32::consts::{E, LN_2, PI, SQRT_2};
     use std::ops::Range;
     use std::sync::Arc;
 
@@ -2750,25 +2751,21 @@ mod tests {
         #[case] len: usize,
         #[case] slice_range: Option<Range<usize>>,
     ) -> VortexResult<()> {
-        let mut values: Vec<f32> = (0..len).map(|i| (i as f32) * 1.1).collect();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut values: Vec<f32> = (0..len).ap(|i| (i as f32) * 1.1).collect();
         // Insert exception values that ALP can't encode.
         values[0] = 99.9;
-        values[500] = std::f32::consts::PI;
-        values[1024] = std::f32::consts::E;
+        values[500] = PI;
+        values[1024] = E;
         if len > 2048 {
-            values[2048] = std::f32::consts::LN_2;
+            values[2048] = LN_2;
         }
         if len > 3333 {
-            values[3333] = std::f32::consts::SQRT_2;
+            values[3333] = SQRT_2;
         }
 
         let float_prim = PrimitiveArray::new(Buffer::from(values), NonNullable);
-        let encoded = alp_encode(
-            float_prim.as_view(),
-            None,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )?
-        .into_array();
+        let encoded = alp_encode(float_prim.as_view(), None, &mut ctx)?.into_array();
 
         let (array, base_offset) = if let Some(range) = &slice_range {
             (encoded.slice(range.clone())?, range.start)
@@ -2777,9 +2774,7 @@ mod tests {
         };
 
         // Decode on CPU as ground truth (accounts for ALP precision loss + patches).
-        let cpu_decoded = array
-            .clone()
-            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        let cpu_decoded = array.clone().execute::<PrimitiveArray>(&mut ctx)?;
         let expected: Vec<f32> = cpu_decoded.as_slice::<f32>().to_vec();
 
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
