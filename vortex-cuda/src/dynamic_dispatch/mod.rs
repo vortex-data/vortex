@@ -2752,7 +2752,7 @@ mod tests {
         #[case] slice_range: Option<Range<usize>>,
     ) -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let mut values: Vec<f32> = (0..len).ap(|i| (i as f32) * 1.1).collect();
+        let mut values: Vec<f32> = (0..len).map(|i| (i as f32) * 1.1).collect();
         // Insert exception values that ALP can't encode.
         values[0] = 99.9;
         values[500] = PI;
