@@ -222,6 +222,7 @@ fn collect_health(conn: &Connection, db_path: String) -> Result<HealthResponse> 
         status: "ok",
         db_path,
         schema_version: crate::schema::SCHEMA_VERSION,
+        build_sha: env!("VORTEX_BENCH_BUILD_SHA"),
         latest_commit_timestamp,
         row_counts,
     })

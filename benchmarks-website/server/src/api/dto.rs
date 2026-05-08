@@ -342,6 +342,12 @@ pub struct HealthResponse {
     pub db_path: String,
     /// Schema version the server was compiled against.
     pub schema_version: i32,
+    /// Git SHA the binary was built from (12-char short form, or
+    /// `"unknown"` outside a git checkout). Compare against
+    /// `/var/lib/vortex-bench/last-deployed-sha` on the host to
+    /// confirm the live process is the one the deploy timer last
+    /// rolled out.
+    pub build_sha: &'static str,
     /// Most recent `commits.timestamp`, or `None` if the table is empty.
     pub latest_commit_timestamp: Option<String>,
     /// Per-fact-table row counts for smoke tests.
