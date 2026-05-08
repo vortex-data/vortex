@@ -15,6 +15,7 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
@@ -40,7 +41,7 @@ pub(crate) struct ArrayInner<D: ?Sized> {
     pub(crate) len: usize,
     pub(crate) encoding_id: ArrayId,
     pub(crate) dtype: DType,
-    pub(crate) slots: Vec<Option<ArrayRef>>,
+    pub(crate) slots: ArraySlots,
     pub(crate) stats: ArrayStats,
     pub(crate) data: D, // must be last for unsized coercion
 }
@@ -51,7 +52,7 @@ pub struct ArrayParts<V: VTable> {
     pub dtype: DType,
     pub len: usize,
     pub data: V::TypedArrayData,
-    pub slots: Vec<Option<ArrayRef>>,
+    pub slots: ArraySlots,
 }
 
 impl<V: VTable> ArrayParts<V> {
@@ -61,12 +62,12 @@ impl<V: VTable> ArrayParts<V> {
             dtype,
             len,
             data,
-            slots: Vec::new(),
+            slots: ArraySlots::new(),
         }
     }
 
-    pub fn with_slots(mut self, slots: Vec<Option<ArrayRef>>) -> Self {
-        self.slots = slots;
+    pub fn with_slots(mut self, slots: impl Into<ArraySlots>) -> Self {
+        self.slots = slots.into();
         self
     }
 }
@@ -125,7 +126,7 @@ impl<V: VTable> ArrayInner<ArrayData<V>> {
         len: usize,
         dtype: DType,
         data: V::TypedArrayData,
-        slots: Vec<Option<ArrayRef>>,
+        slots: ArraySlots,
         stats: ArrayStats,
     ) -> Self {
         ArrayInner {

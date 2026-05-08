@@ -10,12 +10,14 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use futures::stream;
+use smallvec::SmallVec;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -134,10 +136,7 @@ impl ChunkedData {
         chunk_offsets
     }
 
-    pub(super) fn make_slots(
-        chunk_offsets: &[usize],
-        chunks: &[ArrayRef],
-    ) -> Vec<Option<ArrayRef>> {
+    pub(super) fn make_slots(chunk_offsets: &[usize], chunks: &[ArrayRef]) -> ArraySlots {
         let mut chunk_offsets_buf = BufferMut::<u64>::with_capacity(chunk_offsets.len());
         for &offset in chunk_offsets {
             let offset = u64::try_from(offset)
@@ -145,7 +144,7 @@ impl ChunkedData {
             unsafe { chunk_offsets_buf.push_unchecked(offset) }
         }
 
-        let mut slots = Vec::with_capacity(1 + chunks.len());
+        let mut slots = SmallVec::with_capacity(1 + chunks.len());
         slots.push(Some(
             PrimitiveArray::new(chunk_offsets_buf.freeze(), Validity::NonNullable).into_array(),
         ));
@@ -182,7 +181,7 @@ impl Array<Chunked> {
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Chunked, self.dtype().clone(), self.len(), data)
-                    .with_slots(self.slots().to_vec()),
+                    .with_slots(self.slots().iter().cloned().collect::<ArraySlots>()),
             )
         }
         .with_stats_set(stats)

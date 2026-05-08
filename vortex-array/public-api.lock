@@ -2,6 +2,8 @@ pub mod vortex_array
 
 pub use vortex_array::array_slots
 
+pub use vortex_array::smallvec
+
 pub mod vortex_array::accessor
 
 pub trait vortex_array::accessor::ArrayAccessor<Item: ?core::marker::Sized>
@@ -171,6 +173,58 @@ pub fn vortex_array::aggregate_fn::fns::mean::Mean::serialize(&self, &vortex_arr
 pub type vortex_array::aggregate_fn::combined::CombinedOptions<T> = vortex_array::aggregate_fn::combined::PairOptions<<<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Left as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Right as vortex_array::aggregate_fn::AggregateFnVTable>::Options>
 
 pub mod vortex_array::aggregate_fn::fns
+
+pub mod vortex_array::aggregate_fn::fns::all_non_distinct
+
+pub struct vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct
+
+impl core::clone::Clone for vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::clone(&self) -> vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct
+
+pub type vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::Options = vortex_array::aggregate_fn::EmptyOptions
+
+pub type vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::Partial = vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinctPartial
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::empty_partial(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::finalize(&self, vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::finalize_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::is_saturated(&self, &Self::Partial) -> bool
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::partial_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::reset(&self, &mut Self::Partial)
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::return_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub struct vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinctPartial
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct(&vortex_array::ArrayRef, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
 pub mod vortex_array::aggregate_fn::fns::count
 
@@ -728,6 +782,56 @@ pub struct vortex_array::aggregate_fn::fns::sum::SumPartial
 
 pub fn vortex_array::aggregate_fn::fns::sum::sum(&vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
+pub mod vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes
+
+pub struct vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+
+impl core::clone::Clone for vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::clone(&self) -> vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+
+pub type vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::Options = vortex_array::aggregate_fn::EmptyOptions
+
+pub type vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::Partial = u64
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::empty_partial(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::finalize(&self, vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::finalize_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::is_saturated(&self, &Self::Partial) -> bool
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::partial_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::reset(&self, &mut Self::Partial)
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::return_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes(&vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<usize>
+
 pub mod vortex_array::aggregate_fn::kernels
 
 pub trait vortex_array::aggregate_fn::kernels::DynAggregateKernel: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
@@ -975,6 +1079,42 @@ pub fn vortex_array::aggregate_fn::AggregateFnVTable::serialize(&self, &Self::Op
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct
+
+pub type vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::Options = vortex_array::aggregate_fn::EmptyOptions
+
+pub type vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::Partial = vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinctPartial
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::empty_partial(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::finalize(&self, vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::finalize_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::is_saturated(&self, &Self::Partial) -> bool
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::partial_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::reset(&self, &mut Self::Partial)
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::return_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::count::Count
 
@@ -1263,6 +1403,42 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, &Self::Option
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+
+pub type vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::Options = vortex_array::aggregate_fn::EmptyOptions
+
+pub type vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::Partial = u64
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::empty_partial(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::finalize(&self, vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::finalize_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::is_saturated(&self, &Self::Partial) -> bool
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::partial_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::reset(&self, &mut Self::Partial)
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::return_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
 impl<T: vortex_array::aggregate_fn::combined::BinaryCombined> vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::combined::Combined<T>
 
@@ -2360,9 +2536,9 @@ pub const vortex_array::arrays::dict::DictSlots::NAMES: [&'static str; 2]
 
 pub const vortex_array::arrays::dict::DictSlots::VALUES: usize
 
-pub fn vortex_array::arrays::dict::DictSlots::from_slots(alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> Self
+pub fn vortex_array::arrays::dict::DictSlots::from_slots(vortex_array::ArraySlots) -> Self
 
-pub fn vortex_array::arrays::dict::DictSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::dict::DictSlots::into_slots(self) -> vortex_array::ArraySlots
 
 pub struct vortex_array::arrays::dict::DictSlotsView<'a>
 
@@ -3444,9 +3620,9 @@ pub const vortex_array::arrays::masked::MaskedSlots::NAMES: [&'static str; 2]
 
 pub const vortex_array::arrays::masked::MaskedSlots::VALIDITY: usize
 
-pub fn vortex_array::arrays::masked::MaskedSlots::from_slots(alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> Self
+pub fn vortex_array::arrays::masked::MaskedSlots::from_slots(vortex_array::ArraySlots) -> Self
 
-pub fn vortex_array::arrays::masked::MaskedSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::masked::MaskedSlots::into_slots(self) -> vortex_array::ArraySlots
 
 pub trait vortex_array::arrays::masked::MaskedArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::Masked> + vortex_array::arrays::masked::MaskedArraySlotsExt
 
@@ -3708,9 +3884,9 @@ pub const vortex_array::arrays::patched::PatchedSlots::PATCH_INDICES: usize
 
 pub const vortex_array::arrays::patched::PatchedSlots::PATCH_VALUES: usize
 
-pub fn vortex_array::arrays::patched::PatchedSlots::from_slots(alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> Self
+pub fn vortex_array::arrays::patched::PatchedSlots::from_slots(vortex_array::ArraySlots) -> Self
 
-pub fn vortex_array::arrays::patched::PatchedSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>
+pub fn vortex_array::arrays::patched::PatchedSlots::into_slots(self) -> vortex_array::ArraySlots
 
 pub struct vortex_array::arrays::patched::PatchedSlotsView<'a>
 
@@ -13870,7 +14046,7 @@ pub fn vortex_array::patches::PatchesData::offset_within_chunk(&self) -> core::o
 
 pub fn vortex_array::patches::PatchesData::patches_from_slots(core::option::Option<&Self>, usize, &[core::option::Option<vortex_array::ArrayRef>], vortex_array::patches::PatchSlotIndices) -> core::option::Option<vortex_array::patches::Patches>
 
-pub fn vortex_array::patches::PatchesData::push_slots(&mut alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>, core::option::Option<&vortex_array::patches::Patches>)
+pub fn vortex_array::patches::PatchesData::push_slots(&mut vortex_array::ArraySlots, core::option::Option<&vortex_array::patches::Patches>)
 
 impl core::clone::Clone for vortex_array::patches::PatchesData
 
@@ -22500,7 +22676,7 @@ pub vortex_array::ArrayParts::dtype: vortex_array::dtype::DType
 
 pub vortex_array::ArrayParts::len: usize
 
-pub vortex_array::ArrayParts::slots: alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>
+pub vortex_array::ArrayParts::slots: vortex_array::ArraySlots
 
 pub vortex_array::ArrayParts::vtable: V
 
@@ -22508,7 +22684,7 @@ impl<V: vortex_array::VTable> vortex_array::ArrayParts<V>
 
 pub fn vortex_array::ArrayParts<V>::new(V, vortex_array::dtype::DType, usize, <V as vortex_array::VTable>::TypedArrayData) -> Self
 
-pub fn vortex_array::ArrayParts<V>::with_slots(self, alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> Self
+pub fn vortex_array::ArrayParts<V>::with_slots(self, impl core::convert::Into<vortex_array::ArraySlots>) -> Self
 
 pub struct vortex_array::ArrayRef(_)
 
@@ -22614,7 +22790,7 @@ pub fn vortex_array::ArrayRef::validity(&self) -> vortex_error::VortexResult<vor
 
 pub fn vortex_array::ArrayRef::with_slot(self, usize, vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::ArrayRef::with_slots(self, alloc::vec::Vec<core::option::Option<vortex_array::ArrayRef>>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::ArrayRef::with_slots(self, impl core::convert::Into<vortex_array::ArraySlots>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 impl vortex_array::ArrayRef
 
@@ -25725,5 +25901,7 @@ pub type vortex_array::ArrayId = vortex_session::registry::Id
 pub type vortex_array::ArrayPluginRef = alloc::sync::Arc<dyn vortex_array::ArrayPlugin>
 
 pub type vortex_array::ArrayPluginRef = alloc::sync::Arc<dyn vortex_array::ArrayPlugin>
+
+pub type vortex_array::ArraySlots = smallvec::SmallVec<[core::option::Option<vortex_array::ArrayRef>; 4]>
 
 pub type vortex_array::DonePredicate = fn(&vortex_array::ArrayRef) -> bool

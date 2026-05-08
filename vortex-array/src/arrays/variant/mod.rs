@@ -3,6 +3,7 @@
 
 mod vtable;
 
+use smallvec::smallvec;
 use vortex_error::VortexExpect;
 
 pub use self::vtable::Variant;
@@ -34,7 +35,8 @@ impl Array<Variant> {
         let stats = child.statistics().to_owned();
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Variant, dtype, len, EmptyArrayData).with_slots(vec![Some(child)]),
+                ArrayParts::new(Variant, dtype, len, EmptyArrayData)
+                    .with_slots(smallvec![Some(child)]),
             )
         }
         .with_stats_set(stats)

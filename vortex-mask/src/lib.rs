@@ -205,15 +205,17 @@ impl Mask {
         }))
     }
 
-    /// Create a new [`Mask`] from a [`Vec<usize>`].
-    // TODO(ngates): this should take an IntoIterator<usize>.
-    pub fn from_indices(len: usize, indices: Vec<usize>) -> Self {
-        let true_count = indices.len();
+    /// Create a new [`Mask`] from sorted, unique indices.
+    pub fn from_indices(len: usize, indices: impl IntoIterator<Item = usize>) -> Self {
+        let indices = indices.into_iter().collect::<Vec<_>>();
         assert!(indices.is_sorted(), "Mask indices must be sorted");
         assert!(
-            indices.last().is_none_or(|&idx| idx < len),
-            "Mask indices must be in bounds (len={len})"
+            indices.windows(2).all(|w| w[0] != w[1]),
+            "Mask indices must be unique"
         );
+        let buffer = BitBuffer::from_indices(len, indices.iter().copied());
+        debug_assert_eq!(buffer.len(), len);
+        let true_count = buffer.true_count();
 
         if true_count == 0 {
             return Self::AllFalse(len);
@@ -222,13 +224,8 @@ impl Mask {
             return Self::AllTrue(len);
         }
 
-        let mut buf = BitBufferMut::new_unset(len);
-        // TODO(ngates): for dense indices, we can do better by collecting into u64s.
-        indices.iter().for_each(|&idx| buf.set(idx));
-        debug_assert_eq!(buf.len(), len);
-
         Self::Values(Arc::new(MaskValues {
-            buffer: buf.freeze(),
+            buffer,
             indices: OnceLock::from(indices),
             slices: Default::default(),
             true_count,

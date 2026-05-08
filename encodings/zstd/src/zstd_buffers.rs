@@ -15,6 +15,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
@@ -86,7 +87,7 @@ impl ZstdBuffers {
             uncompressed_sizes,
             buffer_alignments,
         };
-        let slots = children.into_iter().map(Some).collect();
+        let slots: ArraySlots = children.into_iter().map(Some).collect();
         let compressed = Array::try_from_parts(
             ArrayParts::new(ZstdBuffers, array.dtype().clone(), array.len(), data)
                 .with_slots(slots),
@@ -425,9 +426,10 @@ impl VTable for ZstdBuffers {
         let metadata = ZstdBuffersMetadata::decode(metadata)?;
         let compressed_buffers: Vec<BufferHandle> = buffers.to_vec();
 
-        let slots: Vec<Option<ArrayRef>> = (0..children.len())
+        let slots: ArraySlots = (0..children.len())
             .map(|i| children.get(i, dtype, len).map(Some))
-            .collect::<VortexResult<Vec<_>>>()?;
+            .collect::<VortexResult<Vec<_>>>()?
+            .into();
 
         let data = ZstdBuffersData {
             inner_encoding_id: array_id_from_string(&metadata.inner_encoding_id),

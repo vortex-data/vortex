@@ -57,7 +57,7 @@ fn range_len(start: isize, stop: isize, step: isize) -> Option<usize> {
             usize::try_from(len).vortex_expect("stop >= start, step > 0, so len is non-negative");
         Some(len)
     } else {
-        assert!(step != 0);
+        assert_ne!(step, 0);
 
         if stop > start {
             return None;

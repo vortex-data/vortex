@@ -4,6 +4,7 @@
 use std::hash::Hasher;
 
 use itertools::Itertools;
+use smallvec::SmallVec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -198,7 +199,7 @@ impl VTable for Chunked {
                     .map_err(|_| vortex_err!("chunk offset {offset} exceeds usize range"))
             })
             .collect::<VortexResult<Vec<_>>>()?;
-        let mut slots = Vec::with_capacity(children.len());
+        let mut slots = SmallVec::with_capacity(children.len());
         slots.push(Some(chunk_offsets));
         for (idx, (start, end)) in chunk_offsets_usize
             .iter()

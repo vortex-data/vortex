@@ -13,6 +13,7 @@ use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::ExecutionResult;
 use crate::IntoArray;
 use crate::array::ArrayId;
@@ -145,7 +146,7 @@ impl VTable for ForeignArray {
             len,
             ForeignArrayData::new(metadata.to_vec(), buffers.to_vec()),
         )
-        .with_slots(child_arrays.into_iter().map(Some).collect()))
+        .with_slots(child_arrays.into_iter().map(Some).collect::<ArraySlots>()))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
@@ -175,7 +176,7 @@ pub fn new_foreign_array(
             len,
             ForeignArrayData::new(metadata, buffers),
         )
-        .with_slots(children.into_iter().map(Some).collect()),
+        .with_slots(children.into_iter().map(Some).collect::<ArraySlots>()),
     )?
     .into_array())
 }

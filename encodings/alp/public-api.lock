@@ -314,9 +314,9 @@ pub const vortex_alp::ALPSlots::PATCH_INDICES: usize
 
 pub const vortex_alp::ALPSlots::PATCH_VALUES: usize
 
-pub fn vortex_alp::ALPSlots::from_slots(alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> Self
+pub fn vortex_alp::ALPSlots::from_slots(vortex_array::array::ArraySlots) -> Self
 
-pub fn vortex_alp::ALPSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_alp::ALPSlots::into_slots(self) -> vortex_array::array::ArraySlots
 
 pub struct vortex_alp::ALPSlotsView<'a>
 

@@ -165,11 +165,21 @@ impl BitBufferMut {
     }
 
     /// Create a bit buffer of `len` with `indices` set as true.
-    pub fn from_indices(len: usize, indices: &[usize]) -> BitBufferMut {
-        let mut buf = BitBufferMut::new_unset(len);
-        // TODO(ngates): for dense indices, we can do better by collecting into u64s.
-        indices.iter().for_each(|&idx| buf.set(idx));
-        buf
+    pub fn from_indices(len: usize, indices: impl IntoIterator<Item = usize>) -> BitBufferMut {
+        let mut buffer = BufferMut::<u64>::zeroed(len.div_ceil(64));
+        for idx in indices {
+            assert!(idx < len, "index {idx} exceeds len {len}");
+            buffer.as_mut_slice()[idx / 64] |= 1 << (idx % 64);
+        }
+
+        let mut buffer = buffer.into_byte_buffer();
+        buffer.truncate(len.div_ceil(8));
+
+        Self {
+            buffer,
+            offset: 0,
+            len,
+        }
     }
 
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new `BitBufferMut`

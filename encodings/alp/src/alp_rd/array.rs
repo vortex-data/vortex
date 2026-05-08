@@ -15,6 +15,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -37,6 +38,7 @@ use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
 use vortex_array::require_patches;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -457,8 +459,8 @@ impl ALPRDData {
         left_parts: &ArrayRef,
         right_parts: &ArrayRef,
         patches: Option<&Patches>,
-    ) -> Vec<Option<ArrayRef>> {
-        let mut slots = vec![Some(left_parts.clone()), Some(right_parts.clone())];
+    ) -> ArraySlots {
+        let mut slots: ArraySlots = smallvec![Some(left_parts.clone()), Some(right_parts.clone())];
         PatchesData::push_slots(&mut slots, patches);
         slots
     }

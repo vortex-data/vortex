@@ -274,9 +274,9 @@ pub const vortex_fastlanes::BitPackedSlots::PATCH_VALUES: usize
 
 pub const vortex_fastlanes::BitPackedSlots::VALIDITY_CHILD: usize
 
-pub fn vortex_fastlanes::BitPackedSlots::from_slots(alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> Self
+pub fn vortex_fastlanes::BitPackedSlots::from_slots(vortex_array::array::ArraySlots) -> Self
 
-pub fn vortex_fastlanes::BitPackedSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_fastlanes::BitPackedSlots::into_slots(self) -> vortex_array::array::ArraySlots
 
 pub struct vortex_fastlanes::Delta
 

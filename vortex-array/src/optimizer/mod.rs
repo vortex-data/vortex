@@ -15,6 +15,7 @@
 //! - [`ArrayOptimizer::optimize_recursive`] applies the session-aware optimizer to the root and
 //!   every descendant.
 
+use smallvec::SmallVec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::SessionExt;
@@ -136,7 +137,7 @@ fn try_optimize_recursive(
         any_optimizations = true;
     }
 
-    let mut new_slots = Vec::with_capacity(current_array.slots().len());
+    let mut new_slots = SmallVec::with_capacity(current_array.slots().len());
     let mut any_slot_optimized = false;
     for slot in current_array.slots() {
         match slot {

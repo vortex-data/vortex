@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use std::mem::size_of;
 use std::sync::Arc;
 
+use smallvec::smallvec;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
@@ -16,7 +17,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
-use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -124,8 +125,8 @@ impl VarBinViewData {
     }
 
     /// Build the slots vector for this array.
-    pub(super) fn make_slots(validity: &Validity, len: usize) -> Vec<Option<ArrayRef>> {
-        vec![validity_to_child(validity, len)]
+    pub(super) fn make_slots(validity: &Validity, len: usize) -> ArraySlots {
+        smallvec![validity_to_child(validity, len)]
     }
 
     /// Creates a new `VarBinViewArray`.
@@ -551,11 +552,7 @@ impl<T: TypedArrayRef<VarBinView>> VarBinViewArrayExt for T {}
 
 impl Array<VarBinView> {
     #[inline]
-    fn from_prevalidated_data(
-        dtype: DType,
-        data: VarBinViewData,
-        slots: Vec<Option<ArrayRef>>,
-    ) -> Self {
+    fn from_prevalidated_data(dtype: DType, data: VarBinViewData, slots: ArraySlots) -> Self {
         let len = data.len();
         unsafe {
             Array::from_parts_unchecked(

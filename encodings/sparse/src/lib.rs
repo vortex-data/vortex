@@ -16,6 +16,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
@@ -426,8 +427,8 @@ impl SparseData {
         Ok(())
     }
 
-    fn make_slots(patches: &Patches) -> Vec<Option<ArrayRef>> {
-        let mut slots = Vec::with_capacity(SparseSlots::COUNT);
+    fn make_slots(patches: &Patches) -> ArraySlots {
+        let mut slots = ArraySlots::with_capacity(SparseSlots::COUNT);
         PatchesData::push_slots(&mut slots, Some(patches));
         slots
     }

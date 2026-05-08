@@ -258,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "apply() has a bug with null propagation from struct validity to non-nullable child fields"]
+    #[should_panic = "Cannot create null scalar with non-nullable dtype i32"]
     fn get_nullable_field() {
         let st = StructArray::try_new(
             FieldNames::from(["a"]),

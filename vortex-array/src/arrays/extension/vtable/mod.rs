@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use kernel::PARENT_KERNELS;
+use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -163,7 +164,7 @@ impl VTable for Extension {
         let storage = children.get(0, ext_dtype.storage_dtype(), len)?;
         Ok(
             ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
-                .with_slots(vec![Some(storage)]),
+                .with_slots(smallvec![Some(storage)]),
         )
     }
 

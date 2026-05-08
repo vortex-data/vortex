@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use smallvec::smallvec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -86,7 +87,7 @@ impl Array<Masked> {
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(Masked, dtype, len, data)
-                    .with_slots(vec![Some(child), validity_slot]),
+                    .with_slots(smallvec![Some(child), validity_slot]),
             )
         })
     }

@@ -368,7 +368,6 @@ mod tests {
         Ok(())
     }
 
-    #[ignore = "TODO(connor)[4809]: Exporters do not correctly handle empty vectors"]
     #[test]
     fn test_export_empty_dict() -> VortexResult<()> {
         let arr = DictArray::new(
@@ -389,7 +388,7 @@ mod tests {
         assert_eq!(
             format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
-- FLAT INTEGER: 0 = [ ]
+- DICTIONARY INTEGER: 0 = [ ]
 "#
         );
 

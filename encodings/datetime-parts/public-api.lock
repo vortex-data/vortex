@@ -180,9 +180,9 @@ pub const vortex_datetime_parts::DateTimePartsSlots::SECONDS: usize
 
 pub const vortex_datetime_parts::DateTimePartsSlots::SUBSECONDS: usize
 
-pub fn vortex_datetime_parts::DateTimePartsSlots::from_slots(alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> Self
+pub fn vortex_datetime_parts::DateTimePartsSlots::from_slots(vortex_array::array::ArraySlots) -> Self
 
-pub fn vortex_datetime_parts::DateTimePartsSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>
+pub fn vortex_datetime_parts::DateTimePartsSlots::into_slots(self) -> vortex_array::array::ArraySlots
 
 pub struct vortex_datetime_parts::DateTimePartsSlotsView<'a>
 

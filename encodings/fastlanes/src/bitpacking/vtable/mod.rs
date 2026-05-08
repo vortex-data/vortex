@@ -11,6 +11,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
@@ -208,7 +209,7 @@ impl VTable for BitPacked {
             .transpose()?;
 
         let slots = {
-            let mut s = Vec::with_capacity(4);
+            let mut s = ArraySlots::with_capacity(4);
             PatchesData::push_slots(&mut s, patches.as_ref());
             s.push(validity_to_child(&validity, len));
             s
@@ -300,7 +301,7 @@ impl BitPacked {
     ) -> VortexResult<BitPackedArray> {
         let dtype = DType::Primitive(ptype, validity.nullability());
         let slots = {
-            let mut s = Vec::with_capacity(4);
+            let mut s = ArraySlots::with_capacity(4);
             PatchesData::push_slots(&mut s, patches.as_ref());
             s.push(validity_to_child(&validity, len));
             s

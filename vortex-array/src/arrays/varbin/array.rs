@@ -5,6 +5,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use num_traits::AsPrimitive;
+use smallvec::smallvec;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -12,6 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
@@ -81,12 +83,8 @@ impl VarBinData {
         Self::try_build_from_handle(offset, bytes, dtype, validity).vortex_expect("VarBinArray new")
     }
 
-    pub(crate) fn make_slots(
-        offsets: ArrayRef,
-        validity: &Validity,
-        len: usize,
-    ) -> Vec<Option<ArrayRef>> {
-        vec![Some(offsets), validity_to_child(validity, len)]
+    pub(crate) fn make_slots(offsets: ArrayRef, validity: &Validity, len: usize) -> ArraySlots {
+        smallvec![Some(offsets), validity_to_child(validity, len)]
     }
 
     /// Constructs a new `VarBinArray`.

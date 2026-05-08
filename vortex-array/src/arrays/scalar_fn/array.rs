@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -96,7 +97,7 @@ impl Array<ScalarFn> {
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(vtable, dtype, len, data)
-                    .with_slots(children.into_iter().map(Some).collect()),
+                    .with_slots(children.into_iter().map(Some).collect::<ArraySlots>()),
             )
         })
     }

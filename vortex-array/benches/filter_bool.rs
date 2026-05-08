@@ -110,7 +110,7 @@ fn make_dense_runs(len: usize, false_rate: f64, rng: &mut StdRng) -> Mask {
 fn make_single_slice(len: usize, density: f64) -> Mask {
     let true_count = (len as f64 * density) as usize;
     let start = (len - true_count) / 2;
-    Mask::from_indices(len, (start..start + true_count).collect())
+    Mask::from_indices(len, start..start + true_count)
 }
 
 // --- Source array generators ---

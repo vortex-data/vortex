@@ -5,11 +5,13 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
+use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -107,12 +109,8 @@ pub struct FixedSizeListDataParts {
 }
 
 impl FixedSizeListData {
-    pub(crate) fn make_slots(
-        elements: &ArrayRef,
-        validity: &Validity,
-        len: usize,
-    ) -> Vec<Option<ArrayRef>> {
-        vec![Some(elements.clone()), validity_to_child(validity, len)]
+    pub(crate) fn make_slots(elements: &ArrayRef, validity: &Validity, len: usize) -> ArraySlots {
+        smallvec![Some(elements.clone()), validity_to_child(validity, len)]
     }
 
     /// Creates a new `FixedSizeListArray`.

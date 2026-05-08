@@ -4,6 +4,7 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
@@ -95,7 +96,7 @@ impl Array<Filter> {
         let data = FilterData::new(mask);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Filter, dtype, len, data).with_slots(vec![Some(array)]),
+                ArrayParts::new(Filter, dtype, len, data).with_slots(smallvec![Some(array)]),
             )
         }
     }
@@ -107,7 +108,7 @@ impl Array<Filter> {
         let data = FilterData::try_new(array.len(), mask)?;
         Ok(unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Filter, dtype, len, data).with_slots(vec![Some(array)]),
+                ArrayParts::new(Filter, dtype, len, data).with_slots(smallvec![Some(array)]),
             )
         })
     }
