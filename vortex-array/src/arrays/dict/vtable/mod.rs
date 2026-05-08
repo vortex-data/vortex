@@ -292,6 +292,8 @@ fn sparse_canonicalize_dict(
         .map(Some)
 }
 
+#[cold]
+#[inline(never)]
 fn collect_sparse_codes(
     codes: &PrimitiveArray,
     values_len: usize,
@@ -320,6 +322,8 @@ fn collect_sparse_codes(
     Ok(Some(sparse_codes))
 }
 
+#[cold]
+#[inline(never)]
 fn should_collect_sparse_codes(
     codes: &PrimitiveArray,
     values_len: usize,
@@ -377,6 +381,8 @@ fn should_sample_sparse_canonicalize(codes_len: usize, values_len: usize) -> boo
             < values_len
 }
 
+#[cold]
+#[inline(never)]
 fn collect_sparse_codes_typed<P: IntegerPType + FromPrimitive>(
     codes: &PrimitiveArray,
     referenced_values: BitBuffer,
