@@ -528,6 +528,10 @@ pub fn vortex_tensor::vector::AnyVector::try_match<'a>(&'a vortex_array::dtype::
 
 pub struct vortex_tensor::vector::Vector
 
+impl vortex_tensor::vector::Vector
+
+pub fn vortex_tensor::vector::Vector::try_new_vector_array(vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
 impl core::clone::Clone for vortex_tensor::vector::Vector
 
 pub fn vortex_tensor::vector::Vector::clone(&self) -> vortex_tensor::vector::Vector

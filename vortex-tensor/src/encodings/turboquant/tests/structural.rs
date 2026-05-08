@@ -259,8 +259,8 @@ fn sorf_transform_roundtrip_isolation() -> VortexResult<()> {
     }
 
     // Forward transform + quantize (mimicking what turboquant_quantize_core does).
-    let rotation = SorfMatrix::try_new(seed, dim, num_rounds as usize)?;
-    let padded_dim = rotation.padded_dim();
+    let padded_dim = dim.next_power_of_two();
+    let rotation = SorfMatrix::try_new_padded(padded_dim, num_rounds as usize, seed)?;
     let centroids = compute_or_get_centroids(padded_dim as u32, 8)?;
     let boundaries = compute_centroid_boundaries(&centroids);
 

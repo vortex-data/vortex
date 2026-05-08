@@ -164,7 +164,8 @@ impl ScalarFnVTable for SorfTransform {
         let f32_elements = elements_prim.into_buffer::<f32>();
 
         // Reconstruct the orthogonal transform matrix from the seed.
-        let rotation = SorfMatrix::try_new(options.seed, dim, options.num_rounds as usize)?;
+        let rotation =
+            SorfMatrix::try_new_padded(padded_dim, options.num_rounds as usize, options.seed)?;
 
         // Inverse transform each row, truncate to original dimension, cast to target type.
         match_each_float_ptype!(options.element_ptype, |T| {

@@ -366,7 +366,7 @@ impl InnerProduct {
         let mut padded_query = vec![0.0f32; padded_dim];
         padded_query[..dim].copy_from_slice(flat.as_slice::<f32>());
 
-        let rotation = SorfMatrix::try_new(seed, dim, num_rounds)?;
+        let rotation = SorfMatrix::try_new_padded(padded_dim, num_rounds, seed)?;
         let mut rotated_query = vec![0.0f32; padded_dim];
         rotation.rotate(&padded_query, &mut rotated_query);
 
@@ -930,7 +930,7 @@ mod tests {
             seed: u64,
             num_rounds: u8,
         ) -> VortexResult<Vec<f32>> {
-            let rotation = SorfMatrix::try_new(seed, dim, num_rounds as usize)?;
+            let rotation = SorfMatrix::try_new_padded(padded_dim, num_rounds as usize, seed)?;
             let mut padded = vec![0.0f32; padded_dim];
             let mut rotated = vec![0.0f32; padded_dim];
             let mut out = Vec::with_capacity(num_rows * dim);

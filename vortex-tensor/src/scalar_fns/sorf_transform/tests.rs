@@ -65,8 +65,8 @@ fn forward_rotate_and_quantize(
         }
     }
 
-    let rotation = SorfMatrix::try_new(seed, dim, num_rounds)?;
-    let padded_dim = rotation.padded_dim();
+    let padded_dim = dim.next_power_of_two();
+    let rotation = SorfMatrix::try_new_padded(padded_dim, num_rounds, seed)?;
     let centroids = compute_or_get_centroids(padded_dim as u32, bit_width)?;
     let boundaries = compute_centroid_boundaries(&centroids);
 

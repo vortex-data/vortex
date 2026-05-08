@@ -205,8 +205,8 @@ fn turboquant_quantize_core(
     let dimension = fsl.list_size() as usize;
     let num_rows = fsl.len();
 
-    let rotation = SorfMatrix::try_new(seed, dimension, num_rounds as usize)?;
-    let padded_dim = rotation.padded_dim();
+    let padded_dim = dimension.next_power_of_two();
+    let rotation = SorfMatrix::try_new_padded(padded_dim, num_rounds as usize, seed)?;
     let padded_dim_u32 =
         u32::try_from(padded_dim).vortex_expect("padded_dim stays representable as u32");
 
