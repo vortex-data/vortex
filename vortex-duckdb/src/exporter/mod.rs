@@ -7,7 +7,6 @@ mod cache;
 mod constant;
 mod decimal;
 mod dict;
-mod dict_cardinality;
 mod fixed_size_list;
 mod list;
 mod list_view;

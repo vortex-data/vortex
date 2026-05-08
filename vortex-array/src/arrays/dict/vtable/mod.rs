@@ -49,7 +49,6 @@ use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
-mod cardinality;
 mod kernel;
 mod operations;
 mod sparse;

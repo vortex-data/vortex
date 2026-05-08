@@ -9,8 +9,8 @@ use vortex_mask::Mask;
 
 use super::super::array::DictSlots;
 use super::super::array::compute_referenced_values_mask_from_codes;
+use super::super::cardinality;
 use super::DictArray;
-use super::cardinality;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::Primitive;
@@ -148,11 +148,12 @@ fn should_collect_sparse_codes(
 
     // Otherwise sample first. This catches cases like many live rows all referencing the same
     // dictionary value without forcing dense dictionaries through the exact remap scan.
-    if !cardinality::has_repeated_code_sample(codes, validity_mask) {
+    if !cardinality::has_repeated_code_sample::<u64>(codes, validity_mask) {
         return false;
     }
 
-    let Some(estimated_unique_codes) = cardinality::estimate_code_cardinality(codes, validity_mask)
+    let Some(estimated_unique_codes) =
+        cardinality::estimate_code_cardinality::<u64>(codes, validity_mask)
     else {
         return false;
     };

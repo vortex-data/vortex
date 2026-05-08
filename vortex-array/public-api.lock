@@ -2268,6 +2268,12 @@ pub type vortex_array::arrays::decimal::DecimalArray = vortex_array::Array<vorte
 
 pub mod vortex_array::arrays::dict
 
+pub mod vortex_array::arrays::dict::cardinality
+
+pub fn vortex_array::arrays::dict::cardinality::estimate_code_cardinality<I: vortex_array::dtype::IntegerPType>(&vortex_array::arrays::PrimitiveArray, &vortex_mask::Mask) -> core::option::Option<usize>
+
+pub fn vortex_array::arrays::dict::cardinality::has_repeated_code_sample<I: vortex_array::dtype::IntegerPType>(&vortex_array::arrays::PrimitiveArray, &vortex_mask::Mask) -> bool
+
 pub mod vortex_array::arrays::dict::vtable
 
 pub struct vortex_array::arrays::dict::vtable::Dict

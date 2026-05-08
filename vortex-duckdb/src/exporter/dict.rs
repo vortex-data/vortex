@@ -13,6 +13,7 @@ use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::dict::DictArrayExt;
 use vortex::array::arrays::dict::DictArraySlotsExt;
+use vortex::array::arrays::dict::cardinality::estimate_code_cardinality;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
@@ -25,7 +26,6 @@ use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::constant;
-use crate::exporter::dict_cardinality::estimate_code_cardinality;
 use crate::exporter::new_array_exporter;
 
 struct DictExporter<I: IntegerPType> {

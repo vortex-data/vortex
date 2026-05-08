@@ -3,13 +3,16 @@
 
 //! Sampling-based cardinality estimation for dictionary codes.
 //!
-//! This module is used only as a cheap gate before the exact sparse-dictionary remap pass. The
-//! estimate may be conservative or noisy, but correctness does not depend on it: callers must still
-//! collect the exact unique code set and re-check the sparse threshold before compacting.
+//! This module is used only as a cheap gate before the exact sparse-dictionary remap pass and as a
+//! routing hint for downstream exporters. The estimate may be conservative or noisy, but
+//! correctness does not depend on it: callers must still collect the exact unique code set and
+//! re-check the sparse threshold before compacting.
 
 use vortex_mask::Mask;
 
 use crate::arrays::PrimitiveArray;
+use crate::dtype::IntegerPType;
+
 const SAMPLE_SIZE: usize = 128;
 const REPEATED_CODE_PROBE_SIZE: usize = 16;
 
@@ -19,7 +22,10 @@ const REPEATED_CODE_PROBE_SIZE: usize = 16;
 /// next, cheaper filter for cases that are not sparse by row count alone: dense dictionaries should
 /// not pay the full estimator cost unless the code stream first shows evidence of repeated codes.
 /// A `true` result only means "run the estimator"; it is not enough to compact by itself.
-pub(super) fn has_repeated_code_sample(codes: &PrimitiveArray, validity_mask: &Mask) -> bool {
+pub fn has_repeated_code_sample<I: IntegerPType>(
+    codes: &PrimitiveArray,
+    validity_mask: &Mask,
+) -> bool {
     let sample_count = codes.len().min(REPEATED_CODE_PROBE_SIZE);
     let mut observed_codes = Vec::<usize>::with_capacity(sample_count);
 
@@ -29,7 +35,7 @@ pub(super) fn has_repeated_code_sample(codes: &PrimitiveArray, validity_mask: &M
             continue;
         }
 
-        let code = code_at(codes, idx);
+        let code: usize = codes.as_slice::<I>()[idx].as_();
         if observed_codes.contains(&code) {
             return true;
         }
@@ -44,7 +50,7 @@ pub(super) fn has_repeated_code_sample(codes: &PrimitiveArray, validity_mask: &M
 /// The estimator samples deterministic bucket midpoints so repeated executions make the same
 /// compaction decision for the same input. Returning `None` means no valid sampled codes were seen.
 /// A returned value should only be used to decide whether an exact pass is worth attempting.
-pub(super) fn estimate_code_cardinality(
+pub fn estimate_code_cardinality<I: IntegerPType>(
     codes: &PrimitiveArray,
     validity_mask: &Mask,
 ) -> Option<usize> {
@@ -59,7 +65,7 @@ pub(super) fn estimate_code_cardinality(
             continue;
         }
 
-        let code = code_at(codes, idx);
+        let code: usize = codes.as_slice::<I>()[idx].as_();
         if let Some((_, count)) = observed_codes
             .iter_mut()
             .find(|(observed, _)| *observed == code)
@@ -121,10 +127,6 @@ fn sample_index(sample_idx: usize, len: usize, sample_count: usize) -> usize {
     let bucket_end = (sample_idx + 1) * len / sample_count;
 
     ((bucket_start + bucket_end) / 2).min(len - 1) as usize
-}
-
-fn code_at(codes: &PrimitiveArray, idx: usize) -> usize {
-    usize::try_from(codes.as_slice::<u64>()[idx]).unwrap_or(usize::MAX)
 }
 
 fn div_ceil(numerator: usize, denominator: usize) -> usize {
