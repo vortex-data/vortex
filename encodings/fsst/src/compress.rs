@@ -86,7 +86,8 @@ fn upper_bound_fits_i32(total_uncompressed: usize, len: usize) -> bool {
 ///
 /// `total_uncompressed` is the total byte length of all strings in the input;
 /// callers typically have it cheaply available (e.g. `VarBinArray::bytes().len()`).
-/// It selects the narrowest codes-offsets type per [`upper_bound_fits_i32`].
+/// It selects the narrowest codes-offsets type that the FSST upper bound
+/// (`2 * total_uncompressed + 7 * len`) is guaranteed to fit into.
 pub fn fsst_compress_iter<'a, I>(
     iter: I,
     len: usize,
