@@ -29,6 +29,7 @@ base64 = "0.22"
 # track vortex-duckdb's bundled engine version (build.rs)
 duckdb = { version = "1.10502", features = ["bundled"] }
 maud = { version = "0.27", features = ["axum"] }
+parking_lot = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 subtle = "2.6"

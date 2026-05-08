@@ -35,7 +35,7 @@
 //! |---------------|---------------------------------------------------------------------------------------------|
 //! | [`app`]       | [`app::AppState`] (DB handle + bearer + path) and the Axum router composition.              |
 //! | [`auth`]      | Bearer-token middleware for `/api/ingest`.                                                  |
-//! | [`db`]        | [`db::DbHandle`] connection wrapper + the per-fact-table `measurement_id_*` hash functions. |
+//! | [`db`]        | [`db::DbHandle`] task-local connection cloning + the per-fact-table `measurement_id_*` hash functions. |
 //! | [`schema`]    | DuckDB DDL ([`schema::SCHEMA_DDL`]) and the wire schema version.                            |
 //! | [`records`]   | Wire shapes for `POST /api/ingest`.                                                         |
 //! | [`ingest`]    | `POST /api/ingest` handler — envelope validation, transaction, upsert dispatch.             |
@@ -51,8 +51,8 @@
 //!    routes skip auth.
 //! 3. The handler parses body / path / query into typed inputs (e.g.
 //!    [`slug::ChartKey::from_slug`]).
-//! 4. The handler hands a closure to [`db::run_blocking`], which acquires
-//!    the connection mutex and runs the synchronous DuckDB call on
+//! 4. The handler hands a closure to [`db::run_blocking`], which clones a
+//!    task-local DuckDB connection and runs the synchronous call on
 //!    `tokio::task::spawn_blocking` so the runtime stays free.
 //! 5. The closure returns `Result<T, anyhow::Error>`. Errors are mapped
 //!    into [`error::IngestError`] / [`error::ApiError`] with the right

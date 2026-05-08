@@ -35,7 +35,7 @@ use crate::ingest;
 /// or a small `String`).
 #[derive(Clone)]
 pub struct AppState {
-    /// Mutex-guarded DuckDB connection. See [`crate::db`].
+    /// Shared DuckDB handle. See [`crate::db`].
     pub db: DbHandle,
     /// Bearer token expected on `/api/ingest`. Compared via constant-time eq.
     pub bearer_token: Arc<String>,
