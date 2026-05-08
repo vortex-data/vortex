@@ -16,7 +16,7 @@ on:
         description: "Maximum fuzzing time in seconds"
         required: false
         type: number
-        default: 2700
+        default: 18000
       runner:
         description: "Runner name from .github-private runs-on.yml (e.g., arm64-medium, gpu)"
         required: false
@@ -61,7 +61,7 @@ jobs:
     name: "Run ${{ inputs.fuzz_name || inputs.fuzz_target }}"
     env:
       FUZZ_NAME: ${{ inputs.fuzz_name || inputs.fuzz_target }}
-    timeout-minutes: 240  # 4 hours
+    timeout-minutes: 370  # 6 hours 10 minutes
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner={1}/disk=large/tag={2}-fuzz', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
