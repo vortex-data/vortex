@@ -183,3 +183,16 @@ CREATE TABLE IF NOT EXISTS vector_search_runs (
 /// Schema version expected by the server. The ingest envelope's
 /// `run_meta.schema_version` must match this exactly at alpha.
 pub const SCHEMA_VERSION: i32 = 1;
+
+/// Every table in the schema, in the order a fresh boot creates them.
+/// Used by the snapshot endpoint to drive a per-table `COPY ... TO`
+/// across the whole DB and by the restore docs to document the same
+/// list. `commits` is the dim table; the rest are facts.
+pub const TABLES: &[&str] = &[
+    "commits",
+    "query_measurements",
+    "compression_times",
+    "compression_sizes",
+    "random_access_times",
+    "vector_search_runs",
+];
