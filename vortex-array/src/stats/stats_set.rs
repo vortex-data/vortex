@@ -3,9 +3,10 @@
 
 use std::fmt::Debug;
 
-use enum_iterator::Sequence;
 use enum_iterator::all;
 use num_traits::CheckedAdd;
+use smallvec::SmallVec;
+use smallvec::smallvec;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -31,9 +32,12 @@ use crate::expr::stats::UncompressedSizeInBytes;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
+/// Type of the SmallVec stored inside StatsSet
+pub type StatsArray = [(Stat, Precision<ScalarValue>); 4];
+
 #[derive(Default, Debug, Clone)]
 pub struct StatsSet {
-    values: Vec<(Stat, Precision<ScalarValue>)>,
+    values: SmallVec<StatsArray>,
 }
 
 impl StatsSet {
@@ -42,20 +46,14 @@ impl StatsSet {
     /// # Safety
     ///
     /// This method will not panic or trigger UB, but may lead to duplicate stats being stored.
-    pub unsafe fn new_unchecked(values: Vec<(Stat, Precision<ScalarValue>)>) -> Self {
+    pub unsafe fn new_unchecked(values: SmallVec<StatsArray>) -> Self {
         Self { values }
     }
 
     /// Create StatsSet from single stat and value
     pub fn of(stat: Stat, value: Precision<ScalarValue>) -> Self {
-        // SAFETY: No duplicate stats will be set here.
-        unsafe { Self::new_unchecked(vec![(stat, value)]) }
-    }
-
-    fn reserve_full_capacity(&mut self) {
-        if self.values.capacity() < Stat::CARDINALITY {
-            self.values
-                .reserve_exact(Stat::CARDINALITY - self.values.capacity());
+        Self {
+            values: smallvec![(stat, value)],
         }
     }
 
@@ -80,8 +78,6 @@ impl StatsSet {
 impl StatsSet {
     /// Set the stat `stat` to `value`.
     pub fn set(&mut self, stat: Stat, value: Precision<ScalarValue>) {
-        self.reserve_full_capacity();
-
         if let Some(existing) = self.values.iter_mut().find(|(s, _)| *s == stat) {
             *existing = (stat, value);
         } else {
@@ -154,7 +150,7 @@ impl StatsSet {
 /// Owned iterator over the stats.
 ///
 /// See [IntoIterator].
-pub struct StatsSetIntoIter(std::vec::IntoIter<(Stat, Precision<ScalarValue>)>);
+pub struct StatsSetIntoIter(smallvec::IntoIter<StatsArray>);
 
 impl Iterator for StatsSetIntoIter {
     type Item = (Stat, Precision<ScalarValue>);
@@ -176,10 +172,10 @@ impl IntoIterator for StatsSet {
 impl FromIterator<(Stat, Precision<ScalarValue>)> for StatsSet {
     fn from_iter<T: IntoIterator<Item = (Stat, Precision<ScalarValue>)>>(iter: T) -> Self {
         let iter = iter.into_iter();
-        let mut values = Vec::default();
-        values.reserve_exact(Stat::CARDINALITY);
 
-        let mut this = Self { values };
+        let mut this = Self {
+            values: SmallVec::new(),
+        };
         this.extend(iter);
         this
     }
@@ -188,10 +184,8 @@ impl FromIterator<(Stat, Precision<ScalarValue>)> for StatsSet {
 impl Extend<(Stat, Precision<ScalarValue>)> for StatsSet {
     #[inline]
     fn extend<T: IntoIterator<Item = (Stat, Precision<ScalarValue>)>>(&mut self, iter: T) {
-        let iter = iter.into_iter();
-        self.reserve_full_capacity();
-
-        iter.for_each(|(stat, value)| self.set(stat, value));
+        iter.into_iter()
+            .for_each(|(stat, value)| self.set(stat, value));
     }
 }
 
@@ -574,6 +568,7 @@ impl MutTypedStatsSetRef<'_, '_> {
 mod test {
     use enum_iterator::all;
     use itertools::Itertools;
+    use smallvec::smallvec;
 
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -593,7 +588,7 @@ mod test {
     fn test_iter() {
         // SAFETY: No duplicate stats.
         let set = unsafe {
-            StatsSet::new_unchecked(vec![
+            StatsSet::new_unchecked(smallvec![
                 (Stat::Max, Precision::exact(100)),
                 (Stat::Min, Precision::exact(42)),
             ])
@@ -621,7 +616,7 @@ mod test {
     fn into_iter() {
         // SAFETY: No duplicate stats.
         let mut set = unsafe {
-            StatsSet::new_unchecked(vec![
+            StatsSet::new_unchecked(smallvec![
                 (Stat::Max, Precision::exact(100)),
                 (Stat::Min, Precision::exact(42)),
             ])

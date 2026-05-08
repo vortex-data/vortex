@@ -21,13 +21,16 @@ use crate::aggregate_fn::fns::last::Last;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::sum::Sum;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use crate::array::ArrayId;
 use crate::array::VTable;
 use crate::arrays::Chunked;
+use crate::arrays::Constant;
 use crate::arrays::Dict;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
+use crate::arrays::constant::compute::uncompressed_size::ConstantUncompressedSizeKernel;
 use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
@@ -72,9 +75,15 @@ impl Default for AggregateFnSession {
         this.register(MinMax);
         this.register(NanCount);
         this.register(Sum);
+        this.register(UncompressedSizeInBytes);
 
         // Register the built-in aggregate kernels.
         this.register_aggregate_kernel(Chunked.id(), None::<AggregateFnId>, &ChunkedArrayAggregate);
+        this.register_aggregate_kernel(
+            Constant.id(),
+            Some(UncompressedSizeInBytes.id()),
+            &ConstantUncompressedSizeKernel,
+        );
         this.register_aggregate_kernel(Dict.id(), Some(MinMax.id()), &DictMinMaxKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsConstant.id()), &DictIsConstantKernel);
         this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);

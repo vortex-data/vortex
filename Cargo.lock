@@ -11071,7 +11071,6 @@ dependencies = [
  "bytes",
  "itertools 0.14.0",
  "log",
- "mimalloc",
  "object_store 0.13.2",
  "parking_lot",
  "pyo3",
@@ -11081,6 +11080,7 @@ dependencies = [
  "tokio",
  "url",
  "vortex",
+ "vortex-array",
  "vortex-tui",
 ]
 
@@ -11127,6 +11127,7 @@ dependencies = [
  "num-traits",
  "prost 0.14.3",
  "rstest",
+ "smallvec",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",

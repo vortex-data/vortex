@@ -136,6 +136,74 @@ pub fn vortex_sparse::SparseMetadata::clear(&mut self)
 
 pub fn vortex_sparse::SparseMetadata::encoded_len(&self) -> usize
 
+pub struct vortex_sparse::SparseSlots
+
+pub vortex_sparse::SparseSlots::patch_chunk_offsets: core::option::Option<vortex_array::array::erased::ArrayRef>
+
+pub vortex_sparse::SparseSlots::patch_indices: vortex_array::array::erased::ArrayRef
+
+pub vortex_sparse::SparseSlots::patch_values: vortex_array::array::erased::ArrayRef
+
+impl vortex_sparse::SparseSlots
+
+pub const vortex_sparse::SparseSlots::COUNT: usize
+
+pub const vortex_sparse::SparseSlots::NAMES: [&'static str; 3]
+
+pub const vortex_sparse::SparseSlots::PATCH_CHUNK_OFFSETS: usize
+
+pub const vortex_sparse::SparseSlots::PATCH_INDICES: usize
+
+pub const vortex_sparse::SparseSlots::PATCH_VALUES: usize
+
+pub fn vortex_sparse::SparseSlots::from_slots(alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>) -> Self
+
+pub fn vortex_sparse::SparseSlots::into_slots(self) -> alloc::vec::Vec<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
+pub struct vortex_sparse::SparseSlotsView<'a>
+
+pub vortex_sparse::SparseSlotsView::patch_chunk_offsets: core::option::Option<&'a vortex_array::array::erased::ArrayRef>
+
+pub vortex_sparse::SparseSlotsView::patch_indices: &'a vortex_array::array::erased::ArrayRef
+
+pub vortex_sparse::SparseSlotsView::patch_values: &'a vortex_array::array::erased::ArrayRef
+
+impl<'a> vortex_sparse::SparseSlotsView<'a>
+
+pub fn vortex_sparse::SparseSlotsView<'a>::from_slots(&'a [core::option::Option<vortex_array::array::erased::ArrayRef>]) -> Self
+
+pub fn vortex_sparse::SparseSlotsView<'a>::to_owned(&self) -> vortex_sparse::SparseSlots
+
+impl<'a> core::clone::Clone for vortex_sparse::SparseSlotsView<'a>
+
+pub fn vortex_sparse::SparseSlotsView<'a>::clone(&self) -> vortex_sparse::SparseSlotsView<'a>
+
+impl<'a> core::fmt::Debug for vortex_sparse::SparseSlotsView<'a>
+
+pub fn vortex_sparse::SparseSlotsView<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<'a> core::marker::Copy for vortex_sparse::SparseSlotsView<'a>
+
+pub trait vortex_sparse::SparseArraySlotsExt: vortex_array::array::typed::TypedArrayRef<vortex_sparse::Sparse>
+
+pub fn vortex_sparse::SparseArraySlotsExt::patch_chunk_offsets(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_sparse::SparseArraySlotsExt::patch_indices(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_sparse::SparseArraySlotsExt::patch_values(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_sparse::SparseArraySlotsExt::slots_view(&self) -> vortex_sparse::SparseSlotsView<'_>
+
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_sparse::Sparse>> vortex_sparse::SparseArraySlotsExt for T
+
+pub fn T::patch_chunk_offsets(&self) -> core::option::Option<&vortex_array::array::erased::ArrayRef>
+
+pub fn T::patch_indices(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::patch_values(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::slots_view(&self) -> vortex_sparse::SparseSlotsView<'_>
+
 pub trait vortex_sparse::SparseExt
 
 pub fn vortex_sparse::SparseExt::patches(&self) -> vortex_array::patches::Patches

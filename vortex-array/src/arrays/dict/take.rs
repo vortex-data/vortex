@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use smallvec::SmallVec;
 use vortex_error::VortexResult;
 
 use super::Dict;
@@ -164,7 +165,7 @@ pub(crate) fn propagate_take_stats(
                     .and_then(|v| v.map(|s| s.into_value()).into_inexact().transpose())
                     .map(|sv| (stat, sv))
             })
-            .collect::<Vec<_>>();
+            .collect::<SmallVec<_>>();
         st.combine_sets(
             &(unsafe { StatsSet::new_unchecked(inexact_min_max) }).as_typed_ref(source.dtype()),
         )

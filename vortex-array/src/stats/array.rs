@@ -23,7 +23,7 @@ use crate::aggregate_fn::fns::min_max::MinMaxResult;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::nan_count::nan_count;
 use crate::aggregate_fn::fns::sum::sum;
-use crate::builders::builder_with_capacity;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -182,16 +182,12 @@ impl StatsSetRef<'_> {
             }
             Stat::IsSorted => Some(is_sorted(self.dyn_array_ref, ctx)?.into()),
             Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref, ctx)?.into()),
-            Stat::UncompressedSizeInBytes => {
-                let mut builder =
-                    builder_with_capacity(self.dyn_array_ref.dtype(), self.dyn_array_ref.len());
-                unsafe {
-                    builder.extend_from_array_unchecked(self.dyn_array_ref);
-                }
-                let nbytes = builder.finish().nbytes();
-                self.set(stat, Precision::exact(nbytes));
-                Some(nbytes.into())
-            }
+            Stat::UncompressedSizeInBytes => Stat::UncompressedSizeInBytes
+                .dtype(self.dyn_array_ref.dtype())
+                .is_some()
+                .then(|| uncompressed_size_in_bytes(self.dyn_array_ref, ctx))
+                .transpose()?
+                .map(|s| s.into()),
             Stat::NaNCount => {
                 Stat::NaNCount
                     .dtype(self.dyn_array_ref.dtype())

@@ -730,6 +730,56 @@ pub struct vortex_array::aggregate_fn::fns::sum::SumPartial
 
 pub fn vortex_array::aggregate_fn::fns::sum::sum(&vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
+pub mod vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes
+
+pub struct vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+
+impl core::clone::Clone for vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::clone(&self) -> vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+
+impl core::fmt::Debug for vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+
+pub type vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::Options = vortex_array::aggregate_fn::EmptyOptions
+
+pub type vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::Partial = u64
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::empty_partial(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::finalize(&self, vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::finalize_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::is_saturated(&self, &Self::Partial) -> bool
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::partial_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::reset(&self, &mut Self::Partial)
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::return_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes(&vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<usize>
+
 pub mod vortex_array::aggregate_fn::kernels
 
 pub trait vortex_array::aggregate_fn::kernels::DynAggregateKernel: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
@@ -1265,6 +1315,42 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, &Self::Option
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+
+pub type vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::Options = vortex_array::aggregate_fn::EmptyOptions
+
+pub type vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::Partial = u64
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::empty_partial(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::finalize(&self, vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::finalize_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::is_saturated(&self, &Self::Partial) -> bool
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::partial_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::reset(&self, &mut Self::Partial)
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::return_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
 impl<T: vortex_array::aggregate_fn::combined::BinaryCombined> vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::combined::Combined<T>
 
@@ -19346,7 +19432,7 @@ pub fn vortex_array::stats::StatsSet::as_mut_typed_ref<'a, 'b>(&'a mut self, &'b
 
 pub fn vortex_array::stats::StatsSet::as_typed_ref<'a, 'b>(&'a self, &'b vortex_array::dtype::DType) -> vortex_array::stats::TypedStatsSetRef<'a, 'b>
 
-pub unsafe fn vortex_array::stats::StatsSet::new_unchecked(alloc::vec::Vec<(vortex_array::expr::stats::Stat, vortex_array::expr::stats::Precision<vortex_array::scalar::ScalarValue>)>) -> Self
+pub unsafe fn vortex_array::stats::StatsSet::new_unchecked(smallvec::SmallVec<vortex_array::stats::StatsArray>) -> Self
 
 pub fn vortex_array::stats::StatsSet::of(vortex_array::expr::stats::Stat, vortex_array::expr::stats::Precision<vortex_array::scalar::ScalarValue>) -> Self
 
@@ -19509,6 +19595,8 @@ pub const vortex_array::stats::PRUNING_STATS: &[vortex_array::expr::stats::Stat]
 pub fn vortex_array::stats::as_stat_bitset_bytes(&[vortex_array::expr::stats::Stat]) -> alloc::vec::Vec<u8>
 
 pub fn vortex_array::stats::stats_from_bitset_bytes(&[u8]) -> alloc::vec::Vec<vortex_array::expr::stats::Stat>
+
+pub type vortex_array::stats::StatsArray = [(vortex_array::expr::stats::Stat, vortex_array::expr::stats::Precision<vortex_array::scalar::ScalarValue>); 4]
 
 pub mod vortex_array::stream
 

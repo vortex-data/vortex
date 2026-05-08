@@ -61,7 +61,7 @@ profile = "release"
 editable-profile = "dev"
 python-source = "python"
 module-name = "vortex._lib"
-features = ["pyo3/extension-module", "mimalloc"]
+features = ["pyo3/extension-module"]
 compatibility = "manylinux2014"
 include = [
     { path = "rust-toolchain.toml", format = "sdist" },
