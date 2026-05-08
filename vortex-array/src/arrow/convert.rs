@@ -331,7 +331,7 @@ impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
 }
 
 /// Strip out the nulls from this array and return a new array without nulls.
-fn remove_nulls(data: arrow_data::ArrayData) -> arrow_data::ArrayData {
+pub(crate) fn remove_nulls(data: arrow_data::ArrayData) -> arrow_data::ArrayData {
     if data.null_count() == 0 {
         // No nulls to remove, return the array as is
         return data;

@@ -28,6 +28,7 @@ use arc_swap::ArcSwap;
 use arrow_array::Array as _;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;
+use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
@@ -232,24 +233,58 @@ impl ArrowSession {
     /// Build the Arrow [`Field`] for a Vortex [`DType`].
     ///
     /// For [`DType::Extension`]s, the first plugin registered against the extension's
-    /// Vortex Id is consulted to produce a [`Field`] with the appropriate Arrow extension
-    /// metadata. All other dtypes go through canonical [`DType::to_arrow_dtype`].
+    /// Vortex Id is consulted to produce a [`Field`] carrying the appropriate Arrow
+    /// extension metadata. Container types ([`DType::List`], [`DType::FixedSizeList`],
+    /// [`DType::Struct`]) recurse through this method so extension metadata on nested
+    /// fields is preserved. Other dtypes use [`Self::to_arrow_data_type`] for the
+    /// physical type.
     pub fn to_arrow_field(&self, name: &str, dtype: &DType) -> VortexResult<Field> {
-        if let Some(ext) = dtype.as_extension_opt() {
-            let exporters = self.exporters_by_vortex(&ext.id());
-            if let Some(plugin) = exporters.first() {
-                return plugin.to_arrow_field(name, ext);
-            }
+        if let Some(ext) = dtype.as_extension_opt()
+            && let Some(plugin) = self.exporters_by_vortex(&ext.id()).first()
+        {
+            return plugin.to_arrow_field(name, ext);
         }
         Ok(Field::new(
             name,
-            dtype.to_arrow_dtype()?,
+            self.to_arrow_data_type(dtype)?,
             dtype.is_nullable(),
         ))
     }
 
+    /// Build the Arrow [`DataType`] for a Vortex [`DType`].
+    ///
+    /// Recurses into container types so nested extension fields go through registered
+    /// plugins; non-recursive, non-extension dtypes delegate to
+    /// [`DType::to_arrow_dtype`]. Note that a bare [`DataType`] cannot carry Arrow
+    /// extension metadata — for inference that needs `ARROW:extension:name` on the
+    /// outermost node, use [`Self::to_arrow_field`] instead.
+    pub fn to_arrow_data_type(&self, dtype: &DType) -> VortexResult<DataType> {
+        Ok(match dtype {
+            DType::Extension(ext) => {
+                if let Some(plugin) = self.exporters_by_vortex(&ext.id()).first() {
+                    plugin.to_arrow_field("", ext)?.data_type().clone()
+                } else {
+                    dtype.to_arrow_dtype()?
+                }
+            }
+            DType::List(elem, _) => DataType::List(Arc::new(self.to_arrow_field("item", elem)?)),
+            DType::FixedSizeList(elem, size, _) => {
+                DataType::FixedSizeList(Arc::new(self.to_arrow_field("item", elem)?), *size as i32)
+            }
+            DType::Struct(struct_dtype, _) => {
+                let mut fields = Vec::with_capacity(struct_dtype.names().len());
+                for (name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
+                    fields.push(self.to_arrow_field(name.as_ref(), &field_dtype)?);
+                }
+                DataType::Struct(fields.into())
+            }
+            _ => dtype.to_arrow_dtype()?,
+        })
+    }
+
     /// Build the Arrow [`Schema`] for a Vortex top-level [`DType::Struct`], dispatching
-    /// extension fields through registered export plugins for inference.
+    /// extension fields through registered export plugins for inference. Nested
+    /// extensions are preserved via [`Self::to_arrow_field`].
     pub fn to_arrow_schema(&self, dtype: &DType) -> VortexResult<Schema> {
         let DType::Struct(struct_dtype, _) = dtype else {
             vortex_error::vortex_bail!(
@@ -265,8 +300,11 @@ impl ArrowSession {
 
     /// Build the Vortex [`DType`] for an Arrow [`Field`].
     ///
-    /// Routes through the registered import plugin if the field carries an Arrow extension
-    /// name we recognize; otherwise uses the canonical Arrow → Vortex type mapping.
+    /// Routes through the registered import plugin if the field carries an Arrow
+    /// extension name we recognize. Otherwise recurses into container types
+    /// ([`DataType::List`] family, [`DataType::FixedSizeList`], [`DataType::Struct`]) so
+    /// extension metadata on nested element/struct fields is preserved. Leaf types use
+    /// the canonical Arrow → Vortex mapping via [`DType::from_arrow`].
     pub fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
         if let Some(name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
             let importers = self.importers(&Id::new(name));
@@ -274,8 +312,31 @@ impl ArrowSession {
                 return plugin.from_arrow_field(field);
             }
         }
-        // Fall back to handling of canonical types + Vortex builtin canonical types.
-        Ok(DType::from_arrow(field))
+        let nullability: Nullability = field.is_nullable().into();
+        Ok(match field.data_type() {
+            DataType::List(elem)
+            | DataType::LargeList(elem)
+            | DataType::ListView(elem)
+            | DataType::LargeListView(elem) => {
+                DType::List(Arc::new(self.from_arrow_field(elem.as_ref())?), nullability)
+            }
+            DataType::FixedSizeList(elem, size) => DType::FixedSizeList(
+                Arc::new(self.from_arrow_field(elem.as_ref())?),
+                *size as u32,
+                nullability,
+            ),
+            DataType::Struct(fields) => {
+                let entries = fields
+                    .iter()
+                    .map(|f| {
+                        self.from_arrow_field(f)
+                            .map(|dt| (FieldName::from(f.name().as_str()), dt))
+                    })
+                    .collect::<VortexResult<Vec<_>>>()?;
+                DType::Struct(StructFields::from_iter(entries), nullability)
+            }
+            _ => DType::from_arrow(field),
+        })
     }
 
     /// Build the Vortex [`DType`] for an Arrow [`Schema`], dispatching extension fields
@@ -376,32 +437,126 @@ impl ArrowSession {
     ///
     /// Routes through the registered import plugin if `field` carries an Arrow extension
     /// name we recognize, probing each plugin in registration order until one handles the
-    /// input or all return [`ArrowImport::Unsupported`]; otherwise uses the canonical
-    /// Arrow → Vortex array conversion.
+    /// input or all return [`ArrowImport::Unsupported`]. Otherwise recurses into container
+    /// arrays ([`arrow_array::StructArray`], [`arrow_array::GenericListArray`],
+    /// [`arrow_array::FixedSizeListArray`], [`arrow_array::GenericListViewArray`]) so
+    /// extension fields nested inside containers reach their importers; leaf types fall
+    /// through to the canonical Arrow → Vortex array conversion.
     pub fn from_arrow_array(&self, array: ArrowArrayRef, field: &Field) -> VortexResult<ArrayRef> {
-        let Some(extension_name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) else {
-            return ArrayRef::from_arrow(array.as_ref(), field.is_nullable());
-        };
-
-        let importers = self.importers(&Id::new(extension_name));
-        if importers.is_empty() {
-            return ArrayRef::from_arrow(array.as_ref(), field.is_nullable());
-        }
-
-        let dtype = self.from_arrow_field(field)?;
-        let DType::Extension(ext_dtype) = dtype else {
-            return ArrayRef::from_arrow(array.as_ref(), field.is_nullable());
-        };
-
-        let mut current = array;
-        for plugin in &importers {
-            match plugin.from_arrow_array(current, &ext_dtype)? {
-                ArrowImport::Imported(arr) => return Ok(arr),
-                ArrowImport::Unsupported(arr) => current = arr,
+        if let Some(extension_name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
+            let importers = self.importers(&Id::new(extension_name));
+            if !importers.is_empty() {
+                let dtype = self.from_arrow_field(field)?;
+                if let DType::Extension(ext_dtype) = dtype {
+                    let mut current = array;
+                    for plugin in &importers {
+                        match plugin.from_arrow_array(current, &ext_dtype)? {
+                            ArrowImport::Imported(arr) => return Ok(arr),
+                            ArrowImport::Unsupported(arr) => current = arr,
+                        }
+                    }
+                    return ArrayRef::from_arrow(current.as_ref(), field.is_nullable());
+                }
             }
         }
+        self.from_arrow_array_canonical(array, field)
+    }
 
-        ArrayRef::from_arrow(current.as_ref(), field.is_nullable())
+    /// Recurse into Arrow container arrays so nested fields with extension metadata reach
+    /// their importers, falling through to [`ArrayRef::from_arrow`] for leaf types.
+    #[allow(clippy::wrong_self_convention)]
+    fn from_arrow_array_canonical(
+        &self,
+        array: ArrowArrayRef,
+        field: &Field,
+    ) -> VortexResult<ArrayRef> {
+        use arrow_array::cast::AsArray;
+
+        match field.data_type() {
+            DataType::Struct(fields) => {
+                let arrow_struct = array.as_struct();
+                let names = FieldNames::from_iter(
+                    fields.iter().map(|f| FieldName::from(f.name().as_str())),
+                );
+                let columns = arrow_struct
+                    .columns()
+                    .iter()
+                    .zip(fields.iter())
+                    .map(|(col, child_field)| {
+                        // Arrow pushes nulls into non-nullable fields; strip before recursing
+                        // so Vortex's stricter validity invariants are upheld.
+                        let inner = if col.null_count() > 0 && !child_field.is_nullable() {
+                            arrow_array::make_array(crate::arrow::convert::remove_nulls(
+                                col.to_data(),
+                            ))
+                        } else {
+                            ArrowArrayRef::clone(col)
+                        };
+                        self.from_arrow_array(inner, child_field.as_ref())
+                    })
+                    .collect::<VortexResult<Vec<_>>>()?;
+                let validity =
+                    crate::arrow::convert::nulls(arrow_struct.nulls(), field.is_nullable());
+                Ok(
+                    StructArray::try_new(names, columns, arrow_struct.len(), validity)?
+                        .into_array(),
+                )
+            }
+            DataType::List(elem_field) => {
+                let list = array.as_list::<i32>();
+                let elements = self
+                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
+                let offsets = list.offsets().clone().into_array();
+                let validity = crate::arrow::convert::nulls(list.nulls(), field.is_nullable());
+                Ok(crate::arrays::ListArray::try_new(elements, offsets, validity)?.into_array())
+            }
+            DataType::LargeList(elem_field) => {
+                let list = array.as_list::<i64>();
+                let elements = self
+                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
+                let offsets = list.offsets().clone().into_array();
+                let validity = crate::arrow::convert::nulls(list.nulls(), field.is_nullable());
+                Ok(crate::arrays::ListArray::try_new(elements, offsets, validity)?.into_array())
+            }
+            DataType::FixedSizeList(elem_field, list_size) => {
+                let fsl = array.as_fixed_size_list();
+                let elements =
+                    self.from_arrow_array(ArrowArrayRef::clone(fsl.values()), elem_field.as_ref())?;
+                let validity = crate::arrow::convert::nulls(fsl.nulls(), field.is_nullable());
+                Ok(crate::arrays::FixedSizeListArray::try_new(
+                    elements,
+                    *list_size as u32,
+                    validity,
+                    fsl.len(),
+                )?
+                .into_array())
+            }
+            DataType::ListView(elem_field) => {
+                let list = array.as_list_view::<i32>();
+                let elements = self
+                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
+                let offsets = list.offsets().clone().into_array();
+                let sizes = list.sizes().clone().into_array();
+                let validity = crate::arrow::convert::nulls(list.nulls(), field.is_nullable());
+                Ok(
+                    crate::arrays::ListViewArray::try_new(elements, offsets, sizes, validity)?
+                        .into_array(),
+                )
+            }
+            DataType::LargeListView(elem_field) => {
+                let list = array.as_list_view::<i64>();
+                let elements = self
+                    .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
+                let offsets = list.offsets().clone().into_array();
+                let sizes = list.sizes().clone().into_array();
+                let validity = crate::arrow::convert::nulls(list.nulls(), field.is_nullable());
+                Ok(
+                    crate::arrays::ListViewArray::try_new(elements, offsets, sizes, validity)?
+                        .into_array(),
+                )
+            }
+            _ => ArrayRef::from_arrow(array.as_ref(), field.is_nullable()),
+        }
     }
 }
 
@@ -424,5 +579,172 @@ pub trait ArrowSessionExt: SessionExt {
 impl<S: SessionExt> ArrowSessionExt for S {
     fn arrow(&self) -> Ref<'_, ArrowSession> {
         self.get::<ArrowSession>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow_array::FixedSizeBinaryArray;
+    use arrow_array::cast::AsArray;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::extension::Uuid as ArrowUuid;
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
+    use crate::arrow::ArrowArrayExecutor;
+    use crate::dtype::DType;
+    use crate::dtype::FieldName;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::dtype::extension::ExtDType;
+    use crate::dtype::extension::ExtVTable;
+    use crate::extension::uuid::Uuid;
+    use crate::extension::uuid::UuidMetadata;
+
+    fn uuid_dtype(nullable: bool) -> DType {
+        let storage = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::U8, Nullability::NonNullable)),
+            16,
+            nullable.into(),
+        );
+        DType::Extension(
+            ExtDType::try_with_vtable(Uuid, UuidMetadata::default(), storage)
+                .expect("uuid ext dtype")
+                .erased(),
+        )
+    }
+
+    #[test]
+    fn to_arrow_field_top_level_uuid_carries_extension_metadata() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        let field = session.to_arrow_field("id", &uuid_dtype(false))?;
+        assert!(field.has_valid_extension_type::<ArrowUuid>());
+        Ok(())
+    }
+
+    #[test]
+    fn to_arrow_field_struct_with_nested_uuid_preserves_metadata() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        let dtype = DType::Struct(
+            StructFields::from_iter([(FieldName::from("id"), uuid_dtype(false))]),
+            Nullability::NonNullable,
+        );
+        let field = session.to_arrow_field("row", &dtype)?;
+        let DataType::Struct(inner) = field.data_type() else {
+            panic!("expected Struct, got {:?}", field.data_type());
+        };
+        assert_eq!(inner.len(), 1);
+        assert_eq!(inner[0].data_type(), &DataType::FixedSizeBinary(16));
+        assert!(inner[0].has_valid_extension_type::<ArrowUuid>());
+        Ok(())
+    }
+
+    #[test]
+    fn to_arrow_field_list_of_uuid_preserves_metadata() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        let dtype = DType::List(Arc::new(uuid_dtype(true)), Nullability::NonNullable);
+        let field = session.to_arrow_field("ids", &dtype)?;
+        let DataType::List(elem) = field.data_type() else {
+            panic!("expected List, got {:?}", field.data_type());
+        };
+        assert!(elem.has_valid_extension_type::<ArrowUuid>());
+        Ok(())
+    }
+
+    #[test]
+    fn to_arrow_field_fixed_size_list_of_uuid_preserves_metadata() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        let dtype = DType::FixedSizeList(Arc::new(uuid_dtype(false)), 3, Nullability::NonNullable);
+        let field = session.to_arrow_field("triple", &dtype)?;
+        let DataType::FixedSizeList(elem, size) = field.data_type() else {
+            panic!("expected FixedSizeList, got {:?}", field.data_type());
+        };
+        assert_eq!(*size, 3);
+        assert!(elem.has_valid_extension_type::<ArrowUuid>());
+        Ok(())
+    }
+
+    #[test]
+    fn to_arrow_schema_struct_of_struct_uuid() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        let inner = DType::Struct(
+            StructFields::from_iter([(FieldName::from("id"), uuid_dtype(true))]),
+            Nullability::NonNullable,
+        );
+        let outer = DType::Struct(
+            StructFields::from_iter([(FieldName::from("payload"), inner)]),
+            Nullability::NonNullable,
+        );
+        let schema = session.to_arrow_schema(&outer)?;
+        let payload = schema.field(0);
+        let DataType::Struct(inner_fields) = payload.data_type() else {
+            panic!("expected Struct, got {:?}", payload.data_type());
+        };
+        assert!(inner_fields[0].has_valid_extension_type::<ArrowUuid>());
+        Ok(())
+    }
+
+    #[test]
+    fn from_arrow_field_recurses_into_nested_uuid() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        let mut elem = Field::new("item", DataType::FixedSizeBinary(16), false);
+        elem.try_with_extension_type(ArrowUuid)?;
+        let outer = Field::new("ids", DataType::List(Arc::new(elem)), false);
+
+        let dtype = session.from_arrow_field(&outer)?;
+        let DType::List(inner_dt, _) = dtype else {
+            panic!("expected List dtype, got {dtype}");
+        };
+        assert!(
+            matches!(inner_dt.as_ref(), DType::Extension(ext) if ext.id() == Uuid.id()),
+            "expected Uuid extension element, got {inner_dt}",
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn schema_roundtrip_preserves_nested_uuid() -> VortexResult<()> {
+        let session = ArrowSession::default();
+        let dtype = DType::Struct(
+            StructFields::from_iter([
+                (FieldName::from("id"), uuid_dtype(false)),
+                (
+                    FieldName::from("ids"),
+                    DType::List(Arc::new(uuid_dtype(true)), Nullability::NonNullable),
+                ),
+            ]),
+            Nullability::NonNullable,
+        );
+        let schema = session.to_arrow_schema(&dtype)?;
+        let roundtripped = session.from_arrow_schema(&schema)?;
+        assert_eq!(roundtripped, dtype);
+        Ok(())
+    }
+
+    #[test]
+    fn execute_arrow_target_none_preserves_top_level_uuid_metadata() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let session = LEGACY_SESSION.arrow();
+
+        let mut field = Field::new("id", DataType::FixedSizeBinary(16), false);
+        field.try_with_extension_type(ArrowUuid)?;
+        let arrow_array: ArrowArrayRef = Arc::new(FixedSizeBinaryArray::try_from_iter(
+            [*b"0123456789abcdef", *b"fedcba9876543210"].into_iter(),
+        )?);
+
+        let vortex_array = session.from_arrow_array(arrow_array, &field)?;
+        let exported = vortex_array.execute_arrow(None, &mut ctx)?;
+        assert_eq!(exported.data_type(), &DataType::FixedSizeBinary(16));
+        let fsb = exported.as_fixed_size_binary();
+        assert_eq!(fsb.len(), 2);
+        assert_eq!(fsb.value(0), b"0123456789abcdef");
+        assert_eq!(fsb.value(1), b"fedcba9876543210");
+        Ok(())
     }
 }
