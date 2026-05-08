@@ -19,6 +19,17 @@
 //! whose expansion is a substring of the needle. If that code byte is absent
 //! from the compressed string, the needle can't match.
 //!
+//! ## Per-state shufti skip (Variant A)
+//!
+//! `FlatContainsDfa` generalises the state-0 skip to ALL states using a
+//! Hyperscan-style "shufti" classifier (2× `PSHUFB` + `AND`, classifies 16
+//! bytes per shuffle). At any state `s`, we skip 16-byte chunks of the code
+//! stream until we hit an "interesting" code (one that would change state or
+//! is an escape), then take a single scalar DFA step.
+//!
+//! `FlatContainsDfaBaseline` preserves the original state-0-only skip for
+//! side-by-side benchmarking.
+//!
 //! TODO(joe): for short needles (≤7 bytes), a branchless escape-folded DFA
 //! with hierarchical 4-byte composition is ~2x faster. For needles ≤127 bytes,
 //! an escape-folded flat DFA (2N+1 states) avoids the sentinel branch.
@@ -32,9 +43,104 @@ use vortex_error::vortex_bail;
 use super::build_fused_table;
 use super::build_symbol_transitions;
 use super::kmp_byte_transitions;
+use super::shufti::ShuftiMask;
 use super::skip::SkipStrategy;
 
-/// Flat `u8` transition table DFA for contains matching.
+// ---------------------------------------------------------------------------
+// Baseline (state-0 skip only) — preserved for benchmarking
+// ---------------------------------------------------------------------------
+
+/// Flat `u8` transition table DFA for contains matching — baseline implementation.
+///
+/// Uses a state-0-only skip strategy (memchr or bitmap). Preserved for side-by-side
+/// benchmarking against the shufti variant.
+pub(crate) struct FlatContainsDfaBaseline {
+    transitions: Vec<u8>,
+    escape_transitions: Vec<u8>,
+    accept_state: u8,
+    sentinel: u8,
+    skip: SkipStrategy,
+}
+
+impl FlatContainsDfaBaseline {
+    pub(crate) const MAX_NEEDLE_LEN: usize = u8::MAX as usize - 1;
+
+    pub(crate) fn new(
+        symbols: &[Symbol],
+        symbol_lengths: &[u8],
+        needle: &[u8],
+    ) -> VortexResult<Self> {
+        if needle.len() > Self::MAX_NEEDLE_LEN {
+            vortex_bail!(
+                "needle length {} exceeds maximum {} for flat contains DFA",
+                needle.len(),
+                Self::MAX_NEEDLE_LEN
+            );
+        }
+
+        let accept_state = u8::try_from(needle.len())
+            .vortex_expect("FlatContainsDfaBaseline: accept state must fit into u8");
+        let n_states = accept_state + 1;
+        let sentinel = n_states;
+
+        let byte_table = kmp_byte_transitions(needle);
+        let sym_trans =
+            build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
+        let transitions = build_fused_table(&sym_trans, symbols.len(), n_states, |_| sentinel, 0);
+
+        let skip = SkipStrategy::from_transition_row(&transitions[0..256], 0);
+
+        Ok(Self {
+            transitions,
+            escape_transitions: byte_table,
+            accept_state,
+            sentinel,
+            skip,
+        })
+    }
+
+    pub(crate) fn matches(&self, codes: &[u8]) -> bool {
+        let mut state = 0u8;
+        let mut pos = 0;
+        while pos < codes.len() {
+            if state == 0 {
+                match self.skip.find_next_progressing(codes, pos) {
+                    Some(next) => pos = next,
+                    None => return false,
+                }
+            }
+
+            let code = codes[pos];
+            pos += 1;
+            let next = self.transitions[usize::from(state) * 256 + usize::from(code)];
+            if next == self.sentinel {
+                if pos >= codes.len() {
+                    return false;
+                }
+                let b = codes[pos];
+                pos += 1;
+                state = self.escape_transitions[usize::from(state) * 256 + usize::from(b)];
+            } else {
+                state = next;
+            }
+            if state == self.accept_state {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shufti variant (per-state skip)
+// ---------------------------------------------------------------------------
+
+/// Flat `u8` transition table DFA for contains matching — shufti-accelerated variant.
+///
+/// Generalises the state-0 skip to ALL DFA states: at any state `s`, we use a
+/// Hyperscan-style shufti classifier to skip 16-byte chunks of boring codes with
+/// two `PSHUFB` instructions (SSSE3), then take a single scalar DFA step on each
+/// interesting code.
 pub(crate) struct FlatContainsDfa {
     /// `transitions[state * 256 + byte]` -> next state.
     transitions: Vec<u8>,
@@ -42,10 +148,10 @@ pub(crate) struct FlatContainsDfa {
     escape_transitions: Vec<u8>,
     accept_state: u8,
     sentinel: u8,
-    /// State-0 skip strategy.
-    skip: SkipStrategy,
-    /// Optional memchr anchor prefilter: a code byte that MUST appear for a match.
-    anchor: Option<u8>,
+    /// Per-state shufti masks. `shufti[s]` classifies codes at state `s`.
+    shufti: Vec<ShuftiMask>,
+    /// Number of DFA states (excluding accept, which is sticky and never needs a skip).
+    n_states: u8,
 }
 
 impl FlatContainsDfa {
@@ -75,44 +181,41 @@ impl FlatContainsDfa {
             build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
         let transitions = build_fused_table(&sym_trans, symbols.len(), n_states, |_| sentinel, 0);
 
-        let skip = SkipStrategy::from_transition_row(&transitions[0..256], 0);
-
-        // NOTE: anchor prefilter disabled — FSST greedy compression means a
-        // symbol's expansion can be a substring of the needle without that code
-        // appearing (a longer symbol may cover the same bytes). The prefilter
-        // would need to account for all possible encodings, which is complex.
-        let anchor = None;
+        // Build per-state shufti masks for all non-accept states.
+        let mut shufti = Vec::with_capacity(usize::from(n_states));
+        for state in 0..n_states {
+            let row_start = usize::from(state) * 256;
+            shufti.push(ShuftiMask::from_transition_row(
+                &transitions[row_start..row_start + 256],
+                state,
+            ));
+        }
 
         Ok(Self {
             transitions,
             escape_transitions: byte_table,
             accept_state,
             sentinel,
-            skip,
-            anchor,
+            shufti,
+            n_states,
         })
     }
 
+    /// Run the DFA with per-state shufti skip on the given code stream.
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
-        // Anchor prefilter: if the anchor code is absent, no match possible.
-        if let Some(a) = self.anchor
-            && memchr::memchr(a, codes).is_none()
-        {
-            return false;
-        }
-
         let mut state = 0u8;
         let mut pos = 0;
         while pos < codes.len() {
-            // State-0 fast path: SIMD skip to next advancing code.
-            if state == 0 {
-                match self.skip.find_next_progressing(codes, pos) {
+            // Per-state shufti skip: jump over codes that leave `state` unchanged.
+            // The accept state is sticky and is checked immediately after each step,
+            // so we only need skips for states < accept_state.
+            if state < self.n_states {
+                match self.shufti[usize::from(state)].find_next(codes, pos) {
                     Some(next) => pos = next,
                     None => return false,
                 }
             }
 
-            // Slow path: stateful DFA transition.
             let code = codes[pos];
             pos += 1;
             let next = self.transitions[usize::from(state) * 256 + usize::from(code)];
@@ -138,6 +241,7 @@ impl FlatContainsDfa {
 ///
 /// Scans all symbols to find one whose expansion is the longest substring of
 /// the needle. Returns `None` if no multi-byte symbol matches.
+#[allow(dead_code)]
 fn find_anchor_symbol(symbols: &[Symbol], symbol_lengths: &[u8], needle: &[u8]) -> Option<u8> {
     if needle.is_empty() {
         return None;

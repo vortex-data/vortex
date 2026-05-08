@@ -26,6 +26,7 @@ use vortex_session::VortexSession;
 use super::FsstMatcher;
 use super::LikeKind;
 use super::flat_contains::FlatContainsDfa;
+use super::flat_contains::FlatContainsDfaBaseline;
 use super::multi_contains::MultiContainsDfa;
 use super::prefix::FlatPrefixDfa;
 use crate::FSSTArray;
@@ -597,5 +598,63 @@ fn test_like_edge_cases(
     )?;
     let expected_arr = BoolArray::from_iter(expected.iter().copied());
     assert_arrays_eq!(&result, &expected_arr);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Parity: shufti FlatContainsDfa vs FlatContainsDfaBaseline
+// ---------------------------------------------------------------------------
+
+/// Verify shufti DFA and baseline DFA agree on all the same test cases.
+#[rstest]
+#[case(b"google", b"https://google.com/path?q=1")]
+#[case(b"google", b"https://other.com/path?q=1")]
+#[case(b"abcabc", b"xabcabcabcx")]
+#[case(b"abcabc", b"xabcabx")]
+#[case(b"needle", b"")]
+#[case(b"needle", b"needle")]
+#[case(b"needle", b"xneedlex")]
+#[case(b"aaa", b"aaaaaa")]
+#[case(b"abc", &[0xFFu8, b'a', 0xFF, b'b', 0xFF, b'c'])]  // all escaped
+fn test_shufti_parity_no_symbols(#[case] needle: &[u8], #[case] codes: &[u8]) -> VortexResult<()> {
+    let baseline = FlatContainsDfaBaseline::new(&[], &[], needle)?;
+    let shufti = FlatContainsDfa::new(&[], &[], needle)?;
+    assert_eq!(
+        baseline.matches(codes),
+        shufti.matches(codes),
+        "parity failure: needle={needle:?}, codes={codes:?}"
+    );
+    Ok(())
+}
+
+/// Verify shufti and baseline agree across a grid of needles and inputs.
+#[test]
+fn test_shufti_parity_exhaustive() -> VortexResult<()> {
+    let needles: &[&[u8]] = &[b"a", b"ab", b"abc", b"abab", b"aabaabaab"];
+    let inputs: &[&[u8]] = &[
+        b"",
+        b"a",
+        b"ab",
+        b"abc",
+        b"xabx",
+        b"aababab",
+        b"aabaabaab",
+        b"xaabaabaabx",
+    ];
+
+    for &needle in needles {
+        let baseline = FlatContainsDfaBaseline::new(&[], &[], needle)?;
+        let shufti = FlatContainsDfa::new(&[], &[], needle)?;
+        for &input in inputs {
+            // Build all-escaped code sequence.
+            let codes: Vec<u8> = input.iter().flat_map(|&b| [0xFF, b]).collect();
+            let b = baseline.matches(&codes);
+            let s = shufti.matches(&codes);
+            assert_eq!(
+                b, s,
+                "parity failure: needle={needle:?}, input={input:?}"
+            );
+        }
+    }
     Ok(())
 }

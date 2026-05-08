@@ -125,12 +125,14 @@
 mod flat_contains;
 mod multi_contains;
 mod prefix;
+mod shufti;
 mod skip;
 mod suffix;
 #[cfg(test)]
 mod tests;
 
 use flat_contains::FlatContainsDfa;
+pub(crate) use flat_contains::FlatContainsDfaBaseline;
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use multi_contains::MultiContainsDfa;
