@@ -376,7 +376,6 @@ mod tests {
         assert_arrays_eq!(res, expected);
     }
 
-    #[ignore = "Arrow's ListView cannot be compared"]
     #[test]
     fn test_list_array_comparison() {
         let values1 = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);
@@ -421,7 +420,6 @@ mod tests {
         assert_arrays_eq!(result, expected);
     }
 
-    #[ignore = "Arrow's ListView cannot be compared"]
     #[test]
     fn test_list_array_constant_comparison() {
         let values = PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]);

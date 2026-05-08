@@ -127,6 +127,10 @@ impl LogicalType {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_BLOB)
     }
 
+    pub fn uint32() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER)
+    }
+
     pub fn uint64() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT)
     }
