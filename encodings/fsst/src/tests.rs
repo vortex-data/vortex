@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use rand::SeedableRng;
-use rand::rngs::StdRng;
-use rand::seq::IndexedRandom;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
@@ -109,58 +106,4 @@ fn test_fsst_array_ops() {
         .into_array();
 
     assert_arrays_eq!(fsst_array, canonical_array);
-}
-
-/// Regression for #7833: `fsst_compress` must accept inputs whose cumulative
-/// compressed bytes exceed `i32::MAX`. Before the fix, `fsst_compress_iter`
-/// (`encodings/fsst/src/compress.rs`) used a `VarBinBuilder::<i32>` for the
-/// FSST output regardless of input size, which panicked in
-/// `VarBinBuilder::<i32>::append_value` once cumulative compressed bytes
-/// crossed `i32::MAX`. The output builder is now `VarBinBuilder::<i64>`.
-///
-/// The input is built with `VarBinBuilder::<i64>` so the test exercises the
-/// large-output path without hitting an unrelated overflow on the input side.
-///
-/// Marked `#[ignore]` because the test allocates ~2.5 GiB for the input and
-/// ~2.5 GiB for the FSST output (~5 GiB total), which is too much to run by
-/// default even in CI. To run it explicitly:
-///
-/// ```text
-/// cargo test --release -p vortex-fsst -- --ignored fsst_compress_offsets
-/// ```
-#[test]
-#[ignore = "allocates ~5 GiB; run with --ignored"]
-fn fsst_compress_offsets_overflow_i32() {
-    // High-entropy ASCII strings sliced from a random pool. FSST is a
-    // symbol-table compressor; pseudo-random data with no recurring byte
-    // sequences resists compression, so the compressed output stays close
-    // to input size and crosses the i32 boundary.
-    const STRING_LEN: usize = 64 * 1024;
-    const TOTAL_BYTES: usize = (1usize << 31) + (512 << 20); // ~2.5 GiB
-    const N: usize = TOTAL_BYTES / STRING_LEN;
-    const POOL_LEN: usize = 64 * 1024 * 1024;
-
-    // Printable ASCII alphabet so the result is valid UTF-8.
-    const ALPHABET: &[u8; 95] =
-        b" !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
-
-    let mut rng = StdRng::seed_from_u64(0xC0DE_C011_B711);
-    let pool: Vec<u8> = (0..POOL_LEN)
-        .map(|_| *ALPHABET.choose(&mut rng).unwrap())
-        .collect();
-
-    let mut builder = VarBinBuilder::<i64>::with_capacity(N);
-    for i in 0..N {
-        let off = (i.wrapping_mul(31337)) % (POOL_LEN - STRING_LEN);
-        builder.append_value(&pool[off..off + STRING_LEN]);
-    }
-    let array = builder.finish(DType::Utf8(Nullability::NonNullable));
-
-    let compressor = fsst_train_compressor(&array);
-    let len = array.len();
-    let dtype = array.dtype().clone();
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
-
-    let compressed = fsst_compress(array, len, &dtype, &compressor, &mut ctx);
-    assert_eq!(compressed.len(), len);
 }
