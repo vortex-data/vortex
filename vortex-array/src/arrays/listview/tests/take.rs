@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use rstest::rstest;
 use vortex_buffer::buffer;
+use vortex_session::VortexSession;
 
 use super::common::create_basic_listview;
 use super::common::create_empty_lists_listview;
@@ -11,8 +14,6 @@ use super::common::create_nullable_listview;
 use super::common::create_overlapping_listview;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
-#[expect(deprecated)]
-use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
@@ -20,7 +21,11 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::assert_arrays_eq;
 use crate::compute::conformance::take::test_take_conformance;
+use crate::session::ArraySession;
 use crate::validity::Validity;
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 // Conformance tests for common take scenarios.
 #[rstest]
@@ -35,7 +40,6 @@ fn test_take_listview_conformance(#[case] listview: ListViewArray) {
 
 // ListView-specific tests that aren't covered by conformance.
 
-#[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
 #[test]
 fn test_take_preserves_unreferenced_elements() {
     // ListView-specific: Test that take preserves the entire elements array
@@ -49,8 +53,9 @@ fn test_take_preserves_unreferenced_elements() {
     // Take only 2 lists.
     let indices = buffer![1u32, 3].into_array();
     let result = listview.take(indices).unwrap();
-    #[expect(deprecated)]
-    let result_list = result.to_listview();
+    let result_list = result
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
 
     assert_eq!(result_list.len(), 2);
 
@@ -65,7 +70,6 @@ fn test_take_preserves_unreferenced_elements() {
     assert_eq!(result_list.offset_at(1), 0); // List 3
 }
 
-#[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
 #[test]
 fn test_take_with_gaps() {
     // ListView-specific: Test with gaps in elements array.
@@ -78,8 +82,9 @@ fn test_take_with_gaps() {
 
     let indices = buffer![1u32, 3, 4, 2].into_array();
     let result = listview.take(indices).unwrap();
-    #[expect(deprecated)]
-    let result_list = result.to_listview();
+    let result_list = result
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
 
     // Verify the entire elements array is preserved including gaps.
     assert_arrays_eq!(
@@ -94,7 +99,6 @@ fn test_take_with_gaps() {
     );
 }
 
-#[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
 #[test]
 fn test_take_constant_arrays() {
     // ListView-specific: Test with ConstantArray for offsets/sizes.
@@ -114,8 +118,9 @@ fn test_take_constant_arrays() {
 
     let indices = buffer![3u32, 0, 2].into_array();
     let result = const_offset_list.take(indices).unwrap();
-    #[expect(deprecated)]
-    let result_list = result.to_listview();
+    let result_list = result
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
 
     assert_eq!(result_list.len(), 3);
     assert_eq!(result_list.offset_at(0), 2); // All offsets are 2
@@ -139,8 +144,9 @@ fn test_take_constant_arrays() {
 
     let indices2 = buffer![2u32, 0].into_array();
     let result2 = both_const_list.take(indices2).unwrap();
-    #[expect(deprecated)]
-    let result2_list = result2.to_listview();
+    let result2_list = result2
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
 
     assert_eq!(result2_list.len(), 2);
     assert_eq!(result2_list.offset_at(0), 1);
@@ -149,7 +155,6 @@ fn test_take_constant_arrays() {
     assert_eq!(result2_list.size_at(1), 3);
 }
 
-#[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `take`"]
 #[test]
 fn test_take_extreme_offsets() {
     // ListView-specific: Test with very large offsets to demonstrate
@@ -165,8 +170,9 @@ fn test_take_extreme_offsets() {
     // Take only 2 lists, demonstrating we keep all 10000 elements.
     let indices = buffer![1u32, 4].into_array();
     let result = listview.take(indices).unwrap();
-    #[expect(deprecated)]
-    let result_list = result.to_listview();
+    let result_list = result
+        .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
 
     assert_eq!(result_list.len(), 2);
 

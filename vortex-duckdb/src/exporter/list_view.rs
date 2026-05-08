@@ -167,7 +167,6 @@ mod tests {
     use crate::exporter::new_array_exporter;
 
     #[test]
-    #[ignore = "TODO(connor)[4809]: Exporters do not correctly handle empty vectors"]
     fn test_export_empty_list() {
         let list = unsafe {
             ListViewArray::new_unchecked(
@@ -180,7 +179,7 @@ mod tests {
         }
         .into_array();
 
-        let list_type = LogicalType::list_type(LogicalType::varchar())
+        let list_type = LogicalType::list_type(LogicalType::uint32())
             .vortex_expect("LogicalTypeRef creation should succeed for test data");
         let mut chunk = DataChunk::new([list_type]);
 
@@ -194,7 +193,7 @@ mod tests {
         assert_eq!(
             format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
-- FLAT INTEGER[]: 0 = [ ]
+- FLAT UINTEGER[]: 0 = [ ]
 "#
         );
     }
