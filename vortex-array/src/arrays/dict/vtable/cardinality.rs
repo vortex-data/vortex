@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Sampling-based cardinality estimation for dictionary codes.
+//!
+//! This module is used only as a cheap gate before the exact sparse-dictionary remap pass. The
+//! estimate may be conservative or noisy, but correctness does not depend on it: callers must still
+//! collect the exact unique code set and re-check the sparse threshold before compacting.
+
 use vortex_mask::Mask;
 
 use crate::arrays::PrimitiveArray;
@@ -8,6 +14,11 @@ use crate::dtype::IntegerPType;
 
 const SAMPLE_SIZE: usize = 128;
 
+/// Estimate the number of distinct non-null dictionary codes.
+///
+/// The estimator samples deterministic bucket midpoints so repeated executions make the same
+/// compaction decision for the same input. Returning `None` means no valid sampled codes were seen.
+/// A returned value should only be used to decide whether an exact pass is worth attempting.
 pub(super) fn estimate_code_cardinality<P: IntegerPType>(
     codes: &PrimitiveArray,
     validity_mask: &Mask,
@@ -37,6 +48,10 @@ pub(super) fn estimate_code_cardinality<P: IntegerPType>(
     estimate_cardinality_from_observations(&observed_codes)
 }
 
+/// Estimate total cardinality from `(code, observed_count)` sample observations.
+///
+/// The correction is Chao1-style: singleton-heavy samples imply more unseen codes, while repeated
+/// observations imply the code stream is likely low-cardinality.
 fn estimate_cardinality_from_observations(observed_codes: &[(usize, usize)]) -> Option<usize> {
     if observed_codes.is_empty() {
         return None;
@@ -66,6 +81,10 @@ fn estimate_cardinality_from_observations(observed_codes: &[(usize, usize)]) -> 
     Some(unique_count.saturating_add(unseen_estimate))
 }
 
+/// Return the midpoint index for one deterministic sampling bucket.
+///
+/// Splitting the full code range into buckets avoids clustering all samples near the start while
+/// avoiding RNG state in a hot execution path.
 fn sample_index(sample_idx: usize, len: usize, sample_count: usize) -> usize {
     debug_assert!(len > 0);
     debug_assert!(sample_count > 0);
