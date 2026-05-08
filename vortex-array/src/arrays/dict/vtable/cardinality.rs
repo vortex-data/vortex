@@ -13,6 +13,36 @@ use crate::arrays::PrimitiveArray;
 use crate::dtype::IntegerPType;
 
 const SAMPLE_SIZE: usize = 128;
+const REPEATED_CODE_PROBE_SIZE: usize = 16;
+
+/// Return whether a small deterministic probe observes a repeated non-null code.
+///
+/// Sparse canonicalization always has a cheap worst-case gate before it samples. This probe is the
+/// next, cheaper filter for cases that are not sparse by row count alone: dense dictionaries should
+/// not pay the full estimator cost unless the code stream first shows evidence of repeated codes.
+/// A `true` result only means "run the estimator"; it is not enough to compact by itself.
+pub(super) fn has_repeated_code_sample<P: IntegerPType>(
+    codes: &PrimitiveArray,
+    validity_mask: &Mask,
+) -> bool {
+    let sample_count = codes.len().min(REPEATED_CODE_PROBE_SIZE);
+    let mut observed_codes = Vec::<usize>::with_capacity(sample_count);
+
+    for sample_idx in 0..sample_count {
+        let idx = sample_index(sample_idx, codes.len(), sample_count);
+        if !validity_mask.value(idx) {
+            continue;
+        }
+
+        let code = codes.as_slice::<P>()[idx].as_();
+        if observed_codes.contains(&code) {
+            return true;
+        }
+        observed_codes.push(code);
+    }
+
+    false
+}
 
 /// Estimate the number of distinct non-null dictionary codes.
 ///

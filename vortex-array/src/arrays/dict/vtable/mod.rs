@@ -200,7 +200,9 @@ impl VTable for Dict {
             )));
         }
 
-        if let Some(canonical) = sparse_canonicalize_dict(&array, ctx)? {
+        if !array.has_all_values_referenced()
+            && let Some(canonical) = sparse_canonicalize_dict(&array, ctx)?
+        {
             return Ok(ExecutionResult::done(canonical));
         }
 
@@ -244,13 +246,6 @@ fn sparse_canonicalize_dict(
     array: &DictArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<Canonical>> {
-    // If metadata tells us every dictionary value is referenced, there is no garbage to compact.
-    // This also keeps hot paths such as dictionary comparisons from paying the sparse estimator
-    // cost when they produce dense, all-referenced result dictionaries.
-    if array.has_all_values_referenced() {
-        return Ok(None);
-    }
-
     let codes = array.codes().as_::<Primitive>().into_owned();
     let Some(sparse_codes) = collect_sparse_codes(&codes, array.values().len(), ctx)? else {
         return Ok(None);
@@ -341,6 +336,13 @@ fn should_collect_sparse_codes(
 
     // Otherwise sample first. This catches cases like many live rows all referencing the same
     // dictionary value without forcing dense dictionaries through the exact remap scan.
+    let worth_sampling = match_each_integer_ptype!(codes.ptype(), |P| {
+        cardinality::has_repeated_code_sample::<P>(codes, validity_mask)
+    });
+    if !worth_sampling {
+        return false;
+    }
+
     let Some(estimated_unique_codes) = match_each_integer_ptype!(codes.ptype(), |P| {
         cardinality::estimate_code_cardinality::<P>(codes, validity_mask)
     }) else {
