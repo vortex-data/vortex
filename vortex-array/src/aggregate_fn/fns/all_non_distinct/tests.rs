@@ -499,23 +499,39 @@ fn list_different_offset_dtypes() -> VortexResult<()> {
 
 #[test]
 fn fixed_size_list_identical() -> VortexResult<()> {
-    let a =
-        FixedSizeListArray::try_new(buffer![1i32, 2, 3, 4].into_array(), 2, Validity::NonNullable, 2)?
-            .into_array();
-    let b =
-        FixedSizeListArray::try_new(buffer![1i32, 2, 3, 4].into_array(), 2, Validity::NonNullable, 2)?
-            .into_array();
+    let a = FixedSizeListArray::try_new(
+        buffer![1i32, 2, 3, 4].into_array(),
+        2,
+        Validity::NonNullable,
+        2,
+    )?
+    .into_array();
+    let b = FixedSizeListArray::try_new(
+        buffer![1i32, 2, 3, 4].into_array(),
+        2,
+        Validity::NonNullable,
+        2,
+    )?
+    .into_array();
     assert_matches_baseline(&a, &b)
 }
 
 #[test]
 fn fixed_size_list_different() -> VortexResult<()> {
-    let a =
-        FixedSizeListArray::try_new(buffer![1i32, 2, 3, 4].into_array(), 2, Validity::NonNullable, 2)?
-            .into_array();
-    let b =
-        FixedSizeListArray::try_new(buffer![1i32, 2, 3, 99].into_array(), 2, Validity::NonNullable, 2)?
-            .into_array();
+    let a = FixedSizeListArray::try_new(
+        buffer![1i32, 2, 3, 4].into_array(),
+        2,
+        Validity::NonNullable,
+        2,
+    )?
+    .into_array();
+    let b = FixedSizeListArray::try_new(
+        buffer![1i32, 2, 3, 99].into_array(),
+        2,
+        Validity::NonNullable,
+        2,
+    )?
+    .into_array();
     assert_matches_baseline(&a, &b)
 }
 
@@ -557,7 +573,10 @@ fn chunked_different() -> VortexResult<()> {
     )?
     .into_array();
     let b = ChunkedArray::try_new(
-        vec![buffer![1i32, 2].into_array(), buffer![3i32, 99].into_array()],
+        vec![
+            buffer![1i32, 2].into_array(),
+            buffer![3i32, 99].into_array(),
+        ],
         dtype,
     )?
     .into_array();
