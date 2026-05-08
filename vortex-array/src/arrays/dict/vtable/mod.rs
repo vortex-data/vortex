@@ -189,11 +189,11 @@ impl VTable for Dict {
             )));
         }
 
-        if sparse::should_consider_sparse_canonicalize(array.codes().len(), array.values().len())
-            && !array.has_all_values_referenced()
+        if !array.has_all_values_referenced()
             // `take(FilterArray(...))` is also represented as a dictionary. Compacting that shape
             // burns time before the lazy filter has a chance to push the row mask into its child.
             && !array.values().is::<Filter>()
+            && sparse::should_consider_sparse_canonicalize(array.codes().len(), array.values().len())
             && let Some(canonical) = sparse::sparse_canonicalize_dict(&array, ctx)?
         {
             return Ok(ExecutionResult::done(canonical));
