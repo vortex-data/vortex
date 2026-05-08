@@ -20,6 +20,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::child_to_validity;
@@ -200,7 +201,7 @@ impl VTable for ParquetVariant {
             dtype,
             len,
         )?;
-        let slots = vec![
+        let slots = smallvec![
             validity_to_child(&validity, len),
             Some(variant_metadata),
             value,

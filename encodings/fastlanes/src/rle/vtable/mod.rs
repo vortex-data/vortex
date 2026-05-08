@@ -22,6 +22,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -186,7 +187,7 @@ impl VTable for RLE {
             usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
-        let slots = vec![Some(values), Some(indices), Some(values_idx_offsets)];
+        let slots = smallvec![Some(values), Some(indices), Some(values_idx_offsets)];
         let data = RLEData::try_new(metadata.offset as usize)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -219,7 +220,7 @@ impl RLE {
         length: usize,
     ) -> VortexResult<RLEArray> {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-        let slots = vec![Some(values), Some(indices), Some(values_idx_offsets)];
+        let slots = smallvec![Some(values), Some(indices), Some(values_idx_offsets)];
         let data = RLEData::try_new(offset)?;
         Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
     }
@@ -236,7 +237,7 @@ impl RLE {
         length: usize,
     ) -> RLEArray {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-        let slots = vec![Some(values), Some(indices), Some(values_idx_offsets)];
+        let slots = smallvec![Some(values), Some(indices), Some(values_idx_offsets)];
         let data = unsafe { RLEData::new_unchecked(offset) };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))

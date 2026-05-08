@@ -33,6 +33,7 @@ use vortex_array::scalar::DecimalValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -144,7 +145,7 @@ impl VTable for DecimalByteParts {
             "lower_part_count > 0 not currently supported"
         );
 
-        let slots = vec![Some(msp.clone())];
+        let slots = smallvec![Some(msp.clone())];
         let data = DecimalBytePartsData::try_new(msp.dtype(), msp.len(), *decimal_dtype)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -262,7 +263,7 @@ impl DecimalByteParts {
     ) -> VortexResult<DecimalBytePartsArray> {
         let len = msp.len();
         let dtype = DType::Decimal(decimal_dtype, msp.dtype().nullability());
-        let slots = vec![Some(msp.clone())];
+        let slots = smallvec![Some(msp.clone())];
         let data = DecimalBytePartsData::try_new(msp.dtype(), msp.len(), decimal_dtype)?;
         Ok(unsafe {
             Array::from_parts_unchecked(

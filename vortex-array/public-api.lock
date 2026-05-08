@@ -22684,7 +22684,7 @@ impl<V: vortex_array::VTable> vortex_array::ArrayParts<V>
 
 pub fn vortex_array::ArrayParts<V>::new(V, vortex_array::dtype::DType, usize, <V as vortex_array::VTable>::TypedArrayData) -> Self
 
-pub fn vortex_array::ArrayParts<V>::with_slots(self, impl core::convert::Into<vortex_array::ArraySlots>) -> Self
+pub fn vortex_array::ArrayParts<V>::with_slots(self, vortex_array::ArraySlots) -> Self
 
 pub struct vortex_array::ArrayRef(_)
 
@@ -22790,7 +22790,7 @@ pub fn vortex_array::ArrayRef::validity(&self) -> vortex_error::VortexResult<vor
 
 pub fn vortex_array::ArrayRef::with_slot(self, usize, vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::ArrayRef::with_slots(self, impl core::convert::Into<vortex_array::ArraySlots>) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::ArrayRef::with_slots(self, vortex_array::ArraySlots) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
 impl vortex_array::ArrayRef
 

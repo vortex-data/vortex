@@ -252,7 +252,7 @@ impl VTable for FSST {
                 len,
                 &mut ctx,
             )?;
-            let slots = vec![
+            let slots = smallvec![
                 Some(uncompressed_lengths),
                 Some(codes_offsets),
                 validity_to_child(&codes_validity, len),
