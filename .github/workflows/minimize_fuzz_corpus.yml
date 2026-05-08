@@ -1,8 +1,7 @@
 name: Minimize All Fuzz Corpora
 
-concurrency:
-  group: fuzz
-  cancel-in-progress: false
+# No concurrency group — runs are allowed to overlap. We have safe corpus merge
+
 
 on:
   schedule:

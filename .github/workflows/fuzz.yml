@@ -1,11 +1,6 @@
 name: Fuzz
 
-concurrency:
-  # The group causes runs to queue instead of running in parallel.
-  group: fuzz
-  # This ensures each run builds on the previous run's corpus discoveries rather than losing them to
-  # failed compare-and-swap uploads.
-  cancel-in-progress: false
+# No concurrency group — runs are allowed to overlap. We have safe corpus merge
 
 on:
   schedule:

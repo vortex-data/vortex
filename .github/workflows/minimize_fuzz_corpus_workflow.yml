@@ -83,6 +83,12 @@ jobs:
             exit 0
           fi
 
+      - name: Record original corpus files
+        run: |
+          CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
+          ls "$CORPUS_DIR/" | sort > /tmp/original_files.txt
+          echo "Original corpus: $(wc -l < /tmp/original_files.txt) files"
+
       - name: Minimize corpus
         run: |
           FEATURES_FLAG=""
@@ -94,10 +100,11 @@ jobs:
           mkdir -p "$MINIMIZED_DIR"
           cargo +$NIGHTLY_TOOLCHAIN fuzz cmin $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} "$CORPUS_DIR" -- "$MINIMIZED_DIR"
+          # Replace original with minimized for upload
           rm -rf "$CORPUS_DIR"
           mv "$MINIMIZED_DIR" "$CORPUS_DIR"
 
-      - name: Persist corpus
+      - name: Merge and persist minimized corpus
         shell: bash
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
@@ -105,7 +112,9 @@ jobs:
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
-          CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
-          tar -acf "$CORPUS_KEY" "$CORPUS_DIR"
-          python3 scripts/s3-upload.py --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32
+          python3 scripts/s3-corpus-merge-upload.py \
+            --bucket vortex-fuzz-corpus \
+            --key "${{ inputs.fuzz_target }}_corpus.tar.zst" \
+            --corpus-dir "fuzz/corpus/${{ inputs.fuzz_target }}" \
+            --original-snapshot /tmp/original_files.txt \
+            --checksum-algorithm CRC32

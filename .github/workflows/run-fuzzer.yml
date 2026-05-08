@@ -113,6 +113,45 @@ jobs:
             mkdir -p "$CORPUS_DIR"
           fi
 
+      - name: Capture GPU diagnostics (pre-run)
+        if: inputs.runner == 'gpu' || contains(inputs.extra_features, 'cuda')
+        shell: bash
+        run: |
+          {
+            echo "===== GPU diagnostics (pre-run) ====="
+            echo "phase=pre-run"
+            echo "timestamp=$(date -u --iso-8601=seconds)"
+            echo "hostname=$(hostname)"
+            echo "uname=$(uname -a)"
+            echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>}"
+            echo "NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-<unset>}"
+            echo
+            echo "## CUDA/NVIDIA environment"
+            env | sort | grep -E '^(CUDA|NVIDIA|LD_LIBRARY_PATH|LIBRARY_PATH|PATH=|CARGO_TARGET_|RUSTFLAGS|RUSTC_WRAPPER|ASAN_OPTIONS|UBSAN_OPTIONS|LSAN_OPTIONS|TSAN_OPTIONS)=' || true
+            echo
+            echo "## nvcc location"
+            which nvcc || true
+            echo
+            echo "## nvcc --version"
+            nvcc --version || true
+            echo
+            echo "## nvidia-smi"
+            nvidia-smi || true
+            echo
+            echo "## nvidia-smi -L"
+            nvidia-smi -L || true
+            echo
+            echo "## GPU memory details"
+            nvidia-smi -q -d Memory || true
+            echo
+            echo "## GPU summary"
+            nvidia-smi --query-gpu=index,uuid,name,driver_version,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv || true
+            echo
+            echo "## Active compute processes"
+            nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader || true
+            echo
+          } >> fuzz_output.log
+
       - name: Run fuzzing target
         id: fuzz
         run: |
@@ -129,8 +168,35 @@ jobs:
             $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} -- \
             $FORK_FLAG -max_total_time=${{ inputs.max_time }} -rss_limit_mb=0 \
-            2>&1 | tee fuzz_output.log
+            2>&1 | tee -a fuzz_output.log
         continue-on-error: true
+
+      - name: Capture GPU diagnostics (post-run)
+        if: always() && (inputs.runner == 'gpu' || contains(inputs.extra_features, 'cuda'))
+        shell: bash
+        run: |
+          {
+            echo "===== GPU diagnostics (post-run) ====="
+            echo "phase=post-run"
+            echo "timestamp=$(date -u --iso-8601=seconds)"
+            echo "hostname=$(hostname)"
+            echo "uname=$(uname -a)"
+            echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>}"
+            echo "NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-<unset>}"
+            echo
+            echo "## nvidia-smi"
+            nvidia-smi || true
+            echo
+            echo "## GPU memory details"
+            nvidia-smi -q -d Memory || true
+            echo
+            echo "## GPU summary"
+            nvidia-smi --query-gpu=index,uuid,name,driver_version,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv || true
+            echo
+            echo "## Active compute processes"
+            nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader || true
+            echo
+          } >> fuzz_output.log
 
       - name: Check for crashes
         id: check
@@ -168,7 +234,7 @@ jobs:
             $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} \
             "${{ steps.check.outputs.first_crash }}" \
-            2>&1 | tee fuzz_output.log || true
+            2>&1 | tee -a fuzz_output.log || true
 
       - name: Archive crash artifacts
         id: upload_artifacts
@@ -187,7 +253,8 @@ jobs:
           path: fuzz_output.log
           retention-days: 90
 
-      - name: Persist corpus
+      - name: Merge and persist corpus
+        if: always()
         shell: bash
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
@@ -195,12 +262,11 @@ jobs:
           AWS_REGION: "us-east-1"
           AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
-          CORPUS_KEY="${FUZZ_NAME}_corpus.tar.zst"
-          CORPUS_DIR="fuzz/corpus/${FUZZ_NAME}"
-
-          tar -acf "$CORPUS_KEY" "$CORPUS_DIR"
-
-          python3 scripts/s3-upload.py --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32 --optimistic-lock
+          python3 scripts/s3-corpus-merge-upload.py \
+            --bucket vortex-fuzz-corpus \
+            --key "${FUZZ_NAME}_corpus.tar.zst" \
+            --corpus-dir "fuzz/corpus/${FUZZ_NAME}" \
+            --checksum-algorithm CRC32
 
       - name: Fail job if fuzz run found a bug
         if: steps.check.outputs.crashes_found == 'true'
