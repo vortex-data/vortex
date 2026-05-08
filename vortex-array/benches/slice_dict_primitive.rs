@@ -14,7 +14,7 @@ fn main() {
     divan::main();
 }
 
-const ARRAY_LENGTHS: &[usize] = &[100_000];
+const ARRAY_LENGTHS: &[usize] = &[10_000];
 
 fn build_dict(len: usize) -> DictArray {
     let num_unique = 256;
