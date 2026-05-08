@@ -47,6 +47,26 @@ use super::shufti::ShuftiMask;
 use super::skip::SkipStrategy;
 
 // ---------------------------------------------------------------------------
+// Optional skip-fire instrumentation (feature = "shufti-counters")
+// ---------------------------------------------------------------------------
+
+/// Total number of per-state shufti `find_next` calls across all DFA invocations.
+#[cfg(feature = "shufti-counters")]
+pub static SHUFTI_SKIP_CALLS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Number of calls where `find_next` actually skipped at least one code (returned
+/// `Some(next)` with `next > pos`).
+#[cfg(feature = "shufti-counters")]
+pub static SHUFTI_SKIP_FIRED: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// Total codes skipped across all fired skip calls.
+#[cfg(feature = "shufti-counters")]
+pub static SHUFTI_CODES_SKIPPED: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+// ---------------------------------------------------------------------------
 // Baseline (state-0 skip only) — preserved for benchmarking
 // ---------------------------------------------------------------------------
 
@@ -210,8 +230,21 @@ impl FlatContainsDfa {
             // The accept state is sticky and is checked immediately after each step,
             // so we only need skips for states < accept_state.
             if state < self.n_states {
+                #[cfg(feature = "shufti-counters")]
+                SHUFTI_SKIP_CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
                 match self.shufti[usize::from(state)].find_next(codes, pos) {
-                    Some(next) => pos = next,
+                    Some(next) => {
+                        #[cfg(feature = "shufti-counters")]
+                        if next > pos {
+                            SHUFTI_SKIP_FIRED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            SHUFTI_CODES_SKIPPED.fetch_add(
+                                (next - pos) as u64,
+                                std::sync::atomic::Ordering::Relaxed,
+                            );
+                        }
+                        pos = next;
+                    }
                     None => return false,
                 }
             }

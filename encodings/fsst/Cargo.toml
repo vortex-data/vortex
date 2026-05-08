@@ -29,6 +29,8 @@ vortex-session = { workspace = true }
 
 [features]
 _test-harness = ["dep:rand", "vortex-array/_test-harness"]
+# Enable atomic skip-fire counters in FlatContainsDfa for profiling.
+shufti-counters = []
 
 [dev-dependencies]
 divan = { workspace = true }
@@ -52,9 +54,19 @@ harness = false
 required-features = ["_test-harness"]
 
 [[bench]]
+name = "fsst_like_variants"
+harness = false
+required-features = ["_test-harness"]
+
+[[bench]]
 name = "chunked_dict_fsst_builder"
 harness = false
 required-features = ["_test-harness"]
+
+[[bin]]
+name = "shufti_skip_report"
+path = "src/bin/shufti_skip_report.rs"
+required-features = ["_test-harness", "shufti-counters"]
 
 [package.metadata.cargo-machete]
 ignored = ["fsst-rs"]

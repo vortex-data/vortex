@@ -131,8 +131,12 @@ mod suffix;
 #[cfg(test)]
 mod tests;
 
-use flat_contains::FlatContainsDfa;
+pub(crate) use flat_contains::FlatContainsDfa;
 pub(crate) use flat_contains::FlatContainsDfaBaseline;
+#[cfg(feature = "shufti-counters")]
+pub(crate) use flat_contains::{
+    SHUFTI_CODES_SKIPPED, SHUFTI_SKIP_CALLS, SHUFTI_SKIP_FIRED,
+};
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use multi_contains::MultiContainsDfa;
