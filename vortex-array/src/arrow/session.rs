@@ -141,9 +141,9 @@ pub trait ArrowImportVTable: 'static + Send + Sync + Debug {
 pub type ArrowExportVTableRef = Arc<dyn ArrowExportVTable>;
 pub type ArrowImportVTableRef = Arc<dyn ArrowImportVTable>;
 
-type ExportMap = HashMap<Id, Vec<ArrowExportVTableRef>>;
-type ImportMap = HashMap<Id, Vec<ArrowImportVTableRef>>;
-type ExportInferenceMap = HashMap<ExtId, Vec<ArrowExportVTableRef>>;
+type ExportMap = HashMap<Id, Arc<[ArrowExportVTableRef]>>;
+type ImportMap = HashMap<Id, Arc<[ArrowImportVTableRef]>>;
+type ExportDTypeMap = HashMap<ExtId, Arc<[ArrowExportVTableRef]>>;
 
 /// Session-scoped registry of Arrow extension plugins.
 ///
@@ -157,7 +157,7 @@ type ExportInferenceMap = HashMap<ExtId, Vec<ArrowExportVTableRef>>;
 #[derive(Debug)]
 pub struct ArrowSession {
     exporters: ArcSwap<ExportMap>,
-    exporters_by_vortex: ArcSwap<ExportInferenceMap>,
+    exporters_by_vortex: ArcSwap<ExportDTypeMap>,
     importers: ArcSwap<ImportMap>,
 }
 
@@ -165,7 +165,7 @@ impl Default for ArrowSession {
     fn default() -> Self {
         let session = Self {
             exporters: ArcSwap::from_pointee(ExportMap::default()),
-            exporters_by_vortex: ArcSwap::from_pointee(ExportInferenceMap::default()),
+            exporters_by_vortex: ArcSwap::from_pointee(ExportDTypeMap::default()),
             importers: ArcSwap::from_pointee(ImportMap::default()),
         };
 
@@ -197,32 +197,43 @@ impl ArrowSession {
         Self::insert(&self.importers, importer.arrow_ext_id(), importer);
     }
 
-    fn insert<K, T>(slot: &ArcSwap<HashMap<K, Vec<T>>>, key: K, value: T)
+    fn insert<K, T>(slot: &ArcSwap<HashMap<K, Arc<[T]>>>, key: K, value: T)
     where
         K: Clone + Eq + std::hash::Hash,
         T: Clone,
     {
         slot.rcu(move |map| {
             let mut next = (**map).clone();
-            next.entry(key.clone()).or_default().push(value.clone());
+            let entry = next.entry(key.clone()).or_insert_with(|| Arc::from([]));
+            let mut extended: Vec<T> = entry.iter().cloned().collect();
+            extended.push(value.clone());
+            *entry = Arc::from(extended);
             next
         });
     }
 
-    fn exporters(&self, id: &Id) -> Vec<ArrowExportVTableRef> {
-        self.exporters.load().get(id).cloned().unwrap_or_default()
+    fn exporters(&self, id: &Id) -> Arc<[ArrowExportVTableRef]> {
+        self.exporters
+            .load()
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| Arc::from([]))
     }
 
-    fn exporters_by_vortex(&self, id: &ExtId) -> Vec<ArrowExportVTableRef> {
+    fn exporters_by_vortex(&self, id: &ExtId) -> Arc<[ArrowExportVTableRef]> {
         self.exporters_by_vortex
             .load()
             .get(id)
             .cloned()
-            .unwrap_or_default()
+            .unwrap_or_else(|| Arc::from([]))
     }
 
-    fn importers(&self, id: &Id) -> Vec<ArrowImportVTableRef> {
-        self.importers.load().get(id).cloned().unwrap_or_default()
+    fn importers(&self, id: &Id) -> Arc<[ArrowImportVTableRef]> {
+        self.importers
+            .load()
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| Arc::from([]))
     }
 
     /// Build the Arrow [`Field`] for a Vortex [`DType`].
@@ -235,7 +246,7 @@ impl ArrowSession {
     /// extension metadata on nested fields is preserved.
     pub fn to_arrow_field(&self, name: &str, dtype: &DType) -> VortexResult<Field> {
         if let Some(ext) = dtype.as_extension_opt() {
-            for plugin in self.exporters_by_vortex(&ext.id()) {
+            for plugin in self.exporters_by_vortex(&ext.id()).iter() {
                 if let Some(field) = plugin.to_arrow_field(name, ext)? {
                     return Ok(field);
                 }
@@ -259,7 +270,7 @@ impl ArrowSession {
         Ok(match dtype {
             DType::Extension(ext) => {
                 let mut data_type = None;
-                for plugin in self.exporters_by_vortex(&ext.id()) {
+                for plugin in self.exporters_by_vortex(&ext.id()).iter() {
                     if let Some(field) = plugin.to_arrow_field("", ext)? {
                         data_type = Some(field.data_type().clone());
                         break;
@@ -311,7 +322,7 @@ impl ArrowSession {
     /// Arrow → Vortex mapping via [`DType::from_arrow`].
     pub fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
         if let Some(name) = field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
-            for plugin in self.importers(&Id::new(name)) {
+            for plugin in self.importers(&Id::new(name)).iter() {
                 if let Some(dtype) = plugin.from_arrow_field(field)? {
                     return Ok(dtype);
                 }
@@ -420,7 +431,7 @@ impl ArrowSession {
 
         let len = array.len();
         let mut current = array;
-        for plugin in &exporters {
+        for plugin in exporters.iter() {
             match plugin.execute_arrow(current, target_field, ctx)? {
                 ArrowExport::Exported(arrow) => {
                     vortex_ensure!(
@@ -454,7 +465,7 @@ impl ArrowSession {
                 let dtype = self.from_arrow_field(field)?;
                 if let DType::Extension(ext_dtype) = dtype {
                     let mut current = array;
-                    for plugin in &importers {
+                    for plugin in importers.iter() {
                         match plugin.from_arrow_array(current, &ext_dtype)? {
                             ArrowImport::Imported(arr) => return Ok(arr),
                             ArrowImport::Unsupported(arr) => current = arr,
