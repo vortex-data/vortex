@@ -68,6 +68,8 @@ pub type DictArray = Array<Dict>;
 // TODO: Replace this fixed sparse-dictionary threshold with a cost model that accounts for values
 // encoding, code count, unique-code count, and exporter/canonicalization costs.
 const SPARSE_CANONICALIZE_CODES_PER_VALUE_THRESHOLD: usize = 4;
+const SPARSE_CANONICALIZE_SAMPLED_CODES_PER_VALUE_THRESHOLD: usize = 2;
+const SPARSE_CANONICALIZE_MIN_SAMPLED_VALUES_LEN: usize = 512;
 
 #[derive(Clone, Debug)]
 pub struct Dict;
@@ -200,7 +202,8 @@ impl VTable for Dict {
             )));
         }
 
-        if !array.has_all_values_referenced()
+        if should_consider_sparse_canonicalize(array.codes().len(), array.values().len())
+            && !array.has_all_values_referenced()
             && let Some(canonical) = sparse_canonicalize_dict(&array, ctx)?
         {
             return Ok(ExecutionResult::done(canonical));
@@ -242,6 +245,8 @@ struct SparseDictCodes {
     remapped_codes: PrimitiveArray,
 }
 
+#[cold]
+#[inline(never)]
 fn sparse_canonicalize_dict(
     array: &DictArray,
     ctx: &mut ExecutionCtx,
@@ -334,6 +339,10 @@ fn should_collect_sparse_codes(
         return true;
     }
 
+    if !should_sample_sparse_canonicalize(codes.len(), values_len) {
+        return false;
+    }
+
     // Otherwise sample first. This catches cases like many live rows all referencing the same
     // dictionary value without forcing dense dictionaries through the exact remap scan.
     let worth_sampling = match_each_integer_ptype!(codes.ptype(), |P| {
@@ -351,6 +360,21 @@ fn should_collect_sparse_codes(
 
     estimated_unique_codes.saturating_mul(SPARSE_CANONICALIZE_CODES_PER_VALUE_THRESHOLD)
         < values_len
+}
+
+#[inline]
+fn should_consider_sparse_canonicalize(codes_len: usize, values_len: usize) -> bool {
+    codes_len.saturating_mul(SPARSE_CANONICALIZE_CODES_PER_VALUE_THRESHOLD) < values_len
+        || should_sample_sparse_canonicalize(codes_len, values_len)
+}
+
+#[inline]
+fn should_sample_sparse_canonicalize(codes_len: usize, values_len: usize) -> bool {
+    // Sampling is only a preflight for cases that are not sparse by row count alone. Keep it away
+    // from tiny dictionary domains and near-dense slices where the estimator overhead dominates.
+    values_len >= SPARSE_CANONICALIZE_MIN_SAMPLED_VALUES_LEN
+        && codes_len.saturating_mul(SPARSE_CANONICALIZE_SAMPLED_CODES_PER_VALUE_THRESHOLD)
+            < values_len
 }
 
 fn collect_sparse_codes_typed<P: IntegerPType + FromPrimitive>(
@@ -431,7 +455,7 @@ mod tests {
     fn sampled_sparse_codes_remaps_repeated_large_codes() -> VortexResult<()> {
         let codes = PrimitiveArray::from_iter((0..1024).map(|_| 42u32));
         let Some(sparse) =
-            collect_sparse_codes(&codes, 100, &mut LEGACY_SESSION.create_execution_ctx())?
+            collect_sparse_codes(&codes, 3000, &mut LEGACY_SESSION.create_execution_ctx())?
         else {
             panic!("sampled codes are sparse");
         };
@@ -450,10 +474,10 @@ mod tests {
 
     #[test]
     fn dense_sample_skips_sparse_code_collection() -> VortexResult<()> {
-        let codes = PrimitiveArray::from_iter((0..1024).map(|idx| (idx % 100) as u32));
+        let codes = PrimitiveArray::from_iter((0..1024).map(|idx| idx as u32));
 
         assert!(
-            collect_sparse_codes(&codes, 100, &mut LEGACY_SESSION.create_execution_ctx())?
+            collect_sparse_codes(&codes, 3000, &mut LEGACY_SESSION.create_execution_ctx())?
                 .is_none()
         );
 
@@ -484,7 +508,7 @@ mod tests {
     fn sampled_sparse_dict_canonicalizes_repeated_codes() -> VortexResult<()> {
         let dict = DictArray::new(
             PrimitiveArray::from_iter((0..1024).map(|_| 42u32)).into_array(),
-            PrimitiveArray::from_iter(0..100i32).into_array(),
+            PrimitiveArray::from_iter(0..3000i32).into_array(),
         );
 
         let actual = dict
