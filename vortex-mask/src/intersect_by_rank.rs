@@ -429,6 +429,21 @@ where
     intersect_mask_driven::<Portable, _>(self_buffer, mask_indices, true_count)
 }
 
+/// Check if a mask is sparse.
+///
+/// BitBuffer traversal uses u64, hence we conclude that one or fewer values per u64 is sparse
+fn mask_is_sparse(values: &Arc<MaskValues>) -> bool {
+    values.true_count().saturating_mul(64) < values.len()
+}
+
+/// Check if a rank mask is sparse
+///
+/// The mask-driven path becomes worthwhile around ~3% mask density: each set
+/// bit costs a select and push, but we save a per-self-chunk popcount + deposit.
+fn rank_mask_is_sparse(values: &Arc<MaskValues>) -> bool {
+    values.true_count().saturating_mul(32) < values.len()
+}
+
 impl Mask {
     /// Take the intersection of the `mask` with the set of true values in `self`.
     ///
@@ -456,22 +471,21 @@ impl Mask {
             (_, Self::AllTrue(_)) => self.clone(),
             (Self::AllFalse(_), _) | (_, Self::AllFalse(_)) => Self::new_false(self.len()),
             (Self::Values(self_values), Self::Values(mask_values)) => {
-                // There's 4 cases we consider:
-                // 1. Self is very sparse, Mask is very sparse
-                // 2. Self is dense, Mask is very sparse
-                // 3. Both are very sparse
-                // 4. Both are dense
-                let self_is_very_sparse = self_values.true_count() < self.len().div_ceil(64);
-                // The mask-driven path becomes worthwhile around ~3% mask density: each set
-                // bit costs a select + push, but we save a per-self-chunk popcount + deposit.
-                let mask_is_very_sparse = mask_values.true_count().saturating_mul(32) < mask.len();
-
+                // Four dispatch cases keyed by (self density, mask density):
+                //
+                //              | mask sparse | mask dense
+                // -------------+-------------+------------
+                // self sparse  | indices     | indices
+                // self dense   | mask-driven | bit-buffer
                 if let Some(mask_indices) = mask_values.indices.get() {
                     if let Some(self_indices) = self_values.indices.get()
                         && mask_indices.len() < self.len().div_ceil(64)
                     {
                         return intersect_by_rank_indices(self.len(), self_indices, mask_indices);
                     }
+
+                    let self_is_very_sparse = mask_is_sparse(self_values);
+                    let mask_is_very_sparse = rank_mask_is_sparse(mask_values);
 
                     if self_is_very_sparse {
                         return intersect_by_rank_indices(
@@ -499,6 +513,9 @@ impl Mask {
 
                     return intersect_rank_indices_dispatch(self_values.bit_buffer(), mask_indices);
                 }
+
+                let self_is_very_sparse = mask_is_sparse(self_values);
+                let mask_is_very_sparse = rank_mask_is_sparse(mask_values);
 
                 if self_is_very_sparse {
                     return intersect_by_rank_indices(
