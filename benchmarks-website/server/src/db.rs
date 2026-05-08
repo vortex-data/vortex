@@ -3,9 +3,10 @@
 
 //! DuckDB connection management plus the deterministic `measurement_id` hash.
 //!
-//! The server holds a single [`duckdb::Connection`] inside an async
-//! [`tokio::sync::Mutex`]. All DB work runs inside `spawn_blocking` so the
-//! Tokio runtime is never blocked on synchronous DuckDB calls.
+//! The server keeps one root [`duckdb::Connection`] and clones a fresh
+//! connection from it for each blocking DB task. All DB work runs inside
+//! `spawn_blocking` so the Tokio runtime is never blocked on synchronous
+//! DuckDB calls.
 //!
 //! `measurement_id` is a server-internal xxhash64 over `commit_sha` plus
 //! each table's dimensional tuple. Including `commit_sha` makes every
@@ -21,7 +22,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use anyhow::Result;
 use duckdb::Connection;
-use tokio::sync::Mutex;
+use parking_lot::Mutex;
 use twox_hash::XxHash64;
 
 use crate::records::CompressionSize;
@@ -31,8 +32,25 @@ use crate::records::RandomAccessTime;
 use crate::records::VectorSearchRun;
 use crate::schema::SCHEMA_DDL;
 
-/// A connection guard the rest of the crate hands around.
-pub type DbHandle = Arc<Mutex<Connection>>;
+/// Shared DuckDB handle. Cloning the handle is cheap; each DB task clones a
+/// task-local [`Connection`] before doing work.
+#[derive(Clone)]
+pub struct DbHandle {
+    root: Arc<Mutex<Connection>>,
+}
+
+impl DbHandle {
+    fn new(root: Connection) -> Self {
+        Self {
+            root: Arc::new(Mutex::new(root)),
+        }
+    }
+
+    fn connection(&self) -> Result<Connection> {
+        let root = self.root.lock();
+        root.try_clone().context("cloning DuckDB connection")
+    }
+}
 
 /// Open the DuckDB file at `path` (creating it if absent) and apply the
 /// schema DDL. Returns a handle ready to be cloned into the Axum state.
@@ -41,11 +59,11 @@ pub fn open<P: AsRef<Path>>(path: P) -> Result<DbHandle> {
         .with_context(|| format!("opening DuckDB at {}", path.as_ref().display()))?;
     conn.execute_batch(SCHEMA_DDL)
         .context("applying schema DDL")?;
-    Ok(Arc::new(Mutex::new(conn)))
+    Ok(DbHandle::new(conn))
 }
 
-/// Run a synchronous DB operation on the blocking pool, holding the connection
-/// mutex for the duration of the call.
+/// Run a synchronous DB operation on the blocking pool using a task-local
+/// DuckDB connection cloned from the shared database handle.
 pub async fn run_blocking<F, T>(handle: &DbHandle, f: F) -> Result<T>
 where
     F: FnOnce(&mut Connection) -> Result<T> + Send + 'static,
@@ -53,8 +71,8 @@ where
 {
     let handle = handle.clone();
     tokio::task::spawn_blocking(move || {
-        let mut guard = handle.blocking_lock();
-        f(&mut guard)
+        let mut conn = handle.connection()?;
+        f(&mut conn)
     })
     .await
     .context("DB task panicked")?

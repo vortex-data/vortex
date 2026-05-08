@@ -10375,6 +10375,7 @@ dependencies = [
  "flate2",
  "insta",
  "maud",
+ "parking_lot",
  "reqwest 0.13.3",
  "serde",
  "serde_json",
