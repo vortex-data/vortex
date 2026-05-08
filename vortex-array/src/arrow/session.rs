@@ -31,7 +31,9 @@ use arrow_array::RecordBatch;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
+use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
+use arrow_schema::extension::ExtensionType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::Ref;
@@ -564,6 +566,24 @@ impl ArrowSession {
     }
 }
 
+// NOTE(aduffy): We should remove this once we bump Arrow to 0.59.0. This is replicating the
+//  `Field::has_valid_extension_type` method on Arrow added in 58.2.0, we polyfill it here so that
+//  this crate can build with minimal-versions declared.
+pub(crate) fn has_valid_extension_type<E: ExtensionType>(field: &Field) -> bool {
+    if field.extension_type_name() != Some(E::NAME) {
+        return false;
+    }
+
+    let ext_metadata = field
+        .metadata()
+        .get(EXTENSION_TYPE_METADATA_KEY)
+        .map(|s| s.as_str());
+
+    E::deserialize_metadata(ext_metadata)
+        .and_then(|metadata| E::validate(field.data_type(), metadata))
+        .is_ok()
+}
+
 impl SessionVar for ArrowSession {
     fn as_any(&self) -> &dyn Any {
         self
@@ -628,7 +648,7 @@ mod tests {
     fn to_arrow_field_top_level_uuid_carries_extension_metadata() -> VortexResult<()> {
         let session = ArrowSession::default();
         let field = session.to_arrow_field("id", &uuid_dtype(false))?;
-        assert!(field.has_valid_extension_type::<ArrowUuid>());
+        assert!(has_valid_extension_type::<ArrowUuid>(&field));
         Ok(())
     }
 
@@ -645,7 +665,7 @@ mod tests {
         };
         assert_eq!(inner.len(), 1);
         assert_eq!(inner[0].data_type(), &DataType::FixedSizeBinary(16));
-        assert!(inner[0].has_valid_extension_type::<ArrowUuid>());
+        assert!(has_valid_extension_type::<ArrowUuid>(&inner[0]));
         Ok(())
     }
 
@@ -657,7 +677,7 @@ mod tests {
         let DataType::List(elem) = field.data_type() else {
             panic!("expected List, got {:?}", field.data_type());
         };
-        assert!(elem.has_valid_extension_type::<ArrowUuid>());
+        assert!(has_valid_extension_type::<ArrowUuid>(elem));
         Ok(())
     }
 
@@ -670,7 +690,7 @@ mod tests {
             panic!("expected FixedSizeList, got {:?}", field.data_type());
         };
         assert_eq!(*size, 3);
-        assert!(elem.has_valid_extension_type::<ArrowUuid>());
+        assert!(has_valid_extension_type::<ArrowUuid>(elem));
         Ok(())
     }
 
@@ -690,7 +710,7 @@ mod tests {
         let DataType::Struct(inner_fields) = payload.data_type() else {
             panic!("expected Struct, got {:?}", payload.data_type());
         };
-        assert!(inner_fields[0].has_valid_extension_type::<ArrowUuid>());
+        assert!(has_valid_extension_type::<ArrowUuid>(&inner_fields[0]));
         Ok(())
     }
 
