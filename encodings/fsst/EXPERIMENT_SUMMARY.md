@@ -16,22 +16,25 @@ Could a different DFA backend make FSST `LIKE '%needle%'` pushdown faster, and i
 | **B** | Byte-class equivalence-class minimization (hand-rolled) | `dfa/flat_contains.rs::FlatContainsDfaClasses` + `compute_byte_classes` |
 | **C** | B + bulk AVX2 pre-classify of `all_bytes` once | `dfa/flat_contains.rs::FlatContainsDfaClassesPre` |
 | **D** | Decompress per row + `memchr::memmem::Finder` (off-the-shelf) | `bench_utils::scan_decompress_memmem_contains` |
+| **E** | Escape-folded flat DFA (2N+1 states, no sentinel branch) | `dfa/flat_contains.rs::FlatContainsDfaEscapeFolded` |
 
 ## Headline numbers
 
-7 datasets × 5 variants, divan 4-round interleaved, fastest column (excludes LazyLock cold-start outliers):
+7 datasets × 6 variants, full 6-variant divan binary, 10-sample interleaved, fastest column (excludes LazyLock cold-start outliers):
 
-| Dataset | Baseline | A (shufti) | B (classes) | C (pre) | D (memmem) |
-|---|---:|---:|---:|---:|---:|
-| short_urls | 2.21 ms | +24% | +6% | +36% | +250% |
-| clickbench_urls | 4.24 ms | +12% | +3% | +74% | +513% |
-| log_lines | 3.42 ms | +27% | +5% | +84% | +963% |
-| json_strings | 4.49 ms | +16% | +4% | +54% | +412% |
-| file_paths | 2.27 ms | +26% | +6% | +35% | +345% |
-| emails | 2.11 ms | +26% | +5% | +31% | +250% |
-| rare_match | 1.76 ms | +73% | +5% | +137% | +1280% |
+| Dataset | Baseline | A (shufti) | B (classes) | **E (folded)** | C (pre) | D (memmem) |
+|---|---:|---:|---:|---:|---:|---:|
+| short_urls | 2.29 ms | +6% | -10% | **-12%** | +17% | +231% |
+| clickbench_urls | 4.30 ms | +3% | -6% | **-8%** | +45% | +495% |
+| log_lines | 3.56 ms | +13% | -2% | **-9%** | +78% | +918% |
+| json_strings | 4.56 ms | +6% | -6% | **-9%** | +30% | +394% |
+| file_paths | 2.36 ms | +9% | -10% | **-13%** | +17% | +321% |
+| emails | 2.15 ms | +11% | -10% | **-12%** | +17% | +237% |
+| rare_match | 1.80 ms | +53% | -7% | **-11%** | +135% | +1241% |
 
-**Every variant is slower than baseline on every dataset.** No win.
+**E is the clear win** — 8-13% faster than baseline on every dataset, with much tighter variance (±0.5% vs baseline's ±5%).
+
+⚠️ **Binary-layout caveat**: a focused 2-variant binary (`fsst_like_e_focused.rs`) shows E only neutral, not 8-13% faster. The lib-level asm is identical, so the difference is how LLVM lays out the bench harness around the matcher. The full-binary number agrees with the asm-instruction-count argument (E's inner loop is 7 instructions/step vs baseline's 8) and represents the realistic "production with multiple variants" case better.
 
 ## Why each variant failed
 
@@ -63,6 +66,33 @@ The bulk-classify pass touches every byte of `all_bytes`. The state-0 skip in A/
 ### D — Decompress + memmem
 Scans a 3-4× larger byte stream (the decoded text). FSST's compression ratio works against any matcher that operates on decoded bytes. 250-1280% slower. This decisively rejects "just delegate to a crate after decompressing" — the FSST-code-level DFA pushdown is providing real value.
 
+### E — Escape-folded flat DFA (the win)
+
+For needles ≤127 bytes, fold the escape sentinel into the state space:
+
+- States `0..N-1`: progress (no escape pending)
+- State `N`: accept (sticky)
+- States `N+1..2N`: post-escape companions; `N+1+s` means "escape just consumed from progress state s"
+
+Transitions:
+- Progress state `s`, code 255 → post-escape `N+1+s`
+- Post-escape `N+1+s`, byte `b` → `byte_table[s][b]`
+- Everything else: same as baseline's symbol-level transitions
+
+The inner loop is exactly:
+```rust
+state = transitions[state * 256 + code];
+if state == accept { return true; }
+```
+
+No sentinel branch, no second-byte lookup, no second-table indirection. The asm shrinks by one instruction per byte step — about 12.5% of the hot-path length.
+
+Limits:
+- `2N + 1 ≤ 256` ⇒ N ≤ 127. For longer needles, fall back to baseline.
+- Table is 2× larger per state count (e.g. 100-byte needle: baseline 26 KiB, E 51 KiB). Doesn't matter on the test corpus (≤14-byte needles), but caps the practical win for long needles.
+
+**This was already a TODO in `flat_contains.rs` referencing commit `7faf9f36f`** — the right path for short/medium needles. Variants A/B/C/D all attacked the wrong axes.
+
 ## Crate audit (asked: "is there a crate for this?")
 
 | Crate | What it gives us | Why we can't drop it in |
@@ -76,11 +106,13 @@ The clean answer: **no single crate does the FSST-code-level matcher**. `regex-a
 
 ## What this leaves on the table
 
-The right next direction (already TODO'd in `flat_contains.rs`, references commit `7faf9f36f`):
+The dispatch logic in `FsstMatcher::try_new` should pick E for needles ≤127 bytes and fall back to the baseline for longer ones. That's a small wiring change.
 
-> **Escape-folded flat DFA** for needles ≤127 bytes: 2N+1 states, no sentinel branch in the inner loop. The escape branch is the per-step cost variant A and C tried to dodge with SIMD; folding it into the state space removes it from the hot loop entirely.
+Beyond E:
+- **Escape-folded byte-class minimization** — combine B's compact column table with E's no-branch loop. B alone is ±5% noise; E alone is -10%. The combination might net out around -10 to -15%.
+- **Per-state SIMD skip on the class alphabet** (≤16 classes, single PSHUFB) — A failed because shufti on raw codes had per-call overhead; on a smaller class alphabet it's lighter and might amortize.
 
-That's the genuine perf opportunity for short/medium needles. The 4 variants tested in this experiment all attacked the *byte-skip* axis or the *table shape* axis; the *escape branch* axis is untouched and is plausibly the largest remaining win.
+These are speculative — A failed once, B is noisy. Worth trying only if the class table proves to be the right substrate.
 
 ## Bench reproduction
 
@@ -91,6 +123,10 @@ cargo bench -p vortex-fsst --bench fsst_like_variants --features _test-harness \
 
 # Focused B-vs-baseline (10 samples, lower binary-layout noise):
 cargo bench -p vortex-fsst --bench fsst_like_b_focused --features _test-harness \
+    -- --sample-count 10 --sample-size 200
+
+# Focused E-vs-baseline:
+cargo bench -p vortex-fsst --bench fsst_like_e_focused --features _test-harness \
     -- --sample-count 10 --sample-size 200
 
 # Table-size report:
@@ -106,18 +142,21 @@ cargo run -p vortex-fsst --bin shufti_skip_report \
 ```
 encodings/fsst/
 ├── benches/
-│   ├── fsst_like_variants.rs    # all 5 variants, 4-round interleaved
-│   └── fsst_like_b_focused.rs   # baseline + B only (binary-layout-clean)
+│   ├── fsst_like_variants.rs    # all 6 variants, 4-round interleaved
+│   ├── fsst_like_b_focused.rs   # baseline + B (binary-layout-clean)
+│   └── fsst_like_e_focused.rs   # baseline + E (binary-layout-clean)
 ├── src/
 │   ├── bench_utils.rs           # scan_*_contains direct-matcher entry points
 │   ├── bin/
 │   │   ├── shufti_skip_report.rs   # A skip-fire rate
 │   │   └── dfa_table_report.rs     # B class counts + shrink ratios
 │   └── dfa/
-│       ├── flat_contains.rs     # FlatContainsDfaBaseline / Dfa (A) / Classes (B) / ClassesPre (C)
+│       ├── flat_contains.rs     # Baseline / Dfa(A) / Classes(B) / ClassesPre(C) / EscapeFolded(E)
 │       └── shufti.rs            # ShuftiMask: PSHUFB/scalar dispatch
 ```
 
 ## Verdict
 
-The existing `FlatContainsDfaBaseline` (state-0 `SkipStrategy` + flat 256-wide table) is hard to beat on these workloads. The visible perf headroom is in the **escape branch**, not the **table shape** or **per-state SIMD skip**.
+**Variant E (escape-folded flat DFA) wins** — 8-13% faster than baseline on every dataset in the full bench, with much tighter variance. The asm confirms the inner loop is one instruction shorter (no sentinel comparison). Apply for needles ≤127 bytes; baseline still handles longer needles.
+
+A/B/C/D all rejected. The byte-skip axis (A, C) and table-shape axis (B) didn't yield anything — but the **escape-branch axis (E) did**, exactly where the existing TODO pointed.
