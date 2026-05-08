@@ -9,6 +9,7 @@ use std::sync::Arc;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitChunkIterator;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 
 use crate::Mask;
 use crate::MaskValues;
@@ -332,35 +333,20 @@ where
         return Mask::new_false(len);
     }
 
-    let chunks = self_buffer.chunks();
-    let remainder = chunks.remainder_bits();
-    let mut chunk_iter = chunks.iter();
+    let mut chunk_iter = self_buffer.chunks().iter_padded();
 
-    let (mut current_chunk, mut on_remainder) = match chunk_iter.next() {
-        Some(c) => (c, false),
-        None => (remainder, true),
-    };
+    let mut current_chunk = chunk_iter.next().unwrap_or(0);
     let mut current_count = current_chunk.count_ones() as usize;
     let mut current_chunk_idx = 0usize;
     let mut rank_before = 0usize;
 
-    let mut output: Vec<usize> = Vec::with_capacity(true_count);
+    let mut output = Vec::with_capacity(true_count);
 
     for global_rank in mask_indices {
         while rank_before + current_count <= global_rank {
             rank_before += current_count;
             current_chunk_idx += 1;
-            current_chunk = match chunk_iter.next() {
-                Some(c) => c,
-                None if !on_remainder => {
-                    on_remainder = true;
-                    remainder
-                }
-                None => {
-                    debug_assert!(false, "mask index out of bounds");
-                    0
-                }
-            };
+            current_chunk = chunk_iter.next().vortex_expect("mask index out of bounds");
             current_count = current_chunk.count_ones() as usize;
         }
 
@@ -470,6 +456,11 @@ impl Mask {
             (_, Self::AllTrue(_)) => self.clone(),
             (Self::AllFalse(_), _) | (_, Self::AllFalse(_)) => Self::new_false(self.len()),
             (Self::Values(self_values), Self::Values(mask_values)) => {
+                // There's 4 cases we consider:
+                // 1. Self is very sparse, Mask is very sparse
+                // 2. Self is dense, Mask is very sparse
+                // 3. Both are very sparse
+                // 4. Both are dense
                 let self_is_very_sparse = self_values.true_count() < self.len().div_ceil(64);
                 // The mask-driven path becomes worthwhile around ~3% mask density: each set
                 // bit costs a select + push, but we save a per-self-chunk popcount + deposit.
