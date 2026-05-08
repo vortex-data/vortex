@@ -24,6 +24,7 @@ use crate::exporter::ColumnExporter;
 use crate::exporter::all_invalid;
 use crate::exporter::cache::ConversionCache;
 use crate::exporter::constant;
+use crate::exporter::dict_cardinality::estimate_code_cardinality;
 use crate::exporter::new_array_exporter;
 
 struct DictExporter<I: IntegerPType> {
@@ -36,7 +37,6 @@ struct DictExporter<I: IntegerPType> {
 // TODO: Replace this fixed sparse-dictionary threshold with a cost model that accounts for values
 // encoding, code count, unique-code count, and exporter/canonicalization costs.
 const SPARSE_EXPORT_CODES_PER_VALUE_THRESHOLD: usize = 4;
-const SPARSE_EXPORT_SAMPLE_SIZE: usize = 128;
 
 pub(crate) fn new_exporter_with_flatten(
     array: &DictArray,
@@ -153,74 +153,6 @@ fn should_export_sparse(codes: &PrimitiveArray, values_len: usize, codes_mask: &
     };
 
     estimated_unique_codes.saturating_mul(SPARSE_EXPORT_CODES_PER_VALUE_THRESHOLD) < values_len
-}
-
-fn estimate_code_cardinality<I: IntegerPType>(
-    codes: &PrimitiveArray,
-    codes_mask: &Mask,
-) -> Option<usize> {
-    let sample_count = codes.len().min(SPARSE_EXPORT_SAMPLE_SIZE);
-    let mut observed_codes = Vec::<(usize, usize)>::new();
-
-    for sample_idx in 0..sample_count {
-        let idx = sample_index(sample_idx, codes.len(), sample_count);
-        if !codes_mask.value(idx) {
-            continue;
-        }
-
-        let code = codes.as_slice::<I>()[idx].as_();
-        if let Some((_, count)) = observed_codes
-            .iter_mut()
-            .find(|(observed, _)| *observed == code)
-        {
-            *count += 1;
-        } else {
-            observed_codes.push((code, 1));
-        }
-    }
-
-    if observed_codes.is_empty() {
-        return None;
-    }
-
-    let unique_count = observed_codes.len();
-    let singleton_count = observed_codes
-        .iter()
-        .filter(|(_, count)| *count == 1)
-        .count();
-    let doubleton_count = observed_codes
-        .iter()
-        .filter(|(_, count)| *count == 2)
-        .count();
-
-    let unseen_estimate = if doubleton_count == 0 {
-        singleton_count.saturating_mul(singleton_count.saturating_sub(1)) / 2
-    } else {
-        div_ceil(
-            singleton_count.saturating_mul(singleton_count),
-            2 * doubleton_count,
-        )
-    };
-
-    Some(unique_count.saturating_add(unseen_estimate))
-}
-
-fn sample_index(sample_idx: usize, len: usize, sample_count: usize) -> usize {
-    debug_assert!(len > 0);
-    debug_assert!(sample_count > 0);
-
-    let sample_idx = sample_idx as u128;
-    let len = len as u128;
-    let sample_count = sample_count as u128;
-    let bucket_start = sample_idx * len / sample_count;
-    let bucket_end = (sample_idx + 1) * len / sample_count;
-
-    ((bucket_start + bucket_end) / 2).min(len - 1) as usize
-}
-
-fn div_ceil(numerator: usize, denominator: usize) -> usize {
-    debug_assert!(denominator > 0);
-    numerator / denominator + usize::from(!numerator.is_multiple_of(denominator))
 }
 
 impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {

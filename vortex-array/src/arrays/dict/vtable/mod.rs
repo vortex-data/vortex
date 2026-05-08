@@ -54,6 +54,7 @@ use crate::scalar::Scalar;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 
+mod cardinality;
 mod kernel;
 mod operations;
 mod validity;
@@ -64,7 +65,6 @@ pub type DictArray = Array<Dict>;
 // TODO: Replace this fixed sparse-dictionary threshold with a cost model that accounts for values
 // encoding, code count, unique-code count, and exporter/canonicalization costs.
 const SPARSE_CANONICALIZE_CODES_PER_VALUE_THRESHOLD: usize = 4;
-const SPARSE_CANONICALIZE_SAMPLE_SIZE: usize = 128;
 
 #[derive(Clone, Debug)]
 pub struct Dict;
@@ -231,7 +231,9 @@ impl VTable for Dict {
 }
 
 struct SparseDictCodes {
+    /// Original dictionary value indices that are actually referenced by the live codes.
     unique_codes: PrimitiveArray,
+    /// Codes rewritten to index into `unique_codes` instead of the original values array.
     remapped_codes: PrimitiveArray,
 }
 
@@ -244,6 +246,10 @@ fn sparse_canonicalize_dict(
         return Ok(None);
     };
 
+    // Build a temporary parent that represents `values.take(unique_codes)`. Calling
+    // `execute_parent` on the values child lets encodings such as FSST/VarBin sparse-take just
+    // the referenced dictionary values. If the child has no specialized parent execution, fall
+    // back to canonicalizing all values and then taking from the canonical array.
     let values = array.values();
     let unique_values_parent = DictArray::new(
         sparse_codes.unique_codes.clone().into_array(),
@@ -262,6 +268,9 @@ fn sparse_canonicalize_dict(
             .into_array()
     };
 
+    // Now the dictionary is dense over its compacted values, so normal dictionary execution only
+    // takes from the small `unique_values` array. This avoids `values.take(codes)` preserving a
+    // large dictionary with many unused values.
     let compact_dict = unsafe {
         DictArray::new_unchecked(sparse_codes.remapped_codes.into_array(), unique_values)
             .set_all_values_referenced(true)
@@ -281,6 +290,8 @@ fn collect_sparse_codes(
     let validity = codes.validity()?;
     let validity_mask = validity.execute_mask(codes.len(), ctx)?;
 
+    // The exact pass below scans every code and allocates a remap table sized to the values array.
+    // Do it only when a cheap upper bound/sample says the dictionary is likely sparse enough.
     if !should_collect_sparse_codes(codes, values_len, &validity_mask) {
         return Ok(None);
     }
@@ -303,6 +314,8 @@ fn should_collect_sparse_codes(
         return false;
     }
 
+    // If even the worst case "every live code is unique" is sparse, skip sampling and go straight
+    // to the exact remap pass.
     if codes
         .len()
         .saturating_mul(SPARSE_CANONICALIZE_CODES_PER_VALUE_THRESHOLD)
@@ -311,82 +324,16 @@ fn should_collect_sparse_codes(
         return true;
     }
 
+    // Otherwise sample first. This catches cases like many live rows all referencing the same
+    // dictionary value without forcing dense dictionaries through the exact remap scan.
     let Some(estimated_unique_codes) = match_each_integer_ptype!(codes.ptype(), |P| {
-        estimate_code_cardinality::<P>(codes, validity_mask)
+        cardinality::estimate_code_cardinality::<P>(codes, validity_mask)
     }) else {
         return false;
     };
 
     estimated_unique_codes.saturating_mul(SPARSE_CANONICALIZE_CODES_PER_VALUE_THRESHOLD)
         < values_len
-}
-
-fn estimate_code_cardinality<P: IntegerPType>(
-    codes: &PrimitiveArray,
-    validity_mask: &Mask,
-) -> Option<usize> {
-    let sample_count = codes.len().min(SPARSE_CANONICALIZE_SAMPLE_SIZE);
-    let mut observed_codes = Vec::<(usize, usize)>::new();
-
-    for sample_idx in 0..sample_count {
-        let idx = sample_index(sample_idx, codes.len(), sample_count);
-        if !validity_mask.value(idx) {
-            continue;
-        }
-
-        let code = codes.as_slice::<P>()[idx].as_();
-        if let Some((_, count)) = observed_codes
-            .iter_mut()
-            .find(|(observed, _)| *observed == code)
-        {
-            *count += 1;
-        } else {
-            observed_codes.push((code, 1));
-        }
-    }
-
-    if observed_codes.is_empty() {
-        return None;
-    }
-
-    let unique_count = observed_codes.len();
-    let singleton_count = observed_codes
-        .iter()
-        .filter(|(_, count)| *count == 1)
-        .count();
-    let doubleton_count = observed_codes
-        .iter()
-        .filter(|(_, count)| *count == 2)
-        .count();
-
-    let unseen_estimate = if doubleton_count == 0 {
-        singleton_count.saturating_mul(singleton_count.saturating_sub(1)) / 2
-    } else {
-        div_ceil(
-            singleton_count.saturating_mul(singleton_count),
-            2 * doubleton_count,
-        )
-    };
-
-    Some(unique_count.saturating_add(unseen_estimate))
-}
-
-fn sample_index(sample_idx: usize, len: usize, sample_count: usize) -> usize {
-    debug_assert!(len > 0);
-    debug_assert!(sample_count > 0);
-
-    let sample_idx = sample_idx as u128;
-    let len = len as u128;
-    let sample_count = sample_count as u128;
-    let bucket_start = sample_idx * len / sample_count;
-    let bucket_end = (sample_idx + 1) * len / sample_count;
-
-    ((bucket_start + bucket_end) / 2).min(len - 1) as usize
-}
-
-fn div_ceil(numerator: usize, denominator: usize) -> usize {
-    debug_assert!(denominator > 0);
-    numerator / denominator + usize::from(!numerator.is_multiple_of(denominator))
 }
 
 fn collect_sparse_codes_typed<P: IntegerPType + FromPrimitive>(
@@ -399,6 +346,8 @@ fn collect_sparse_codes_typed<P: IntegerPType + FromPrimitive>(
     let mut unique_codes = Vec::new();
     let mut remapped_codes = Vec::with_capacity(codes.len());
 
+    // `value_remap[old_code]` stores the compact code assigned to an original dictionary value.
+    // `usize::MAX` means that value has not been referenced yet.
     for (idx, &code) in codes.as_slice::<P>().iter().enumerate() {
         if !validity_mask.value(idx) {
             remapped_codes.push(P::default());
@@ -421,6 +370,9 @@ fn collect_sparse_codes_typed<P: IntegerPType + FromPrimitive>(
         }));
     }
 
+    // The sample only decides whether the exact pass is worth trying. Recheck the real
+    // cardinality before compacting so a misleading sparse-looking sample cannot pessimize dense
+    // dictionaries.
     if unique_codes
         .len()
         .saturating_mul(SPARSE_CANONICALIZE_CODES_PER_VALUE_THRESHOLD)
