@@ -21,6 +21,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_tensor::vector::Vector;
 
 use super::storage::parse_storage;
@@ -110,47 +111,78 @@ where
     let codes = decode.codes.as_slice::<u8>();
     let mask = vector_validity.execute_mask(num_vectors, ctx)?;
 
-    let mut decoded = vec![0.0f32; padded_dim];
-    let mut inverse = vec![0.0f32; padded_dim];
     let output_len = num_vectors
         .checked_mul(dimensions)
         .ok_or_else(|| vortex_err!("TurboQuant decoded vector length overflow"))?;
     let mut output = BufferMut::<T>::with_capacity(output_len);
 
-    for i in 0..num_vectors {
-        if !mask.value(i) {
-            // Null rows still need `dimensions` placeholder elements so the FSL stays row-aligned.
-            // The row's nullability bit is authoritative, so consumers should be treating these
-            // zeros as undefined.
+    let mut decoded = vec![0.0f32; padded_dim];
+    let mut inverse = vec![0.0f32; padded_dim];
 
-            // SAFETY: `output` was allocated with capacity `output_len`, and the loop appends
-            // exactly `dimensions` values for each of `num_vectors` iterations.
-            unsafe { output.push_n_unchecked(T::zero(), dimensions) };
-
-            continue;
-        }
-
-        // Perform the gather from codes to values.
+    // Decode a single row: gather codes through the centroid table, apply the inverse SORF
+    // transform, then denormalize and push `dimensions` elements into `output`. Captures the
+    // read-only inputs and the scratch buffers so each call site only needs to pass `output`
+    // and the row index.
+    let mut decode_row = |output: &mut BufferMut<T>, i: usize| {
         let code_row = &codes[i * padded_dim..][..padded_dim];
+
+        // Gather the values according to the codes.
         for (dst, &code) in decoded.iter_mut().zip(code_row.iter()) {
             *dst = *centroids
                 .get(usize::from(code))
                 .vortex_expect("TurboQuant code exceeds centroid count");
         }
 
-        // Undo the transform.
         decode.sorf_matrix.inverse_transform(&decoded, &mut inverse);
 
-        // Multiply all elements by the corresponding normal.
         let norm = norms[i];
         for &value in inverse.iter().take(dimensions) {
-            // `T::from_f32` is infallible for the supported float ptypes (`f16`, `f32`, `f64`):
-            // values outside `f16` range saturate to `±inf` rather than returning `None`.
+            // `T::from_f32` is infallible for the supported float ptypes (`f16`, `f32`,
+            // `f64`): values outside `f16` range saturate to `±inf` rather than returning
+            // `None`.
             let value = T::from_f32(value)
                 .vortex_expect("from_f32 is infallible for supported float types");
 
-            // SAFETY: same capacity invariant as above.
+            // SAFETY: total pushes across all match arms equal `output_len`.
             unsafe { output.push_unchecked(value * norm) };
+        }
+    };
+
+    // The total number of pushes is always exactly `num_vectors * dimensions == output_len`
+    // across every arm below, which is the invariant the per-row `unsafe` blocks rely on.
+    match &mask {
+        Mask::AllFalse(_) => {
+            // Every row is invalid: bulk-fill the output with zero placeholders.
+            //
+            // SAFETY: `output` was allocated with capacity `output_len`, and this push writes
+            // exactly `output_len` zero placeholders.
+            unsafe { output.push_n_unchecked(T::zero(), output_len) };
+        }
+        Mask::AllTrue(_) => {
+            for i in 0..num_vectors {
+                decode_row(&mut output, i);
+            }
+        }
+        Mask::Values(values_mask) => {
+            let mut cursor = 0;
+
+            for &(start, end) in values_mask.slices() {
+                if start > cursor {
+                    // SAFETY: total pushes across all arms equal `output_len`.
+                    unsafe { output.push_n_unchecked(T::zero(), (start - cursor) * dimensions) };
+                }
+
+                for i in start..end {
+                    decode_row(&mut output, i);
+                }
+
+                cursor = end;
+            }
+
+            if cursor < num_vectors {
+                // SAFETY: total pushes across all arms equal `output_len`.
+                unsafe { output.push_n_unchecked(T::zero(), (num_vectors - cursor) * dimensions) };
+            }
         }
     }
 

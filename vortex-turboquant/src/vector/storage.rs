@@ -36,6 +36,7 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
 use super::quantize::QuantizationResult;
 use crate::vtable::TurboQuantMetadata;
@@ -120,13 +121,11 @@ pub(crate) fn parse_storage(
     let struct_validity = storage.struct_validity();
     let norms_validity = norms.validity()?;
     let codes_validity = codes_fsl.validity()?;
-    validate_child_validity_covers_struct(
-        &struct_validity,
-        &norms_validity,
-        &codes_validity,
-        len,
-        ctx,
-    )?;
+
+    let struct_mask = struct_validity.execute_mask(len, ctx)?;
+    let norms_mask = norms_validity.execute_mask(len, ctx)?;
+    let codes_mask = codes_validity.execute_mask(len, ctx)?;
+    validate_child_validity_covers_struct(&struct_mask, &norms_mask, &codes_mask)?;
 
     Ok(TurboQuantParsedStorage {
         metadata,
@@ -137,31 +136,24 @@ pub(crate) fn parse_storage(
     })
 }
 
+/// Validate that both child masks cover the struct mask: every row that the struct considers
+/// valid must also be valid in the `norms` and `codes` children.
+///
+/// `struct_mask & !child_mask` selects rows where the struct is valid but the child is not. If
+/// no such row exists, the child covers the struct. [`Mask::bitand_not`] is variant-specialized,
+/// so this short-circuits in `O(1)` when either mask is `AllTrue` or `AllFalse`.
 fn validate_child_validity_covers_struct(
-    struct_validity: &Validity,
-    norms_validity: &Validity,
-    codes_validity: &Validity,
-    len: usize,
-    ctx: &mut ExecutionCtx,
+    struct_mask: &Mask,
+    norms_mask: &Mask,
+    codes_mask: &Mask,
 ) -> VortexResult<()> {
-    let struct_mask = struct_validity.execute_mask(len, ctx)?;
-    let norms_mask = norms_validity.execute_mask(len, ctx)?;
-    let codes_mask = codes_validity.execute_mask(len, ctx)?;
-
-    for row in 0..len {
-        if !struct_mask.value(row) {
-            continue;
-        }
-
-        vortex_ensure!(
-            norms_mask.value(row),
-            "TurboQuant {NORMS_FIELD} row validity must cover storage validity"
-        );
-        vortex_ensure!(
-            codes_mask.value(row),
-            "TurboQuant {CODES_FIELD} row validity must cover storage validity"
-        );
-    }
-
+    vortex_ensure!(
+        struct_mask.clone().bitand_not(norms_mask).all_false(),
+        "TurboQuant {NORMS_FIELD} row validity must cover storage validity"
+    );
+    vortex_ensure!(
+        struct_mask.clone().bitand_not(codes_mask).all_false(),
+        "TurboQuant {CODES_FIELD} row validity must cover storage validity"
+    );
     Ok(())
 }

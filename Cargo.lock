@@ -11255,9 +11255,11 @@ dependencies = [
 name = "vortex-turboquant"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
  "half",
  "num-traits",
  "prost 0.14.3",
+ "rand 0.10.1",
  "rstest",
  "vortex-array",
  "vortex-buffer",

@@ -23,6 +23,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
 use super::tq_padded_dim;
 use crate::TurboQuantConfig;
@@ -78,35 +79,65 @@ pub(crate) unsafe fn turboquant_quantize_core(
         .checked_mul(padded_dim)
         .ok_or_else(|| vortex_err!("TurboQuant codes length overflow"))?;
     let mut all_indices = BufferMut::<u8>::with_capacity(codes_len);
+
     let mut padded = vec![0.0f32; padded_dim];
     let mut transformed = vec![0.0f32; padded_dim];
 
+    // Pad, SORF-transform, and quantize a single row, pushing `padded_dim` codes into
+    // `all_indices`. Captures the read-only inputs and the scratch buffers so each call site
+    // only needs to pass `all_indices` and the row index.
+    //
+    // NB: `all_indices` cannot be captured here: the `Values` arm interleaves the closure call
+    // with direct `all_indices.push_n_unchecked` calls.
     let f32_slice = f32_elements.as_slice();
     let dimension = dimension as usize;
-    for row in 0..num_vectors {
-        if !mask.value(row) {
-            // The row-level FSL validity marks these bytes invalid, so keep full-length storage
-            // without spending SORF/quantization work on a null vector.
-
-            // SAFETY: `all_indices` was allocated with capacity `codes_len`, and the loop appends
-            // exactly `padded_dim` codes for each of `num_vectors` iterations.
-            unsafe { all_indices.push_n_unchecked(0, padded_dim) };
-
-            continue;
-        }
-
-        let x = &f32_slice[row * dimension..(row + 1) * dimension];
-
-        // Zero-pad to the next power of 2.
-        padded[..dimension].copy_from_slice(x);
+    let mut quantize_row = |all_indices: &mut BufferMut<u8>, row: usize| {
+        // Reuse `padded` and `transformed` from the outer scope.
+        padded[..dimension].copy_from_slice(&f32_slice[row * dimension..][..dimension]);
         padded[dimension..].fill(0.0);
-
         sorf_transform.transform(&padded, &mut transformed);
 
-        // SAFETY: `all_indices` was allocated with capacity `codes_len`, and the loop appends
-        // exactly `padded_dim` codes for each of `num_vectors` iterations.
-        for &value in transformed.iter() {
+        for &value in &transformed {
+            // SAFETY: total pushes across all match arms equal `codes_len`.
             unsafe { all_indices.push_unchecked(find_nearest_centroid(value, &boundaries)) };
+        }
+    };
+
+    // The total number of pushes is always exactly `num_vectors * padded_dim == codes_len`
+    // across every arm below, which is the invariant the per-row `unsafe` blocks rely on.
+    match &mask {
+        Mask::AllFalse(_) => {
+            // Every row is invalid: bulk-fill placeholder zero codes.
+            //
+            // SAFETY: `all_indices` was allocated with capacity `codes_len`, and this push
+            // writes exactly `codes_len` zero codes.
+            unsafe { all_indices.push_n_unchecked(0, codes_len) };
+        }
+        Mask::AllTrue(_) => {
+            for row in 0..num_vectors {
+                quantize_row(&mut all_indices, row);
+            }
+        }
+        Mask::Values(values_mask) => {
+            let mut cursor = 0;
+
+            for &(start, end) in values_mask.slices() {
+                if start > cursor {
+                    // SAFETY: total pushes across all arms equal `codes_len`.
+                    unsafe { all_indices.push_n_unchecked(0, (start - cursor) * padded_dim) };
+                }
+
+                for row in start..end {
+                    quantize_row(&mut all_indices, row);
+                }
+
+                cursor = end;
+            }
+
+            if cursor < num_vectors {
+                // SAFETY: total pushes across all arms equal `codes_len`.
+                unsafe { all_indices.push_n_unchecked(0, (num_vectors - cursor) * padded_dim) };
+            }
         }
     }
 

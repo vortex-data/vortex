@@ -29,7 +29,13 @@ vortex-tensor = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
+divan = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
 vortex-file = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
+
+[[bench]]
+name = "pack_unpack"
+harness = false

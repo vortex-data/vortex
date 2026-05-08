@@ -12,12 +12,6 @@ impl core::clone::Clone for vortex_turboquant::TQPack
 
 pub fn vortex_turboquant::TQPack::clone(&self) -> vortex_turboquant::TQPack
 
-impl vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable for vortex_turboquant::TQPack
-
-pub fn vortex_turboquant::TQPack::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts<Self>>
-
-pub fn vortex_turboquant::TQPack::serialize(&self, &vortex_array::arrays::scalar_fn::vtable::ScalarFnArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
-
 impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_turboquant::TQPack
 
 pub type vortex_turboquant::TQPack::Options = vortex_turboquant::TurboQuantConfig

@@ -27,6 +27,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 use vortex_tensor::scalar_fns::l2_denorm::L2Denorm;
 use vortex_tensor::scalar_fns::l2_norm::L2Norm;
 use vortex_tensor::vector::AnyVector;
@@ -106,22 +107,38 @@ where
         .ok_or_else(|| vortex_err!("TurboQuant normalized vector length overflow"))?;
     let mut output = BufferMut::<T>::with_capacity(output_len);
 
-    for i in 0..num_vectors {
-        let row_values = &values[i * dimensions..][..dimensions];
-        let norm = norm_values[i];
-
-        if !mask.value(i) || norm == T::zero() {
-            // Invalid rows are placeholders guarded by validity. A valid vector with L2 norm zero
-            // is all zeros. In both cases, append zero placeholders without per-element work.
-
-            // SAFETY: `output` was allocated with capacity `output_len`, and the loop appends
-            // exactly `dimensions` values for each of `num_vectors` iterations.
-            unsafe { output.push_n_unchecked(T::zero(), dimensions) };
-        } else {
-            for &value in row_values {
-                // SAFETY: same capacity invariant as above.
-                unsafe { output.push_unchecked(value / norm) };
+    // The total number of pushes is always exactly `num_vectors * dimensions == output_len`
+    // across every arm below, which is the invariant the per-row `unsafe` blocks rely on.
+    match mask {
+        Mask::AllFalse(_) => {
+            // Every row is invalid: bulk-fill the output with zero placeholders.
+            //
+            // SAFETY: `output` was allocated with capacity `output_len`, and this push writes
+            // exactly `output_len` zero placeholders.
+            unsafe { output.push_n_unchecked(T::zero(), output_len) };
+        }
+        Mask::AllTrue(_) => {
+            for i in 0..num_vectors {
+                // SAFETY: `output` was allocated with capacity `output_len = num_vectors *
+                // dimensions`. This loop runs `num_vectors` times and each call pushes exactly
+                // `dimensions` elements, so capacity for `dimensions` more elements always
+                // remains.
+                unsafe { normalize_one_row::<T>(&mut output, values, norm_values, dimensions, i) };
             }
+        }
+        Mask::Values(values_mask) => {
+            // SAFETY: `output` was allocated with capacity `output_len = num_vectors *
+            // dimensions`, which is the bound the helper requires.
+            unsafe {
+                normalize_vectors_with_mask::<T>(
+                    &mut output,
+                    values,
+                    norm_values,
+                    dimensions,
+                    num_vectors,
+                    values_mask,
+                )
+            };
         }
     }
 
@@ -143,4 +160,77 @@ where
         ExtensionArray::try_new_from_vtable(Vector, EmptyMetadata, storage.into_array())?
             .into_array(),
     )
+}
+
+/// Normalize a single valid row, or push `dimensions` zero placeholders if the row's L2 norm
+/// is zero.
+///
+/// A valid vector with L2 norm zero is all zeros, so dividing through it would be undefined.
+/// Treating it the same as an invalid row preserves the original semantics.
+///
+/// # Safety
+///
+/// `output` must have capacity for at least `dimensions` more elements before this call.
+unsafe fn normalize_one_row<T>(
+    output: &mut BufferMut<T>,
+    values: &[T],
+    norm_values: &[T],
+    dimensions: usize,
+    i: usize,
+) where
+    T: Float + NativePType,
+{
+    let norm = norm_values[i];
+
+    if norm == T::zero() {
+        // SAFETY: caller guarantees capacity for `dimensions` more elements.
+        unsafe { output.push_n_unchecked(T::zero(), dimensions) };
+    } else {
+        let row_values = &values[i * dimensions..][..dimensions];
+
+        for &value in row_values {
+            // SAFETY: caller guarantees capacity for `dimensions` more elements.
+            unsafe { output.push_unchecked(value / norm) };
+        }
+    }
+}
+
+/// Walk the pre-cached run boundaries of a `Values` mask, bulk-pushing zero placeholders for
+/// invalid runs and normalizing valid runs row by row.
+///
+/// # Safety
+///
+/// `output` must have capacity for at least `num_vectors * dimensions` more elements before
+/// this call.
+unsafe fn normalize_vectors_with_mask<T>(
+    output: &mut BufferMut<T>,
+    values: &[T],
+    norm_values: &[T],
+    dimensions: usize,
+    num_vectors: usize,
+    values_mask: &MaskValues,
+) where
+    T: Float + NativePType,
+{
+    let mut cursor = 0;
+
+    for &(start, end) in values_mask.slices() {
+        if start > cursor {
+            // SAFETY: capacity invariant from caller.
+            unsafe { output.push_n_unchecked(T::zero(), (start - cursor) * dimensions) };
+        }
+
+        for i in start..end {
+            // SAFETY: capacity invariant from caller — each call pushes `dimensions` and the
+            // total number of valid rows in the mask is bounded by `num_vectors`.
+            unsafe { normalize_one_row::<T>(output, values, norm_values, dimensions, i) };
+        }
+
+        cursor = end;
+    }
+
+    if cursor < num_vectors {
+        // SAFETY: capacity invariant from caller.
+        unsafe { output.push_n_unchecked(T::zero(), (num_vectors - cursor) * dimensions) };
+    }
 }

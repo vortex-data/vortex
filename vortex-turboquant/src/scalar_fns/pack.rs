@@ -9,9 +9,6 @@ use std::fmt::Formatter;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::scalar_fn::ScalarFnArrayView;
-use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts;
-use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::expr::Expression;
@@ -21,9 +18,7 @@ use vortex_array::scalar_fn::ExecutionArgs;
 use vortex_array::scalar_fn::ScalarFnId;
 use vortex_array::scalar_fn::ScalarFnVTable;
 use vortex_array::scalar_fn::TypedScalarFnInstance;
-use vortex_array::serde::ArrayChildren;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
@@ -39,7 +34,13 @@ use crate::vtable::TurboQuant;
 use crate::vtable::TurboQuantMetadata;
 use crate::vtable::tq_storage_dtype;
 
-/// Lazy TurboQuant vector pack scalar function.
+/// TurboQuant vector pack scalar function.
+///
+/// `TQPack` itself is a `ScalarFnVTable` and so its options round-trip through expression
+/// serialization.
+///
+/// Unlike `TQUnpack`, it deliberately does **not** implement `ScalarFnArrayVTable` since the
+/// persisted artifact would be the original vector array, not the TurboQuant-quantized array.
 #[derive(Clone)]
 pub struct TQPack;
 
@@ -152,26 +153,5 @@ impl ScalarFnVTable for TQPack {
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
-    }
-}
-
-impl ScalarFnArrayVTable for TQPack {
-    fn serialize(
-        &self,
-        _view: &ScalarFnArrayView<Self>,
-        _session: &VortexSession,
-    ) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
-    }
-
-    fn deserialize(
-        &self,
-        _dtype: &DType,
-        _len: usize,
-        _metadata: &[u8],
-        _children: &dyn ArrayChildren,
-        _session: &VortexSession,
-    ) -> VortexResult<ScalarFnArrayParts<Self>> {
-        vortex_bail!("TQPack scalar-fn arrays are not serializable")
     }
 }

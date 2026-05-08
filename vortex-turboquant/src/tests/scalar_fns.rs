@@ -77,18 +77,6 @@ fn scalar_fn_array_metadata_stores_only_config() -> VortexResult<()> {
 }
 
 #[test]
-fn pack_scalar_fn_array_is_not_serializable() -> VortexResult<()> {
-    let session = test_session();
-    let input = f32_vector_array(128, 2, 0.25, Validity::NonNullable)?;
-    let config = TurboQuantConfig::try_new(3, 42, 3)?;
-    let packed_lazy = TQPack::try_new_array(input, &config, 2)?.into_array();
-    let pack_plugin = ScalarFnArrayPlugin::new(TQPack);
-
-    assert!(pack_plugin.serialize(&packed_lazy, &session)?.is_none());
-    Ok(())
-}
-
-#[test]
 fn unpack_rejects_config_that_disagrees_with_turboquant_child() -> VortexResult<()> {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
