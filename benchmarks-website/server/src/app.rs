@@ -7,6 +7,9 @@
 //! - `/api/groups`, `/api/chart/{slug}`, `/api/group/{slug}`, `/health`
 //!   (read API)
 //! - `/api/ingest` (gated by [`crate::auth::require_bearer`])
+//! - `/api/admin/snapshot`, `/api/admin/sql` — only when
+//!   [`AppState::with_admin`] has been called (gated by
+//!   [`crate::admin::require_admin_bearer`])
 //! - HTML routes contributed by [`crate::html::router`]
 //!
 //! All responses pass through [`CompressionLayer`] so HTML, JSON, and the
@@ -24,6 +27,7 @@ use axum::routing::get;
 use axum::routing::post;
 use tower_http::compression::CompressionLayer;
 
+use crate::admin;
 use crate::api;
 use crate::auth::require_bearer;
 use crate::db::DbHandle;
@@ -40,24 +44,52 @@ pub struct AppState {
     pub db: DbHandle,
     /// Bearer token expected on `/api/ingest`. Compared via constant-time eq.
     pub bearer_token: Arc<String>,
+    /// Bearer token expected on `/api/admin/*`. `None` disables the admin
+    /// router entirely. Set via [`AppState::with_admin`].
+    pub admin_bearer_token: Option<Arc<String>>,
     /// On-disk path of the DuckDB file. Surfaced on `/health`.
     pub db_path: Arc<PathBuf>,
     /// In-memory cache of every read-side query result. Cleared by
     /// [`crate::ingest`] after a successful commit. See [`crate::query_cache`].
     pub cache: Arc<QueryCache>,
+    /// Directory `EXPORT DATABASE` writes into. Defaults to
+    /// `<db_path parent>/snapshots`. Override via [`AppState::with_snapshot_dir`].
+    pub snapshot_dir: Arc<PathBuf>,
 }
 
 impl AppState {
     /// Open the DuckDB at `db_path`, apply the schema, and return shared state.
+    /// Admin endpoints are unmounted by default; call [`AppState::with_admin`]
+    /// to enable them.
     pub fn open<P: AsRef<Path>>(db_path: P, bearer_token: String) -> Result<Self> {
         let path = db_path.as_ref().to_path_buf();
+        let snapshot_dir = path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("snapshots");
         let db = db::open(&path)?;
         Ok(Self {
             db,
             bearer_token: Arc::new(bearer_token),
+            admin_bearer_token: None,
             db_path: Arc::new(path),
             cache: Arc::new(QueryCache::new()),
+            snapshot_dir: Arc::new(snapshot_dir),
         })
+    }
+
+    /// Enable the `/api/admin/*` router, gated by `admin_bearer_token`.
+    /// Without this call, the admin router is not mounted at all.
+    pub fn with_admin(mut self, admin_bearer_token: String) -> Self {
+        self.admin_bearer_token = Some(Arc::new(admin_bearer_token));
+        self
+    }
+
+    /// Override the directory `EXPORT DATABASE` writes into. Defaults to
+    /// `<db_path parent>/snapshots`.
+    pub fn with_snapshot_dir(mut self, dir: PathBuf) -> Self {
+        self.snapshot_dir = Arc::new(dir);
+        self
     }
 }
 
@@ -76,10 +108,21 @@ pub fn router(state: AppState) -> Router {
         .route("/api/group/{slug}", get(api::group))
         .route("/health", get(api::health));
 
-    Router::new()
+    let mut router = Router::new()
         .merge(ingest_routes)
         .merge(read_routes)
-        .merge(html::router())
-        .layer(CompressionLayer::new())
-        .with_state(state)
+        .merge(html::router());
+
+    if state.admin_bearer_token.is_some() {
+        let admin_routes = Router::new()
+            .route("/api/admin/snapshot", post(admin::snapshot))
+            .route("/api/admin/sql", post(admin::sql))
+            .route_layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                admin::require_admin_bearer,
+            ));
+        router = router.merge(admin_routes);
+    }
+
+    router.layer(CompressionLayer::new()).with_state(state)
 }

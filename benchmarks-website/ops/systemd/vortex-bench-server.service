@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+#
+# systemd unit for vortex-bench-server. Owns the DuckDB file at
+# $VORTEX_BENCH_DB and serves :3000.
+#
+# Installed by ops/install.sh into /etc/systemd/system/. Restart on
+# crash, never give up. Start order: after a successful binary install
+# at /var/lib/vortex-bench/bin/vortex-bench-server (the deploy timer
+# atomically swaps this symlink in place; this unit is `restart`ed via
+# the sudoers fragment ops/install.sh writes).
+
+[Unit]
+Description=Vortex bench v3 server (bench.vortex.dev)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/var/lib/vortex-bench
+EnvironmentFile=/etc/vortex-bench.env
+ExecStart=/var/lib/vortex-bench/bin/vortex-bench-server
+Restart=on-failure
+RestartSec=2
+# `journalctl -u vortex-bench-server` is the canonical log. Keep stdout
+# unbuffered so `tail -f` works.
+Environment=RUST_BACKTRACE=1
+StandardOutput=journal
+StandardError=journal
+
+# Conservative hardening — server only needs DB writes and outbound TCP
+# (none in steady state, but cargo build's hyper would).
+ProtectSystem=strict
+ReadWritePaths=/var/lib/vortex-bench
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

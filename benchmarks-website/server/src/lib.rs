@@ -28,6 +28,9 @@
 //! - `GET /health` — liveness probe + per-table row counts.
 //! - `POST /api/ingest` — bearer-gated ingest. See [`ingest`] for the HTTP
 //!   matrix and [`auth`] for the bearer middleware.
+//! - `POST /api/admin/snapshot`, `POST /api/admin/sql` — admin-bearer-gated
+//!   snapshot trigger and read-only SQL. Mounted only when
+//!   [`app::AppState::with_admin`] has been called. See [`admin`].
 //!
 //! ## Module map
 //!
@@ -35,6 +38,7 @@
 //! |---------------|---------------------------------------------------------------------------------------------|
 //! | [`app`]       | [`app::AppState`] (DB handle + bearer + path) and the Axum router composition.              |
 //! | [`auth`]      | Bearer-token middleware for `/api/ingest`.                                                  |
+//! | [`admin`]     | `/api/admin/*` handlers + admin-bearer middleware. See `ops/README.md` for the operator flow. |
 //! | [`db`]        | [`db::DbHandle`] task-local connection cloning + the per-fact-table `measurement_id_*` hash functions. |
 //! | [`schema`]    | DuckDB DDL ([`schema::SCHEMA_DDL`]) and the wire schema version.                            |
 //! | [`records`]   | Wire shapes for `POST /api/ingest`.                                                         |
@@ -62,6 +66,7 @@
 //! 7. Every response passes through [`tower_http::compression::CompressionLayer`]
 //!    on the way out.
 
+pub mod admin;
 pub mod api;
 pub mod app;
 pub mod auth;

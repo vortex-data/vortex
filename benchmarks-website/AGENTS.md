@@ -14,9 +14,11 @@ covers Rust style, test layout, commit conventions.
 Until the cutover PR lands, the top-level v2 files
 (`server.js`, `src/`, `index.html`, `vite.config.js`, `package.json`,
 `package-lock.json`, `public/`, the top-level `Dockerfile`,
-`docker-compose.yml`, `ec2-init.txt`) and the `benchmarks-website` service
-in `docker-compose.yml` and the `publish-benchmarks-website.yml` workflow
+`docker-compose.yml`) and the `publish-benchmarks-website.yml` workflow
 are production. Don't edit them as part of unrelated work.
+
+The v3 deploy lives entirely under `server/`, `migrate/`, and `ops/`.
+The operator runbook is [`ops/README.md`](ops/README.md).
 
 ## v3 specifics
 
