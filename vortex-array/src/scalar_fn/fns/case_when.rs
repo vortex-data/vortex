@@ -1187,8 +1187,8 @@ mod tests {
         let n = 100usize;
 
         // Branch 0: even rows → 0, Branch 1: odd rows → 1, Else: never reached.
-        let branch0_mask = Mask::from_indices(n, (0..n).step_by(2).collect());
-        let branch1_mask = Mask::from_indices(n, (1..n).step_by(2).collect());
+        let branch0_mask = Mask::from_indices(n, (0..n).step_by(2));
+        let branch1_mask = Mask::from_indices(n, (1..n).step_by(2));
 
         let result = merge_case_branches(
             vec![

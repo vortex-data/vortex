@@ -432,7 +432,7 @@ mod tests {
             builder.finish()
         };
 
-        let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0).collect());
+        let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0));
         let mask_array = mask.clone().into_array();
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();

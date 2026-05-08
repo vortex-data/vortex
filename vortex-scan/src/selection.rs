@@ -77,8 +77,7 @@ impl Selection {
                                 .filter_map(|idx| {
                                     // Only include indices that fit in usize
                                     usize::try_from(idx).ok()
-                                })
-                                .collect(),
+                                }),
                         )
                     })
                     .unwrap_or_else(|| Mask::new_false(range_len));
@@ -117,8 +116,7 @@ impl Selection {
                         .filter_map(|idx| {
                             // Only include indices that fit in usize
                             usize::try_from(idx).ok()
-                        })
-                        .collect(),
+                        }),
                 );
 
                 RowMask::new(range.start, mask)
