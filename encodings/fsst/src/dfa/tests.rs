@@ -28,6 +28,7 @@ use super::LikeKind;
 use super::flat_contains::FlatContainsDfa;
 use super::flat_contains::FlatContainsDfaBaseline;
 use super::flat_contains::FlatContainsDfaClasses;
+use super::flat_contains::FlatContainsDfaClassesPre;
 use super::multi_contains::MultiContainsDfa;
 use super::prefix::FlatPrefixDfa;
 use crate::FSSTArray;
@@ -672,6 +673,35 @@ fn test_classes_parity_exhaustive() -> VortexResult<()> {
             let codes: Vec<u8> = input.iter().flat_map(|&b| [0xFF, b]).collect();
             let b = baseline.matches(&codes);
             let c = classes.matches(&codes);
+            assert_eq!(b, c, "parity failure: needle={needle:?}, input={input:?}");
+        }
+    }
+    Ok(())
+}
+
+/// Verify pre-classified variant C agrees with baseline.
+#[test]
+fn test_pre_classified_parity_exhaustive() -> VortexResult<()> {
+    let needles: &[&[u8]] = &[b"a", b"ab", b"abc", b"abab", b"aabaabaab"];
+    let inputs: &[&[u8]] = &[
+        b"",
+        b"a",
+        b"ab",
+        b"abc",
+        b"xabx",
+        b"aababab",
+        b"aabaabaab",
+        b"xaabaabaabx",
+    ];
+
+    for &needle in needles {
+        let baseline = FlatContainsDfaBaseline::new(&[], &[], needle)?;
+        let pre = FlatContainsDfaClassesPre::new(&[], &[], needle)?;
+        for &input in inputs {
+            let codes: Vec<u8> = input.iter().flat_map(|&b| [0xFF, b]).collect();
+            let classified = pre.classify_bulk(&codes);
+            let b = baseline.matches(&codes);
+            let c = pre.matches_pre(&classified, &codes);
             assert_eq!(b, c, "parity failure: needle={needle:?}, input={input:?}");
         }
     }

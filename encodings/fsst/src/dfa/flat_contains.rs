@@ -382,6 +382,117 @@ impl FlatContainsDfaClasses {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Variant C: byte-class minimization + bulk pre-classify
+// ---------------------------------------------------------------------------
+
+/// Like [`FlatContainsDfaClasses`] but the inner DFA loop reads pre-classified
+/// bytes from a parallel buffer instead of looking up `code_to_class[code]` per
+/// step. The classification pass is run once over `all_bytes` ahead of the
+/// per-string scan, so the cost is amortized across all strings sharing the
+/// same code buffer.
+///
+/// Trade-off: the bulk pre-classify pass touches every byte in `all_bytes`,
+/// even ones the per-string state-0 skip would otherwise jump over. It pays
+/// off only when the DFA inner loop is the bottleneck (dense partial matches),
+/// not when the corpus is dominated by skip-able codes.
+pub(crate) struct FlatContainsDfaClassesPre {
+    class_trans: Vec<u8>,
+    escape_transitions: Vec<u8>,
+    code_to_class: [u8; 256],
+    accept_state: u8,
+    sentinel: u8,
+    n_classes: u16,
+    skip: SkipStrategy,
+}
+
+impl FlatContainsDfaClassesPre {
+    pub(crate) const MAX_NEEDLE_LEN: usize = u8::MAX as usize - 1;
+
+    pub(crate) fn new(
+        symbols: &[Symbol],
+        symbol_lengths: &[u8],
+        needle: &[u8],
+    ) -> VortexResult<Self> {
+        if needle.len() > Self::MAX_NEEDLE_LEN {
+            vortex_bail!(
+                "needle length {} exceeds maximum {} for flat contains DFA",
+                needle.len(),
+                Self::MAX_NEEDLE_LEN
+            );
+        }
+
+        let accept_state = u8::try_from(needle.len())
+            .vortex_expect("FlatContainsDfaClassesPre: accept state must fit into u8");
+        let n_states = accept_state + 1;
+        let sentinel = n_states;
+
+        let byte_table = kmp_byte_transitions(needle);
+        let sym_trans =
+            build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
+        let transitions = build_fused_table(&sym_trans, symbols.len(), n_states, |_| sentinel, 0);
+        let (code_to_class, n_classes, class_trans) = compute_byte_classes(&transitions, n_states);
+        let skip = SkipStrategy::from_transition_row(&transitions[0..256], 0);
+
+        Ok(Self {
+            class_trans,
+            escape_transitions: byte_table,
+            code_to_class,
+            accept_state,
+            sentinel,
+            n_classes,
+            skip,
+        })
+    }
+
+    /// Bulk-classify a raw byte buffer into a parallel class stream.
+    ///
+    /// `out[i] = code_to_class[raw_bytes[i]]`. Auto-vectorized by rustc into
+    /// PSHUFB-style gathers in release builds.
+    pub(crate) fn classify_bulk(&self, raw_bytes: &[u8]) -> Vec<u8> {
+        let mut out = vec![0u8; raw_bytes.len()];
+        for (o, &b) in out.iter_mut().zip(raw_bytes.iter()) {
+            *o = self.code_to_class[usize::from(b)];
+        }
+        out
+    }
+
+    /// Run the DFA on a slice of pre-classified bytes alongside the matching
+    /// slice of raw bytes (raw bytes only consulted on escape).
+    pub(crate) fn matches_pre(&self, classified: &[u8], raw_bytes: &[u8]) -> bool {
+        debug_assert_eq!(classified.len(), raw_bytes.len());
+        let mut state = 0u8;
+        let mut pos = 0;
+        let n_classes = usize::from(self.n_classes);
+        while pos < classified.len() {
+            if state == 0 {
+                match self.skip.find_next_progressing(raw_bytes, pos) {
+                    Some(next) => pos = next,
+                    None => return false,
+                }
+            }
+
+            let class = classified[pos];
+            pos += 1;
+            let next = self.class_trans[usize::from(state) * n_classes + usize::from(class)];
+            if next == self.sentinel {
+                if pos >= raw_bytes.len() {
+                    return false;
+                }
+                let b = raw_bytes[pos];
+                pos += 1;
+                state = self.escape_transitions[usize::from(state) * 256 + usize::from(b)];
+            } else {
+                state = next;
+            }
+            if state == self.accept_state {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 /// Compute byte equivalence classes from a 256-wide transition table.
 ///
 /// Two code bytes are equivalent if for every state they map to the same
