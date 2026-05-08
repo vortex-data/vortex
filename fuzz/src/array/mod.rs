@@ -43,7 +43,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::aggregate_fn::fns::all_identical::all_identical;
+use vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct;
 use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
 use vortex_array::aggregate_fn::fns::min_max::min_max;
 use vortex_array::aggregate_fn::fns::sum::sum;
@@ -724,7 +724,7 @@ fn assert_search_sorted(
 
 /// Assert two arrays are equal.
 ///
-/// Uses `all_identical` for an efficient buffer-level comparison on the happy path.
+/// Uses `all_non_distinct` for an efficient buffer-level comparison on the happy path.
 /// Falls back to element-wise scalar comparison only on mismatch to produce a detailed error.
 #[expect(clippy::result_large_err)]
 pub fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuzzResult<()> {
@@ -751,7 +751,7 @@ pub fn assert_array_eq(lhs: &ArrayRef, rhs: &ArrayRef, step: usize) -> VortexFuz
     let mut ctx = SESSION.create_execution_ctx();
 
     // Fast path: buffer-level comparison.
-    let identical = all_identical(lhs, rhs, &mut ctx)
+    let identical = all_non_distinct(lhs, rhs, &mut ctx)
         .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?;
     if identical {
         return Ok(());

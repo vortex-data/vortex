@@ -14,7 +14,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
-use crate::aggregate_fn::fns::all_identical::AllIdentical;
+use crate::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use crate::aggregate_fn::fns::first::First;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
@@ -66,7 +66,7 @@ impl Default for AggregateFnSession {
         };
 
         // Register the built-in aggregate functions
-        this.register(AllIdentical);
+        this.register(AllNonDistinct);
         this.register(First);
         this.register(IsConstant);
         this.register(IsSorted);

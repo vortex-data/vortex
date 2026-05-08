@@ -196,7 +196,3 @@ harness = false
 [[bench]]
 name = "listview_builder_extend"
 harness = false
-
-[[bench]]
-name = "all_identical"
-harness = false
