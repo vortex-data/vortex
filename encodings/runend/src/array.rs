@@ -32,6 +32,7 @@ use vortex_array::scalar::PValue;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -154,7 +155,7 @@ impl VTable for RunEnd {
 
         let values = children.get(1, dtype, runs)?;
         let offset = usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize");
-        let slots = vec![Some(ends), Some(values)];
+        let slots = smallvec![Some(ends), Some(values)];
         let data = RunEndData::new(offset);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -258,7 +259,7 @@ impl RunEnd {
         length: usize,
     ) -> RunEndArray {
         let dtype = values.dtype().clone();
-        let slots = vec![Some(ends), Some(values)];
+        let slots = smallvec![Some(ends), Some(values)];
         let data = unsafe { RunEndData::new_unchecked(offset) };
         unsafe {
             Array::from_parts_unchecked(
@@ -276,7 +277,7 @@ impl RunEnd {
         let len = RunEndData::logical_len_from_ends(&ends, ctx)?;
         RunEndData::validate_parts(&ends, &values, 0, len, ctx)?;
         let dtype = values.dtype().clone();
-        let slots = vec![Some(ends), Some(values)];
+        let slots = smallvec![Some(ends), Some(values)];
         let data = RunEndData::new(0);
         Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
     }
@@ -291,7 +292,7 @@ impl RunEnd {
     ) -> VortexResult<RunEndArray> {
         RunEndData::validate_parts(&ends, &values, offset, length, ctx)?;
         let dtype = values.dtype().clone();
-        let slots = vec![Some(ends), Some(values)];
+        let slots = smallvec![Some(ends), Some(values)];
         let data = RunEndData::new(offset);
         Array::try_from_parts(ArrayParts::new(RunEnd, dtype, length, data).with_slots(slots))
     }
@@ -308,7 +309,7 @@ impl RunEnd {
             let ends = ends.into_array();
             let len = array.len();
             let dtype = values.dtype().clone();
-            let slots = vec![Some(ends), Some(values)];
+            let slots = smallvec![Some(ends), Some(values)];
             let data = unsafe { RunEndData::new_unchecked(0) };
             Array::try_from_parts(ArrayParts::new(RunEnd, dtype, len, data).with_slots(slots))
         } else {

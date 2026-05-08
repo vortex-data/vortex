@@ -29,6 +29,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayContext;
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::array::ArrayId;
 use crate::array::new_foreign_array;
 use crate::buffer::BufferHandle;
@@ -390,9 +391,11 @@ impl SerializedArray {
                 let child_encoding_id = ctx
                     .resolve(child_encoding_idx)
                     .ok_or_else(|| vortex_err!("Unknown encoding index: {}", child_encoding_idx))?;
-                child.decode_foreign(child_encoding_id, dtype, len, ctx)
+                child
+                    .decode_foreign(child_encoding_id, dtype, len, ctx)
+                    .map(Some)
             })
-            .collect::<VortexResult<Vec<_>>>()?;
+            .collect::<VortexResult<ArraySlots>>()?;
 
         new_foreign_array(
             encoding_id,

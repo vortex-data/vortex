@@ -556,8 +556,7 @@ impl ArrayRef {
     ///
     /// This is only valid for physical rewrites: slot count, presence, logical `DType`, and
     /// logical `len` must remain unchanged.
-    pub fn with_slots(self, slots: impl Into<ArraySlots>) -> VortexResult<ArrayRef> {
-        let slots = slots.into();
+    pub fn with_slots(self, slots: ArraySlots) -> VortexResult<ArrayRef> {
         let old_slots = self.slots();
         vortex_ensure!(
             old_slots.len() == slots.len(),

@@ -32,6 +32,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -220,7 +221,7 @@ impl VTable for Zstd {
             )
         };
 
-        let slots = vec![validity_to_child(&validity, len)];
+        let slots = smallvec![validity_to_child(&validity, len)];
         let data = ZstdData::new(dictionary_buffer, compressed_buffers, metadata, len);
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -257,7 +258,7 @@ impl Zstd {
     pub fn try_new(dtype: DType, data: ZstdData, validity: Validity) -> VortexResult<ZstdArray> {
         let len = data.len();
         data.validate(&dtype, len, &validity)?;
-        let slots = vec![validity_to_child(&validity, data.unsliced_n_rows())];
+        let slots = smallvec![validity_to_child(&validity, data.unsliced_n_rows())];
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Zstd, dtype, len, data).with_slots(slots))
         })
