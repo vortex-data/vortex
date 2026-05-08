@@ -14,19 +14,23 @@
 //!
 //! ### `POST /api/admin/snapshot?ts=<id>`
 //!
-//! Runs `EXPORT DATABASE '<snapshot_dir>/<ts>/' (FORMAT csv)` against the
-//! live DuckDB connection. CSV is the only EXPORT format the
-//! `bundled` libduckdb-sys feature ships with — switching to parquet or
-//! a Vortex layout later means flipping the duckdb feature flag and
-//! changing one literal below. CSV round-trips losslessly through
-//! `IMPORT DATABASE` (a `schema.sql` is written alongside the data so
-//! types and array columns rehydrate correctly).
+//! Writes a snapshot directory `<snapshot_dir>/<ts>/` containing:
+//! - `schema.sql` — verbatim copy of [`crate::schema::SCHEMA_DDL`], so a
+//!   restore knows how to recreate the tables before bulk-loading.
+//! - `<table>.vortex` for every table in [`crate::schema::TABLES`] —
+//!   each produced by a `COPY (SELECT * FROM <table>) TO …
+//!   (FORMAT vortex)`. The vortex DuckDB extension is auto-installed
+//!   from the community repo on first call, then `LOAD`ed.
+//!
+//! Vortex compresses the BIGINT[] runtime arrays and string columns
+//! roughly an order of magnitude better than gzipped CSV on this shape;
+//! it is also the project's own format, which is the obvious dogfood.
 //!
 //! `ts` must match `[A-Za-z0-9_-]{1,64}`; the snapshot script
 //! conventionally passes a UTC timestamp like `20260508T010000Z`. The
-//! target subdirectory must not already exist (409 otherwise). The export
-//! is transactionally consistent: writes during the export queue on the
-//! connection mutex.
+//! target subdirectory must not already exist (409 otherwise). All
+//! per-table COPY statements run on a connection cloned from the
+//! shared handle, so concurrent ingest writes are not blocked.
 //!
 //! ### `POST /api/admin/sql`
 //!
@@ -62,6 +66,7 @@ use thiserror::Error;
 
 use crate::app::AppState;
 use crate::db;
+use crate::schema;
 
 /// Errors surfaced by `/api/admin/*` handlers. Auth (401) is handled by
 /// [`require_admin_bearer`] and never reaches a handler.
@@ -162,8 +167,9 @@ pub struct SnapshotResponse {
     pub snapshot_dir: String,
 }
 
-/// Handler for `POST /api/admin/snapshot?ts=<id>`. Runs `EXPORT DATABASE`
-/// to a fresh subdirectory under [`AppState::snapshot_dir`].
+/// Handler for `POST /api/admin/snapshot?ts=<id>`. Writes
+/// `schema.sql` plus one `<table>.vortex` file per fact/dim table into
+/// a fresh subdirectory under [`AppState::snapshot_dir`].
 pub async fn snapshot(
     State(state): State<AppState>,
     Query(q): Query<SnapshotQuery>,
@@ -176,27 +182,43 @@ pub async fn snapshot(
             target.display()
         )));
     }
-    if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("creating snapshot parent {}", parent.display()))?;
-    }
-    let target_str = target
-        .to_str()
-        .ok_or_else(|| AdminError::Internal(anyhow::anyhow!("snapshot path is not UTF-8")))?
-        .to_string();
-    let target_for_response = target.clone();
+    std::fs::create_dir_all(&target)
+        .with_context(|| format!("creating snapshot dir {}", target.display()))?;
+
+    // Schema is just our DDL string verbatim; restore reads this with
+    // `duckdb -init schema.sql` (or `.read schema.sql`) before
+    // bulk-loading the per-table vortex files.
+    std::fs::write(target.join("schema.sql"), schema::SCHEMA_DDL)
+        .with_context(|| format!("writing schema.sql under {}", target.display()))?;
+
+    let target_for_db = target.clone();
     db::run_blocking(&state.db, move |conn| {
-        // `target_str` is composed from the configured snapshot dir + a
-        // validated [A-Za-z0-9_-] timestamp, so single-quote escaping is
-        // a non-issue here.
-        let sql = format!("EXPORT DATABASE '{target_str}' (FORMAT csv)");
-        conn.execute_batch(&sql)
-            .with_context(|| format!("EXPORT DATABASE to {target_str}"))
+        // Idempotent — `INSTALL` is a no-op if the extension is already
+        // present, `LOAD` is cheap once the binary is on disk. The
+        // bundled libduckdb-sys has autoload enabled, so the very first
+        // call also auto-fetches the extension from the DuckDB
+        // community repo. Subsequent calls are entirely local.
+        conn.execute_batch("INSTALL vortex FROM community; LOAD vortex;")
+            .context("INSTALL/LOAD vortex extension")?;
+        for table in schema::TABLES {
+            // Single-quote escaping is a non-issue: `target_for_db`
+            // is composed from the operator-configured snapshot dir +
+            // a validated [A-Za-z0-9_-] timestamp, and table names
+            // come from the closed const list in schema.rs.
+            let path = target_for_db.join(format!("{table}.vortex"));
+            let path_str = path
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("snapshot path is not UTF-8: {}", path.display()))?;
+            let sql = format!("COPY (SELECT * FROM {table}) TO '{path_str}' (FORMAT vortex)");
+            conn.execute_batch(&sql)
+                .with_context(|| format!("COPY {table} TO {path_str}"))?;
+        }
+        Ok(())
     })
     .await
     .map_err(AdminError::Internal)?;
     Ok(Json(SnapshotResponse {
-        snapshot_dir: target_for_response.display().to_string(),
+        snapshot_dir: target.display().to_string(),
     }))
 }
 

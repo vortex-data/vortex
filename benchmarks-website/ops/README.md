@@ -23,14 +23,14 @@ out-of-tree state — every script and unit lives in
   range touch website-relevant paths it builds, atomically swaps the
   binary, and restarts the server. Otherwise it fast-forwards the
   working tree and exits.
-- A second timer fires hourly, asks the server to `EXPORT DATABASE` to
-  a CSV snapshot, `tar czf`s it into a single archive, and uploads it
-  to `s3://vortex-benchmark-results-database/v3-backups/<UTC ts>.tar.gz`.
-  CSV is the default DuckDB EXPORT format (only format the `bundled`
-  libduckdb-sys feature ships with), and gzip reclaims 5–7× on this
-  shape — most data lands in the BIGINT[] runtime columns which
-  bloat 2–3× as text. Flipping to parquet or a Vortex layout later is
-  a one-line change in [`server/src/admin.rs`](../server/src/admin.rs).
+- A second timer fires hourly, asks the server to write a per-table
+  Vortex snapshot (`schema.sql` + one `<table>.vortex` per table),
+  `tar czf`s it, and uploads to
+  `s3://vortex-benchmark-results-database/v3-backups/<UTC ts>.tar.gz`.
+  The vortex DuckDB extension is auto-installed from the community
+  repo on first call. Vortex compresses the BIGINT[] runtime arrays
+  and string columns roughly an order of magnitude better than
+  gzipped CSV — and dogfoods the project's own format.
 - For ad-hoc reads, `inspect.sh` calls a bearer-gated `/api/admin/sql`
   endpoint instead of stopping the server.
 - For DB-replacing operations (re-running the v2→v3 migration),
@@ -52,7 +52,7 @@ out-of-tree state — every script and unit lives in
 │    bin/                                                              │
 │      vortex-bench-server        ← symlink → versioned binary         │
 │      vortex-bench-server.<ts>   ← versioned, last $KEEP_BINARIES (3) │
-│    snapshots/<ts>/              ← transient EXPORT DATABASE landing  │
+│    snapshots/<ts>/              ← transient vortex-snapshot landing  │
 │    last-deployed-sha            ← stamp file for the deploy timer    │
 │    .deploy.lock                 ← flock guard                        │
 │    ops -> /home/ec2-user/vortex/benchmarks-website/ops               │
@@ -78,8 +78,7 @@ out-of-tree state — every script and unit lives in
                 │     <UTC ts>.tar.gz                   │
                 │       <UTC ts>/                       │
                 │         schema.sql                    │
-                │         load.sql                      │
-                │         <table>.csv                   │
+                │         <table>.vortex                │
                 └───────────────────────────────────────┘
 ```
 
@@ -335,20 +334,35 @@ aws s3 ls s3://vortex-benchmark-results-database/v3-backups/ | tail -20
 ```
 
 Each `<ts>.tar.gz` archive contains a single directory `<ts>/` with
-the artifacts of DuckDB's `EXPORT DATABASE`: a `schema.sql`, a
-`load.sql`, and one CSV file per table. Restore on a fresh box:
+a `schema.sql` (verbatim DDL the server applies on boot) and one
+`<table>.vortex` per table. Restore on a fresh box:
 
 ```bash
 sudo systemctl stop vortex-bench-server
 cd /tmp
 aws s3 cp s3://vortex-benchmark-results-database/v3-backups/<ts>.tar.gz .
 tar xzf <ts>.tar.gz                     # extracts ./<ts>/
-duckdb /var/lib/vortex-bench/bench.duckdb -c "IMPORT DATABASE '/tmp/<ts>'"
+ts=<ts>                                 # e.g. 20260508T010000Z
+sudo -u ec2-user rm -f /var/lib/vortex-bench/bench.duckdb \
+                       /var/lib/vortex-bench/bench.duckdb.wal
+duckdb /var/lib/vortex-bench/bench.duckdb <<EOF
+INSTALL vortex FROM community;
+LOAD vortex;
+.read /tmp/${ts}/schema.sql
+INSERT INTO commits             SELECT * FROM read_vortex('/tmp/${ts}/commits.vortex');
+INSERT INTO query_measurements  SELECT * FROM read_vortex('/tmp/${ts}/query_measurements.vortex');
+INSERT INTO compression_times   SELECT * FROM read_vortex('/tmp/${ts}/compression_times.vortex');
+INSERT INTO compression_sizes   SELECT * FROM read_vortex('/tmp/${ts}/compression_sizes.vortex');
+INSERT INTO random_access_times SELECT * FROM read_vortex('/tmp/${ts}/random_access_times.vortex');
+INSERT INTO vector_search_runs  SELECT * FROM read_vortex('/tmp/${ts}/vector_search_runs.vortex');
+EOF
 sudo systemctl start vortex-bench-server
 ```
 
-(`duckdb` CLI version doesn't strictly have to match — DuckDB's
-import format is forward/backward compatible across recent versions.)
+The `duckdb` CLI version needs to be recent enough that the vortex
+community extension is published for it. If `INSTALL vortex FROM
+community` fails, upgrade the CLI to match (or exceed) the version
+the server was built against (`duckdb` crate `1.10502` ≈ DuckDB 1.5.x).
 
 If you want to take an out-of-band snapshot (e.g. before a risky
 operation), just call the same endpoint the timer does:
@@ -426,7 +440,7 @@ also constitute the public admin contract for any future tooling.
 | Method + path                                                    | Bearer        | Notes                                                                                          |
 |------------------------------------------------------------------|---------------|------------------------------------------------------------------------------------------------|
 | `GET /health`                                                    | none          | `deploy.sh` polls for liveness after a restart.                                                |
-| `POST /api/admin/snapshot?ts=<id>`                               | admin         | Triggers `EXPORT DATABASE`. `ts` must match `[A-Za-z0-9_-]{1,64}`. 409 if the dir exists.      |
+| `POST /api/admin/snapshot?ts=<id>`                               | admin         | Writes `schema.sql` + per-table `.vortex` files. `ts` must match `[A-Za-z0-9_-]{1,64}`. 409 if the dir exists. |
 | `POST /api/admin/sql` (body `{"sql": …}`, `?format=json\|table`) | admin         | Read-only SQL only — `SELECT`/`WITH`/`PRAGMA`/`SHOW`/`DESCRIBE`/`EXPLAIN`.                     |
 | `POST /api/ingest`                                               | ingest        | Used by CI, not by these scripts. Documented under [`crate::ingest`].                          |
 

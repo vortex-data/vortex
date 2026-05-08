@@ -4,16 +4,16 @@
 #
 # Hourly snapshot to S3, called by vortex-bench-backup.timer.
 #
-# Asks the running server to EXPORT DATABASE via /api/admin/snapshot
-# (so the export uses the same DuckDB process that owns the file — no
-# stop required), `tar czf`s the resulting CSV dir into a single
-# archive, uploads it to $S3_BACKUP_PREFIX/<ts>.tar.gz, and deletes
-# the local copies.
+# Asks the running server to write a per-table Vortex snapshot via
+# /api/admin/snapshot (so the writer uses the same DuckDB process
+# that owns the file — no stop required), `tar czf`s the resulting
+# directory into a single archive, uploads it to
+# $S3_BACKUP_PREFIX/<ts>.tar.gz, and deletes the local copies.
 #
-# We gzip rather than uploading raw CSVs because DuckDB's CSV EXPORT
-# is verbose for our shape (most data lands in BIGINT[] runtime
-# columns that bloat 2–3× as text); gzip typically reclaims 5–7× on
-# this kind of payload.
+# Vortex compresses our shape (mostly BIGINT[] runtime arrays + short
+# strings) far better than gzipped CSV; the additional gzip on the
+# tarball is largely catching schema.sql and tar metadata, not the
+# data files themselves.
 #
 # The instance IAM role must already permit s3:PutObject under
 # $S3_BACKUP_PREFIX. (Same bucket the v2 backup script used.)
