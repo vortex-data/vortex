@@ -244,8 +244,16 @@ mod tests {
         let compressor = fsst_train_compressor(&varbin);
         let dtype = varbin.dtype().clone();
         let len = varbin.len();
-        let fsst_array =
-            fsst_compress(&varbin, len, &dtype, &compressor, cuda_ctx.execution_ctx()).into_array();
+        let total_uncompressed = varbin.bytes().len();
+        let fsst_array = fsst_compress(
+            &varbin,
+            len,
+            total_uncompressed,
+            &dtype,
+            &compressor,
+            cuda_ctx.execution_ctx(),
+        )
+        .into_array();
 
         let cpu_result = crate::canonicalize_cpu(fsst_array.clone())?;
         let gpu_result = FSSTExecutor

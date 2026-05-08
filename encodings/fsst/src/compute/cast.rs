@@ -118,8 +118,16 @@ mod tests {
 
         let compressor = fsst_train_compressor(&strings);
         let len = strings.len();
+        let total_uncompressed = strings.bytes().len();
         let dtype = strings.dtype().clone();
-        let fsst = fsst_compress(strings, len, &dtype, &compressor, &mut ctx);
+        let fsst = fsst_compress(
+            strings,
+            len,
+            total_uncompressed,
+            &dtype,
+            &compressor,
+            &mut ctx,
+        );
 
         // Cast to nullable
         let casted = fsst
@@ -145,7 +153,14 @@ mod tests {
     fn test_cast_fsst_conformance(#[case] array: VarBinArray) {
         let mut ctx = SESSION.create_execution_ctx();
         let compressor = fsst_train_compressor(&array);
-        let fsst = fsst_compress(&array, array.len(), array.dtype(), &compressor, &mut ctx);
+        let fsst = fsst_compress(
+            &array,
+            array.len(),
+            array.bytes().len(),
+            array.dtype(),
+            &compressor,
+            &mut ctx,
+        );
         test_cast_conformance(&fsst.into_array());
     }
 }

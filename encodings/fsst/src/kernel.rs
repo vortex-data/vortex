@@ -59,9 +59,18 @@ mod tests {
 
         let compressor = fsst_train_compressor(&input);
         let len = input.len();
+        let total_uncompressed = input.bytes().len();
         let dtype = input.dtype().clone();
         let mut ctx = SESSION.create_execution_ctx();
-        fsst_compress(input, len, &dtype, &compressor, &mut ctx).into_array()
+        fsst_compress(
+            input,
+            len,
+            total_uncompressed,
+            &dtype,
+            &compressor,
+            &mut ctx,
+        )
+        .into_array()
     }
 
     #[test]
@@ -138,6 +147,7 @@ mod tests {
         let fsst_array: ArrayRef = fsst_compress(
             input.clone(),
             input.len(),
+            input.bytes().len(),
             input.dtype(),
             &compressor,
             &mut ctx,
@@ -173,6 +183,7 @@ mod tests {
         let fsst_array: ArrayRef = fsst_compress(
             input.clone(),
             input.len(),
+            input.bytes().len(),
             input.dtype(),
             &compressor,
             &mut ctx,

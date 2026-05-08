@@ -127,6 +127,7 @@ impl FlatLayoutFixture for FsstFixture {
                 fsst_compress(
                     &url_col,
                     url_col.len(),
+                    url_col.bytes().len(),
                     url_col.dtype(),
                     &url_comp,
                     &mut ctx,
@@ -135,6 +136,7 @@ impl FlatLayoutFixture for FsstFixture {
                 fsst_compress(
                     &log_col,
                     log_col.len(),
+                    log_col.bytes().len(),
                     log_col.dtype(),
                     &log_comp,
                     &mut ctx,
@@ -143,6 +145,7 @@ impl FlatLayoutFixture for FsstFixture {
                 fsst_compress(
                     &nullable_col,
                     nullable_col.len(),
+                    nullable_col.bytes().len(),
                     nullable_col.dtype(),
                     &nullable_comp,
                     &mut ctx,
@@ -151,6 +154,7 @@ impl FlatLayoutFixture for FsstFixture {
                 fsst_compress(
                     &short_col,
                     short_col.len(),
+                    short_col.bytes().len(),
                     short_col.dtype(),
                     &short_comp,
                     &mut ctx,
@@ -159,6 +163,7 @@ impl FlatLayoutFixture for FsstFixture {
                 fsst_compress(
                     &empty_and_unicode_col,
                     empty_and_unicode_col.len(),
+                    empty_and_unicode_col.bytes().len(),
                     empty_and_unicode_col.dtype(),
                     &empty_and_unicode_comp,
                     &mut ctx,
@@ -167,6 +172,7 @@ impl FlatLayoutFixture for FsstFixture {
                 fsst_compress(
                     &suffix_shared_col,
                     suffix_shared_col.len(),
+                    suffix_shared_col.bytes().len(),
                     suffix_shared_col.dtype(),
                     &suffix_shared_comp,
                     &mut ctx,
@@ -175,6 +181,7 @@ impl FlatLayoutFixture for FsstFixture {
                 fsst_compress(
                     &high_entropy_col,
                     high_entropy_col.len(),
+                    high_entropy_col.bytes().len(),
                     high_entropy_col.dtype(),
                     &high_entropy_comp,
                     &mut ctx,
@@ -183,6 +190,7 @@ impl FlatLayoutFixture for FsstFixture {
                 fsst_compress(
                     &all_null_clustered,
                     all_null_clustered.len(),
+                    all_null_clustered.bytes().len(),
                     all_null_clustered.dtype(),
                     &all_null_clustered_comp,
                     &mut ctx,

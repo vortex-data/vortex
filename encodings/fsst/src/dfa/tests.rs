@@ -228,10 +228,12 @@ fn make_fsst_str(strings: &[Option<&str>]) -> FSSTArray {
     );
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
+    let total_uncompressed = varbin.bytes().len();
     let dtype = varbin.dtype().clone();
     fsst_compress(
         varbin,
         len,
+        total_uncompressed,
         &dtype,
         &compressor,
         &mut SESSION.create_execution_ctx(),

@@ -237,9 +237,15 @@ mod setup {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings);
         let fsst_compressor = fsst_train_compressor(&unique_varbinview);
+        let total_uncompressed = unique_varbinview
+            .views()
+            .iter()
+            .map(|v| v.len() as usize)
+            .sum::<usize>();
         let fsst_values = fsst_compress(
             &unique_varbinview,
             unique_varbinview.len(),
+            total_uncompressed,
             unique_varbinview.dtype(),
             &fsst_compressor,
             &mut ctx,
@@ -276,9 +282,15 @@ mod setup {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let unique_varbinview = VarBinViewArray::from_iter_str(unique_strings);
         let fsst_compressor = fsst_train_compressor(&unique_varbinview);
+        let total_uncompressed = unique_varbinview
+            .views()
+            .iter()
+            .map(|v| v.len() as usize)
+            .sum::<usize>();
         let fsst = fsst_compress(
             &unique_varbinview,
             unique_varbinview.len(),
+            total_uncompressed,
             unique_varbinview.dtype(),
             &fsst_compressor,
             &mut ctx,

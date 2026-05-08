@@ -808,6 +808,7 @@ mod test {
         let fsst_array = fsst_compress_iter(
             [Some(b"abcabcab".as_ref()), Some(b"defghijk".as_ref())].into_iter(),
             2,
+            16,
             DType::Utf8(Nullability::NonNullable),
             &compressor,
             &mut ctx,

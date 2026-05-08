@@ -79,7 +79,14 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = VarBinArray::from_iter([Some("h")], DType::Utf8(Nullability::NonNullable));
         let compr = fsst_train_compressor(&arr);
-        let fsst = fsst_compress(&arr, arr.len(), arr.dtype(), &compr, &mut ctx);
+        let fsst = fsst_compress(
+            &arr,
+            arr.len(),
+            arr.bytes().len(),
+            arr.dtype(),
+            &compr,
+            &mut ctx,
+        );
 
         let idx1: PrimitiveArray = (0..1).collect();
 
@@ -112,7 +119,14 @@ mod tests {
     fn test_take_fsst_conformance(#[case] varbin: VarBinArray) {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let compressor = fsst_train_compressor(&varbin);
-        let array = fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor, &mut ctx);
+        let array = fsst_compress(
+            &varbin,
+            varbin.len(),
+            varbin.bytes().len(),
+            varbin.dtype(),
+            &compressor,
+            &mut ctx,
+        );
         test_take_conformance(&array.into_array());
     }
 
@@ -126,7 +140,7 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         );
         let compressor = fsst_train_compressor(&varbin);
-        fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor, ctx)
+        fsst_compress(&varbin, varbin.len(), varbin.bytes().len(), varbin.dtype(), &compressor, ctx)
     })]
     // Nullable strings
     #[case::fsst_nullable(|ctx: &mut ExecutionCtx| {
@@ -136,8 +150,9 @@ mod tests {
         );
         let compressor = fsst_train_compressor(&varbin);
         let len = varbin.len();
+        let total_uncompressed = varbin.bytes().len();
         let dtype = varbin.dtype().clone();
-        fsst_compress(varbin, len, &dtype, &compressor, ctx)
+        fsst_compress(varbin, len, total_uncompressed, &dtype, &compressor, ctx)
     })]
     // Repetitive patterns (good for FSST compression)
     #[case::fsst_repetitive(|ctx: &mut ExecutionCtx| {
@@ -146,7 +161,7 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         );
         let compressor = fsst_train_compressor(&varbin);
-        fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor, ctx)
+        fsst_compress(&varbin, varbin.len(), varbin.bytes().len(), varbin.dtype(), &compressor, ctx)
     })]
     // Edge cases
     #[case::fsst_single(|ctx: &mut ExecutionCtx| {
@@ -155,7 +170,7 @@ mod tests {
             DType::Utf8(Nullability::NonNullable),
         );
         let compressor = fsst_train_compressor(&varbin);
-        fsst_compress(&varbin, varbin.len(), varbin.dtype(), &compressor, ctx)
+        fsst_compress(&varbin, varbin.len(), varbin.bytes().len(), varbin.dtype(), &compressor, ctx)
     })]
     #[case::fsst_empty_strings(|ctx: &mut ExecutionCtx| {
         let varbin = VarBinArray::from_iter(
@@ -164,8 +179,9 @@ mod tests {
         );
         let compressor = fsst_train_compressor(&varbin);
         let len = varbin.len();
+        let total_uncompressed = varbin.bytes().len();
         let dtype = varbin.dtype().clone();
-        fsst_compress(varbin, len, &dtype, &compressor, ctx)
+        fsst_compress(varbin, len, total_uncompressed, &dtype, &compressor, ctx)
     })]
     // Large arrays
     #[case::fsst_large(|ctx: &mut ExecutionCtx| {
@@ -186,8 +202,9 @@ mod tests {
         let varbin = VarBinArray::from_iter(data, DType::Utf8(Nullability::NonNullable));
         let compressor = fsst_train_compressor(&varbin);
         let len = varbin.len();
+        let total_uncompressed = varbin.bytes().len();
         let dtype = varbin.dtype().clone();
-        fsst_compress(varbin, len, &dtype, &compressor, ctx)
+        fsst_compress(varbin, len, total_uncompressed, &dtype, &compressor, ctx)
     })]
 
     fn test_fsst_consistency(#[case] build: FsstBuilder) {

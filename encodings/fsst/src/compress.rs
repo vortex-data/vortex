@@ -21,6 +21,7 @@ use crate::FSSTArray;
 pub fn fsst_compress<A: ArrayAccessor<[u8]>>(
     strings: A,
     len: usize,
+    total_uncompressed: usize,
     dtype: &DType,
     compressor: &Compressor,
     ctx: &mut ExecutionCtx,
@@ -29,11 +30,7 @@ pub fn fsst_compress<A: ArrayAccessor<[u8]>>(
     // bounds the compressed size at `2 * uncompressed + 7` per string, so
     // if the upper bound fits in `i32::MAX` the actual offsets are
     // guaranteed to fit; otherwise we widen to `i64` to avoid the overflow
-    // tracked in #7833. The upfront pass over the iterator is cheap
-    // relative to the compression pass.
-    let total_uncompressed =
-        strings.with_iterator(|iter| iter.map(|opt| opt.map_or(0, <[u8]>::len)).sum::<usize>());
-
+    // tracked in #7833.
     if upper_bound_fits_i32(total_uncompressed, len) {
         strings.with_iterator(|iter| {
             fsst_compress_iter_with::<i32, _>(iter, len, dtype.clone(), compressor, ctx)
@@ -87,13 +84,13 @@ fn upper_bound_fits_i32(total_uncompressed: usize, len: usize) -> bool {
 
 /// Compress from an iterator of bytestrings using FSST.
 ///
-/// Single-pass callers that don't have access to the array's total
-/// uncompressed length always produce `i64` codes offsets for safety.
-/// Callers with an [`ArrayAccessor`] should prefer [`fsst_compress`],
-/// which picks `i32` offsets in the common case.
+/// `total_uncompressed` is the total byte length of all strings in the input;
+/// callers typically have it cheaply available (e.g. `VarBinArray::bytes().len()`).
+/// It selects the narrowest codes-offsets type per [`upper_bound_fits_i32`].
 pub fn fsst_compress_iter<'a, I>(
     iter: I,
     len: usize,
+    total_uncompressed: usize,
     dtype: DType,
     compressor: &Compressor,
     ctx: &mut ExecutionCtx,
@@ -101,7 +98,11 @@ pub fn fsst_compress_iter<'a, I>(
 where
     I: Iterator<Item = Option<&'a [u8]>>,
 {
-    fsst_compress_iter_with::<i64, _>(iter, len, dtype, compressor, ctx)
+    if upper_bound_fits_i32(total_uncompressed, len) {
+        fsst_compress_iter_with::<i32, _>(iter, len, dtype, compressor, ctx)
+    } else {
+        fsst_compress_iter_with::<i64, _>(iter, len, dtype, compressor, ctx)
+    }
 }
 
 fn fsst_compress_iter_with<'a, O, I>(
@@ -196,6 +197,7 @@ mod tests {
         let compressed = fsst_compress_iter(
             [Some(big_string.as_bytes())].into_iter(),
             1,
+            big_string.len(),
             DType::Utf8(Nullability::NonNullable),
             &compressor,
             &mut ctx,
@@ -254,7 +256,15 @@ mod tests {
         let dtype = array.dtype().clone();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
-        let fsst = fsst_compress(&array, len, &dtype, &compressor, &mut ctx);
+        let total_uncompressed = array.bytes().len();
+        let fsst = fsst_compress(
+            &array,
+            len,
+            total_uncompressed,
+            &dtype,
+            &compressor,
+            &mut ctx,
+        );
 
         let codes_offsets_ptype = PType::try_from(fsst.codes().offsets().dtype()).unwrap();
         assert_eq!(codes_offsets_ptype, PType::I32);

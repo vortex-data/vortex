@@ -50,8 +50,9 @@ pub fn gen_fsst_test_data(
     let compressor = fsst_train_compressor(&varbin);
 
     let len = varbin.len();
+    let total_uncompressed = varbin.bytes().len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor, ctx).into_array()
+    fsst_compress(varbin, len, total_uncompressed, &dtype, &compressor, ctx).into_array()
 }
 
 pub fn gen_dict_fsst_test_data<T: NativePType>(
@@ -147,8 +148,9 @@ pub fn make_fsst_urls(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     let varbin = generate_url_data_n(n);
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
+    let total_uncompressed = varbin.bytes().len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor, ctx)
+    fsst_compress(varbin, len, total_uncompressed, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -243,8 +245,9 @@ pub fn make_fsst_clickbench_urls(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray 
     );
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
+    let total_uncompressed = varbin.bytes().len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor, ctx)
+    fsst_compress(varbin, len, total_uncompressed, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -311,8 +314,9 @@ pub fn make_fsst_short_urls(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     );
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
+    let total_uncompressed = varbin.bytes().len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor, ctx)
+    fsst_compress(varbin, len, total_uncompressed, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -383,8 +387,9 @@ pub fn make_fsst_log_lines(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     );
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
+    let total_uncompressed = varbin.bytes().len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor, ctx)
+    fsst_compress(varbin, len, total_uncompressed, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -442,8 +447,9 @@ pub fn make_fsst_json_strings(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     );
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
+    let total_uncompressed = varbin.bytes().len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor, ctx)
+    fsst_compress(varbin, len, total_uncompressed, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -514,8 +520,9 @@ pub fn make_fsst_file_paths(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     );
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
+    let total_uncompressed = varbin.bytes().len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor, ctx)
+    fsst_compress(varbin, len, total_uncompressed, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -567,8 +574,9 @@ pub fn make_fsst_emails(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     );
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
+    let total_uncompressed = varbin.bytes().len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor, ctx)
+    fsst_compress(varbin, len, total_uncompressed, &dtype, &compressor, ctx)
 }
 
 // ---------------------------------------------------------------------------
@@ -606,6 +614,7 @@ pub fn make_fsst_rare_match(n: usize, ctx: &mut ExecutionCtx) -> FSSTArray {
     );
     let compressor = fsst_train_compressor(&varbin);
     let len = varbin.len();
+    let total_uncompressed = varbin.bytes().len();
     let dtype = varbin.dtype().clone();
-    fsst_compress(varbin, len, &dtype, &compressor, ctx)
+    fsst_compress(varbin, len, total_uncompressed, &dtype, &compressor, ctx)
 }

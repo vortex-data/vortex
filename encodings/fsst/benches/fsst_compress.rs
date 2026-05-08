@@ -56,10 +56,18 @@ const BENCH_ARGS: &[(usize, usize, u8)] = &[
 fn compress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usize, usize, u8)) {
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array);
+    let total_uncompressed = array.bytes().len();
     bencher
         .with_inputs(|| (&array, &compressor, LEGACY_SESSION.create_execution_ctx()))
         .bench_refs(|(array, compressor, ctx)| {
-            fsst_compress(*array, array.len(), array.dtype(), compressor, ctx)
+            fsst_compress(
+                *array,
+                array.len(),
+                total_uncompressed,
+                array.dtype(),
+                compressor,
+                ctx,
+            )
         })
 }
 
@@ -68,10 +76,12 @@ fn decompress_fsst(bencher: Bencher, (string_count, avg_len, unique_chars): (usi
     let array = generate_test_data(string_count, avg_len, unique_chars);
     let compressor = fsst_train_compressor(&array);
     let len = array.len();
+    let total_uncompressed = array.bytes().len();
     let dtype = array.dtype().clone();
     let encoded = fsst_compress(
         array,
         len,
+        total_uncompressed,
         &dtype,
         &compressor,
         &mut LEGACY_SESSION.create_execution_ctx(),
@@ -97,6 +107,7 @@ fn pushdown_compare(bencher: Bencher, (string_count, avg_len, unique_chars): (us
     let fsst_array = fsst_compress(
         &array,
         array.len(),
+        array.bytes().len(),
         array.dtype(),
         &compressor,
         &mut LEGACY_SESSION.create_execution_ctx(),
@@ -132,6 +143,7 @@ fn canonicalize_compare(
     let fsst_array = fsst_compress(
         &array,
         array.len(),
+        array.bytes().len(),
         array.dtype(),
         &compressor,
         &mut LEGACY_SESSION.create_execution_ctx(),
@@ -241,8 +253,17 @@ fn generate_chunked_test_data(
             let array = generate_test_data(string_count, avg_len, unique_chars);
             let compressor = fsst_train_compressor(&array);
             let len = array.len();
+            let total_uncompressed = array.bytes().len();
             let dtype = array.dtype().clone();
-            fsst_compress(array, len, &dtype, &compressor, &mut ctx).into_array()
+            fsst_compress(
+                array,
+                len,
+                total_uncompressed,
+                &dtype,
+                &compressor,
+                &mut ctx,
+            )
+            .into_array()
         })
         .collect::<ChunkedArray>()
 }

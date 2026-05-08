@@ -90,7 +90,15 @@ impl Scheme for FSSTScheme {
     ) -> VortexResult<ArrayRef> {
         let utf8 = data.array_as_utf8().into_owned();
         let compressor_fsst = fsst_train_compressor(&utf8);
-        let fsst = fsst_compress(&utf8, utf8.len(), utf8.dtype(), &compressor_fsst, exec_ctx);
+        let total_uncompressed = utf8.views().iter().map(|v| v.len() as usize).sum::<usize>();
+        let fsst = fsst_compress(
+            &utf8,
+            utf8.len(),
+            total_uncompressed,
+            utf8.dtype(),
+            &compressor_fsst,
+            exec_ctx,
+        );
 
         let uncompressed_lengths_primitive = fsst
             .uncompressed_lengths()

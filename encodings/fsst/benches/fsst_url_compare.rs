@@ -60,6 +60,7 @@ fn eq_pushdown_high_match(bencher: Bencher) {
     let fsst_array = fsst_compress(
         data,
         data.len(),
+        data.bytes().len(),
         data.dtype(),
         &compressor,
         &mut SESSION.create_execution_ctx(),
@@ -87,6 +88,7 @@ fn eq_pushdown_low_match(bencher: Bencher) {
     let fsst_array = fsst_compress(
         data,
         data.len(),
+        data.bytes().len(),
         data.dtype(),
         &compressor,
         &mut SESSION.create_execution_ctx(),
@@ -114,6 +116,7 @@ fn eq_canonicalize_high_match(bencher: Bencher) {
     let fsst_array = fsst_compress(
         data,
         data.len(),
+        data.bytes().len(),
         data.dtype(),
         &compressor,
         &mut SESSION.create_execution_ctx(),
@@ -144,6 +147,7 @@ fn eq_canonicalize_low_match(bencher: Bencher) {
     let fsst_array = fsst_compress(
         data,
         data.len(),
+        data.bytes().len(),
         data.dtype(),
         &compressor,
         &mut SESSION.create_execution_ctx(),
@@ -178,6 +182,7 @@ fn like_substr_high_match(bencher: Bencher) {
     let fsst_array = fsst_compress(
         data,
         data.len(),
+        data.bytes().len(),
         data.dtype(),
         &compressor,
         &mut SESSION.create_execution_ctx(),
@@ -205,6 +210,7 @@ fn like_substr_low_match(bencher: Bencher) {
     let fsst_array = fsst_compress(
         data,
         data.len(),
+        data.bytes().len(),
         data.dtype(),
         &compressor,
         &mut SESSION.create_execution_ctx(),

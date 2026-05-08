@@ -155,8 +155,15 @@ mod tests {
                 let (array, data) = make_data();
                 let compressor = fsst_train_compressor(&array);
                 (
-                    fsst_compress(&array, array.len(), array.dtype(), &compressor, &mut ctx)
-                        .into_array(),
+                    fsst_compress(
+                        &array,
+                        array.len(),
+                        array.bytes().len(),
+                        array.dtype(),
+                        &compressor,
+                        &mut ctx,
+                    )
+                    .into_array(),
                     data,
                 )
             })
@@ -213,6 +220,7 @@ mod tests {
         let fsst_array = fsst_compress(
             &varbin,
             varbin.len(),
+            varbin.bytes().len(),
             varbin.dtype(),
             &fsst_train_compressor(&varbin),
             &mut ctx,

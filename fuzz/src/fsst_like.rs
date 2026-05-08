@@ -117,6 +117,7 @@ pub fn run_fsst_like_fuzz(fuzz: FuzzFsstLike) -> VortexFuzzResult<bool> {
     let fsst_array: FSSTArray = fsst_compress(
         varbin.clone(),
         varbin.len(),
+        varbin.bytes().len(),
         varbin.dtype(),
         &compressor,
         &mut ctx,
