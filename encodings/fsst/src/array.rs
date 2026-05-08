@@ -38,6 +38,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -481,7 +482,7 @@ impl FSST {
 
 impl FSSTData {
     fn make_slots(codes: &VarBinArray, uncompressed_lengths: &ArrayRef) -> ArraySlots {
-        vortex_array::smallvec::smallvec![
+        smallvec![
             Some(uncompressed_lengths.clone()),
             Some(codes.offsets().clone()),
             validity_to_child(

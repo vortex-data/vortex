@@ -33,6 +33,7 @@ use vortex_array::patches::PatchesMetadata;
 use vortex_array::require_child;
 use vortex_array::require_patches;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -401,7 +402,7 @@ impl ALP {
 
 impl ALPData {
     fn make_slots(encoded: &ArrayRef, patches: Option<&Patches>) -> ArraySlots {
-        let mut slots: ArraySlots = vortex_array::smallvec::smallvec![Some(encoded.clone())];
+        let mut slots: ArraySlots = smallvec![Some(encoded.clone())];
         PatchesData::push_slots(&mut slots, patches);
         slots
     }
