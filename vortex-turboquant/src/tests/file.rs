@@ -54,7 +54,7 @@ fn file_roundtrip_lazy_decode_scalar_fn_with_initialize_session() -> VortexResul
     let input = f32_vector_array(128, 2, 0.25, Validity::from_iter([true, false]))?;
     let config = TurboQuantConfig::try_new(3, 42, 3)?;
     let encoded = execute_tq_encode(input, &config, &mut ctx)?;
-    let decoded = TQDecode::try_new_array(encoded, &config, 2)?.into_array();
+    let decoded = TQDecode::try_new_array(encoded)?.into_array();
 
     let mut file_bytes = Vec::new();
     VortexWriteOptions::new(session.clone())

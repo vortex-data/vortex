@@ -4,23 +4,17 @@ pub struct vortex_turboquant::TQDecode
 
 impl vortex_turboquant::TQDecode
 
-pub fn vortex_turboquant::TQDecode::new(&vortex_turboquant::TurboQuantConfig) -> vortex_array::scalar_fn::typed::TypedScalarFnInstance<vortex_turboquant::TQDecode>
+pub fn vortex_turboquant::TQDecode::new() -> vortex_array::scalar_fn::typed::TypedScalarFnInstance<vortex_turboquant::TQDecode>
 
-pub fn vortex_turboquant::TQDecode::try_new_array(vortex_array::array::erased::ArrayRef, &vortex_turboquant::TurboQuantConfig, usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
+pub fn vortex_turboquant::TQDecode::try_new_array(vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
 impl core::clone::Clone for vortex_turboquant::TQDecode
 
 pub fn vortex_turboquant::TQDecode::clone(&self) -> vortex_turboquant::TQDecode
 
-impl vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable for vortex_turboquant::TQDecode
-
-pub fn vortex_turboquant::TQDecode::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts<Self>>
-
-pub fn vortex_turboquant::TQDecode::serialize(&self, &vortex_array::arrays::scalar_fn::vtable::ScalarFnArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
-
 impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_turboquant::TQDecode
 
-pub type vortex_turboquant::TQDecode::Options = vortex_turboquant::TurboQuantConfig
+pub type vortex_turboquant::TQDecode::Options = vortex_array::extension::EmptyMetadata
 
 pub fn vortex_turboquant::TQDecode::arity(&self, &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
 
@@ -50,7 +44,7 @@ impl vortex_turboquant::TQEncode
 
 pub fn vortex_turboquant::TQEncode::new(&vortex_turboquant::TurboQuantConfig) -> vortex_array::scalar_fn::typed::TypedScalarFnInstance<vortex_turboquant::TQEncode>
 
-pub fn vortex_turboquant::TQEncode::try_new_array(vortex_array::array::erased::ArrayRef, &vortex_turboquant::TurboQuantConfig, usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
+pub fn vortex_turboquant::TQEncode::try_new_array(vortex_array::array::erased::ArrayRef, &vortex_turboquant::TurboQuantConfig) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
 impl core::clone::Clone for vortex_turboquant::TQEncode
 

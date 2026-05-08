@@ -6,7 +6,7 @@
 //!
 //! The four mask shapes (`AllTrue`, `AllFalse`, dense `Values`, sparse `Values`) exercise the
 //! variant-specialized paths added in the mask refactor in `vector/normalize.rs`,
-//! `vector/quantize.rs`, and `vector/decode.rs`.
+//! `vector/quantize.rs`, and `scalar_fns/decode.rs`.
 
 #![expect(clippy::unwrap_used)]
 
@@ -101,17 +101,15 @@ fn build_vector_array(shape: MaskShape) -> ArrayRef {
 }
 
 fn encode(vec: ArrayRef, config: &TurboQuantConfig, ctx: &mut ExecutionCtx) -> ArrayRef {
-    let len = vec.len();
-    TQEncode::try_new_array(vec, config, len)
+    TQEncode::try_new_array(vec, config)
         .unwrap()
         .into_array()
         .execute(ctx)
         .unwrap()
 }
 
-fn decode(encoded: ArrayRef, config: &TurboQuantConfig, ctx: &mut ExecutionCtx) -> ArrayRef {
-    let len = encoded.len();
-    TQDecode::try_new_array(encoded, config, len)
+fn decode(encoded: ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
+    TQDecode::try_new_array(encoded)
         .unwrap()
         .into_array()
         .execute(ctx)
@@ -145,5 +143,5 @@ fn turboquant_decode(bencher: Bencher, shape: &MaskShape) {
             (encoded, SESSION.create_execution_ctx())
         })
         .input_counter(|_| divan::counter::ItemsCount::new(ROWS))
-        .bench_values(|(encoded, mut ctx)| decode(encoded, &cfg, &mut ctx))
+        .bench_values(|(encoded, mut ctx)| decode(encoded, &mut ctx))
 }

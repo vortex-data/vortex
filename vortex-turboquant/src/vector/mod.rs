@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod quantize;
-
-pub(crate) mod decode;
-pub(crate) mod encode;
 pub(crate) mod normalize;
+pub(crate) mod quantize;
 pub(crate) mod storage;
 
 use vortex_error::VortexResult;

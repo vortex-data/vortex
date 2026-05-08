@@ -84,7 +84,7 @@ fn encode_decode_empty_vectors() -> VortexResult<()> {
     let input = vector_array::<f32>(128, &[], Validity::NonNullable)?;
 
     let encoded = execute_tq_encode(input, &TurboQuantConfig::default(), &mut ctx)?;
-    let decoded = execute_tq_decode(encoded, &TurboQuantConfig::default(), &mut ctx)?;
+    let decoded = execute_tq_decode(encoded, &mut ctx)?;
 
     assert!(decoded.is_empty());
     Ok(())
@@ -185,7 +185,7 @@ fn encode_decode_preserves_nulls_and_zero_norm_rows() -> VortexResult<()> {
     let input = vector_array(128, &values, Validity::from_iter([true, true, false]))?;
 
     let encoded = execute_tq_encode(input, &TurboQuantConfig::default(), &mut ctx)?;
-    let decoded = execute_tq_decode(encoded, &TurboQuantConfig::default(), &mut ctx)?;
+    let decoded = execute_tq_decode(encoded, &mut ctx)?;
     let output = vector_values_f32(decoded.clone(), &mut ctx)?;
     let validity = vector_validity(decoded, &mut ctx)?.execute_mask(3, &mut ctx)?;
 
@@ -211,7 +211,7 @@ fn encode_decode_supports_non_f32_inputs(#[case] ptype: PType) -> VortexResult<(
                 .collect::<Vec<_>>();
             let input = vector_array(128, &values, Validity::NonNullable)?;
             let encoded = execute_tq_encode(input, &config, &mut ctx)?;
-            let decoded = execute_tq_decode(encoded, &config, &mut ctx)?;
+            let decoded = execute_tq_decode(encoded, &mut ctx)?;
             let ext: ExtensionArray = decoded.execute(&mut ctx)?;
             assert_eq!(vector_element_ptype(&ext)?, PType::F16);
         }
@@ -221,7 +221,7 @@ fn encode_decode_supports_non_f32_inputs(#[case] ptype: PType) -> VortexResult<(
                 .collect::<Vec<_>>();
             let input = vector_array(128, &values, Validity::NonNullable)?;
             let encoded = execute_tq_encode(input, &config, &mut ctx)?;
-            let decoded = execute_tq_decode(encoded, &config, &mut ctx)?;
+            let decoded = execute_tq_decode(encoded, &mut ctx)?;
             let ext: ExtensionArray = decoded.execute(&mut ctx)?;
             assert_eq!(vector_element_ptype(&ext)?, PType::F64);
         }
@@ -239,19 +239,11 @@ fn decode_scales_by_stored_norms() -> VortexResult<()> {
     let config = TurboQuantConfig::try_new(2, 99, 3)?;
 
     let base_values = vector_values_f32(
-        execute_tq_decode(
-            execute_tq_encode(base, &config, &mut ctx)?,
-            &config,
-            &mut ctx,
-        )?,
+        execute_tq_decode(execute_tq_encode(base, &config, &mut ctx)?, &mut ctx)?,
         &mut ctx,
     )?;
     let scaled_values = vector_values_f32(
-        execute_tq_decode(
-            execute_tq_encode(scaled, &config, &mut ctx)?,
-            &config,
-            &mut ctx,
-        )?,
+        execute_tq_decode(execute_tq_encode(scaled, &config, &mut ctx)?, &mut ctx)?,
         &mut ctx,
     )?;
 

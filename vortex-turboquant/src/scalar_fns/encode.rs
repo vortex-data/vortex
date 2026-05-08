@@ -8,7 +8,13 @@ use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::Extension;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::extension::ExtDType;
 use vortex_array::expr::Expression;
@@ -28,7 +34,11 @@ use super::metadata::deserialize_config;
 use super::metadata::serialize_config;
 use crate::TurboQuantConfig;
 use crate::config::MIN_DIMENSION;
-use crate::vector::encode::encode_vector;
+use crate::vector::normalize::tq_normalize_as_l2_denorm;
+use crate::vector::quantize::empty_quantization;
+use crate::vector::quantize::turboquant_quantize_core;
+use crate::vector::storage::build_codes_child;
+use crate::vector::storage::build_storage;
 use crate::vector::tq_padded_dim;
 use crate::vtable::TurboQuant;
 use crate::vtable::TurboQuantMetadata;
@@ -54,8 +64,8 @@ impl TQEncode {
     pub fn try_new_array(
         child: ArrayRef,
         config: &TurboQuantConfig,
-        len: usize,
     ) -> VortexResult<ScalarFnArray> {
+        let len = child.len();
         ScalarFnArray::try_new(TQEncode::new(config).erased(), vec![child], len)
     }
 }
@@ -154,4 +164,61 @@ impl ScalarFnVTable for TQEncode {
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
     }
+}
+
+/// Lossily encode a `Vector` extension array into a `TurboQuant` extension array.
+///
+/// Valid rows are normalized internally before SORF transform and scalar quantization. The original
+/// row norms are stored explicitly, and original vector nulls are preserved on the storage struct
+/// and both row-aligned child arrays.
+pub(crate) fn encode_vector(
+    input: ArrayRef,
+    config: &TurboQuantConfig,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let num_vectors = input.len();
+    let vector_metadata = input
+        .dtype()
+        .as_extension_opt()
+        .and_then(|ext_dtype| ext_dtype.metadata_opt::<AnyVector>())
+        .ok_or_else(|| vortex_err!("TurboQuant encode expects a Vector extension array"))?;
+
+    let element_ptype = vector_metadata.element_ptype();
+
+    let dimensions = vector_metadata.dimensions();
+    vortex_ensure!(
+        dimensions >= MIN_DIMENSION,
+        "TurboQuant requires dimension >= {MIN_DIMENSION}, got {dimensions}",
+    );
+    let padded_dim = tq_padded_dim(dimensions)?;
+
+    let vector_validity = input.validity()?;
+
+    let l2_denorm = tq_normalize_as_l2_denorm(input, ctx)?;
+    let normalized = l2_denorm.child_at(0).clone();
+    let norms = l2_denorm.child_at(1).clone();
+
+    let normalized_ext = normalized
+        .as_opt::<Extension>()
+        .ok_or_else(|| vortex_err!("normalized TurboQuant input must be a Vector extension"))?;
+    let normalized_fsl: FixedSizeListArray = normalized_ext.storage_array().clone().execute(ctx)?;
+
+    let core = if normalized_fsl.is_empty() {
+        empty_quantization(padded_dim)
+    } else {
+        // SAFETY: `tq_normalize_as_l2_denorm` returned this normalized Vector child.
+        unsafe { turboquant_quantize_core(&normalized_fsl, config, ctx)? }
+    };
+    let codes = build_codes_child(num_vectors, core, vector_validity.clone())?;
+
+    let metadata = TurboQuantMetadata {
+        element_ptype,
+        dimensions,
+        bit_width: config.bit_width(),
+        seed: config.seed(),
+        num_rounds: config.num_rounds(),
+    };
+    let storage = build_storage(norms, codes, num_vectors, vector_validity)?;
+
+    Ok(ExtensionArray::try_new_from_vtable(TurboQuant, metadata, storage)?.into_array())
 }

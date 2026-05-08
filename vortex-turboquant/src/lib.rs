@@ -69,18 +69,12 @@ pub use vtable::TurboQuantMetadata;
 // TODO(connor): We need to somehow make sure that callers call `vortex_tensor::initialize` first.
 /// Register the TurboQuant extension type with a Vortex session.
 pub fn initialize(session: &vortex_session::VortexSession) {
-    use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
     use vortex_array::dtype::session::DTypeSessionExt;
     use vortex_array::scalar_fn::session::ScalarFnSessionExt;
-    use vortex_array::session::ArraySessionExt;
-
     session.dtypes().register(TurboQuant);
 
     session.scalar_fns().register(TQEncode);
     session.scalar_fns().register(TQDecode);
-
-    let session_arrays = session.arrays();
-    session_arrays.register(ScalarFnArrayPlugin::new(TQDecode));
 }
 
 #[cfg(test)]

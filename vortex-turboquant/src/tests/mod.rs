@@ -36,7 +36,6 @@ use crate::TQDecode;
 use crate::TQEncode;
 use crate::TurboQuantConfig;
 use crate::initialize;
-use crate::vtable::tq_metadata;
 
 mod encode_decode;
 mod file;
@@ -125,29 +124,18 @@ fn execute_tq_encode(
     config: &TurboQuantConfig,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let len = input.len();
-    TQEncode::try_new_array(input, config, len)?
+    TQEncode::try_new_array(input, config)?
         .into_array()
         .execute(ctx)
 }
 
-fn execute_tq_decode(
-    input: ArrayRef,
-    config: &TurboQuantConfig,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let len = input.len();
-    TQDecode::try_new_array(input, config, len)?
-        .into_array()
-        .execute(ctx)
+fn execute_tq_decode(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    TQDecode::try_new_array(input)?.into_array().execute(ctx)
 }
 
 fn execute_tq_decode_from_metadata(
     input: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let metadata = tq_metadata(input.dtype())?;
-    let config = TurboQuantConfig::try_new(metadata.bit_width, metadata.seed, metadata.num_rounds)?;
-
-    execute_tq_decode(input, &config, ctx)
+    execute_tq_decode(input, ctx)
 }

@@ -20,7 +20,7 @@ fn encode_decode_matches_old_turboquant_decode() -> VortexResult<()> {
     let config = TurboQuantConfig::try_new(3, 42, 3)?;
 
     let new_encoded = execute_tq_encode(input.clone(), &config, &mut ctx)?;
-    let new_decoded = execute_tq_decode(new_encoded, &config, &mut ctx)?;
+    let new_decoded = execute_tq_decode(new_encoded, &mut ctx)?;
     let old_config = vortex_tensor::encodings::turboquant::TurboQuantConfig {
         bit_width: config.bit_width(),
         seed: config.seed(),
