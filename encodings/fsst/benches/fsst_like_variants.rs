@@ -21,6 +21,7 @@ use vortex_fsst::FSSTArray;
 use vortex_fsst::bench_utils::scan_baseline_contains;
 use vortex_fsst::bench_utils::scan_classes_contains;
 use vortex_fsst::bench_utils::scan_decompress_memmem_contains;
+use vortex_fsst::bench_utils::scan_escape_folded_contains;
 use vortex_fsst::bench_utils::scan_pre_classified_contains;
 use vortex_fsst::bench_utils::scan_shufti_contains;
 use vortex_fsst::test_utils::NUM_STRINGS;
@@ -201,6 +202,43 @@ fn memmem_contains_email(bencher: Bencher) {
 #[divan::bench]
 fn memmem_contains_rare(bencher: Bencher) {
     bencher.bench(|| scan_decompress_memmem_contains(&FSST_RARE_MATCH, NEEDLE_RARE));
+}
+
+// ─── variant E: escape-folded flat DFA ─────────────────────────────────────
+
+#[divan::bench]
+fn folded_contains_urls(bencher: Bencher) {
+    bencher.bench(|| scan_escape_folded_contains(&FSST_URLS, NEEDLE_URLS));
+}
+
+#[divan::bench]
+fn folded_contains_cb(bencher: Bencher) {
+    bencher.bench(|| scan_escape_folded_contains(&FSST_CB_URLS, NEEDLE_CB_URLS));
+}
+
+#[divan::bench]
+fn folded_contains_log(bencher: Bencher) {
+    bencher.bench(|| scan_escape_folded_contains(&FSST_LOG_LINES, NEEDLE_LOG));
+}
+
+#[divan::bench]
+fn folded_contains_json(bencher: Bencher) {
+    bencher.bench(|| scan_escape_folded_contains(&FSST_JSON_STRINGS, NEEDLE_JSON));
+}
+
+#[divan::bench]
+fn folded_contains_path(bencher: Bencher) {
+    bencher.bench(|| scan_escape_folded_contains(&FSST_FILE_PATHS, NEEDLE_PATH));
+}
+
+#[divan::bench]
+fn folded_contains_email(bencher: Bencher) {
+    bencher.bench(|| scan_escape_folded_contains(&FSST_EMAILS, NEEDLE_EMAIL));
+}
+
+#[divan::bench]
+fn folded_contains_rare(bencher: Bencher) {
+    bencher.bench(|| scan_escape_folded_contains(&FSST_RARE_MATCH, NEEDLE_RARE));
 }
 
 // ─── shufti (per-state skip) ───────────────────────────────────────────────

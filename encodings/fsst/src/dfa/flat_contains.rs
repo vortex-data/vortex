@@ -280,6 +280,149 @@ impl FlatContainsDfa {
 }
 
 // ---------------------------------------------------------------------------
+// Variant E: escape-folded flat DFA (no sentinel branch in the inner loop)
+// ---------------------------------------------------------------------------
+
+/// Flat transition table DFA where the escape sentinel is folded into the
+/// state space, eliminating the per-step escape branch from the inner loop.
+///
+/// State layout (`N` = needle length, only valid when `2N + 1 ≤ 256`):
+///
+/// - States `0..N-1`: progress states (no escape pending, like the baseline)
+/// - State `N`: accept (sticky)
+/// - States `N+1..2N`: post-escape companions for progress states `0..N-1`.
+///   State `N+1+s` means "we just consumed an escape code from progress state
+///   `s`; the next code byte is a literal".
+///
+/// Transitions:
+/// - Progress state `s`, code `0..ESCAPE_CODE`: same as the baseline symbol-level
+///   transition (advance the byte-DFA over the symbol's bytes).
+/// - Progress state `s`, `ESCAPE_CODE`: → post-escape state `N+1+s`.
+/// - Accept state `N`, any code: → `N` (sticky).
+/// - Post-escape state `N+1+s`, any byte `b`: → `byte_table[s][b]`. This is
+///   the byte-level DFA target after reading one literal byte from progress
+///   state `s` — including byte 255 which here is a literal, not an escape.
+///
+/// Inner loop becomes one lookup + accept check, no sentinel branch:
+/// ```text
+/// state = transitions[state * 256 + code];
+/// if state == accept { return true; }
+/// ```
+pub(crate) struct FlatContainsDfaEscapeFolded {
+    transitions: Vec<u8>,
+    accept_state: u8,
+    n_states: u16,
+    skip: SkipStrategy,
+}
+
+impl FlatContainsDfaEscapeFolded {
+    /// Maximum needle length: 2N + 1 must fit in u8, so N ≤ 127.
+    pub(crate) const MAX_NEEDLE_LEN: usize = 127;
+
+    pub(crate) fn new(
+        symbols: &[Symbol],
+        symbol_lengths: &[u8],
+        needle: &[u8],
+    ) -> VortexResult<Self> {
+        if needle.len() > Self::MAX_NEEDLE_LEN {
+            vortex_bail!(
+                "needle length {} exceeds maximum {} for escape-folded contains DFA",
+                needle.len(),
+                Self::MAX_NEEDLE_LEN
+            );
+        }
+
+        let n = needle.len();
+        let accept_state = u8::try_from(n)
+            .vortex_expect("FlatContainsDfaEscapeFolded: accept state must fit into u8");
+        let total_states = 2 * n + 1;
+        let n_states = u16::try_from(total_states)
+            .vortex_expect("FlatContainsDfaEscapeFolded: 2N+1 must fit in u16");
+
+        let byte_table = kmp_byte_transitions(needle);
+
+        // Build the standard fused 256-wide table for progress states 0..n
+        // (n+1 states: progress 0..n-1 + accept n). Code 255 maps to the
+        // post-escape state for that progress state via escape_value_fn.
+        let progress_states = accept_state + 1;
+        let sym_trans = build_symbol_transitions(
+            symbols,
+            symbol_lengths,
+            &byte_table,
+            progress_states,
+            accept_state,
+        );
+
+        let mut transitions = vec![0u8; total_states * 256];
+
+        // Fill progress states 0..accept_state (inclusive of accept).
+        // The accept row stays sticky in build_fused_table because the symbol
+        // pass maps every symbol to accept once we're there.
+        let escape_target = |state: u8| -> u8 {
+            if state == accept_state {
+                accept_state
+            } else {
+                u8::try_from(usize::from(accept_state) + 1 + usize::from(state))
+                    .vortex_expect("post-escape state fits in u8 (N ≤ 127)")
+            }
+        };
+        let progress_table = build_fused_table(
+            &sym_trans,
+            symbols.len(),
+            progress_states,
+            escape_target,
+            0,
+        );
+        transitions[..progress_table.len()].copy_from_slice(&progress_table);
+
+        // Post-escape states: post_s = accept_state + 1 + s (for s in 0..accept_state).
+        // For any byte b, transition to byte_table[s][b].
+        for s in 0..accept_state {
+            let post = usize::from(accept_state) + 1 + usize::from(s);
+            for b in 0..256usize {
+                transitions[post * 256 + b] = byte_table[usize::from(s) * 256 + b];
+            }
+        }
+
+        // State-0 skip is on the raw code alphabet, same as baseline.
+        let skip = SkipStrategy::from_transition_row(&transitions[0..256], 0);
+
+        Ok(Self {
+            transitions,
+            accept_state,
+            n_states,
+            skip,
+        })
+    }
+
+    /// Total number of DFA states (`2N + 1`).
+    pub(crate) fn n_states(&self) -> u16 {
+        self.n_states
+    }
+
+    pub(crate) fn matches(&self, codes: &[u8]) -> bool {
+        let mut state = 0u8;
+        let mut pos = 0;
+        while pos < codes.len() {
+            if state == 0 {
+                match self.skip.find_next_progressing(codes, pos) {
+                    Some(next) => pos = next,
+                    None => return false,
+                }
+            }
+
+            let code = codes[pos];
+            pos += 1;
+            state = self.transitions[usize::from(state) * 256 + usize::from(code)];
+            if state == self.accept_state {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Variant B: byte-class minimization
 // ---------------------------------------------------------------------------
 

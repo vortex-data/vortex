@@ -29,6 +29,7 @@ use super::flat_contains::FlatContainsDfa;
 use super::flat_contains::FlatContainsDfaBaseline;
 use super::flat_contains::FlatContainsDfaClasses;
 use super::flat_contains::FlatContainsDfaClassesPre;
+use super::flat_contains::FlatContainsDfaEscapeFolded;
 use super::multi_contains::MultiContainsDfa;
 use super::prefix::FlatPrefixDfa;
 use crate::FSSTArray;
@@ -677,6 +678,66 @@ fn test_classes_parity_exhaustive() -> VortexResult<()> {
         }
     }
     Ok(())
+}
+
+/// Verify escape-folded variant E agrees with baseline.
+#[rstest]
+#[case(b"google", b"https://google.com/path?q=1")]
+#[case(b"google", b"https://other.com/path?q=1")]
+#[case(b"abcabc", b"xabcabcabcx")]
+#[case(b"abcabc", b"xabcabx")]
+#[case(b"needle", b"")]
+#[case(b"needle", b"needle")]
+#[case(b"needle", b"xneedlex")]
+#[case(b"aaa", b"aaaaaa")]
+#[case(b"abc", &[0xFFu8, b'a', 0xFF, b'b', 0xFF, b'c'])]
+fn test_escape_folded_parity_no_symbols(
+    #[case] needle: &[u8],
+    #[case] codes: &[u8],
+) -> VortexResult<()> {
+    let baseline = FlatContainsDfaBaseline::new(&[], &[], needle)?;
+    let folded = FlatContainsDfaEscapeFolded::new(&[], &[], needle)?;
+    assert_eq!(
+        baseline.matches(codes),
+        folded.matches(codes),
+        "parity failure: needle={needle:?}, codes={codes:?}"
+    );
+    Ok(())
+}
+
+/// Exhaustive parity check between baseline and escape-folded variants.
+#[test]
+fn test_escape_folded_parity_exhaustive() -> VortexResult<()> {
+    let needles: &[&[u8]] = &[b"a", b"ab", b"abc", b"abab", b"aabaabaab"];
+    let inputs: &[&[u8]] = &[
+        b"",
+        b"a",
+        b"ab",
+        b"abc",
+        b"xabx",
+        b"aababab",
+        b"aabaabaab",
+        b"xaabaabaabx",
+    ];
+
+    for &needle in needles {
+        let baseline = FlatContainsDfaBaseline::new(&[], &[], needle)?;
+        let folded = FlatContainsDfaEscapeFolded::new(&[], &[], needle)?;
+        for &input in inputs {
+            let codes: Vec<u8> = input.iter().flat_map(|&b| [0xFF, b]).collect();
+            let b = baseline.matches(&codes);
+            let e = folded.matches(&codes);
+            assert_eq!(b, e, "parity failure: needle={needle:?}, input={input:?}");
+        }
+    }
+    Ok(())
+}
+
+/// Reject needles longer than 127 bytes (2N+1 must fit in u8).
+#[test]
+fn test_escape_folded_rejects_oversized_needle() {
+    let needle = vec![b'a'; 128];
+    assert!(FlatContainsDfaEscapeFolded::new(&[], &[], &needle).is_err());
 }
 
 /// Verify pre-classified variant C agrees with baseline.

@@ -135,6 +135,7 @@ pub(crate) use flat_contains::FlatContainsDfa;
 pub(crate) use flat_contains::FlatContainsDfaBaseline;
 pub(crate) use flat_contains::FlatContainsDfaClasses;
 pub(crate) use flat_contains::FlatContainsDfaClassesPre;
+pub(crate) use flat_contains::FlatContainsDfaEscapeFolded;
 #[cfg(feature = "shufti-counters")]
 pub(crate) use flat_contains::{
     SHUFTI_CODES_SKIPPED, SHUFTI_SKIP_CALLS, SHUFTI_SKIP_FIRED,

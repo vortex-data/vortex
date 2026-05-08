@@ -20,6 +20,7 @@ use crate::dfa::FlatContainsDfa;
 use crate::dfa::FlatContainsDfaBaseline;
 use crate::dfa::FlatContainsDfaClasses;
 use crate::dfa::FlatContainsDfaClassesPre;
+use crate::dfa::FlatContainsDfaEscapeFolded;
 use crate::dfa::dfa_scan_to_bitbuf;
 use vortex_buffer::BitBuffer;
 use vortex_array::dtype::IntegerPType;
@@ -140,6 +141,35 @@ where
         start = end;
         result
     })
+}
+
+/// Scan all strings in `fsst` with `FlatContainsDfaEscapeFolded` (variant E)
+/// for `needle`. Limited to needles ≤127 bytes.
+pub fn scan_escape_folded_contains(fsst: &FSSTArray, needle: &[u8]) -> usize {
+    let symbols: Vec<Symbol> = fsst.symbols().as_slice().to_vec();
+    let symbol_lengths: Vec<u8> = fsst.symbol_lengths().as_slice().to_vec();
+    let dfa = FlatContainsDfaEscapeFolded::new(&symbols, &symbol_lengths, needle).unwrap();
+
+    let codes = fsst.codes();
+    #[expect(deprecated)]
+    let offsets = codes.offsets().to_primitive();
+    let all_bytes = codes.bytes();
+    let n = codes.len();
+
+    let result = match_each_integer_ptype!(offsets.ptype(), |T| {
+        dfa_scan_to_bitbuf(n, offsets.as_slice::<T>(), all_bytes.as_slice(), false, |c| {
+            dfa.matches(c)
+        })
+    });
+    result.true_count()
+}
+
+/// Build an escape-folded DFA and return its total state count `2N + 1`.
+pub fn escape_folded_n_states(fsst: &FSSTArray, needle: &[u8]) -> u16 {
+    let symbols: Vec<Symbol> = fsst.symbols().as_slice().to_vec();
+    let symbol_lengths: Vec<u8> = fsst.symbol_lengths().as_slice().to_vec();
+    let dfa = FlatContainsDfaEscapeFolded::new(&symbols, &symbol_lengths, needle).unwrap();
+    dfa.n_states()
 }
 
 /// Variant D: decompress each FSST string and run `memchr::memmem::Finder` (the
