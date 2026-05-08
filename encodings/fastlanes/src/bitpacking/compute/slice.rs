@@ -10,6 +10,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::arrays::slice::SliceReduce;
+use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 
 use crate::BitPacked;
@@ -45,7 +46,7 @@ impl SliceKernel for BitPacked {
 fn slice_bitpacked(
     array: ArrayView<'_, BitPacked>,
     range: Range<usize>,
-    patches: Option<vortex_array::patches::Patches>,
+    patches: Option<Patches>,
 ) -> VortexResult<ArrayRef> {
     let offset_start = range.start + array.offset() as usize;
     let offset_stop = range.end + array.offset() as usize;
