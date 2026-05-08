@@ -31,7 +31,6 @@ use arrow_array::RecordBatch;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
-use arrow_schema::extension::EXTENSION_TYPE_METADATA_KEY;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use arrow_schema::extension::ExtensionType;
 use vortex_error::VortexResult;
@@ -574,14 +573,7 @@ pub(crate) fn has_valid_extension_type<E: ExtensionType>(field: &Field) -> bool 
         return false;
     }
 
-    let ext_metadata = field
-        .metadata()
-        .get(EXTENSION_TYPE_METADATA_KEY)
-        .map(|s| s.as_str());
-
-    E::deserialize_metadata(ext_metadata)
-        .and_then(|metadata| E::validate(field.data_type(), metadata))
-        .is_ok()
+    E::try_new_from_field_metadata(field.data_type(), field.metadata()).is_ok()
 }
 
 impl SessionVar for ArrowSession {
