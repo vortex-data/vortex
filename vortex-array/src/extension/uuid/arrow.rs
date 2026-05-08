@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! [`ArrowVTable`] impl for the UUID extension type.
+//! Arrow plugin impls for the UUID extension type.
+//!
+//! UUIDs are a canonical Arrow extension type backed by `FixedSizeBinary[16]`. The Vortex side
+//! stores them as `FixedSizeList<u8; 16>`, so the conversion is a zero-copy reinterpretation
+//! of the byte buffer in both directions.
 
 use std::sync::Arc;
 
@@ -16,10 +20,10 @@ use arrow_schema::extension::ExtensionType;
 use arrow_schema::extension::Uuid as ArrowUuid;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
+use vortex_session::registry::Id;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -29,45 +33,51 @@ use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrow::ArrowArrayExecutor;
-use crate::arrow::ArrowVTable;
+use crate::arrow::ArrowExportVTable;
+use crate::arrow::ArrowImportVTable;
+use crate::arrow::ExportOutput;
+use crate::arrow::ImportOutput;
 use crate::arrow::nulls;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::extension::ExtDType;
-use crate::dtype::extension::ExtId;
-use crate::dtype::extension::ExtVTable;
+use crate::dtype::extension::ExtDTypeRef;
 use crate::extension::uuid::Uuid;
 use crate::extension::uuid::UuidMetadata;
 use crate::validity::Validity;
 
 const UUID_BYTE_LEN: i32 = 16;
 
-impl ArrowVTable for Uuid {
-    fn vortex_ext_id(&self) -> ExtId {
-        Uuid.id()
+static ARROW_UUID: CachedId = CachedId::new(ArrowUuid::NAME);
+
+impl ArrowExportVTable for Uuid {
+    fn arrow_ext_id(&self) -> Id {
+        *ARROW_UUID
     }
 
-    fn arrow_ext_name(&self) -> Option<&'static str> {
-        Some(ArrowUuid::NAME)
-    }
-
-    fn to_arrow_field(
+    fn execute_arrow(
         &self,
-        name: &str,
-        dtype: &DType,
-        _session: &VortexSession,
-    ) -> VortexResult<Field> {
-        let mut field = Field::new(
-            name.to_string(),
-            DataType::FixedSizeBinary(UUID_BYTE_LEN),
-            dtype.is_nullable(),
-        );
-        field
-            .try_with_extension_type(ArrowUuid)
-            .vortex_expect("FixedSizeBinary[16] is correct type for ArrowUuid");
-        Ok(field)
+        array: ArrayRef,
+        _target: &Field,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ExportOutput> {
+        let is_uuid = array
+            .dtype()
+            .as_extension_opt()
+            .map(|ext| ext.is::<Uuid>())
+            .unwrap_or(false);
+        if !is_uuid {
+            return Ok(ExportOutput::Unsupported(array));
+        }
+        Ok(ExportOutput::Exported(try_fsl_to_fsb(array, ctx)?))
+    }
+}
+
+impl ArrowImportVTable for Uuid {
+    fn arrow_ext_id(&self) -> Id {
+        *ARROW_UUID
     }
 
     fn from_arrow_field(&self, field: &Field) -> VortexResult<DType> {
@@ -87,44 +97,15 @@ impl ArrowVTable for Uuid {
         ))
     }
 
-    fn execute_arrow(
+    fn from_arrow_array(
         &self,
-        array: ArrayRef,
-        _target: &Field,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ArrowArrayRef> {
-        // Vortex stores UUIDs as FixedSizeList<u8; 16>; Arrow's canonical UUID extension type is
-        // backed by FixedSizeBinary[16]. We materialize the storage as Arrow's FixedSizeList and
-        // reinterpret the byte buffer without copying.
-        let executed = array.execute::<ExtensionArray>(ctx)?;
-        let storage = executed.storage_array().clone();
-        let storage_arrow_type = DataType::FixedSizeList(
-            Arc::new(Field::new("item", DataType::UInt8, false)),
-            UUID_BYTE_LEN,
-        );
-        let arrow_storage = storage.execute_arrow(Some(&storage_arrow_type), ctx)?;
-
-        let fsl = arrow_storage.as_fixed_size_list();
-        let bytes = fsl
-            .values()
-            .as_primitive::<UInt8Type>()
-            .values()
-            .inner()
-            .clone();
-
-        Ok(Arc::new(FixedSizeBinaryArray::new(
-            fsl.value_length(),
-            bytes,
-            fsl.nulls().cloned(),
-        )))
-    }
-
-    fn from_arrow_array(&self, array: ArrowArrayRef, field: &Field) -> VortexResult<ArrayRef> {
-        if !matches!(array.data_type(), DataType::FixedSizeBinary(UUID_BYTE_LEN)) {
-            vortex_bail!(
-                "UUID plugin requires FixedSizeBinary({UUID_BYTE_LEN}), got {}",
-                array.data_type()
-            );
+        array: ArrowArrayRef,
+        dtype: &ExtDTypeRef,
+    ) -> VortexResult<ImportOutput> {
+        if !matches!(array.data_type(), DataType::FixedSizeBinary(UUID_BYTE_LEN))
+            || !dtype.is::<Uuid>()
+        {
+            return Ok(ImportOutput::Unsupported(array));
         }
 
         let fsb = array.as_fixed_size_binary();
@@ -134,14 +115,40 @@ impl ArrowVTable for Uuid {
             PType::U8,
             Validity::NonNullable,
         );
-        let validity = nulls(fsb.nulls(), field.is_nullable());
+        let validity = nulls(fsb.nulls(), dtype.is_nullable());
 
-        Ok(FixedSizeListArray::new(
-            u8_array.into_array(),
-            fsb.value_length() as u32,
-            validity,
-            fsb.len(),
-        )
-        .into_array())
+        Ok(ImportOutput::Imported(
+            FixedSizeListArray::new(
+                u8_array.into_array(),
+                fsb.value_length() as u32,
+                validity,
+                fsb.len(),
+            )
+            .into_array(),
+        ))
     }
+}
+
+fn try_fsl_to_fsb(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrowArrayRef> {
+    let executed = array.execute::<ExtensionArray>(ctx)?;
+    let storage = executed.storage_array().clone();
+    let storage_arrow_type = DataType::FixedSizeList(
+        Arc::new(Field::new("item", DataType::UInt8, false)),
+        UUID_BYTE_LEN,
+    );
+    let arrow_storage = storage.execute_arrow(Some(&storage_arrow_type), ctx)?;
+
+    let fsl = arrow_storage.as_fixed_size_list();
+    let bytes = fsl
+        .values()
+        .as_primitive::<UInt8Type>()
+        .values()
+        .inner()
+        .clone();
+
+    Ok(Arc::new(FixedSizeBinaryArray::new(
+        fsl.value_length(),
+        bytes,
+        fsl.nulls().cloned(),
+    )))
 }

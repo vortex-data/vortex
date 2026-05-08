@@ -3,7 +3,6 @@
 
 //! Datetime extension DTypes, compatible with Apache Arrow.
 
-mod arrow;
 mod date;
 mod matcher;
 mod time;
