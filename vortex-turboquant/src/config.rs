@@ -15,7 +15,7 @@ pub(crate) const MIN_DIMENSION: u32 = 128;
 /// Maximum supported number of bits per quantized coordinate.
 pub(crate) const MAX_BIT_WIDTH: u8 = 8;
 
-/// Configuration for lossy TurboQuant packing.
+/// Configuration for lossy TurboQuant encoding.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TurboQuantConfig {
     bit_width: u8,

@@ -5,7 +5,7 @@
 //!
 //! Implements a Stage 1 TurboQuant encoding ([arXiv:2504.19874], [RFC 0033]) for lossy compression
 //! of high-dimensional vector data. The extension operates on
-//! [`Vector`](vortex_tensor::vector::Vector) extension arrays, packing their `FixedSizeList`
+//! [`Vector`](vortex_tensor::vector::Vector) extension arrays, encoding their `FixedSizeList`
 //! storage into quantized codes after a structured orthogonal surrogate transform.
 //!
 //! [arXiv:2504.19874]: https://arxiv.org/abs/2504.19874
@@ -16,13 +16,13 @@
 //! TurboQuant minimizes mean-squared reconstruction error (1-8 bits per coordinate)
 //! using MSE-optimal scalar quantization on coordinates of a transformed unit vector.
 //!
-//! The [`TQPack`] scalar function first computes and stores the original L2 norm for each vector
+//! The [`TQEncode`] scalar function first computes and stores the original L2 norm for each vector
 //! row, then normalizes each valid nonzero row internally before SORF transform and scalar
-//! quantization. The [`TQUnpack`] scalar function dequantizes through deterministic centroids,
+//! quantization. The [`TQDecode`] scalar function dequantizes through deterministic centroids,
 //! applies the inverse SORF transform, truncates back to the original dimension, and re-applies the
 //! stored norm.
 //!
-//! The packed storage is a row-aligned extension tree:
+//! The encoded storage is a row-aligned extension tree:
 //!
 //! ```text
 //! Extension<TurboQuant>(
@@ -61,8 +61,8 @@ mod vector;
 mod vtable;
 
 pub use config::TurboQuantConfig;
-pub use scalar_fns::TQPack;
-pub use scalar_fns::TQUnpack;
+pub use scalar_fns::TQDecode;
+pub use scalar_fns::TQEncode;
 pub use vtable::TurboQuant;
 pub use vtable::TurboQuantMetadata;
 
@@ -76,11 +76,11 @@ pub fn initialize(session: &vortex_session::VortexSession) {
 
     session.dtypes().register(TurboQuant);
 
-    session.scalar_fns().register(TQPack);
-    session.scalar_fns().register(TQUnpack);
+    session.scalar_fns().register(TQEncode);
+    session.scalar_fns().register(TQDecode);
 
     let session_arrays = session.arrays();
-    session_arrays.register(ScalarFnArrayPlugin::new(TQUnpack));
+    session_arrays.register(ScalarFnArrayPlugin::new(TQDecode));
 }
 
 #[cfg(test)]

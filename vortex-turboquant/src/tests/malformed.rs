@@ -15,7 +15,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
-use super::execute_tq_unpack_from_metadata;
+use super::execute_tq_decode_from_metadata;
 use super::test_session;
 use super::vector_validity;
 use crate::TurboQuant;
@@ -42,7 +42,7 @@ use crate::TurboQuantMetadata;
     Nullability::Nullable,
     Nullability::NonNullable
 )]
-fn unpack_accepts_child_nullability_that_covers_struct_validity(
+fn decode_accepts_child_nullability_that_covers_struct_validity(
     #[case] struct_nullability: Nullability,
     #[case] norms_nullability: Nullability,
     #[case] codes_nullability: Nullability,
@@ -79,12 +79,12 @@ fn unpack_accepts_child_nullability_that_covers_struct_validity(
         .unwrap()
         .into_array();
 
-    execute_tq_unpack_from_metadata(tq, &mut ctx)?;
+    execute_tq_decode_from_metadata(tq, &mut ctx)?;
     Ok(())
 }
 
 #[test]
-fn unpack_accepts_struct_mask_with_all_valid_children() -> VortexResult<()> {
+fn decode_accepts_struct_mask_with_all_valid_children() -> VortexResult<()> {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
     let metadata = TurboQuantMetadata {
@@ -109,8 +109,8 @@ fn unpack_accepts_struct_mask_with_all_valid_children() -> VortexResult<()> {
     let tq = ExtensionArray::try_new_from_vtable(TurboQuant, metadata, storage.into_array())?
         .into_array();
 
-    let unpacked = execute_tq_unpack_from_metadata(tq, &mut ctx)?;
-    let validity = vector_validity(unpacked, &mut ctx)?.execute_mask(3, &mut ctx)?;
+    let decoded = execute_tq_decode_from_metadata(tq, &mut ctx)?;
+    let validity = vector_validity(decoded, &mut ctx)?.execute_mask(3, &mut ctx)?;
     assert!(validity.value(0));
     assert!(!validity.value(1));
     assert!(validity.value(2));
@@ -118,7 +118,7 @@ fn unpack_accepts_struct_mask_with_all_valid_children() -> VortexResult<()> {
 }
 
 #[test]
-fn unpack_rejects_child_masks_that_disagree_with_struct_validity() -> VortexResult<()> {
+fn decode_rejects_child_masks_that_disagree_with_struct_validity() -> VortexResult<()> {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
     let metadata = TurboQuantMetadata {
@@ -150,13 +150,13 @@ fn unpack_rejects_child_masks_that_disagree_with_struct_validity() -> VortexResu
     let tq = ExtensionArray::try_new_from_vtable(TurboQuant, metadata, storage.into_array())?
         .into_array();
 
-    assert!(execute_tq_unpack_from_metadata(tq, &mut ctx).is_err());
+    assert!(execute_tq_decode_from_metadata(tq, &mut ctx).is_err());
     Ok(())
 }
 
 #[test]
 #[should_panic(expected = "TurboQuant code exceeds centroid count")]
-fn unpack_panics_on_codes_outside_centroid_table() {
+fn decode_panics_on_codes_outside_centroid_table() {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
     let metadata = TurboQuantMetadata {
@@ -185,5 +185,5 @@ fn unpack_panics_on_codes_outside_centroid_table() {
         .unwrap()
         .into_array();
 
-    drop(execute_tq_unpack_from_metadata(tq, &mut ctx));
+    drop(execute_tq_decode_from_metadata(tq, &mut ctx));
 }

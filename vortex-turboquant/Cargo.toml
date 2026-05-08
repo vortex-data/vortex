@@ -37,5 +37,5 @@ vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 
 [[bench]]
-name = "pack_unpack"
+name = "encode_decode"
 harness = false

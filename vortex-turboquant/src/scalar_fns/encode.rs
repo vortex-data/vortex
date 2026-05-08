@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! TurboQuant pack scalar function.
+//! TurboQuant encode scalar function.
 
 use std::fmt;
 use std::fmt::Formatter;
@@ -28,43 +28,43 @@ use super::metadata::deserialize_config;
 use super::metadata::serialize_config;
 use crate::TurboQuantConfig;
 use crate::config::MIN_DIMENSION;
-use crate::vector::pack::pack_vector;
+use crate::vector::encode::encode_vector;
 use crate::vector::tq_padded_dim;
 use crate::vtable::TurboQuant;
 use crate::vtable::TurboQuantMetadata;
 use crate::vtable::tq_storage_dtype;
 
-/// TurboQuant vector pack scalar function.
+/// TurboQuant vector encode scalar function.
 ///
-/// `TQPack` itself is a `ScalarFnVTable` and so its options round-trip through expression
+/// `TQEncode` itself is a `ScalarFnVTable` and so its options round-trip through expression
 /// serialization.
 ///
-/// Unlike `TQUnpack`, it deliberately does **not** implement `ScalarFnArrayVTable` since the
+/// Unlike `TQDecode`, it deliberately does **not** implement `ScalarFnArrayVTable` since the
 /// persisted artifact would be the original vector array, not the TurboQuant-quantized array.
 #[derive(Clone)]
-pub struct TQPack;
+pub struct TQEncode;
 
-impl TQPack {
-    /// Creates a new [`TypedScalarFnInstance`] wrapping TurboQuant packing.
-    pub fn new(config: &TurboQuantConfig) -> TypedScalarFnInstance<TQPack> {
-        TypedScalarFnInstance::new(TQPack, config.clone())
+impl TQEncode {
+    /// Creates a new [`TypedScalarFnInstance`] wrapping TurboQuant encoding.
+    pub fn new(config: &TurboQuantConfig) -> TypedScalarFnInstance<TQEncode> {
+        TypedScalarFnInstance::new(TQEncode, config.clone())
     }
 
-    /// Constructs a [`ScalarFnArray`] that lazily packs a `Vector` child into `TurboQuant`.
+    /// Constructs a [`ScalarFnArray`] that lazily encodes a `Vector` child into `TurboQuant`.
     pub fn try_new_array(
         child: ArrayRef,
         config: &TurboQuantConfig,
         len: usize,
     ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(TQPack::new(config).erased(), vec![child], len)
+        ScalarFnArray::try_new(TQEncode::new(config).erased(), vec![child], len)
     }
 }
 
-impl ScalarFnVTable for TQPack {
+impl ScalarFnVTable for TQEncode {
     type Options = TurboQuantConfig;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.turboquant.pack")
+        ScalarFnId::new("vortex.turboquant.encode")
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -86,7 +86,7 @@ impl ScalarFnVTable for TQPack {
     fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("vector"),
-            _ => unreachable!("TQPack must have exactly one child"),
+            _ => unreachable!("TQEncode must have exactly one child"),
         }
     }
 
@@ -96,7 +96,7 @@ impl ScalarFnVTable for TQPack {
         expr: &Expression,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
-        write!(f, "tq_pack(")?;
+        write!(f, "tq_encode(")?;
         expr.child(0).fmt_sql(f)?;
         write!(f, ", {options})")
     }
@@ -107,7 +107,7 @@ impl ScalarFnVTable for TQPack {
             .as_extension_opt()
             .and_then(|ext_dtype| ext_dtype.metadata_opt::<AnyVector>())
             .ok_or_else(|| {
-                vortex_err!("TQPack expects a Vector extension array, got {input_dtype}")
+                vortex_err!("TQEncode expects a Vector extension array, got {input_dtype}")
             })?;
 
         let dimensions = vector_metadata.dimensions();
@@ -136,7 +136,7 @@ impl ScalarFnVTable for TQPack {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        pack_vector(args.get(0)?, options, ctx)
+        encode_vector(args.get(0)?, options, ctx)
     }
 
     fn validity(

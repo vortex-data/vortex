@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! TurboQuant unpacking (dequantization) logic.
+//! TurboQuant decoding (dequantization) logic.
 //!
-//! Note that because TurboQuant is a lossy compression scheme, unpacking does not roundtrip with
-//! the initial packing.
+//! Note that because TurboQuant is a lossy compression scheme, decoding does not roundtrip with
+//! the initial encoding.
 
 use num_traits::Float;
 use num_traits::FromPrimitive;
@@ -34,8 +34,8 @@ use crate::vtable::TurboQuantMetadata;
 ///
 /// The decoded directions are inverse-transformed, truncated to the original dimension, and
 /// multiplied by the stored row norms. The conversion is lossy and does not roundtrip with
-/// [`TQPack`](crate::TQPack).
-pub(crate) fn unpack_vector(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+/// [`TQEncode`](crate::TQEncode).
+pub(crate) fn decode_vector(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     // Get the input TurboQuant array into a form that is easier to work with.
     let parsed = parse_storage(input, ctx)?;
     let metadata = parsed.metadata;
@@ -53,7 +53,7 @@ pub(crate) fn unpack_vector(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexRe
     let centroids = compute_or_get_centroids(padded_dim, metadata.bit_width)?;
 
     match_each_float_ptype!(metadata.element_ptype, |T| {
-        unpack_typed::<T>(
+        decode_typed::<T>(
             DecodeInputs {
                 metadata: &metadata,
                 sorf_matrix: &transform,
@@ -93,7 +93,7 @@ struct DecodeInputs<'a> {
     codes: &'a PrimitiveArray,
 }
 
-fn unpack_typed<T>(
+fn decode_typed<T>(
     decode: DecodeInputs<'_>,
     vector_validity: Validity,
     num_vectors: usize,

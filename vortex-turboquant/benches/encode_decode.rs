@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Benchmarks for `turboquant_pack` and `turboquant_unpack` across different validity-mask
+//! Benchmarks for `turboquant_encode` and `turboquant_decode` across different validity-mask
 //! shapes.
 //!
 //! The four mask shapes (`AllTrue`, `AllFalse`, dense `Values`, sparse `Values`) exercise the
 //! variant-specialized paths added in the mask refactor in `vector/normalize.rs`,
-//! `vector/quantize.rs`, and `vector/unpack.rs`.
+//! `vector/quantize.rs`, and `vector/decode.rs`.
 
 #![expect(clippy::unwrap_used)]
 
@@ -29,8 +29,8 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_session::VortexSession;
 use vortex_tensor::vector::Vector;
-use vortex_turboquant::TQPack;
-use vortex_turboquant::TQUnpack;
+use vortex_turboquant::TQDecode;
+use vortex_turboquant::TQEncode;
 use vortex_turboquant::TurboQuantConfig;
 
 fn main() {
@@ -100,18 +100,18 @@ fn build_vector_array(shape: MaskShape) -> ArrayRef {
         .into_array()
 }
 
-fn pack(vec: ArrayRef, config: &TurboQuantConfig, ctx: &mut ExecutionCtx) -> ArrayRef {
+fn encode(vec: ArrayRef, config: &TurboQuantConfig, ctx: &mut ExecutionCtx) -> ArrayRef {
     let len = vec.len();
-    TQPack::try_new_array(vec, config, len)
+    TQEncode::try_new_array(vec, config, len)
         .unwrap()
         .into_array()
         .execute(ctx)
         .unwrap()
 }
 
-fn unpack(packed: ArrayRef, config: &TurboQuantConfig, ctx: &mut ExecutionCtx) -> ArrayRef {
-    let len = packed.len();
-    TQUnpack::try_new_array(packed, config, len)
+fn decode(encoded: ArrayRef, config: &TurboQuantConfig, ctx: &mut ExecutionCtx) -> ArrayRef {
+    let len = encoded.len();
+    TQDecode::try_new_array(encoded, config, len)
         .unwrap()
         .into_array()
         .execute(ctx)
@@ -124,26 +124,26 @@ fn config() -> TurboQuantConfig {
 }
 
 #[divan::bench(args = MASK_SHAPES)]
-fn turboquant_pack(bencher: Bencher, shape: &MaskShape) {
+fn turboquant_encode(bencher: Bencher, shape: &MaskShape) {
     let shape = *shape;
     let cfg = config();
     bencher
         .with_inputs(|| (build_vector_array(shape), SESSION.create_execution_ctx()))
         .input_counter(|_| divan::counter::ItemsCount::new(ROWS))
-        .bench_values(|(arr, mut ctx)| pack(arr, &cfg, &mut ctx))
+        .bench_values(|(arr, mut ctx)| encode(arr, &cfg, &mut ctx))
 }
 
 #[divan::bench(args = MASK_SHAPES)]
-fn turboquant_unpack(bencher: Bencher, shape: &MaskShape) {
+fn turboquant_decode(bencher: Bencher, shape: &MaskShape) {
     let shape = *shape;
     let cfg = config();
     bencher
         .with_inputs(|| {
             let arr = build_vector_array(shape);
             let mut ctx = SESSION.create_execution_ctx();
-            let packed = pack(arr, &cfg, &mut ctx);
-            (packed, SESSION.create_execution_ctx())
+            let encoded = encode(arr, &cfg, &mut ctx);
+            (encoded, SESSION.create_execution_ctx())
         })
         .input_counter(|_| divan::counter::ItemsCount::new(ROWS))
-        .bench_values(|(packed, mut ctx)| unpack(packed, &cfg, &mut ctx))
+        .bench_values(|(encoded, mut ctx)| decode(encoded, &cfg, &mut ctx))
 }

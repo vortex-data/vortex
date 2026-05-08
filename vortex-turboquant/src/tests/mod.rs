@@ -32,16 +32,16 @@ use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 use vortex_tensor::vector::Vector;
 
-use crate::TQPack;
-use crate::TQUnpack;
+use crate::TQDecode;
+use crate::TQEncode;
 use crate::TurboQuantConfig;
 use crate::initialize;
 use crate::vtable::tq_metadata;
 
+mod encode_decode;
 mod file;
 mod malformed;
 mod metadata;
-mod pack_unpack;
 mod parity;
 mod scalar_fns;
 
@@ -120,34 +120,34 @@ fn turboquant_storage(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<S
     ext.storage_array().clone().execute(ctx)
 }
 
-fn execute_tq_pack(
+fn execute_tq_encode(
     input: ArrayRef,
     config: &TurboQuantConfig,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let len = input.len();
-    TQPack::try_new_array(input, config, len)?
+    TQEncode::try_new_array(input, config, len)?
         .into_array()
         .execute(ctx)
 }
 
-fn execute_tq_unpack(
+fn execute_tq_decode(
     input: ArrayRef,
     config: &TurboQuantConfig,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let len = input.len();
-    TQUnpack::try_new_array(input, config, len)?
+    TQDecode::try_new_array(input, config, len)?
         .into_array()
         .execute(ctx)
 }
 
-fn execute_tq_unpack_from_metadata(
+fn execute_tq_decode_from_metadata(
     input: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let metadata = tq_metadata(input.dtype())?;
     let config = TurboQuantConfig::try_new(metadata.bit_width, metadata.seed, metadata.num_rounds)?;
 
-    execute_tq_unpack(input, &config, ctx)
+    execute_tq_decode(input, &config, ctx)
 }

@@ -13,7 +13,7 @@
 //! ```
 //!
 //! Row nullability is carried on the outer struct and on the `norms` and `codes` field arrays.
-//! This is deliberate duplication: null vectors remain null throughout pack/unpack instead of being
+//! This is deliberate duplication: null vectors remain null throughout encode/decode instead of being
 //! converted into zero vectors. The code bytes for invalid rows are physical placeholders only; the
 //! field-level validity records that those rows were not quantized.
 //!

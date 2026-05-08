@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! TurboQuant packing (quantization) logic.
+//! TurboQuant encoding (quantization) logic.
 //!
-//! The input to [`pack_vector()`] must be a [`Vector`](vortex_tensor::vector::Vector) extension
-//! array. [`pack_vector()`] computes original row norms, normalizes valid rows internally via
+//! The input to [`encode_vector()`] must be a [`Vector`](vortex_tensor::vector::Vector) extension
+//! array. [`encode_vector()`] computes original row norms, normalizes valid rows internally via
 //! [`tq_normalize_as_l2_denorm()`], quantizes the normalized child, and stores row-aligned norms and
 //! codes in the TurboQuant extension storage.
 
@@ -32,12 +32,12 @@ use crate::config::MIN_DIMENSION;
 use crate::vtable::TurboQuant;
 use crate::vtable::TurboQuantMetadata;
 
-/// Lossily pack a `Vector` extension array into a `TurboQuant` extension array.
+/// Lossily encode a `Vector` extension array into a `TurboQuant` extension array.
 ///
 /// Valid rows are normalized internally before SORF transform and scalar quantization. The original
 /// row norms are stored explicitly, and original vector nulls are preserved on the storage struct
 /// and both row-aligned child arrays.
-pub(crate) fn pack_vector(
+pub(crate) fn encode_vector(
     input: ArrayRef,
     config: &TurboQuantConfig,
     ctx: &mut ExecutionCtx,
@@ -47,7 +47,7 @@ pub(crate) fn pack_vector(
         .dtype()
         .as_extension_opt()
         .and_then(|ext_dtype| ext_dtype.metadata_opt::<AnyVector>())
-        .ok_or_else(|| vortex_err!("TurboQuant pack expects a Vector extension array"))?;
+        .ok_or_else(|| vortex_err!("TurboQuant encode expects a Vector extension array"))?;
 
     let element_ptype = vector_metadata.element_ptype();
 

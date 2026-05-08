@@ -3,10 +3,10 @@
 
 mod quantize;
 
+pub(crate) mod decode;
+pub(crate) mod encode;
 pub(crate) mod normalize;
-pub(crate) mod pack;
 pub(crate) mod storage;
-pub(crate) mod unpack;
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;

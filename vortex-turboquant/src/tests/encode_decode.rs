@@ -17,8 +17,8 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 
-use super::execute_tq_pack;
-use super::execute_tq_unpack;
+use super::execute_tq_decode;
+use super::execute_tq_encode;
 use super::f32_vector_array;
 use super::test_session;
 use super::turboquant_storage;
@@ -39,32 +39,32 @@ fn config_rejects_invalid_values(#[case] bit_width: u8, #[case] seed: u64, #[cas
 }
 
 #[test]
-fn pack_rejects_non_vector_input() {
+fn encode_rejects_non_vector_input() {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
     let input = PrimitiveArray::new::<f32>(Buffer::copy_from([1.0, 2.0]), Validity::NonNullable)
         .into_array();
 
-    assert!(execute_tq_pack(input, &TurboQuantConfig::default(), &mut ctx).is_err());
+    assert!(execute_tq_encode(input, &TurboQuantConfig::default(), &mut ctx).is_err());
 }
 
 #[test]
-fn pack_rejects_small_dimensions() -> VortexResult<()> {
+fn encode_rejects_small_dimensions() -> VortexResult<()> {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
     let input = f32_vector_array(127, 1, 1.0, Validity::NonNullable)?;
 
-    assert!(execute_tq_pack(input, &TurboQuantConfig::default(), &mut ctx).is_err());
+    assert!(execute_tq_encode(input, &TurboQuantConfig::default(), &mut ctx).is_err());
     Ok(())
 }
 
 #[test]
-fn pack_rejects_padded_dimension_overflow() -> VortexResult<()> {
+fn encode_rejects_padded_dimension_overflow() -> VortexResult<()> {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
     let input = vector_array::<f32>(2_147_483_649, &[], Validity::NonNullable)?;
 
-    assert!(execute_tq_pack(input, &TurboQuantConfig::default(), &mut ctx).is_err());
+    assert!(execute_tq_encode(input, &TurboQuantConfig::default(), &mut ctx).is_err());
     Ok(())
 }
 
@@ -78,28 +78,28 @@ fn centroid_cache_is_deterministic() -> VortexResult<()> {
 }
 
 #[test]
-fn pack_unpack_empty_vectors() -> VortexResult<()> {
+fn encode_decode_empty_vectors() -> VortexResult<()> {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
     let input = vector_array::<f32>(128, &[], Validity::NonNullable)?;
 
-    let packed = execute_tq_pack(input, &TurboQuantConfig::default(), &mut ctx)?;
-    let unpacked = execute_tq_unpack(packed, &TurboQuantConfig::default(), &mut ctx)?;
+    let encoded = execute_tq_encode(input, &TurboQuantConfig::default(), &mut ctx)?;
+    let decoded = execute_tq_decode(encoded, &TurboQuantConfig::default(), &mut ctx)?;
 
-    assert!(unpacked.is_empty());
+    assert!(decoded.is_empty());
     Ok(())
 }
 
 #[test]
-fn pack_stores_norms_and_struct_validity() -> VortexResult<()> {
+fn encode_stores_norms_and_struct_validity() -> VortexResult<()> {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
     let validity = Validity::from_iter([true, false, true]);
     let input = f32_vector_array(128, 3, 0.25, validity)?;
 
     let config = TurboQuantConfig::try_new(3, 1, 2)?;
-    let packed = execute_tq_pack(input, &config, &mut ctx)?;
-    let storage = turboquant_storage(packed, &mut ctx)?;
+    let encoded = execute_tq_encode(input, &config, &mut ctx)?;
+    let storage = turboquant_storage(encoded, &mut ctx)?;
     let mask = storage.struct_validity().execute_mask(3, &mut ctx)?;
     let norms: PrimitiveArray = storage
         .unmasked_field_by_name("norms")?
@@ -174,7 +174,7 @@ fn normalize_as_l2_denorm_preserves_child_validity() -> VortexResult<()> {
 }
 
 #[test]
-fn pack_unpack_preserves_nulls_and_zero_norm_rows() -> VortexResult<()> {
+fn encode_decode_preserves_nulls_and_zero_norm_rows() -> VortexResult<()> {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
     let mut values = vec![0.0f32; 3 * 128];
@@ -184,10 +184,10 @@ fn pack_unpack_preserves_nulls_and_zero_norm_rows() -> VortexResult<()> {
     values[257] = -1.0;
     let input = vector_array(128, &values, Validity::from_iter([true, true, false]))?;
 
-    let packed = execute_tq_pack(input, &TurboQuantConfig::default(), &mut ctx)?;
-    let unpacked = execute_tq_unpack(packed, &TurboQuantConfig::default(), &mut ctx)?;
-    let output = vector_values_f32(unpacked.clone(), &mut ctx)?;
-    let validity = vector_validity(unpacked, &mut ctx)?.execute_mask(3, &mut ctx)?;
+    let encoded = execute_tq_encode(input, &TurboQuantConfig::default(), &mut ctx)?;
+    let decoded = execute_tq_decode(encoded, &TurboQuantConfig::default(), &mut ctx)?;
+    let output = vector_values_f32(decoded.clone(), &mut ctx)?;
+    let validity = vector_validity(decoded, &mut ctx)?.execute_mask(3, &mut ctx)?;
 
     assert!(validity.value(0));
     assert!(validity.value(1));
@@ -199,7 +199,7 @@ fn pack_unpack_preserves_nulls_and_zero_norm_rows() -> VortexResult<()> {
 #[rstest]
 #[case::f16(PType::F16)]
 #[case::f64(PType::F64)]
-fn pack_unpack_supports_non_f32_inputs(#[case] ptype: PType) -> VortexResult<()> {
+fn encode_decode_supports_non_f32_inputs(#[case] ptype: PType) -> VortexResult<()> {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
     let config = TurboQuantConfig::try_new(3, 42, 3)?;
@@ -210,9 +210,9 @@ fn pack_unpack_supports_non_f32_inputs(#[case] ptype: PType) -> VortexResult<()>
                 .map(|i| half::f16::from_f32(((i % 17) as f32 - 8.0) * 0.25))
                 .collect::<Vec<_>>();
             let input = vector_array(128, &values, Validity::NonNullable)?;
-            let packed = execute_tq_pack(input, &config, &mut ctx)?;
-            let unpacked = execute_tq_unpack(packed, &config, &mut ctx)?;
-            let ext: ExtensionArray = unpacked.execute(&mut ctx)?;
+            let encoded = execute_tq_encode(input, &config, &mut ctx)?;
+            let decoded = execute_tq_decode(encoded, &config, &mut ctx)?;
+            let ext: ExtensionArray = decoded.execute(&mut ctx)?;
             assert_eq!(vector_element_ptype(&ext)?, PType::F16);
         }
         PType::F64 => {
@@ -220,9 +220,9 @@ fn pack_unpack_supports_non_f32_inputs(#[case] ptype: PType) -> VortexResult<()>
                 .map(|i| ((i % 17) as f64 - 8.0) * 0.25)
                 .collect::<Vec<_>>();
             let input = vector_array(128, &values, Validity::NonNullable)?;
-            let packed = execute_tq_pack(input, &config, &mut ctx)?;
-            let unpacked = execute_tq_unpack(packed, &config, &mut ctx)?;
-            let ext: ExtensionArray = unpacked.execute(&mut ctx)?;
+            let encoded = execute_tq_encode(input, &config, &mut ctx)?;
+            let decoded = execute_tq_decode(encoded, &config, &mut ctx)?;
+            let ext: ExtensionArray = decoded.execute(&mut ctx)?;
             assert_eq!(vector_element_ptype(&ext)?, PType::F64);
         }
         _ => unreachable!("test only passes f16/f64"),
@@ -231,7 +231,7 @@ fn pack_unpack_supports_non_f32_inputs(#[case] ptype: PType) -> VortexResult<()>
 }
 
 #[test]
-fn unpack_scales_by_stored_norms() -> VortexResult<()> {
+fn decode_scales_by_stored_norms() -> VortexResult<()> {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
     let base = f32_vector_array(128, 1, 0.5, Validity::NonNullable)?;
@@ -239,12 +239,16 @@ fn unpack_scales_by_stored_norms() -> VortexResult<()> {
     let config = TurboQuantConfig::try_new(2, 99, 3)?;
 
     let base_values = vector_values_f32(
-        execute_tq_unpack(execute_tq_pack(base, &config, &mut ctx)?, &config, &mut ctx)?,
+        execute_tq_decode(
+            execute_tq_encode(base, &config, &mut ctx)?,
+            &config,
+            &mut ctx,
+        )?,
         &mut ctx,
     )?;
     let scaled_values = vector_values_f32(
-        execute_tq_unpack(
-            execute_tq_pack(scaled, &config, &mut ctx)?,
+        execute_tq_decode(
+            execute_tq_encode(scaled, &config, &mut ctx)?,
             &config,
             &mut ctx,
         )?,

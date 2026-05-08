@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! TurboQuant unpack scalar function.
+//! TurboQuant decode scalar function.
 
 use std::fmt;
 use std::fmt::Formatter;
@@ -35,37 +35,37 @@ use vortex_tensor::vector::Vector;
 use super::metadata::deserialize_config;
 use super::metadata::serialize_config;
 use crate::TurboQuantConfig;
-use crate::vector::unpack::unpack_vector;
+use crate::vector::decode::decode_vector;
 use crate::vtable::TurboQuant;
 use crate::vtable::TurboQuantMetadata;
 use crate::vtable::tq_metadata;
 use crate::vtable::tq_storage_dtype;
 
-/// Lazy TurboQuant vector unpack scalar function.
+/// Lazy TurboQuant vector decode scalar function.
 #[derive(Clone)]
-pub struct TQUnpack;
+pub struct TQDecode;
 
-impl TQUnpack {
-    /// Creates a new [`TypedScalarFnInstance`] wrapping TurboQuant unpacking.
-    pub fn new(config: &TurboQuantConfig) -> TypedScalarFnInstance<TQUnpack> {
-        TypedScalarFnInstance::new(TQUnpack, config.clone())
+impl TQDecode {
+    /// Creates a new [`TypedScalarFnInstance`] wrapping TurboQuant decoding.
+    pub fn new(config: &TurboQuantConfig) -> TypedScalarFnInstance<TQDecode> {
+        TypedScalarFnInstance::new(TQDecode, config.clone())
     }
 
-    /// Constructs a [`ScalarFnArray`] that lazily unpacks a `TurboQuant` child into a `Vector`.
+    /// Constructs a [`ScalarFnArray`] that lazily decodes a `TurboQuant` child into a `Vector`.
     pub fn try_new_array(
         child: ArrayRef,
         config: &TurboQuantConfig,
         len: usize,
     ) -> VortexResult<ScalarFnArray> {
-        ScalarFnArray::try_new(TQUnpack::new(config).erased(), vec![child], len)
+        ScalarFnArray::try_new(TQDecode::new(config).erased(), vec![child], len)
     }
 }
 
-impl ScalarFnVTable for TQUnpack {
+impl ScalarFnVTable for TQDecode {
     type Options = TurboQuantConfig;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::new("vortex.turboquant.unpack")
+        ScalarFnId::new("vortex.turboquant.decode")
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -87,7 +87,7 @@ impl ScalarFnVTable for TQUnpack {
     fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::from("turboquant"),
-            _ => unreachable!("TQUnpack must have exactly one child"),
+            _ => unreachable!("TQDecode must have exactly one child"),
         }
     }
 
@@ -97,7 +97,7 @@ impl ScalarFnVTable for TQUnpack {
         expr: &Expression,
         f: &mut Formatter<'_>,
     ) -> fmt::Result {
-        write!(f, "tq_unpack(")?;
+        write!(f, "tq_decode(")?;
         expr.child(0).fmt_sql(f)?;
         write!(f, ", {options})")
     }
@@ -126,7 +126,7 @@ impl ScalarFnVTable for TQUnpack {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        unpack_vector(args.get(0)?, ctx)
+        decode_vector(args.get(0)?, ctx)
     }
 
     fn validity(
@@ -146,7 +146,7 @@ impl ScalarFnVTable for TQUnpack {
     }
 }
 
-impl ScalarFnArrayVTable for TQUnpack {
+impl ScalarFnArrayVTable for TQDecode {
     fn serialize(
         &self,
         view: &ScalarFnArrayView<Self>,
@@ -168,7 +168,7 @@ impl ScalarFnArrayVTable for TQUnpack {
             .as_extension_opt()
             .and_then(|ext_dtype| ext_dtype.metadata_opt::<AnyVector>())
             .ok_or_else(|| {
-                vortex_err!("TQUnpack parent dtype must be a Vector extension array, got {dtype}")
+                vortex_err!("TQDecode parent dtype must be a Vector extension array, got {dtype}")
             })?;
 
         let metadata = TurboQuantMetadata {
@@ -197,17 +197,17 @@ fn validate_config_matches_metadata(
     vortex_ensure_eq!(
         config.bit_width(),
         metadata.bit_width,
-        "TQUnpack config bit_width must match TurboQuant child metadata"
+        "TQDecode config bit_width must match TurboQuant child metadata"
     );
     vortex_ensure_eq!(
         config.seed(),
         metadata.seed,
-        "TQUnpack config seed must match TurboQuant child metadata"
+        "TQDecode config seed must match TurboQuant child metadata"
     );
     vortex_ensure_eq!(
         config.num_rounds(),
         metadata.num_rounds,
-        "TQUnpack config num_rounds must match TurboQuant child metadata"
+        "TQDecode config num_rounds must match TurboQuant child metadata"
     );
     Ok(())
 }

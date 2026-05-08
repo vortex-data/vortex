@@ -5,22 +5,22 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 
-use super::execute_tq_pack;
-use super::execute_tq_unpack;
+use super::execute_tq_decode;
+use super::execute_tq_encode;
 use super::f32_vector_array;
 use super::test_session;
 use super::vector_values_f32;
 use crate::TurboQuantConfig;
 
 #[test]
-fn unpack_pack_matches_old_turboquant_decode() -> VortexResult<()> {
+fn encode_decode_matches_old_turboquant_decode() -> VortexResult<()> {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
     let input = f32_vector_array(128, 2, 0.125, Validity::NonNullable)?;
     let config = TurboQuantConfig::try_new(3, 42, 3)?;
 
-    let new_packed = execute_tq_pack(input.clone(), &config, &mut ctx)?;
-    let new_decoded = execute_tq_unpack(new_packed, &config, &mut ctx)?;
+    let new_encoded = execute_tq_encode(input.clone(), &config, &mut ctx)?;
+    let new_decoded = execute_tq_decode(new_encoded, &config, &mut ctx)?;
     let old_config = vortex_tensor::encodings::turboquant::TurboQuantConfig {
         bit_width: config.bit_width(),
         seed: config.seed(),

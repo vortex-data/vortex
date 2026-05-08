@@ -1,86 +1,86 @@
 pub mod vortex_turboquant
 
-pub struct vortex_turboquant::TQPack
+pub struct vortex_turboquant::TQDecode
 
-impl vortex_turboquant::TQPack
+impl vortex_turboquant::TQDecode
 
-pub fn vortex_turboquant::TQPack::new(&vortex_turboquant::TurboQuantConfig) -> vortex_array::scalar_fn::typed::TypedScalarFnInstance<vortex_turboquant::TQPack>
+pub fn vortex_turboquant::TQDecode::new(&vortex_turboquant::TurboQuantConfig) -> vortex_array::scalar_fn::typed::TypedScalarFnInstance<vortex_turboquant::TQDecode>
 
-pub fn vortex_turboquant::TQPack::try_new_array(vortex_array::array::erased::ArrayRef, &vortex_turboquant::TurboQuantConfig, usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
+pub fn vortex_turboquant::TQDecode::try_new_array(vortex_array::array::erased::ArrayRef, &vortex_turboquant::TurboQuantConfig, usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
-impl core::clone::Clone for vortex_turboquant::TQPack
+impl core::clone::Clone for vortex_turboquant::TQDecode
 
-pub fn vortex_turboquant::TQPack::clone(&self) -> vortex_turboquant::TQPack
+pub fn vortex_turboquant::TQDecode::clone(&self) -> vortex_turboquant::TQDecode
 
-impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_turboquant::TQPack
+impl vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable for vortex_turboquant::TQDecode
 
-pub type vortex_turboquant::TQPack::Options = vortex_turboquant::TurboQuantConfig
+pub fn vortex_turboquant::TQDecode::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts<Self>>
 
-pub fn vortex_turboquant::TQPack::arity(&self, &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
+pub fn vortex_turboquant::TQDecode::serialize(&self, &vortex_array::arrays::scalar_fn::vtable::ScalarFnArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_turboquant::TQPack::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::vtable::ChildName
+impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_turboquant::TQDecode
 
-pub fn vortex_turboquant::TQPack::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+pub type vortex_turboquant::TQDecode::Options = vortex_turboquant::TurboQuantConfig
 
-pub fn vortex_turboquant::TQPack::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_turboquant::TQDecode::arity(&self, &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
 
-pub fn vortex_turboquant::TQPack::fmt_sql(&self, &Self::Options, &vortex_array::expr::expression::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_turboquant::TQDecode::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::vtable::ChildName
 
-pub fn vortex_turboquant::TQPack::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+pub fn vortex_turboquant::TQDecode::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_turboquant::TQPack::is_fallible(&self, &Self::Options) -> bool
+pub fn vortex_turboquant::TQDecode::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_turboquant::TQPack::is_null_sensitive(&self, &Self::Options) -> bool
+pub fn vortex_turboquant::TQDecode::fmt_sql(&self, &Self::Options, &vortex_array::expr::expression::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_turboquant::TQPack::return_dtype(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+pub fn vortex_turboquant::TQDecode::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
-pub fn vortex_turboquant::TQPack::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_turboquant::TQDecode::is_fallible(&self, &Self::Options) -> bool
 
-pub fn vortex_turboquant::TQPack::validity(&self, &Self::Options, &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::expression::Expression>>
+pub fn vortex_turboquant::TQDecode::is_null_sensitive(&self, &Self::Options) -> bool
 
-pub struct vortex_turboquant::TQUnpack
+pub fn vortex_turboquant::TQDecode::return_dtype(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
-impl vortex_turboquant::TQUnpack
+pub fn vortex_turboquant::TQDecode::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_turboquant::TQUnpack::new(&vortex_turboquant::TurboQuantConfig) -> vortex_array::scalar_fn::typed::TypedScalarFnInstance<vortex_turboquant::TQUnpack>
+pub fn vortex_turboquant::TQDecode::validity(&self, &Self::Options, &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::expression::Expression>>
 
-pub fn vortex_turboquant::TQUnpack::try_new_array(vortex_array::array::erased::ArrayRef, &vortex_turboquant::TurboQuantConfig, usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
+pub struct vortex_turboquant::TQEncode
 
-impl core::clone::Clone for vortex_turboquant::TQUnpack
+impl vortex_turboquant::TQEncode
 
-pub fn vortex_turboquant::TQUnpack::clone(&self) -> vortex_turboquant::TQUnpack
+pub fn vortex_turboquant::TQEncode::new(&vortex_turboquant::TurboQuantConfig) -> vortex_array::scalar_fn::typed::TypedScalarFnInstance<vortex_turboquant::TQEncode>
 
-impl vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayVTable for vortex_turboquant::TQUnpack
+pub fn vortex_turboquant::TQEncode::try_new_array(vortex_array::array::erased::ArrayRef, &vortex_turboquant::TurboQuantConfig, usize) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::vtable::ScalarFnArray>
 
-pub fn vortex_turboquant::TQUnpack::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayParts<Self>>
+impl core::clone::Clone for vortex_turboquant::TQEncode
 
-pub fn vortex_turboquant::TQUnpack::serialize(&self, &vortex_array::arrays::scalar_fn::vtable::ScalarFnArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_turboquant::TQEncode::clone(&self) -> vortex_turboquant::TQEncode
 
-impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_turboquant::TQUnpack
+impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_turboquant::TQEncode
 
-pub type vortex_turboquant::TQUnpack::Options = vortex_turboquant::TurboQuantConfig
+pub type vortex_turboquant::TQEncode::Options = vortex_turboquant::TurboQuantConfig
 
-pub fn vortex_turboquant::TQUnpack::arity(&self, &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
+pub fn vortex_turboquant::TQEncode::arity(&self, &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
 
-pub fn vortex_turboquant::TQUnpack::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::vtable::ChildName
+pub fn vortex_turboquant::TQEncode::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::vtable::ChildName
 
-pub fn vortex_turboquant::TQUnpack::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+pub fn vortex_turboquant::TQEncode::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
-pub fn vortex_turboquant::TQUnpack::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+pub fn vortex_turboquant::TQEncode::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_turboquant::TQUnpack::fmt_sql(&self, &Self::Options, &vortex_array::expr::expression::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn vortex_turboquant::TQEncode::fmt_sql(&self, &Self::Options, &vortex_array::expr::expression::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_turboquant::TQUnpack::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+pub fn vortex_turboquant::TQEncode::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
-pub fn vortex_turboquant::TQUnpack::is_fallible(&self, &Self::Options) -> bool
+pub fn vortex_turboquant::TQEncode::is_fallible(&self, &Self::Options) -> bool
 
-pub fn vortex_turboquant::TQUnpack::is_null_sensitive(&self, &Self::Options) -> bool
+pub fn vortex_turboquant::TQEncode::is_null_sensitive(&self, &Self::Options) -> bool
 
-pub fn vortex_turboquant::TQUnpack::return_dtype(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+pub fn vortex_turboquant::TQEncode::return_dtype(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
-pub fn vortex_turboquant::TQUnpack::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_turboquant::TQEncode::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 
-pub fn vortex_turboquant::TQUnpack::validity(&self, &Self::Options, &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::expression::Expression>>
+pub fn vortex_turboquant::TQEncode::validity(&self, &Self::Options, &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::expression::Expression>>
 
 pub struct vortex_turboquant::TurboQuant
 
