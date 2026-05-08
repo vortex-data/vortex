@@ -71,6 +71,23 @@ pub(crate) struct FoldedContainsDfa {
     /// [`anchor_scan::build_progressing_bitset_unbounded`], at the cost
     /// of `ceil(N / 8)` passes over `all_bytes`.
     progressing_codes: Option<Vec<u8>>,
+    /// Pair-eligible (c1, c2) code sets for a 2-byte anchor scan. The
+    /// first vec is the subset of `progressing_codes` whose one-step
+    /// successor state is non-zero AND non-accept. The second is the
+    /// union of strictly-advancing-or-escape c2 codes for those c1's.
+    /// When both fit in [`anchor_scan::MAX_SET_BYTES`], the scan path
+    /// builds a candidate-pair bitset (bit set iff `(all_bytes[i],
+    /// all_bytes[i+1])` is a state-0-progressing pair). On real
+    /// FSST-trained URL data this is typically 100–1000× sparser than
+    /// the 1-byte progressing bitset because the trainer keeps the
+    /// match-path bytes (e.g. `g`, `o`, `l` for `%google%`) as
+    /// single-byte symbols.
+    pair_codes: Option<(Vec<u8>, Vec<u8>)>,
+    /// Subset of `progressing_codes` whose one-step state from state 0
+    /// is `accept_state`. When the pair-bitset path fires we OR this
+    /// set's 1-byte bitset into the pair bitset so single-step-accept
+    /// matches aren't missed.
+    single_step_accept_codes: Option<Vec<u8>>,
 }
 
 impl FoldedContainsDfa {
@@ -159,11 +176,38 @@ impl FoldedContainsDfa {
         let codes = anchor_scan::collect_progressing_codes_unbounded(&transitions[0..256], 0);
         let progressing_codes = if codes.is_empty() { None } else { Some(codes) };
 
+        // Pair-anchor support: when both pair-eligible c1 and advancing-
+        // only c2 sets fit in `MAX_SET_BYTES`, `scan_to_bitbuf` prefers
+        // the pair bitset over the 1-byte bitset — typically 100–1000×
+        // sparser on real FSST-trained URL data, where the trainer
+        // keeps `g`, `o`, `l` (the bytes on the `%google%` match path)
+        // as single-byte symbols rather than packing them into
+        // multi-byte codes.
+        let pair_codes = progressing_codes
+            .as_deref()
+            .and_then(|c1| anchor_scan::collect_pair_codes(&transitions, c1, accept_state));
+
+        // Single-step-accept set: codes whose one-step from state 0 is
+        // accept. Excluded from `pair_codes.0` (so the pair bitset
+        // doesn't include their positions); we OR a 1-byte bitset of
+        // these into the pair bitset at scan time so SSA matches
+        // aren't missed.
+        let single_step_accept_codes = progressing_codes.as_deref().and_then(|c1| {
+            let v: Vec<u8> = c1
+                .iter()
+                .copied()
+                .filter(|&c| transitions[usize::from(c)] == accept_state)
+                .collect();
+            if v.is_empty() { None } else { Some(v) }
+        });
+
         Ok(Self {
             transitions,
             accept_state,
             skip,
             progressing_codes,
+            pair_codes,
+            single_step_accept_codes,
         })
     }
 
@@ -243,6 +287,32 @@ impl FoldedContainsDfa {
     where
         T: vortex_array::dtype::IntegerPType,
     {
+        // Prefer the 2-byte pair anchor when the pair-eligible (c1, c2)
+        // sets fit in `MAX_SET_BYTES` AND there are no single-step-accept
+        // codes. This is dramatically more selective than the 1-byte
+        // progressing bitset on data shapes where the FSST trainer keeps
+        // the match-path bytes as single-byte symbols (e.g. real
+        // ClickBench URL data on `%google%`: c1≈{166="g"},
+        // c2≈{127="o"} — orders of magnitude sparser than the 1-byte
+        // 'g' bitset).
+        //
+        // SSA-present needles (e.g. `%https%` on synthetic ClickBench
+        // where code 127 = "https://" already accepts in one step) skip
+        // the pair path: they're already fast on the 1-byte path
+        // because each progressing-position match completes in a single
+        // table lookup, and the pair scheme would add a second
+        // PSHUFB-Mula pass for the SSA-merge bitset that pure
+        // overhead.
+        if self.single_step_accept_codes.is_none()
+            && let Some((pc1, pc2)) = self.pair_codes.as_ref()
+            && let Some(bitset) = anchor_scan::build_pair_bitset(all_bytes, pc1, pc2)
+        {
+            return self.scan_with_anchor_bitset(n, offsets, all_bytes, &bitset, negated);
+        }
+
+        // Pair path unavailable (or sets too large). Fall back to the
+        // 1-byte unbounded path: still wins over per-string memchr on
+        // large corpora.
         if let Some(codes) = self.progressing_codes.as_deref() {
             let bitset = anchor_scan::build_progressing_bitset_unbounded(all_bytes, codes);
             return self.scan_with_anchor_bitset(n, offsets, all_bytes, &bitset, negated);

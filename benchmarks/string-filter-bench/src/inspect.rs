@@ -67,10 +67,10 @@ pub fn run(args: InspectArgs) -> Result<()> {
         | DatasetName::ClickbenchReferer
         | DatasetName::GharchiveActorAvatarUrl
         | DatasetName::FinewebUrl => {
-            vec![
-                "htt", "http", "http://", "www.", ".ru/", "google", "yandex", "rlane", "tor-sin",
-                "i-c", "on-", "ort", "-ca", "man",
-            ]
+            // Just "google" — ClickBench Q20 needle. Short fragments
+            // (2–3 chars) explode the depth-8 DFS path enumeration on
+            // 231-symbol tables, so we keep this list tight.
+            vec!["google"]
         }
         DatasetName::ClickbenchTitle
         | DatasetName::ClickbenchSearchPhrase

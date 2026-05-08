@@ -401,15 +401,11 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         };
         bind_data.filter_exprs.push(expr);
 
-        // NOTE(ngates): Vortex does indeed run exact filters, so in theory we should return `true`
-        //  here to tell DuckDB we've handled the filter. However, DuckDB applies some crude
-        //  cardinality estimation heuristics (e.g. an equality filter => 20% selectivity) that
-        //  means by returning false, DuckDB runs an additional filter (a little bit of overhead)
-        //  but tends to end up with a better query plan.
-        //  If we plumb row count estimation into the layout tree, perhaps we could use zone maps
-        //  etc. to return estimates. But this function is probably called too late anyway. Maybe
-        //  we need our own cardinality heuristics.
-        Ok(false)
+        // Returning `true` tells DuckDB Vortex has fully applied the filter, so the residual
+        // `FILTER` node above the scan can be dropped. Vortex does run exact filters, so this
+        // is semantically correct. Previously returned `false` to preserve DuckDB's
+        // post-filter cardinality heuristics (e.g. equality => 20% selectivity).
+        Ok(true)
     }
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {

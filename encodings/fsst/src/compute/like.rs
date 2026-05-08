@@ -17,6 +17,15 @@ use vortex_error::VortexResult;
 use crate::FSST;
 use crate::FSSTArrayExt;
 use crate::dfa::FsstMatcher;
+use crate::dfa_compressed::ClassifiedDfa;
+use vortex_buffer::BitBuffer;
+
+/// Setting this env var to any non-empty value forces the FSST LIKE
+/// kernel to bail out, causing the executor to canonicalize the FSST
+/// array to Utf8 and run the generic Arrow `like` kernel over the
+/// decompressed text. Used to A/B FSST pushdown vs the no-pushdown
+/// baseline in the duckdb-bench harness.
+const DISABLE_PUSHDOWN_ENV: &str = "VORTEX_FSST_DISABLE_LIKE_PUSHDOWN";
 
 impl LikeKernel for FSST {
     fn like(
@@ -25,6 +34,13 @@ impl LikeKernel for FSST {
         options: LikeOptions,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        if std::env::var_os(DISABLE_PUSHDOWN_ENV)
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
+        {
+            return Ok(None);
+        }
+
         let Some(pattern_scalar) = pattern.as_constant() else {
             return Ok(None);
         };
@@ -47,34 +63,182 @@ impl LikeKernel for FSST {
             return Ok(None);
         };
 
+        let _trace = std::env::var_os("VORTEX_FSST_LIKE_TRACE")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+
+        // Per-thread trace: track wall-clock at FSST::like entry to see
+        // gap-between-calls (= time the thread spent OUTSIDE this kernel,
+        // i.e. in DuckDB plumbing / Vortex scan). VORTEX_FSST_LIKE_TIMELINE=1.
+        let _timeline = std::env::var_os("VORTEX_FSST_LIKE_TIMELINE")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        thread_local! {
+            static LAST_EXIT: std::cell::Cell<Option<std::time::Instant>> =
+                const { std::cell::Cell::new(None) };
+            static QUERY_START: std::cell::Cell<Option<std::time::Instant>> =
+                const { std::cell::Cell::new(None) };
+        }
+        let _entry_t = std::time::Instant::now();
+        if _timeline {
+            let tid = std::thread::current().id();
+            QUERY_START.with(|qs| {
+                if qs.get().is_none() {
+                    qs.set(Some(_entry_t));
+                }
+            });
+            let gap = LAST_EXIT.with(|le| {
+                le.get().map(|t| _entry_t.duration_since(t).as_secs_f64() * 1e6)
+            });
+            eprintln!(
+                "[fsst::like] tid={:?} t={:>8.1}µs gap_since_last={:>8.1}µs",
+                tid,
+                QUERY_START.with(|qs| {
+                    qs.get().map(|s| _entry_t.duration_since(s).as_secs_f64() * 1e6).unwrap_or(0.0)
+                }),
+                gap.unwrap_or(0.0),
+            );
+        }
+
+        macro_rules! tlog {
+            ($trace:expr, $name:literal, $body:block) => {{
+                if $trace {
+                    let __t = std::time::Instant::now();
+                    let __r = $body;
+                    eprintln!(
+                        "[fsst::like] {:>20} {:>8.3}µs",
+                        $name,
+                        __t.elapsed().as_secs_f64() * 1e6
+                    );
+                    __r
+                } else {
+                    $body
+                }
+            }};
+        }
+
         let symbols = array.symbols();
         let symbol_lengths = array.symbol_lengths();
 
-        let Some(matcher) =
-            FsstMatcher::try_new(symbols.as_slice(), symbol_lengths.as_slice(), pattern_bytes)?
-        else {
-            return Ok(None);
-        };
+        if _trace {
+            // Hash the symbol table to see if chunks share a table.
+            use std::hash::Hasher;
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            h.write(unsafe {
+                core::slice::from_raw_parts(
+                    symbols.as_slice().as_ptr() as *const u8,
+                    symbols.len() * size_of::<fsst::Symbol>(),
+                )
+            });
+            h.write(symbol_lengths.as_slice());
+            let symhash = h.finish();
+            eprintln!(
+                "[fsst::like]    symbols n={} hash={:016x} ptr={:p}",
+                symbols.len(),
+                symhash,
+                symbols.as_slice().as_ptr()
+            );
+        }
 
         let negated = options.negated;
         let codes = array.codes();
-        #[expect(deprecated)]
-        let offsets = codes.offsets().to_primitive();
+        let offsets = tlog!(_trace, "offsets_to_prim", {
+            #[expect(deprecated)]
+            let o = codes.offsets().to_primitive();
+            o
+        });
         let all_bytes = codes.bytes();
         let all_bytes = all_bytes.as_slice();
         let n = codes.len();
 
-        let result = match_each_integer_ptype!(offsets.ptype(), |T| {
-            let off = offsets.as_slice::<T>();
-            matcher.scan_to_bitbuf(n, off, all_bytes, negated)
+        let call_t = std::time::Instant::now();
+
+        // HACK: dispatch %needle% to ClassifiedDfa::scan_corpus_strict.
+        //
+        // Set `VORTEX_FSST_DISABLE_CLASSIFIED` to bypass this branch and
+        // route all `%needle%` LIKE evaluations through the standard
+        // `FsstMatcher::scan_to_bitbuf` path (the 2-byte anchor /
+        // unbounded global PSHUFB-Mula bitset implementation in
+        // `dfa::folded_contains`). Useful for A/B-ing the two
+        // experimental contains DFAs.
+        let _classified_disabled = std::env::var_os("VORTEX_FSST_DISABLE_CLASSIFIED")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        if !_classified_disabled
+            && let Some(needle) = pattern_bytes
+                .strip_prefix(b"%")
+                .and_then(|p| p.strip_suffix(b"%"))
+            && !needle.is_empty()
+            && !needle.contains(&b'%')
+            && !needle.contains(&b'_')
+        {
+            let cdfa = tlog!(_trace, "build_classified", {
+                ClassifiedDfa::try_new(symbols.as_slice(), symbol_lengths.as_slice(), needle)
+            });
+            if let Some(cdfa) = cdfa {
+                let result = tlog!(_trace, "scan_to_bitbuf_new", {
+                    match_each_integer_ptype!(offsets.ptype(), |T| {
+                        cdfa.scan_corpus_strict_to_bitbuf(
+                            all_bytes,
+                            offsets.as_slice::<T>(),
+                            n,
+                            negated,
+                        )
+                    })
+                });
+                let validity = tlog!(_trace, "validity", {
+                    array
+                        .codes()
+                        .validity()?
+                        .union_nullability(pattern_scalar.dtype().nullability())
+                });
+                if _trace {
+                    eprintln!(
+                        "[fsst::like]    NEW total {:>8.3}µs  rows={n}  needle={:?}",
+                        call_t.elapsed().as_secs_f64() * 1e6,
+                        std::str::from_utf8(needle).unwrap_or("?")
+                    );
+                }
+                if _timeline {
+                    LAST_EXIT.with(|le| le.set(Some(std::time::Instant::now())));
+                }
+                return Ok(Some(BoolArray::new(result, validity).into_array()));
+            }
+        }
+
+        let matcher = tlog!(_trace, "build_fsst_matcher", {
+            FsstMatcher::try_new(symbols.as_slice(), symbol_lengths.as_slice(), pattern_bytes)?
+        });
+        let Some(matcher) = matcher else {
+            return Ok(None);
+        };
+
+        let result = tlog!(_trace, "scan_to_bitbuf", {
+            match_each_integer_ptype!(offsets.ptype(), |T| {
+                let off = offsets.as_slice::<T>();
+                matcher.scan_to_bitbuf(n, off, all_bytes, negated)
+            })
         });
 
         // FSST delegates validity to its codes array, so we can read it
         // directly without cloning the entire FSSTArray into an ArrayRef.
-        let validity = array
-            .codes()
-            .validity()?
-            .union_nullability(pattern_scalar.dtype().nullability());
+        let validity = tlog!(_trace, "validity", {
+            array
+                .codes()
+                .validity()?
+                .union_nullability(pattern_scalar.dtype().nullability())
+        });
+
+        if _trace {
+            eprintln!(
+                "[fsst::like]    OLD total {:>8.3}µs  rows={n}  pattern={:?}",
+                call_t.elapsed().as_secs_f64() * 1e6,
+                std::str::from_utf8(pattern_bytes).unwrap_or("?")
+            );
+        }
+        if _timeline {
+            LAST_EXIT.with(|le| le.set(Some(std::time::Instant::now())));
+        }
 
         Ok(Some(BoolArray::new(result, validity).into_array()))
     }

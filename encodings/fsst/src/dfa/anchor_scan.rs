@@ -116,6 +116,180 @@ pub(super) fn build_progressing_bitset(
     Some(out)
 }
 
+/// Build a packed bitset of length `all_bytes.len()` whose bit `i` is set
+/// iff `all_bytes[i] ∈ c1_codes` AND `all_bytes[i+1] ∈ c2_codes`. The last
+/// bit (`i == all_bytes.len() - 1`) is forced to 0 — there is no
+/// successor byte for the c2 lookup.
+///
+/// Used by the folded-contains scan path as a much sparser alternative
+/// to [`build_progressing_bitset_unbounded`] when both code sets fit in
+/// [`MAX_SET_BYTES`]. On real ClickBench URL data with single-byte
+/// `{c1=g, c2=o}` sets the pair bitset is ~100–1000× sparser than the
+/// 1-byte progressing bitset, dramatically reducing per-string DFA
+/// state-0 visits at a cost of one fused `vpshufb` pair per 32 input
+/// bytes (vs. one for the 1-byte path). Returns `None` when either set
+/// exceeds [`MAX_SET_BYTES`].
+pub(super) fn build_pair_bitset(
+    all_bytes: &[u8],
+    c1_codes: &[u8],
+    c2_codes: &[u8],
+) -> Option<Vec<u64>> {
+    let c1_tables = NibbleTables::build(c1_codes)?;
+    let c2_tables = NibbleTables::build(c2_codes)?;
+    let n_words = all_bytes.len().div_ceil(64);
+    if n_words == 0 {
+        return Some(Vec::new());
+    }
+    let mut c1 = vec![0u64; n_words];
+    let mut c2 = vec![0u64; n_words];
+    fill_two_bitsets(all_bytes, &c1_tables, &c2_tables, &mut c1, &mut c2);
+
+    // Combine: pair[i] = c1[i] AND c2[i+1]. In u64 word-space:
+    //   out[w] = c1[w] & ((c2[w] >> 1) | (c2[w+1] << 63))
+    let mut out = c1;
+    for w in 0..n_words.saturating_sub(1) {
+        // SAFETY: w < n_words - 1 ≤ c2.len() - 1.
+        let lo = unsafe { *c2.get_unchecked(w) };
+        let hi = unsafe { *c2.get_unchecked(w + 1) };
+        let shifted = (lo >> 1) | (hi << 63);
+        // SAFETY: w < n_words = out.len().
+        unsafe { *out.get_unchecked_mut(w) &= shifted };
+    }
+    let last = n_words - 1;
+    // SAFETY: last < n_words = c2.len() = out.len().
+    unsafe {
+        *out.get_unchecked_mut(last) &= *c2.get_unchecked(last) >> 1;
+    }
+    // Force-clear the bit at `all_bytes.len() - 1`: no successor for c2.
+    let last_bit = all_bytes.len() - 1;
+    let last_word = last_bit >> 6;
+    let last_off = last_bit & 63;
+    // SAFETY: last_word < n_words = out.len().
+    unsafe { *out.get_unchecked_mut(last_word) &= !(1u64 << last_off) };
+
+    Some(out)
+}
+
+/// Fused fill of two bitsets in a single walk over `all_bytes`. The two
+/// PSHUFB lookups per 32-byte block share the same input load and zero
+/// vector — roughly ~1.4× one-table cost on typical x86_64 parts vs
+/// 2.0× for two independent walks. Halves the bandwidth cost of the
+/// 2-byte anchor scheme, which is the difference between net win and
+/// net regression on data shapes where the pair selectivity gain is
+/// modest.
+fn fill_two_bitsets(
+    all_bytes: &[u8],
+    c1_tables: &NibbleTables,
+    c2_tables: &NibbleTables,
+    c1_out: &mut [u64],
+    c2_out: &mut [u64],
+) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::is_x86_feature_detected!("avx2") {
+            // SAFETY: AVX2 feature was just detected at runtime.
+            unsafe {
+                fill_two_bitsets_avx2(all_bytes, c1_tables, c2_tables, c1_out, c2_out);
+            }
+            return;
+        }
+    }
+    fill_bitset_scalar(all_bytes, c1_tables, c1_out);
+    fill_bitset_scalar(all_bytes, c2_tables, c2_out);
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[expect(unsafe_op_in_unsafe_fn)]
+unsafe fn fill_two_bitsets_avx2(
+    all_bytes: &[u8],
+    c1_tables: &NibbleTables,
+    c2_tables: &NibbleTables,
+    c1_out: &mut [u64],
+    c2_out: &mut [u64],
+) {
+    use core::arch::x86_64::_mm256_or_si256;
+    use core::arch::x86_64::_mm256_set1_epi8;
+
+    let len = all_bytes.len();
+    let main_len = len & !31;
+
+    let c1_lo =
+        _mm256_broadcastsi128_si256(_mm_loadu_si128(c1_tables.lo.as_ptr() as *const __m128i));
+    let c1_hi =
+        _mm256_broadcastsi128_si256(_mm_loadu_si128(c1_tables.hi.as_ptr() as *const __m128i));
+    let c2_lo =
+        _mm256_broadcastsi128_si256(_mm_loadu_si128(c2_tables.lo.as_ptr() as *const __m128i));
+    let c2_hi =
+        _mm256_broadcastsi128_si256(_mm_loadu_si128(c2_tables.hi.as_ptr() as *const __m128i));
+    let zero = _mm256_setzero_si256();
+    let nibble_mask = _mm256_set1_epi8(0x0F);
+
+    let ptr = all_bytes.as_ptr();
+    let mut i: usize = 0;
+    while i < main_len {
+        // SAFETY: `i + 31 < main_len <= len`.
+        let v = _mm256_loadu_si256(ptr.add(i) as *const __m256i);
+        let v_lo_idx = _mm256_and_si256(v, nibble_mask);
+        let v_hi_idx = _mm256_and_si256(_mm256_srli_epi64(v, 4), nibble_mask);
+
+        // c1 membership.
+        let c1_lo_b = _mm256_shuffle_epi8(c1_lo, v_lo_idx);
+        let c1_hi_b = _mm256_shuffle_epi8(c1_hi, v_hi_idx);
+        let c1_merged = _mm256_and_si256(c1_lo_b, c1_hi_b);
+        let c1_pos = _mm256_cmpgt_epi8(c1_merged, zero);
+        let c1_neg = _mm256_cmpgt_epi8(zero, c1_merged);
+        let c1_hit = _mm256_or_si256(c1_pos, c1_neg);
+        let c1_mask = _mm256_movemask_epi8(c1_hit) as u32;
+
+        // c2 membership.
+        let c2_lo_b = _mm256_shuffle_epi8(c2_lo, v_lo_idx);
+        let c2_hi_b = _mm256_shuffle_epi8(c2_hi, v_hi_idx);
+        let c2_merged = _mm256_and_si256(c2_lo_b, c2_hi_b);
+        let c2_pos = _mm256_cmpgt_epi8(c2_merged, zero);
+        let c2_neg = _mm256_cmpgt_epi8(zero, c2_merged);
+        let c2_hit = _mm256_or_si256(c2_pos, c2_neg);
+        let c2_mask = _mm256_movemask_epi8(c2_hit) as u32;
+
+        let word_idx = i >> 6;
+        let bit_off = (i & 63) as u64;
+        // SAFETY: i + 31 < len ≤ n_words * 64, so word_idx < n_words.
+        *c1_out.get_unchecked_mut(word_idx) |= u64::from(c1_mask) << bit_off;
+        *c2_out.get_unchecked_mut(word_idx) |= u64::from(c2_mask) << bit_off;
+
+        i += 32;
+    }
+
+    // Tail: scalar.
+    if i < len {
+        let mut bit_in_word = (i & 63) as u64;
+        let mut word_idx = i >> 6;
+        let mut c1_word = c1_out[word_idx];
+        let mut c2_word = c2_out[word_idx];
+        for &b in &all_bytes[i..] {
+            let c1_lo_bits = c1_tables.lo[usize::from(b & 0x0F)];
+            let c1_hi_bits = c1_tables.hi[usize::from(b >> 4)];
+            let c2_lo_bits = c2_tables.lo[usize::from(b & 0x0F)];
+            let c2_hi_bits = c2_tables.hi[usize::from(b >> 4)];
+            c1_word |= u64::from((c1_lo_bits & c1_hi_bits) != 0) << bit_in_word;
+            c2_word |= u64::from((c2_lo_bits & c2_hi_bits) != 0) << bit_in_word;
+            bit_in_word += 1;
+            if bit_in_word == 64 {
+                c1_out[word_idx] = c1_word;
+                c2_out[word_idx] = c2_word;
+                word_idx += 1;
+                c1_word = 0;
+                c2_word = 0;
+                bit_in_word = 0;
+            }
+        }
+        if bit_in_word > 0 {
+            c1_out[word_idx] = c1_word;
+            c2_out[word_idx] = c2_word;
+        }
+    }
+}
+
 /// Like [`build_progressing_bitset`], but supports an arbitrary-size code
 /// set via multi-pass PSHUFB-Mula OR-merge — chunks of up to
 /// [`MAX_SET_BYTES`] codes are scanned in separate passes and OR'd
@@ -385,6 +559,81 @@ pub(super) fn collect_progressing_codes(transition_row: &[u8], start_state: u8) 
         }
     }
     Some(codes)
+}
+
+/// Compute pair-eligible (c1, c2) code sets for the 2-byte anchor scan.
+///
+/// `transitions` is the full `(2N + 1) × 256` folded transition matrix.
+/// `c1_codes` is the full state-0 progressing set.
+///
+/// The first returned vec is the pair-eligible subset of `c1_codes` —
+/// codes whose one-step state is non-zero AND non-accept. (Single-step
+/// accepts are excluded; they're captured by the existing accept-alone
+/// path.) The second vec is the union of **strictly-advancing or escape**
+/// c2 codes for those c1's: bytes `c2` such that `T[s1][c2] > s1` —
+/// numerically advancing toward accept — or `c2 == ESCAPE_CODE` for
+/// safety on escape sequences.
+///
+/// ## Why advancing-only?
+///
+/// Every match has some position `p` where the DFA strictly advances on
+/// the very next byte (otherwise it never escapes `s1` and never reaches
+/// accept). The first such `(p, p+1)` pair has `c1` in `c1_codes` and
+/// `c2` strictly advancing — so its bit is set in the pair bitset. The
+/// matcher then runs the DFA from `p` (state 0) and reaches accept,
+/// possibly via KMP fallback on the prefix bytes before `p`.
+///
+/// Returns `None` when `accept_state < 2`, when no c1 is pair-eligible
+/// (every progressing code is single-step accept), or when no c2 codes
+/// strictly advance from any pair-eligible c1.
+pub(super) fn collect_pair_codes(
+    transitions: &[u8],
+    c1_codes: &[u8],
+    accept_state: u8,
+) -> Option<(Vec<u8>, Vec<u8>)> {
+    if accept_state < 2 {
+        return None;
+    }
+    debug_assert!(transitions.len() >= 256);
+    let mut c2_seen = [false; 256];
+    let mut c1_out: Vec<u8> = Vec::new();
+    let mut c2_out: Vec<u8> = Vec::new();
+    for &c1 in c1_codes {
+        let s1 = transitions[usize::from(c1)];
+        if s1 == 0 || s1 == accept_state {
+            continue;
+        }
+        c1_out.push(c1);
+        let row = usize::from(s1) * 256;
+        // Advancing predicate: for **normal** states (`s1 ≤ accept_state`),
+        // strictly higher state ids encode "moved further along the
+        // match" (folded-DFA layout numbers normal states 0..=N
+        // monotonically). For **escape** states (`s1 > accept_state`,
+        // which is the post-`ESCAPE_CODE` "expecting a literal byte"
+        // wrapper), the transition lands in a normal state (numerically
+        // lower than `s1`), so the strict-greater predicate would
+        // incorrectly drop *every* progressing literal. Use
+        // "non-zero next" for escape c1's.
+        let s1_is_escape = s1 > accept_state;
+        for c2 in 0..=255usize {
+            let next = transitions[row + c2];
+            let advances = if s1_is_escape {
+                next != 0
+            } else {
+                next > s1
+            };
+            let escape = c2 == usize::from(fsst::ESCAPE_CODE);
+            if (advances || escape) && !c2_seen[c2] {
+                c2_seen[c2] = true;
+                c2_out.push(c2 as u8);
+            }
+        }
+    }
+    if c1_out.is_empty() || c2_out.is_empty() {
+        None
+    } else {
+        Some((c1_out, c2_out))
+    }
 }
 
 /// Like [`collect_progressing_codes`], but never returns `None` — collects

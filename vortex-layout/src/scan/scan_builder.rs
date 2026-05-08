@@ -88,8 +88,14 @@ impl ScanBuilder<ArrayRef> {
             selection: Default::default(),
             split_by: SplitBy::Layout,
             // We default to four tasks per worker thread, which allows for some I/O lookahead
-            // without too much impact on work-stealing.
-            concurrency: 4,
+            // without too much impact on work-stealing. Override via the
+            // `VORTEX_SCAN_CONCURRENCY` env var for experimentation —
+            // higher values increase per-thread chunk pipelining.
+            concurrency: std::env::var("VORTEX_SCAN_CONCURRENCY")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+                .filter(|&v| v > 0)
+                .unwrap_or(4),
             map_fn: Arc::new(Ok),
             metrics_registry: None,
             file_stats: None,
