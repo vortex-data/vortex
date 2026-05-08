@@ -224,6 +224,11 @@ impl FromArrowType<&Field> for DType {
 
 impl DType {
     /// Convert a Vortex [`DType`] into an Arrow [`Schema`].
+    ///
+    /// **Prefer `ArrowSession::to_arrow_schema`.** This method is not plugin-aware and
+    /// strips any `ARROW:extension:name` metadata for non-builtin extensions (only
+    /// `arrow.parquet.variant` is special-cased here). Use the session method when you
+    /// need round-trippable extension metadata.
     pub fn to_arrow_schema(&self) -> VortexResult<Schema> {
         let DType::Struct(struct_dtype, nullable) = self else {
             vortex_bail!("only DType::Struct can be converted to arrow schema");
@@ -258,6 +263,12 @@ impl DType {
     }
 
     /// Returns the Arrow [`DataType`] that best corresponds to this Vortex [`DType`].
+    ///
+    /// **Prefer `ArrowSession::to_arrow_data_type` (or `to_arrow_field`).** This method
+    /// has no awareness of registered Arrow extension plugins, so any [`DType::Extension`]
+    /// outside the builtin temporal set will fail or silently lose its
+    /// `ARROW:extension:name` metadata. The session methods recurse through containers
+    /// and dispatch plugins at every extension node.
     pub fn to_arrow_dtype(&self) -> VortexResult<DataType> {
         Ok(match self {
             DType::Null => DataType::Null,

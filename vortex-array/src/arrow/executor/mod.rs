@@ -92,11 +92,20 @@ impl ArrowArrayExecutor for ArrayRef {
     ) -> VortexResult<ArrowArrayRef> {
         // Clone the session out of `ctx` to break the immutable borrow chain that prevents
         // `ctx` from being passed back through to the session method.
-        let target = data_type.map(|dt| Field::new("", dt.clone(), self.dtype().is_nullable()));
-        ctx.session()
-            .clone()
-            .arrow()
-            .execute_arrow(self, target.as_ref(), ctx)
+        let session = ctx.session().clone();
+        let target = match data_type {
+            Some(dt) => Some(Field::new("", dt.clone(), self.dtype().is_nullable())),
+            // No target supplied: if the source dtype tree contains any Vortex extension,
+            // synthesize a Field via session-aware inference so registered plugins run and
+            // ARROW:extension:name metadata is preserved end-to-end. For non-extension
+            // trees we leave target as None so canonical preferred-type logic (e.g.
+            // VarBin → Utf8 instead of Utf8View) keeps running.
+            None if dtype_has_extension(self.dtype()) => {
+                Some(session.arrow().to_arrow_field("", self.dtype())?)
+            }
+            None => None,
+        };
+        session.arrow().execute_arrow(self, target.as_ref(), ctx)
     }
 
     fn execute_record_batches(
@@ -243,4 +252,18 @@ fn preferred_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
 
     // Everything else: use canonical dtype conversion
     array.dtype().to_arrow_dtype()
+}
+
+/// Recursively check whether a dtype tree contains a [`DType::Extension`] node.
+///
+/// Used by the executor entry to decide whether to synthesize a session-aware target
+/// [`Field`] (so plugins run + extension metadata survives) or to fall through to the
+/// canonical `preferred_arrow_type` path.
+fn dtype_has_extension(dtype: &DType) -> bool {
+    match dtype {
+        DType::Extension(_) => true,
+        DType::List(elem, _) | DType::FixedSizeList(elem, ..) => dtype_has_extension(elem),
+        DType::Struct(fields, _) => fields.fields().any(|f| dtype_has_extension(&f)),
+        _ => false,
+    }
 }

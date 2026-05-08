@@ -26,8 +26,8 @@ use crate::arrays::list::ListArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
-use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
+use crate::arrow::session::ArrowSessionExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
@@ -96,10 +96,11 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         .to_buffer::<O>()
         .into_arrow_offset_buffer();
 
-    let elements = array
-        .elements()
-        .clone()
-        .execute_arrow(Some(elements_field.data_type()), ctx)?;
+    let elements = ctx.session().clone().arrow().execute_arrow(
+        array.elements().clone(),
+        Some(elements_field.as_ref()),
+        ctx,
+    )?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert to non-nullable Arrow array with null elements"
@@ -124,10 +125,11 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     assert!(array.is_zero_copy_to_list());
 
     if array.is_empty() {
-        let elements = array
-            .elements()
-            .clone()
-            .execute_arrow(Some(elements_field.data_type()), ctx)?;
+        let elements = ctx.session().clone().arrow().execute_arrow(
+            array.elements().clone(),
+            Some(elements_field.as_ref()),
+            ctx,
+        )?;
         return Ok(Arc::new(GenericListArray::<O>::new(
             Arc::clone(elements_field),
             OffsetBuffer::new_empty(),
@@ -176,7 +178,11 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     });
 
     // Extract the elements array.
-    let elements = elements.execute_arrow(Some(elements_field.data_type()), ctx)?;
+    let elements = ctx.session().clone().arrow().execute_arrow(
+        elements,
+        Some(elements_field.as_ref()),
+        ctx,
+    )?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert to non-nullable Arrow array with null elements"
