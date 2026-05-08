@@ -13,6 +13,7 @@ pub mod null;
 pub mod primitive;
 mod run_end;
 mod struct_;
+mod temporal;
 mod validity;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
@@ -45,6 +46,9 @@ use crate::arrow::executor::null::to_arrow_null;
 use crate::arrow::executor::primitive::to_arrow_primitive;
 use crate::arrow::executor::run_end::to_arrow_run_end;
 use crate::arrow::executor::struct_::to_arrow_struct;
+use crate::arrow::executor::temporal::to_arrow_date;
+use crate::arrow::executor::temporal::to_arrow_time;
+use crate::arrow::executor::temporal::to_arrow_timestamp;
 use crate::arrow::session::ArrowSessionExt;
 use crate::dtype::DType;
 use crate::dtype::PType;
@@ -177,16 +181,14 @@ pub(crate) fn canonical_execute_arrow(
         DataType::RunEndEncoded(ends_type, values_type) => {
             to_arrow_run_end(array, ends_type.data_type(), values_type, ctx)
         }
+        dt @ (DataType::Date32 | DataType::Date64) => to_arrow_date(array, dt, ctx),
+        dt @ (DataType::Time32(_) | DataType::Time64(_)) => to_arrow_time(array, dt, ctx),
+        dt @ DataType::Timestamp(..) => to_arrow_timestamp(array, dt, ctx),
         DataType::FixedSizeBinary(_)
         | DataType::Map(..)
         | DataType::Duration(_)
         | DataType::Interval(_)
-        | DataType::Union(..)
-        | DataType::Date32
-        | DataType::Date64
-        | DataType::Time32(_)
-        | DataType::Time64(_)
-        | DataType::Timestamp(..) => {
+        | DataType::Union(..) => {
             vortex_bail!("Conversion to Arrow type {resolved_type} is not supported");
         }
     }?;
