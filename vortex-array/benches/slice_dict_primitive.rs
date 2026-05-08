@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
 use vortex_array::ArrayRef;
