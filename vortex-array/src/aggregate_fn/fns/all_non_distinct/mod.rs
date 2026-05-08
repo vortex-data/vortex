@@ -13,6 +13,8 @@ mod struct_;
 mod tests;
 mod varbin;
 
+use std::sync::LazyLock;
+
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -91,8 +93,7 @@ pub fn all_non_distinct(a: &ArrayRef, b: &ArrayRef, ctx: &mut ExecutionCtx) -> V
     Ok(result.as_bool().value().unwrap_or(false))
 }
 
-static NAMES: std::sync::LazyLock<FieldNames> =
-    std::sync::LazyLock::new(|| FieldNames::from(["lhs", "rhs"]));
+static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["lhs", "rhs"]));
 
 /// Fused `bool_all(non_distinct(lhs, rhs))` aggregate function.
 ///
