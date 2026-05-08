@@ -11,6 +11,7 @@ use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::dict::DictArrayExt;
 use vortex::array::arrays::dict::DictArraySlotsExt;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::IntegerPType;
@@ -74,7 +75,10 @@ pub(crate) fn new_exporter_with_flatten(
     let values_key = values.addr();
     let codes = codes_array.clone().execute::<PrimitiveArray>(ctx)?;
 
-    if !flatten && should_export_sparse(&codes, values.len(), &codes_mask) {
+    if !flatten
+        && !array.has_all_values_referenced()
+        && should_export_sparse(&codes, values.len(), &codes_mask)
+    {
         return new_array_exporter(
             array
                 .clone()

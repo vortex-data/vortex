@@ -244,6 +244,13 @@ fn sparse_canonicalize_dict(
     array: &DictArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<Canonical>> {
+    // If metadata tells us every dictionary value is referenced, there is no garbage to compact.
+    // This also keeps hot paths such as dictionary comparisons from paying the sparse estimator
+    // cost when they produce dense, all-referenced result dictionaries.
+    if array.has_all_values_referenced() {
+        return Ok(None);
+    }
+
     let codes = array.codes().as_::<Primitive>().into_owned();
     let Some(sparse_codes) = collect_sparse_codes(&codes, array.values().len(), ctx)? else {
         return Ok(None);
