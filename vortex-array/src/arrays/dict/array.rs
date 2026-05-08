@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::LEGACY_SESSION;
@@ -21,6 +22,7 @@ use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::array_slots;
 use crate::arrays::Dict;
+use crate::arrays::PrimitiveArray;
 use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
@@ -148,46 +150,63 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
             .execute_mask(codes.len(), &mut LEGACY_SESSION.create_execution_ctx())?;
         #[expect(deprecated)]
         let codes_primitive = self.codes().to_primitive();
-        let values_len = self.values().len();
-
-        let init_value = !referenced;
-        let referenced_value = referenced;
-
-        let mut values_vec = vec![init_value; values_len];
-        match codes_validity.bit_buffer() {
-            AllOr::All => {
-                match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
-                    )]
-                    for &idx in codes_primitive.as_slice::<P>() {
-                        values_vec[idx as usize] = referenced_value;
-                    }
-                });
-            }
-            AllOr::None => {}
-            AllOr::Some(mask) => {
-                match_each_integer_ptype!(codes_primitive.ptype(), |P| {
-                    let codes = codes_primitive.as_slice::<P>();
-
-                    #[allow(
-                        clippy::cast_possible_truncation,
-                        clippy::cast_sign_loss,
-                        reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
-                    )]
-                    mask.set_indices().for_each(|idx| {
-                        values_vec[codes[idx] as usize] = referenced_value;
-                    });
-                });
-            }
-        }
-
-        Ok(BitBuffer::from(values_vec))
+        compute_referenced_values_mask_from_codes(
+            &codes_primitive,
+            self.values().len(),
+            &codes_validity,
+            referenced,
+        )
     }
 }
 impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
+
+/// Build an exact bitmap over dictionary values referenced by valid codes.
+///
+/// The sampling-based sparse dictionary estimator only decides whether an exact pass is likely to
+/// be worthwhile. This helper is the exact pass: aggregate kernels use it to ignore unreferenced
+/// values, and sparse dictionary canonicalization uses it to compact values before remapping codes.
+pub(crate) fn compute_referenced_values_mask_from_codes(
+    codes_primitive: &PrimitiveArray,
+    values_len: usize,
+    codes_validity: &Mask,
+    referenced: bool,
+) -> VortexResult<BitBuffer> {
+    let init_value = !referenced;
+    let referenced_value = referenced;
+
+    let mut values_vec = vec![init_value; values_len];
+    match codes_validity.bit_buffer() {
+        AllOr::All => {
+            match_each_integer_ptype!(codes_primitive.ptype(), |P| {
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
+                )]
+                for &idx in codes_primitive.as_slice::<P>() {
+                    values_vec[idx as usize] = referenced_value;
+                }
+            });
+        }
+        AllOr::None => {}
+        AllOr::Some(mask) => {
+            match_each_integer_ptype!(codes_primitive.ptype(), |P| {
+                let codes = codes_primitive.as_slice::<P>();
+
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "codes are non-negative indices; a negative signed code would wrap to a large usize and panic on the bounds-checked array index"
+                )]
+                mask.set_indices().for_each(|idx| {
+                    values_vec[codes[idx] as usize] = referenced_value;
+                });
+            });
+        }
+    }
+
+    Ok(BitBuffer::from(values_vec))
+}
 
 /// Concrete parts of a [`DictArray`](super::DictArray) after iterative execution.
 pub struct DictParts {

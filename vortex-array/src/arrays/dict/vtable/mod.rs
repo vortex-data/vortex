@@ -6,6 +6,7 @@ use std::hash::Hasher;
 use kernel::PARENT_KERNELS;
 use num_traits::FromPrimitive;
 use prost::Message;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -22,6 +23,7 @@ use super::DictOwnedExt;
 use super::DictParts;
 use super::array::DictSlots;
 use super::array::DictSlotsView;
+use super::array::compute_referenced_values_mask_from_codes;
 use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -296,11 +298,16 @@ fn collect_sparse_codes(
         return Ok(None);
     }
 
-    let Some(sparse_codes) = match_each_integer_ptype!(codes.ptype(), |P| {
-        collect_sparse_codes_typed::<P>(codes, values_len, validity_mask, validity)?
-    }) else {
+    let referenced_values =
+        compute_referenced_values_mask_from_codes(codes, values_len, &validity_mask, true)?;
+    let unique_count = referenced_values.true_count();
+    if unique_count.saturating_mul(SPARSE_CANONICALIZE_CODES_PER_VALUE_THRESHOLD) >= values_len {
         return Ok(None);
-    };
+    }
+
+    let sparse_codes = match_each_integer_ptype!(codes.ptype(), |P| {
+        collect_sparse_codes_typed::<P>(codes, referenced_values, validity_mask, validity)?
+    });
 
     Ok(Some(sparse_codes))
 }
@@ -338,16 +345,24 @@ fn should_collect_sparse_codes(
 
 fn collect_sparse_codes_typed<P: IntegerPType + FromPrimitive>(
     codes: &PrimitiveArray,
-    values_len: usize,
+    referenced_values: BitBuffer,
     validity_mask: Mask,
     validity: Validity,
-) -> VortexResult<Option<SparseDictCodes>> {
-    let mut value_remap = vec![usize::MAX; values_len];
-    let mut unique_codes = Vec::new();
-    let mut remapped_codes = Vec::with_capacity(codes.len());
+) -> VortexResult<SparseDictCodes> {
+    let unique_count = referenced_values.true_count();
+    let mut value_remap = vec![usize::MAX; referenced_values.len()];
+    let mut unique_codes = Vec::with_capacity(unique_count);
 
-    // `value_remap[old_code]` stores the compact code assigned to an original dictionary value.
-    // `usize::MAX` means that value has not been referenced yet.
+    // Reuse the same exact referenced-values bitmap as the dictionary aggregate kernels. Walking
+    // the bitmap assigns compact codes in original dictionary order, which keeps compaction
+    // deterministic and independent of the first live row that happened to reference each value.
+    for old_code in referenced_values.set_indices() {
+        let new_code = unique_codes.len();
+        value_remap[old_code] = new_code;
+        unique_codes.push(old_code as u64);
+    }
+
+    let mut remapped_codes = Vec::with_capacity(codes.len());
     for (idx, &code) in codes.as_slice::<P>().iter().enumerate() {
         if !validity_mask.value(idx) {
             remapped_codes.push(P::default());
@@ -355,12 +370,8 @@ fn collect_sparse_codes_typed<P: IntegerPType + FromPrimitive>(
         }
 
         let old_code = code.as_();
-        let mut new_code = value_remap[old_code];
-        if new_code == usize::MAX {
-            new_code = unique_codes.len();
-            value_remap[old_code] = new_code;
-            unique_codes.push(old_code as u64);
-        }
+        let new_code = value_remap[old_code];
+        debug_assert_ne!(new_code, usize::MAX);
 
         remapped_codes.push(P::from_usize(new_code).unwrap_or_else(|| {
             vortex_panic!(
@@ -370,21 +381,10 @@ fn collect_sparse_codes_typed<P: IntegerPType + FromPrimitive>(
         }));
     }
 
-    // The sample only decides whether the exact pass is worth trying. Recheck the real
-    // cardinality before compacting so a misleading sparse-looking sample cannot pessimize dense
-    // dictionaries.
-    if unique_codes
-        .len()
-        .saturating_mul(SPARSE_CANONICALIZE_CODES_PER_VALUE_THRESHOLD)
-        >= values_len
-    {
-        return Ok(None);
-    }
-
-    Ok(Some(SparseDictCodes {
+    Ok(SparseDictCodes {
         unique_codes: PrimitiveArray::new(Buffer::from_iter(unique_codes), Validity::NonNullable),
         remapped_codes: PrimitiveArray::new(Buffer::from_iter(remapped_codes), validity),
-    }))
+    })
 }
 
 #[cfg(test)]
