@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use vortex::array::ArrayRef;
-use vortex::array::Canonical;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::duckdb::ReusableDict;
@@ -20,6 +19,5 @@ use crate::duckdb::Vector;
 pub struct ConversionCache {
     pub dict_cache: DashMap<usize, (ArrayRef, ReusableDict)>,
     pub values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<Vector>>)>,
-    pub canonical_cache: DashMap<usize, (ArrayRef, Canonical)>,
     pub file_index: usize,
 }

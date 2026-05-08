@@ -33,6 +33,11 @@ struct DictExporter<I: IntegerPType> {
     codes_type: PhantomData<I>,
 }
 
+// TODO: Replace this fixed sparse-dictionary threshold with a cost model that accounts for values
+// encoding, code count, unique-code count, and exporter/canonicalization costs.
+const SPARSE_EXPORT_CODES_PER_VALUE_THRESHOLD: usize = 4;
+const SPARSE_EXPORT_SAMPLE_SIZE: usize = 128;
+
 pub(crate) fn new_exporter_with_flatten(
     array: &DictArray,
     cache: &ConversionCache,
@@ -42,21 +47,21 @@ pub(crate) fn new_exporter_with_flatten(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Grab the cache dictionary values.
     let values = array.values();
-    let codes = array.codes();
-    let codes_len = codes.len();
+    let codes_array = array.codes();
+    let codes_len = codes_array.len();
 
     if let Some(constant) = values.as_opt::<Constant>() {
         return constant::new_exporter_with_mask(
             ConstantArray::new(constant.scalar().clone(), codes_len),
-            codes.validity()?.execute_mask(codes_len, ctx)?,
+            codes_array.validity()?.execute_mask(codes_len, ctx)?,
             cache,
             ctx,
         );
     }
 
-    let codes_mask = codes.validity()?.execute_mask(codes_len, ctx)?;
+    let codes_mask = codes_array.validity()?.execute_mask(codes_len, ctx)?;
 
-    match codes_mask {
+    match &codes_mask {
         Mask::AllTrue(_) => {}
         Mask::AllFalse(_) => return Ok(all_invalid::new_exporter()),
         Mask::Values(_) => {
@@ -67,25 +72,24 @@ pub(crate) fn new_exporter_with_flatten(
     }
 
     let values_key = values.addr();
-    let codes = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
+    let codes = codes_array.clone().execute::<PrimitiveArray>(ctx)?;
+
+    if !flatten && should_export_sparse(&codes, values.len(), &codes_mask) {
+        return new_array_exporter(
+            array
+                .clone()
+                .into_array()
+                .execute::<Canonical>(ctx)?
+                .into_array(),
+            cache,
+            ctx,
+        );
+    }
 
     let reusable_dict = if flatten {
-        let canonical = cache
-            .canonical_cache
-            .get(&values_key)
-            .map(|entry| entry.value().1.clone());
-        let canonical = match canonical {
-            Some(c) => c,
-            None => {
-                let canonical = values.clone().execute::<Canonical>(ctx)?;
-                cache
-                    .canonical_cache
-                    .insert(values_key, (values.clone(), canonical.clone()));
-                canonical
-            }
-        };
         return new_array_exporter(
-            DictArray::new(array.codes().clone(), canonical.into_array())
+            array
+                .clone()
                 .into_array()
                 .execute::<Canonical>(ctx)?
                 .into_array(),
@@ -127,6 +131,96 @@ pub(crate) fn new_exporter_with_flatten(
             codes_type: PhantomData::<I>,
         }))
     })
+}
+
+fn should_export_sparse(codes: &PrimitiveArray, values_len: usize, codes_mask: &Mask) -> bool {
+    if codes.is_empty() || values_len == 0 || codes_mask.true_count() == 0 {
+        return false;
+    }
+
+    if codes
+        .len()
+        .saturating_mul(SPARSE_EXPORT_CODES_PER_VALUE_THRESHOLD)
+        < values_len
+    {
+        return true;
+    }
+
+    let Some(estimated_unique_codes) = match_each_integer_ptype!(codes.ptype(), |I| {
+        estimate_code_cardinality::<I>(codes, codes_mask)
+    }) else {
+        return false;
+    };
+
+    estimated_unique_codes.saturating_mul(SPARSE_EXPORT_CODES_PER_VALUE_THRESHOLD) < values_len
+}
+
+fn estimate_code_cardinality<I: IntegerPType>(
+    codes: &PrimitiveArray,
+    codes_mask: &Mask,
+) -> Option<usize> {
+    let sample_count = codes.len().min(SPARSE_EXPORT_SAMPLE_SIZE);
+    let mut observed_codes = Vec::<(usize, usize)>::new();
+
+    for sample_idx in 0..sample_count {
+        let idx = sample_index(sample_idx, codes.len(), sample_count);
+        if !codes_mask.value(idx) {
+            continue;
+        }
+
+        let code = codes.as_slice::<I>()[idx].as_();
+        if let Some((_, count)) = observed_codes
+            .iter_mut()
+            .find(|(observed, _)| *observed == code)
+        {
+            *count += 1;
+        } else {
+            observed_codes.push((code, 1));
+        }
+    }
+
+    if observed_codes.is_empty() {
+        return None;
+    }
+
+    let unique_count = observed_codes.len();
+    let singleton_count = observed_codes
+        .iter()
+        .filter(|(_, count)| *count == 1)
+        .count();
+    let doubleton_count = observed_codes
+        .iter()
+        .filter(|(_, count)| *count == 2)
+        .count();
+
+    let unseen_estimate = if doubleton_count == 0 {
+        singleton_count.saturating_mul(singleton_count.saturating_sub(1)) / 2
+    } else {
+        div_ceil(
+            singleton_count.saturating_mul(singleton_count),
+            2 * doubleton_count,
+        )
+    };
+
+    Some(unique_count.saturating_add(unseen_estimate))
+}
+
+fn sample_index(sample_idx: usize, len: usize, sample_count: usize) -> usize {
+    debug_assert!(len > 0);
+    debug_assert!(sample_count > 0);
+
+    let sample_idx = sample_idx as u128;
+    let len = len as u128;
+    let sample_count = sample_count as u128;
+    let bucket_start = sample_idx * len / sample_count;
+    let bucket_end = (sample_idx + 1) * len / sample_count;
+
+    ((bucket_start + bucket_end) / 2).min(len - 1) as usize
+}
+
+fn div_ceil(numerator: usize, denominator: usize) -> usize {
+    debug_assert!(denominator > 0);
+    numerator / denominator + usize::from(!numerator.is_multiple_of(denominator))
 }
 
 impl<I: IntegerPType + AsPrimitive<u32>> ColumnExporter for DictExporter<I> {
@@ -280,6 +374,63 @@ mod tests {
             r#"Chunk - [1 Columns]
 - FLAT INTEGER: 3 = [ NULL, 10, NULL]
 "#
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sparse_dict_exports_flat() -> VortexResult<()> {
+        let arr = DictArray::new(
+            PrimitiveArray::from_iter([50u32, 70]).into_array(),
+            PrimitiveArray::from_iter(0..100i32).into_array(),
+        );
+
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+
+        new_exporter(&arr, &ConversionCache::default())?.export(
+            0,
+            2,
+            chunk.get_vector_mut(0),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        chunk.set_len(2);
+
+        assert_eq!(
+            format!("{}", String::try_from(&*chunk)?),
+            r#"Chunk - [1 Columns]
+- FLAT INTEGER: 2 = [ 50, 70]
+"#
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_sampled_sparse_dict_exports_flat() -> VortexResult<()> {
+        let arr = DictArray::new(
+            PrimitiveArray::from_iter((0..32).map(|_| 42u32)).into_array(),
+            PrimitiveArray::from_iter(0..100i32).into_array(),
+        );
+
+        let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
+
+        new_exporter(&arr, &ConversionCache::default())?.export(
+            0,
+            32,
+            chunk.get_vector_mut(0),
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        chunk.set_len(32);
+
+        let expected_values = std::iter::repeat_n("42", 32).collect::<Vec<_>>().join(", ");
+        assert_eq!(
+            format!("{}", String::try_from(&*chunk)?),
+            format!(
+                r#"Chunk - [1 Columns]
+- FLAT INTEGER: 32 = [ {expected_values}]
+"#
+            )
         );
 
         Ok(())
