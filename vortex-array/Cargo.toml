@@ -197,3 +197,7 @@ harness = false
 [[bench]]
 name = "listview_builder_extend"
 harness = false
+
+[[bench]]
+name = "slice_dict_primitive"
+harness = false
