@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+#
+# Oneshot unit invoked by vortex-bench-backup.timer hourly. Calls
+# /api/admin/snapshot to make EXPORT DATABASE land a CSV snapshot
+# under $VORTEX_BENCH_SNAPSHOT_DIR, then `aws s3 sync` uploads to
+# $S3_BACKUP_PREFIX/<ts>/ and deletes the local copy.
+
+[Unit]
+Description=Vortex bench v3 hourly DB snapshot to S3
+After=vortex-bench-server.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ec2-user
+Group=ec2-user
+EnvironmentFile=/etc/vortex-bench.env
+WorkingDirectory=/var/lib/vortex-bench
+ExecStart=/var/lib/vortex-bench/ops/backup.sh
+StandardOutput=journal
+StandardError=journal
