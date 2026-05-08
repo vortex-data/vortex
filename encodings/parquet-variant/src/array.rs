@@ -21,6 +21,7 @@ use vortex_array::arrow::FromArrowArray;
 use vortex_array::arrow::to_arrow_null_buffer;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
@@ -95,7 +96,7 @@ impl ParquetVariant {
             &dtype,
             len,
         )?;
-        let slots = vec![
+        let slots = smallvec![
             validity_to_child(&validity, len),
             Some(metadata),
             value,

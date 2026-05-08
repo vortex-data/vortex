@@ -23,6 +23,7 @@ use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -120,7 +121,7 @@ impl VTable for ZigZag {
         let encoded_type = DType::Primitive(ptype.to_unsigned(), dtype.nullability());
 
         let encoded = children.get(0, &encoded_type, len)?;
-        let slots = vec![Some(encoded.clone())];
+        let slots = smallvec![Some(encoded.clone())];
         let data = ZigZagData::try_new(encoded.dtype())?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -201,7 +202,7 @@ impl ZigZag {
     pub fn try_new(encoded: ArrayRef) -> VortexResult<ZigZagArray> {
         let dtype = ZigZagData::dtype_from_encoded_dtype(encoded.dtype())?;
         let len = encoded.len();
-        let slots = vec![Some(encoded.clone())];
+        let slots = smallvec![Some(encoded.clone())];
         let data = ZigZagData::try_new(encoded.dtype())?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(ZigZag, dtype, len, data).with_slots(slots))

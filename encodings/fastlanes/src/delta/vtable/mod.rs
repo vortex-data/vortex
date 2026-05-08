@@ -23,6 +23,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -168,7 +169,7 @@ impl VTable for Delta {
         let deltas = children.get(1, dtype, deltas_len)?;
 
         let data = DeltaData::try_new(metadata.offset as usize)?;
-        let slots = vec![Some(bases), Some(deltas)];
+        let slots = smallvec![Some(bases), Some(deltas)];
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
@@ -191,7 +192,7 @@ impl Delta {
     ) -> VortexResult<DeltaArray> {
         let dtype = bases.dtype().with_nullability(deltas.dtype().nullability());
         let data = DeltaData::try_new(offset)?;
-        let slots = vec![Some(bases), Some(deltas)];
+        let slots = smallvec![Some(bases), Some(deltas)];
         Array::try_from_parts(ArrayParts::new(Delta, dtype, len, data).with_slots(slots))
     }
 
