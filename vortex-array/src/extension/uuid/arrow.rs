@@ -20,6 +20,7 @@ use arrow_schema::extension::ExtensionType;
 use arrow_schema::extension::Uuid as ArrowUuid;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::registry::CachedId;
@@ -33,10 +34,10 @@ use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::extension::ExtensionArrayExt;
 use crate::arrow::ArrowArrayExecutor;
+use crate::arrow::ArrowExport;
 use crate::arrow::ArrowExportVTable;
+use crate::arrow::ArrowImport;
 use crate::arrow::ArrowImportVTable;
-use crate::arrow::ExportOutput;
-use crate::arrow::ImportOutput;
 use crate::arrow::nulls;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -44,6 +45,8 @@ use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtDTypeRef;
+use crate::dtype::extension::ExtId;
+use crate::dtype::extension::ExtVTable;
 use crate::extension::uuid::Uuid;
 use crate::extension::uuid::UuidMetadata;
 use crate::validity::Validity;
@@ -57,21 +60,37 @@ impl ArrowExportVTable for Uuid {
         *ARROW_UUID
     }
 
+    fn vortex_ext_id(&self) -> ExtId {
+        Uuid.id()
+    }
+
+    fn to_arrow_field(&self, name: &str, dtype: &ExtDTypeRef) -> VortexResult<Field> {
+        let mut field = Field::new(
+            name.to_string(),
+            DataType::FixedSizeBinary(UUID_BYTE_LEN),
+            dtype.is_nullable(),
+        );
+        field
+            .try_with_extension_type(ArrowUuid)
+            .vortex_expect("FixedSizeBinary[16] is correct type for ArrowUuid");
+        Ok(field)
+    }
+
     fn execute_arrow(
         &self,
         array: ArrayRef,
         _target: &Field,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<ExportOutput> {
+    ) -> VortexResult<ArrowExport> {
         let is_uuid = array
             .dtype()
             .as_extension_opt()
             .map(|ext| ext.is::<Uuid>())
             .unwrap_or(false);
         if !is_uuid {
-            return Ok(ExportOutput::Unsupported(array));
+            return Ok(ArrowExport::Unsupported(array));
         }
-        Ok(ExportOutput::Exported(try_fsl_to_fsb(array, ctx)?))
+        Ok(ArrowExport::Exported(try_fsl_to_fsb(array, ctx)?))
     }
 }
 
@@ -101,11 +120,11 @@ impl ArrowImportVTable for Uuid {
         &self,
         array: ArrowArrayRef,
         dtype: &ExtDTypeRef,
-    ) -> VortexResult<ImportOutput> {
+    ) -> VortexResult<ArrowImport> {
         if !matches!(array.data_type(), DataType::FixedSizeBinary(UUID_BYTE_LEN))
             || !dtype.is::<Uuid>()
         {
-            return Ok(ImportOutput::Unsupported(array));
+            return Ok(ArrowImport::Unsupported(array));
         }
 
         let fsb = array.as_fixed_size_binary();
@@ -117,14 +136,15 @@ impl ArrowImportVTable for Uuid {
         );
         let validity = nulls(fsb.nulls(), dtype.is_nullable());
 
-        Ok(ImportOutput::Imported(
-            FixedSizeListArray::new(
-                u8_array.into_array(),
-                fsb.value_length() as u32,
-                validity,
-                fsb.len(),
-            )
-            .into_array(),
+        let storage = FixedSizeListArray::new(
+            u8_array.into_array(),
+            fsb.value_length() as u32,
+            validity,
+            fsb.len(),
+        )
+        .into_array();
+        Ok(ArrowImport::Imported(
+            ExtensionArray::new(dtype.clone(), storage).into_array(),
         ))
     }
 }

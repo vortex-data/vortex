@@ -7360,11 +7360,17 @@ pub fn vortex_array::arrow::ArrowSession::from_arrow_array(&self, arrow_array::a
 
 pub fn vortex_array::arrow::ArrowSession::from_arrow_field(&self, &arrow_schema::field::Field) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
+pub fn vortex_array::arrow::ArrowSession::from_arrow_record_batch(&self, arrow_array::record_batch::RecordBatch, &arrow_schema::schema::Schema) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::arrow::ArrowSession::from_arrow_schema(&self, &arrow_schema::schema::Schema) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
 pub fn vortex_array::arrow::ArrowSession::register_exporter(&self, vortex_array::arrow::ArrowExportVTableRef)
 
 pub fn vortex_array::arrow::ArrowSession::register_importer(&self, vortex_array::arrow::ArrowImportVTableRef)
 
 pub fn vortex_array::arrow::ArrowSession::to_arrow_field(&self, &str, &vortex_array::dtype::DType) -> vortex_error::VortexResult<arrow_schema::field::Field>
+
+pub fn vortex_array::arrow::ArrowSession::to_arrow_schema(&self, &vortex_array::dtype::DType) -> vortex_error::VortexResult<arrow_schema::schema::Schema>
 
 impl core::default::Default for vortex_array::arrow::ArrowSession
 
@@ -7422,15 +7428,23 @@ pub fn vortex_array::arrow::ArrowExportVTable::arrow_ext_id(&self) -> vortex_ses
 
 pub fn vortex_array::arrow::ArrowExportVTable::execute_arrow(&self, vortex_array::ArrayRef, &arrow_schema::field::Field, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrow::ExportOutput>
 
+pub fn vortex_array::arrow::ArrowExportVTable::to_arrow_field(&self, &str, &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::field::Field>
+
+pub fn vortex_array::arrow::ArrowExportVTable::vortex_ext_id(&self) -> vortex_array::dtype::extension::ExtId
+
 impl vortex_array::arrow::ArrowExportVTable for vortex_array::extension::uuid::Uuid
 
 pub fn vortex_array::extension::uuid::Uuid::arrow_ext_id(&self) -> vortex_session::registry::Id
 
 pub fn vortex_array::extension::uuid::Uuid::execute_arrow(&self, vortex_array::ArrayRef, &arrow_schema::field::Field, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrow::ExportOutput>
 
+pub fn vortex_array::extension::uuid::Uuid::to_arrow_field(&self, &str, &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::field::Field>
+
+pub fn vortex_array::extension::uuid::Uuid::vortex_ext_id(&self) -> vortex_array::dtype::extension::ExtId
+
 pub trait vortex_array::arrow::ArrowImportVTable: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
-pub fn vortex_array::arrow::ArrowImportVTable::arrow_ext_name(&self) -> &'static str
+pub fn vortex_array::arrow::ArrowImportVTable::arrow_ext_id(&self) -> vortex_session::registry::Id
 
 pub fn vortex_array::arrow::ArrowImportVTable::from_arrow_array(&self, arrow_array::array::ArrayRef, &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<vortex_array::arrow::ImportOutput>
 
@@ -7438,7 +7452,7 @@ pub fn vortex_array::arrow::ArrowImportVTable::from_arrow_field(&self, &arrow_sc
 
 impl vortex_array::arrow::ArrowImportVTable for vortex_array::extension::uuid::Uuid
 
-pub fn vortex_array::extension::uuid::Uuid::arrow_ext_name(&self) -> &'static str
+pub fn vortex_array::extension::uuid::Uuid::arrow_ext_id(&self) -> vortex_session::registry::Id
 
 pub fn vortex_array::extension::uuid::Uuid::from_arrow_array(&self, arrow_array::array::ArrayRef, &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<vortex_array::arrow::ImportOutput>
 
@@ -13456,9 +13470,13 @@ pub fn vortex_array::extension::uuid::Uuid::arrow_ext_id(&self) -> vortex_sessio
 
 pub fn vortex_array::extension::uuid::Uuid::execute_arrow(&self, vortex_array::ArrayRef, &arrow_schema::field::Field, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrow::ExportOutput>
 
+pub fn vortex_array::extension::uuid::Uuid::to_arrow_field(&self, &str, &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<arrow_schema::field::Field>
+
+pub fn vortex_array::extension::uuid::Uuid::vortex_ext_id(&self) -> vortex_array::dtype::extension::ExtId
+
 impl vortex_array::arrow::ArrowImportVTable for vortex_array::extension::uuid::Uuid
 
-pub fn vortex_array::extension::uuid::Uuid::arrow_ext_name(&self) -> &'static str
+pub fn vortex_array::extension::uuid::Uuid::arrow_ext_id(&self) -> vortex_session::registry::Id
 
 pub fn vortex_array::extension::uuid::Uuid::from_arrow_array(&self, arrow_array::array::ArrayRef, &vortex_array::dtype::extension::ExtDTypeRef) -> vortex_error::VortexResult<vortex_array::arrow::ImportOutput>
 

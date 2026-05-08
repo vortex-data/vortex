@@ -432,3 +432,115 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -
 
     Ok(())
 }
+
+/// End-to-end roundtrip for an Arrow `arrow.uuid` extension column through DataFusion's
+/// persistent Vortex pathway: write a `RecordBatch` containing the extension column via
+/// `COPY TO`, then read it back via `SELECT *` and assert that both the field metadata and
+/// the underlying values survive the trip.
+#[tokio::test]
+async fn arrow_uuid_extension_roundtrip() -> anyhow::Result<()> {
+    use std::sync::Arc;
+
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Schema;
+    use arrow_schema::extension::ExtensionType;
+    use arrow_schema::extension::Uuid as ArrowUuid;
+    use datafusion::arrow::array::Array;
+    use datafusion::arrow::array::FixedSizeBinaryArray;
+    use datafusion::arrow::array::RecordBatch;
+    use datafusion::logical_expr::LogicalPlanBuilder;
+    use datafusion_datasource::file_format::format_as_file_type;
+
+    use crate::VortexFormatFactory;
+
+    let ctx = TestSessionContext::default();
+
+    // Two arbitrary 16-byte UUIDs.
+    let uuid_a: [u8; 16] = *b"0123456789abcdef";
+    let uuid_b: [u8; 16] = *b"fedcba9876543210";
+
+    let mut uuid_field = Field::new("id", DataType::FixedSizeBinary(16), false);
+    uuid_field.try_with_extension_type(ArrowUuid)?;
+    assert_eq!(
+        uuid_field
+            .metadata()
+            .get(arrow_schema::extension::EXTENSION_TYPE_NAME_KEY)
+            .map(String::as_str),
+        Some(ArrowUuid::NAME),
+        "test setup: uuid_field must carry arrow.uuid extension metadata"
+    );
+    let schema = Arc::new(Schema::new(vec![uuid_field]));
+
+    let uuids = FixedSizeBinaryArray::try_from_iter([uuid_a, uuid_b].into_iter())?;
+    let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(uuids)])?;
+
+    let data = ctx.session.read_batch(batch)?;
+    let logical_plan = LogicalPlanBuilder::copy_to(
+        data.logical_plan().clone(),
+        "/uuid_table/".to_string(),
+        format_as_file_type(Arc::new(VortexFormatFactory::new())),
+        Default::default(),
+        vec![],
+    )?
+    .build()?;
+    ctx.session
+        .execute_logical_plan(logical_plan)
+        .await?
+        .collect()
+        .await?;
+
+    let result = ctx
+        .session
+        .sql("SELECT id FROM '/uuid_table/'")
+        .await?
+        .collect()
+        .await?;
+
+    assert!(!result.is_empty(), "expected at least one batch back");
+    let total_rows: usize = result.iter().map(|rb| rb.num_rows()).sum();
+    assert_eq!(total_rows, 2);
+
+    // The schema we read back must still mark the column as arrow.uuid; otherwise the
+    // extension type was silently dropped on either the write or the read side.
+    let read_field = result[0].schema_ref().field(0).clone();
+    assert_eq!(
+        read_field
+            .metadata()
+            .get(arrow_schema::extension::EXTENSION_TYPE_NAME_KEY)
+            .map(String::as_str),
+        Some(ArrowUuid::NAME),
+        "arrow.uuid extension metadata was lost on roundtrip; read schema = {:?}",
+        result[0].schema_ref()
+    );
+    assert!(
+        matches!(read_field.data_type(), DataType::FixedSizeBinary(16)),
+        "expected FixedSizeBinary(16) physical type, got {:?}",
+        read_field.data_type()
+    );
+
+    let mut got = Vec::with_capacity(2);
+    for rb in &result {
+        let arr = rb
+            .column(0)
+            .as_any()
+            .downcast_ref::<FixedSizeBinaryArray>()
+            .ok_or_else(|| {
+                anyhow!(
+                    "expected FixedSizeBinary column, got {:?}",
+                    rb.column(0).data_type()
+                )
+            })?;
+        for i in 0..arr.len() {
+            let mut bytes = [0u8; 16];
+            bytes.copy_from_slice(arr.value(i));
+            got.push(bytes);
+        }
+    }
+    got.sort();
+    let mut expected = vec![uuid_a, uuid_b];
+    expected.sort();
+    assert_eq!(got, expected);
+
+    Ok(())
+}

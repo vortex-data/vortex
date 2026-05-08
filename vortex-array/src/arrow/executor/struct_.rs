@@ -23,6 +23,7 @@ use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::struct_::StructDataParts;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
+use crate::arrow::session::ArrowSessionExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::FieldNames;
@@ -132,9 +133,13 @@ fn create_from_fields(
 
             let mut arrow_arrays = Vec::with_capacity(vortex_fields.len());
             for (field, vx_field) in fields.iter().zip_eq(vortex_fields.iter()) {
-                let arrow_field = vx_field
-                    .clone()
-                    .execute_arrow(Some(field.data_type()), ctx)?;
+                // Route through the session with the full Field (not just data_type) so any
+                // ARROW:extension:name metadata reaches the export-plugin dispatcher.
+                let arrow_field = ctx.session().clone().arrow().execute_arrow(
+                    vx_field.clone(),
+                    Some(field.as_ref()),
+                    ctx,
+                )?;
                 vortex_ensure!(
                     field.is_nullable() || arrow_field.null_count() == 0,
                     "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
