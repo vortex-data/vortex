@@ -498,7 +498,10 @@ impl MaterializedPlan {
 
 #[cfg(test)]
 mod tests {
-    use std::f32::consts::{E, LN_2, PI, SQRT_2};
+    use std::f32::consts::E;
+    use std::f32::consts::LN_2;
+    use std::f32::consts::PI;
+    use std::f32::consts::SQRT_2;
     use std::ops::Range;
     use std::sync::Arc;
 
