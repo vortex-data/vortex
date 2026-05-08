@@ -86,14 +86,38 @@ static DECOMPRESSED_CONCAT: LazyLock<Vec<u8>> = LazyLock::new(|| {
 /// This is the closest analogue to the real ClickBench query.
 #[divan::bench]
 fn like_google_full(bencher: Bencher) {
+    bench_like_full(bencher, PATTERN);
+}
+
+/// `LIKE '%https%'` — covered by an FSST symbol that contains `https`,
+/// exercising single-step accept code paths.
+#[divan::bench]
+fn like_https_full(bencher: Bencher) {
+    bench_like_full(bencher, "%https%");
+}
+
+/// `LIKE '%yandex%'` — Russian search engine, common substring on
+/// ClickBench-shape data.
+#[divan::bench]
+fn like_yandex_full(bencher: Bencher) {
+    bench_like_full(bencher, "%yandex%");
+}
+
+/// `LIKE '%.ru%'` — TLD substring, exercises a wider accept-alone set.
+#[divan::bench]
+fn like_dot_ru_full(bencher: Bencher) {
+    bench_like_full(bencher, "%.ru%");
+}
+
+fn bench_like_full(bencher: Bencher, pattern: &'static str) {
     let fsst = &*FSST_CB_URLS;
     let len = fsst.len();
     let arr = fsst.clone().into_array();
-    let pattern = ConstantArray::new(PATTERN, len).into_array();
+    let pat = ConstantArray::new(pattern, len).into_array();
     bencher
         .with_inputs(|| SESSION.create_execution_ctx())
         .bench_refs(|ctx| {
-            Like.try_new_array(len, LikeOptions::default(), [arr.clone(), pattern.clone()])
+            Like.try_new_array(len, LikeOptions::default(), [arr.clone(), pat.clone()])
                 .unwrap()
                 .into_array()
                 .execute::<Canonical>(ctx)

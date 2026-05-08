@@ -116,6 +116,58 @@ pub(super) fn build_progressing_bitset(
     Some(out)
 }
 
+/// Like [`build_progressing_bitset`], but supports an arbitrary-size code
+/// set via multi-pass PSHUFB-Mula OR-merge — chunks of up to
+/// [`MAX_SET_BYTES`] codes are scanned in separate passes and OR'd
+/// together. Cost scales linearly with `ceil(codes.len() / MAX_SET_BYTES)`
+/// passes over `all_bytes`. Always returns `Some(_)` when the input is
+/// non-empty.
+///
+/// Used by the folded-contains scan path on corpora where the
+/// state-0 progressing set exceeds the single-pass nibble-table limit
+/// (typical for FSST-encoded URL data with rich symbol tables).
+pub(super) fn build_progressing_bitset_unbounded(
+    all_bytes: &[u8],
+    progressing_codes: &[u8],
+) -> Vec<u64> {
+    let n_words = all_bytes.len().div_ceil(64);
+    let mut out = vec![0u64; n_words];
+    if progressing_codes.is_empty() || all_bytes.is_empty() {
+        return out;
+    }
+    if progressing_codes.len() <= MAX_SET_BYTES {
+        let tables = NibbleTables::build(progressing_codes).expect("size already checked");
+        fill_bitset(all_bytes, &tables, &mut out);
+        return out;
+    }
+    // Multi-pass: chunk the codes, build a per-chunk bitset, OR-merge
+    // into `out`. Reuse a scratch buffer across chunks to amortize
+    // allocation.
+    let mut scratch = vec![0u64; n_words];
+    for chunk in progressing_codes.chunks(MAX_SET_BYTES) {
+        let tables = NibbleTables::build(chunk).expect("chunk size <= MAX_SET_BYTES");
+        scratch.iter_mut().for_each(|w| *w = 0);
+        fill_bitset(all_bytes, &tables, &mut scratch);
+        for (dst, src) in out.iter_mut().zip(scratch.iter()) {
+            *dst |= *src;
+        }
+    }
+    out
+}
+
+/// Internal: dispatch to AVX2 fill when available, scalar otherwise.
+fn fill_bitset(all_bytes: &[u8], tables: &NibbleTables, out: &mut [u64]) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::is_x86_feature_detected!("avx2") {
+            // SAFETY: AVX2 feature was just detected at runtime.
+            unsafe { fill_bitset_avx2(all_bytes, tables, out) };
+            return;
+        }
+    }
+    fill_bitset_scalar(all_bytes, tables, out);
+}
+
 /// Scalar fallback: fill `out` with the progressing-code bitset using two
 /// 16-entry nibble tables.
 fn fill_bitset_scalar(all_bytes: &[u8], tables: &NibbleTables, out: &mut [u64]) {
@@ -333,6 +385,24 @@ pub(super) fn collect_progressing_codes(transition_row: &[u8], start_state: u8) 
         }
     }
     Some(codes)
+}
+
+/// Like [`collect_progressing_codes`], but never returns `None` — collects
+/// the full set of progressing codes regardless of cardinality. Pair with
+/// [`build_progressing_bitset_unbounded`] which scans in `ceil(N / 8)`
+/// PSHUFB passes when `N > MAX_SET_BYTES`.
+pub(super) fn collect_progressing_codes_unbounded(
+    transition_row: &[u8],
+    start_state: u8,
+) -> Vec<u8> {
+    debug_assert!(transition_row.len() >= 256);
+    let mut codes: Vec<u8> = Vec::new();
+    for code in 0..=255u8 {
+        if transition_row[usize::from(code)] != start_state || code == fsst::ESCAPE_CODE {
+            codes.push(code);
+        }
+    }
+    codes
 }
 
 #[cfg(test)]

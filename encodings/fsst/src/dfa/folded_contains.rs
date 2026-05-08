@@ -63,10 +63,13 @@ pub(crate) struct FoldedContainsDfa {
     /// State-0 skip strategy.
     skip: SkipStrategy,
     /// Optional set of state-0 progressing codes captured for the global
-    /// anchor scan (`<=` [`anchor_scan::MAX_SET_BYTES`]). When `Some`, the
-    /// scan path can build a packed bitset over `all_bytes` once and use it
-    /// to drive `tzcnt`-based state-0 jumps inside the DFA, avoiding
-    /// byte-by-byte bitmap probing in the hot path.
+    /// anchor scan. When `Some`, the scan path builds a packed bitset over
+    /// `all_bytes` and drives `tzcnt`-based state-0 jumps inside the DFA,
+    /// avoiding byte-by-byte bitmap probing in the hot path. Sets larger
+    /// than [`anchor_scan::MAX_SET_BYTES`] are scanned via a multi-pass
+    /// PSHUFB-Mula OR-merge in
+    /// [`anchor_scan::build_progressing_bitset_unbounded`], at the cost
+    /// of `ceil(N / 8)` passes over `all_bytes`.
     progressing_codes: Option<Vec<u8>>,
 }
 
@@ -141,13 +144,20 @@ impl FoldedContainsDfa {
         let skip = SkipStrategy::from_transition_row(&transitions[0..256], 0);
 
         // Capture the state-0 progressing-code set for the global anchor
-        // scan when it has at most `anchor_scan::MAX_SET_BYTES` codes (the
-        // limit of the nibble-table membership check). When the per-string
-        // skip is already a 1–3 byte memchr, the existing inline path is
-        // already SIMD-fast and the global scan adds no value, so we only
-        // take the new path for the `Bitmap` skip variant in
-        // `scan_to_bitbuf`.
-        let progressing_codes = anchor_scan::collect_progressing_codes(&transitions[0..256], 0);
+        // scan. The unbounded variant collects all progressing codes
+        // regardless of count — sets larger than
+        // [`anchor_scan::MAX_SET_BYTES`] are scanned via multi-pass
+        // PSHUFB-Mula OR-merge in
+        // [`anchor_scan::build_progressing_bitset_unbounded`]. We capture
+        // for any non-empty set so that `scan_to_bitbuf` can take the
+        // global-bitset path even when the per-string skip would have
+        // been Memchr1/2/3 — replacing N per-string memchr scans (one
+        // per state-0 visit) with a single AVX2 PSHUFB pass + tzcnt
+        // jumps. On large corpora with sparse hits this trades ~1.5 ms
+        // of one-shot bitset construction for 5–10 ms of avoided
+        // per-string scanning.
+        let codes = anchor_scan::collect_progressing_codes_unbounded(&transitions[0..256], 0);
+        let progressing_codes = if codes.is_empty() { None } else { Some(codes) };
 
         Ok(Self {
             transitions,
@@ -203,22 +213,25 @@ impl FoldedContainsDfa {
     /// bit-packing loop, eliminating the per-string enum dispatch in
     /// `FsstMatcher::matches`.
     ///
-    /// When the state-0 progressing-code set has more than 3 entries (so the
-    /// per-string `memchr1/2/3` path doesn't apply) but at most
-    /// [`anchor_scan::MAX_SET_BYTES`], we take a global-anchor-scan fast path:
+    /// Whenever the state-0 progressing-code set is non-empty, we take a
+    /// global-anchor-scan fast path:
     ///
     /// 1. Stream `all_bytes` once with an AVX2 PSHUFB-Mula nibble check to
     ///    produce a `len(all_bytes)`-bit "candidate position" bitset
-    ///    (~30 GB/s on Skylake-X-class parts).
+    ///    (~30 GB/s on Skylake-X-class parts). Sets larger than
+    ///    [`anchor_scan::MAX_SET_BYTES`] are scanned via multi-pass
+    ///    OR-merge — one PSHUFB pass per chunk of 8 codes.
     /// 2. For each string, run a DFA whose state-0 jump is driven by a single
-    ///    `tzcnt` over the bitset rather than a byte-by-byte bitmap probe.
-    ///    Strings with no candidate bytes return `false` after a single word
-    ///    read.
+    ///    `tzcnt` over the bitset rather than per-string `memchr` or
+    ///    byte-by-byte bitmap probing. Strings with no candidate bytes
+    ///    return `false` after a single word read.
     ///
-    /// The materialized bitset moves the state-0 skip from per-byte ALU work
-    /// (one `[u64; 4]` index + AND + branch per code) to a single `tzcnt`
-    /// per state-0 visit, while the AVX2 scan amortizes the membership check
-    /// across all 32 input bytes per cycle.
+    /// The materialized bitset moves the state-0 skip from per-string SIMD
+    /// scans (one `memchr` call or per-byte bitmap probe per state-0 visit)
+    /// to a single `tzcnt` per state-0 visit, while the AVX2 scan amortizes
+    /// the membership check across all 32 input bytes per cycle. On
+    /// large corpora with sparse hits the build cost (~1.5 ms per chunk
+    /// per 36 MB of `all_bytes`) is repaid many times over.
     #[inline]
     pub(crate) fn scan_to_bitbuf<T>(
         &self,
@@ -230,10 +243,8 @@ impl FoldedContainsDfa {
     where
         T: vortex_array::dtype::IntegerPType,
     {
-        if matches!(self.skip, SkipStrategy::Bitmap(_))
-            && let Some(codes) = self.progressing_codes.as_deref()
-            && let Some(bitset) = anchor_scan::build_progressing_bitset(all_bytes, codes)
-        {
+        if let Some(codes) = self.progressing_codes.as_deref() {
+            let bitset = anchor_scan::build_progressing_bitset_unbounded(all_bytes, codes);
             return self.scan_with_anchor_bitset(n, offsets, all_bytes, &bitset, negated);
         }
 
