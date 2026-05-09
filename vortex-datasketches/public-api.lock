@@ -1,0 +1,411 @@
+pub mod vortex_datasketches
+
+pub mod vortex_datasketches::hll
+
+pub enum vortex_datasketches::hll::HllTarget
+
+pub vortex_datasketches::hll::HllTarget::Hll4
+
+pub vortex_datasketches::hll::HllTarget::Hll6
+
+pub vortex_datasketches::hll::HllTarget::Hll8
+
+impl core::clone::Clone for vortex_datasketches::hll::HllTarget
+
+pub fn vortex_datasketches::hll::HllTarget::clone(&self) -> vortex_datasketches::hll::HllTarget
+
+impl core::cmp::Eq for vortex_datasketches::hll::HllTarget
+
+impl core::cmp::PartialEq for vortex_datasketches::hll::HllTarget
+
+pub fn vortex_datasketches::hll::HllTarget::eq(&self, &vortex_datasketches::hll::HllTarget) -> bool
+
+impl core::convert::From<vortex_datasketches::hll::HllTarget> for datasketches::hll::HllType
+
+pub fn datasketches::hll::HllType::from(vortex_datasketches::hll::HllTarget) -> Self
+
+impl core::default::Default for vortex_datasketches::hll::HllTarget
+
+pub fn vortex_datasketches::hll::HllTarget::default() -> vortex_datasketches::hll::HllTarget
+
+impl core::fmt::Debug for vortex_datasketches::hll::HllTarget
+
+pub fn vortex_datasketches::hll::HllTarget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_datasketches::hll::HllTarget
+
+pub fn vortex_datasketches::hll::HllTarget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_datasketches::hll::HllTarget
+
+pub fn vortex_datasketches::hll::HllTarget::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::Copy for vortex_datasketches::hll::HllTarget
+
+impl core::marker::StructuralPartialEq for vortex_datasketches::hll::HllTarget
+
+pub struct vortex_datasketches::hll::Hll
+
+impl core::clone::Clone for vortex_datasketches::hll::Hll
+
+pub fn vortex_datasketches::hll::Hll::clone(&self) -> vortex_datasketches::hll::Hll
+
+impl core::fmt::Debug for vortex_datasketches::hll::Hll
+
+pub fn vortex_datasketches::hll::Hll::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::aggregate_fn::vtable::AggregateFnVTable for vortex_datasketches::hll::Hll
+
+pub type vortex_datasketches::hll::Hll::Options = vortex_datasketches::hll::HllOptions
+
+pub type vortex_datasketches::hll::Hll::Partial = vortex_datasketches::hll::HllPartial
+
+pub fn vortex_datasketches::hll::Hll::accumulate(&self, &mut Self::Partial, &vortex_array::columnar::Columnar, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_datasketches::hll::Hll::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_datasketches::hll::Hll::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_datasketches::hll::Hll::empty_partial(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_datasketches::hll::Hll::finalize(&self, vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_datasketches::hll::Hll::finalize_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_datasketches::hll::Hll::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_datasketches::hll::Hll::is_saturated(&self, &Self::Partial) -> bool
+
+pub fn vortex_datasketches::hll::Hll::partial_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_datasketches::hll::Hll::reset(&self, &mut Self::Partial)
+
+pub fn vortex_datasketches::hll::Hll::return_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_datasketches::hll::Hll::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_datasketches::hll::Hll::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub struct vortex_datasketches::hll::HllOptions
+
+pub vortex_datasketches::hll::HllOptions::lg_k: u8
+
+pub vortex_datasketches::hll::HllOptions::target: vortex_datasketches::hll::HllTarget
+
+impl core::clone::Clone for vortex_datasketches::hll::HllOptions
+
+pub fn vortex_datasketches::hll::HllOptions::clone(&self) -> vortex_datasketches::hll::HllOptions
+
+impl core::cmp::Eq for vortex_datasketches::hll::HllOptions
+
+impl core::cmp::PartialEq for vortex_datasketches::hll::HllOptions
+
+pub fn vortex_datasketches::hll::HllOptions::eq(&self, &vortex_datasketches::hll::HllOptions) -> bool
+
+impl core::default::Default for vortex_datasketches::hll::HllOptions
+
+pub fn vortex_datasketches::hll::HllOptions::default() -> Self
+
+impl core::fmt::Debug for vortex_datasketches::hll::HllOptions
+
+pub fn vortex_datasketches::hll::HllOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_datasketches::hll::HllOptions
+
+pub fn vortex_datasketches::hll::HllOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_datasketches::hll::HllOptions
+
+pub fn vortex_datasketches::hll::HllOptions::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_datasketches::hll::HllOptions
+
+pub struct vortex_datasketches::hll::HllPartial
+
+pub const vortex_datasketches::hll::DEFAULT_LG_K: u8
+
+pub fn vortex_datasketches::hll::estimate(&[u8]) -> vortex_error::VortexResult<f64>
+
+pub fn vortex_datasketches::hll::hll(&vortex_array::array::erased::ArrayRef, vortex_datasketches::hll::HllOptions, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub mod vortex_datasketches::tdigest
+
+pub struct vortex_datasketches::tdigest::TDigest
+
+impl core::clone::Clone for vortex_datasketches::tdigest::TDigest
+
+pub fn vortex_datasketches::tdigest::TDigest::clone(&self) -> vortex_datasketches::tdigest::TDigest
+
+impl core::fmt::Debug for vortex_datasketches::tdigest::TDigest
+
+pub fn vortex_datasketches::tdigest::TDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::aggregate_fn::vtable::AggregateFnVTable for vortex_datasketches::tdigest::TDigest
+
+pub type vortex_datasketches::tdigest::TDigest::Options = vortex_datasketches::tdigest::TDigestOptions
+
+pub type vortex_datasketches::tdigest::TDigest::Partial = vortex_datasketches::tdigest::TDigestPartial
+
+pub fn vortex_datasketches::tdigest::TDigest::accumulate(&self, &mut Self::Partial, &vortex_array::columnar::Columnar, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_datasketches::tdigest::TDigest::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_datasketches::tdigest::TDigest::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_datasketches::tdigest::TDigest::empty_partial(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_datasketches::tdigest::TDigest::finalize(&self, vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_datasketches::tdigest::TDigest::finalize_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_datasketches::tdigest::TDigest::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_datasketches::tdigest::TDigest::is_saturated(&self, &Self::Partial) -> bool
+
+pub fn vortex_datasketches::tdigest::TDigest::partial_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_datasketches::tdigest::TDigest::reset(&self, &mut Self::Partial)
+
+pub fn vortex_datasketches::tdigest::TDigest::return_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_datasketches::tdigest::TDigest::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_datasketches::tdigest::TDigest::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub struct vortex_datasketches::tdigest::TDigestOptions
+
+pub vortex_datasketches::tdigest::TDigestOptions::k: u16
+
+impl core::clone::Clone for vortex_datasketches::tdigest::TDigestOptions
+
+pub fn vortex_datasketches::tdigest::TDigestOptions::clone(&self) -> vortex_datasketches::tdigest::TDigestOptions
+
+impl core::cmp::Eq for vortex_datasketches::tdigest::TDigestOptions
+
+impl core::cmp::PartialEq for vortex_datasketches::tdigest::TDigestOptions
+
+pub fn vortex_datasketches::tdigest::TDigestOptions::eq(&self, &vortex_datasketches::tdigest::TDigestOptions) -> bool
+
+impl core::default::Default for vortex_datasketches::tdigest::TDigestOptions
+
+pub fn vortex_datasketches::tdigest::TDigestOptions::default() -> Self
+
+impl core::fmt::Debug for vortex_datasketches::tdigest::TDigestOptions
+
+pub fn vortex_datasketches::tdigest::TDigestOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_datasketches::tdigest::TDigestOptions
+
+pub fn vortex_datasketches::tdigest::TDigestOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_datasketches::tdigest::TDigestOptions
+
+pub fn vortex_datasketches::tdigest::TDigestOptions::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_datasketches::tdigest::TDigestOptions
+
+pub struct vortex_datasketches::tdigest::TDigestPartial
+
+pub const vortex_datasketches::tdigest::DEFAULT_K: u16
+
+pub fn vortex_datasketches::tdigest::quantile(&[u8], f64) -> vortex_error::VortexResult<core::option::Option<f64>>
+
+pub fn vortex_datasketches::tdigest::tdigest(&vortex_array::array::erased::ArrayRef, vortex_datasketches::tdigest::TDigestOptions, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub enum vortex_datasketches::HllTarget
+
+pub vortex_datasketches::HllTarget::Hll4
+
+pub vortex_datasketches::HllTarget::Hll6
+
+pub vortex_datasketches::HllTarget::Hll8
+
+impl core::clone::Clone for vortex_datasketches::hll::HllTarget
+
+pub fn vortex_datasketches::hll::HllTarget::clone(&self) -> vortex_datasketches::hll::HllTarget
+
+impl core::cmp::Eq for vortex_datasketches::hll::HllTarget
+
+impl core::cmp::PartialEq for vortex_datasketches::hll::HllTarget
+
+pub fn vortex_datasketches::hll::HllTarget::eq(&self, &vortex_datasketches::hll::HllTarget) -> bool
+
+impl core::convert::From<vortex_datasketches::hll::HllTarget> for datasketches::hll::HllType
+
+pub fn datasketches::hll::HllType::from(vortex_datasketches::hll::HllTarget) -> Self
+
+impl core::default::Default for vortex_datasketches::hll::HllTarget
+
+pub fn vortex_datasketches::hll::HllTarget::default() -> vortex_datasketches::hll::HllTarget
+
+impl core::fmt::Debug for vortex_datasketches::hll::HllTarget
+
+pub fn vortex_datasketches::hll::HllTarget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_datasketches::hll::HllTarget
+
+pub fn vortex_datasketches::hll::HllTarget::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_datasketches::hll::HllTarget
+
+pub fn vortex_datasketches::hll::HllTarget::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::Copy for vortex_datasketches::hll::HllTarget
+
+impl core::marker::StructuralPartialEq for vortex_datasketches::hll::HllTarget
+
+pub struct vortex_datasketches::Hll
+
+impl core::clone::Clone for vortex_datasketches::hll::Hll
+
+pub fn vortex_datasketches::hll::Hll::clone(&self) -> vortex_datasketches::hll::Hll
+
+impl core::fmt::Debug for vortex_datasketches::hll::Hll
+
+pub fn vortex_datasketches::hll::Hll::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::aggregate_fn::vtable::AggregateFnVTable for vortex_datasketches::hll::Hll
+
+pub type vortex_datasketches::hll::Hll::Options = vortex_datasketches::hll::HllOptions
+
+pub type vortex_datasketches::hll::Hll::Partial = vortex_datasketches::hll::HllPartial
+
+pub fn vortex_datasketches::hll::Hll::accumulate(&self, &mut Self::Partial, &vortex_array::columnar::Columnar, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_datasketches::hll::Hll::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_datasketches::hll::Hll::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_datasketches::hll::Hll::empty_partial(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_datasketches::hll::Hll::finalize(&self, vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_datasketches::hll::Hll::finalize_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_datasketches::hll::Hll::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_datasketches::hll::Hll::is_saturated(&self, &Self::Partial) -> bool
+
+pub fn vortex_datasketches::hll::Hll::partial_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_datasketches::hll::Hll::reset(&self, &mut Self::Partial)
+
+pub fn vortex_datasketches::hll::Hll::return_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_datasketches::hll::Hll::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_datasketches::hll::Hll::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub struct vortex_datasketches::HllOptions
+
+pub vortex_datasketches::HllOptions::lg_k: u8
+
+pub vortex_datasketches::HllOptions::target: vortex_datasketches::hll::HllTarget
+
+impl core::clone::Clone for vortex_datasketches::hll::HllOptions
+
+pub fn vortex_datasketches::hll::HllOptions::clone(&self) -> vortex_datasketches::hll::HllOptions
+
+impl core::cmp::Eq for vortex_datasketches::hll::HllOptions
+
+impl core::cmp::PartialEq for vortex_datasketches::hll::HllOptions
+
+pub fn vortex_datasketches::hll::HllOptions::eq(&self, &vortex_datasketches::hll::HllOptions) -> bool
+
+impl core::default::Default for vortex_datasketches::hll::HllOptions
+
+pub fn vortex_datasketches::hll::HllOptions::default() -> Self
+
+impl core::fmt::Debug for vortex_datasketches::hll::HllOptions
+
+pub fn vortex_datasketches::hll::HllOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_datasketches::hll::HllOptions
+
+pub fn vortex_datasketches::hll::HllOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_datasketches::hll::HllOptions
+
+pub fn vortex_datasketches::hll::HllOptions::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_datasketches::hll::HllOptions
+
+pub struct vortex_datasketches::TDigest
+
+impl core::clone::Clone for vortex_datasketches::tdigest::TDigest
+
+pub fn vortex_datasketches::tdigest::TDigest::clone(&self) -> vortex_datasketches::tdigest::TDigest
+
+impl core::fmt::Debug for vortex_datasketches::tdigest::TDigest
+
+pub fn vortex_datasketches::tdigest::TDigest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::aggregate_fn::vtable::AggregateFnVTable for vortex_datasketches::tdigest::TDigest
+
+pub type vortex_datasketches::tdigest::TDigest::Options = vortex_datasketches::tdigest::TDigestOptions
+
+pub type vortex_datasketches::tdigest::TDigest::Partial = vortex_datasketches::tdigest::TDigestPartial
+
+pub fn vortex_datasketches::tdigest::TDigest::accumulate(&self, &mut Self::Partial, &vortex_array::columnar::Columnar, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_datasketches::tdigest::TDigest::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
+
+pub fn vortex_datasketches::tdigest::TDigest::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_datasketches::tdigest::TDigest::empty_partial(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<Self::Partial>
+
+pub fn vortex_datasketches::tdigest::TDigest::finalize(&self, vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_datasketches::tdigest::TDigest::finalize_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_datasketches::tdigest::TDigest::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
+
+pub fn vortex_datasketches::tdigest::TDigest::is_saturated(&self, &Self::Partial) -> bool
+
+pub fn vortex_datasketches::tdigest::TDigest::partial_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_datasketches::tdigest::TDigest::reset(&self, &mut Self::Partial)
+
+pub fn vortex_datasketches::tdigest::TDigest::return_dtype(&self, &Self::Options, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_datasketches::tdigest::TDigest::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_datasketches::tdigest::TDigest::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub struct vortex_datasketches::TDigestOptions
+
+pub vortex_datasketches::TDigestOptions::k: u16
+
+impl core::clone::Clone for vortex_datasketches::tdigest::TDigestOptions
+
+pub fn vortex_datasketches::tdigest::TDigestOptions::clone(&self) -> vortex_datasketches::tdigest::TDigestOptions
+
+impl core::cmp::Eq for vortex_datasketches::tdigest::TDigestOptions
+
+impl core::cmp::PartialEq for vortex_datasketches::tdigest::TDigestOptions
+
+pub fn vortex_datasketches::tdigest::TDigestOptions::eq(&self, &vortex_datasketches::tdigest::TDigestOptions) -> bool
+
+impl core::default::Default for vortex_datasketches::tdigest::TDigestOptions
+
+pub fn vortex_datasketches::tdigest::TDigestOptions::default() -> Self
+
+impl core::fmt::Debug for vortex_datasketches::tdigest::TDigestOptions
+
+pub fn vortex_datasketches::tdigest::TDigestOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_datasketches::tdigest::TDigestOptions
+
+pub fn vortex_datasketches::tdigest::TDigestOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_datasketches::tdigest::TDigestOptions
+
+pub fn vortex_datasketches::tdigest::TDigestOptions::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_datasketches::tdigest::TDigestOptions
+
+pub fn vortex_datasketches::hll(&vortex_array::array::erased::ArrayRef, vortex_datasketches::hll::HllOptions, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_datasketches::initialize(&vortex_session::VortexSession)
+
+pub fn vortex_datasketches::tdigest(&vortex_array::array::erased::ArrayRef, vortex_datasketches::tdigest::TDigestOptions, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>

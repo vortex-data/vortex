@@ -14,6 +14,7 @@ members = [
     "vortex-array",
     "vortex-tensor",
     "vortex-turboquant",
+    "vortex-datasketches",
     "vortex-compressor",
     "vortex-btrblocks",
     "vortex-layout",
@@ -146,6 +147,7 @@ datafusion-physical-expr-common = { version = "53" }
 datafusion-physical-plan = { version = "53" }
 datafusion-pruning = { version = "53" }
 datafusion-sqllogictest = { version = "53" }
+datasketches = "0.2.0"
 dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "4.0.4" }
 enum-iterator = "2.0.0"
@@ -277,6 +279,7 @@ vortex-buffer = { version = "0.1.0", path = "./vortex-buffer", default-features 
 vortex-bytebool = { version = "0.1.0", path = "./encodings/bytebool", default-features = false }
 vortex-compressor = { version = "0.1.0", path = "./vortex-compressor", default-features = false }
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }
+vortex-datasketches = { version = "0.1.0", path = "./vortex-datasketches", default-features = false }
 vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts", default-features = false }
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
 vortex-error = { version = "0.1.0", path = "./vortex-error", default-features = false }
