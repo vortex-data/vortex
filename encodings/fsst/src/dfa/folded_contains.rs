@@ -88,6 +88,18 @@ pub(crate) struct FoldedContainsDfa {
     /// set's 1-byte bitset into the pair bitset so single-step-accept
     /// matches aren't missed.
     single_step_accept_codes: Option<Vec<u8>>,
+    /// Per-c1 buckets `(c1, c2_set)` for the bucketed-Cartesian Teddy
+    /// scan. Strictly more selective than [`pair_codes`] when the
+    /// distinct-c1 count fits in [`anchor_scan::MAX_TEDDY_BUCKETS`]:
+    /// each bucket fires only when the c1 byte matches exactly one
+    /// `c1` value (zero false positives on the c1 axis), and the
+    /// nibble-table c2 check is no worse than the existing Cartesian
+    /// path's c2 check. On real FSST tables where multiple progressing
+    /// c1's exist with disjoint c2 sets, this eliminates the
+    /// cross-product false-positive pairs `(c1_a, c2_b)` for `a ≠ b`,
+    /// typically 3–10× sparser than the plain Cartesian bitset at the
+    /// same SIMD cost.
+    teddy_buckets: Option<Vec<(u8, Vec<u8>)>>,
 }
 
 impl FoldedContainsDfa {
@@ -201,6 +213,15 @@ impl FoldedContainsDfa {
             if v.is_empty() { None } else { Some(v) }
         });
 
+        // Bucketed Teddy: one bucket per pair-eligible c1, each
+        // carrying its strictly-advancing-or-escape c2 set. The
+        // collection helper rejects sets larger than
+        // [`anchor_scan::MAX_TEDDY_BUCKETS`]; in that case the scan
+        // path falls back to the plain Cartesian or 1-byte path.
+        let teddy_buckets = progressing_codes.as_deref().and_then(|c1| {
+            anchor_scan::collect_pair_buckets_shared_c1(&transitions, c1, accept_state)
+        });
+
         Ok(Self {
             transitions,
             accept_state,
@@ -208,6 +229,7 @@ impl FoldedContainsDfa {
             progressing_codes,
             pair_codes,
             single_step_accept_codes,
+            teddy_buckets,
         })
     }
 
@@ -287,27 +309,45 @@ impl FoldedContainsDfa {
     where
         T: vortex_array::dtype::IntegerPType,
     {
-        // Prefer the 2-byte pair anchor when the pair-eligible (c1, c2)
-        // sets fit in `MAX_SET_BYTES` AND there are no single-step-accept
-        // codes. This is dramatically more selective than the 1-byte
-        // progressing bitset on data shapes where the FSST trainer keeps
-        // the match-path bytes as single-byte symbols (e.g. real
-        // ClickBench URL data on `%google%`: c1≈{166="g"},
-        // c2≈{127="o"} — orders of magnitude sparser than the 1-byte
-        // 'g' bitset).
+        // Pre-filter ladder for state-0 jumps:
         //
-        // SSA-present needles (e.g. `%https%` on synthetic ClickBench
-        // where code 127 = "https://" already accepts in one step) skip
-        // the pair path: they're already fast on the 1-byte path
-        // because each progressing-position match completes in a single
-        // table lookup, and the pair scheme would add a second
-        // PSHUFB-Mula pass for the SSA-merge bitset that pure
-        // overhead.
-        if self.single_step_accept_codes.is_none()
-            && let Some((pc1, pc2)) = self.pair_codes.as_ref()
-            && let Some(bitset) = anchor_scan::build_pair_bitset(all_bytes, pc1, pc2)
-        {
-            return self.scan_with_anchor_bitset(n, offsets, all_bytes, &bitset, negated);
+        //   1. **Bucketed Cartesian Teddy** — one bucket per pair-eligible
+        //      c1, each carrying that c1's `c2` set. Zero false positives
+        //      on the c1 axis (each bucket is exact-byte) and no worse
+        //      than the plain Cartesian path on the c2 axis. Eliminates
+        //      cross-product pairs `(c1_a, c2_b)` for `a ≠ b` that the
+        //      Cartesian path admits — typically 3–10× sparser bitset on
+        //      real FSST-trained URL data, same SIMD cost (4 PSHUFBs +
+        //      ANDs per 32 input bytes).
+        //
+        //   2. **Plain Cartesian pair bitset** — `c1_set ⨯ c2_set`
+        //      independent membership, AND'd with a 1-position shift.
+        //      Used when the bucketed path is unavailable (more than 8
+        //      pair-eligible c1's) but the unioned c1/c2 sets still fit
+        //      in `MAX_SET_BYTES`.
+        //
+        //   3. **1-byte progressing bitset (unbounded)** — universal
+        //      fallback; multi-pass PSHUFB OR-merge for sets larger
+        //      than `MAX_SET_BYTES`.
+        //
+        // Both pair-anchor paths require `single_step_accept_codes` to
+        // be empty. SSA-present needles (e.g. `%https%` on synthetic
+        // ClickBench where code 127 = "https://" already accepts in
+        // one step) are already fast on the 1-byte path because each
+        // progressing-position match completes in a single table
+        // lookup, and either pair scheme would add a second PSHUFB
+        // pass for the SSA-merge bitset that is pure overhead.
+        if self.single_step_accept_codes.is_none() {
+            if let Some(buckets) = self.teddy_buckets.as_deref()
+                && let Some(bitset) = anchor_scan::build_pair_bitset_teddy(all_bytes, buckets)
+            {
+                return self.scan_with_anchor_bitset(n, offsets, all_bytes, &bitset, negated);
+            }
+            if let Some((pc1, pc2)) = self.pair_codes.as_ref()
+                && let Some(bitset) = anchor_scan::build_pair_bitset(all_bytes, pc1, pc2)
+            {
+                return self.scan_with_anchor_bitset(n, offsets, all_bytes, &bitset, negated);
+            }
         }
 
         // Pair path unavailable (or sets too large). Fall back to the
