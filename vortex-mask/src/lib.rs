@@ -281,10 +281,14 @@ impl Mask {
             return Self::AllTrue(len);
         }
 
-        let mut buf = BitBufferMut::new_unset(len);
+        let mut buf = BitBufferMut::with_capacity(len);
+        let mut cursor = 0;
         for (start, end) in slices.iter().copied() {
-            (start..end).for_each(|idx| buf.set(idx));
+            buf.append_n(false, start - cursor);
+            buf.append_n(true, end - start);
+            cursor = end;
         }
+        buf.append_n(false, len - cursor);
         debug_assert_eq!(buf.len(), len);
 
         Self::Values(Arc::new(MaskValues {
