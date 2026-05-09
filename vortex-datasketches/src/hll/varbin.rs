@@ -9,14 +9,6 @@ use vortex_mask::Mask;
 
 use super::HllPartial;
 
-pub(super) fn update_utf8(partial: &mut HllPartial, value: &str) {
-    partial.update_value(value.as_bytes());
-}
-
-pub(super) fn update_binary(partial: &mut HllPartial, value: &[u8]) {
-    partial.update_value(value);
-}
-
 pub(super) fn accumulate_varbinview(
     partial: &mut HllPartial,
     array: &VarBinViewArray,
@@ -29,7 +21,7 @@ pub(super) fn accumulate_varbinview(
         Mask::AllTrue(_) => {
             for idx in 0..array.len() {
                 let value = array.bytes_at(idx);
-                update_binary(partial, value.as_slice());
+                partial.update_value(value.as_slice());
             }
         }
         Mask::AllFalse(_) => {}
@@ -37,7 +29,7 @@ pub(super) fn accumulate_varbinview(
             for (idx, valid) in validity.bit_buffer().iter().enumerate() {
                 if valid {
                     let value = array.bytes_at(idx);
-                    update_binary(partial, value.as_slice());
+                    partial.update_value(value.as_slice());
                 }
             }
         }

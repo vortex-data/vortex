@@ -9,10 +9,6 @@ use vortex_mask::Mask;
 
 use super::HllPartial;
 
-pub(super) fn update_bool(partial: &mut HllPartial, value: bool) {
-    partial.update_value(value);
-}
-
 pub(super) fn accumulate_bool(
     partial: &mut HllPartial,
     array: &BoolArray,
@@ -22,14 +18,14 @@ pub(super) fn accumulate_bool(
     match array.validity()?.execute_mask(array.as_ref().len(), ctx)? {
         Mask::AllTrue(_) => {
             for value in values.iter() {
-                update_bool(partial, value);
+                partial.update_value(value);
             }
         }
         Mask::AllFalse(_) => {}
         Mask::Values(validity) => {
             for (value, valid) in values.iter().zip(validity.bit_buffer().iter()) {
                 if valid {
-                    update_bool(partial, value);
+                    partial.update_value(value);
                 }
             }
         }

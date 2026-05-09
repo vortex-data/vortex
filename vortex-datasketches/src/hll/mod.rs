@@ -30,12 +30,9 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use self::bool::accumulate_bool;
-use self::bool::update_bool;
 use self::primitive::accumulate_primitive;
 use self::primitive::update_primitive;
 use self::varbin::accumulate_varbinview;
-use self::varbin::update_binary;
-use self::varbin::update_utf8;
 
 /// Default HLL precision (`lg_k`) used by [`HllOptions`].
 pub const DEFAULT_LG_K: u8 = 12;
@@ -270,13 +267,12 @@ impl AggregateFnVTable for Hll {
                 }
                 match c.scalar().dtype() {
                     DType::Bool(_) => {
-                        update_bool(
-                            partial,
-                            c.scalar()
-                                .as_bool()
-                                .value()
-                                .ok_or_else(|| vortex_err!("checked non-null bool scalar"))?,
-                        );
+                        let value = c
+                            .scalar()
+                            .as_bool()
+                            .value()
+                            .ok_or_else(|| vortex_err!("checked non-null bool scalar"))?;
+                        partial.update_value(value);
                     }
                     DType::Primitive(..) => update_primitive(partial, c.scalar().as_primitive())?,
                     DType::Utf8(_) => {
@@ -285,7 +281,7 @@ impl AggregateFnVTable for Hll {
                             .as_utf8()
                             .value()
                             .ok_or_else(|| vortex_err!("checked non-null UTF-8 scalar"))?;
-                        update_utf8(partial, value.as_str());
+                        partial.update_value(value.as_bytes());
                     }
                     DType::Binary(_) => {
                         let value = c
@@ -293,7 +289,7 @@ impl AggregateFnVTable for Hll {
                             .as_binary()
                             .value()
                             .ok_or_else(|| vortex_err!("checked non-null binary scalar"))?;
-                        update_binary(partial, value.as_slice());
+                        partial.update_value(value.as_slice());
                     }
                     DType::Null => {}
                     _ => vortex_bail!("Unsupported constant dtype for HLL: {}", c.scalar().dtype()),
