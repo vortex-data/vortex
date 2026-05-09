@@ -17800,6 +17800,84 @@ pub fn vortex_array::scalar_fn::fns::select::Select::stat_falsification(&self, &
 
 pub fn vortex_array::scalar_fn::fns::select::Select::validity(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
+pub mod vortex_array::scalar_fn::fns::stat
+
+pub struct vortex_array::scalar_fn::fns::stat::StatFn
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::stat::StatFn
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::clone(&self) -> vortex_array::scalar_fn::fns::stat::StatFn
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::stat::StatFn
+
+pub type vortex_array::scalar_fn::fns::stat::StatFn::Options = vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::fmt_sql(&self, &Self::Options, &vortex_array::expr::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::is_fallible(&self, &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::is_null_sensitive(&self, &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::reduce(&self, &Self::Options, &dyn vortex_array::scalar_fn::ReduceNode, &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::return_dtype(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::simplify(&self, &Self::Options, &vortex_array::expr::Expression, &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::simplify_untyped(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::stat_expression(&self, &Self::Options, &vortex_array::expr::Expression, vortex_array::expr::stats::Stat, &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::stat_falsification(&self, &Self::Options, &vortex_array::expr::Expression, &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::validity(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub struct vortex_array::scalar_fn::fns::stat::StatOptions
+
+impl vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::aggregate_fn(&self) -> &vortex_array::aggregate_fn::AggregateFnRef
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::new(vortex_array::aggregate_fn::AggregateFnRef) -> Self
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::clone(&self) -> vortex_array::scalar_fn::fns::stat::StatOptions
+
+impl core::cmp::Eq for vortex_array::scalar_fn::fns::stat::StatOptions
+
+impl core::cmp::PartialEq for vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::eq(&self, &vortex_array::scalar_fn::fns::stat::StatOptions) -> bool
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::fns::stat::StatOptions
+
 pub mod vortex_array::scalar_fn::fns::zip
 
 pub struct vortex_array::scalar_fn::fns::zip::Zip
@@ -19066,6 +19144,44 @@ pub fn vortex_array::scalar_fn::fns::select::Select::stat_falsification(&self, &
 
 pub fn vortex_array::scalar_fn::fns::select::Select::validity(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::stat::StatFn
+
+pub type vortex_array::scalar_fn::fns::stat::StatFn::Options = vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::fmt_sql(&self, &Self::Options, &vortex_array::expr::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::is_fallible(&self, &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::is_null_sensitive(&self, &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::reduce(&self, &Self::Options, &dyn vortex_array::scalar_fn::ReduceNode, &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::return_dtype(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::simplify(&self, &Self::Options, &vortex_array::expr::Expression, &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::simplify_untyped(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::stat_expression(&self, &Self::Options, &vortex_array::expr::Expression, vortex_array::expr::stats::Stat, &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::stat_falsification(&self, &Self::Options, &vortex_array::expr::Expression, &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::validity(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
 impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::zip::Zip
 
 pub type vortex_array::scalar_fn::fns::zip::Zip::Options = vortex_array::scalar_fn::EmptyOptions
@@ -19450,6 +19566,86 @@ pub type vortex_array::session::ArrayRegistry = vortex_session::registry::Regist
 
 pub mod vortex_array::stats
 
+pub mod vortex_array::stats::expr
+
+pub struct vortex_array::stats::expr::StatFn
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::stat::StatFn
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::clone(&self) -> vortex_array::scalar_fn::fns::stat::StatFn
+
+impl vortex_array::scalar_fn::ScalarFnVTable for vortex_array::scalar_fn::fns::stat::StatFn
+
+pub type vortex_array::scalar_fn::fns::stat::StatFn::Options = vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::fmt_sql(&self, &Self::Options, &vortex_array::expr::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::is_fallible(&self, &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::is_null_sensitive(&self, &Self::Options) -> bool
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::reduce(&self, &Self::Options, &dyn vortex_array::scalar_fn::ReduceNode, &dyn vortex_array::scalar_fn::ReduceCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar_fn::ReduceNodeRef>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::return_dtype(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::simplify(&self, &Self::Options, &vortex_array::expr::Expression, &dyn vortex_array::scalar_fn::SimplifyCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::simplify_untyped(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::stat_expression(&self, &Self::Options, &vortex_array::expr::Expression, vortex_array::expr::stats::Stat, &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::stat_falsification(&self, &Self::Options, &vortex_array::expr::Expression, &dyn vortex_array::expr::pruning::StatsCatalog) -> core::option::Option<vortex_array::expr::Expression>
+
+pub fn vortex_array::scalar_fn::fns::stat::StatFn::validity(&self, &Self::Options, &vortex_array::expr::Expression) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
+pub struct vortex_array::stats::expr::StatOptions
+
+impl vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::aggregate_fn(&self) -> &vortex_array::aggregate_fn::AggregateFnRef
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::new(vortex_array::aggregate_fn::AggregateFnRef) -> Self
+
+impl core::clone::Clone for vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::clone(&self) -> vortex_array::scalar_fn::fns::stat::StatOptions
+
+impl core::cmp::Eq for vortex_array::scalar_fn::fns::stat::StatOptions
+
+impl core::cmp::PartialEq for vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::eq(&self, &vortex_array::scalar_fn::fns::stat::StatOptions) -> bool
+
+impl core::fmt::Debug for vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::scalar_fn::fns::stat::StatOptions::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_array::scalar_fn::fns::stat::StatOptions
+
+pub fn vortex_array::stats::expr::stat(vortex_array::expr::Expression, vortex_array::aggregate_fn::AggregateFnRef) -> vortex_array::expr::Expression
+
 pub mod vortex_array::stats::flatbuffers
 
 pub struct vortex_array::stats::ArrayStats
@@ -19681,6 +19877,8 @@ pub fn vortex_array::stats::TypedStatsSetRef<'_, '_>::len(&self) -> usize
 pub const vortex_array::stats::PRUNING_STATS: &[vortex_array::expr::stats::Stat]
 
 pub fn vortex_array::stats::as_stat_bitset_bytes(&[vortex_array::expr::stats::Stat]) -> alloc::vec::Vec<u8>
+
+pub fn vortex_array::stats::stat(vortex_array::expr::Expression, vortex_array::aggregate_fn::AggregateFnRef) -> vortex_array::expr::Expression
 
 pub fn vortex_array::stats::stats_from_bitset_bytes(&[u8]) -> alloc::vec::Vec<vortex_array::expr::stats::Stat>
 
