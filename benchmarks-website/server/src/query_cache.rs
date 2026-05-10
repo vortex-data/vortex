@@ -4,49 +4,45 @@
 //! In-memory query result cache for the read API.
 //!
 //! Every chart payload, group discovery result, and filter universe in the v3
-//! site is derived from a fixed DuckDB snapshot — the database only changes
-//! when `/api/ingest` lands a new envelope (a few dozen times a day). Without
-//! a cache every concurrent request re-runs the same SQL on a freshly cloned
-//! DuckDB connection, which serialises on the engine's internal locks; with
-//! many tabs / clients open at once the read API ends up pegged behind the
-//! shared engine even though the underlying answer hasn't changed in hours.
+//! site is a deterministic function of the DuckDB snapshot — and that
+//! snapshot only changes when `/api/ingest` lands a new envelope (~30 times a
+//! day). Without a cache, every concurrent request re-runs the same SQL
+//! against the engine, which serialises on DuckDB's internal locks; many tabs
+//! / clients open at once peg the read API behind that lock even though the
+//! underlying answer hasn't changed in hours.
 //!
-//! [`QueryCache`] sits between the HTTP handlers and the DB layer:
-//! - reads check the cache first and return the cached `Arc<T>` directly when
-//!   present, never touching DuckDB on the hot path;
-//! - misses are coalesced via [`tokio::sync::OnceCell`] so a thundering herd
-//!   of concurrent cold-start requests for the same key triggers a single
-//!   `spawn_blocking` round-trip — every other waiter receives the same
-//!   `Arc<T>` once that single computation finishes;
-//! - [`QueryCache::invalidate`] is called from the ingest handler after a
-//!   successful commit so the next read recomputes from the fresh snapshot.
+//! The cache is a cache-aside store of [`Arc`]-wrapped payloads, one
+//! [`DashMap`] per result type:
+//! - reads check the slot, clone the [`Arc`] out, and return — no DuckDB
+//!   round-trip on the hot path;
+//! - misses run `compute`, wrap the result in [`Arc`], and stash it for the
+//!   next reader;
+//! - [`QueryCache::invalidate`] is called from [`crate::ingest`] after a
+//!   successful commit so the next read recomputes against the fresh
+//!   snapshot.
+//!
+//! The two unkeyed slots — `/api/groups` and the filter universe — use a
+//! [`DashMap`] with `()` as the key, so every slot in the cache is the same
+//! primitive. Concurrent misses for the same slot each run `compute` and the
+//! last writer wins. Both writers produce identical data because the DB is
+//! read-only between invalidations, so the only cost is the redundant work
+//! in the brief window between an invalidate and the first repopulation.
 //!
 //! Cached values are wrapped in [`std::sync::Arc`] and never cloned on the
-//! cache-hit path; [`axum::Json`] serialises through the `Arc` so the bytes
-//! that go on the wire are produced once per unique value, then served to
-//! every concurrent reader.
+//! cache-hit path; [`axum::Json`] serialises through the [`Arc`] so the JSON
+//! bytes on the wire are produced once per cached value.
 
 use std::future::Future;
 use std::sync::Arc;
 
 use anyhow::Result;
 use dashmap::DashMap;
-use parking_lot::Mutex;
-use tokio::sync::OnceCell;
 
 use crate::api::ChartResponse;
 use crate::api::CommitWindow;
 use crate::api::FilterUniverse;
 use crate::api::Group;
 use crate::api::GroupChartsResponse;
-
-/// One slot of the cache: an [`Arc`]-wrapped [`OnceCell`] so concurrent
-/// initialisers all observe the same single-flight result.
-type Cell<T> = Arc<OnceCell<T>>;
-
-fn new_cell<T>() -> Cell<T> {
-    Arc::new(OnceCell::new())
-}
 
 /// Composite cache for every read-side DuckDB query.
 ///
@@ -55,10 +51,15 @@ fn new_cell<T>() -> Cell<T> {
 /// [`Self::invalidate`] when ingest changes the underlying snapshot.
 #[derive(Default)]
 pub struct QueryCache {
-    groups: Mutex<Cell<Arc<Vec<Group>>>>,
-    filter_universe: Mutex<Cell<Arc<FilterUniverse>>>,
-    chart_payloads: DashMap<ChartCacheKey, Cell<Option<Arc<ChartResponse>>>>,
-    group_charts: DashMap<GroupCacheKey, Cell<Option<Arc<GroupChartsResponse>>>>,
+    /// `/api/groups` discovery result. Keyed by `()` because there is only
+    /// ever one group list per snapshot.
+    groups: DashMap<(), Arc<Vec<Group>>>,
+    /// Global filter universe (engines + formats). Also unkeyed.
+    filter_universe: DashMap<(), Arc<FilterUniverse>>,
+    /// Per-chart payloads, keyed by `(slug, window)`.
+    chart_payloads: DashMap<ChartCacheKey, Option<Arc<ChartResponse>>>,
+    /// Per-group payloads, keyed by `(slug, window)`.
+    group_charts: DashMap<GroupCacheKey, Option<Arc<GroupChartsResponse>>>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -80,36 +81,39 @@ impl QueryCache {
     }
 
     /// Get the cached `Arc<Vec<Group>>` from `/api/groups`, or run `compute`
-    /// once if the slot is empty.
+    /// if the slot is empty and store the result.
     pub async fn groups<F, Fut>(&self, compute: F) -> Result<Arc<Vec<Group>>>
     where
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<Vec<Group>>>,
     {
-        let cell = self.groups.lock().clone();
-        let value = cell
-            .get_or_try_init(|| async { compute().await.map(Arc::new) })
-            .await?;
-        Ok(Arc::clone(value))
+        if let Some(entry) = self.groups.get(&()) {
+            return Ok(entry.value().clone());
+        }
+        let fresh = Arc::new(compute().await?);
+        self.groups.insert((), Arc::clone(&fresh));
+        Ok(fresh)
     }
 
     /// Get the cached `Arc<FilterUniverse>` for the global filter bar, or
-    /// run `compute` once if the slot is empty.
+    /// run `compute` if the slot is empty and store the result.
     pub async fn filter_universe<F, Fut>(&self, compute: F) -> Result<Arc<FilterUniverse>>
     where
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<FilterUniverse>>,
     {
-        let cell = self.filter_universe.lock().clone();
-        let value = cell
-            .get_or_try_init(|| async { compute().await.map(Arc::new) })
-            .await?;
-        Ok(Arc::clone(value))
+        if let Some(entry) = self.filter_universe.get(&()) {
+            return Ok(entry.value().clone());
+        }
+        let fresh = Arc::new(compute().await?);
+        self.filter_universe.insert((), Arc::clone(&fresh));
+        Ok(fresh)
     }
 
     /// Get the cached chart payload for `(slug, window)`, or run `compute`
-    /// once if the entry is empty. Returns `None` when the chart has no data
-    /// and the caller should respond with 404.
+    /// if the entry is absent and store the result. The cached value is
+    /// `Option<Arc<ChartResponse>>` so a confirmed "no data for this slug"
+    /// answer is cached too — repeated 404s do not re-hit DuckDB.
     pub async fn chart_payload<F, Fut>(
         &self,
         slug: &str,
@@ -124,19 +128,16 @@ impl QueryCache {
             slug: slug.to_string(),
             window: *window,
         };
-        let cell = self
-            .chart_payloads
-            .entry(key)
-            .or_insert_with(new_cell)
-            .clone();
-        let value = cell
-            .get_or_try_init(|| async { compute().await.map(|opt| opt.map(Arc::new)) })
-            .await?;
-        Ok(value.clone())
+        if let Some(entry) = self.chart_payloads.get(&key) {
+            return Ok(entry.value().clone());
+        }
+        let arc_opt = compute().await?.map(Arc::new);
+        self.chart_payloads.insert(key, arc_opt.clone());
+        Ok(arc_opt)
     }
 
     /// Get the cached per-group payload for `(slug, window)`, or run
-    /// `compute` once if the entry is empty.
+    /// `compute` if the entry is absent and store the result.
     pub async fn group_charts<F, Fut>(
         &self,
         slug: &str,
@@ -151,28 +152,19 @@ impl QueryCache {
             slug: slug.to_string(),
             window: *window,
         };
-        let cell = self
-            .group_charts
-            .entry(key)
-            .or_insert_with(new_cell)
-            .clone();
-        let value = cell
-            .get_or_try_init(|| async { compute().await.map(|opt| opt.map(Arc::new)) })
-            .await?;
-        Ok(value.clone())
+        if let Some(entry) = self.group_charts.get(&key) {
+            return Ok(entry.value().clone());
+        }
+        let arc_opt = compute().await?.map(Arc::new);
+        self.group_charts.insert(key, arc_opt.clone());
+        Ok(arc_opt)
     }
 
     /// Drop every cached value. Called from the ingest handler after a
     /// successful commit so the next read sees the fresh snapshot.
-    ///
-    /// In-flight initialisers continue to completion against their own
-    /// (now-detached) [`OnceCell`]; their results are returned to the awaiter
-    /// that triggered them. Subsequent calls observe the freshly-cleared slot
-    /// and trigger a new `compute`. This is the standard "stale read for
-    /// in-flight, fresh read for new requests" trade-off.
     pub fn invalidate(&self) {
-        *self.groups.lock() = new_cell();
-        *self.filter_universe.lock() = new_cell();
+        self.groups.clear();
+        self.filter_universe.clear();
         self.chart_payloads.clear();
         self.group_charts.clear();
     }
@@ -292,6 +284,33 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         assert_eq!(one.display_name, "first");
         assert_eq!(three.display_name, "third");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn chart_payload_caches_negative_result() -> Result<()> {
+        let cache = QueryCache::new();
+        let calls = AtomicUsize::new(0);
+
+        let none1 = cache
+            .chart_payload("missing", &CommitWindow::All, || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                async { Ok(None) }
+            })
+            .await?;
+        let none2 = cache
+            .chart_payload("missing", &CommitWindow::All, || {
+                calls.fetch_add(1, Ordering::SeqCst);
+                async { Ok(None) }
+            })
+            .await?;
+
+        assert!(none1.is_none() && none2.is_none());
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "the second read for a missing slug should hit the cache, not re-query"
+        );
         Ok(())
     }
 
