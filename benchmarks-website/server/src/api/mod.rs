@@ -67,7 +67,7 @@ use crate::slug::GroupKey;
 
 /// Handler for `GET /api/groups`.
 pub async fn groups(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    let groups = db::run_blocking(&state.db, |conn| collect_groups(conn)).await?;
+    let groups = cached_groups(&state).await?;
     Ok(Json(GroupsResponse { groups }))
 }
 
@@ -80,8 +80,7 @@ pub async fn chart(
     let key = ChartKey::from_slug(&slug)
         .map_err(|e| ApiError::BadRequest(format!("invalid slug: {e}")))?;
     let window = q.window();
-    let response =
-        db::run_blocking(&state.db, move |conn| chart_payload(conn, &key, &window)).await?;
+    let response = cached_chart_payload(&state, &slug, &key, &window).await?;
     let response =
         response.ok_or_else(|| ApiError::NotFound(format!("no data for slug {slug:?}")))?;
     Ok(Json(response))
@@ -96,13 +95,72 @@ pub async fn group(
     let key = GroupKey::from_slug(&slug)
         .map_err(|e| ApiError::BadRequest(format!("invalid group slug: {e}")))?;
     let window = q.window();
-    let response = db::run_blocking(&state.db, move |conn| {
-        collect_group_charts(conn, &key, &window)
-    })
-    .await?;
+    let response = cached_group_charts(&state, &slug, &key, &window).await?;
     let response =
         response.ok_or_else(|| ApiError::NotFound(format!("no data for group slug {slug:?}")))?;
     Ok(Json(response))
+}
+
+/// Cache-aware wrapper around [`collect_groups`].
+pub async fn cached_groups(state: &AppState) -> Result<std::sync::Arc<Vec<Group>>> {
+    let db = state.db.clone();
+    state
+        .cache
+        .groups(move || async move { db::run_blocking(&db, |conn| collect_groups(conn)).await })
+        .await
+}
+
+/// Cache-aware wrapper around [`collect_filter_universe`].
+pub async fn cached_filter_universe(state: &AppState) -> Result<std::sync::Arc<FilterUniverse>> {
+    let db = state.db.clone();
+    state
+        .cache
+        .filter_universe(move || async move {
+            db::run_blocking(&db, |conn| collect_filter_universe(conn)).await
+        })
+        .await
+}
+
+/// Cache-aware wrapper around [`chart_payload`].
+pub async fn cached_chart_payload(
+    state: &AppState,
+    slug: &str,
+    key: &ChartKey,
+    window: &CommitWindow,
+) -> Result<Option<std::sync::Arc<ChartResponse>>> {
+    let db = state.db.clone();
+    let key_for_compute = key.clone();
+    let window_for_compute = *window;
+    state
+        .cache
+        .chart_payload(slug, window, move || async move {
+            db::run_blocking(&db, move |conn| {
+                chart_payload(conn, &key_for_compute, &window_for_compute)
+            })
+            .await
+        })
+        .await
+}
+
+/// Cache-aware wrapper around [`collect_group_charts`].
+pub async fn cached_group_charts(
+    state: &AppState,
+    slug: &str,
+    key: &GroupKey,
+    window: &CommitWindow,
+) -> Result<Option<std::sync::Arc<GroupChartsResponse>>> {
+    let db = state.db.clone();
+    let key_for_compute = key.clone();
+    let window_for_compute = *window;
+    state
+        .cache
+        .group_charts(slug, window, move || async move {
+            db::run_blocking(&db, move |conn| {
+                collect_group_charts(conn, &key_for_compute, &window_for_compute)
+            })
+            .await
+        })
+        .await
 }
 
 /// Handler for `GET /health`.

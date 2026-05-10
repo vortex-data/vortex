@@ -10434,6 +10434,7 @@ dependencies = [
  "anyhow",
  "axum",
  "base64",
+ "dashmap",
  "duckdb",
  "flate2",
  "insta",
