@@ -26,11 +26,12 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 axum = "0.8"
 base64 = "0.22"
+dashmap = { workspace = true }
 # track vortex-duckdb's bundled engine version (build.rs)
 duckdb = { version = "1.10502", features = ["bundled"] }
 maud = { version = "0.27", features = ["axum"] }
 parking_lot = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive", "rc"] }
 serde_json = { workspace = true }
 subtle = "2.6"
 thiserror = { workspace = true }

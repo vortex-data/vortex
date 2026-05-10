@@ -30,6 +30,7 @@ use crate::db::DbHandle;
 use crate::db::{self};
 use crate::html;
 use crate::ingest;
+use crate::query_cache::QueryCache;
 
 /// Shared state for all handlers. Cheap to clone (everything is `Arc`-shaped
 /// or a small `String`).
@@ -41,6 +42,9 @@ pub struct AppState {
     pub bearer_token: Arc<String>,
     /// On-disk path of the DuckDB file. Surfaced on `/health`.
     pub db_path: Arc<PathBuf>,
+    /// In-memory cache of every read-side query result. Cleared by
+    /// [`crate::ingest`] after a successful commit. See [`crate::query_cache`].
+    pub cache: Arc<QueryCache>,
 }
 
 impl AppState {
@@ -52,6 +56,7 @@ impl AppState {
             db,
             bearer_token: Arc::new(bearer_token),
             db_path: Arc::new(path),
+            cache: Arc::new(QueryCache::new()),
         })
     }
 }

@@ -86,6 +86,10 @@ pub async fn handle(
             Ok(ingest) => ingest,
             Err(other) => IngestError::Internal(other),
         })?;
+    // Every read endpoint serves from `state.cache`; the underlying DuckDB
+    // snapshot just changed, so drop every cached payload before returning.
+    // The next read repopulates each slot via single-flight `OnceCell`.
+    state.cache.invalidate();
     Ok(Json(response))
 }
 

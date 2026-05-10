@@ -9,6 +9,7 @@
 //! returns a [`ChartResponse`].
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use anyhow::Context as _;
 use anyhow::Result;
@@ -100,7 +101,7 @@ pub(crate) fn collect_group_charts(
         charts.push(NamedChartResponse {
             name: link.name,
             slug: link.slug,
-            chart,
+            chart: Arc::new(chart),
         });
     }
     if charts.is_empty() {

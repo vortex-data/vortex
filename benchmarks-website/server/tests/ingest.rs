@@ -313,3 +313,44 @@ async fn unknown_slug_is_404() -> Result<()> {
     );
     Ok(())
 }
+
+/// Reads warm the [`crate::query_cache::QueryCache`] with whatever the DB
+/// snapshot looked like at the time. Ingest must invalidate the cache so the
+/// very next read sees the rows that just landed — otherwise a stale empty
+/// `/api/groups` would survive every subsequent request.
+#[tokio::test]
+async fn cache_is_invalidated_after_ingest() -> Result<()> {
+    let server = Server::start().await?;
+    let client = reqwest::Client::new();
+
+    // Warm the cache against an empty DB.
+    let resp = client.get(server.url("/api/groups")).send().await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    assert_eq!(
+        body["groups"].as_array().context("groups is array")?.len(),
+        0,
+        "groups should be empty before any ingest"
+    );
+
+    // Ingest some data. The handler invalidates the cache after the commit.
+    let resp = client
+        .post(server.url("/api/ingest"))
+        .bearer_auth(TOKEN)
+        .json(&fixture_envelope())
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "ingest should succeed");
+
+    // The next read must see the freshly-ingested rows. If the cache was not
+    // invalidated, this would still return the empty list above.
+    let resp = client.get(server.url("/api/groups")).send().await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    let groups = body["groups"].as_array().context("groups is array")?;
+    assert!(
+        !groups.is_empty(),
+        "groups must repopulate after ingest invalidates the cache"
+    );
+    Ok(())
+}

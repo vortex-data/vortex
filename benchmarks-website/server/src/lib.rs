@@ -69,6 +69,7 @@ pub mod db;
 pub mod error;
 pub mod html;
 pub mod ingest;
+pub mod query_cache;
 pub mod records;
 pub mod schema;
 pub mod slug;

@@ -58,6 +58,8 @@ mod static_assets;
 mod summary;
 mod toolbar;
 
+use std::sync::Arc;
+
 use anyhow::Result;
 use axum::Router;
 use axum::extract::Path;
@@ -67,7 +69,6 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::routing::get;
-use duckdb::Connection;
 use serde::Deserialize;
 
 use self::chart::chart_body;
@@ -85,8 +86,8 @@ use self::static_assets::serve_vortex_black_png;
 use self::static_assets::serve_vortex_white_png;
 use crate::api;
 use crate::api::CommitWindow;
+use crate::api::Group;
 use crate::app::AppState;
-use crate::db;
 use crate::slug::ChartKey;
 use crate::slug::GroupKey;
 
@@ -186,20 +187,23 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
     // refetches via `/api/chart/{slug}?n=all` when they zoom past the
     // inlined range.
     let filter = ui.filter_state();
-    let result = db::run_blocking(&state.db, move |conn| {
-        let groups = collect_landing_groups(conn)?;
-        let universe = api::collect_filter_universe(conn)?;
-        Ok::<_, anyhow::Error>((groups, universe))
-    })
-    .await;
-    let (groups, universe) = match result {
+    let groups_result = api::cached_groups(&state).await;
+    let universe_result = api::cached_filter_universe(&state).await;
+    let (groups, universe) = match (groups_result, universe_result) {
+        (Ok(g), Ok(u)) => (g, u),
+        (Err(err), _) | (_, Err(err)) => {
+            tracing::error!(error = ?err, "landing: cache lookup failed");
+            return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
+    let landing_groups = match collect_landing_groups(&state, &groups).await {
         Ok(g) => g,
         Err(err) => {
             tracing::error!(error = ?err, "landing: collect_landing_groups failed");
             return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
         }
     };
-    let scripts = if groups.is_empty() {
+    let scripts = if landing_groups.is_empty() {
         PageScripts::Empty
     } else {
         PageScripts::Chart
@@ -207,9 +211,9 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
     render_page(
         "bench.vortex.dev",
         "Vortex benchmarks (v3 alpha)",
-        landing_body(&groups, &universe),
+        landing_body(&landing_groups, universe.as_ref()),
         scripts,
-        Some(&universe),
+        Some(universe.as_ref()),
         &filter,
     )
     .into_response()
@@ -226,8 +230,7 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
 /// saved on the cold-page HTML matter much more than a slightly different
 /// fully-zoomed view that the user only sees if they zoom out (at which
 /// point `chart-init.js` refetches `?n=all` from the API).
-fn collect_landing_groups(conn: &Connection) -> Result<Vec<LandingGroup>> {
-    let groups = api::collect_groups(conn)?;
+async fn collect_landing_groups(state: &AppState, groups: &[Group]) -> Result<Vec<LandingGroup>> {
     if groups.is_empty() {
         return Ok(Vec::new());
     }
@@ -235,15 +238,19 @@ fn collect_landing_groups(conn: &Connection) -> Result<Vec<LandingGroup>> {
         std::num::NonZeroU32::new(LANDING_INLINE_N).expect("LANDING_INLINE_N is non-zero"),
     );
     let mut out = Vec::with_capacity(groups.len());
-    for (i, group) in groups.into_iter().enumerate() {
+    for (i, group) in groups.iter().enumerate() {
         let inlined = if i == 0 {
-            // First group in canonical order: pre-fetch every chart so
-            // the moment the user expands it the chart hydrates from
-            // the inline JSON without a JS round-trip.
+            // First group in canonical order: pre-fetch every chart through
+            // the cache so the moment the user expands it the chart hydrates
+            // from the inline JSON without a JS round-trip. Each lookup is a
+            // cache hit after warm-up; on cold start, single-flight via
+            // `OnceCell` collapses concurrent requesters onto one DB call
+            // per chart.
             let mut v = Vec::with_capacity(group.charts.len());
             for link in &group.charts {
                 let key = ChartKey::from_slug(&link.slug)?;
-                let payload = api::chart_payload(conn, &key, &inline_window)?;
+                let payload =
+                    api::cached_chart_payload(state, &link.slug, &key, &inline_window).await?;
                 v.push(payload.map(|chart| api::NamedChartResponse {
                     name: link.name.clone(),
                     slug: link.slug.clone(),
@@ -257,10 +264,10 @@ fn collect_landing_groups(conn: &Connection) -> Result<Vec<LandingGroup>> {
             (0..group.charts.len()).map(|_| None).collect()
         };
         out.push(LandingGroup {
-            name: group.name,
-            description: group.description,
-            summary: group.summary,
-            chart_links: group.charts,
+            name: group.name.clone(),
+            description: group.description.clone(),
+            summary: group.summary.clone(),
+            chart_links: group.charts.clone(),
             inlined,
         });
     }
@@ -281,11 +288,7 @@ async fn chart_page(
     };
 
     let window = ui.fetch_window();
-    let result = db::run_blocking(&state.db, move |conn| {
-        api::chart_payload(conn, &key, &window)
-    })
-    .await;
-    let chart = match result {
+    let chart = match api::cached_chart_payload(&state, &slug, &key, &window).await {
         Ok(Some(c)) => c,
         Ok(None) => return error_page(StatusCode::NOT_FOUND, "chart not found").into_response(),
         Err(err) => {
@@ -294,7 +297,7 @@ async fn chart_page(
         }
     };
 
-    let payload_json = match serde_json::to_string(&chart) {
+    let payload_json = match serde_json::to_string(&*chart) {
         Ok(s) => s,
         Err(err) => {
             tracing::error!(error = ?err, "chart_page: serialize failed");
@@ -305,15 +308,13 @@ async fn chart_page(
     let title = format!("{} — bench.vortex.dev", chart.display_name);
     let subtitle = chart.display_name.clone();
     let filter = ui.filter_state();
-    let universe_result =
-        db::run_blocking(&state.db, |conn| api::collect_filter_universe(conn)).await;
-    let universe = universe_result.ok();
+    let universe = api::cached_filter_universe(&state).await.ok();
     render_page(
         &title,
         &subtitle,
         chart_body(&chart, &slug, &payload_json),
         PageScripts::Chart,
-        universe.as_ref(),
+        universe.as_deref(),
         &filter,
     )
     .into_response()
@@ -332,30 +333,28 @@ async fn group_page(
         }
     };
     let window = ui.fetch_window();
-    let result = db::run_blocking(&state.db, move |conn| {
-        api::collect_group_charts(conn, &key, &window)
-    })
-    .await;
-    let group = match result {
-        Ok(Some(g)) => g,
-        Ok(None) => return error_page(StatusCode::NOT_FOUND, "group not found").into_response(),
-        Err(err) => {
-            tracing::error!(error = ?err, "group_page: collect_group_charts failed");
-            return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
-        }
-    };
+    let group: Arc<api::GroupChartsResponse> =
+        match api::cached_group_charts(&state, &slug, &key, &window).await {
+            Ok(Some(g)) => g,
+            Ok(None) => {
+                return error_page(StatusCode::NOT_FOUND, "group not found").into_response();
+            }
+            Err(err) => {
+                tracing::error!(error = ?err, "group_page: collect_group_charts failed");
+                return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
+                    .into_response();
+            }
+        };
     let title = format!("{} — bench.vortex.dev", group.name);
     let subtitle = group.name.clone();
     let filter = ui.filter_state();
-    let universe_result =
-        db::run_blocking(&state.db, |conn| api::collect_filter_universe(conn)).await;
-    let universe = universe_result.ok();
+    let universe = api::cached_filter_universe(&state).await.ok();
     render_page(
         &title,
         &subtitle,
         group_body(&group),
         PageScripts::Chart,
-        universe.as_ref(),
+        universe.as_deref(),
         &filter,
     )
     .into_response()
