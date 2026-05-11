@@ -13,9 +13,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use crate::ArrayId;
 use crate::ArrayRef;
-use crate::dtype::DType;
 
 /// Controls how much rule and kernel resolution detail is captured.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -244,26 +242,29 @@ impl From<TraceResolution> for TraceInterest {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ArraySummary {
-    encoding: ArrayId,
-    len: usize,
-    dtype: DType,
-}
+/// Snapshot-friendly wrapper around [`ArrayRef`] that renders just the encoding, length, and
+/// dtype using the trace format (`vortex.primitive len=4 dtype=i32`).
+///
+/// Carries a clone of the [`ArrayRef`] (a cheap [`Arc`] bump) instead of cloning individual
+/// fields, so trace events stay small and don't duplicate the existing array metadata.
+#[derive(Clone, Debug)]
+pub(crate) struct ArraySummary(ArrayRef);
 
 impl ArraySummary {
     pub(crate) fn new(array: &ArrayRef) -> Self {
-        Self {
-            encoding: array.encoding_id(),
-            len: array.len(),
-            dtype: array.dtype().clone(),
-        }
+        Self(array.clone())
     }
 }
 
 impl Display for ArraySummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} len={} dtype={}", self.encoding, self.len, self.dtype)
+        write!(
+            f,
+            "{} len={} dtype={}",
+            self.0.encoding_id(),
+            self.0.len(),
+            self.0.dtype(),
+        )
     }
 }
 
