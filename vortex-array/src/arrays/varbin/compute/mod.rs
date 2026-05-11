@@ -8,6 +8,7 @@ mod cast;
 mod compare;
 mod filter;
 mod mask;
+pub(crate) mod substring;
 mod take;
 
 #[cfg(test)]

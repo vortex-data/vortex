@@ -220,6 +220,36 @@ fn test_vortex_scan_strings_contains() {
 }
 
 #[test]
+fn test_vortex_scan_strings_substr() {
+    let file = RUNTIME.block_on(async {
+        let strings = VarBinArray::from(vec!["Hello", "Hi", "Hey"]);
+        write_single_column_vortex_file("strings", strings).await
+    });
+
+    let result: String = scan_vortex_file_single_row(
+        file,
+        "SELECT string_agg(strings, ',') FROM ? WHERE substr(strings, 1, 2) = 'He'",
+        0,
+    );
+    assert_eq!(result, "Hello,Hey");
+}
+
+#[test]
+fn test_vortex_scan_strings_substr_view() {
+    let file = RUNTIME.block_on(async {
+        let strings = VarBinViewArray::from_iter_str(["Hello", "Hi", "Hey"]);
+        write_single_column_vortex_file("strings", strings).await
+    });
+
+    let result: String = scan_vortex_file_single_row(
+        file,
+        "SELECT string_agg(strings, ',') FROM ? WHERE substr(strings, 1, 2) = 'He'",
+        0,
+    );
+    assert_eq!(result, "Hello,Hey");
+}
+
+#[test]
 fn test_vortex_scan_integers() {
     let file = RUNTIME.block_on(async {
         let numbers = buffer![1i32, 42, 100, -5, 0];

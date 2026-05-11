@@ -46,6 +46,7 @@ use crate::scalar_fn::fns::pack::PackOptions;
 use crate::scalar_fn::fns::root::Root;
 use crate::scalar_fn::fns::select::FieldSelection;
 use crate::scalar_fn::fns::select::Select;
+use crate::scalar_fn::fns::substring::Substring;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
@@ -640,6 +641,15 @@ pub fn not_ilike(child: Expression, pattern: Expression) -> Expression {
 /// Creates a mask expression that applies the given boolean mask to the input array.
 pub fn mask(array: Expression, mask: Expression) -> Expression {
     Mask.new_expr(EmptyOptions, [array, mask])
+}
+
+/// Creates a SQL SUBSTR(string, start [, length]) expression. "start" is 1-based.
+pub fn substr(string: Expression, start: Expression, length: Option<Expression>) -> Expression {
+    if let Some(len) = length {
+        Substring.new_expr(EmptyOptions, [string, start, len])
+    } else {
+        Substring.new_expr(EmptyOptions, [string, start])
+    }
 }
 
 // ---- Merge ----

@@ -21,6 +21,7 @@ use vortex::expr::list_contains;
 use vortex::expr::lit;
 use vortex::expr::not;
 use vortex::expr::or_collect;
+use vortex::expr::substr;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::between::Between;
@@ -95,6 +96,25 @@ fn try_from_bound_function(
             };
             Like.new_expr(LikeOptions::default(), [value, lit(pattern)])
         }
+        "substr" | "substring" => {
+            let children: Vec<_> = func.children().collect();
+            vortex_ensure!(children.len() == 2 || children.len() == 3);
+            let Some(string) = try_from_expression_inner(children[0], col_sub)? else {
+                return Ok(None);
+            };
+            let Some(start) = try_from_expression_inner(children[1], col_sub)? else {
+                return Ok(None);
+            };
+            let length = if children.len() == 3 {
+                let Some(len_expr) = try_from_expression_inner(children[2], col_sub)? else {
+                    return Ok(None);
+                };
+                Some(len_expr)
+            } else {
+                None
+            };
+            substr(string, start, length)
+        }
         _ => {
             debug!("bound function {}", func.scalar_function.name());
             return Ok(None);
@@ -126,7 +146,7 @@ pub(super) fn try_from_bound_expression_with_col_sub(
  * If we return true here, and expression is in the list for
  * pushdown_complex_filter, we must handle it, or query engine will break.
  *
- * Example: we don't support substr() expression so we tell Duckdb we can't
+ * Example: we don't support hash() expression so we tell Duckdb we can't
  * push it.
  * Example: optional filters may fail to parse on our side (we return
  * Ok(None)), so we don't allow pushing these.
@@ -154,6 +174,8 @@ pub fn can_push_expression(value: &duckdb::ExpressionRef) -> bool {
                 || name == "suffix"
                 || name == "~~"
                 || name == "!~~"
+                || name == "substr"
+                || name == "substring"
         }
         ExpressionClass::BoundOperator(op) => {
             if !matches!(

@@ -5,6 +5,7 @@ mod cast;
 mod mask;
 pub(crate) mod rules;
 mod slice;
+pub(crate) mod substring;
 mod take;
 mod zip;
 
