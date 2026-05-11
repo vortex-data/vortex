@@ -84,7 +84,10 @@ impl<'a, T: TableFunction> TableInitInput<'a, T> {
     }
 
     pub fn projection_ids(&self) -> Option<&[u64]> {
-        if self.input.projection_ids.is_null() {
+        // Passed pointer is std::vector's .data(). However, C++ doesn't
+        // guarantee an empty vector's pointer is nullptr so we need to check
+        // both conditions
+        if self.input.projection_ids.is_null() || self.input.projection_ids_count == 0 {
             return None;
         }
         Some(unsafe {
