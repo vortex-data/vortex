@@ -8,7 +8,6 @@ plugins {
     id("com.palantir.git-version") version "5.0.0"
     id("com.palantir.java-format") version "2.90.0"
     id("net.ltgt.errorprone") version "5.1.0" apply false
-    id("com.google.protobuf") version "0.10.0" apply false
     id("com.vanniktech.maven.publish") version "0.36.0" apply false
 }
 
@@ -55,8 +54,6 @@ allprojects {
         tasks.withType<JavaCompile> {
             options.errorprone.disable("UnusedVariable")
             options.errorprone.disableWarningsInGeneratedCode = true
-            // ignore protobuf generated files
-            options.errorprone.excludedPaths = ".*/build/generated/.*"
             options.release = 17
             options.compilerArgs.add("-Werror")
 

@@ -7,7 +7,6 @@ import org.gradle.kotlin.dsl.support.serviceOf
 plugins {
     `java-library`
     `jvm-test-suite`
-    id("com.google.protobuf")
     id("com.gradleup.shadow") version "9.4.1"
 }
 
@@ -26,7 +25,6 @@ dependencies {
     errorprone(libs.nopen.checker)
 
     implementation(libs.guava)
-    implementation(libs.protobuf.java)
     compileOnly(libs.errorprone.annotations)
     compileOnly(libs.nopen.annotations)
 
@@ -91,15 +89,8 @@ tasks.withType<Test>().all {
     )
 }
 
-protobuf {
-    protoc {
-        artifact = "com.google.protobuf:protoc:${libs.versions.protobuf.get()}"
-    }
-}
-
-// shade guava and protobuf dependencies
+// shade guava and arrow dependencies
 tasks.withType<ShadowJar> {
-    relocate("com.google.protobuf", "dev.vortex.relocated.com.google.protobuf")
     relocate("com.google.common", "dev.vortex.relocated.com.google.common")
     relocate("org.apache.arrow", "dev.vortex.relocated.org.apache.arrow") {
         // exclude C Data Interface since JNI cannot be relocated
