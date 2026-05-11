@@ -40,6 +40,7 @@ use crate::array::SLOT_NAMES;
 use crate::array::TYPED_VALUE_SLOT;
 use crate::array::VALIDITY_SLOT;
 use crate::array::VALUE_SLOT;
+use crate::array::logical_shredded_from_parquet_typed_value;
 use crate::array::validate_parts;
 use crate::kernel::PARENT_KERNELS;
 
@@ -212,7 +213,11 @@ impl VTable for ParquetVariant {
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        let shredded = array.typed_value_array().cloned();
+        let shredded = array
+            .typed_value_array()
+            .cloned()
+            .map(logical_shredded_from_parquet_typed_value)
+            .transpose()?;
         Ok(ExecutionResult::done(
             VariantArray::try_new(array.as_ref().clone().into_array(), shredded)?.into_array(),
         ))

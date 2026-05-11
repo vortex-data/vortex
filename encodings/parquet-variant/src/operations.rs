@@ -149,6 +149,26 @@ fn scalar_from_shredded_field_scalar(
     scalar_from_field_scalars(metadata, field.field("value"), field.field("typed_value"))
 }
 
+fn scalar_from_shredded_object_field_scalar(
+    metadata: &[u8],
+    field_scalar: Scalar,
+) -> VortexResult<Option<Scalar>> {
+    if field_scalar.is_null() {
+        return Ok(None);
+    }
+
+    let field = field_scalar.as_struct();
+    let value = field.field("value");
+    let typed_value = field.field("typed_value");
+    let has_value = value.as_ref().is_some_and(|scalar| !scalar.is_null());
+    let has_typed_value = typed_value.as_ref().is_some_and(|scalar| !scalar.is_null());
+    if !has_value && !has_typed_value {
+        return Ok(None);
+    }
+
+    scalar_from_field_scalars(metadata, value, typed_value).map(Some)
+}
+
 fn scalar_from_field_scalars(
     metadata: &[u8],
     value: Option<Scalar>,
@@ -180,12 +200,15 @@ fn scalar_from_shredded_object_scalar(
     let mut field_values = Vec::new();
 
     for name in typed_value.names().iter() {
-        let nested = scalar_from_shredded_field_scalar(
+        let Some(nested) = scalar_from_shredded_object_field_scalar(
             metadata,
             typed_value
                 .field(name.as_ref())
                 .vortex_expect("typed struct field must exist"),
-        )?;
+        )?
+        else {
+            continue;
+        };
         names.push(FieldName::from(name.as_ref()));
         dtypes.push(DType::Variant(Nullability::NonNullable));
         field_values.push(Scalar::variant(nested).into_value());
@@ -198,7 +221,10 @@ fn scalar_from_shredded_object_scalar(
         if !unshredded.is_null() {
             let unshredded = unshredded.as_struct();
             for name in unshredded.names().iter() {
-                if typed_value.field(name.as_ref()).is_some() {
+                if names
+                    .iter()
+                    .any(|typed_name| typed_name.as_ref() == name.as_ref())
+                {
                     continue;
                 }
                 let field = unshredded

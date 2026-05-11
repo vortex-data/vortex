@@ -215,6 +215,7 @@ mod tests {
     use vortex_array::arrays::StructArray as VortexStructArray;
     use vortex_array::arrays::Variant;
     use vortex_array::arrays::VariantArray;
+    use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::arrays::variant::VariantArrayExt;
     use vortex_array::dtype::DType as VortexDType;
     use vortex_array::dtype::Nullability;
@@ -545,6 +546,12 @@ mod tests {
         builder.finish().1
     }
 
+    fn string_variant_value(value: &str) -> Vec<u8> {
+        let mut builder = VariantBuilder::new();
+        builder.append_value(value);
+        builder.finish().1
+    }
+
     fn object_with_b_value(value: &str) -> (Vec<u8>, Vec<u8>) {
         let mut builder = VariantBuilder::new();
         builder.new_object().with_field("b", value).finish();
@@ -590,14 +597,27 @@ mod tests {
             None,
         )?);
 
+        let b_value0 = string_variant_value("left");
+        let b_value1 = string_variant_value("right");
+        let b_value2 = string_variant_value("missing_a");
+        let b_value = nullable_binary_view_array(&[
+            Some(b_value0.as_slice()),
+            Some(b_value1.as_slice()),
+            Some(b_value2.as_slice()),
+        ]);
+        let b_shredded: ArrowArrayRef = Arc::new(StructArray::try_new(
+            vec![Arc::new(Field::new("value", DataType::BinaryView, true))].into(),
+            vec![b_value],
+            None,
+        )?);
+
         let typed_value: ArrowArrayRef = Arc::new(StructArray::try_new(
-            vec![Arc::new(Field::new(
-                "a",
-                a_shredded.data_type().clone(),
-                true,
-            ))]
+            vec![
+                Arc::new(Field::new("a", a_shredded.data_type().clone(), true)),
+                Arc::new(Field::new("b", b_shredded.data_type().clone(), true)),
+            ]
             .into(),
-            vec![a_shredded],
+            vec![a_shredded, b_shredded],
             None,
         )?);
 
@@ -698,6 +718,51 @@ mod tests {
                 }
                 None => assert!(scalar.is_null()),
             }
+        }
+        Ok(())
+    }
+
+    fn assert_variant_object_a_b(
+        array: &ArrayRef,
+        expected_a: &[Option<i32>],
+        expected_b: &[&str],
+    ) -> VortexResult<()> {
+        assert_eq!(array.len(), expected_a.len());
+        assert_eq!(array.len(), expected_b.len());
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        for idx in 0..array.len() {
+            let scalar = array.execute_scalar(idx, &mut ctx)?;
+            let object = scalar
+                .as_variant()
+                .value()
+                .ok_or_else(|| vortex_err!("expected non-null variant object"))?
+                .as_struct();
+
+            match expected_a[idx] {
+                Some(expected) => {
+                    let value = object
+                        .field("a")
+                        .ok_or_else(|| vortex_err!("expected field a"))?
+                        .as_variant()
+                        .value()
+                        .ok_or_else(|| vortex_err!("expected non-null field a"))?
+                        .cast(&VortexDType::Primitive(PType::I32, Nullability::Nullable))?;
+                    assert_eq!(value.as_primitive().typed_value::<i32>(), Some(expected));
+                }
+                None => assert!(object.field("a").is_none()),
+            }
+
+            let field_b = object
+                .field("b")
+                .ok_or_else(|| vortex_err!("expected field b"))?;
+            let value = field_b
+                .as_variant()
+                .value()
+                .ok_or_else(|| vortex_err!("expected non-null field b"))?;
+            assert_eq!(
+                value.as_utf8().value().map(|value| value.as_str()),
+                Some(expected_b[idx])
+            );
         }
         Ok(())
     }
@@ -808,7 +873,17 @@ mod tests {
     #[test]
     fn test_variant_get_canonical_shredded_rewrites_to_core_storage() -> VortexResult<()> {
         let canonical = make_partially_shredded_object_array()?;
-        assert!(canonical.as_::<Variant>().shredded().is_some());
+        let shredded = canonical
+            .as_::<Variant>()
+            .shredded()
+            .ok_or_else(|| vortex_err!("expected canonical shredded child"))?
+            .clone()
+            .execute::<VortexStructArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        assert_eq!(
+            shredded.unmasked_field_by_name("a")?.dtype(),
+            &VortexDType::Primitive(PType::I32, Nullability::Nullable)
+        );
+        assert!(shredded.unmasked_field_by_name_opt("b").is_none());
 
         let result = execute_variant_get(
             canonical,
@@ -852,6 +927,26 @@ mod tests {
         let result = execute_variant_get(canonical, "$.a.b", None)?;
 
         assert_variant_i32_scalars(&result, &[Some(100), Some(20), Some(30)])
+    }
+
+    #[test]
+    fn test_variant_get_untyped_partial_object_preserves_raw_fields() -> VortexResult<()> {
+        let canonical = make_partially_shredded_object_array()?;
+
+        let direct_result =
+            execute_variant_get(canonical.as_::<Variant>().core_storage().clone(), "$", None)?;
+        assert_variant_object_a_b(
+            &direct_result,
+            &[Some(10), Some(30), None],
+            &["left", "right", "missing_a"],
+        )?;
+
+        let canonical_result = execute_variant_get(canonical, "$", None)?;
+        assert_variant_object_a_b(
+            &canonical_result,
+            &[Some(10), Some(30), None],
+            &["left", "right", "missing_a"],
+        )
     }
 
     #[test]

@@ -15,11 +15,17 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
+use vortex_array::arrays::Struct;
+use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VariantArray;
+use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::arrow::to_arrow_null_buffer;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
+use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
@@ -213,11 +219,75 @@ impl ParquetVariantData {
             .typed_value_field()
             .map(|tv| ArrayRef::from_arrow(tv.as_ref(), typed_value_nullable))
             .transpose()?;
-        let shredded = typed_value.clone();
+        let shredded = typed_value
+            .clone()
+            .map(logical_shredded_from_parquet_typed_value)
+            .transpose()?;
 
         let pv = ParquetVariant::try_new(validity, metadata, value, typed_value)?;
         Ok(VariantArray::try_new(pv.into_array(), shredded)?.into_array())
     }
+}
+
+pub(crate) fn logical_shredded_from_parquet_typed_value(
+    typed_value: ArrayRef,
+) -> VortexResult<ArrayRef> {
+    let Some(struct_array) = typed_value.as_opt::<Struct>() else {
+        return Ok(typed_value);
+    };
+
+    let mut names = Vec::new();
+    let mut fields = Vec::new();
+    for (name, field) in struct_array
+        .names()
+        .iter()
+        .zip(struct_array.iter_unmasked_fields())
+    {
+        if let Some(logical_field) = logical_shredded_from_parquet_field(field.clone())? {
+            names.push(FieldName::from(name.as_ref()));
+            fields.push(logical_field);
+        }
+    }
+
+    Ok(StructArray::try_new(
+        FieldNames::from_iter(names),
+        fields,
+        typed_value.len(),
+        struct_array.validity()?,
+    )?
+    .into_array())
+}
+
+fn logical_shredded_from_parquet_field(field: ArrayRef) -> VortexResult<Option<ArrayRef>> {
+    let Some(field_struct) = field.as_opt::<Struct>() else {
+        return Ok(Some(field));
+    };
+
+    let only_parquet_fields = field_struct
+        .names()
+        .iter()
+        .all(|name| matches!(name.as_ref(), "value" | "typed_value"));
+    if only_parquet_fields {
+        let Some(typed_value) = field_struct.unmasked_field_by_name_opt("typed_value") else {
+            return Ok(None);
+        };
+        return logical_shredded_from_parquet_typed_value(mask_with_validity(
+            typed_value.clone(),
+            field_struct.validity()?,
+        )?)
+        .map(Some);
+    }
+
+    logical_shredded_from_parquet_typed_value(field).map(Some)
+}
+
+fn mask_with_validity(array: ArrayRef, validity: Validity) -> VortexResult<ArrayRef> {
+    if validity.no_nulls() {
+        return Ok(array);
+    }
+
+    let len = array.len();
+    array.mask(validity.to_array(len))
 }
 
 pub(crate) fn validate_parts(

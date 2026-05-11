@@ -319,4 +319,50 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn variant_get_treats_value_and_typed_value_as_logical_field_names() -> VortexResult<()> {
+        let core_storage = row_storage([1, 2, 3])?;
+        let shredded = StructArray::try_from_iter([
+            (
+                "value",
+                PrimitiveArray::from_iter([10i32, 20, 30]).into_array(),
+            ),
+            (
+                "typed_value",
+                PrimitiveArray::from_iter([40i32, 50, 60]).into_array(),
+            ),
+        ])?;
+        let variant = VariantArray::try_new(core_storage, Some(shredded.into_array()))?;
+
+        let value_expr = variant_get(
+            root(),
+            VariantPath::field("value"),
+            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        );
+        let value_result = variant
+            .clone()
+            .into_array()
+            .apply(&value_expr)?
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        assert_arrays_eq!(
+            value_result,
+            PrimitiveArray::from_option_iter([Some(10i32), Some(20), Some(30)])
+        );
+
+        let typed_value_expr = variant_get(
+            root(),
+            VariantPath::field("typed_value"),
+            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        );
+        let typed_value_result = variant
+            .into_array()
+            .apply(&typed_value_expr)?
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        assert_arrays_eq!(
+            typed_value_result,
+            PrimitiveArray::from_option_iter([Some(40i32), Some(50), Some(60)])
+        );
+        Ok(())
+    }
 }

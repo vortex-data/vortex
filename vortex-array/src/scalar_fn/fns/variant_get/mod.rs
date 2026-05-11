@@ -19,10 +19,15 @@ use vortex_utils::aliases::StringEscape;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::ChunkedArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::VariantArray;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
+use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -119,13 +124,107 @@ impl ScalarFnVTable for VariantGet {
     fn execute(
         &self,
         options: &Self::Options,
-        _args: &dyn ExecutionArgs,
-        _ctx: &mut ExecutionCtx,
+        args: &dyn ExecutionArgs,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        vortex_bail!(
-            "VariantGet execution is not implemented yet for path {}",
-            options.path()
-        )
+        let input = args.get(0)?;
+        let dtype = options
+            .dtype()
+            .map_or(DType::Variant(Nullability::Nullable), DType::as_nullable);
+        let mut chunks = Vec::with_capacity(input.len());
+
+        for idx in 0..input.len() {
+            let scalar = input.execute_scalar(idx, ctx)?;
+            let output = variant_get_scalar(&scalar, options, &dtype)?;
+            chunks.push(ConstantArray::new(output, 1).into_array());
+        }
+
+        let array = ChunkedArray::try_new(chunks, dtype.clone())?.into_array();
+        if dtype.is_variant() {
+            VariantArray::try_new(array, None).map(|array| array.into_array())
+        } else {
+            Ok(array)
+        }
+    }
+}
+
+fn variant_get_scalar(
+    scalar: &Scalar,
+    options: &VariantGetOptions,
+    output_dtype: &DType,
+) -> VortexResult<Scalar> {
+    let Some(value) = variant_path_scalar(scalar, options.path().elements())? else {
+        return Ok(Scalar::null(output_dtype.clone()));
+    };
+
+    if options.dtype().is_none_or(DType::is_variant) {
+        return Scalar::variant(value).cast(output_dtype);
+    }
+
+    if value.is_null() {
+        return Ok(Scalar::null(output_dtype.clone()));
+    }
+
+    value
+        .cast(output_dtype)
+        .or_else(|_| Ok(Scalar::null(output_dtype.clone())))
+}
+
+fn variant_path_scalar(
+    scalar: &Scalar,
+    path: &[VariantPathElement],
+) -> VortexResult<Option<Scalar>> {
+    let mut current = match variant_payload(scalar.clone()) {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+
+    for element in path {
+        current = match variant_payload(current) {
+            Some(value) => value,
+            None => return Ok(None),
+        };
+
+        if current.is_null() {
+            return Ok(None);
+        }
+
+        current = match element {
+            VariantPathElement::Field(name) => {
+                let Some(struct_scalar) = current.as_struct_opt() else {
+                    return Ok(None);
+                };
+                if struct_scalar.is_null() {
+                    return Ok(None);
+                }
+                let Some(field) = struct_scalar.field(name.as_ref()) else {
+                    return Ok(None);
+                };
+                field
+            }
+            VariantPathElement::Index(index) => {
+                let Ok(index) = usize::try_from(*index) else {
+                    return Ok(None);
+                };
+                let Some(list_scalar) = current.as_list_opt() else {
+                    return Ok(None);
+                };
+                let Some(element) = list_scalar.element(index) else {
+                    return Ok(None);
+                };
+                element
+            }
+        };
+    }
+
+    Ok(variant_payload(current))
+}
+
+fn variant_payload(scalar: Scalar) -> Option<Scalar> {
+    if scalar.dtype().is_variant() {
+        scalar.as_variant().value().cloned()
+    } else {
+        Some(scalar)
     }
 }
 
@@ -372,21 +471,67 @@ fn parse_index(path: &str, start: usize) -> VortexResult<(u64, usize)> {
 
 #[cfg(test)]
 mod tests {
+    use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use crate::ArrayRef;
+    use crate::IntoArray;
     use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::ConstantArray;
     use crate::dtype::DType;
+    use crate::dtype::FieldName;
+    use crate::dtype::FieldNames;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::expr::Expression;
     use crate::expr::proto::ExprSerializeProtoExt;
     use crate::expr::root;
     use crate::expr::variant_get;
+    use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
     use crate::scalar_fn::ScalarFnVTable;
     use crate::scalar_fn::fns::variant_get::VariantGet;
     use crate::scalar_fn::fns::variant_get::VariantGetOptions;
     use crate::scalar_fn::fns::variant_get::VariantPath;
     use crate::scalar_fn::fns::variant_get::VariantPathElement;
+
+    fn variant_object(fields: impl IntoIterator<Item = (&'static str, Scalar)>) -> Scalar {
+        let fields = fields.into_iter().collect::<Vec<_>>();
+        let names = FieldNames::from_iter(fields.iter().map(|(name, _)| FieldName::from(*name)));
+        let dtypes = vec![DType::Variant(Nullability::NonNullable); fields.len()];
+        let values = fields
+            .into_iter()
+            .map(|(_, value)| Scalar::variant(value).into_value())
+            .collect();
+        Scalar::try_new(
+            DType::Struct(StructFields::new(names, dtypes), Nullability::NonNullable),
+            Some(ScalarValue::Tuple(values)),
+        )
+        .unwrap()
+    }
+
+    fn variant_rows(rows: impl IntoIterator<Item = Scalar>) -> VortexResult<ArrayRef> {
+        let dtype = DType::Variant(Nullability::Nullable);
+        let chunks = rows
+            .into_iter()
+            .map(|row| ConstantArray::new(row.cast(&dtype).unwrap(), 1).into_array())
+            .collect();
+        ChunkedArray::try_new(chunks, dtype).map(|array| array.into_array())
+    }
+
+    fn execute_variant_get(
+        array: ArrayRef,
+        path: &str,
+        dtype: Option<DType>,
+    ) -> VortexResult<ArrayRef> {
+        let expr = variant_get(root(), VariantPath::parse(path)?, dtype);
+        array
+            .apply(&expr)?
+            .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
+    }
 
     #[test]
     fn variant_get_path_parse_and_display() {
@@ -479,5 +624,94 @@ mod tests {
         let actual = Expression::from_proto(&proto, &LEGACY_SESSION).unwrap();
 
         assert_eq!(actual, expr);
+    }
+
+    #[test]
+    fn variant_get_generic_fallback_extracts_field_and_list_index() -> VortexResult<()> {
+        let items = Scalar::list(
+            DType::Variant(Nullability::NonNullable),
+            vec![
+                Scalar::variant(Scalar::primitive(10i32, Nullability::NonNullable)),
+                Scalar::variant(Scalar::primitive(20i32, Nullability::NonNullable)),
+            ],
+            Nullability::NonNullable,
+        );
+        let array = variant_rows([
+            Scalar::variant(variant_object([("items", items)])),
+            Scalar::variant(variant_object([(
+                "items",
+                Scalar::list_empty(
+                    DType::Variant(Nullability::NonNullable).into(),
+                    Nullability::NonNullable,
+                ),
+            )])),
+            Scalar::variant(variant_object([(
+                "items",
+                Scalar::list(
+                    DType::Variant(Nullability::NonNullable),
+                    vec![
+                        Scalar::variant(Scalar::utf8("x", Nullability::NonNullable)),
+                        Scalar::variant(Scalar::utf8("wrong", Nullability::NonNullable)),
+                    ],
+                    Nullability::NonNullable,
+                ),
+            )])),
+        ])?;
+
+        let result = execute_variant_get(
+            array,
+            "$.items[1]",
+            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        )?;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        assert_eq!(
+            result
+                .execute_scalar(0, &mut ctx)?
+                .as_primitive()
+                .typed_value::<i32>(),
+            Some(20)
+        );
+        assert!(result.execute_scalar(1, &mut ctx)?.is_null());
+        assert!(result.execute_scalar(2, &mut ctx)?.is_null());
+        Ok(())
+    }
+
+    #[test]
+    fn variant_get_generic_fallback_preserves_variant_null() -> VortexResult<()> {
+        let array = variant_rows([
+            Scalar::variant(variant_object([(
+                "a",
+                Scalar::utf8("ok", Nullability::NonNullable),
+            )])),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+            Scalar::variant(variant_object([("a", Scalar::null(DType::Null))])),
+            Scalar::variant(variant_object([(
+                "b",
+                Scalar::primitive(2i32, Nullability::NonNullable),
+            )])),
+        ])?;
+
+        let result = execute_variant_get(array, "$.a", None)?;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let row0 = result.execute_scalar(0, &mut ctx)?;
+        assert_eq!(
+            row0.as_variant()
+                .value()
+                .and_then(|value| value.as_utf8().value())
+                .map(|value| value.as_str()),
+            Some("ok")
+        );
+        assert!(result.execute_scalar(1, &mut ctx)?.as_variant().is_null());
+        assert_eq!(
+            result
+                .execute_scalar(2, &mut ctx)?
+                .as_variant()
+                .is_variant_null(),
+            Some(true)
+        );
+        assert!(result.execute_scalar(3, &mut ctx)?.as_variant().is_null());
+        Ok(())
     }
 }

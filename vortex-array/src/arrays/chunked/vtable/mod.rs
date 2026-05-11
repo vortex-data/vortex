@@ -245,6 +245,7 @@ impl VTable for Chunked {
                 // TODO(joe)[#7674]: iterative execution here too
                 Ok(ExecutionResult::done(_canonicalize(array.as_view(), ctx)?))
             }
+            DType::Variant(..) => Ok(ExecutionResult::done(array)),
             // For all other types, use the builder path via AppendChild.
             _ => {
                 let slot_idx = array.next_builder_slot.max(CHUNKS_OFFSET);

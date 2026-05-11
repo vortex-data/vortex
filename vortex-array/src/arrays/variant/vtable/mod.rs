@@ -12,6 +12,7 @@ use vortex_error::vortex_panic;
 use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -37,9 +38,13 @@ use crate::arrays::variant::compute::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
+use crate::dtype::StructFields;
 use crate::matcher::Matcher;
 use crate::scalar::Scalar;
+use crate::scalar::ScalarValue;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPathElement;
@@ -237,15 +242,29 @@ impl VTable for Variant {
             .map(Some);
         };
         if parent.options.dtype().is_none_or(DType::is_variant) {
-            let fallback = if all_valid(&typed, ctx)? {
-                None
-            } else {
-                Some(execute_fallback_variant_get(
+            let fallback = match typed.dtype() {
+                DType::Struct(..) => Some(execute_fallback_variant_get(
                     array.len(),
                     parent.options.clone(),
                     array.core_storage().clone(),
                     ctx,
-                )?)
+                )?),
+                DType::List(..) | DType::FixedSizeList(..) => {
+                    return execute_fallback_variant_get(
+                        array.len(),
+                        parent.options.clone(),
+                        array.core_storage().clone(),
+                        ctx,
+                    )
+                    .map(Some);
+                }
+                _ if all_valid(&typed, ctx)? => None,
+                _ => Some(execute_fallback_variant_get(
+                    array.len(),
+                    parent.options.clone(),
+                    array.core_storage().clone(),
+                    ctx,
+                )?),
             };
             return merge_typed_as_variant(typed, fallback, ctx).map(Some);
         }
@@ -290,9 +309,6 @@ fn typed_shredded_path(
 ) -> VortexResult<Option<ArrayRef>> {
     let mut current = shredded.clone();
     for element in path {
-        if let Some(typed) = unwrap_shredded_field_typed_value(current.clone(), ctx)? {
-            current = typed;
-        }
         let VariantPathElement::Field(name) = element else {
             return Ok(None);
         };
@@ -306,31 +322,7 @@ fn typed_shredded_path(
         current = mask_with_validity(field.clone(), current_struct.validity()?)?;
     }
 
-    unwrap_shredded_field_typed_value(current.clone(), ctx).map(|typed| typed.or(Some(current)))
-}
-
-fn unwrap_shredded_field_typed_value(
-    array: ArrayRef,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<ArrayRef>> {
-    let DType::Struct(struct_fields, _) = array.dtype() else {
-        return Ok(None);
-    };
-    let has_typed_value = struct_fields.find("typed_value").is_some();
-    let only_shredding_fields = struct_fields
-        .names()
-        .iter()
-        .all(|name| matches!(name.as_ref(), "value" | "typed_value"));
-    if !has_typed_value || !only_shredding_fields {
-        return Ok(None);
-    }
-
-    let struct_array = array.execute::<Array<Struct>>(ctx)?;
-    struct_array
-        .unmasked_field_by_name_opt("typed_value")
-        .cloned()
-        .map(|typed_value| mask_with_validity(typed_value, struct_array.validity()?))
-        .transpose()
+    Ok(Some(current))
 }
 
 fn mask_with_validity(array: ArrayRef, validity: Validity) -> VortexResult<ArrayRef> {
@@ -362,6 +354,14 @@ fn merge_typed_as_variant(
                 .map(|fallback| fallback.execute_scalar(idx, ctx))
                 .transpose()?
                 .unwrap_or_else(|| Scalar::null(dtype.clone()))
+        } else if typed_scalar.dtype().is_struct() {
+            merge_typed_object_as_variant(
+                typed_scalar,
+                fallback
+                    .as_ref()
+                    .map(|fallback| fallback.execute_scalar(idx, ctx))
+                    .transpose()?,
+            )?
         } else if typed_scalar.dtype().is_variant() {
             typed_scalar
         } else {
@@ -372,7 +372,94 @@ fn merge_typed_as_variant(
         chunks.push(ConstantArray::new(scalar, 1).into_array());
     }
 
-    ChunkedArray::try_new(chunks, dtype).map(|array| array.into_array())
+    let core_storage = ChunkedArray::try_new(chunks, dtype)?.into_array();
+    VariantArray::try_new(core_storage, None).map(|array| array.into_array())
+}
+
+fn merge_typed_object_as_variant(
+    typed_scalar: Scalar,
+    fallback_scalar: Option<Scalar>,
+) -> VortexResult<Scalar> {
+    let fallback_inner = fallback_scalar
+        .as_ref()
+        .and_then(|scalar| scalar.as_variant().value())
+        .filter(|scalar| scalar.dtype().is_struct() && !scalar.is_null());
+    let Some(fallback_inner) = fallback_inner else {
+        return Ok(Scalar::variant(typed_scalar));
+    };
+
+    merge_struct_payload(&typed_scalar, Some(fallback_inner)).map(Scalar::variant)
+}
+
+fn merge_struct_payload(typed: &Scalar, raw: Option<&Scalar>) -> VortexResult<Scalar> {
+    let typed_struct = typed.as_struct();
+    let raw_struct = raw
+        .filter(|scalar| scalar.dtype().is_struct() && !scalar.is_null())
+        .map(Scalar::as_struct);
+    let mut present_typed_fields = HashSet::new();
+    let mut names = Vec::new();
+    let mut values = Vec::new();
+
+    for name in typed_struct.names().iter() {
+        let Some(typed_field) = typed_struct.field(name.as_ref()) else {
+            continue;
+        };
+        if typed_field.is_null() {
+            continue;
+        }
+
+        let raw_field = raw_struct.and_then(|raw_struct| raw_struct.field(name.as_ref()));
+        let raw_payload = raw_field.as_ref().and_then(|scalar| {
+            if scalar.dtype().is_variant() {
+                scalar.as_variant().value()
+            } else {
+                Some(scalar)
+            }
+        });
+        let field = if typed_field.dtype().is_struct()
+            && raw_payload.is_some_and(|raw| raw.dtype().is_struct() && !raw.is_null())
+        {
+            Scalar::variant(merge_struct_payload(&typed_field, raw_payload)?)
+        } else if typed_field.dtype().is_variant() {
+            typed_field.cast(&DType::Variant(Nullability::NonNullable))?
+        } else {
+            Scalar::variant(typed_field)
+        };
+
+        present_typed_fields.insert(name.as_ref().to_string());
+        names.push(FieldName::from(name.as_ref()));
+        values.push(field.into_value());
+    }
+
+    if let Some(raw_struct) = raw_struct {
+        for name in raw_struct.names().iter() {
+            if present_typed_fields.contains(name.as_ref()) {
+                continue;
+            }
+            let Some(raw_field) = raw_struct.field(name.as_ref()) else {
+                continue;
+            };
+            if raw_field.is_null() {
+                continue;
+            }
+            let raw_field = if raw_field.dtype().is_variant() {
+                raw_field.cast(&DType::Variant(Nullability::NonNullable))?
+            } else {
+                Scalar::variant(raw_field)
+            };
+            names.push(FieldName::from(name.as_ref()));
+            values.push(raw_field.into_value());
+        }
+    }
+
+    let fields = StructFields::new(
+        FieldNames::from(names),
+        vec![DType::Variant(Nullability::NonNullable); values.len()],
+    );
+    Scalar::try_new(
+        DType::Struct(fields, Nullability::NonNullable),
+        Some(ScalarValue::Tuple(values)),
+    )
 }
 
 fn execute_fallback_variant_get(
