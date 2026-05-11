@@ -47,6 +47,7 @@ use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
+use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::variant_get::VariantPathElement;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -241,6 +242,20 @@ impl VTable for Variant {
             )
             .map(Some);
         };
+        if typed.dtype().is_variant()
+            && parent
+                .options
+                .dtype()
+                .is_some_and(|dtype| !dtype.is_variant())
+        {
+            return execute_fallback_variant_get(
+                array.len(),
+                VariantGetOptions::new(VariantPath::root(), parent.options.dtype().cloned()),
+                typed,
+                ctx,
+            )
+            .map(Some);
+        }
         if parent.options.dtype().is_none_or(DType::is_variant) {
             let fallback = match typed.dtype() {
                 DType::Struct(..) => Some(execute_fallback_variant_get(
@@ -348,32 +363,61 @@ fn merge_typed_as_variant(
 
     for idx in 0..typed.len() {
         let typed_scalar = typed.execute_scalar(idx, ctx)?;
-        let scalar = if typed_scalar.is_null() {
-            fallback
-                .as_ref()
-                .map(|fallback| fallback.execute_scalar(idx, ctx))
-                .transpose()?
-                .unwrap_or_else(|| Scalar::null(dtype.clone()))
-        } else if typed_scalar.dtype().is_struct() {
-            merge_typed_object_as_variant(
-                typed_scalar,
-                fallback
-                    .as_ref()
-                    .map(|fallback| fallback.execute_scalar(idx, ctx))
-                    .transpose()?,
-            )?
-        } else if typed_scalar.dtype().is_variant() {
-            typed_scalar
-        } else {
-            Scalar::variant(typed_scalar)
-        }
-        .cast(&dtype)?;
+        let fallback_scalar = fallback
+            .as_ref()
+            .map(|fallback| fallback.execute_scalar(idx, ctx))
+            .transpose()?;
+        let scalar = merge_typed_scalar_as_variant(typed_scalar, fallback_scalar, &dtype)?;
 
         chunks.push(ConstantArray::new(scalar, 1).into_array());
     }
 
     let core_storage = ChunkedArray::try_new(chunks, dtype)?.into_array();
     VariantArray::try_new(core_storage, None).map(|array| array.into_array())
+}
+
+fn merge_typed_scalar_as_variant(
+    typed_scalar: Scalar,
+    fallback_scalar: Option<Scalar>,
+    dtype: &DType,
+) -> VortexResult<Scalar> {
+    let scalar = if typed_scalar.is_null() {
+        fallback_scalar.unwrap_or_else(|| Scalar::null(dtype.clone()))
+    } else if matches!(
+        typed_scalar.dtype(),
+        DType::List(..) | DType::FixedSizeList(..)
+    ) {
+        Scalar::variant(typed_list_as_variant_payload(typed_scalar)?)
+    } else if typed_scalar.dtype().is_struct() {
+        merge_typed_object_as_variant(typed_scalar, fallback_scalar)?
+    } else if typed_scalar.dtype().is_variant() {
+        typed_scalar
+    } else {
+        Scalar::variant(typed_scalar)
+    };
+
+    scalar.cast(dtype)
+}
+
+fn typed_list_as_variant_payload(typed_scalar: Scalar) -> VortexResult<Scalar> {
+    let list = typed_scalar.as_list();
+    let elements = list
+        .elements()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|element| {
+            if element.dtype().is_variant() {
+                element
+            } else {
+                Scalar::variant(element)
+            }
+        })
+        .collect();
+    Ok(Scalar::list(
+        DType::Variant(Nullability::NonNullable),
+        elements,
+        Nullability::NonNullable,
+    ))
 }
 
 fn merge_typed_object_as_variant(

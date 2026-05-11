@@ -1,20 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hasher;
-
 use prost::Message;
 use vortex_array::Array;
-use vortex_array::ArrayEq;
-use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::EmptyArrayData;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
-use vortex_array::Precision;
 use vortex_array::arrays::VariantArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -27,6 +23,7 @@ use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_proto::dtype as pb;
@@ -34,17 +31,28 @@ use vortex_session::VortexSession;
 use vortex_session::registry::CachedId;
 
 use crate::array::METADATA_SLOT;
+use crate::array::NUM_SLOTS;
 use crate::array::ParquetVariantArrayExt;
-use crate::array::ParquetVariantData;
 use crate::array::SLOT_NAMES;
 use crate::array::TYPED_VALUE_SLOT;
 use crate::array::VALIDITY_SLOT;
 use crate::array::VALUE_SLOT;
+use crate::array::core_storage_without_typed_value;
 use crate::array::logical_shredded_from_parquet_typed_value;
-use crate::array::validate_parts;
 use crate::kernel::PARENT_KERNELS;
 
-/// VTable for [`ParquetVariantArray`].
+/// VTable for Arrow's canonical `arrow.parquet.variant` extension storage.
+///
+/// `ParquetVariantArray` preserves semi-structured data stored as Parquet Variant values in a
+/// lossless form and supports both unshredded and shredded layouts. Its storage matches the
+/// canonical extension type contract:
+/// - `metadata` is always present and non-nullable.
+/// - `value` stores unshredded variant bytes when present.
+/// - `typed_value` stores shredded data when present.
+///
+/// At least one of `value` or `typed_value` must be present. `typed_value` may be a primitive,
+/// list, or struct, with nested shredded children following the same recursive rules as the
+/// Arrow canonical extension type docs.
 #[derive(Debug, Clone)]
 pub struct ParquetVariant;
 
@@ -65,7 +73,7 @@ struct ParquetVariantMetadataProto {
 pub type ParquetVariantArray = Array<ParquetVariant>;
 
 impl VTable for ParquetVariant {
-    type TypedArrayData = ParquetVariantData;
+    type TypedArrayData = EmptyArrayData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
@@ -76,24 +84,66 @@ impl VTable for ParquetVariant {
 
     fn validate(
         &self,
-        data: &Self::TypedArrayData,
+        _data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        let _ = data;
+        vortex_ensure!(
+            slots.len() == NUM_SLOTS,
+            "ParquetVariantArray expects {NUM_SLOTS} slots, got {}",
+            slots.len()
+        );
         let validity = child_to_validity(slots[VALIDITY_SLOT].as_ref(), dtype.nullability());
         let metadata = slots[METADATA_SLOT]
             .as_ref()
             .ok_or_else(|| vortex_err!("ParquetVariantArray metadata slot"))?;
-        validate_parts(
-            &validity,
-            metadata,
-            slots[VALUE_SLOT].as_ref(),
-            slots[TYPED_VALUE_SLOT].as_ref(),
-            dtype,
+        let value = slots[VALUE_SLOT].as_ref();
+        let typed_value = slots[TYPED_VALUE_SLOT].as_ref();
+
+        vortex_ensure!(
+            matches!(dtype, DType::Variant(_)),
+            "Expected Variant DType, found {dtype}"
+        );
+        vortex_ensure!(
+            value.is_some() || typed_value.is_some(),
+            "at least one of value or typed_value must be present"
+        );
+        vortex_ensure_eq!(
+            dtype.nullability(),
+            validity.nullability(),
+            "variant dtype nullability must match validity nullability"
+        );
+        vortex_ensure_eq!(
+            metadata.dtype(),
+            &DType::Binary(Nullability::NonNullable),
+            "metadata dtype must be non-nullable binary"
+        );
+        vortex_ensure_eq!(
+            metadata.len(),
             len,
-        )
+            "metadata length must match array length"
+        );
+
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure_eq!(validity_len, len, "validity length must match array length");
+        }
+        if let Some(value) = value {
+            vortex_ensure!(
+                matches!(value.dtype(), DType::Binary(_)),
+                "value dtype must be binary, found {}",
+                value.dtype()
+            );
+            vortex_ensure_eq!(value.len(), len, "value length must match array length");
+        }
+        if let Some(typed_value) = typed_value {
+            vortex_ensure_eq!(
+                typed_value.len(),
+                len,
+                "typed_value length must match array length"
+            );
+        }
+        Ok(())
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -194,32 +244,26 @@ impl VTable for ParquetVariant {
             None
         };
 
-        ParquetVariantData::validate_parts(
-            &validity,
-            &variant_metadata,
-            value.as_ref(),
-            typed_value.as_ref(),
-            dtype,
-            len,
-        )?;
         let slots = smallvec![
             validity_to_child(&validity, len),
             Some(variant_metadata),
             value,
             typed_value,
         ];
-        let data = ParquetVariantData;
-        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(slots))
     }
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let shredded = array
             .typed_value_array()
             .cloned()
-            .map(logical_shredded_from_parquet_typed_value)
+            .map(|typed_value| {
+                logical_shredded_from_parquet_typed_value(array.metadata_array(), typed_value)
+            })
             .transpose()?;
+        let core_storage = core_storage_without_typed_value(&array)?;
         Ok(ExecutionResult::done(
-            VariantArray::try_new(array.as_ref().clone().into_array(), shredded)?.into_array(),
+            VariantArray::try_new(core_storage, shredded)?.into_array(),
         ))
     }
 
@@ -233,16 +277,6 @@ impl VTable for ParquetVariant {
     }
 }
 
-impl ArrayHash for ParquetVariantData {
-    fn array_hash<H: Hasher>(&self, _state: &mut H, _precision: Precision) {}
-}
-
-impl ArrayEq for ParquetVariantData {
-    fn array_eq(&self, _other: &Self, _precision: Precision) -> bool {
-        true
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_array::ArrayContext;
@@ -253,9 +287,11 @@ mod tests {
     use vortex_array::LEGACY_SESSION;
     use vortex_array::Precision;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::variant::VariantArrayExt;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -303,10 +339,12 @@ mod tests {
     fn test_execute_exposes_typed_value_as_canonical_shredded() -> VortexResult<()> {
         let metadata =
             VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
-        let typed_value = buffer![10i32, 20, 30].into_array();
+        let typed_value =
+            PrimitiveArray::from_option_iter([Some(10i32), None, Some(30)]).into_array();
 
         let parquet_variant =
             ParquetVariant::try_new(Validity::NonNullable, metadata, None, Some(typed_value))?;
+        assert!(parquet_variant.typed_value_array().is_some());
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         let Canonical::Variant(variant) = parquet_variant
@@ -316,11 +354,23 @@ mod tests {
             return Err(vortex_err!("expected canonical variant"));
         };
 
-        assert!(variant.core_storage().as_opt::<ParquetVariant>().is_some());
+        let core_storage = variant
+            .core_storage()
+            .as_opt::<ParquetVariant>()
+            .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
+        assert!(core_storage.typed_value_array().is_none());
         let shredded = variant
             .shredded()
             .ok_or_else(|| vortex_err!("expected canonical shredded child"))?;
-        assert_eq!(shredded.dtype(), &DType::from(PType::I32));
+        assert_eq!(
+            shredded.dtype(),
+            &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+        let shredded = shredded.clone().execute::<PrimitiveArray>(&mut ctx)?;
+        assert_arrays_eq!(
+            shredded,
+            PrimitiveArray::from_option_iter([Some(10), None, Some(30)])
+        );
 
         Ok(())
     }

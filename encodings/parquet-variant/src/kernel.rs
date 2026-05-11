@@ -40,7 +40,6 @@ use vortex_mask::Mask;
 
 use crate::ParquetVariant;
 use crate::ParquetVariantArrayExt;
-use crate::ParquetVariantData;
 
 pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&FilterExecuteAdaptor(ParquetVariant)),
@@ -81,7 +80,7 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetExecute {
             ArrayRef::from_arrow(arrow_output.as_ref(), true)?
         } else {
             let arrow_variant_output = ArrowVariantArray::try_new(arrow_output.as_ref())?;
-            ParquetVariantData::from_arrow_variant_with_nullability(
+            ParquetVariant::from_arrow_variant_with_nullability(
                 &arrow_variant_output,
                 Nullability::Nullable,
             )?
@@ -194,6 +193,7 @@ impl TakeExecute for ParquetVariant {
 mod tests {
     use std::sync::Arc;
 
+    use arrow_array::Array as ArrowArray;
     use arrow_array::ArrayRef as ArrowArrayRef;
     use arrow_array::Int32Array;
     use arrow_array::StringArray;
@@ -209,6 +209,7 @@ mod tests {
     use parquet_variant_compute::json_to_variant;
     use rstest::rstest;
     use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
@@ -219,6 +220,7 @@ mod tests {
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::arrays::variant::VariantArrayExt;
+    use vortex_array::arrow::FromArrowArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar_is_null;
     use vortex_array::dtype::DType as VortexDType;
@@ -232,7 +234,8 @@ mod tests {
     use vortex_error::vortex_err;
     use vortex_mask::Mask;
 
-    use crate::ParquetVariantData;
+    use crate::ParquetVariant;
+    use crate::ParquetVariantArrayExt;
 
     fn make_unshredded_array() -> VortexResult<ArrayRef> {
         let mut builder = VariantArrayBuilder::new(4);
@@ -240,7 +243,7 @@ mod tests {
         builder.append_variant(PqVariant::from("hello"));
         builder.append_variant(PqVariant::from(true));
         builder.append_variant(PqVariant::from(99i64));
-        ParquetVariantData::from_arrow_variant(&builder.build())
+        ParquetVariant::from_arrow_variant(&builder.build())
     }
 
     fn make_nullable_array() -> VortexResult<ArrayRef> {
@@ -257,13 +260,13 @@ mod tests {
             Some(NullBuffer::from(vec![true, false, true, false])),
         )?;
         let arrow_variant = ArrowVariantArray::try_new(&null_struct)?;
-        ParquetVariantData::from_arrow_variant(&arrow_variant)
+        ParquetVariant::from_arrow_variant(&arrow_variant)
     }
 
     fn make_unshredded_json_array(values: Vec<Option<&str>>) -> VortexResult<ArrayRef> {
         let json: ArrowArrayRef = Arc::new(StringArray::from(values));
         let arrow_variant = json_to_variant(&json)?;
-        let canonical = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let canonical = ParquetVariant::from_arrow_variant(&arrow_variant)?;
         Ok(canonical.as_::<Variant>().core_storage().clone())
     }
 
@@ -495,7 +498,7 @@ mod tests {
         builder.finish()
     }
 
-    fn make_partially_shredded_object_array() -> VortexResult<ArrayRef> {
+    fn make_partially_shredded_arrow_variant() -> VortexResult<ArrowVariantArray> {
         let (metadata0, root_value0) = object_with_a_and_b_value(99, "left");
         let (metadata1, root_value1) = object_with_b_value("right");
         let (metadata2, root_value2) = object_with_b_value("missing_a");
@@ -562,8 +565,45 @@ mod tests {
             vec![metadata, value, typed_value],
             None,
         )?;
-        let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
-        ParquetVariantData::from_arrow_variant(&arrow_variant)
+        Ok(ArrowVariantArray::try_new(&struct_array)?)
+    }
+
+    fn make_partially_shredded_parquet_array() -> VortexResult<ArrayRef> {
+        let arrow_variant = make_partially_shredded_arrow_variant()?;
+        let storage = arrow_variant.inner();
+        let value_nullable = storage
+            .fields()
+            .iter()
+            .find(|field| field.name() == "value")
+            .map(|field| field.is_nullable())
+            .unwrap_or(false);
+        let typed_value_nullable = storage
+            .fields()
+            .iter()
+            .find(|field| field.name() == "typed_value")
+            .map(|field| field.is_nullable())
+            .unwrap_or(false);
+
+        let metadata =
+            ArrayRef::from_arrow(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
+        let value = arrow_variant
+            .value_field()
+            .map(|value| ArrayRef::from_arrow(value as &dyn ArrowArray, value_nullable))
+            .transpose()?;
+        let typed_value = arrow_variant
+            .typed_value_field()
+            .map(|typed_value| ArrayRef::from_arrow(typed_value.as_ref(), typed_value_nullable))
+            .transpose()?;
+
+        Ok(
+            ParquetVariant::try_new(Validity::NonNullable, metadata, value, typed_value)?
+                .into_array(),
+        )
+    }
+
+    fn make_partially_shredded_object_array() -> VortexResult<ArrayRef> {
+        let arrow_variant = make_partially_shredded_arrow_variant()?;
+        ParquetVariant::from_arrow_variant(&arrow_variant)
     }
 
     fn make_canonical_raw_core_with_shredded_child() -> VortexResult<ArrayRef> {
@@ -663,19 +703,34 @@ mod tests {
 
     fn make_shredded_typed_array() -> VortexResult<ArrayRef> {
         let metadata = binary_view_array(&[b"\x01\x00", b"\x01\x00", b"\x01\x00"]);
-        let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
+        let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![Some(10), None, Some(30)]));
 
         let struct_array = StructArray::try_new(
             vec![
                 Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-                Arc::new(Field::new("typed_value", DataType::Int32, false)),
+                Arc::new(Field::new("typed_value", DataType::Int32, true)),
             ]
             .into(),
             vec![metadata, typed_value],
             None,
         )?;
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
-        ParquetVariantData::from_arrow_variant(&arrow_variant)
+        ParquetVariant::from_arrow_variant(&arrow_variant)
+    }
+
+    fn assert_shredded_i32(
+        array: &ArrayRef,
+        expected: impl IntoIterator<Item = Option<i32>>,
+    ) -> VortexResult<()> {
+        let shredded = array
+            .as_::<Variant>()
+            .shredded()
+            .ok_or_else(|| vortex_err!("expected canonical shredded child"))?
+            .clone()
+            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+
+        assert_arrays_eq!(shredded, PrimitiveArray::from_option_iter(expected));
+        Ok(())
     }
 
     #[test]
@@ -683,35 +738,31 @@ mod tests {
         let arr = make_shredded_typed_array()?;
 
         let sliced = arr.slice(1..3)?;
-        assert_rows_eq!(&sliced, &arr, [1, 2]);
-        Ok(())
+        assert_shredded_i32(&sliced, [None, Some(30)])
     }
 
     #[test]
     fn test_filter_shredded_typed_value() -> VortexResult<()> {
         let arr = make_shredded_typed_array()?;
-        let filtered = arr.filter(Mask::from_iter([true, false, true]))?;
+        let filtered = arr.filter(Mask::from_iter([true, true, false]))?;
 
-        assert_rows_eq!(&filtered, &arr, [0, 2]);
-        Ok(())
+        assert_shredded_i32(&filtered, [Some(10), None])
     }
 
     #[test]
     fn test_take_shredded_typed_value() -> VortexResult<()> {
         let arr = make_shredded_typed_array()?;
-        let taken = arr.take(PrimitiveArray::from_iter([2u64, 0, 2]).into_array())?;
+        let taken = arr.take(PrimitiveArray::from_iter([2u64, 1, 0]).into_array())?;
 
-        assert_rows_eq!(&taken, &arr, [2, 0, 2]);
-        Ok(())
+        assert_shredded_i32(&taken, [Some(30), None, Some(10)])
     }
 
     #[test]
     fn test_variant_get_direct_parquet_uses_shredded_and_raw_fallback() -> VortexResult<()> {
-        let canonical = make_partially_shredded_object_array()?;
-        let core_storage = canonical.as_::<Variant>().core_storage().clone();
+        let parquet = make_partially_shredded_parquet_array()?;
 
         let result = execute_variant_get(
-            core_storage,
+            parquet,
             "$.a",
             Some(VortexDType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
@@ -725,11 +776,10 @@ mod tests {
 
     #[test]
     fn test_variant_get_direct_parquet_uses_raw_storage_for_unshredded_path() -> VortexResult<()> {
-        let canonical = make_partially_shredded_object_array()?;
-        let core_storage = canonical.as_::<Variant>().core_storage().clone();
+        let parquet = make_partially_shredded_parquet_array()?;
 
         let result = execute_variant_get(
-            core_storage,
+            parquet,
             "$.b",
             Some(VortexDType::Utf8(Nullability::NonNullable)),
         )?;
@@ -752,7 +802,7 @@ mod tests {
             .execute::<VortexStructArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
         assert_eq!(
             shredded.unmasked_field_by_name("a")?.dtype(),
-            &VortexDType::Primitive(PType::I32, Nullability::Nullable)
+            &VortexDType::Variant(Nullability::Nullable)
         );
         assert!(shredded.unmasked_field_by_name_opt("b").is_none());
 
@@ -817,7 +867,7 @@ mod tests {
         let canonical = make_partially_shredded_object_array()?;
 
         let direct_result =
-            execute_variant_get(canonical.as_::<Variant>().core_storage().clone(), "$", None)?;
+            execute_variant_get(make_partially_shredded_parquet_array()?, "$", None)?;
         assert_variant_object_a_b(
             &direct_result,
             &[Some(10), Some(30), None],
@@ -833,22 +883,28 @@ mod tests {
     }
 
     #[test]
-    fn test_variant_get_canonical_core_storage_can_expose_shredded_data() -> VortexResult<()> {
-        let canonical = make_partially_shredded_object_array()?;
-        let variant = canonical.as_::<Variant>();
-        let without_canonical_shredded =
-            VariantArray::try_new(variant.core_storage().clone(), None)?.into_array();
-
-        let result = execute_variant_get(
-            without_canonical_shredded,
-            "$.a",
-            Some(VortexDType::Primitive(PType::I32, Nullability::NonNullable)),
-        )?;
-
-        assert_arrays_eq!(
-            result,
-            PrimitiveArray::from_option_iter([Some(10), Some(30), None])
+    fn test_canonicalization_moves_shredded_child_out_of_core_storage() -> VortexResult<()> {
+        let parquet_array = make_partially_shredded_parquet_array()?;
+        assert!(
+            parquet_array
+                .as_::<ParquetVariant>()
+                .typed_value_array()
+                .is_some()
         );
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let Canonical::Variant(canonical) = parquet_array.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+
+        assert!(canonical.shredded().is_some());
+        let core_storage = canonical
+            .core_storage()
+            .as_opt::<ParquetVariant>()
+            .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
+        assert!(core_storage.typed_value_array().is_none());
+        assert!(core_storage.value_array().is_some());
+
         Ok(())
     }
 }

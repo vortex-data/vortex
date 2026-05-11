@@ -392,7 +392,6 @@ mod tests {
 
     use crate::ParquetVariant;
     use crate::ParquetVariantArrayExt;
-    use crate::ParquetVariantData;
     use crate::operations::parquet_variant_to_scalar;
 
     fn binary_view_array(values: &[&[u8]]) -> ArrowArrayRef {
@@ -407,7 +406,7 @@ mod tests {
         arrow_variant: &ArrowVariantArray,
         rows: impl IntoIterator<Item = usize>,
     ) -> VortexResult<()> {
-        let vortex_arr = ParquetVariantData::from_arrow_variant(arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(arrow_variant)?;
 
         for index in rows {
             let expected_inner = parquet_variant_to_scalar(arrow_variant.try_value(index)?)?;
@@ -439,7 +438,7 @@ mod tests {
         )?;
 
         let arrow_variant = ArrowVariantArray::try_new(&null_struct)?;
-        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::Nullable));
 
@@ -480,7 +479,7 @@ mod tests {
         )?;
 
         let arrow_variant = ArrowVariantArray::try_new(&null_struct)?;
-        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
 
         let present_variant_null =
             vortex_arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
@@ -517,7 +516,7 @@ mod tests {
         )?;
 
         let arrow_variant = ArrowVariantArray::try_new(&null_struct)?;
-        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::Nullable));
         assert!(
@@ -548,7 +547,7 @@ mod tests {
         builder.append_variant(PqVariant::from(2i32));
         let arrow_variant = builder.build();
 
-        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(
             vortex_arr.dtype(),
@@ -669,7 +668,7 @@ mod tests {
         )?;
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
-        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
 
         let row0 = vortex_arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
         let row0 = row0.as_variant().value().unwrap().as_list();
@@ -761,7 +760,7 @@ mod tests {
         )?;
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
-        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
         let object = vortex_arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
         let object = object.as_variant().value().unwrap().as_struct();
 

@@ -234,6 +234,44 @@ mod tests {
     }
 
     #[test]
+    fn scalar_at_merges_shredded_with_core_storage() -> VortexResult<()> {
+        let dtype = DType::Variant(Nullability::Nullable);
+        let core_chunks = [Some(1i32), None, Some(3)]
+            .into_iter()
+            .map(|value| {
+                let scalar = match value {
+                    Some(value) => {
+                        Scalar::variant(Scalar::primitive(value, Nullability::NonNullable))
+                            .cast(&dtype)?
+                    }
+                    None => Scalar::null(dtype.clone()),
+                };
+                Ok(ConstantArray::new(scalar, 1).into_array())
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+        let core_storage = ChunkedArray::try_new(core_chunks, dtype)?.into_array();
+        let shredded = PrimitiveArray::from_option_iter([Some(10i32), Some(20), None]).into_array();
+        let variant = VariantArray::try_new(core_storage, Some(shredded))?;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        for (idx, expected) in [Some(10i32), None, Some(3)].into_iter().enumerate() {
+            let scalar = variant.execute_scalar(idx, &mut ctx)?;
+            let variant = scalar.as_variant();
+            match expected {
+                Some(expected) => {
+                    let value = variant
+                        .value()
+                        .ok_or_else(|| vortex_err!("expected non-null variant row"))?;
+                    assert_eq!(value.as_primitive().typed_value::<i32>(), Some(expected));
+                }
+                None => assert!(variant.is_null()),
+            }
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn slice_preserves_core_storage_and_shredded_rows() -> VortexResult<()> {
         let variant = variant_with_shredded(0..5, 10..15)?;
 
