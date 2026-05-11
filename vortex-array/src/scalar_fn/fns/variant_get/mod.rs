@@ -31,7 +31,12 @@ use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 
-/// Extracts a path from a Variant expression, optionally as a typed result.
+/// Extracts a field/index path from Variant values.
+///
+/// Missing paths, type mismatches while traversing, and failed casts produce nulls. Without a
+/// requested dtype, results are returned as nullable Variant values; with one, results are cast to
+/// that dtype with nullable nullability. Encodings may serve perfectly shredded paths directly,
+/// but must fall back to the core Variant value for paths not represented by shredded storage.
 #[derive(Clone)]
 pub struct VariantGet;
 

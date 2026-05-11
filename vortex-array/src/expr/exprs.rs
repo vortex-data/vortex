@@ -120,8 +120,8 @@ pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
 
 /// Creates an expression that extracts a path from a Variant expression.
 ///
-/// When `dtype` is `None`, the expression returns nullable Variant values. When `dtype` is
-/// provided, the expression returns that dtype with nullable nullability.
+/// Missing paths, traversal mismatches, and failed casts return null. When `dtype` is `None`,
+/// results are nullable Variant values; otherwise results are nullable values of `dtype`.
 pub fn variant_get(
     child: Expression,
     path: impl Into<VariantPath>,

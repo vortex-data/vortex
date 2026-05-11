@@ -29,6 +29,7 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
+use vortex_array::dtype::Nullability;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
@@ -161,12 +162,13 @@ pub(crate) fn core_storage_without_typed_value(
 pub(crate) fn logical_shredded_from_parquet_typed_value(
     metadata: &ArrayRef,
     typed_value: ArrayRef,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     if let Some(list_array) = typed_value.as_opt::<List>() {
         // Lists keep their original offsets and validity; only the physical element
         // representation may need wrapper removal.
         let elements =
-            logical_shredded_from_parquet_field(metadata, list_array.elements().clone())?
+            logical_shredded_from_parquet_field(metadata, list_array.elements().clone(), ctx)?
                 .unwrap_or_else(|| list_array.elements().clone());
         return Ok(ListArray::try_new(
             elements,
@@ -189,7 +191,9 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
         .iter()
         .zip(struct_array.iter_unmasked_fields())
     {
-        if let Some(logical_field) = logical_shredded_from_parquet_field(metadata, field.clone())? {
+        if let Some(logical_field) =
+            logical_shredded_from_parquet_field(metadata, field.clone(), ctx)?
+        {
             names.push(FieldName::from(name.as_ref()));
             fields.push(logical_field);
         }
@@ -211,6 +215,7 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
 fn logical_shredded_from_parquet_field(
     metadata: &ArrayRef,
     field: ArrayRef,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let Some(field_struct) = field.as_opt::<Struct>() else {
         return Ok(Some(field));
@@ -248,48 +253,49 @@ fn logical_shredded_from_parquet_field(
         let Some(value) = value else {
             // Fully shredded field: recurse through the typed subtree and expose its
             // logical shape directly.
-            return logical_shredded_from_parquet_typed_value(metadata, typed_value).map(Some);
+            return logical_shredded_from_parquet_typed_value(metadata, typed_value, ctx).map(Some);
         };
 
         // Partially shredded terminal object: keep raw `value` available as the nested
         // Variant core storage while exposing any typed children as nested `shredded`.
-        let validity = inferred_shredded_field_validity(Some(&value), Some(&typed_value))?;
+        let validity = inferred_shredded_field_validity(Some(&value), Some(&typed_value), ctx)?;
         let parquet_field =
             ParquetVariant::try_new(validity, metadata.clone(), Some(value), Some(typed_value))?;
         let shredded = parquet_field
             .typed_value_array()
             .cloned()
-            .map(|typed_value| logical_shredded_from_parquet_typed_value(metadata, typed_value))
+            .map(|typed_value| {
+                logical_shredded_from_parquet_typed_value(metadata, typed_value, ctx)
+            })
             .transpose()?;
         return VariantArray::try_new(core_storage_without_typed_value(&parquet_field)?, shredded)
             .map(|array| Some(array.into_array()));
     }
 
-    logical_shredded_from_parquet_typed_value(metadata, field).map(Some)
+    logical_shredded_from_parquet_typed_value(metadata, field, ctx).map(Some)
 }
 
 fn inferred_shredded_field_validity(
     value: Option<&ArrayRef>,
     typed_value: Option<&ArrayRef>,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Validity> {
     let len = value
         .or(typed_value)
         .map(ArrayRef::len)
         .vortex_expect("at least one shredded field child");
-    let validity = (0..len)
-        .map(|idx| {
-            let value_valid = value
-                .map(|value| value.validity()?.is_valid(idx))
-                .transpose()?
-                .unwrap_or(false);
-            let typed_valid = typed_value
-                .map(|typed_value| typed_value.validity()?.is_valid(idx))
-                .transpose()?
-                .unwrap_or(false);
-            Ok(value_valid || typed_valid)
-        })
-        .collect::<VortexResult<Vec<_>>>()?;
-    Ok(Validity::from_iter(validity))
+    let value_mask = value
+        .map(|value| value.validity()?.execute_mask(len, ctx))
+        .transpose()?;
+    let typed_mask = typed_value
+        .map(|typed_value| typed_value.validity()?.execute_mask(len, ctx))
+        .transpose()?;
+    let validity = match (value_mask, typed_mask) {
+        (Some(value_mask), Some(typed_mask)) => &value_mask | &typed_mask,
+        (Some(mask), None) | (None, Some(mask)) => mask,
+        (None, None) => unreachable!("at least one shredded field child"),
+    };
+    Ok(Validity::from_mask(validity, Nullability::Nullable))
 }
 
 /// Accessors and Arrow conversion for Parquet Variant storage arrays.

@@ -253,12 +253,12 @@ impl VTable for ParquetVariant {
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(slots))
     }
 
-    fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
+    fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         let shredded = array
             .typed_value_array()
             .cloned()
             .map(|typed_value| {
-                logical_shredded_from_parquet_typed_value(array.metadata_array(), typed_value)
+                logical_shredded_from_parquet_typed_value(array.metadata_array(), typed_value, ctx)
             })
             .transpose()?;
         let core_storage = core_storage_without_typed_value(&array)?;
@@ -350,16 +350,6 @@ mod tests {
             .unwrap()
     }
 
-    fn file_session() -> VortexSession {
-        let session = VortexSession::empty()
-            .with::<ArraySession>()
-            .with::<LayoutSession>()
-            .with::<RuntimeSession>();
-        vortex_file::register_default_encodings(&session);
-        session.arrays().register(ParquetVariant);
-        session
-    }
-
     #[test]
     fn test_execute_exposes_typed_value_as_canonical_shredded() -> VortexResult<()> {
         let metadata =
@@ -420,7 +410,13 @@ mod tests {
         let expected =
             ParquetVariant::from_arrow_variant(&ArrowVariantArray::try_new(&arrow_storage)?)?;
 
-        let session = file_session();
+        let session = VortexSession::empty()
+            .with::<ArraySession>()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>();
+        vortex_file::register_default_encodings(&session);
+        session.arrays().register(ParquetVariant);
+
         let mut bytes = ByteBufferMut::empty();
         session
             .write_options()
