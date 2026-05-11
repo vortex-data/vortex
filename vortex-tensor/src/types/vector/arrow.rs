@@ -43,9 +43,10 @@ pub const ARROW_VECTOR_EXTENSION_NAME: &str = "vortex.tensor.vector";
 
 static ARROW_VECTOR: CachedId = CachedId::new(ARROW_VECTOR_EXTENSION_NAME);
 
-// Arrow's `Field::set_metadata` takes a `std::collections::HashMap<String, String>`, so we
-// emit that type here instead of the workspace `vortex_utils::aliases::hash_map::HashMap`.
-#[allow(clippy::disallowed_types)]
+#[expect(
+    clippy::disallowed_types,
+    reason = "Arrow's Field::set_metadata requires std::collections::HashMap"
+)]
 fn vector_extension_metadata() -> std::collections::HashMap<String, String> {
     [(
         EXTENSION_TYPE_NAME_KEY.to_string(),
