@@ -52,7 +52,46 @@ impl Display for StatOptions {
     }
 }
 
-/// Scalar function that evaluates stored aggregate statistics.
+/// Scalar function that returns a statistic as a row-wise bound.
+///
+/// The result is always row-aligned with the input: each row carries the stat of whatever
+/// granularity the input provides it at. A flat array yields a single broadcast `ConstantArray`;
+/// a chunked array yields a constant per chunk (a `ChunkedArray` of `ConstantArray`s); a
+/// zone-mapped array would yield a run-end-encoded array, one run per zone. If the requested
+/// stat is not available, the result is a null constant.
+///
+/// Because the output is row-aligned, `stat(col, agg)` slots directly into ordinary predicates
+/// to perform **row-wise pruning**: substituting it into a predicate produces a cheap,
+/// row-wise approximation whose constant runs let downstream filters drop entire stretches at
+/// once. For example, `value < 10` is prunable as `stat(value, max) < 10` (rows where the
+/// bound is false are guaranteed false) or `stat(value, min) >= 10` (rows where the bound is
+/// true are guaranteed true). This is the zone-map / min-max-index pattern, expressed as an
+/// ordinary expression so the existing scalar machinery can rewrite, fold, and execute it.
+///
+/// # Stats as a row-level bound
+///
+/// For some aggregates the broadcast value bounds every row in the chunk, which is what makes
+/// it useful for predicate pruning:
+///
+/// - `min`: `result[i] <= input[i]` (lower bound)
+/// - `max`: `result[i] >= input[i]` (upper bound)
+/// - `has_nulls`: `is_null(input[i]) <= result[i]` in the boolean lattice (`false <= true`)
+/// - bloom filters: `input[i]` is contained in the filter
+///
+/// The aggregates that admit such a bound are exactly the **semilattice aggregates**: there is
+/// a per-row function `g` and an idempotent, associative, commutative combiner `⊔` such that
+/// `f(chunk) = ⊔ g(x) for x in chunk`. Idempotence (`a ⊔ a = a`) is the load-bearing axiom —
+/// it both gives the per-row bound `g(x) ⊑ f(chunk)` and makes stats compose across chunks
+/// (`f(A ∪ B) = f(A) ⊔ f(B)`). This is the same family as MapReduce combiners that work over
+/// arbitrary re-partitionings, CRDT join-semilattices, and the abstract domain in a Galois
+/// connection.
+///
+/// Aggregates whose combiner is not idempotent — `sum`, `count`, `mean`, `null_count`,
+/// `nan_count`, ... — do **not** bound individual rows. `null_count` is the canonical example:
+/// it lives in `(ℕ, +)` rather than `(bool, ∨)`, and `1 + 1 ≠ 1`, so it carries strictly more
+/// information than `has_nulls` but does not bound any single row's nullness. The broadcast
+/// value is still meaningful as a per-chunk attribute (e.g., comparing a chunk's sum to a
+/// threshold), just not as a row-level bound.
 #[derive(Clone)]
 pub struct StatFn;
 
@@ -133,7 +172,8 @@ fn stat_array(
                 .statistics()
                 .with_typed_stats_set(|stats| stats.get(stat))
         })
-        .and_then(|stat| stat.as_exact())
+        // We don't mind whether the stat is approxed or not, since these are row-wise bounds
+        .map(|stat| stat.into_inner())
         .and_then(Scalar::into_value);
 
     let scalar = Scalar::try_new(dtype, value)?;
