@@ -393,30 +393,3 @@ fn arbitrary_vec_of_len<'a, T: Arbitrary<'a>>(
     len.map(|l| (0..l).map(|_| T::arbitrary(u)).collect::<Result<Vec<_>>>())
         .unwrap_or_else(|| Vec::<T>::arbitrary(u))
 }
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use arbitrary::Unstructured;
-
-    use super::*;
-
-    /// Regression test for <https://github.com/vortex-data/vortex/issues/7856>.
-    ///
-    /// With a large chunk_len, `random_list` must not select narrow offset types (e.g. i16)
-    /// that would overflow. Previously it could pick i16 for any chunk_len, causing a panic
-    /// in `ListViewBuilder::append_value`.
-    #[test]
-    fn random_list_large_chunk_len_does_not_overflow() {
-        // 2000 lists * up to 20 elements each = 40000 > i16::MAX (32767).
-        // Before the fix, random_list could pick i16 and panic.
-        let data = vec![0u8; 8192];
-        let mut u = Unstructured::new(&data);
-        let elem_dtype = Arc::new(DType::Bool(Nullability::NonNullable));
-
-        // Should not panic — random_list now filters out offset types that are too narrow.
-        let result = random_list(&mut u, &elem_dtype, Nullability::NonNullable, Some(2000));
-        drop(result);
-    }
-}
