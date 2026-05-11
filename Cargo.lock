@@ -6258,21 +6258,6 @@ dependencies = [
 
 [[package]]
 name = "noodles-bgzf"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37290f565045fd2775b549e62dffca7e1afadc70d8d5a3a2ef19609eb3d8193b"
-dependencies = [
- "bytes",
- "crossbeam-channel",
- "flate2",
- "futures",
- "pin-project-lite",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
-name = "noodles-bgzf"
 version = "0.47.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d22589ec50582fa0c3e629d27e5263fc5ff5d436955648ba601b7ac4155fbf2"
@@ -6288,24 +6273,24 @@ dependencies = [
 
 [[package]]
 name = "noodles-core"
-version = "0.19.0"
+version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53e1e8a419dbba0e4000b0e60830b124138c7f2277ad556463506f1a81d32d17"
+checksum = "c8dbac7c5f9a7de9fe45590f198a09697df631cd13d2060b4742cc48144555b0"
 dependencies = [
  "bstr",
 ]
 
 [[package]]
 name = "noodles-csi"
-version = "0.55.0"
+version = "0.56.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9c846d8128bd80b18d891b13cb9e0bc1d364429d6ab3ec3c83939f3d32ba105"
+checksum = "6832254d731cb022d46927ce64403221b280b17140516cafa21e43ee4140d633"
 dependencies = [
  "bit-vec",
  "bstr",
  "futures",
  "indexmap",
- "noodles-bgzf 0.46.0",
+ "noodles-bgzf",
  "noodles-core",
  "pin-project-lite",
  "tokio",
@@ -6313,13 +6298,13 @@ dependencies = [
 
 [[package]]
 name = "noodles-tabix"
-version = "0.61.0"
+version = "0.62.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2443d0852c9618cd4aa8d11bc7c1884285e46aa4466cf5c1e49f3d9756ca7ced"
+checksum = "f5dceef2f7228d2977133f7b1a707c00ce0fdcf7c171e60b1e0286df0d8886fe"
 dependencies = [
  "bstr",
  "indexmap",
- "noodles-bgzf 0.46.0",
+ "noodles-bgzf",
  "noodles-core",
  "noodles-csi",
  "tokio",
@@ -6327,14 +6312,14 @@ dependencies = [
 
 [[package]]
 name = "noodles-vcf"
-version = "0.87.0"
+version = "0.88.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12b339e85269ab7689661c690f9108dceb606bf3d230e1768799ae107d505e76"
+checksum = "234b3ba31b05ffd6971d838a41ca5a94e902d424ab293cd3b520776293baa96c"
 dependencies = [
  "futures",
  "indexmap",
  "memchr",
- "noodles-bgzf 0.46.0",
+ "noodles-bgzf",
  "noodles-core",
  "noodles-csi",
  "noodles-tabix",
@@ -10359,7 +10344,7 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "mimalloc",
- "noodles-bgzf 0.47.0",
+ "noodles-bgzf",
  "noodles-vcf",
  "parking_lot",
  "parquet 58.2.0",
