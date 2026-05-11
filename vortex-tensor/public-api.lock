@@ -552,6 +552,24 @@ pub fn vortex_tensor::vector::Vector::hash<__H: core::hash::Hasher>(&self, &mut 
 
 impl core::marker::StructuralPartialEq for vortex_tensor::vector::Vector
 
+impl vortex_array::arrow::session::ArrowExportVTable for vortex_tensor::vector::Vector
+
+pub fn vortex_tensor::vector::Vector::arrow_ext_id(&self) -> vortex_session::registry::Id
+
+pub fn vortex_tensor::vector::Vector::execute_arrow(&self, vortex_array::array::erased::ArrayRef, &arrow_schema::field::Field, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrow::session::ArrowExport>
+
+pub fn vortex_tensor::vector::Vector::to_arrow_field(&self, &str, &vortex_array::dtype::extension::erased::ExtDTypeRef) -> vortex_error::VortexResult<core::option::Option<arrow_schema::field::Field>>
+
+pub fn vortex_tensor::vector::Vector::vortex_ext_id(&self) -> vortex_array::dtype::extension::ExtId
+
+impl vortex_array::arrow::session::ArrowImportVTable for vortex_tensor::vector::Vector
+
+pub fn vortex_tensor::vector::Vector::arrow_ext_id(&self) -> vortex_session::registry::Id
+
+pub fn vortex_tensor::vector::Vector::from_arrow_array(&self, arrow_array::array::ArrayRef, &vortex_array::dtype::extension::erased::ExtDTypeRef) -> vortex_error::VortexResult<vortex_array::arrow::session::ArrowImport>
+
+pub fn vortex_tensor::vector::Vector::from_arrow_field(&self, &arrow_schema::field::Field) -> vortex_error::VortexResult<core::option::Option<vortex_array::dtype::DType>>
+
 impl vortex_array::dtype::extension::vtable::ExtVTable for vortex_tensor::vector::Vector
 
 pub type vortex_tensor::vector::Vector::Metadata = vortex_array::extension::EmptyMetadata
@@ -601,6 +619,8 @@ pub fn vortex_tensor::vector::VectorMatcherMetadata::hash<__H: core::hash::Hashe
 impl core::marker::Copy for vortex_tensor::vector::VectorMatcherMetadata
 
 impl core::marker::StructuralPartialEq for vortex_tensor::vector::VectorMatcherMetadata
+
+pub const vortex_tensor::vector::ARROW_VECTOR_EXTENSION_NAME: &str
 
 pub mod vortex_tensor::vector_search
 
