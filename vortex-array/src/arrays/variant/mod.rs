@@ -57,7 +57,7 @@ impl Array<Variant> {
         let stats = core_storage.statistics().to_owned();
         Ok(Array::try_from_parts(
             ArrayParts::new(Variant, dtype, len, EmptyArrayData)
-                .with_slots(vec![Some(core_storage), shredded]),
+                .with_slots(vec![Some(core_storage), shredded].into()),
         )?
         .with_stats_set(stats))
     }

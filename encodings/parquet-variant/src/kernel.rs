@@ -207,16 +207,20 @@ mod tests {
     use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use parquet_variant_compute::VariantArrayBuilder;
     use parquet_variant_compute::json_to_variant;
+    use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray as VortexStructArray;
+    use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::Variant;
     use vortex_array::arrays::VariantArray;
     use vortex_array::arrays::struct_::StructArrayExt;
     use vortex_array::arrays::variant::VariantArrayExt;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::assert_nth_scalar_is_null;
     use vortex_array::dtype::DType as VortexDType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
@@ -274,21 +278,47 @@ mod tests {
             .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
     }
 
+    macro_rules! assert_rows_eq {
+        ($actual:expr, $expected:expr, [$($expected_idx:expr),* $(,)?]) => {{
+            let actual = $actual;
+            let expected = $expected;
+            let expected_rows = [$($expected_idx),*];
+            assert_eq!(actual.len(), expected_rows.len());
+
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            for (actual_idx, expected_idx) in expected_rows.into_iter().enumerate() {
+                assert_eq!(
+                    actual.execute_scalar(actual_idx, &mut ctx)?,
+                    expected.execute_scalar(expected_idx, &mut ctx)?,
+                    "row {actual_idx} should match source row {expected_idx}",
+                );
+            }
+        }};
+    }
+
+    macro_rules! assert_nulls {
+        ($array:expr, [$($is_null:expr),* $(,)?]) => {{
+            let array = $array;
+            let expected = [$($is_null),*];
+            assert_eq!(array.len(), expected.len());
+
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            for (idx, is_null) in expected.into_iter().enumerate() {
+                assert_eq!(
+                    array.execute_scalar(idx, &mut ctx)?.is_null(),
+                    is_null,
+                    "row {idx} nullness mismatch",
+                );
+            }
+        }};
+    }
+
     #[test]
     fn test_slice_basic() -> VortexResult<()> {
         let arr = make_unshredded_array()?;
         let sliced = arr.slice(1..3)?;
 
-        assert_eq!(sliced.len(), 2);
-        assert_eq!(
-            sliced.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-        assert_eq!(
-            sliced.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-
+        assert_rows_eq!(&sliced, &arr, [1, 2]);
         Ok(())
     }
 
@@ -297,23 +327,7 @@ mod tests {
         let arr = make_nullable_array()?;
         let sliced = arr.slice(0..3)?;
 
-        assert_eq!(sliced.len(), 3);
-        assert!(
-            !sliced
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
-                .is_null()
-        );
-        assert!(
-            sliced
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
-                .is_null()
-        );
-        assert!(
-            !sliced
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
-                .is_null()
-        );
-
+        assert_nulls!(&sliced, [false, true, false]);
         Ok(())
     }
 
@@ -323,16 +337,7 @@ mod tests {
         let mask = Mask::from_iter([true, false, true, false]);
         let filtered = arr.filter(mask)?;
 
-        assert_eq!(filtered.len(), 2);
-        assert_eq!(
-            filtered.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-        assert_eq!(
-            filtered.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-
+        assert_rows_eq!(&filtered, &arr, [0, 2]);
         Ok(())
     }
 
@@ -343,23 +348,7 @@ mod tests {
         let mask = Mask::from_iter([true, true, false, true]);
         let filtered = arr.filter(mask)?;
 
-        assert_eq!(filtered.len(), 3);
-        assert!(
-            !filtered
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
-                .is_null()
-        );
-        assert!(
-            filtered
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
-                .is_null()
-        );
-        assert!(
-            filtered
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
-                .is_null()
-        );
-
+        assert_nulls!(&filtered, [false, true, true]);
         Ok(())
     }
 
@@ -369,20 +358,7 @@ mod tests {
         let indices = PrimitiveArray::from_iter([2u64, 0, 3]);
         let taken = arr.take(indices.into_array())?;
 
-        assert_eq!(taken.len(), 3);
-        assert_eq!(
-            taken.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-        assert_eq!(
-            taken.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-        assert_eq!(
-            taken.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-
+        assert_rows_eq!(&taken, &arr, [2, 0, 3]);
         Ok(())
     }
 
@@ -393,44 +369,40 @@ mod tests {
         let indices = PrimitiveArray::from_iter([0u64, 1, 3, 2]);
         let taken = arr.take(indices.into_array())?;
 
-        assert_eq!(taken.len(), 4);
-        assert!(
-            !taken
-                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
-                .is_null()
-        );
-        assert!(
-            taken
-                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
-                .is_null()
-        );
-        assert!(
-            taken
-                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
-                .is_null()
-        );
-        assert!(
-            !taken
-                .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())?
-                .is_null()
-        );
-
+        assert_nulls!(&taken, [false, true, true, false]);
         Ok(())
     }
 
-    #[test]
-    fn test_variant_get_unshredded_field_as_i32() -> VortexResult<()> {
-        let arr = make_unshredded_json_array(vec![
+    #[rstest]
+    #[case::field(
+        "$.a",
+        vec![
             Some(r#"{"a": 1}"#),
             None,
             Some(r#"{"a": null}"#),
             Some(r#"{"a": "wrong"}"#),
             Some(r#"{"b": 2}"#),
-        ])?;
-
+        ],
+        vec![Some(1), None, None, None, None],
+    )]
+    #[case::list_index(
+        "$.items[1]",
+        vec![
+            Some(r#"{"items": [10, 20]}"#),
+            Some(r#"{"items": []}"#),
+            Some(r#"{"items": ["x", 7]}"#),
+        ],
+        vec![Some(20), None, Some(7)],
+    )]
+    fn test_variant_get_unshredded_as_i32(
+        #[case] path: &str,
+        #[case] rows: Vec<Option<&str>>,
+        #[case] expected: Vec<Option<i32>>,
+    ) -> VortexResult<()> {
+        let arr = make_unshredded_json_array(rows)?;
         let result = execute_variant_get(
             arr,
-            "$.a",
+            path,
             Some(VortexDType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
 
@@ -438,52 +410,7 @@ mod tests {
             result.dtype(),
             &VortexDType::Primitive(PType::I32, Nullability::Nullable)
         );
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_eq!(
-            result
-                .execute_scalar(0, &mut ctx)?
-                .as_primitive()
-                .typed_value::<i32>(),
-            Some(1)
-        );
-        for idx in 1..result.len() {
-            assert!(result.execute_scalar(idx, &mut ctx)?.is_null());
-        }
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_variant_get_unshredded_list_index_as_i32() -> VortexResult<()> {
-        let arr = make_unshredded_json_array(vec![
-            Some(r#"{"items": [10, 20]}"#),
-            Some(r#"{"items": []}"#),
-            Some(r#"{"items": ["x", 7]}"#),
-        ])?;
-
-        let result = execute_variant_get(
-            arr,
-            "$.items[1]",
-            Some(VortexDType::Primitive(PType::I32, Nullability::NonNullable)),
-        )?;
-
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_eq!(
-            result
-                .execute_scalar(0, &mut ctx)?
-                .as_primitive()
-                .typed_value::<i32>(),
-            Some(20)
-        );
-        assert!(result.execute_scalar(1, &mut ctx)?.is_null());
-        assert_eq!(
-            result
-                .execute_scalar(2, &mut ctx)?
-                .as_primitive()
-                .typed_value::<i32>(),
-            Some(7)
-        );
-
+        assert_arrays_eq!(result, PrimitiveArray::from_option_iter(expected));
         Ok(())
     }
 
@@ -508,7 +435,7 @@ mod tests {
                 .map(|value| value.as_str()),
             Some("ok")
         );
-        assert!(result.execute_scalar(1, &mut ctx)?.as_variant().is_null());
+        assert_nth_scalar_is_null!(result, 1);
         assert_eq!(
             result
                 .execute_scalar(2, &mut ctx)?
@@ -516,7 +443,7 @@ mod tests {
                 .is_variant_null(),
             Some(true)
         );
-        assert!(result.execute_scalar(3, &mut ctx)?.as_variant().is_null());
+        assert_nth_scalar_is_null!(result, 3);
 
         Ok(())
     }
@@ -668,21 +595,6 @@ mod tests {
         Ok(VariantArray::try_new(raw_core, Some(shredded))?.into_array())
     }
 
-    fn assert_i32_scalars(array: &ArrayRef, expected: &[Option<i32>]) -> VortexResult<()> {
-        assert_eq!(array.len(), expected.len());
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        for (idx, expected) in expected.iter().enumerate() {
-            let scalar = array.execute_scalar(idx, &mut ctx)?;
-            match expected {
-                Some(expected) => {
-                    assert_eq!(scalar.as_primitive().typed_value::<i32>(), Some(*expected));
-                }
-                None => assert!(scalar.is_null()),
-            }
-        }
-        Ok(())
-    }
-
     fn assert_variant_i32_scalars(array: &ArrayRef, expected: &[Option<i32>]) -> VortexResult<()> {
         assert_eq!(array.len(), expected.len());
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
@@ -699,24 +611,6 @@ mod tests {
                     assert_eq!(value.as_primitive().typed_value::<i32>(), Some(*expected));
                 }
                 None => assert!(variant.is_null()),
-            }
-        }
-        Ok(())
-    }
-
-    fn assert_utf8_scalars(array: &ArrayRef, expected: &[Option<&str>]) -> VortexResult<()> {
-        assert_eq!(array.len(), expected.len());
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        for (idx, expected) in expected.iter().enumerate() {
-            let scalar = array.execute_scalar(idx, &mut ctx)?;
-            match expected {
-                Some(expected) => {
-                    assert_eq!(
-                        scalar.as_utf8().value().map(|value| value.as_str()),
-                        Some(*expected)
-                    );
-                }
-                None => assert!(scalar.is_null()),
             }
         }
         Ok(())
@@ -789,16 +683,7 @@ mod tests {
         let arr = make_shredded_typed_array()?;
 
         let sliced = arr.slice(1..3)?;
-        assert_eq!(sliced.len(), 2);
-        assert_eq!(
-            sliced.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-        assert_eq!(
-            sliced.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-
+        assert_rows_eq!(&sliced, &arr, [1, 2]);
         Ok(())
     }
 
@@ -807,16 +692,7 @@ mod tests {
         let arr = make_shredded_typed_array()?;
         let filtered = arr.filter(Mask::from_iter([true, false, true]))?;
 
-        assert_eq!(filtered.len(), 2);
-        assert_eq!(
-            filtered.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-        assert_eq!(
-            filtered.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-
+        assert_rows_eq!(&filtered, &arr, [0, 2]);
         Ok(())
     }
 
@@ -825,20 +701,7 @@ mod tests {
         let arr = make_shredded_typed_array()?;
         let taken = arr.take(PrimitiveArray::from_iter([2u64, 0, 2]).into_array())?;
 
-        assert_eq!(taken.len(), 3);
-        assert_eq!(
-            taken.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-        assert_eq!(
-            taken.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-        assert_eq!(
-            taken.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?,
-            arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?
-        );
-
+        assert_rows_eq!(&taken, &arr, [2, 0, 2]);
         Ok(())
     }
 
@@ -853,7 +716,11 @@ mod tests {
             Some(VortexDType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
 
-        assert_i32_scalars(&result, &[Some(10), Some(30), None])
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10), Some(30), None])
+        );
+        Ok(())
     }
 
     #[test]
@@ -867,7 +734,11 @@ mod tests {
             Some(VortexDType::Utf8(Nullability::NonNullable)),
         )?;
 
-        assert_utf8_scalars(&result, &[Some("left"), Some("right"), Some("missing_a")])
+        assert_arrays_eq!(
+            result,
+            VarBinArray::from(vec![Some("left"), Some("right"), Some("missing_a")])
+        );
+        Ok(())
     }
 
     #[test]
@@ -891,7 +762,11 @@ mod tests {
             Some(VortexDType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
 
-        assert_i32_scalars(&result, &[Some(10), Some(30), None])
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10), Some(30), None])
+        );
+        Ok(())
     }
 
     #[test]
@@ -904,7 +779,11 @@ mod tests {
             Some(VortexDType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
 
-        assert_i32_scalars(&result, &[Some(10), Some(30), None])
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10), Some(30), None])
+        );
+        Ok(())
     }
 
     #[test]
@@ -917,7 +796,11 @@ mod tests {
             Some(VortexDType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
 
-        assert_i32_scalars(&result, &[Some(100), Some(20), Some(30)])
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(100), Some(20), Some(30)])
+        );
+        Ok(())
     }
 
     #[test]
@@ -962,6 +845,10 @@ mod tests {
             Some(VortexDType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
 
-        assert_i32_scalars(&result, &[Some(10), Some(30), None])
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10), Some(30), None])
+        );
+        Ok(())
     }
 }

@@ -186,7 +186,7 @@ impl VTable for Variant {
             .transpose()?;
         Ok(
             crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
-                .with_slots(vec![Some(core_storage), shredded]),
+                .with_slots(vec![Some(core_storage), shredded].into()),
         )
     }
 

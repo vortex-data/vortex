@@ -480,6 +480,9 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
+    use crate::assert_nth_scalar_is_null;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::FieldNames;
@@ -664,16 +667,10 @@ mod tests {
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         )?;
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        assert_eq!(
-            result
-                .execute_scalar(0, &mut ctx)?
-                .as_primitive()
-                .typed_value::<i32>(),
-            Some(20)
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(20i32), None, None])
         );
-        assert!(result.execute_scalar(1, &mut ctx)?.is_null());
-        assert!(result.execute_scalar(2, &mut ctx)?.is_null());
         Ok(())
     }
 
@@ -703,7 +700,7 @@ mod tests {
                 .map(|value| value.as_str()),
             Some("ok")
         );
-        assert!(result.execute_scalar(1, &mut ctx)?.as_variant().is_null());
+        assert_nth_scalar_is_null!(result, 1);
         assert_eq!(
             result
                 .execute_scalar(2, &mut ctx)?
@@ -711,7 +708,7 @@ mod tests {
                 .is_variant_null(),
             Some(true)
         );
-        assert!(result.execute_scalar(3, &mut ctx)?.as_variant().is_null());
+        assert_nth_scalar_is_null!(result, 3);
         Ok(())
     }
 }
