@@ -128,7 +128,7 @@
 //! assert!(tq.nbytes() < 51200);
 //! ```
 
-pub(crate) mod centroids;
+pub mod centroids;
 pub(crate) mod compress;
 
 mod scheme;

@@ -22,6 +22,14 @@ pub fn vortex_tensor::encodings::l2_denorm::L2DenormScheme::scheme_name(&self) -
 
 pub mod vortex_tensor::encodings::turboquant
 
+pub mod vortex_tensor::encodings::turboquant::centroids
+
+pub fn vortex_tensor::encodings::turboquant::centroids::compute_centroid_boundaries(&[f32]) -> alloc::vec::Vec<f32>
+
+pub fn vortex_tensor::encodings::turboquant::centroids::compute_or_get_centroids(u32, u8) -> vortex_error::VortexResult<vortex_buffer::buffer::Buffer<f32>>
+
+pub fn vortex_tensor::encodings::turboquant::centroids::find_nearest_centroid(f32, &[f32]) -> u8
+
 pub struct vortex_tensor::encodings::turboquant::TurboQuantConfig
 
 pub vortex_tensor::encodings::turboquant::TurboQuantConfig::bit_width: u8
