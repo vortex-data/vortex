@@ -10,6 +10,7 @@ use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInByte
 use crate::expr::stats::Stat;
 
 pub(crate) fn legacy_stat_for_aggregate(aggregate_fn: &AggregateFnRef) -> Option<Stat> {
+    // TODO(ngates): we need to add Min, Max stats, etc.
     if aggregate_fn.is::<Sum>() {
         return Some(Stat::Sum);
     }

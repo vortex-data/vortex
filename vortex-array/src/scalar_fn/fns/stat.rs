@@ -55,10 +55,10 @@ impl Display for StatOptions {
 /// Scalar function that returns a statistic as a row-wise bound.
 ///
 /// The result is always row-aligned with the input: each row carries the stat of whatever
-/// granularity the input provides it at. A flat array yields a single broadcast `ConstantArray`;
-/// a chunked array yields a constant per chunk (a `ChunkedArray` of `ConstantArray`s); a
-/// zone-mapped array would yield a run-end-encoded array, one run per zone. If the requested
-/// stat is not available, the result is a null constant.
+/// granularity the input provides it at. For example, a flat array could yield a single broadcast
+/// `ConstantArray`; a chunked array could yield a constant per chunk (a `ChunkedArray` of
+/// `ConstantArray`s); a zone-mapped array could yield a run-end-encoded array, one run per zone.
+/// If the requested stat is not available, the result is a null constant.
 ///
 /// Because the output is row-aligned, `stat(col, agg)` slots directly into ordinary predicates
 /// to perform **row-wise pruning**: substituting it into a predicate produces a cheap,
