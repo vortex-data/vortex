@@ -98,8 +98,10 @@ pub struct DictLayoutOptions {
 /// A layout strategy that encodes chunk into values and codes, if found
 /// appropriate by the btrblocks compressor. Current implementation only
 /// checks the first chunk to decide whether to apply dict layout and
-/// encodes chunks into dictionaries. When the dict constraints are hit, a
-/// new dictionary is created.
+/// encodes chunks into dictionaries. When the dict constraints are hit, the
+/// completed dictionary is re-evaluated using its exact selectivity before a
+/// new dictionary is created. If more than half of the encoded rows were
+/// unique, the stream permanently falls back to the raw path for the tail.
 #[derive(Clone)]
 pub struct DictStrategy {
     codes: Arc<dyn LayoutStrategy>,
@@ -170,8 +172,8 @@ impl LayoutStrategy for DictStrategy {
         // (a1, a2) -> (code(c1), code(c2), values(v1), code(c3), ...)
         let dict_stream = dict_encode_stream(stream, options.constraints.into());
 
-        // Wrap up the dict stream to yield pairs of (codes_stream, values_future).
-        // Each of these pairs becomes a child dict layout.
+        // Wrap the dict stream into layout runs. Dictionary runs become child dict layouts;
+        // a downgraded tail becomes a single child layout written through the fallback path.
         let runs = DictionaryTransformer::new(dict_stream);
 
         let handle = session.handle();
@@ -179,53 +181,70 @@ impl LayoutStrategy for DictStrategy {
         let child_layouts = stream! {
             pin_mut!(runs);
 
-            while let Some((codes_stream, values_fut)) = runs.next().await {
-                let codes = Arc::clone(&self.codes);
-                let codes_eof = eof.split_off();
-                let ctx2 = ctx.clone();
-                let segment_sink2 = Arc::clone(&segment_sink);
-                let session2 = session.clone();
-                let codes_fut = handle.spawn_nested(move |h| async move {
-                    let session2 = session2.with_handle(h);
-                    codes.write_stream(
-                        ctx2,
-                        segment_sink2,
-                        codes_stream.sendable(),
-                        codes_eof,
-                        &session2,
-                    ).await
-                });
+            while let Some(run) = runs.next().await {
+                match run {
+                    DictLayoutRun::Dict {
+                        codes_stream,
+                        values_fut,
+                    } => {
+                        let codes = Arc::clone(&self.codes);
+                        let codes_eof = eof.split_off();
+                        let ctx2 = ctx.clone();
+                        let segment_sink2 = Arc::clone(&segment_sink);
+                        let session2 = session.clone();
+                        let codes_fut = handle.spawn_nested(move |h| async move {
+                            let session2 = session2.with_handle(h);
+                            codes.write_stream(
+                                ctx2,
+                                segment_sink2,
+                                codes_stream,
+                                codes_eof,
+                                &session2,
+                            ).await
+                        });
 
-                let values = Arc::clone(&self.values);
-                let values_eof = eof.split_off();
-                let ctx2 = ctx.clone();
-                let segment_sink2 = Arc::clone(&segment_sink);
-                let dtype2 = dtype2.clone();
-                let session2 = session.clone();
-                let values_layout = handle.spawn_nested(move |h| async move {
-                    let session2 = session2.with_handle(h);
-                    values.write_stream(
-                        ctx2,
-                        segment_sink2,
-                        SequentialStreamAdapter::new(dtype2, once(values_fut)).sendable(),
-                        values_eof,
-                        &session2,
-                    ).await
-                });
+                        let values = Arc::clone(&self.values);
+                        let values_eof = eof.split_off();
+                        let ctx2 = ctx.clone();
+                        let segment_sink2 = Arc::clone(&segment_sink);
+                        let dtype2 = dtype2.clone();
+                        let session2 = session.clone();
+                        let values_layout = handle.spawn_nested(move |h| async move {
+                            let session2 = session2.with_handle(h);
+                            values.write_stream(
+                                ctx2,
+                                segment_sink2,
+                                SequentialStreamAdapter::new(dtype2, once(values_fut)).sendable(),
+                                values_eof,
+                                &session2,
+                            ).await
+                        });
 
-                yield async move {
-                    try_join!(codes_fut, values_layout)
-                }.boxed();
+                        yield async move {
+                            let (codes_layout, values_layout) = try_join!(codes_fut, values_layout)?;
+                            Ok::<_, VortexError>(DictLayout::new(values_layout, codes_layout).into_layout())
+                        }.boxed();
+                    }
+                    DictLayoutRun::Raw(raw_stream) => {
+                        let fallback = Arc::clone(&self.fallback);
+                        let raw_eof = eof.split_off();
+                        let ctx2 = ctx.clone();
+                        let segment_sink2 = Arc::clone(&segment_sink);
+                        let session2 = session.clone();
+                        yield handle.spawn_nested(move |h| async move {
+                            let session2 = session2.with_handle(h);
+                            fallback
+                                .write_stream(ctx2, segment_sink2, raw_stream, raw_eof, &session2)
+                                .await
+                        })
+                        .boxed();
+                    }
+                }
             }
         };
 
         let mut child_layouts = child_layouts
             .buffered(usize::MAX)
-            .map(|result| {
-                let (codes_layout, values_layout) = result?;
-                // All values are referenced when created via dictionary encoding
-                Ok::<_, VortexError>(DictLayout::new(values_layout, codes_layout).into_layout())
-            })
             .try_collect::<Vec<_>>()
             .await?;
 
@@ -254,6 +273,7 @@ enum DictionaryChunk {
         codes_ptype: PType,
     },
     Values((SequenceId, ArrayRef)),
+    Raw((SequenceId, ArrayRef)),
 }
 
 type DictionaryStream = BoxStream<'static, VortexResult<DictionaryChunk>>;
@@ -265,7 +285,9 @@ fn dict_encode_stream(
     Box::pin(try_stream! {
         let mut state = DictStreamState {
             encoder: None,
+            encoded_rows: 0,
             constraints,
+            raw_fallback: false,
         };
 
         let input = input.peekable();
@@ -303,7 +325,9 @@ fn dict_encode_stream(
 
 struct DictStreamState {
     encoder: Option<Box<dyn DictEncoder>>,
+    encoded_rows: usize,
     constraints: DictConstraints,
+    raw_fallback: bool,
 }
 
 impl DictStreamState {
@@ -315,17 +339,25 @@ impl DictStreamState {
         let mut res = Vec::new();
         let mut to_be_encoded = Some(chunk);
         while let Some(remaining) = to_be_encoded.take() {
+            if self.raw_fallback {
+                res.push(labeler.raw(remaining));
+                break;
+            }
+
             match self.encoder.take() {
                 None => match start_encoding(&self.constraints, &remaining)? {
                     EncodingState::Continue((encoder, encoded)) => {
                         let ptype = encoder.codes_ptype();
+                        self.encoded_rows = encoded.len();
                         res.push(labeler.codes(encoded, ptype));
                         self.encoder = Some(encoder);
                     }
                     EncodingState::Done((values, encoded, unencoded)) => {
                         // Encoder was created and consumed within start_encoding
+                        let total_rows = encoded.len();
                         let ptype = PType::try_from(encoded.dtype())
                             .vortex_expect("codes should be primitive");
+                        self.raw_fallback = should_fallback_after_dictionary(&values, total_rows);
                         res.push(labeler.codes(encoded, ptype));
                         res.push(labeler.values(values));
                         to_be_encoded = Some(unencoded);
@@ -335,11 +367,16 @@ impl DictStreamState {
                     let ptype = encoder.codes_ptype();
                     match encode_chunk(encoder, &remaining)? {
                         EncodingState::Continue((encoder, encoded)) => {
+                            self.encoded_rows += encoded.len();
                             res.push(labeler.codes(encoded, ptype));
                             self.encoder = Some(encoder);
                         }
                         EncodingState::Done((values, encoded, unencoded)) => {
+                            let total_rows = self.encoded_rows + encoded.len();
+                            self.encoded_rows = 0;
                             res.push(labeler.codes(encoded, ptype));
+                            self.raw_fallback =
+                                should_fallback_after_dictionary(&values, total_rows);
                             res.push(labeler.values(values));
                             to_be_encoded = Some(unencoded);
                         }
@@ -351,6 +388,7 @@ impl DictStreamState {
     }
 
     fn drain_values(&mut self, labeler: &mut DictChunkLabeler) -> Vec<DictionaryChunk> {
+        self.encoded_rows = 0;
         match self.encoder.as_mut() {
             None => Vec::new(),
             Some(encoder) => vec![labeler.values(encoder.reset())],
@@ -379,15 +417,29 @@ impl DictChunkLabeler {
     fn values(&mut self, chunk: ArrayRef) -> DictionaryChunk {
         DictionaryChunk::Values((self.sequence_pointer.advance(), chunk))
     }
+
+    fn raw(&mut self, chunk: ArrayRef) -> DictionaryChunk {
+        DictionaryChunk::Raw((self.sequence_pointer.advance(), chunk))
+    }
 }
 
 type SequencedChunk = VortexResult<(SequenceId, ArrayRef)>;
+
+enum DictLayoutRun {
+    Dict {
+        codes_stream: SendableSequentialStream,
+        values_fut: BoxFuture<'static, SequencedChunk>,
+    },
+    Raw(SendableSequentialStream),
+}
 
 struct DictionaryTransformer {
     input: DictionaryStream,
     active_codes_tx: Option<kanal::AsyncSender<SequencedChunk>>,
     active_values_tx: Option<oneshot::Sender<SequencedChunk>>,
+    active_raw_tx: Option<kanal::AsyncSender<SequencedChunk>>,
     pending_send: Option<BoxFuture<'static, Result<(), kanal::SendError>>>,
+    finish_after_send: bool,
 }
 
 impl DictionaryTransformer {
@@ -396,13 +448,15 @@ impl DictionaryTransformer {
             input,
             active_codes_tx: None,
             active_values_tx: None,
+            active_raw_tx: None,
             pending_send: None,
+            finish_after_send: false,
         }
     }
 }
 
 impl Stream for DictionaryTransformer {
-    type Item = (SendableSequentialStream, BoxFuture<'static, SequencedChunk>);
+    type Item = DictLayoutRun;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         loop {
@@ -415,8 +469,13 @@ impl Stream for DictionaryTransformer {
                     Poll::Ready(Err(_)) => {
                         // Receiver dropped, close this group
                         self.active_codes_tx = None;
+                        self.active_raw_tx = None;
                         if let Some(values_tx) = self.active_values_tx.take() {
                             drop(values_tx.send(Err(vortex_err!("values receiver dropped"))));
+                        }
+                        if self.finish_after_send {
+                            self.finish_after_send = false;
+                            return Poll::Ready(None);
                         }
                     }
                     Poll::Pending => {
@@ -424,6 +483,11 @@ impl Stream for DictionaryTransformer {
                         self.pending_send = Some(send_fut);
                         return Poll::Pending;
                     }
+                }
+
+                if self.finish_after_send {
+                    self.finish_after_send = false;
+                    return Poll::Ready(None);
                 }
             }
 
@@ -433,6 +497,7 @@ impl Stream for DictionaryTransformer {
                     codes,
                     codes_ptype,
                 }))) => {
+                    debug_assert!(self.active_raw_tx.is_none());
                     if self.active_codes_tx.is_none() {
                         // Start a new group
                         let (codes_tx, codes_rx) = kanal::bounded_async::<SequencedChunk>(1);
@@ -465,7 +530,10 @@ impl Stream for DictionaryTransformer {
                         }
                         .boxed();
 
-                        return Poll::Ready(Some((codes_stream, values_future)));
+                        return Poll::Ready(Some(DictLayoutRun::Dict {
+                            codes_stream,
+                            values_fut: values_future,
+                        }));
                     }
 
                     // Continue streaming codes to existing group
@@ -482,13 +550,43 @@ impl Stream for DictionaryTransformer {
                     }
                     self.active_codes_tx = None; // Close codes stream
                 }
+                Poll::Ready(Some(Ok(DictionaryChunk::Raw((seq_id, chunk))))) => {
+                    debug_assert!(self.active_codes_tx.is_none());
+                    debug_assert!(self.active_values_tx.is_none());
+
+                    if self.active_raw_tx.is_none() {
+                        let dtype = chunk.dtype().clone();
+                        let (raw_tx, raw_rx) = kanal::bounded_async::<SequencedChunk>(1);
+                        self.active_raw_tx = Some(raw_tx.clone());
+                        self.pending_send =
+                            Some(Box::pin(
+                                async move { raw_tx.send(Ok((seq_id, chunk))).await },
+                            ));
+
+                        let raw_stream =
+                            SequentialStreamAdapter::new(dtype, raw_rx.into_stream().boxed())
+                                .sendable();
+
+                        return Poll::Ready(Some(DictLayoutRun::Raw(raw_stream)));
+                    }
+
+                    if let Some(tx) = &self.active_raw_tx {
+                        let tx = tx.clone();
+                        self.pending_send =
+                            Some(Box::pin(async move { tx.send(Ok((seq_id, chunk))).await }));
+                    }
+                }
                 Poll::Ready(Some(Err(e))) => {
                     // Send error to active channels if any
                     if let Some(values_tx) = self.active_values_tx.take() {
                         drop(values_tx.send(Err(e)));
+                    } else if let Some(raw_tx) = self.active_raw_tx.take() {
+                        self.pending_send =
+                            Some(Box::pin(async move { raw_tx.send(Err(e)).await }));
+                        self.finish_after_send = true;
+                        return Poll::Pending;
                     }
                     self.active_codes_tx = None;
-                    // And terminate the stream
                     return Poll::Ready(None);
                 }
                 Poll::Ready(None) => {
@@ -497,6 +595,7 @@ impl Stream for DictionaryTransformer {
                         drop(values_tx.send(Err(vortex_err!("Incomplete dictionary group"))));
                     }
                     self.active_codes_tx = None;
+                    self.active_raw_tx = None;
                     return Poll::Ready(None);
                 }
                 Poll::Pending => return Poll::Pending,
@@ -572,16 +671,24 @@ fn remainder(array: &ArrayRef, encoded_len: usize) -> VortexResult<Option<ArrayR
     }
 }
 
+fn should_fallback_after_dictionary(values: &ArrayRef, encoded_rows: usize) -> bool {
+    encoded_rows == 0 || values.len() > encoded_rows / 2
+}
+
 #[cfg(test)]
 mod tests {
     use futures::StreamExt;
+    use futures::TryStreamExt;
     use vortex_array::IntoArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::builders::dict::DictConstraints;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
+    use vortex_error::VortexResult;
 
+    use super::DictLayoutRun;
     use super::DictionaryTransformer;
     use super::dict_encode_stream;
     use crate::sequence::SequenceId;
@@ -594,7 +701,7 @@ mod tests {
     /// produces U8 codes, but the stream was incorrectly typed as U16, causing a dtype mismatch
     /// assertion failure in [`SequentialStreamAdapter`].
     #[tokio::test]
-    async fn test_dict_transformer_uses_u8_for_small_dictionaries() {
+    async fn test_dict_transformer_uses_u8_for_small_dictionaries() -> VortexResult<()> {
         // Use max_len = 100 to force U8 codes (since 100 <= 255).
         let constraints = DictConstraints {
             max_bytes: 1024 * 1024,
@@ -619,10 +726,13 @@ mod tests {
         let mut transformer = DictionaryTransformer::new(dict_stream);
 
         // Get the first (and only) run.
-        let (codes_stream, _values_fut) = transformer
-            .next()
-            .await
-            .expect("expected at least one dictionary run");
+        let Some(DictLayoutRun::Dict {
+            codes_stream,
+            values_fut: _values_fut,
+        }) = transformer.next().await
+        else {
+            panic!("expected at least one dictionary run");
+        };
 
         // The key assertion: codes stream dtype should be U8, not U16.
         assert_eq!(
@@ -630,11 +740,12 @@ mod tests {
             &DType::Primitive(PType::U8, NonNullable),
             "codes stream should use U8 dtype for small dictionaries, not U16"
         );
+        Ok(())
     }
 
     /// Test that the codes stream uses U16 dtype when the dictionary has more than 255 entries.
     #[tokio::test]
-    async fn test_dict_transformer_uses_u16_for_large_dictionaries() {
+    async fn test_dict_transformer_uses_u16_for_large_dictionaries() -> VortexResult<()> {
         // Use max_len = 1000 to allow U16 codes (since 1000 > 255).
         let constraints = DictConstraints {
             max_bytes: 1024 * 1024,
@@ -661,10 +772,13 @@ mod tests {
         let mut transformer = DictionaryTransformer::new(dict_stream);
 
         // Get the first (and only) run.
-        let (codes_stream, _values_fut) = transformer
-            .next()
-            .await
-            .expect("expected at least one dictionary run");
+        let Some(DictLayoutRun::Dict {
+            codes_stream,
+            values_fut: _values_fut,
+        }) = transformer.next().await
+        else {
+            panic!("expected at least one dictionary run");
+        };
 
         // Codes stream dtype should be U16 since we have more than 255 distinct values.
         assert_eq!(
@@ -672,5 +786,138 @@ mod tests {
             &DType::Primitive(PType::U16, NonNullable),
             "codes stream should use U16 dtype for dictionaries with >255 entries"
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_dict_transformer_downgrades_high_selectivity_tail() -> VortexResult<()> {
+        let constraints = DictConstraints {
+            max_bytes: 1024 * 1024,
+            max_len: 4,
+        };
+
+        let arr =
+            VarBinArray::from(vec!["v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7"]).into_array();
+
+        let mut pointer = SequenceId::root();
+        let input_stream = SequentialStreamAdapter::new(
+            arr.dtype().clone(),
+            futures::stream::once(async move { Ok((pointer.advance(), arr)) }),
+        )
+        .sendable();
+
+        let dict_stream = dict_encode_stream(input_stream, constraints);
+        let mut transformer = DictionaryTransformer::new(dict_stream);
+
+        let Some(first_run @ DictLayoutRun::Dict { .. }) = transformer.next().await else {
+            panic!("expected a dictionary run before downgrade");
+        };
+        let Some(raw_run @ DictLayoutRun::Raw(_)) = transformer.next().await else {
+            panic!("expected a raw tail after high-selectivity dictionary");
+        };
+        assert!(transformer.next().await.is_none());
+
+        let DictLayoutRun::Dict {
+            codes_stream,
+            values_fut,
+        } = first_run
+        else {
+            unreachable!("validated above")
+        };
+
+        let dict_rows = codes_stream
+            .map_ok(|(_, chunk)| chunk.len())
+            .try_fold(0usize, |rows, len| async move { Ok(rows + len) })
+            .await?;
+        assert_eq!(dict_rows, 4, "first dictionary should encode four rows");
+
+        let (_, values) = values_fut.await?;
+        assert_eq!(
+            values.len(),
+            4,
+            "first dictionary should contain four unique values"
+        );
+
+        let DictLayoutRun::Raw(raw_stream) = raw_run else {
+            unreachable!("validated above")
+        };
+
+        let raw_chunks = raw_stream
+            .map_ok(|(_, chunk)| chunk)
+            .try_collect::<Vec<_>>()
+            .await?;
+        assert_eq!(raw_chunks.len(), 1, "expected one raw tail chunk");
+        assert_arrays_eq!(
+            raw_chunks[0],
+            VarBinArray::from(vec!["v4", "v5", "v6", "v7"]).into_array()
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_dict_transformer_recheck_uses_accumulated_rows() -> VortexResult<()> {
+        let constraints = DictConstraints {
+            max_bytes: 1024 * 1024,
+            max_len: 4,
+        };
+
+        let first = VarBinArray::from(vec!["a", "a", "b", "b", "a", "b"]).into_array();
+        let second = VarBinArray::from(vec!["c", "d", "e", "f"]).into_array();
+
+        let mut pointer = SequenceId::root();
+        let input_stream = SequentialStreamAdapter::new(
+            first.dtype().clone(),
+            futures::stream::iter([
+                Ok((pointer.advance(), first)),
+                Ok((pointer.advance(), second)),
+            ]),
+        )
+        .sendable();
+
+        let dict_stream = dict_encode_stream(input_stream, constraints);
+        let mut transformer = DictionaryTransformer::new(dict_stream);
+
+        let Some(first_run @ DictLayoutRun::Dict { .. }) = transformer.next().await else {
+            panic!("expected the first run to stay dictionary encoded");
+        };
+
+        let DictLayoutRun::Dict {
+            codes_stream,
+            values_fut,
+        } = first_run
+        else {
+            unreachable!("validated above")
+        };
+
+        let first_codes = tokio::spawn(async move {
+            codes_stream
+                .map_ok(|(_, chunk)| chunk.len())
+                .try_fold(0usize, |rows, len| async move { Ok(rows + len) })
+                .await
+        });
+
+        let Some(second_run @ DictLayoutRun::Dict { .. }) = transformer.next().await else {
+            panic!("expected a second dictionary run instead of a raw tail");
+        };
+        assert!(transformer.next().await.is_none());
+
+        let DictLayoutRun::Dict { .. } = second_run else {
+            unreachable!("validated above")
+        };
+
+        let dict_rows = first_codes.await.expect("task must complete")?;
+        assert_eq!(
+            dict_rows, 8,
+            "first dictionary should span both input chunks"
+        );
+
+        let (_, values) = values_fut.await?;
+        assert_eq!(
+            values.len(),
+            4,
+            "first dictionary should contain four unique values"
+        );
+
+        Ok(())
     }
 }
