@@ -153,11 +153,18 @@ pub(crate) fn core_storage_without_typed_value(
     .map(IntoArray::into_array)
 }
 
+/// Converts a Parquet `typed_value` tree into the storage-agnostic canonical shredded tree.
+///
+/// Parquet shredding represents nested fields with wrapper structs containing `value` and/or
+/// `typed_value`. This strips those wrappers, preserves list/struct shape, and leaves primitive
+/// typed values unchanged.
 pub(crate) fn logical_shredded_from_parquet_typed_value(
     metadata: &ArrayRef,
     typed_value: ArrayRef,
 ) -> VortexResult<ArrayRef> {
     if let Some(list_array) = typed_value.as_opt::<List>() {
+        // Lists keep their original offsets and validity; only the physical element
+        // representation may need wrapper removal.
         let elements =
             logical_shredded_from_parquet_field(metadata, list_array.elements().clone())?
                 .unwrap_or_else(|| list_array.elements().clone());
@@ -173,6 +180,8 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
         return Ok(typed_value);
     };
 
+    // For object shredding, each struct field is a logical object field. Fields that
+    // are known wrapper shells without typed data are omitted from the canonical tree.
     let mut names = Vec::new();
     let mut fields = Vec::new();
     for (name, field) in struct_array
@@ -195,6 +204,10 @@ pub(crate) fn logical_shredded_from_parquet_typed_value(
     .into_array())
 }
 
+/// Converts one Parquet shredded field to the corresponding canonical shredded child.
+///
+/// Returns `None` when the field is only a Parquet wrapper with no `typed_value`; that means the
+/// logical field is not represented in shredded storage and must be served from raw `value`.
 fn logical_shredded_from_parquet_field(
     metadata: &ArrayRef,
     field: ArrayRef,
@@ -212,6 +225,8 @@ fn logical_shredded_from_parquet_field(
             return Ok(None);
         };
         let validity = field_struct.validity()?;
+        // `unmasked_field_by_name_opt` intentionally ignores the parent struct validity.
+        // Reapply it here so null wrapper rows become null typed/raw rows downstream.
         let typed_value = if validity.no_nulls() {
             typed_value.clone()
         } else {
@@ -231,9 +246,13 @@ fn logical_shredded_from_parquet_field(
             .transpose()?;
 
         let Some(value) = value else {
+            // Fully shredded field: recurse through the typed subtree and expose its
+            // logical shape directly.
             return logical_shredded_from_parquet_typed_value(metadata, typed_value).map(Some);
         };
 
+        // Partially shredded terminal object: keep raw `value` available as the nested
+        // Variant core storage while exposing any typed children as nested `shredded`.
         let validity = inferred_shredded_field_validity(Some(&value), Some(&typed_value))?;
         let parquet_field =
             ParquetVariant::try_new(validity, metadata.clone(), Some(value), Some(typed_value))?;
