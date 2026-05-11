@@ -6272,6 +6272,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "noodles-bgzf"
+version = "0.47.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d22589ec50582fa0c3e629d27e5263fc5ff5d436955648ba601b7ac4155fbf2"
+dependencies = [
+ "bytes",
+ "crossbeam-channel",
+ "futures",
+ "pin-project-lite",
+ "tokio",
+ "tokio-util",
+ "zlib-rs",
+]
+
+[[package]]
 name = "noodles-core"
 version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6290,7 +6305,7 @@ dependencies = [
  "bstr",
  "futures",
  "indexmap",
- "noodles-bgzf",
+ "noodles-bgzf 0.46.0",
  "noodles-core",
  "pin-project-lite",
  "tokio",
@@ -6304,7 +6319,7 @@ checksum = "2443d0852c9618cd4aa8d11bc7c1884285e46aa4466cf5c1e49f3d9756ca7ced"
 dependencies = [
  "bstr",
  "indexmap",
- "noodles-bgzf",
+ "noodles-bgzf 0.46.0",
  "noodles-core",
  "noodles-csi",
  "tokio",
@@ -6319,7 +6334,7 @@ dependencies = [
  "futures",
  "indexmap",
  "memchr",
- "noodles-bgzf",
+ "noodles-bgzf 0.46.0",
  "noodles-core",
  "noodles-csi",
  "noodles-tabix",
@@ -10378,7 +10393,7 @@ dependencies = [
  "insta",
  "itertools 0.14.0",
  "mimalloc",
- "noodles-bgzf",
+ "noodles-bgzf 0.47.0",
  "noodles-vcf",
  "parking_lot",
  "parquet 58.2.0",
