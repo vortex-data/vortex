@@ -121,14 +121,12 @@ pub(super) fn build_progressing_bitset(
 /// bit (`i == all_bytes.len() - 1`) is forced to 0 — there is no
 /// successor byte for the c2 lookup.
 ///
-/// Used by the folded-contains scan path as a much sparser alternative
-/// to [`build_progressing_bitset_unbounded`] when both code sets fit in
-/// [`MAX_SET_BYTES`]. On real ClickBench URL data with single-byte
-/// `{c1=g, c2=o}` sets the pair bitset is ~100–1000× sparser than the
-/// 1-byte progressing bitset, dramatically reducing per-string DFA
-/// state-0 visits at a cost of one fused `vpshufb` pair per 32 input
-/// bytes (vs. one for the 1-byte path). Returns `None` when either set
-/// exceeds [`MAX_SET_BYTES`].
+/// Kept for the `fsst_prefilter_compare` bench, which A/B-tests the
+/// legacy Cartesian path against [`build_bucketed_pair_bitset`]. Returns
+/// `None` when either union exceeds [`MAX_SET_BYTES`] — which is the
+/// case on real FSST-trained dictionaries, the historical reason this
+/// path rarely fired before bucketing.
+#[cfg(any(test, feature = "_test-harness"))]
 pub(super) fn build_pair_bitset(
     all_bytes: &[u8],
     c1_codes: &[u8],
@@ -170,13 +168,10 @@ pub(super) fn build_pair_bitset(
     Some(out)
 }
 
-/// Fused fill of two bitsets in a single walk over `all_bytes`. The two
-/// PSHUFB lookups per 32-byte block share the same input load and zero
-/// vector — roughly ~1.4× one-table cost on typical x86_64 parts vs
-/// 2.0× for two independent walks. Halves the bandwidth cost of the
-/// 2-byte anchor scheme, which is the difference between net win and
-/// net regression on data shapes where the pair selectivity gain is
-/// modest.
+/// Fused fill of two bitsets in a single walk over `all_bytes`. Used
+/// only by [`build_pair_bitset`] — the bench-only legacy Cartesian
+/// path.
+#[cfg(any(test, feature = "_test-harness"))]
 fn fill_two_bitsets(
     all_bytes: &[u8],
     c1_tables: &NibbleTables,
@@ -198,7 +193,7 @@ fn fill_two_bitsets(
     fill_bitset_scalar(all_bytes, c2_tables, c2_out);
 }
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(all(target_arch = "x86_64", any(test, feature = "_test-harness")))]
 #[target_feature(enable = "avx2")]
 #[expect(unsafe_op_in_unsafe_fn)]
 unsafe fn fill_two_bitsets_avx2(
@@ -561,81 +556,6 @@ pub(super) fn collect_progressing_codes(transition_row: &[u8], start_state: u8) 
     Some(codes)
 }
 
-/// Compute pair-eligible (c1, c2) code sets for the 2-byte anchor scan.
-///
-/// `transitions` is the full `(2N + 1) × 256` folded transition matrix.
-/// `c1_codes` is the full state-0 progressing set.
-///
-/// The first returned vec is the pair-eligible subset of `c1_codes` —
-/// codes whose one-step state is non-zero AND non-accept. (Single-step
-/// accepts are excluded; they're captured by the existing accept-alone
-/// path.) The second vec is the union of **strictly-advancing or escape**
-/// c2 codes for those c1's: bytes `c2` such that `T[s1][c2] > s1` —
-/// numerically advancing toward accept — or `c2 == ESCAPE_CODE` for
-/// safety on escape sequences.
-///
-/// ## Why advancing-only?
-///
-/// Every match has some position `p` where the DFA strictly advances on
-/// the very next byte (otherwise it never escapes `s1` and never reaches
-/// accept). The first such `(p, p+1)` pair has `c1` in `c1_codes` and
-/// `c2` strictly advancing — so its bit is set in the pair bitset. The
-/// matcher then runs the DFA from `p` (state 0) and reaches accept,
-/// possibly via KMP fallback on the prefix bytes before `p`.
-///
-/// Returns `None` when `accept_state < 2`, when no c1 is pair-eligible
-/// (every progressing code is single-step accept), or when no c2 codes
-/// strictly advance from any pair-eligible c1.
-pub(super) fn collect_pair_codes(
-    transitions: &[u8],
-    c1_codes: &[u8],
-    accept_state: u8,
-) -> Option<(Vec<u8>, Vec<u8>)> {
-    if accept_state < 2 {
-        return None;
-    }
-    debug_assert!(transitions.len() >= 256);
-    let mut c2_seen = [false; 256];
-    let mut c1_out: Vec<u8> = Vec::new();
-    let mut c2_out: Vec<u8> = Vec::new();
-    for &c1 in c1_codes {
-        let s1 = transitions[usize::from(c1)];
-        if s1 == 0 || s1 == accept_state {
-            continue;
-        }
-        c1_out.push(c1);
-        let row = usize::from(s1) * 256;
-        // Advancing predicate: for **normal** states (`s1 ≤ accept_state`),
-        // strictly higher state ids encode "moved further along the
-        // match" (folded-DFA layout numbers normal states 0..=N
-        // monotonically). For **escape** states (`s1 > accept_state`,
-        // which is the post-`ESCAPE_CODE` "expecting a literal byte"
-        // wrapper), the transition lands in a normal state (numerically
-        // lower than `s1`), so the strict-greater predicate would
-        // incorrectly drop *every* progressing literal. Use
-        // "non-zero next" for escape c1's.
-        let s1_is_escape = s1 > accept_state;
-        for c2 in 0..=255usize {
-            let next = transitions[row + c2];
-            let advances = if s1_is_escape {
-                next != 0
-            } else {
-                next > s1
-            };
-            let escape = c2 == usize::from(fsst::ESCAPE_CODE);
-            if (advances || escape) && !c2_seen[c2] {
-                c2_seen[c2] = true;
-                c2_out.push(c2 as u8);
-            }
-        }
-    }
-    if c1_out.is_empty() || c2_out.is_empty() {
-        None
-    } else {
-        Some((c1_out, c2_out))
-    }
-}
-
 /// Like [`collect_progressing_codes`], but never returns `None` — collects
 /// the full set of progressing codes regardless of cardinality. Pair with
 /// [`build_progressing_bitset_unbounded`] which scans in `ceil(N / 8)`
@@ -652,6 +572,1565 @@ pub(super) fn collect_progressing_codes_unbounded(
         }
     }
     codes
+}
+
+/// A bucketed view of pair-eligible codes: one bucket per distinct c1, with
+/// the per-c1 set of strictly-advancing-or-escape c2 codes. Used by the
+/// shared-c1 bucketed Teddy pair-bitset path: bucket `b` holds the Cartesian
+/// sub-product `({c1_b}, c2_set_b)`, so OR-ing the buckets eliminates
+/// cross-bucket false-positive pairs that pure Cartesian (`c1_union ×
+/// c2_union`) admits.
+pub(super) type BucketedPairCodes = Vec<(u8, Vec<u8>)>;
+
+/// Compute shared-c1 buckets for the bucketed pair-bitset scan. Mirrors the
+/// per-c1 logic of [`collect_pair_codes`] but keeps the c2 partition
+/// per-c1 instead of flattening into a union.
+///
+/// Returns `None` when no c1 is pair-eligible or when `accept_state < 2`.
+pub(super) fn collect_bucketed_pair_codes(
+    transitions: &[u8],
+    c1_codes: &[u8],
+    accept_state: u8,
+) -> Option<BucketedPairCodes> {
+    if accept_state < 2 {
+        return None;
+    }
+    debug_assert!(transitions.len() >= 256);
+    let mut buckets: BucketedPairCodes = Vec::new();
+    for &c1 in c1_codes {
+        let s1 = transitions[usize::from(c1)];
+        if s1 == 0 || s1 == accept_state {
+            continue;
+        }
+        let row = usize::from(s1) * 256;
+        let s1_is_escape = s1 > accept_state;
+        let mut c2_set: Vec<u8> = Vec::new();
+        for c2 in 0..=255usize {
+            let next = transitions[row + c2];
+            let advances = if s1_is_escape {
+                next != 0
+            } else {
+                next > s1
+            };
+            let escape = c2 == usize::from(fsst::ESCAPE_CODE);
+            if advances || escape {
+                c2_set.push(c2 as u8);
+            }
+        }
+        if !c2_set.is_empty() {
+            buckets.push((c1, c2_set));
+        }
+    }
+    if buckets.is_empty() { None } else { Some(buckets) }
+}
+
+/// Build a packed bitset of length `all_bytes.len()` whose bit `i` is set
+/// iff `(all_bytes[i], all_bytes[i+1])` is approximated as a pair in
+/// `buckets`: there exists a bucket `b` such that `all_bytes[i] == c1_b`
+/// AND `all_bytes[i+1]` matches the bucket's c2 nibble tables (a small
+/// nibble-cross over-approximation of `c2_set_b` for bucket sizes > 1,
+/// admitting within-bucket FPs but never cross-bucket FPs). The last
+/// bit (`i == all_bytes.len() - 1`) is forced to 0.
+///
+/// Single PSHUFB-Mula pass when `buckets.len() ≤ MAX_SET_BYTES`. Larger
+/// bucket counts are processed in chunks of `MAX_SET_BYTES` and OR-merged
+/// into the output.
+///
+/// Compared to [`build_pair_bitset`] (pure Cartesian `c1_union × c2_union`),
+/// this preserves the per-c1 partition. On real FSST-trained URL data,
+/// the c1 set typically has more than one element only when several
+/// symbols re-encode the same anchor byte — in which case the bucketed
+/// path drops the Cartesian's cross-product FPs (e.g. matching
+/// `(c1_a, c2_b)` when only `(c1_a, c2_a)` and `(c1_b, c2_b)` are
+/// valid).
+pub(super) fn build_bucketed_pair_bitset(
+    all_bytes: &[u8],
+    buckets: &[(u8, Vec<u8>)],
+) -> Vec<u64> {
+    let trace = std::env::var_os("VORTEX_FSST_BUCKET_BUILD_TRACE")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    let total_t = trace.then(std::time::Instant::now);
+    let n_words = all_bytes.len().div_ceil(64);
+    let alloc_t = trace.then(std::time::Instant::now);
+    let mut out = vec![0u64; n_words];
+    let alloc_us = alloc_t
+        .map(|t| t.elapsed().as_secs_f64() * 1e6)
+        .unwrap_or_default();
+    if buckets.is_empty() || all_bytes.len() < 2 {
+        if let Some(total_t) = total_t {
+            eprintln!(
+                "[fsst::bucket_build] path=empty bytes={} buckets={} words={} alloc_us={:.3} fill_us=0.000 merge_us=0.000 total_us={:.3}",
+                all_bytes.len(),
+                buckets.len(),
+                n_words,
+                alloc_us,
+                total_t.elapsed().as_secs_f64() * 1e6,
+            );
+        }
+        return out;
+    }
+    if buckets.len() <= MAX_SET_BYTES {
+        let fill_t = trace.then(std::time::Instant::now);
+        fill_bucketed_pair(all_bytes, buckets, &mut out);
+        let fill_us = fill_t
+            .map(|t| t.elapsed().as_secs_f64() * 1e6)
+            .unwrap_or_default();
+        if let Some(total_t) = total_t {
+            eprintln!(
+                "[fsst::bucket_build] path=single bytes={} buckets={} words={} alloc_us={:.3} fill_us={:.3} merge_us=0.000 total_us={:.3}",
+                all_bytes.len(),
+                buckets.len(),
+                n_words,
+                alloc_us,
+                fill_us,
+                total_t.elapsed().as_secs_f64() * 1e6,
+            );
+        }
+        return out;
+    }
+    // Multi-pass: OR-merge per-chunk pair bitsets.
+    let scratch_alloc_t = trace.then(std::time::Instant::now);
+    let mut scratch = vec![0u64; n_words];
+    let scratch_alloc_us = scratch_alloc_t
+        .map(|t| t.elapsed().as_secs_f64() * 1e6)
+        .unwrap_or_default();
+    let mut fill_us = 0f64;
+    let mut merge_us = 0f64;
+    for chunk in buckets.chunks(MAX_SET_BYTES) {
+        scratch.iter_mut().for_each(|w| *w = 0);
+        let fill_t = trace.then(std::time::Instant::now);
+        fill_bucketed_pair(all_bytes, chunk, &mut scratch);
+        fill_us += fill_t
+            .map(|t| t.elapsed().as_secs_f64() * 1e6)
+            .unwrap_or_default();
+        let merge_t = trace.then(std::time::Instant::now);
+        for (dst, src) in out.iter_mut().zip(scratch.iter()) {
+            *dst |= *src;
+        }
+        merge_us += merge_t
+            .map(|t| t.elapsed().as_secs_f64() * 1e6)
+            .unwrap_or_default();
+    }
+    if let Some(total_t) = total_t {
+        eprintln!(
+            "[fsst::bucket_build] path=multipass bytes={} buckets={} words={} alloc_us={:.3} scratch_alloc_us={:.3} fill_us={:.3} merge_us={:.3} total_us={:.3}",
+            all_bytes.len(),
+            buckets.len(),
+            n_words,
+            alloc_us,
+            scratch_alloc_us,
+            fill_us,
+            merge_us,
+            total_t.elapsed().as_secs_f64() * 1e6,
+        );
+    }
+    out
+}
+
+/// Internal: bucket tables for one bucketed pair-bitset pass. `c1_tables`
+/// has bit `b` set at the lo/hi nibbles of bucket `b`'s c1. `c2_tables`
+/// has bit `b` set at the lo/hi nibbles of any c2 in bucket `b`'s c2 set.
+struct BucketTables {
+    c1: NibbleTables,
+    c2: NibbleTables,
+}
+
+impl BucketTables {
+    fn build(buckets: &[(u8, Vec<u8>)]) -> Self {
+        debug_assert!(buckets.len() <= MAX_SET_BYTES);
+        let mut c1_lo = [0u8; 16];
+        let mut c1_hi = [0u8; 16];
+        let mut c2_lo = [0u8; 16];
+        let mut c2_hi = [0u8; 16];
+        for (b, (c1, c2_set)) in buckets.iter().enumerate() {
+            let bit = 1u8 << b;
+            c1_lo[usize::from(c1 & 0x0F)] |= bit;
+            c1_hi[usize::from(c1 >> 4)] |= bit;
+            for &c2 in c2_set {
+                c2_lo[usize::from(c2 & 0x0F)] |= bit;
+                c2_hi[usize::from(c2 >> 4)] |= bit;
+            }
+        }
+        Self {
+            c1: NibbleTables { lo: c1_lo, hi: c1_hi },
+            c2: NibbleTables { lo: c2_lo, hi: c2_hi },
+        }
+    }
+}
+
+/// Dispatch to AVX2 bucketed-pair fill when available, scalar otherwise.
+fn fill_bucketed_pair(all_bytes: &[u8], buckets: &[(u8, Vec<u8>)], out: &mut [u64]) {
+    let tables = BucketTables::build(buckets);
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::is_x86_feature_detected!("avx2") {
+            // SAFETY: AVX2 just detected.
+            unsafe { fill_bucketed_pair_avx2(all_bytes, &tables, out) };
+            return;
+        }
+    }
+    fill_bucketed_pair_scalar(all_bytes, &tables, out);
+}
+
+/// Scalar bucketed-pair fill. Equivalent to the AVX2 path on a byte-by-byte
+/// basis; bit `i` is set iff `(c1_mask[i] & c2_mask[i+1]) != 0` for the
+/// nibble-table masks. Position `len - 1` is never set (no successor).
+fn fill_bucketed_pair_scalar(all_bytes: &[u8], tables: &BucketTables, out: &mut [u64]) {
+    let len = all_bytes.len();
+    if len < 2 {
+        return;
+    }
+    for i in 0..len - 1 {
+        let b1 = all_bytes[i];
+        let b2 = all_bytes[i + 1];
+        let c1_bits = tables.c1.lo[usize::from(b1 & 0x0F)] & tables.c1.hi[usize::from(b1 >> 4)];
+        let c2_bits = tables.c2.lo[usize::from(b2 & 0x0F)] & tables.c2.hi[usize::from(b2 >> 4)];
+        if (c1_bits & c2_bits) != 0 {
+            out[i >> 6] |= 1u64 << (i & 63);
+        }
+    }
+}
+
+/// AVX2 bucketed-pair fill: per 32-byte chunk, compute c1 bucket bits from a
+/// load at offset `i` and c2 bucket bits from a load at offset `i + 1`,
+/// AND them per-byte, and movemask to a 32-bit candidate mask. Tail
+/// positions are handled scalar.
+///
+/// # Safety
+///
+/// Requires AVX2 to be available at runtime.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[expect(unsafe_op_in_unsafe_fn)]
+unsafe fn fill_bucketed_pair_avx2(all_bytes: &[u8], tables: &BucketTables, out: &mut [u64]) {
+    use core::arch::x86_64::_mm256_or_si256;
+    use core::arch::x86_64::_mm256_set1_epi8;
+
+    let len = all_bytes.len();
+    if len < 2 {
+        return;
+    }
+    // Largest multiple of 32 such that the unaligned load at offset `i + 1`
+    // for `i = main_len - 32` is in bounds: `i + 32 + 1 ≤ len` ⇒
+    // `main_len ≤ len - 1` ⇒ rounded down to a multiple of 32.
+    let main_len = ((len - 1) >> 5) << 5;
+
+    let c1_lo = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c1.lo.as_ptr() as *const __m128i));
+    let c1_hi = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c1.hi.as_ptr() as *const __m128i));
+    let c2_lo = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c2.lo.as_ptr() as *const __m128i));
+    let c2_hi = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c2.hi.as_ptr() as *const __m128i));
+    let zero = _mm256_setzero_si256();
+    let nibble_mask = _mm256_set1_epi8(0x0F);
+
+    let ptr = all_bytes.as_ptr();
+    let mut i: usize = 0;
+    while i < main_len {
+        // v1 = bytes[i..i+32] for the c1 lane; v2 = bytes[i+1..i+33] for c2.
+        // SAFETY: `i + 32 ≤ main_len ≤ len - 1` so `i + 32 < len`, both
+        // 32-byte loads are in bounds.
+        let v1 = _mm256_loadu_si256(ptr.add(i) as *const __m256i);
+        let v2 = _mm256_loadu_si256(ptr.add(i + 1) as *const __m256i);
+
+        let v1_lo = _mm256_and_si256(v1, nibble_mask);
+        let v1_hi = _mm256_and_si256(_mm256_srli_epi64(v1, 4), nibble_mask);
+        let v2_lo = _mm256_and_si256(v2, nibble_mask);
+        let v2_hi = _mm256_and_si256(_mm256_srli_epi64(v2, 4), nibble_mask);
+
+        let c1_bits = _mm256_and_si256(
+            _mm256_shuffle_epi8(c1_lo, v1_lo),
+            _mm256_shuffle_epi8(c1_hi, v1_hi),
+        );
+        let c2_bits = _mm256_and_si256(
+            _mm256_shuffle_epi8(c2_lo, v2_lo),
+            _mm256_shuffle_epi8(c2_hi, v2_hi),
+        );
+        // Per-byte AND preserves the per-bucket bit: surviving bit `b` means
+        // the c1 lane matched bucket `b`'s c1 *and* the c2 lane (at offset
+        // i+1) matched bucket `b`'s c2 set. Cross-bucket combinations
+        // (bit `a` from c1, bit `b` from c2 with `a ≠ b`) AND to zero.
+        let pair = _mm256_and_si256(c1_bits, c2_bits);
+
+        // Collapse 32 bytes → 32-bit "any bit set" mask. Bytes whose pair
+        // value has bit 7 set are negative as `i8`; cover them with the
+        // signed "< 0" comparison.
+        let pos = _mm256_cmpgt_epi8(pair, zero);
+        let neg = _mm256_cmpgt_epi8(zero, pair);
+        let hit = _mm256_or_si256(pos, neg);
+        let mask = _mm256_movemask_epi8(hit) as u32;
+
+        // i is a multiple of 32 ⇒ bit_off is 0 or 32; the 32-bit mask
+        // never crosses a u64 boundary.
+        let word_idx = i >> 6;
+        let bit_off = (i & 63) as u64;
+        // SAFETY: i + 31 < len, so word_idx < n_words.
+        *out.get_unchecked_mut(word_idx) |= u64::from(mask) << bit_off;
+        i += 32;
+    }
+
+    // Tail: scalar from i to len-2 (inclusive). Position len-1 has no
+    // successor and must remain 0.
+    for j in i..len - 1 {
+        let b1 = *all_bytes.get_unchecked(j);
+        let b2 = *all_bytes.get_unchecked(j + 1);
+        let c1_bits_b = tables.c1.lo[usize::from(b1 & 0x0F)] & tables.c1.hi[usize::from(b1 >> 4)];
+        let c2_bits_b = tables.c2.lo[usize::from(b2 & 0x0F)] & tables.c2.hi[usize::from(b2 >> 4)];
+        if (c1_bits_b & c2_bits_b) != 0 {
+            let word_idx = j >> 6;
+            let bit_off = (j & 63) as u64;
+            *out.get_unchecked_mut(word_idx) |= 1u64 << bit_off;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bucketed Teddy-3 (3-byte fingerprint pair scan).
+//
+// Same shared-c1 bucket scheme as Teddy-2, extended with a c3 set: bucket
+// `b` holds `(c1_b, c2_set_b, c3_set_b)` and the bit is set at position `i`
+// iff `all_bytes[i] == c1_b` AND `all_bytes[i+1] ∈ c2_set_b` AND
+// `all_bytes[i+2] ∈ c3_set_b` (modulo nibble-cross within-bucket FPs in c2
+// and c3). Selectivity scales roughly as `(|c1| · |c2| · |c3|) / 256³`
+// per position vs Teddy-2's `(|c1| · |c2|) / 256²`. On dense alphabets
+// like ClickBench URLs this typically yields 100–1000× fewer candidate
+// hits than Teddy-2, at the cost of one additional PSHUFB-Mula pair and
+// one extra unaligned 32-byte load per chunk.
+// ---------------------------------------------------------------------------
+
+/// One bucket per distinct c1, with the per-c1 advancing c2 set AND the
+/// union (across that c1's c2 set) of strictly-advancing c3 codes. Used
+/// by [`build_bucketed_triple_bitset`]. `None` when the needle is too
+/// short to admit a 3-byte fingerprint (`accept_state < 3`) or no
+/// progressing c1 has a non-empty c2 × c3 advancement chain.
+pub(super) type BucketedTripleCodes = Vec<(u8, Vec<u8>, Vec<u8>)>;
+
+/// Compute shared-c1 buckets for the bucketed Teddy-3 scan. Mirrors
+/// [`collect_bucketed_pair_codes`] but walks one DFA step further:
+/// for each pair-eligible `(c1, c2)` we collect the strictly-advancing
+/// c3 codes from state `T[s1][c2]`, then union across c2's of the same
+/// bucket.
+///
+/// We deliberately *skip* escape-state c1's here: under FSST escapes
+/// the third byte is a literal byte fed through the byte-level table,
+/// and the resulting c3 admission set blows up. The Teddy-2 path
+/// continues to cover the escape case.
+pub(super) fn collect_bucketed_triple_codes(
+    transitions: &[u8],
+    c1_codes: &[u8],
+    accept_state: u8,
+) -> Option<BucketedTripleCodes> {
+    if accept_state < 3 {
+        return None;
+    }
+    debug_assert!(transitions.len() >= 256);
+    let mut buckets: BucketedTripleCodes = Vec::new();
+    for &c1 in c1_codes {
+        let s1 = transitions[usize::from(c1)];
+        // Skip non-progressing, single-step-accept, and escape c1's. Escape
+        // c1's would produce c3 admission sets approaching all literal
+        // bytes — the Teddy-2 path handles them better.
+        if s1 == 0 || s1 == accept_state || s1 > accept_state {
+            continue;
+        }
+        let row_s1 = usize::from(s1) * 256;
+        let mut c2_set: Vec<u8> = Vec::new();
+        let mut c3_seen = [false; 256];
+        let mut c3_set: Vec<u8> = Vec::new();
+        for c2 in 0..=255usize {
+            let s2 = transitions[row_s1 + c2];
+            // c2 must strictly advance from s1 AND s2 must be a *normal*
+            // intermediate state (≠ accept, ≠ escape) so there is room
+            // for c3 to advance once more before accept. (Single-step
+            // accepts from s1 are already 2-byte matches and would be
+            // missed by a 3-byte pair predicate — but they are caught
+            // by the Teddy-2 path, which the cascade falls back to.)
+            if s2 <= s1 || s2 == accept_state || s2 > accept_state {
+                continue;
+            }
+            c2_set.push(c2 as u8);
+            let row_s2 = usize::from(s2) * 256;
+            for c3 in 0..=255usize {
+                let s3 = transitions[row_s2 + c3];
+                // c3 strictly advances OR is the escape code (safety).
+                let advances = s3 > s2;
+                let escape = c3 == usize::from(fsst::ESCAPE_CODE);
+                if (advances || escape) && !c3_seen[c3] {
+                    c3_seen[c3] = true;
+                    c3_set.push(c3 as u8);
+                }
+            }
+        }
+        if !c2_set.is_empty() && !c3_set.is_empty() {
+            buckets.push((c1, c2_set, c3_set));
+        }
+    }
+    if buckets.is_empty() { None } else { Some(buckets) }
+}
+
+/// Build a packed bitset of length `all_bytes.len()` whose bit `i` is set
+/// iff `(all_bytes[i], all_bytes[i+1], all_bytes[i+2])` is in some
+/// bucket's `(c1, c2_set, c3_set)` triple (with the same within-bucket
+/// nibble-cross over-approximation as Teddy-2 for the c2 and c3 sets).
+/// The last two bits (`i ≥ len - 2`) are forced to 0.
+///
+/// Single PSHUFB-Mula pass when `buckets.len() ≤ MAX_SET_BYTES`; larger
+/// bucket counts are processed in chunks of `MAX_SET_BYTES` and
+/// OR-merged into the output.
+pub(super) fn build_bucketed_triple_bitset(
+    all_bytes: &[u8],
+    buckets: &[(u8, Vec<u8>, Vec<u8>)],
+) -> Vec<u64> {
+    let trace = std::env::var_os("VORTEX_FSST_BUCKET_BUILD_TRACE")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    let total_t = trace.then(std::time::Instant::now);
+    let n_words = all_bytes.len().div_ceil(64);
+    let alloc_t = trace.then(std::time::Instant::now);
+    let mut out = vec![0u64; n_words];
+    let alloc_us = alloc_t
+        .map(|t| t.elapsed().as_secs_f64() * 1e6)
+        .unwrap_or_default();
+    if buckets.is_empty() || all_bytes.len() < 3 {
+        if let Some(total_t) = total_t {
+            eprintln!(
+                "[fsst::triple_build] path=empty bytes={} buckets={} words={} alloc_us={:.3} fill_us=0.000 merge_us=0.000 total_us={:.3}",
+                all_bytes.len(),
+                buckets.len(),
+                n_words,
+                alloc_us,
+                total_t.elapsed().as_secs_f64() * 1e6,
+            );
+        }
+        return out;
+    }
+    if buckets.len() <= MAX_SET_BYTES {
+        let fill_t = trace.then(std::time::Instant::now);
+        fill_bucketed_triple(all_bytes, buckets, &mut out);
+        let fill_us = fill_t
+            .map(|t| t.elapsed().as_secs_f64() * 1e6)
+            .unwrap_or_default();
+        if let Some(total_t) = total_t {
+            eprintln!(
+                "[fsst::triple_build] path=single bytes={} buckets={} words={} alloc_us={:.3} fill_us={:.3} merge_us=0.000 total_us={:.3}",
+                all_bytes.len(),
+                buckets.len(),
+                n_words,
+                alloc_us,
+                fill_us,
+                total_t.elapsed().as_secs_f64() * 1e6,
+            );
+        }
+        return out;
+    }
+    let scratch_alloc_t = trace.then(std::time::Instant::now);
+    let mut scratch = vec![0u64; n_words];
+    let scratch_alloc_us = scratch_alloc_t
+        .map(|t| t.elapsed().as_secs_f64() * 1e6)
+        .unwrap_or_default();
+    let mut fill_us = 0f64;
+    let mut merge_us = 0f64;
+    for chunk in buckets.chunks(MAX_SET_BYTES) {
+        scratch.iter_mut().for_each(|w| *w = 0);
+        let fill_t = trace.then(std::time::Instant::now);
+        fill_bucketed_triple(all_bytes, chunk, &mut scratch);
+        fill_us += fill_t
+            .map(|t| t.elapsed().as_secs_f64() * 1e6)
+            .unwrap_or_default();
+        let merge_t = trace.then(std::time::Instant::now);
+        for (dst, src) in out.iter_mut().zip(scratch.iter()) {
+            *dst |= *src;
+        }
+        merge_us += merge_t
+            .map(|t| t.elapsed().as_secs_f64() * 1e6)
+            .unwrap_or_default();
+    }
+    if let Some(total_t) = total_t {
+        eprintln!(
+            "[fsst::triple_build] path=multipass bytes={} buckets={} words={} alloc_us={:.3} scratch_alloc_us={:.3} fill_us={:.3} merge_us={:.3} total_us={:.3}",
+            all_bytes.len(),
+            buckets.len(),
+            n_words,
+            alloc_us,
+            scratch_alloc_us,
+            fill_us,
+            merge_us,
+            total_t.elapsed().as_secs_f64() * 1e6,
+        );
+    }
+    out
+}
+
+/// Nibble tables for one Teddy-3 pass: bit `b` per bucket across c1/c2/c3.
+struct TripleTables {
+    c1: NibbleTables,
+    c2: NibbleTables,
+    c3: NibbleTables,
+}
+
+impl TripleTables {
+    fn build(buckets: &[(u8, Vec<u8>, Vec<u8>)]) -> Self {
+        debug_assert!(buckets.len() <= MAX_SET_BYTES);
+        let mut c1_lo = [0u8; 16];
+        let mut c1_hi = [0u8; 16];
+        let mut c2_lo = [0u8; 16];
+        let mut c2_hi = [0u8; 16];
+        let mut c3_lo = [0u8; 16];
+        let mut c3_hi = [0u8; 16];
+        for (b, (c1, c2_set, c3_set)) in buckets.iter().enumerate() {
+            let bit = 1u8 << b;
+            c1_lo[usize::from(c1 & 0x0F)] |= bit;
+            c1_hi[usize::from(c1 >> 4)] |= bit;
+            for &c2 in c2_set {
+                c2_lo[usize::from(c2 & 0x0F)] |= bit;
+                c2_hi[usize::from(c2 >> 4)] |= bit;
+            }
+            for &c3 in c3_set {
+                c3_lo[usize::from(c3 & 0x0F)] |= bit;
+                c3_hi[usize::from(c3 >> 4)] |= bit;
+            }
+        }
+        Self {
+            c1: NibbleTables { lo: c1_lo, hi: c1_hi },
+            c2: NibbleTables { lo: c2_lo, hi: c2_hi },
+            c3: NibbleTables { lo: c3_lo, hi: c3_hi },
+        }
+    }
+}
+
+fn fill_bucketed_triple(
+    all_bytes: &[u8],
+    buckets: &[(u8, Vec<u8>, Vec<u8>)],
+    out: &mut [u64],
+) {
+    let tables = TripleTables::build(buckets);
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::is_x86_feature_detected!("avx2") {
+            // SAFETY: AVX2 just detected.
+            unsafe { fill_bucketed_triple_avx2(all_bytes, &tables, out) };
+            return;
+        }
+    }
+    fill_bucketed_triple_scalar(all_bytes, &tables, out);
+}
+
+fn fill_bucketed_triple_scalar(all_bytes: &[u8], tables: &TripleTables, out: &mut [u64]) {
+    let len = all_bytes.len();
+    if len < 3 {
+        return;
+    }
+    for i in 0..len - 2 {
+        let b1 = all_bytes[i];
+        let b2 = all_bytes[i + 1];
+        let b3 = all_bytes[i + 2];
+        let c1_bits = tables.c1.lo[usize::from(b1 & 0x0F)] & tables.c1.hi[usize::from(b1 >> 4)];
+        let c2_bits = tables.c2.lo[usize::from(b2 & 0x0F)] & tables.c2.hi[usize::from(b2 >> 4)];
+        let c3_bits = tables.c3.lo[usize::from(b3 & 0x0F)] & tables.c3.hi[usize::from(b3 >> 4)];
+        if (c1_bits & c2_bits & c3_bits) != 0 {
+            out[i >> 6] |= 1u64 << (i & 63);
+        }
+    }
+}
+
+/// AVX2 Teddy-3 fill. Same shape as Teddy-2 but with three 32-byte
+/// loads per 32-byte step (offsets `i`, `i+1`, `i+2`) and three nibble-
+/// table lookups AND'd together before the movemask.
+///
+/// # Safety
+///
+/// Requires AVX2 at runtime.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[expect(unsafe_op_in_unsafe_fn)]
+unsafe fn fill_bucketed_triple_avx2(all_bytes: &[u8], tables: &TripleTables, out: &mut [u64]) {
+    use core::arch::x86_64::_mm256_or_si256;
+    use core::arch::x86_64::_mm256_set1_epi8;
+
+    let len = all_bytes.len();
+    if len < 3 {
+        return;
+    }
+    // At i = main_len - 32, the c3 load reads bytes [i+2 .. i+33] = [main_len-30 .. main_len+1].
+    // Need main_len + 1 ≤ len - 1 ⇒ main_len ≤ len - 2.
+    let main_len = ((len - 2) >> 5) << 5;
+
+    let c1_lo = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c1.lo.as_ptr() as *const __m128i));
+    let c1_hi = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c1.hi.as_ptr() as *const __m128i));
+    let c2_lo = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c2.lo.as_ptr() as *const __m128i));
+    let c2_hi = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c2.hi.as_ptr() as *const __m128i));
+    let c3_lo = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c3.lo.as_ptr() as *const __m128i));
+    let c3_hi = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c3.hi.as_ptr() as *const __m128i));
+    let zero = _mm256_setzero_si256();
+    let nibble_mask = _mm256_set1_epi8(0x0F);
+
+    let ptr = all_bytes.as_ptr();
+    let mut i: usize = 0;
+    while i < main_len {
+        // SAFETY: i + 32 ≤ main_len ≤ len - 2 so i + 33 < len; loads are in bounds.
+        let v1 = _mm256_loadu_si256(ptr.add(i) as *const __m256i);
+        let v2 = _mm256_loadu_si256(ptr.add(i + 1) as *const __m256i);
+        let v3 = _mm256_loadu_si256(ptr.add(i + 2) as *const __m256i);
+
+        let v1_lo = _mm256_and_si256(v1, nibble_mask);
+        let v1_hi = _mm256_and_si256(_mm256_srli_epi64(v1, 4), nibble_mask);
+        let v2_lo = _mm256_and_si256(v2, nibble_mask);
+        let v2_hi = _mm256_and_si256(_mm256_srli_epi64(v2, 4), nibble_mask);
+        let v3_lo = _mm256_and_si256(v3, nibble_mask);
+        let v3_hi = _mm256_and_si256(_mm256_srli_epi64(v3, 4), nibble_mask);
+
+        let c1_bits = _mm256_and_si256(
+            _mm256_shuffle_epi8(c1_lo, v1_lo),
+            _mm256_shuffle_epi8(c1_hi, v1_hi),
+        );
+        let c2_bits = _mm256_and_si256(
+            _mm256_shuffle_epi8(c2_lo, v2_lo),
+            _mm256_shuffle_epi8(c2_hi, v2_hi),
+        );
+        let c3_bits = _mm256_and_si256(
+            _mm256_shuffle_epi8(c3_lo, v3_lo),
+            _mm256_shuffle_epi8(c3_hi, v3_hi),
+        );
+        let triple = _mm256_and_si256(_mm256_and_si256(c1_bits, c2_bits), c3_bits);
+
+        let pos = _mm256_cmpgt_epi8(triple, zero);
+        let neg = _mm256_cmpgt_epi8(zero, triple);
+        let hit = _mm256_or_si256(pos, neg);
+        let mask = _mm256_movemask_epi8(hit) as u32;
+
+        let word_idx = i >> 6;
+        let bit_off = (i & 63) as u64;
+        *out.get_unchecked_mut(word_idx) |= u64::from(mask) << bit_off;
+        i += 32;
+    }
+
+    // Tail: scalar from i to len-3 (inclusive). Positions len-2, len-1 have no
+    // 3-byte successor window and must remain 0.
+    for j in i..len - 2 {
+        let b1 = *all_bytes.get_unchecked(j);
+        let b2 = *all_bytes.get_unchecked(j + 1);
+        let b3 = *all_bytes.get_unchecked(j + 2);
+        let c1_bits_b = tables.c1.lo[usize::from(b1 & 0x0F)] & tables.c1.hi[usize::from(b1 >> 4)];
+        let c2_bits_b = tables.c2.lo[usize::from(b2 & 0x0F)] & tables.c2.hi[usize::from(b2 >> 4)];
+        let c3_bits_b = tables.c3.lo[usize::from(b3 & 0x0F)] & tables.c3.hi[usize::from(b3 >> 4)];
+        if (c1_bits_b & c2_bits_b & c3_bits_b) != 0 {
+            let word_idx = j >> 6;
+            let bit_off = (j & 63) as u64;
+            *out.get_unchecked_mut(word_idx) |= 1u64 << bit_off;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fused streaming Teddy scans (no materialized bitset)
+//
+// Replaces "build dense bitset + walk with tzcnt" with a single AVX2 pass
+// that emits candidates directly to the DFA verifier. Eliminates a per-chunk
+// `Vec<u64>` allocation (~22 KB × thousands of chunks per query) and a
+// second pass over `all_bytes`. Empty 32-byte blocks cost ~1 ns thanks to
+// the early `mask == 0` short-circuit.
+// ---------------------------------------------------------------------------
+
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
+
+/// Streaming Teddy-2 + inline DFA verify. Single AVX2 pass; when a
+/// 32-byte block has any candidate bits, peel with `tzcnt` and call
+/// `verify_at(cand_pos, str_end)` inline. Multi-pass OR-merge when
+/// `buckets.len() > MAX_SET_BYTES` (each later pass skips strings
+/// already marked by an earlier pass).
+pub(super) fn fused_teddy_pair_scan<T, V>(
+    n: usize,
+    offsets: &[T],
+    all_bytes: &[u8],
+    buckets: &[(u8, Vec<u8>)],
+    negated: bool,
+    mut verify_at: V,
+) -> BitBuffer
+where
+    T: vortex_array::dtype::IntegerPType,
+    V: FnMut(usize, usize) -> bool,
+{
+    let trace = std::env::var_os("VORTEX_FSST_STREAM_TRACE")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    let total_t = trace.then(std::time::Instant::now);
+    let alloc_t = trace.then(std::time::Instant::now);
+    let mut bits = if negated {
+        BitBufferMut::new_set(n)
+    } else {
+        BitBufferMut::new_unset(n)
+    };
+    let alloc_us = alloc_t
+        .map(|t| t.elapsed().as_secs_f64() * 1e6)
+        .unwrap_or_default();
+    if n == 0 || buckets.is_empty() || all_bytes.len() < 2 {
+        return bits.freeze();
+    }
+    let mut table_us = 0f64;
+    let mut pass_us = 0f64;
+    for chunk in buckets.chunks(MAX_SET_BYTES) {
+        let table_t = trace.then(std::time::Instant::now);
+        let tables = BucketTables::build(chunk);
+        table_us += table_t
+            .map(|t| t.elapsed().as_secs_f64() * 1e6)
+            .unwrap_or_default();
+        let pass_t = trace.then(std::time::Instant::now);
+        run_teddy_pair_pass(&tables, n, offsets, all_bytes, negated, &mut bits, &mut verify_at);
+        pass_us += pass_t
+            .map(|t| t.elapsed().as_secs_f64() * 1e6)
+            .unwrap_or_default();
+    }
+    let freeze_t = trace.then(std::time::Instant::now);
+    let frozen = bits.freeze();
+    let freeze_us = freeze_t
+        .map(|t| t.elapsed().as_secs_f64() * 1e6)
+        .unwrap_or_default();
+    if let Some(total_t) = total_t {
+        eprintln!(
+            "[fsst::stream_total] kind=pair rows={} bytes={} buckets={} chunks={} alloc_us={:.3} table_us={:.3} pass_us={:.3} freeze_us={:.3} total_us={:.3}",
+            n,
+            all_bytes.len(),
+            buckets.len(),
+            buckets.chunks(MAX_SET_BYTES).count(),
+            alloc_us,
+            table_us,
+            pass_us,
+            freeze_us,
+            total_t.elapsed().as_secs_f64() * 1e6,
+        );
+    }
+    frozen
+}
+
+fn run_teddy_pair_pass<T, V>(
+    tables: &BucketTables,
+    n: usize,
+    offsets: &[T],
+    all_bytes: &[u8],
+    negated: bool,
+    bits: &mut BitBufferMut,
+    verify_at: &mut V,
+) where
+    T: vortex_array::dtype::IntegerPType,
+    V: FnMut(usize, usize) -> bool,
+{
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::is_x86_feature_detected!("avx2") {
+            // SAFETY: AVX2 just detected.
+            unsafe { teddy_pair_pass_avx2(tables, n, offsets, all_bytes, negated, bits, verify_at) };
+            return;
+        }
+    }
+    teddy_pair_pass_scalar(tables, n, offsets, all_bytes, negated, bits, verify_at);
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[expect(unsafe_op_in_unsafe_fn)]
+unsafe fn teddy_pair_pass_avx2<T, V>(
+    tables: &BucketTables,
+    n: usize,
+    offsets: &[T],
+    all_bytes: &[u8],
+    negated: bool,
+    bits: &mut BitBufferMut,
+    verify_at: &mut V,
+) where
+    T: vortex_array::dtype::IntegerPType,
+    V: FnMut(usize, usize) -> bool,
+{
+    use core::arch::x86_64::_mm256_or_si256;
+    use core::arch::x86_64::_mm256_set1_epi8;
+    let trace = std::env::var_os("VORTEX_FSST_STREAM_TRACE")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    let pass_t = trace.then(std::time::Instant::now);
+    let len = all_bytes.len();
+    if len < 2 {
+        return;
+    }
+    let main_len = ((len - 1) >> 5) << 5;
+    let setup_t = trace.then(std::time::Instant::now);
+    let c1_lo = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c1.lo.as_ptr() as *const __m128i));
+    let c1_hi = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c1.hi.as_ptr() as *const __m128i));
+    let c2_lo = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c2.lo.as_ptr() as *const __m128i));
+    let c2_hi = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c2.hi.as_ptr() as *const __m128i));
+    let zero = _mm256_setzero_si256();
+    let nibble_mask = _mm256_set1_epi8(0x0F);
+    let setup_us = setup_t
+        .map(|t| t.elapsed().as_secs_f64() * 1e6)
+        .unwrap_or_default();
+    let scan_start: usize = (*offsets.get_unchecked(0)).as_();
+    let mut string_idx: usize = 0;
+    let mut string_end: usize = (*offsets.get_unchecked(1)).as_();
+    let ptr = all_bytes.as_ptr();
+    let mut i: usize = 0;
+    let mut main_blocks = 0usize;
+    let mut nonzero_masks = 0usize;
+    let mut candidates = 0usize;
+    let mut offset_advances = 0usize;
+    let mut already_marked = 0usize;
+    let mut verifies = 0usize;
+    let mut matches = 0usize;
+    let mut bit_writes = 0usize;
+    let mut candidate_us = 0f64;
+    let mut verify_us = 0f64;
+    while i < main_len {
+        main_blocks += usize::from(trace);
+        let v1 = _mm256_loadu_si256(ptr.add(i) as *const __m256i);
+        let v2 = _mm256_loadu_si256(ptr.add(i + 1) as *const __m256i);
+        let v1_lo = _mm256_and_si256(v1, nibble_mask);
+        let v1_hi = _mm256_and_si256(_mm256_srli_epi64(v1, 4), nibble_mask);
+        let v2_lo = _mm256_and_si256(v2, nibble_mask);
+        let v2_hi = _mm256_and_si256(_mm256_srli_epi64(v2, 4), nibble_mask);
+        let c1_bits = _mm256_and_si256(
+            _mm256_shuffle_epi8(c1_lo, v1_lo),
+            _mm256_shuffle_epi8(c1_hi, v1_hi),
+        );
+        let c2_bits = _mm256_and_si256(
+            _mm256_shuffle_epi8(c2_lo, v2_lo),
+            _mm256_shuffle_epi8(c2_hi, v2_hi),
+        );
+        let pair = _mm256_and_si256(c1_bits, c2_bits);
+        let pos = _mm256_cmpgt_epi8(pair, zero);
+        let neg = _mm256_cmpgt_epi8(zero, pair);
+        let hit = _mm256_or_si256(pos, neg);
+        let mut mask = _mm256_movemask_epi8(hit) as u32;
+        if mask != 0 {
+            nonzero_masks += usize::from(trace);
+            let candidate_t = trace.then(std::time::Instant::now);
+            while mask != 0 {
+                let bit = mask.trailing_zeros() as usize;
+                mask &= mask - 1;
+                let cand = i + bit;
+                candidates += usize::from(trace);
+                if cand < scan_start {
+                    continue;
+                }
+                while cand >= string_end {
+                    offset_advances += usize::from(trace);
+                    string_idx += 1;
+                    if string_idx >= n {
+                        if let Some(pass_t) = pass_t {
+                            let pass_us = pass_t.elapsed().as_secs_f64() * 1e6;
+                            eprintln!(
+                                "[fsst::stream_pass] kind=pair impl=avx2 bytes={} rows={} main_blocks={} nonzero_masks={} candidates={} tail_positions=0 tail_candidates=0 offset_advances={} already_marked={} verifies={} matches={} bit_writes={} setup_us={:.3} candidate_us={:.3} verify_us={:.3} tail_us=0.000 vector_us={:.3} total_us={:.3}",
+                                len,
+                                n,
+                                main_blocks,
+                                nonzero_masks,
+                                candidates,
+                                offset_advances,
+                                already_marked,
+                                verifies,
+                                matches,
+                                bit_writes,
+                                setup_us,
+                                candidate_us,
+                                verify_us,
+                                pass_us - setup_us - candidate_us,
+                                pass_us,
+                            );
+                        }
+                        return;
+                    }
+                    string_end = (*offsets.get_unchecked(string_idx + 1)).as_();
+                }
+                let already = bits.value(string_idx);
+                if (!negated && already) || (negated && !already) {
+                    already_marked += usize::from(trace);
+                    continue;
+                }
+                verifies += usize::from(trace);
+                let verify_t = trace.then(std::time::Instant::now);
+                let accepted = verify_at(cand, string_end);
+                verify_us += verify_t
+                    .map(|t| t.elapsed().as_secs_f64() * 1e6)
+                    .unwrap_or_default();
+                if accepted {
+                    matches += usize::from(trace);
+                    bit_writes += usize::from(trace);
+                    if negated {
+                        bits.unset_unchecked(string_idx);
+                    } else {
+                        bits.set_unchecked(string_idx);
+                    }
+                }
+            }
+            candidate_us += candidate_t
+                .map(|t| t.elapsed().as_secs_f64() * 1e6)
+                .unwrap_or_default();
+        }
+        i += 32;
+    }
+    // Tail scalar
+    let tail_t = trace.then(std::time::Instant::now);
+    let mut tail_positions = 0usize;
+    let mut tail_candidates = 0usize;
+    if len > 1 {
+        for j in i..len - 1 {
+            tail_positions += usize::from(trace);
+            let b1 = *all_bytes.get_unchecked(j);
+            let b2 = *all_bytes.get_unchecked(j + 1);
+            let c1_bits_b = tables.c1.lo[usize::from(b1 & 0x0F)] & tables.c1.hi[usize::from(b1 >> 4)];
+            let c2_bits_b = tables.c2.lo[usize::from(b2 & 0x0F)] & tables.c2.hi[usize::from(b2 >> 4)];
+            if (c1_bits_b & c2_bits_b) == 0 {
+                continue;
+            }
+            tail_candidates += usize::from(trace);
+            let cand = j;
+            if cand < scan_start {
+                continue;
+            }
+            while cand >= string_end {
+                offset_advances += usize::from(trace);
+                string_idx += 1;
+                if string_idx >= n {
+                    break;
+                }
+                string_end = (*offsets.get_unchecked(string_idx + 1)).as_();
+            }
+            if string_idx >= n {
+                break;
+            }
+            let already = bits.value(string_idx);
+            if (!negated && already) || (negated && !already) {
+                already_marked += usize::from(trace);
+                continue;
+            }
+            verifies += usize::from(trace);
+            let verify_t = trace.then(std::time::Instant::now);
+            let accepted = verify_at(cand, string_end);
+            verify_us += verify_t
+                .map(|t| t.elapsed().as_secs_f64() * 1e6)
+                .unwrap_or_default();
+            if accepted {
+                matches += usize::from(trace);
+                bit_writes += usize::from(trace);
+                if negated {
+                    bits.unset_unchecked(string_idx);
+                } else {
+                    bits.set_unchecked(string_idx);
+                }
+            }
+        }
+    }
+    let tail_us = tail_t
+        .map(|t| t.elapsed().as_secs_f64() * 1e6)
+        .unwrap_or_default();
+    if let Some(pass_t) = pass_t {
+        let pass_us = pass_t.elapsed().as_secs_f64() * 1e6;
+        eprintln!(
+            "[fsst::stream_pass] kind=pair impl=avx2 bytes={} rows={} main_blocks={} nonzero_masks={} candidates={} tail_positions={} tail_candidates={} offset_advances={} already_marked={} verifies={} matches={} bit_writes={} setup_us={:.3} candidate_us={:.3} verify_us={:.3} tail_us={:.3} vector_us={:.3} total_us={:.3}",
+            len,
+            n,
+            main_blocks,
+            nonzero_masks,
+            candidates,
+            tail_positions,
+            tail_candidates,
+            offset_advances,
+            already_marked,
+            verifies,
+            matches,
+            bit_writes,
+            setup_us,
+            candidate_us,
+            verify_us,
+            tail_us,
+            pass_us - setup_us - candidate_us - tail_us,
+            pass_us,
+        );
+    }
+}
+
+fn teddy_pair_pass_scalar<T, V>(
+    tables: &BucketTables,
+    n: usize,
+    offsets: &[T],
+    all_bytes: &[u8],
+    negated: bool,
+    bits: &mut BitBufferMut,
+    verify_at: &mut V,
+) where
+    T: vortex_array::dtype::IntegerPType,
+    V: FnMut(usize, usize) -> bool,
+{
+    let len = all_bytes.len();
+    if len < 2 {
+        return;
+    }
+    let scan_start: usize = unsafe { *offsets.get_unchecked(0) }.as_();
+    let mut string_idx: usize = 0;
+    let mut string_end: usize = unsafe { *offsets.get_unchecked(1) }.as_();
+    for j in 0..len - 1 {
+        let b1 = all_bytes[j];
+        let b2 = all_bytes[j + 1];
+        let c1_bits = tables.c1.lo[usize::from(b1 & 0x0F)] & tables.c1.hi[usize::from(b1 >> 4)];
+        let c2_bits = tables.c2.lo[usize::from(b2 & 0x0F)] & tables.c2.hi[usize::from(b2 >> 4)];
+        if (c1_bits & c2_bits) == 0 {
+            continue;
+        }
+        let cand = j;
+        if cand < scan_start {
+            continue;
+        }
+        while cand >= string_end {
+            string_idx += 1;
+            if string_idx >= n {
+                return;
+            }
+            string_end = unsafe { *offsets.get_unchecked(string_idx + 1) }.as_();
+        }
+        let already = bits.value(string_idx);
+        if (!negated && already) || (negated && !already) {
+            continue;
+        }
+        if verify_at(cand, string_end) {
+            if negated {
+                unsafe { bits.unset_unchecked(string_idx) };
+            } else {
+                unsafe { bits.set_unchecked(string_idx) };
+            }
+        }
+    }
+}
+
+/// Streaming Teddy-3 + inline verify.
+pub(super) fn fused_teddy_triple_scan<T, V>(
+    n: usize,
+    offsets: &[T],
+    all_bytes: &[u8],
+    buckets: &[(u8, Vec<u8>, Vec<u8>)],
+    negated: bool,
+    mut verify_at: V,
+) -> BitBuffer
+where
+    T: vortex_array::dtype::IntegerPType,
+    V: FnMut(usize, usize) -> bool,
+{
+    let trace = std::env::var_os("VORTEX_FSST_STREAM_TRACE")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    let total_t = trace.then(std::time::Instant::now);
+    let alloc_t = trace.then(std::time::Instant::now);
+    let mut bits = if negated {
+        BitBufferMut::new_set(n)
+    } else {
+        BitBufferMut::new_unset(n)
+    };
+    let alloc_us = alloc_t
+        .map(|t| t.elapsed().as_secs_f64() * 1e6)
+        .unwrap_or_default();
+    if n == 0 || buckets.is_empty() || all_bytes.len() < 3 {
+        return bits.freeze();
+    }
+    let mut table_us = 0f64;
+    let mut pass_us = 0f64;
+    for chunk in buckets.chunks(MAX_SET_BYTES) {
+        let table_t = trace.then(std::time::Instant::now);
+        let tables = TripleTables::build(chunk);
+        table_us += table_t
+            .map(|t| t.elapsed().as_secs_f64() * 1e6)
+            .unwrap_or_default();
+        let pass_t = trace.then(std::time::Instant::now);
+        run_teddy_triple_pass(&tables, n, offsets, all_bytes, negated, &mut bits, &mut verify_at);
+        pass_us += pass_t
+            .map(|t| t.elapsed().as_secs_f64() * 1e6)
+            .unwrap_or_default();
+    }
+    let freeze_t = trace.then(std::time::Instant::now);
+    let frozen = bits.freeze();
+    let freeze_us = freeze_t
+        .map(|t| t.elapsed().as_secs_f64() * 1e6)
+        .unwrap_or_default();
+    if let Some(total_t) = total_t {
+        eprintln!(
+            "[fsst::stream_total] kind=triple rows={} bytes={} buckets={} chunks={} alloc_us={:.3} table_us={:.3} pass_us={:.3} freeze_us={:.3} total_us={:.3}",
+            n,
+            all_bytes.len(),
+            buckets.len(),
+            buckets.chunks(MAX_SET_BYTES).count(),
+            alloc_us,
+            table_us,
+            pass_us,
+            freeze_us,
+            total_t.elapsed().as_secs_f64() * 1e6,
+        );
+    }
+    frozen
+}
+
+fn run_teddy_triple_pass<T, V>(
+    tables: &TripleTables,
+    n: usize,
+    offsets: &[T],
+    all_bytes: &[u8],
+    negated: bool,
+    bits: &mut BitBufferMut,
+    verify_at: &mut V,
+) where
+    T: vortex_array::dtype::IntegerPType,
+    V: FnMut(usize, usize) -> bool,
+{
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::is_x86_feature_detected!("avx512bw") && std::is_x86_feature_detected!("avx512f") {
+            // SAFETY: AVX-512F+BW just detected.
+            unsafe { teddy_triple_pass_avx512(tables, n, offsets, all_bytes, negated, bits, verify_at) };
+            return;
+        }
+        if std::is_x86_feature_detected!("avx2") {
+            // SAFETY: AVX2 just detected.
+            unsafe { teddy_triple_pass_avx2(tables, n, offsets, all_bytes, negated, bits, verify_at) };
+            return;
+        }
+    }
+    teddy_triple_pass_scalar(tables, n, offsets, all_bytes, negated, bits, verify_at);
+}
+
+/// AVX-512 streaming Teddy-3. Processes 64 input bytes per iteration:
+/// three 64-byte loads → three pshufb-Mula nibble lookups (per-128-lane,
+/// table broadcast to all 4 lanes) → one `vpternlogq` to fuse the
+/// three-way AND of (c1_bits, c2_bits, c3_bits) → `vpcmpneqb` to produce
+/// a 64-bit candidate mask directly (no `cmpgt | cmpgt` pair).
+///
+/// ~2× the throughput of the AVX2 path on AVX-512 parts (modulo memory
+/// bandwidth limits), and the `vpternlogq` saves one instruction in the
+/// hot inner loop vs the AVX2 version's two ANDs.
+///
+/// # Safety
+///
+/// Requires `avx512f` and `avx512bw` at runtime.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw")]
+#[expect(unsafe_op_in_unsafe_fn)]
+unsafe fn teddy_triple_pass_avx512<T, V>(
+    tables: &TripleTables,
+    n: usize,
+    offsets: &[T],
+    all_bytes: &[u8],
+    negated: bool,
+    bits: &mut BitBufferMut,
+    verify_at: &mut V,
+) where
+    T: vortex_array::dtype::IntegerPType,
+    V: FnMut(usize, usize) -> bool,
+{
+    use core::arch::x86_64::__m512i;
+    use core::arch::x86_64::_mm512_and_si512;
+    use core::arch::x86_64::_mm512_broadcast_i32x4;
+    use core::arch::x86_64::_mm512_cmpneq_epi8_mask;
+    use core::arch::x86_64::_mm512_loadu_si512;
+    use core::arch::x86_64::_mm512_set1_epi8;
+    use core::arch::x86_64::_mm512_setzero_si512;
+    use core::arch::x86_64::_mm512_shuffle_epi8;
+    use core::arch::x86_64::_mm512_srli_epi64;
+    use core::arch::x86_64::_mm512_ternarylogic_epi64;
+
+    let trace = std::env::var_os("VORTEX_FSST_STREAM_TRACE")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    let pass_t = trace.then(std::time::Instant::now);
+    let len = all_bytes.len();
+    if len < 3 {
+        return;
+    }
+    // Largest multiple of 64 such that the c3 load at offset main_len-64+2
+    // reads bytes ending at main_len+1 < len.
+    let main_len = ((len - 2) >> 6) << 6;
+
+    let setup_t = trace.then(std::time::Instant::now);
+    let c1_lo = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.c1.lo.as_ptr() as *const __m128i));
+    let c1_hi = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.c1.hi.as_ptr() as *const __m128i));
+    let c2_lo = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.c2.lo.as_ptr() as *const __m128i));
+    let c2_hi = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.c2.hi.as_ptr() as *const __m128i));
+    let c3_lo = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.c3.lo.as_ptr() as *const __m128i));
+    let c3_hi = _mm512_broadcast_i32x4(_mm_loadu_si128(tables.c3.hi.as_ptr() as *const __m128i));
+    let nibble_mask = _mm512_set1_epi8(0x0F);
+    let zero = _mm512_setzero_si512();
+    let setup_us = setup_t
+        .map(|t| t.elapsed().as_secs_f64() * 1e6)
+        .unwrap_or_default();
+
+    let scan_start: usize = (*offsets.get_unchecked(0)).as_();
+    let mut string_idx: usize = 0;
+    let mut string_end: usize = (*offsets.get_unchecked(1)).as_();
+    let ptr = all_bytes.as_ptr();
+    let mut i: usize = 0;
+    let mut main_blocks = 0usize;
+    let mut nonzero_masks = 0usize;
+    let mut candidates = 0usize;
+    let mut offset_advances = 0usize;
+    let mut already_marked = 0usize;
+    let mut verifies = 0usize;
+    let mut matches = 0usize;
+    let mut bit_writes = 0usize;
+    let mut candidate_us = 0f64;
+    let mut verify_us = 0f64;
+    while i < main_len {
+        main_blocks += usize::from(trace);
+        let v1 = _mm512_loadu_si512(ptr.add(i) as *const __m512i);
+        let v2 = _mm512_loadu_si512(ptr.add(i + 1) as *const __m512i);
+        let v3 = _mm512_loadu_si512(ptr.add(i + 2) as *const __m512i);
+
+        let v1_lo = _mm512_and_si512(v1, nibble_mask);
+        let v1_hi = _mm512_and_si512(_mm512_srli_epi64(v1, 4), nibble_mask);
+        let v2_lo = _mm512_and_si512(v2, nibble_mask);
+        let v2_hi = _mm512_and_si512(_mm512_srli_epi64(v2, 4), nibble_mask);
+        let v3_lo = _mm512_and_si512(v3, nibble_mask);
+        let v3_hi = _mm512_and_si512(_mm512_srli_epi64(v3, 4), nibble_mask);
+
+        let c1_bits = _mm512_and_si512(
+            _mm512_shuffle_epi8(c1_lo, v1_lo),
+            _mm512_shuffle_epi8(c1_hi, v1_hi),
+        );
+        let c2_bits = _mm512_and_si512(
+            _mm512_shuffle_epi8(c2_lo, v2_lo),
+            _mm512_shuffle_epi8(c2_hi, v2_hi),
+        );
+        let c3_bits = _mm512_and_si512(
+            _mm512_shuffle_epi8(c3_lo, v3_lo),
+            _mm512_shuffle_epi8(c3_hi, v3_hi),
+        );
+        // vpternlogq with imm 0x80 = A AND B AND C (truth table for 1110 0000 = bit 7).
+        let triple = _mm512_ternarylogic_epi64(c1_bits, c2_bits, c3_bits, 0x80);
+
+        // vpcmpneqb: 1-bit-per-byte, directly into a 64-bit kmask.
+        let mut mask: u64 = _mm512_cmpneq_epi8_mask(triple, zero);
+        if mask != 0 {
+            nonzero_masks += usize::from(trace);
+            let candidate_t = trace.then(std::time::Instant::now);
+            while mask != 0 {
+                let bit = mask.trailing_zeros() as usize;
+                mask &= mask - 1;
+                let cand = i + bit;
+                candidates += usize::from(trace);
+                if cand < scan_start {
+                    continue;
+                }
+                while cand >= string_end {
+                    offset_advances += usize::from(trace);
+                    string_idx += 1;
+                    if string_idx >= n {
+                        if let Some(pass_t) = pass_t {
+                            let pass_us = pass_t.elapsed().as_secs_f64() * 1e6;
+                            let tail_us = 0f64;
+                            eprintln!(
+                                "[fsst::stream_pass] kind=triple impl=avx512 bytes={} rows={} main_blocks={} nonzero_masks={} candidates={} offset_advances={} already_marked={} verifies={} matches={} bit_writes={} setup_us={:.3} candidate_us={:.3} verify_us={:.3} tail_us={:.3} vector_us={:.3} total_us={:.3}",
+                                len,
+                                n,
+                                main_blocks,
+                                nonzero_masks,
+                                candidates,
+                                offset_advances,
+                                already_marked,
+                                verifies,
+                                matches,
+                                bit_writes,
+                                setup_us,
+                                candidate_us,
+                                verify_us,
+                                tail_us,
+                                pass_us - setup_us - candidate_us - tail_us,
+                                pass_us,
+                            );
+                        }
+                        return;
+                    }
+                    string_end = (*offsets.get_unchecked(string_idx + 1)).as_();
+                }
+                let already = bits.value(string_idx);
+                if (!negated && already) || (negated && !already) {
+                    already_marked += usize::from(trace);
+                    continue;
+                }
+                verifies += usize::from(trace);
+                let verify_t = trace.then(std::time::Instant::now);
+                let accepted = verify_at(cand, string_end);
+                verify_us += verify_t
+                    .map(|t| t.elapsed().as_secs_f64() * 1e6)
+                    .unwrap_or_default();
+                if accepted {
+                    matches += usize::from(trace);
+                    bit_writes += usize::from(trace);
+                    if negated {
+                        bits.unset_unchecked(string_idx);
+                    } else {
+                        bits.set_unchecked(string_idx);
+                    }
+                }
+            }
+            candidate_us += candidate_t
+                .map(|t| t.elapsed().as_secs_f64() * 1e6)
+                .unwrap_or_default();
+        }
+        i += 64;
+    }
+    // Tail: scalar bytes from `i` up to `len - 3` (inclusive) cover any
+    // positions left over by the 64-byte main loop.
+    let tail_t = trace.then(std::time::Instant::now);
+    let mut tail_positions = 0usize;
+    let mut tail_candidates = 0usize;
+    if len > 2 {
+        for j in i..len - 2 {
+            tail_positions += usize::from(trace);
+            let b1 = *all_bytes.get_unchecked(j);
+            let b2 = *all_bytes.get_unchecked(j + 1);
+            let b3 = *all_bytes.get_unchecked(j + 2);
+            let c1_bits_b = tables.c1.lo[usize::from(b1 & 0x0F)] & tables.c1.hi[usize::from(b1 >> 4)];
+            let c2_bits_b = tables.c2.lo[usize::from(b2 & 0x0F)] & tables.c2.hi[usize::from(b2 >> 4)];
+            let c3_bits_b = tables.c3.lo[usize::from(b3 & 0x0F)] & tables.c3.hi[usize::from(b3 >> 4)];
+            if (c1_bits_b & c2_bits_b & c3_bits_b) == 0 {
+                continue;
+            }
+            tail_candidates += usize::from(trace);
+            let cand = j;
+            if cand < scan_start {
+                continue;
+            }
+            while cand >= string_end {
+                offset_advances += usize::from(trace);
+                string_idx += 1;
+                if string_idx >= n {
+                    break;
+                }
+                string_end = (*offsets.get_unchecked(string_idx + 1)).as_();
+            }
+            if string_idx >= n {
+                break;
+            }
+            let already = bits.value(string_idx);
+            if (!negated && already) || (negated && !already) {
+                already_marked += usize::from(trace);
+                continue;
+            }
+            verifies += usize::from(trace);
+            let verify_t = trace.then(std::time::Instant::now);
+            let accepted = verify_at(cand, string_end);
+            verify_us += verify_t
+                .map(|t| t.elapsed().as_secs_f64() * 1e6)
+                .unwrap_or_default();
+            if accepted {
+                matches += usize::from(trace);
+                bit_writes += usize::from(trace);
+                if negated {
+                    bits.unset_unchecked(string_idx);
+                } else {
+                    bits.set_unchecked(string_idx);
+                }
+            }
+        }
+    }
+    let tail_us = tail_t
+        .map(|t| t.elapsed().as_secs_f64() * 1e6)
+        .unwrap_or_default();
+    if let Some(pass_t) = pass_t {
+        let pass_us = pass_t.elapsed().as_secs_f64() * 1e6;
+        eprintln!(
+            "[fsst::stream_pass] kind=triple impl=avx512 bytes={} rows={} main_blocks={} nonzero_masks={} candidates={} tail_positions={} tail_candidates={} offset_advances={} already_marked={} verifies={} matches={} bit_writes={} setup_us={:.3} candidate_us={:.3} verify_us={:.3} tail_us={:.3} vector_us={:.3} total_us={:.3}",
+            len,
+            n,
+            main_blocks,
+            nonzero_masks,
+            candidates,
+            tail_positions,
+            tail_candidates,
+            offset_advances,
+            already_marked,
+            verifies,
+            matches,
+            bit_writes,
+            setup_us,
+            candidate_us,
+            verify_us,
+            tail_us,
+            pass_us - setup_us - candidate_us - tail_us,
+            pass_us,
+        );
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[expect(unsafe_op_in_unsafe_fn)]
+unsafe fn teddy_triple_pass_avx2<T, V>(
+    tables: &TripleTables,
+    n: usize,
+    offsets: &[T],
+    all_bytes: &[u8],
+    negated: bool,
+    bits: &mut BitBufferMut,
+    verify_at: &mut V,
+) where
+    T: vortex_array::dtype::IntegerPType,
+    V: FnMut(usize, usize) -> bool,
+{
+    use core::arch::x86_64::_mm256_or_si256;
+    use core::arch::x86_64::_mm256_set1_epi8;
+    let len = all_bytes.len();
+    if len < 3 {
+        return;
+    }
+    let main_len = ((len - 2) >> 5) << 5;
+    let c1_lo = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c1.lo.as_ptr() as *const __m128i));
+    let c1_hi = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c1.hi.as_ptr() as *const __m128i));
+    let c2_lo = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c2.lo.as_ptr() as *const __m128i));
+    let c2_hi = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c2.hi.as_ptr() as *const __m128i));
+    let c3_lo = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c3.lo.as_ptr() as *const __m128i));
+    let c3_hi = _mm256_broadcastsi128_si256(_mm_loadu_si128(tables.c3.hi.as_ptr() as *const __m128i));
+    let zero = _mm256_setzero_si256();
+    let nibble_mask = _mm256_set1_epi8(0x0F);
+    let scan_start: usize = (*offsets.get_unchecked(0)).as_();
+    let mut string_idx: usize = 0;
+    let mut string_end: usize = (*offsets.get_unchecked(1)).as_();
+    let ptr = all_bytes.as_ptr();
+    let mut i: usize = 0;
+    while i < main_len {
+        let v1 = _mm256_loadu_si256(ptr.add(i) as *const __m256i);
+        let v2 = _mm256_loadu_si256(ptr.add(i + 1) as *const __m256i);
+        let v3 = _mm256_loadu_si256(ptr.add(i + 2) as *const __m256i);
+        let v1_lo = _mm256_and_si256(v1, nibble_mask);
+        let v1_hi = _mm256_and_si256(_mm256_srli_epi64(v1, 4), nibble_mask);
+        let v2_lo = _mm256_and_si256(v2, nibble_mask);
+        let v2_hi = _mm256_and_si256(_mm256_srli_epi64(v2, 4), nibble_mask);
+        let v3_lo = _mm256_and_si256(v3, nibble_mask);
+        let v3_hi = _mm256_and_si256(_mm256_srli_epi64(v3, 4), nibble_mask);
+        let c1_bits = _mm256_and_si256(
+            _mm256_shuffle_epi8(c1_lo, v1_lo),
+            _mm256_shuffle_epi8(c1_hi, v1_hi),
+        );
+        let c2_bits = _mm256_and_si256(
+            _mm256_shuffle_epi8(c2_lo, v2_lo),
+            _mm256_shuffle_epi8(c2_hi, v2_hi),
+        );
+        let c3_bits = _mm256_and_si256(
+            _mm256_shuffle_epi8(c3_lo, v3_lo),
+            _mm256_shuffle_epi8(c3_hi, v3_hi),
+        );
+        let triple = _mm256_and_si256(_mm256_and_si256(c1_bits, c2_bits), c3_bits);
+        let pos = _mm256_cmpgt_epi8(triple, zero);
+        let neg = _mm256_cmpgt_epi8(zero, triple);
+        let hit = _mm256_or_si256(pos, neg);
+        let mut mask = _mm256_movemask_epi8(hit) as u32;
+        while mask != 0 {
+            let bit = mask.trailing_zeros() as usize;
+            mask &= mask - 1;
+            let cand = i + bit;
+            if cand < scan_start {
+                continue;
+            }
+            while cand >= string_end {
+                string_idx += 1;
+                if string_idx >= n {
+                    return;
+                }
+                string_end = (*offsets.get_unchecked(string_idx + 1)).as_();
+            }
+            let already = bits.value(string_idx);
+            if (!negated && already) || (negated && !already) {
+                continue;
+            }
+            if verify_at(cand, string_end) {
+                if negated {
+                    bits.unset_unchecked(string_idx);
+                } else {
+                    bits.set_unchecked(string_idx);
+                }
+            }
+        }
+        i += 32;
+    }
+    if len > 2 {
+        for j in i..len - 2 {
+            let b1 = *all_bytes.get_unchecked(j);
+            let b2 = *all_bytes.get_unchecked(j + 1);
+            let b3 = *all_bytes.get_unchecked(j + 2);
+            let c1_bits_b = tables.c1.lo[usize::from(b1 & 0x0F)] & tables.c1.hi[usize::from(b1 >> 4)];
+            let c2_bits_b = tables.c2.lo[usize::from(b2 & 0x0F)] & tables.c2.hi[usize::from(b2 >> 4)];
+            let c3_bits_b = tables.c3.lo[usize::from(b3 & 0x0F)] & tables.c3.hi[usize::from(b3 >> 4)];
+            if (c1_bits_b & c2_bits_b & c3_bits_b) == 0 {
+                continue;
+            }
+            let cand = j;
+            if cand < scan_start {
+                continue;
+            }
+            while cand >= string_end {
+                string_idx += 1;
+                if string_idx >= n {
+                    return;
+                }
+                string_end = (*offsets.get_unchecked(string_idx + 1)).as_();
+            }
+            let already = bits.value(string_idx);
+            if (!negated && already) || (negated && !already) {
+                continue;
+            }
+            if verify_at(cand, string_end) {
+                if negated {
+                    bits.unset_unchecked(string_idx);
+                } else {
+                    bits.set_unchecked(string_idx);
+                }
+            }
+        }
+    }
+}
+
+fn teddy_triple_pass_scalar<T, V>(
+    tables: &TripleTables,
+    n: usize,
+    offsets: &[T],
+    all_bytes: &[u8],
+    negated: bool,
+    bits: &mut BitBufferMut,
+    verify_at: &mut V,
+) where
+    T: vortex_array::dtype::IntegerPType,
+    V: FnMut(usize, usize) -> bool,
+{
+    let len = all_bytes.len();
+    if len < 3 {
+        return;
+    }
+    let scan_start: usize = unsafe { *offsets.get_unchecked(0) }.as_();
+    let mut string_idx: usize = 0;
+    let mut string_end: usize = unsafe { *offsets.get_unchecked(1) }.as_();
+    for j in 0..len - 2 {
+        let b1 = all_bytes[j];
+        let b2 = all_bytes[j + 1];
+        let b3 = all_bytes[j + 2];
+        let c1_bits = tables.c1.lo[usize::from(b1 & 0x0F)] & tables.c1.hi[usize::from(b1 >> 4)];
+        let c2_bits = tables.c2.lo[usize::from(b2 & 0x0F)] & tables.c2.hi[usize::from(b2 >> 4)];
+        let c3_bits = tables.c3.lo[usize::from(b3 & 0x0F)] & tables.c3.hi[usize::from(b3 >> 4)];
+        if (c1_bits & c2_bits & c3_bits) == 0 {
+            continue;
+        }
+        let cand = j;
+        if cand < scan_start {
+            continue;
+        }
+        while cand >= string_end {
+            string_idx += 1;
+            if string_idx >= n {
+                return;
+            }
+            string_end = unsafe { *offsets.get_unchecked(string_idx + 1) }.as_();
+        }
+        let already = bits.value(string_idx);
+        if (!negated && already) || (negated && !already) {
+            continue;
+        }
+        if verify_at(cand, string_end) {
+            if negated {
+                unsafe { bits.unset_unchecked(string_idx) };
+            } else {
+                unsafe { bits.set_unchecked(string_idx) };
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -717,6 +2196,260 @@ mod tests {
         assert_eq!(next_set_in_range(&bitset, 0, 6), Some(5));
         assert_eq!(next_set_in_range(&bitset, 6, 70), None);
         assert_eq!(next_set_in_range(&bitset, 6, 71), Some(70));
+    }
+
+    /// Reference: bit `i` set iff there exists a bucket `b` such that
+    /// `all_bytes[i] == c1_b` AND `all_bytes[i+1] ∈ c2_set_b`. This is the
+    /// *exact* bucketed predicate without nibble-cross FPs — the SIMD
+    /// path's output is a superset of this.
+    fn naive_bucketed_pair_bitset(
+        all_bytes: &[u8],
+        buckets: &[(u8, Vec<u8>)],
+    ) -> Vec<u64> {
+        let mut out = vec![0u64; all_bytes.len().div_ceil(64)];
+        if all_bytes.len() < 2 {
+            return out;
+        }
+        for i in 0..all_bytes.len() - 1 {
+            let b1 = all_bytes[i];
+            let b2 = all_bytes[i + 1];
+            let hit = buckets
+                .iter()
+                .any(|(c1, c2_set)| b1 == *c1 && c2_set.contains(&b2));
+            if hit {
+                out[i >> 6] |= 1u64 << (i & 63);
+            }
+        }
+        out
+    }
+
+    fn bit_is_set(bitset: &[u64], i: usize) -> bool {
+        bitset[i >> 6] & (1u64 << (i & 63)) != 0
+    }
+
+    /// Single-bucket: identical to pure Cartesian for one (c1, c2_set) pair.
+    /// Still has at most a small nibble-cross FP within the c2_set.
+    #[test]
+    fn bucketed_pair_single_bucket() {
+        // c1 = 'g' = 0x67, c2_set = {'o' = 0x6F} — both nibble-unique, so
+        // SIMD output matches naive exactly.
+        let buckets: Vec<(u8, Vec<u8>)> = vec![(b'g', vec![b'o'])];
+        let bytes = b"xgo gOg google bytes".to_vec();
+        let got = build_bucketed_pair_bitset(&bytes, &buckets);
+        let exp = naive_bucketed_pair_bitset(&bytes, &buckets);
+        assert_eq!(got, exp);
+    }
+
+    /// Two distinct c1's, each with disjoint c2 sets. Bucketed must reject
+    /// the cross-pair `(c1_a, c2_b)` that pure Cartesian would admit.
+    #[test]
+    fn bucketed_pair_rejects_cross_bucket() {
+        let buckets: Vec<(u8, Vec<u8>)> = vec![(b'a', vec![b'b']), (b'c', vec![b'd'])];
+        let bytes = b"abxxcd ad cb ab cd zzab".to_vec();
+        let got = build_bucketed_pair_bitset(&bytes, &buckets);
+        // Naive (exact) shouldn't set `ad` or `cb` positions; SIMD path
+        // must also not set them — c1 lane bit for 'a' is bit 0; c2 lane
+        // bit for 'd' is bit 1 (since 'd' is in bucket 1's c2 set). 0 & 1
+        // = 0, so the cross-pair is correctly rejected.
+        let exp = naive_bucketed_pair_bitset(&bytes, &buckets);
+        assert_eq!(got, exp, "cross-bucket pairs leaked into SIMD bitset");
+        // Spot-check: 'ad' at index 8, 'cb' at index 11 must be unset.
+        let s = bytes.windows(2).position(|w| w == b"ad").unwrap();
+        assert!(!bit_is_set(&got, s), "ad at {s} unexpectedly set");
+        let s = bytes.windows(2).position(|w| w == b"cb").unwrap();
+        assert!(!bit_is_set(&got, s), "cb at {s} unexpectedly set");
+    }
+
+    /// 8 buckets at the single-pass capacity. Tests that the per-bucket bit
+    /// packing doesn't collide.
+    #[test]
+    #[expect(clippy::cast_possible_truncation)]
+    fn bucketed_pair_eight_buckets() {
+        let buckets: Vec<(u8, Vec<u8>)> = (0..8u8)
+            .map(|i| (0x10 + i, vec![0x20 + i]))
+            .collect();
+        // Each valid pair at a distinct position; one cross-pair injected.
+        let mut bytes: Vec<u8> = Vec::new();
+        for i in 0..8u8 {
+            bytes.push(0x10 + i);
+            bytes.push(0x20 + i);
+            bytes.push(0xFE); // separator, unlikely to alias
+        }
+        // Inject a cross-pair: (0x10, 0x21) — c1 from bucket 0, c2 from
+        // bucket 1. Must NOT be set in the output.
+        bytes.extend_from_slice(&[0x10, 0x21]);
+        let got = build_bucketed_pair_bitset(&bytes, &buckets);
+        let exp = naive_bucketed_pair_bitset(&bytes, &buckets);
+        assert_eq!(got, exp, "8-bucket single-pass mismatch");
+    }
+
+    /// More than 8 buckets — multi-pass OR-merge. Verifies that the union of
+    /// pair hits matches the naive exact predicate.
+    #[test]
+    fn bucketed_pair_multi_pass() {
+        // 10 buckets: distinct c1, single-element c2 (nibble-unique
+        // pairs ⇒ no within-bucket FP).
+        let buckets: Vec<(u8, Vec<u8>)> = (0..10u8)
+            .map(|i| (0x40 + i, vec![0x50 + i]))
+            .collect();
+        // Place each pair, plus cross-pairs and noise.
+        let mut bytes: Vec<u8> = Vec::with_capacity(512);
+        for i in 0..10u8 {
+            bytes.extend_from_slice(&[0x40 + i, 0x50 + i, 0xFF]);
+        }
+        // Cross-pair: (0x40, 0x51) — must NOT match.
+        bytes.extend_from_slice(&[0x40, 0x51]);
+        // Pad to test multi-word output.
+        bytes.extend((0..200u32).map(|j| (j.wrapping_mul(7) & 0xFF) as u8));
+        let got = build_bucketed_pair_bitset(&bytes, &buckets);
+        let exp = naive_bucketed_pair_bitset(&bytes, &buckets);
+        assert_eq!(got, exp, "multi-pass bucketed bitset mismatch");
+    }
+
+    /// Tail handling: input length not a multiple of 32 + scalar tail.
+    #[rstest]
+    #[case(1)]
+    #[case(2)]
+    #[case(31)]
+    #[case(32)]
+    #[case(33)]
+    #[case(63)]
+    #[case(64)]
+    #[case(65)]
+    #[case(127)]
+    #[case(128)]
+    #[case(257)]
+    fn bucketed_pair_lengths(#[case] len: usize) {
+        let buckets: Vec<(u8, Vec<u8>)> = vec![(b'g', vec![b'o'])];
+        let bytes: Vec<u8> = (0..len)
+            .map(|i| {
+                // Sprinkle some 'g' and 'o' bytes.
+                match i % 7 {
+                    0 => b'g',
+                    1 => b'o',
+                    2 => b'x',
+                    _ => ((i & 0xFF) as u8).wrapping_mul(31),
+                }
+            })
+            .collect();
+        let got = build_bucketed_pair_bitset(&bytes, &buckets);
+        let exp = naive_bucketed_pair_bitset(&bytes, &buckets);
+        assert_eq!(got, exp, "mismatch at len={len}");
+    }
+
+    /// SIMD output is a superset of the exact predicate for c2 sets that
+    /// admit nibble-cross within-bucket FPs.
+    #[test]
+    fn bucketed_pair_superset_for_diverse_c2() {
+        // c2_set has nibble-diverse entries: 0x12 and 0x34.
+        // The nibble tables admit 0x14 and 0x32 as "any-bucket" matches.
+        let buckets: Vec<(u8, Vec<u8>)> = vec![(0xAA, vec![0x12, 0x34])];
+        let bytes: Vec<u8> = vec![0xAA, 0x14, 0xAA, 0x32, 0xAA, 0x12, 0xAA, 0x34];
+        let got = build_bucketed_pair_bitset(&bytes, &buckets);
+        let exp = naive_bucketed_pair_bitset(&bytes, &buckets);
+        // Every bit in exp must be in got (no false negatives).
+        for i in 0..bytes.len() {
+            if bit_is_set(&exp, i) {
+                assert!(bit_is_set(&got, i), "FN at {i}");
+            }
+        }
+        // Spot-check: positions 4 and 6 (the true pairs) must be set.
+        assert!(bit_is_set(&got, 4));
+        assert!(bit_is_set(&got, 6));
+        // Positions 0 and 2 are the nibble-cross FPs admitted by SIMD —
+        // we don't assert exact equality here.
+    }
+
+    fn naive_bucketed_triple_bitset(
+        all_bytes: &[u8],
+        buckets: &[(u8, Vec<u8>, Vec<u8>)],
+    ) -> Vec<u64> {
+        let mut out = vec![0u64; all_bytes.len().div_ceil(64)];
+        if all_bytes.len() < 3 {
+            return out;
+        }
+        for i in 0..all_bytes.len() - 2 {
+            let b1 = all_bytes[i];
+            let b2 = all_bytes[i + 1];
+            let b3 = all_bytes[i + 2];
+            let hit = buckets.iter().any(|(c1, c2_set, c3_set)| {
+                b1 == *c1 && c2_set.contains(&b2) && c3_set.contains(&b3)
+            });
+            if hit {
+                out[i >> 6] |= 1u64 << (i & 63);
+            }
+        }
+        out
+    }
+
+    /// Exact case with nibble-unique c2/c3 sets: SIMD matches naive predicate.
+    #[test]
+    fn triple_single_bucket_exact() {
+        let buckets: Vec<(u8, Vec<u8>, Vec<u8>)> = vec![(b'g', vec![b'o'], vec![b'o'])];
+        let bytes = b"xgoo googoo google bytes".to_vec();
+        let got = build_bucketed_triple_bitset(&bytes, &buckets);
+        let exp = naive_bucketed_triple_bitset(&bytes, &buckets);
+        assert_eq!(got, exp);
+    }
+
+    /// Cross-bucket triples must NOT match.
+    #[test]
+    fn triple_rejects_cross_bucket() {
+        // Two buckets: (a, b, c) and (x, y, z). The triple (a, b, z)
+        // must be rejected — it crosses buckets.
+        let buckets: Vec<(u8, Vec<u8>, Vec<u8>)> = vec![
+            (b'a', vec![b'b'], vec![b'c']),
+            (b'x', vec![b'y'], vec![b'z']),
+        ];
+        let bytes = b"abc xyz abz xyc abc".to_vec();
+        let got = build_bucketed_triple_bitset(&bytes, &buckets);
+        let exp = naive_bucketed_triple_bitset(&bytes, &buckets);
+        assert_eq!(got, exp);
+    }
+
+    /// > 8 buckets → multi-pass OR-merge.
+    #[test]
+    fn triple_multi_pass() {
+        let buckets: Vec<(u8, Vec<u8>, Vec<u8>)> = (0..10u8)
+            .map(|i| (0x40 + i, vec![0x50 + i], vec![0x60 + i]))
+            .collect();
+        let mut bytes: Vec<u8> = Vec::new();
+        for i in 0..10u8 {
+            bytes.extend_from_slice(&[0x40 + i, 0x50 + i, 0x60 + i, 0xFF]);
+        }
+        // Cross-bucket triple: (0x40, 0x51, 0x62) — must NOT match.
+        bytes.extend_from_slice(&[0x40, 0x51, 0x62]);
+        bytes.extend((0..200u32).map(|j| (j.wrapping_mul(7) & 0xFF) as u8));
+        let got = build_bucketed_triple_bitset(&bytes, &buckets);
+        let exp = naive_bucketed_triple_bitset(&bytes, &buckets);
+        assert_eq!(got, exp);
+    }
+
+    /// Length boundary: AVX2 tail + scalar fallback paths agree.
+    #[rstest]
+    #[case(2)]
+    #[case(3)]
+    #[case(32)]
+    #[case(33)]
+    #[case(34)]
+    #[case(64)]
+    #[case(65)]
+    #[case(66)]
+    #[case(257)]
+    fn triple_lengths(#[case] len: usize) {
+        let buckets: Vec<(u8, Vec<u8>, Vec<u8>)> = vec![(b'g', vec![b'o'], vec![b'o'])];
+        let bytes: Vec<u8> = (0..len)
+            .map(|i| match i % 5 {
+                0 => b'g',
+                1 => b'o',
+                2 => b'o',
+                3 => b'x',
+                _ => ((i & 0xFF) as u8).wrapping_mul(31),
+            })
+            .collect();
+        let got = build_bucketed_triple_bitset(&bytes, &buckets);
+        let exp = naive_bucketed_triple_bitset(&bytes, &buckets);
+        assert_eq!(got, exp, "mismatch at len={len}");
     }
 
     #[test]

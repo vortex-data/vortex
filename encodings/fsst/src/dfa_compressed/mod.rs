@@ -331,6 +331,16 @@ impl ClassifiedDfa {
         let scan_start: usize = unsafe { *offsets.get_unchecked(0) }.as_();
         let scan_end: usize = unsafe { *offsets.get_unchecked(n) }.as_();
         let scan_slice = &all_bytes[scan_start..scan_end];
+        let trace = std::env::var_os("VORTEX_FSST_DFA_TRACE")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        let scan_t = trace.then(std::time::Instant::now);
+        let mut candidates = 0usize;
+        let mut escaped = 0usize;
+        let mut already_marked = 0usize;
+        let mut verifies = 0usize;
+        let mut matches = 0usize;
+        let mut verify_us = 0f64;
 
         // Fast inline write helper: set bit `s` to "matched" — i.e. true
         // if !negated, false if negated. Encoded by initializing to the
@@ -339,8 +349,10 @@ impl ClassifiedDfa {
             let mut s: usize = 0;
             let mut s_end: usize = unsafe { *offsets.get_unchecked(1) }.as_();
             for cand_rel in memchr::memchr_iter(anchor, scan_slice) {
+                candidates += usize::from(trace);
                 let cand = scan_start + cand_rel;
                 if cand > scan_start && all_bytes[cand - 1] == ESCAPE_CODE {
+                    escaped += usize::from(trace);
                     continue;
                 }
                 while cand >= s_end {
@@ -355,9 +367,20 @@ impl ClassifiedDfa {
                 }
                 // Already marked: skip remaining candidates in this string.
                 if (!negated && bits.value(s)) || (negated && !bits.value(s)) {
+                    already_marked += usize::from(trace);
                     continue;
                 }
-                if self.verify_at(all_bytes, cand, s_end) {
+                let matched = if trace {
+                    let t = std::time::Instant::now();
+                    let matched = self.verify_at(all_bytes, cand, s_end);
+                    verify_us += t.elapsed().as_secs_f64() * 1e6;
+                    verifies += 1;
+                    matched
+                } else {
+                    self.verify_at(all_bytes, cand, s_end)
+                };
+                if matched {
+                    matches += usize::from(trace);
                     // SAFETY: s < n; bits has exactly `n` bits.
                     if negated {
                         unsafe { bits.unset_unchecked(s) };
@@ -366,6 +389,22 @@ impl ClassifiedDfa {
                     }
                 }
             }
+        }
+        if let Some(scan_t) = scan_t {
+            let total_us = scan_t.elapsed().as_secs_f64() * 1e6;
+            eprintln!(
+                "[fsst::dfa] anchors={} bytes={} candidates={} escaped={} already_marked={} verifies={} matches={} verify_us={:.3} other_us={:.3} total_us={:.3}",
+                progressing.len(),
+                scan_slice.len(),
+                candidates,
+                escaped,
+                already_marked,
+                verifies,
+                matches,
+                verify_us,
+                total_us - verify_us,
+                total_us,
+            );
         }
         bits.freeze()
     }

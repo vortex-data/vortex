@@ -64,6 +64,11 @@ harness = false
 required-features = ["_test-harness"]
 
 [[bench]]
+name = "fsst_prefilter_compare"
+harness = false
+required-features = ["_test-harness"]
+
+[[bench]]
 name = "clickbench_real_q20"
 harness = false
 required-features = ["_test-harness"]
