@@ -29,7 +29,6 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
-use vortex_array::dtype::Nullability;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
@@ -78,33 +77,29 @@ impl ParquetVariant {
     /// Converts an Arrow `parquet_variant_compute::VariantArray` into a Vortex `ArrayRef`
     /// wrapping `VariantArray(ParquetVariantArray(...))`.
     pub fn from_arrow_variant(arrow_variant: &ArrowVariantArray) -> VortexResult<ArrayRef> {
-        Self::from_arrow_variant_impl(arrow_variant, None)
+        Self::from_arrow_variant_impl(arrow_variant, false)
     }
 
-    pub(crate) fn from_arrow_variant_with_nullability(
+    pub(crate) fn from_arrow_variant_nullable(
         arrow_variant: &ArrowVariantArray,
-        nullability: Nullability,
     ) -> VortexResult<ArrayRef> {
-        Self::from_arrow_variant_impl(arrow_variant, Some(nullability))
+        Self::from_arrow_variant_impl(arrow_variant, true)
     }
 
     fn from_arrow_variant_impl(
         arrow_variant: &ArrowVariantArray,
-        forced_nullability: Option<Nullability>,
+        force_nullable: bool,
     ) -> VortexResult<ArrayRef> {
         let storage = arrow_variant.inner();
-        let value_nullable = storage
-            .fields()
-            .iter()
-            .find(|field| field.name() == "value")
-            .map(|field| field.is_nullable())
-            .unwrap_or(false);
-        let typed_value_nullable = storage
-            .fields()
-            .iter()
-            .find(|field| field.name() == "typed_value")
-            .map(|field| field.is_nullable())
-            .unwrap_or(false);
+        let mut value_nullable = false;
+        let mut typed_value_nullable = false;
+        for field in storage.fields() {
+            match field.name().as_str() {
+                "value" => value_nullable = field.is_nullable(),
+                "typed_value" => typed_value_nullable = field.is_nullable(),
+                _ => {}
+            }
+        }
         let validity = arrow_variant
             .nulls()
             .map(|nulls| {
@@ -114,9 +109,10 @@ impl ParquetVariant {
                     Validity::from(BitBuffer::from(nulls.inner().clone()))
                 }
             })
-            .unwrap_or(match forced_nullability {
-                Some(Nullability::Nullable) => Validity::AllValid,
-                Some(Nullability::NonNullable) | None => Validity::NonNullable,
+            .unwrap_or(if force_nullable {
+                Validity::AllValid
+            } else {
+                Validity::NonNullable
             });
         let metadata =
             ArrayRef::from_arrow(arrow_variant.metadata_field() as &dyn ArrowArray, false)?;
@@ -144,6 +140,11 @@ impl ParquetVariant {
 pub(crate) fn core_storage_without_typed_value(
     array: &Array<ParquetVariant>,
 ) -> VortexResult<ArrayRef> {
+    // `ParquetVariant::validate` requires at least one of `value`/`typed_value` to be present
+    // (matching the Arrow canonical extension contract). When we lift `typed_value` out into
+    // the outer `VariantArray::shredded` slot and the original had no `value`, synthesize an
+    // all-null `value` so the remaining `ParquetVariant` still satisfies that invariant and
+    // can round-trip back through `to_arrow`.
     let value = array.value_array().cloned().or_else(|| {
         array.typed_value_array().map(|_| {
             VarBinViewArray::from_iter_nullable_bin(std::iter::repeat_n(None::<&[u8]>, array.len()))
@@ -280,13 +281,16 @@ fn inferred_shredded_field_validity(
     Ok(Validity::from_iter(validity))
 }
 
+/// Accessors and Arrow conversion for Parquet Variant storage arrays.
 pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
+    /// Returns the non-nullable Parquet Variant metadata child.
     fn metadata_array(&self) -> &ArrayRef {
         self.as_ref().slots()[METADATA_SLOT]
             .as_ref()
             .vortex_expect("ParquetVariantArray metadata slot")
     }
 
+    /// Returns the outer row validity for the Variant values.
     fn validity(&self) -> Validity {
         child_to_validity(
             self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
@@ -294,14 +298,17 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
         )
     }
 
+    /// Returns the optional raw Parquet Variant `value` child.
     fn value_array(&self) -> Option<&ArrayRef> {
         self.as_ref().slots()[VALUE_SLOT].as_ref()
     }
 
+    /// Returns the optional shredded Parquet Variant `typed_value` child.
     fn typed_value_array(&self) -> Option<&ArrayRef> {
         self.as_ref().slots()[TYPED_VALUE_SLOT].as_ref()
     }
 
+    /// Converts this storage array to Arrow's canonical Parquet Variant extension storage.
     fn to_arrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrowVariantArray> {
         let metadata = self.metadata_array();
         let len = metadata.len();
@@ -385,7 +392,7 @@ mod tests {
         let variant_view = vortex_arr
             .as_opt::<Variant>()
             .ok_or_else(|| vortex_err!("expected variant array"))?;
-        let child = variant_view.child();
+        let child = variant_view.core_storage();
         let inner = child
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
@@ -488,7 +495,7 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(10), None, Some(30)])
         );
         let inner = variant_arr
-            .child()
+            .core_storage()
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
         assert!(inner.typed_value_array().is_none());

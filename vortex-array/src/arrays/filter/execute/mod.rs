@@ -104,7 +104,7 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
             let filter_mask = Mask::Values(Arc::clone(mask));
             let filtered_core_storage = a
                 .core_storage()
-                .filter(Mask::Values(Arc::clone(mask)))
+                .filter(filter_mask.clone())
                 .vortex_expect("VariantArray core_storage could not be filtered");
             let filtered_shredded = a.shredded().map(|shredded| {
                 shredded

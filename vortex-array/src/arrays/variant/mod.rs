@@ -23,6 +23,12 @@ pub(super) const SHREDDED_SLOT: usize = 1;
 pub(super) const NUM_SLOTS: usize = 2;
 pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["core_storage", "shredded"];
 
+/// Accessors for canonical variant storage.
+///
+/// A canonical variant array keeps raw variant semantics in `core_storage` and may carry a
+/// row-aligned, storage-agnostic `shredded` typed tree for selected paths. The shredded child may
+/// have any dtype; its dtype is recorded during serialization and validated by normal child
+/// deserialization.
 pub trait VariantArrayExt: TypedArrayRef<Variant> {
     /// Returns the raw storage that preserves the full variant value for every row.
     fn core_storage(&self) -> &ArrayRef {
@@ -34,13 +40,6 @@ pub trait VariantArrayExt: TypedArrayRef<Variant> {
     /// Returns the optional row-aligned typed shredded tree for selected variant paths.
     fn shredded(&self) -> Option<&ArrayRef> {
         self.as_ref().slots()[SHREDDED_SLOT].as_ref()
-    }
-
-    /// Returns the raw storage child.
-    ///
-    /// This is a compatibility shim for the previous one-child canonical shape.
-    fn child(&self) -> &ArrayRef {
-        self.core_storage()
     }
 }
 impl<T: TypedArrayRef<Variant>> VariantArrayExt for T {}

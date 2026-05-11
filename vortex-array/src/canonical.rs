@@ -662,17 +662,15 @@ impl Executable for CanonicalValidity {
                     .execute::<CanonicalValidity>(ctx)?
                     .0
                     .into_array();
-                let shredded = if let Some(shredded) = variant.shredded() {
-                    Some(
+                let shredded = variant
+                    .shredded()
+                    .map(|shredded| {
                         shredded
                             .clone()
-                            .execute::<CanonicalValidity>(ctx)?
-                            .0
-                            .into_array(),
-                    )
-                } else {
-                    None
-                };
+                            .execute::<CanonicalValidity>(ctx)
+                            .map(|canonical| canonical.0.into_array())
+                    })
+                    .transpose()?;
                 Ok(CanonicalValidity(Canonical::Variant(
                     VariantArray::try_new(core_storage, shredded)?,
                 )))
@@ -829,17 +827,15 @@ impl Executable for RecursiveCanonical {
             ))),
             Canonical::Variant(variant) => {
                 let core_storage = recursively_canonicalize_slots(variant.core_storage(), ctx)?;
-                let shredded = if let Some(shredded) = variant.shredded() {
-                    Some(
+                let shredded = variant
+                    .shredded()
+                    .map(|shredded| {
                         shredded
                             .clone()
-                            .execute::<RecursiveCanonical>(ctx)?
-                            .0
-                            .into_array(),
-                    )
-                } else {
-                    None
-                };
+                            .execute::<RecursiveCanonical>(ctx)
+                            .map(|canonical| canonical.0.into_array())
+                    })
+                    .transpose()?;
                 Ok(RecursiveCanonical(Canonical::Variant(
                     VariantArray::try_new(core_storage, shredded)?,
                 )))
@@ -1058,7 +1054,6 @@ impl Matcher for AnyCanonical {
             || array.is::<VarBinView>()
             || array.is::<Variant>()
             || array.is::<Extension>()
-            || array.is::<Variant>()
     }
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {

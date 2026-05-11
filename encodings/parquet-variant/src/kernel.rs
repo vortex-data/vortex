@@ -27,7 +27,6 @@ use vortex_array::arrays::slice::SliceExecuteAdaptor;
 use vortex_array::arrays::slice::SliceKernel;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::DType;
-use vortex_array::dtype::Nullability;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::scalar_fn::fns::variant_get::VariantGet;
@@ -72,18 +71,11 @@ impl ExecuteParentKernel<ParquetVariant> for VariantGetExecute {
                 .with_as_type(to_arrow_as_type(parent.options.dtype())?);
 
         let arrow_output = arrow_variant_get(&arrow_input, get_options)?;
-        let output = if parent
-            .options
-            .dtype()
-            .is_some_and(|dtype| !dtype.is_variant())
-        {
-            ArrayRef::from_arrow(arrow_output.as_ref(), true)?
-        } else {
+        let output = if parent.options.dtype().is_none_or(DType::is_variant) {
             let arrow_variant_output = ArrowVariantArray::try_new(arrow_output.as_ref())?;
-            ParquetVariant::from_arrow_variant_with_nullability(
-                &arrow_variant_output,
-                Nullability::Nullable,
-            )?
+            ParquetVariant::from_arrow_variant_nullable(&arrow_variant_output)?
+        } else {
+            ArrayRef::from_arrow(arrow_output.as_ref(), true)?
         };
 
         vortex_ensure_eq!(
@@ -100,7 +92,7 @@ fn to_parquet_variant_path(path: &VariantPath) -> VortexResult<PqVariantPath<'st
         .iter()
         .map(|element| match element {
             VariantPathElement::Field(name) => Ok(PqVariantPathElement::field(Cow::Owned(
-                name.as_ref().to_string(),
+                name.as_ref().to_owned(),
             ))),
             VariantPathElement::Index(index) => {
                 let index = usize::try_from(*index)
