@@ -18,7 +18,7 @@ The most relevant existing patterns:
 
 - `DType` enum (`vortex-array/src/dtype/mod.rs:53`) — `Variant` is the most
   recently added variant; it is the best template for adding `Union`.
-- `StructFields` (`vortex-array/src/dtype/struct_.rs`) — `UnionFields` will
+- `StructFields` (`vortex-array/src/dtype/struct_.rs`) — `UnionVariants` will
   mirror its shape: an `Arc<Inner>` carrying names, child dtypes, and a
   `OnceLock` name→index cache.
 - `StructArray` (`vortex-array/src/arrays/struct_/array.rs`) — slot layout,
@@ -107,24 +107,8 @@ We will support the indirection from v1. The storage cost is trivial
 (`N` bytes per schema), and adding it later would require a backward-incompatible
 flatbuffer/proto migration.
 
-`UnionFields` will carry `type_ids: Option<Arc<[i8]>>`, where `None` means
+`UnionVariants` will carry `type_ids: Option<Arc<[i8]>>`, where `None` means
 "consecutive `0..N`" (the common case).
-
-### Mode lives on the array, not on the `DType`
-
-Arrow's `Union` flatbuffer table carries `mode: UnionMode`. We deliberately
-**do not** put mode on `DType::Union`. Reasons:
-
-- `DType` is logical; mode is physical. Sparse and dense are two physical
-  encodings of the same logical type.
-- This is consistent with how Vortex treats `Utf8` (one DType, six valid
-  physical encodings).
-
-On Arrow ingest, both `DataType::Union(_, Sparse)` and
-`DataType::Union(_, Dense)` produce the same `DType::Union(...)`; the array
-side decides which encoding to materialize. On Arrow export, the chosen
-encoding is determined by the `UnionArray` variant (canonical sparse vs
-`DenseUnionArray`).
 
 ## Type system shape
 
@@ -132,13 +116,13 @@ encoding is determined by the `UnionArray` variant (canonical sparse vs
 // vortex-array/src/dtype/mod.rs
 pub enum DType {
     // existing variants...
-    Union(UnionFields, Nullability),
+    Union(UnionVariants, Nullability),
 }
 
 // vortex-array/src/dtype/union.rs (new)
-pub struct UnionFields(Arc<UnionFieldsInner>);
+pub struct UnionVariants(Arc<UnionVariantsInner>);
 
-struct UnionFieldsInner {
+struct UnionVariantsInner {
     names: FieldNames,
     dtypes: Arc<[FieldDType]>,
     /// Optional indirection from child offset to type tag in the data.
@@ -148,11 +132,12 @@ struct UnionFieldsInner {
 }
 ```
 
-`UnionFields` should mirror `StructFields` as closely as is reasonable —
-naming, accessors (`field`, `field_by_index`, `find`, `project`), Arc
-pointer-equality fast paths, lazy `FieldDType::View` support. The one extra
-piece is `type_ids` and the `tag_to_child_index(tag) -> Option<usize>`
-helper that callers will need.
+`UnionVariants` should mirror `StructFields` as closely as is reasonable —
+accessors (`variant`, `variant_by_index`, `find`), Arc pointer-equality fast
+paths, lazy `FieldDType::View` support. The one extra piece is `type_ids`
+and the `tag_to_child_index(tag) -> Option<usize>` helper that callers will
+need. Naming: we use *variants* rather than *fields* because Union is a sum
+type — the children are mutually exclusive alternatives, not a product.
 
 ## Array shape
 
@@ -200,7 +185,10 @@ table Union {
 union Type { ..., Variant = 11, Union = 12 }
 ```
 
-We deliberately omit `mode` here — see the rationale above.
+We deliberately omit Arrow's `UnionMode` (sparse vs dense): that's a
+physical-encoding choice, not a logical-type property. Both Arrow modes
+deserialize to the same `DType::Union(...)`; the array side picks which
+encoding to materialize.
 
 ### Proto (`dtype.proto`)
 
@@ -224,7 +212,7 @@ Each PR is independently shippable. CI scope is narrowed per
 
 | # | Title | Scope | Notes |
 |---|---|---|---|
-| 1 | Add `DType::Union` variant | `UnionFields`, new DType variant, flatbuffer/proto schemas, round-trip tests, Display/Debug/Hash/PartialEq | No `UnionArray` yet. `from_arrow` for `DataType::Union` still bails. Touches every exhaustive `match` on `DType`. |
+| 1 | Add `DType::Union` variant | `UnionVariants`, new DType variant, flatbuffer/proto schemas, round-trip tests, Display/Debug/Hash/PartialEq | No `UnionArray` yet. `from_arrow` for `DataType::Union` still bails. Touches every exhaustive `match` on `DType`. |
 | 2 | Canonical sparse `UnionArray` | `vortex-array/src/arrays/union/` (vtable, validation, constructors, doc tests, `Canonical::Union`, `Canonical::empty` for `DType::Union`) | Slots `[type_ids, child_0..N]`. Derived `validity()`. |
 | 3 | Compute kernels | `slice`, `take`, `filter`, `mask`, scalar accessor, `cast` | Each follows `StructArray`'s per-child pattern with `type_ids` operated on alongside. |
 | 4 | Arrow round-trip | `to_arrow` produces Arrow `SparseUnionArray`; `from_arrow` accepts both Arrow sparse and dense → canonical sparse | Unblocks the GeoArrow read path. Fixes the bail at `arrow/executor/mod.rs:164` and the `unimplemented!()` at `dtype/arrow.rs:206`. |
@@ -251,8 +239,9 @@ GeoArrow-specific code in this stream.
    decide whether to permit `DType::Union(fields_empty, NonNullable)`. I'd
    lean toward allowing it for round-trip fidelity and require length == 0.
 
-3. **Duplicate field names.** `StructArray` permits duplicate names. We
-   should be consistent and permit them in `UnionFields` too.
+3. **Duplicate variant names.** `StructArray` permits duplicate field
+   names; we should be consistent and permit duplicate variant names in
+   `UnionVariants` too.
 
 4. **DataFusion mapping.** DataFusion has its own `ScalarValue::Union(_, _, _)`
    shape; the mapping is straightforward but should be confirmed during PR 5.
