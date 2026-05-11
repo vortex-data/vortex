@@ -47,29 +47,14 @@ static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRunt
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
 
-/// Returns true if the user has opted into the experimental MultiFileFunction-
-/// backed scan path via `VX_DUCKDB_MULTI_FILE_FUNCTION=1` (or `=true`).
+/// Returns true if the MultiFileFunction-backed scan path should be used.
 ///
-/// Used to switch between the existing TableFunction-driven `read_vortex` and
-/// the new `MultiFileFunction<OP>`-driven path during benchmarking. Defaults
-/// to off so the existing scan remains the path of record.
-///
-/// Known gaps in the v2 path (compared to v1) at time of writing:
-/// - No batch parallelism within a file (`TryInitializeScan` is one-shot, so
-///   each Vortex file is scanned by a single worker).
-/// - No `union_by_name`, hive partitioning columns, or `filename` virtual
-///   column wired through.
-/// - No support for the named parameters DuckDB's `MultiFileReader` adds
-///   (`union_by_name`, `hive_partitioning`, …) — `ParseOption` returns false.
-/// - No `COPY ... FROM 'x.vortex'` via this path.
-///
-/// These are tracked as follow-up work; for now `read_vortex_v2` exists
-/// alongside `read_vortex` so orchestration paths can be benchmarked
-/// side-by-side.
+/// The multifile path is now the default. Set `VX_DUCKDB_MULTI_FILE_FUNCTION=0`
+/// (or `=false`) to fall back to the legacy TableFunction-driven scan.
 fn use_multi_file_function() -> bool {
-    matches!(
+    !matches!(
         std::env::var("VX_DUCKDB_MULTI_FILE_FUNCTION").as_deref(),
-        Ok("1") | Ok("true") | Ok("TRUE")
+        Ok("0") | Ok("false") | Ok("FALSE")
     )
 }
 
