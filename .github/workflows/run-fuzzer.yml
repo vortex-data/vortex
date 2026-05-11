@@ -22,6 +22,11 @@ on:
         required: false
         type: string
         default: "arm64-medium"
+      runner_selector:
+        description: "Optional full runs-on selector suffix after run id (e.g., family=g5/image=ubuntu24-gpu-x64)"
+        required: false
+        type: string
+        default: ""
       extra_features:
         description: "Extra cargo features to enable (e.g., cuda)"
         required: false
@@ -64,7 +69,9 @@ jobs:
     timeout-minutes: 370  # 6 hours 10 minutes
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
-          && format('runs-on={0}/runner={1}/disk=large/tag={2}-fuzz', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target)
+          && (inputs.runner_selector != ''
+              && format('runs-on={0}/{1}/disk=large/tag={2}-fuzz', github.run_id, inputs.runner_selector, inputs.fuzz_name || inputs.fuzz_target)
+              || format('runs-on={0}/runner={1}/disk=large/tag={2}-fuzz', github.run_id, inputs.runner, inputs.fuzz_name || inputs.fuzz_target))
           || 'ubuntu-latest' }}
     outputs:
       crashes_found: ${{ steps.check.outputs.crashes_found }}
@@ -123,11 +130,35 @@ jobs:
             echo "timestamp=$(date -u --iso-8601=seconds)"
             echo "hostname=$(hostname)"
             echo "uname=$(uname -a)"
+            echo "runner_name=${RUNNER_NAME:-<unset>}"
+            echo "runner_os=${RUNNER_OS:-<unset>}"
+            echo "runner_arch=${RUNNER_ARCH:-<unset>}"
+            echo "github_ref=${GITHUB_REF:-<unset>}"
             echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>}"
             echo "NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-<unset>}"
             echo
             echo "## CUDA/NVIDIA environment"
             env | sort | grep -E '^(CUDA|NVIDIA|LD_LIBRARY_PATH|LIBRARY_PATH|PATH=|CARGO_TARGET_|RUSTFLAGS|RUSTC_WRAPPER|ASAN_OPTIONS|UBSAN_OPTIONS|LSAN_OPTIONS|TSAN_OPTIONS)=' || true
+            echo
+            echo "## process limits"
+            ulimit -a || true
+            echo
+            echo "## /proc/self/limits"
+            cat /proc/self/limits || true
+            echo
+            echo "## /proc/self/cgroup"
+            cat /proc/self/cgroup || true
+            echo
+            echo "## /proc/pressure/memory"
+            cat /proc/pressure/memory || true
+            echo
+            echo "## host memory summary"
+            free -h || true
+            echo
+            grep -E '^(MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree|CommitLimit|Committed_AS):' /proc/meminfo || true
+            echo
+            echo "## disk summary"
+            df -h || true
             echo
             echo "## nvcc location"
             which nvcc || true
@@ -135,22 +166,59 @@ jobs:
             echo "## nvcc --version"
             nvcc --version || true
             echo
+            echo "## ldconfig CUDA/NVIDIA libraries"
+            ldconfig -p | grep -E 'libcuda|libcudart|libnvidia|libnvrtc|libnvJitLink' || true
+            echo
+            echo "## loaded NVIDIA kernel modules"
+            lsmod | grep '^nvidia' || true
+            echo
+            echo "## NVIDIA device nodes"
+            ls -l /dev/nvidia* /dev/dri/* || true
+            echo
+            echo "## /proc/driver/nvidia/version"
+            cat /proc/driver/nvidia/version || true
+            echo
+            echo "## /proc/driver/nvidia/params"
+            cat /proc/driver/nvidia/params || true
+            echo
+            echo "## /proc/driver/nvidia/gpus"
+            for file in /proc/driver/nvidia/gpus/*/information /proc/driver/nvidia/gpus/*/power; do
+              if [ -f "$file" ]; then
+                echo "### $file"
+                cat "$file"
+                echo
+              fi
+            done
+            echo
             echo "## nvidia-smi"
             nvidia-smi || true
             echo
             echo "## nvidia-smi -L"
             nvidia-smi -L || true
             echo
-            echo "## GPU memory details"
-            nvidia-smi -q -d Memory || true
+            echo "## nvidia-smi topo -m"
+            nvidia-smi topo -m || true
+            echo
+            echo "## GPU detailed state"
+            nvidia-smi -q -d Memory,Compute,Performance,Utilization || true
             echo
             echo "## GPU summary"
-            nvidia-smi --query-gpu=index,uuid,name,driver_version,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv || true
+            nvidia-smi --query-gpu=index,uuid,name,driver_version,pci.bus_id,compute_mode,persistence_mode,pstate,memory.total,memory.used,memory.free,utilization.gpu,utilization.memory,temperature.gpu,power.draw,power.limit,clocks.current.graphics,clocks.current.memory --format=csv || true
             echo
             echo "## Active compute processes"
             nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader || true
             echo
+            echo "## Relevant processes"
+            ps -Ao pid,ppid,pgid,etimes,rss,comm,args | grep -E 'cargo|fuzz|nvidia|cuda|runner|actions|runs-on' || true
+            echo
           }
+
+      - name: Run CUDA driver probe (pre-run)
+        if: inputs.runner == 'gpu' || contains(inputs.extra_features, 'cuda')
+        run: |
+          cargo +$NIGHTLY_TOOLCHAIN run --quiet --package vortex-fuzz \
+            --no-default-features --features native,cuda \
+            --bin cuda_probe -- pre-run full || true
 
       - name: Run fuzzing target
         id: fuzz
@@ -181,22 +249,56 @@ jobs:
             echo "timestamp=$(date -u --iso-8601=seconds)"
             echo "hostname=$(hostname)"
             echo "uname=$(uname -a)"
+            echo "runner_name=${RUNNER_NAME:-<unset>}"
+            echo "runner_os=${RUNNER_OS:-<unset>}"
+            echo "runner_arch=${RUNNER_ARCH:-<unset>}"
+            echo "github_ref=${GITHUB_REF:-<unset>}"
             echo "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-<unset>}"
             echo "NVIDIA_VISIBLE_DEVICES=${NVIDIA_VISIBLE_DEVICES:-<unset>}"
+            echo
+            echo "## process limits"
+            ulimit -a || true
+            echo
+            echo "## /proc/self/limits"
+            cat /proc/self/limits || true
+            echo
+            echo "## /proc/self/cgroup"
+            cat /proc/self/cgroup || true
+            echo
+            echo "## /proc/pressure/memory"
+            cat /proc/pressure/memory || true
+            echo
+            echo "## host memory summary"
+            free -h || true
+            echo
+            grep -E '^(MemTotal|MemFree|MemAvailable|SwapTotal|SwapFree|CommitLimit|Committed_AS):' /proc/meminfo || true
             echo
             echo "## nvidia-smi"
             nvidia-smi || true
             echo
-            echo "## GPU memory details"
-            nvidia-smi -q -d Memory || true
+            echo "## nvidia-smi topo -m"
+            nvidia-smi topo -m || true
+            echo
+            echo "## GPU detailed state"
+            nvidia-smi -q -d Memory,Compute,Performance,Utilization || true
             echo
             echo "## GPU summary"
-            nvidia-smi --query-gpu=index,uuid,name,driver_version,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu --format=csv || true
+            nvidia-smi --query-gpu=index,uuid,name,driver_version,pci.bus_id,compute_mode,persistence_mode,pstate,memory.total,memory.used,memory.free,utilization.gpu,utilization.memory,temperature.gpu,power.draw,power.limit,clocks.current.graphics,clocks.current.memory --format=csv || true
             echo
             echo "## Active compute processes"
             nvidia-smi --query-compute-apps=gpu_uuid,pid,process_name,used_memory --format=csv,noheader || true
             echo
+            echo "## Relevant processes"
+            ps -Ao pid,ppid,pgid,etimes,rss,comm,args | grep -E 'cargo|fuzz|nvidia|cuda|runner|actions|runs-on' || true
+            echo
           }
+
+      - name: Run CUDA driver probe (post-run)
+        if: always() && (inputs.runner == 'gpu' || contains(inputs.extra_features, 'cuda'))
+        run: |
+          cargo +$NIGHTLY_TOOLCHAIN run --quiet --package vortex-fuzz \
+            --no-default-features --features native,cuda \
+            --bin cuda_probe -- post-run full || true
 
       - name: Check for crashes
         id: check
