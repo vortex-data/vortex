@@ -435,12 +435,6 @@ impl FoldedContainsDfa {
         T: vortex_array::dtype::IntegerPType,
     {
         debug_assert!(offsets.len() > n);
-        let trace = std::env::var_os("VORTEX_FSST_TEDDY_DEEP_TRACE")
-            .map(|v| !v.is_empty())
-            .unwrap_or(false);
-        if trace {
-            return self.scan_with_anchor_bitset_trace(n, offsets, all_bytes, bitset, negated);
-        }
         // SAFETY: caller guarantees `offsets.len() > n`.
         let mut start: usize = unsafe { *offsets.get_unchecked(0) }.as_();
         BitBuffer::collect_bool(n, |i| {
@@ -451,88 +445,6 @@ impl FoldedContainsDfa {
             start = end;
             result
         })
-    }
-
-    #[inline]
-    fn scan_with_anchor_bitset_trace<T>(
-        &self,
-        n: usize,
-        offsets: &[T],
-        all_bytes: &[u8],
-        bitset: &[u64],
-        negated: bool,
-    ) -> BitBuffer
-    where
-        T: vortex_array::dtype::IntegerPType,
-    {
-        let scan_t = std::time::Instant::now();
-        let mut next_us = 0f64;
-        let mut verify_us = 0f64;
-        let mut candidate_positions = 0usize;
-        let mut transition_steps = 0usize;
-        let mut matches = 0usize;
-        let mut empty_ranges = 0usize;
-        let mut bits = if negated {
-            vortex_buffer::BitBufferMut::new_set(n)
-        } else {
-            vortex_buffer::BitBufferMut::new_unset(n)
-        };
-
-        for i in 0..n {
-            // SAFETY: `i < n` and `offsets.len() >= n + 1`.
-            let start: usize = unsafe { *offsets.get_unchecked(i) }.as_();
-            let end: usize = unsafe { *offsets.get_unchecked(i + 1) }.as_();
-            let mut pos = start;
-            let mut matched = false;
-            loop {
-                let t = std::time::Instant::now();
-                let next = anchor_scan::next_set_in_range(bitset, pos, end);
-                next_us += t.elapsed().as_secs_f64() * 1e6;
-                let Some(p) = next else {
-                    empty_ranges += 1;
-                    break;
-                };
-                candidate_positions += 1;
-                let t = std::time::Instant::now();
-                let (accepted, next_pos, steps) = self.verify_from_candidate(all_bytes, p, end);
-                verify_us += t.elapsed().as_secs_f64() * 1e6;
-                transition_steps += steps;
-                if accepted {
-                    matched = true;
-                    matches += 1;
-                    break;
-                }
-                if next_pos <= p {
-                    pos = p + 1;
-                } else {
-                    pos = next_pos;
-                }
-                if pos >= end {
-                    break;
-                }
-            }
-            if matched != negated {
-                // SAFETY: i < n; bits has exactly `n` bits.
-                unsafe { bits.set_unchecked(i) };
-            } else if negated {
-                unsafe { bits.unset_unchecked(i) };
-            }
-        }
-
-        let total_us = scan_t.elapsed().as_secs_f64() * 1e6;
-        eprintln!(
-            "[fsst::teddy_scan] rows={} candidates={} matches={} empty_ranges={} transition_steps={} next_us={:.3} verify_us={:.3} other_us={:.3} total_us={:.3}",
-            n,
-            candidate_positions,
-            matches,
-            empty_ranges,
-            transition_steps,
-            next_us,
-            verify_us,
-            total_us - next_us - verify_us,
-            total_us,
-        );
-        bits.freeze()
     }
 
     /// Build the bucketed-Teddy pair bitset for this DFA's bucket set
