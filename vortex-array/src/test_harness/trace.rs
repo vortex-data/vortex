@@ -339,7 +339,7 @@ pub(crate) fn record_reduce_attempt(array: &ArrayRef, rule: &dyn Debug, outcome:
     if !attempts_enabled() {
         return;
     }
-    record_attempt(TraceEvent::ReduceAttempt {
+    record(TraceEvent::ReduceAttempt {
         array: ArraySummary::new(array),
         rule: compact_label(rule),
         outcome,
@@ -365,7 +365,7 @@ pub(crate) fn record_parent_reduce_attempt(
     if !attempts_enabled() {
         return;
     }
-    record_attempt(TraceEvent::ParentReduceAttempt {
+    record(TraceEvent::ParentReduceAttempt {
         parent: ArraySummary::new(parent),
         child: ArraySummary::new(child),
         slot_idx,
@@ -453,7 +453,7 @@ pub(crate) fn record_execute_parent_attempt(
     if !attempts_enabled() {
         return;
     }
-    record_attempt(TraceEvent::ExecuteParentAttempt {
+    record(TraceEvent::ExecuteParentAttempt {
         phase,
         parent: ArraySummary::new(parent),
         child: ArraySummary::new(child),
@@ -640,17 +640,6 @@ pub(crate) fn current_execute_parent_phase() -> &'static str {
 }
 
 fn record(event: TraceEvent) {
-    ACTIVE_TRACE.with(|active| {
-        if let Some(recorder) = active.borrow_mut().as_mut() {
-            recorder.events.push(event);
-        }
-    });
-}
-
-fn record_attempt(event: TraceEvent) {
-    if !attempts_enabled() {
-        return;
-    }
     ACTIVE_TRACE.with(|active| {
         if let Some(recorder) = active.borrow_mut().as_mut() {
             recorder.events.push(event);

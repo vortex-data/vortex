@@ -7,6 +7,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 
+use smallvec::smallvec;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -66,7 +67,7 @@ pub fn stack_parent(child: ArrayRef) -> VortexResult<ArrayRef> {
             child.len(),
             StackParentData,
         )
-        .with_slots(vec![Some(child)]),
+        .with_slots(smallvec![Some(child)]),
     )?
     .into_array())
 }

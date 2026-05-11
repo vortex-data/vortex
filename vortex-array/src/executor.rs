@@ -167,10 +167,10 @@ impl ArrayRef {
 
         crate::trace_array!(record_execute_until_start::<M>(&current_array));
 
-        for iteration in 0..max_iterations {
+        for iteration in 1..=max_iterations {
             crate::trace_array!(use(iteration));
             crate::trace_array!(record_execute_until_iteration(
-                iteration + 1,
+                iteration,
                 &current_array,
                 stack
                     .last()
@@ -271,7 +271,6 @@ impl ArrayRef {
                 ));
             }
 
-            // execute step
             let expected_len = current_array.len();
             let expected_dtype = current_array.dtype().clone();
             let stats = current_array.statistics().to_array_stats();
