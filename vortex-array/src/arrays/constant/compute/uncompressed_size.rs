@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -11,6 +12,9 @@ use crate::aggregate_fn::fns::uncompressed_size_in_bytes::constant_uncompressed_
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::Constant;
 use crate::dtype::Nullability;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
+use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 
 #[derive(Debug)]
@@ -30,6 +34,17 @@ impl DynAggregateKernel for ConstantUncompressedSizeKernel {
         let Some(array) = batch.as_opt::<Constant>() else {
             return Ok(None);
         };
+
+        // Honor a cached exact stat if present. This preserves the optimization that
+        // `UncompressedSizeInBytes::try_accumulate` provides for unregistered encodings;
+        // without it, the kernel would always recompute the size and ignore the cache.
+        if let Some(Precision::Exact(size_scalar)) =
+            batch.statistics().get(Stat::UncompressedSizeInBytes)
+        {
+            let size = u64::try_from(&size_scalar)
+                .map_err(|e| vortex_err!("Failed to convert uncompressed size stat to u64: {e}"))?;
+            return Ok(Some(Scalar::primitive(size, Nullability::NonNullable)));
+        }
 
         let size = constant_uncompressed_size_in_bytes(array, ctx)?;
 

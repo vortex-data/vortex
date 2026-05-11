@@ -18,6 +18,8 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
+use crate::aggregate_fn::Accumulator;
+use crate::aggregate_fn::AccumulatorRef;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::builtins::ArrayBuiltins;
@@ -44,8 +46,6 @@ impl<L: Display, R: Display> Display for PairOptions<L, R> {
 // Convenience aliases so signatures stay readable.
 type LeftOptions<T> = <<T as BinaryCombined>::Left as AggregateFnVTable>::Options;
 type RightOptions<T> = <<T as BinaryCombined>::Right as AggregateFnVTable>::Options;
-type LeftPartial<T> = <<T as BinaryCombined>::Left as AggregateFnVTable>::Partial;
-type RightPartial<T> = <<T as BinaryCombined>::Right as AggregateFnVTable>::Partial;
 /// Combined options for a [`BinaryCombined`] aggregate.
 pub type CombinedOptions<T> = PairOptions<LeftOptions<T>, RightOptions<T>>;
 
@@ -140,7 +140,10 @@ impl<T: BinaryCombined> Combined<T> {
 
 impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
     type Options = CombinedOptions<T>;
-    type Partial = (LeftPartial<T>, RightPartial<T>);
+    // Each child is held as a fully-fledged `AccumulatorRef` so that batches dispatched through
+    // `try_accumulate` consult the kernel registry per-child (e.g. a `(Dict, Sum)` kernel fires
+    // for the inner `Sum` child of `Combined<Mean>`).
+    type Partial = (AccumulatorRef, AccumulatorRef);
 
     fn id(&self) -> AggregateFnId {
         self.0.id()
@@ -173,9 +176,11 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
         options: &Self::Options,
         input_dtype: &DType,
     ) -> VortexResult<Self::Partial> {
+        let left = Accumulator::try_new(self.0.left(), options.0.clone(), input_dtype.clone())?;
+        let right = Accumulator::try_new(self.0.right(), options.1.clone(), input_dtype.clone())?;
         Ok((
-            self.0.left().empty_partial(&options.0, input_dtype)?,
-            self.0.right().empty_partial(&options.1, input_dtype)?,
+            Box::new(left) as AccumulatorRef,
+            Box::new(right) as AccumulatorRef,
         ))
     }
 
@@ -192,14 +197,14 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
         let r_field = s
             .field(rname)
             .ok_or_else(|| vortex_err!("BinaryCombined partial missing `{}` field", rname))?;
-        self.0.left().combine_partials(&mut partial.0, l_field)?;
-        self.0.right().combine_partials(&mut partial.1, r_field)?;
+        partial.0.combine_partials(l_field)?;
+        partial.1.combine_partials(r_field)?;
         Ok(())
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        let l_scalar = self.0.left().to_scalar(&partial.0)?;
-        let r_scalar = self.0.right().to_scalar(&partial.1)?;
+        let l_scalar = partial.0.partial_scalar()?;
+        let r_scalar = partial.1.partial_scalar()?;
         let dtype = self
             .0
             .partial_struct_dtype(l_scalar.dtype().clone(), r_scalar.dtype().clone());
@@ -207,36 +212,27 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
     }
 
     fn reset(&self, partial: &mut Self::Partial) {
-        self.0.left().reset(&mut partial.0);
-        self.0.right().reset(&mut partial.1);
+        partial.0.reset();
+        partial.1.reset();
     }
 
     fn is_saturated(&self, partial: &Self::Partial) -> bool {
-        self.0.left().is_saturated(&partial.0) && self.0.right().is_saturated(&partial.1)
+        partial.0.is_saturated() && partial.1.is_saturated()
     }
 
-    /// Fans out to each child's `try_accumulate`, falling back to `accumulate`
-    /// against a lazily-canonicalized batch. We always claim to handle the
-    /// batch ourselves so [`Self::accumulate`] is unreachable — this is the
-    /// same trick `Count` uses to opt out of the canonicalization path.
+    /// Delegate the batch to each child's `Accumulator::accumulate`, which consults the
+    /// kernel registry against the child's `aggregate_fn` id. This is what makes
+    /// `(encoding, Child)` kernels reachable through `Combined<Parent>` — without it, a
+    /// `(Dict, Sum)` kernel would be dead code for `Combined<Mean>`. We always return
+    /// `true` so [`Self::accumulate`] is unreachable.
     fn try_accumulate(
         &self,
         state: &mut Self::Partial,
         batch: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<bool> {
-        let mut canonical: Option<Columnar> = None;
-        if !self.0.left().try_accumulate(&mut state.0, batch, ctx)? {
-            let c = canonical.insert(batch.clone().execute::<Columnar>(ctx)?);
-            self.0.left().accumulate(&mut state.0, c, ctx)?;
-        }
-        if !self.0.right().try_accumulate(&mut state.1, batch, ctx)? {
-            let c = match canonical.as_ref() {
-                Some(c) => c,
-                None => canonical.insert(batch.clone().execute::<Columnar>(ctx)?),
-            };
-            self.0.right().accumulate(&mut state.1, c, ctx)?;
-        }
+        state.0.accumulate(batch, ctx)?;
+        state.1.accumulate(batch, ctx)?;
         Ok(true)
     }
 
@@ -258,8 +254,8 @@ impl<T: BinaryCombined> AggregateFnVTable for Combined<T> {
     }
 
     fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        let l_scalar = self.0.left().finalize_scalar(&partial.0)?;
-        let r_scalar = self.0.right().finalize_scalar(&partial.1)?;
+        let l_scalar = partial.0.final_scalar()?;
+        let r_scalar = partial.1.final_scalar()?;
         BinaryCombined::finalize_scalar(&self.0, l_scalar, r_scalar)
     }
 }
