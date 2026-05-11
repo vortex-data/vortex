@@ -258,8 +258,7 @@ mod tests {
     fn make_unshredded_json_array(values: Vec<Option<&str>>) -> VortexResult<ArrayRef> {
         let json: ArrowArrayRef = Arc::new(StringArray::from(values));
         let arrow_variant = json_to_variant(&json)?;
-        let canonical = ParquetVariant::from_arrow_variant(&arrow_variant)?;
-        Ok(canonical.as_::<Variant>().core_storage().clone())
+        ParquetVariant::from_arrow_variant(&arrow_variant)
     }
 
     fn execute_variant_get(
@@ -595,7 +594,12 @@ mod tests {
 
     fn make_partially_shredded_object_array() -> VortexResult<ArrayRef> {
         let arrow_variant = make_partially_shredded_arrow_variant()?;
-        ParquetVariant::from_arrow_variant(&arrow_variant)
+        let parquet_array = ParquetVariant::from_arrow_variant(&arrow_variant)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let Canonical::Variant(canonical) = parquet_array.execute::<Canonical>(&mut ctx)? else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+        Ok(canonical.into_array())
     }
 
     fn make_canonical_raw_core_with_shredded_child() -> VortexResult<ArrayRef> {
@@ -710,18 +714,20 @@ mod tests {
         ParquetVariant::from_arrow_variant(&arrow_variant)
     }
 
-    fn assert_shredded_i32(
+    fn assert_typed_value_i32(
         array: &ArrayRef,
         expected: impl IntoIterator<Item = Option<i32>>,
     ) -> VortexResult<()> {
-        let shredded = array
-            .as_::<Variant>()
-            .shredded()
-            .ok_or_else(|| vortex_err!("expected canonical shredded child"))?
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let executed = array.clone().execute::<ArrayRef>(&mut ctx)?;
+        let typed_value = executed
+            .as_::<ParquetVariant>()
+            .typed_value_array()
+            .ok_or_else(|| vortex_err!("expected typed_value child"))?
             .clone()
-            .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute::<PrimitiveArray>(&mut ctx)?;
 
-        assert_arrays_eq!(shredded, PrimitiveArray::from_option_iter(expected));
+        assert_arrays_eq!(typed_value, PrimitiveArray::from_option_iter(expected));
         Ok(())
     }
 
@@ -730,7 +736,7 @@ mod tests {
         let arr = make_shredded_typed_array()?;
 
         let sliced = arr.slice(1..3)?;
-        assert_shredded_i32(&sliced, [None, Some(30)])
+        assert_typed_value_i32(&sliced, [None, Some(30)])
     }
 
     #[test]
@@ -738,7 +744,7 @@ mod tests {
         let arr = make_shredded_typed_array()?;
         let filtered = arr.filter(Mask::from_iter([true, true, false]))?;
 
-        assert_shredded_i32(&filtered, [Some(10), None])
+        assert_typed_value_i32(&filtered, [Some(10), None])
     }
 
     #[test]
@@ -746,7 +752,7 @@ mod tests {
         let arr = make_shredded_typed_array()?;
         let taken = arr.take(PrimitiveArray::from_iter([2u64, 1, 0]).into_array())?;
 
-        assert_shredded_i32(&taken, [Some(30), None, Some(10)])
+        assert_typed_value_i32(&taken, [Some(30), None, Some(10)])
     }
 
     #[test]

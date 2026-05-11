@@ -382,8 +382,6 @@ mod tests {
     use parquet_variant_compute::VariantArrayBuilder;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::Variant;
-    use vortex_array::arrays::variant::VariantArrayExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
@@ -442,8 +440,8 @@ mod tests {
 
         assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::Nullable));
 
-        let variant = vortex_arr.as_opt::<Variant>().unwrap();
-        assert!(variant.dtype().is_nullable());
+        let parquet_variant = vortex_arr.as_opt::<ParquetVariant>().unwrap();
+        assert!(parquet_variant.dtype().is_nullable());
 
         assert!(
             vortex_arr
@@ -530,9 +528,7 @@ mod tests {
                 .is_null()
         );
 
-        let variant_view = vortex_arr.as_opt::<Variant>().unwrap();
-        let storage = variant_view.core_storage();
-        let inner_pv = storage.as_opt::<ParquetVariant>().unwrap();
+        let inner_pv = vortex_arr.as_opt::<ParquetVariant>().unwrap();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let roundtripped = inner_pv.to_arrow(&mut ctx)?;
         assert_eq!(roundtripped.inner().null_count(), 2);

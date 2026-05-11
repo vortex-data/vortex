@@ -74,8 +74,7 @@ impl ParquetVariant {
         )
     }
 
-    /// Converts an Arrow `parquet_variant_compute::VariantArray` into a Vortex `ArrayRef`
-    /// wrapping `VariantArray(ParquetVariantArray(...))`.
+    /// Converts an Arrow `parquet_variant_compute::VariantArray` into Parquet Variant storage.
     pub fn from_arrow_variant(arrow_variant: &ArrowVariantArray) -> VortexResult<ArrayRef> {
         Self::from_arrow_variant_impl(arrow_variant, false)
     }
@@ -126,21 +125,14 @@ impl ParquetVariant {
             .typed_value_field()
             .map(|tv| ArrayRef::from_arrow(tv.as_ref(), typed_value_nullable))
             .transpose()?;
-        let shredded = typed_value
-            .clone()
-            .map(|typed_value| logical_shredded_from_parquet_typed_value(&metadata, typed_value))
-            .transpose()?;
-
-        let pv = ParquetVariant::try_new(validity, metadata, value, typed_value)?;
-        let core_storage = core_storage_without_typed_value(&pv)?;
-        Ok(VariantArray::try_new(core_storage, shredded)?.into_array())
+        ParquetVariant::try_new(validity, metadata, value, typed_value).map(IntoArray::into_array)
     }
 }
 
 pub(crate) fn core_storage_without_typed_value(
     array: &Array<ParquetVariant>,
 ) -> VortexResult<ArrayRef> {
-    // `ParquetVariant::validate` requires at least one of `value`/`typed_value` to be present
+    // The spec requires at least one of `value`/`typed_value` to be present
     // (matching the Arrow canonical extension contract). When we lift `typed_value` out into
     // the outer `VariantArray::shredded` slot and the original had no `value`, synthesize an
     // all-null `value` so the remaining `ParquetVariant` still satisfies that invariant and
@@ -373,8 +365,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::arrays::Variant;
-    use vortex_array::arrays::variant::VariantArrayExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
@@ -389,11 +379,7 @@ mod tests {
     fn assert_arrow_variant_storage_roundtrip(struct_array: StructArray) -> VortexResult<()> {
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
-        let variant_view = vortex_arr
-            .as_opt::<Variant>()
-            .ok_or_else(|| vortex_err!("expected variant array"))?;
-        let child = variant_view.core_storage();
-        let inner = child
+        let inner = vortex_arr
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
 
@@ -482,23 +468,18 @@ mod tests {
             &DType::Variant(Nullability::NonNullable)
         );
 
-        let variant_arr = vortex_arr
-            .as_opt::<Variant>()
-            .ok_or_else(|| vortex_err!("expected variant array"))?;
-        let shredded = variant_arr
-            .shredded()
-            .ok_or_else(|| vortex_err!("expected canonical shredded child"))?
+        let parquet_array = vortex_arr
+            .as_opt::<ParquetVariant>()
+            .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
+        let typed_value = parquet_array
+            .typed_value_array()
+            .ok_or_else(|| vortex_err!("expected typed_value child"))?
             .clone()
             .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
         assert_arrays_eq!(
-            shredded,
+            typed_value,
             PrimitiveArray::from_option_iter([Some(10), None, Some(30)])
         );
-        let inner = variant_arr
-            .core_storage()
-            .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
-        assert!(inner.typed_value_array().is_none());
 
         Ok(())
     }
@@ -555,7 +536,7 @@ mod tests {
     }
 
     #[test]
-    fn test_arrow_variant_import_typed_value_only_moves_to_shredded() -> VortexResult<()> {
+    fn test_arrow_variant_import_typed_value_only_preserves_storage() -> VortexResult<()> {
         let metadata = binary_view_array([b"\x01\x00", b"\x01\x00", b"\x01\x00"]);
         let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
 
@@ -571,28 +552,22 @@ mod tests {
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
-        let variant = vortex_arr
-            .as_opt::<Variant>()
-            .ok_or_else(|| vortex_err!("expected variant array"))?;
-
-        let core_storage = variant
-            .core_storage()
+        let parquet_array = vortex_arr
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
-        assert!(core_storage.typed_value_array().is_none());
-        assert!(core_storage.value_array().is_some());
+            .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
+        assert!(parquet_array.value_array().is_none());
 
-        let shredded = variant
-            .shredded()
-            .ok_or_else(|| vortex_err!("expected canonical shredded child"))?
+        let typed_value = parquet_array
+            .typed_value_array()
+            .ok_or_else(|| vortex_err!("expected typed_value child"))?
             .clone()
             .execute::<PrimitiveArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
-        assert_arrays_eq!(shredded, PrimitiveArray::from_iter([10i32, 20, 30]));
+        assert_arrays_eq!(typed_value, PrimitiveArray::from_iter([10i32, 20, 30]));
         Ok(())
     }
 
     #[test]
-    fn test_arrow_variant_import_value_and_typed_value_moves_to_shredded() -> VortexResult<()> {
+    fn test_arrow_variant_import_value_and_typed_value_preserves_storage() -> VortexResult<()> {
         let metadata = binary_view_array([b"\x01\x00", b"\x01\x00"]);
         let value = binary_view_array([b"\x10", b"\x11"]);
         let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![1, 2]));
@@ -610,36 +585,25 @@ mod tests {
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
-        let variant = vortex_arr
-            .as_opt::<Variant>()
-            .ok_or_else(|| vortex_err!("expected variant array"))?;
-
-        let core_storage = variant
-            .core_storage()
+        let parquet_array = vortex_arr
             .as_opt::<ParquetVariant>()
-            .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
-        assert!(core_storage.typed_value_array().is_none());
-        assert!(core_storage.value_array().is_some());
+            .ok_or_else(|| vortex_err!("expected parquet variant array"))?;
+        assert!(parquet_array.value_array().is_some());
+        assert!(parquet_array.typed_value_array().is_some());
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let roundtripped = core_storage.to_arrow(&mut ctx)?;
+        let roundtripped = parquet_array.to_arrow(&mut ctx)?;
         let roundtripped = roundtripped.inner();
-        assert_eq!(roundtripped.column_names(), &["metadata", "value"]);
         assert_eq!(
-            struct_array.column(0).to_data(),
-            roundtripped.column(0).to_data()
+            roundtripped.column_names(),
+            &["metadata", "value", "typed_value"]
         );
-        assert_eq!(
-            struct_array.column(1).to_data(),
-            roundtripped.column(1).to_data()
-        );
-
-        let shredded = variant
-            .shredded()
-            .ok_or_else(|| vortex_err!("expected canonical shredded child"))?
-            .clone()
-            .execute::<PrimitiveArray>(&mut ctx)?;
-        assert_arrays_eq!(shredded, PrimitiveArray::from_iter([1i32, 2]));
+        for idx in 0..3 {
+            assert_eq!(
+                struct_array.column(idx).to_data(),
+                roundtripped.column(idx).to_data()
+            );
+        }
         Ok(())
     }
 
