@@ -247,6 +247,7 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
             let canonical = array.array().clone().execute::<Canonical>(ctx)?;
             return canonical_uncompressed_size_in_bytes(&canonical, ctx);
         }
+        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
     };
 
     value_size
@@ -293,6 +294,9 @@ fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
         DType::Struct(fields, _) => fields
             .fields()
             .all(|field| supports_uncompressed_size_in_bytes(&field)),
+        DType::Union(variants, _) => variants
+            .variants()
+            .all(|variant| supports_uncompressed_size_in_bytes(&variant)),
         DType::Extension(ext_dtype) => {
             supports_uncompressed_size_in_bytes(ext_dtype.storage_dtype())
         }

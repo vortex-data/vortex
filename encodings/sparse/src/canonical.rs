@@ -122,6 +122,7 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
             len,
             ctx,
         )?,
+        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::Decimal(decimal_dtype, nullability) => {
             let canonical_decimal_value_type =
                 DecimalType::smallest_decimal_value_type(decimal_dtype);

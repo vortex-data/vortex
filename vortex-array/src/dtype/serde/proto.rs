@@ -5,13 +5,16 @@ use std::sync::Arc;
 
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
+use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::UnionVariants;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ForeignExtDType;
 use crate::dtype::field::Field;
@@ -55,6 +58,32 @@ impl DType {
                 ),
                 s.nullable.into(),
             )),
+            DtypeType::Union(u) => {
+                let names = u.names.iter().map(|s| s.as_str()).collect();
+                let dtypes = u
+                    .dtypes
+                    .iter()
+                    .map(|dt| DType::from_proto(dt, session))
+                    .collect::<VortexResult<Vec<_>>>()?;
+                let type_ids = u
+                    .type_ids
+                    .iter()
+                    .map(|t| {
+                        i8::try_from(*t)
+                            .map_err(|_| vortex_err!("Union type_id {t} does not fit in i8"))
+                    })
+                    .collect::<VortexResult<Vec<_>>>()?;
+                let variants = UnionVariants::try_new(names, dtypes, type_ids)?;
+
+                let nullability: Nullability = u.nullable.into();
+                vortex_ensure!(
+                    variants.nullability_constraints_satisfied(nullability),
+                    "Union nullability constraint not satisfied: nullability={:?}",
+                    nullability
+                );
+
+                Ok(Self::Union(variants, nullability))
+            }
             DtypeType::List(l) => {
                 let nullable = l.nullable.into();
                 Ok(Self::List(
@@ -139,6 +168,15 @@ impl TryFrom<&DType> for pb::DType {
                         .fields()
                         .map(|d| Self::try_from(&d))
                         .collect::<VortexResult<Vec<_>>>()?,
+                    nullable: (*null).into(),
+                }),
+                DType::Union(uv, null) => DtypeType::Union(pb::Union {
+                    names: uv.names().iter().map(|n| n.as_ref().to_string()).collect(),
+                    dtypes: uv
+                        .variants()
+                        .map(|d| Self::try_from(&d))
+                        .collect::<VortexResult<Vec<_>>>()?,
+                    type_ids: uv.type_ids().iter().map(|t| *t as i32).collect(),
                     nullable: (*null).into(),
                 }),
                 DType::List(edt, null) => DtypeType::List(Box::new(pb::List {
@@ -235,6 +273,7 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::dtype::UnionVariants;
     use crate::dtype::proto::dtype::d_type::DtypeType;
     use crate::dtype::proto::dtype::field::FieldType;
     use crate::dtype::test::SESSION;
@@ -375,6 +414,147 @@ mod tests {
     fn test_variant_round_trip() {
         let converted = round_trip_dtype(&DType::Variant(Nullability::Nullable));
         assert_eq!(DType::Variant(Nullability::Nullable), converted);
+    }
+
+    #[test]
+    fn test_union_round_trip_proto() {
+        let variants = UnionVariants::new_consecutive(
+            ["int", "str"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Utf8(Nullability::NonNullable),
+            ],
+        )
+        .unwrap();
+        let dtype = DType::Union(variants, Nullability::NonNullable);
+        let converted = round_trip_dtype(&dtype);
+        assert_eq!(dtype, converted);
+    }
+
+    #[test]
+    fn test_union_round_trip_proto_with_nullability() {
+        let variants = UnionVariants::new_consecutive(
+            ["null_variant", "str"].into(),
+            vec![DType::Null, DType::Utf8(Nullability::NonNullable)],
+        )
+        .unwrap();
+
+        assert!(variants.nullability_constraints_satisfied(Nullability::Nullable));
+        assert!(!variants.nullability_constraints_satisfied(Nullability::NonNullable));
+
+        let dtype = DType::Union(variants, Nullability::Nullable);
+        let converted = round_trip_dtype(&dtype);
+        assert_eq!(dtype, converted);
+    }
+
+    #[test]
+    fn test_union_round_trip_proto_with_type_id_indirection() {
+        let variants = UnionVariants::try_new(
+            ["a", "b", "c"].into(),
+            vec![
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+                DType::Utf8(Nullability::NonNullable),
+                DType::Bool(Nullability::NonNullable),
+            ],
+            vec![0, 5, 7],
+        )
+        .unwrap();
+
+        let dtype = DType::Union(variants, Nullability::NonNullable);
+        let converted = round_trip_dtype(&dtype);
+        assert_eq!(dtype, converted);
+
+        let DType::Union(uv, _) = &converted else {
+            panic!("Expected Union");
+        };
+        assert_eq!(uv.type_ids(), &[0, 5, 7]);
+        assert!(!uv.is_consecutive());
+    }
+
+    #[test]
+    fn test_union_proto_rejects_violating_nullability_constraint() {
+        // Nullable Union with no nullable or Null children must be rejected.
+        let proto = pb::DType {
+            dtype_type: Some(DtypeType::Union(pb::Union {
+                names: vec!["a".to_string(), "b".to_string()],
+                dtypes: vec![
+                    pb::DType::try_from(&DType::Primitive(PType::I32, Nullability::NonNullable))
+                        .unwrap(),
+                    pb::DType::try_from(&DType::Utf8(Nullability::NonNullable)).unwrap(),
+                ],
+                type_ids: vec![0, 1],
+                nullable: true,
+            })),
+        };
+
+        let result = DType::from_proto(&proto, &SESSION);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Union nullability constraint not satisfied")
+        );
+    }
+
+    #[test]
+    fn test_union_proto_rejects_out_of_range_type_id() {
+        let proto = pb::DType {
+            dtype_type: Some(DtypeType::Union(pb::Union {
+                names: vec!["a".to_string()],
+                dtypes: vec![
+                    pb::DType::try_from(&DType::Primitive(PType::I32, Nullability::NonNullable))
+                        .unwrap(),
+                ],
+                // 200 does not fit in i8.
+                type_ids: vec![200],
+                nullable: false,
+            })),
+        };
+
+        let result = DType::from_proto(&proto, &SESSION);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("does not fit in i8")
+        );
+    }
+
+    #[test]
+    fn test_nested_union_round_trip_proto() {
+        let inner_union = DType::Union(
+            UnionVariants::new_consecutive(
+                ["a", "b"].into(),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Utf8(Nullability::NonNullable),
+                ],
+            )
+            .unwrap(),
+            Nullability::NonNullable,
+        );
+
+        let struct_with_union = DType::Struct(
+            StructFields::from_iter([
+                ("id", DType::Primitive(PType::I64, Nullability::NonNullable)),
+                ("inner", inner_union),
+            ]),
+            Nullability::NonNullable,
+        );
+
+        let outer_union = DType::Union(
+            UnionVariants::new_consecutive(
+                ["plain", "nested"].into(),
+                vec![DType::Utf8(Nullability::NonNullable), struct_with_union],
+            )
+            .unwrap(),
+            Nullability::NonNullable,
+        );
+
+        let converted = round_trip_dtype(&outer_union);
+        assert_eq!(outer_union, converted);
     }
 
     #[test]

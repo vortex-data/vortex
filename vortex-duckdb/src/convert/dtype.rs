@@ -223,6 +223,7 @@ impl TryFrom<&DType> for LogicalType {
             DType::Struct(struct_type, _) => {
                 return LogicalType::try_from(struct_type);
             }
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Decimal(decimal_dtype, _) => {
                 return LogicalType::decimal_type(
                     decimal_dtype.precision(),

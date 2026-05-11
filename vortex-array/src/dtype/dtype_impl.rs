@@ -15,6 +15,7 @@ use crate::dtype::FieldDType;
 use crate::dtype::FieldName;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::UnionVariants;
 use crate::dtype::decimal::DecimalDType;
 use crate::dtype::decimal::DecimalType;
 use crate::dtype::extension::ExtDTypeRef;
@@ -62,6 +63,7 @@ impl DType {
             | Utf8(null)
             | Binary(null)
             | Struct(_, null)
+            | Union(_, null)
             | List(_, null)
             | FixedSizeList(_, _, null)
             | Variant(null) => matches!(null, Nullability::Nullable),
@@ -88,6 +90,7 @@ impl DType {
             Utf8(_) => Utf8(nullability),
             Binary(_) => Binary(nullability),
             Struct(sf, _) => Struct(sf.clone(), nullability),
+            Union(vs, _) => Union(vs.clone(), nullability),
             List(edt, _) => List(Arc::clone(edt), nullability),
             FixedSizeList(edt, size, _) => FixedSizeList(Arc::clone(edt), *size, nullability),
             Extension(ext) => Extension(ext.with_nullability(nullability)),
@@ -120,6 +123,15 @@ impl DType {
                         .fields()
                         .zip_eq(rhs_dtype.fields())
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
+            }
+            (Union(lhs, _), Union(rhs, _)) => {
+                // Equal `names` implies equal length by FieldNames equality.
+                lhs.names() == rhs.names()
+                    && lhs.type_ids() == rhs.type_ids()
+                    && lhs
+                        .variants()
+                        .zip_eq(rhs.variants())
+                        .all(|(l, r)| l.eq_ignore_nullability(&r))
             }
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
                 lhs_extdtype.eq_ignore_nullability(rhs_extdtype)
@@ -244,6 +256,11 @@ impl DType {
         matches!(self, Struct(_, _))
     }
 
+    /// Check if `self` is a [`DType::Union`] type.
+    pub fn is_union(&self) -> bool {
+        matches!(self, Union(..))
+    }
+
     /// Check if `self` is a [`DType::Extension`] type
     pub fn is_extension(&self) -> bool {
         matches!(self, Extension(_))
@@ -258,7 +275,7 @@ impl DType {
     /// recursive type.
     pub fn is_nested(&self) -> bool {
         match self {
-            List(..) | FixedSizeList(..) | Struct(..) | Variant(..) => true,
+            List(..) | FixedSizeList(..) | Struct(..) | Union(..) | Variant(..) => true,
             Extension(ext) => ext.storage_dtype().is_nested(),
             _ => false,
         }
@@ -291,6 +308,7 @@ impl DType {
                 }
                 Some(sum)
             }
+            Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             Extension(ext) => ext.storage_dtype().element_size(),
             Variant(_) => None,
         }
@@ -416,6 +434,24 @@ impl DType {
         }
     }
 
+    /// Get the [`UnionVariants`] if `self` is a [`DType::Union`], otherwise `None`.
+    pub fn as_union_variants_opt(&self) -> Option<&UnionVariants> {
+        if let Union(uv, _) = self {
+            Some(uv)
+        } else {
+            None
+        }
+    }
+
+    /// Owned version of [Self::as_union_variants_opt].
+    pub fn into_union_variants_opt(self) -> Option<UnionVariants> {
+        if let Union(uv, _) = self {
+            Some(uv)
+        } else {
+            None
+        }
+    }
+
     /// Downcast a `DType` to an `ExtDType`
     pub fn as_extension(&self) -> &ExtDTypeRef {
         let Extension(ext) = self else {
@@ -465,6 +501,7 @@ impl Display for DType {
                     .map(|(field_null, dt)| format!("{field_null}={dt}"))
                     .join(", "),
             ),
+            Union(uv, null) => write!(f, "union({uv}){null}"),
             List(edt, null) => write!(f, "list({edt}){null}"),
             FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
             Extension(ext) => write!(f, "{}", ext),

@@ -9346,6 +9346,8 @@ pub vortex_array::dtype::DType::Primitive(vortex_array::dtype::PType, vortex_arr
 
 pub vortex_array::dtype::DType::Struct(vortex_array::dtype::StructFields, vortex_array::dtype::Nullability)
 
+pub vortex_array::dtype::DType::Union(vortex_array::dtype::UnionVariants, vortex_array::dtype::Nullability)
+
 pub vortex_array::dtype::DType::Utf8(vortex_array::dtype::Nullability)
 
 pub vortex_array::dtype::DType::Variant(vortex_array::dtype::Nullability)
@@ -9376,6 +9378,8 @@ pub fn vortex_array::dtype::DType::as_struct_fields(&self) -> &vortex_array::dty
 
 pub fn vortex_array::dtype::DType::as_struct_fields_opt(&self) -> core::option::Option<&vortex_array::dtype::StructFields>
 
+pub fn vortex_array::dtype::DType::as_union_variants_opt(&self) -> core::option::Option<&vortex_array::dtype::UnionVariants>
+
 pub fn vortex_array::dtype::DType::element_size(&self) -> core::option::Option<usize>
 
 pub fn vortex_array::dtype::DType::eq_ignore_nullability(&self, &Self) -> bool
@@ -9395,6 +9399,8 @@ pub fn vortex_array::dtype::DType::into_list_element_opt(self) -> core::option::
 pub fn vortex_array::dtype::DType::into_struct_fields(self) -> vortex_array::dtype::StructFields
 
 pub fn vortex_array::dtype::DType::into_struct_fields_opt(self) -> core::option::Option<vortex_array::dtype::StructFields>
+
+pub fn vortex_array::dtype::DType::into_union_variants_opt(self) -> core::option::Option<vortex_array::dtype::UnionVariants>
 
 pub fn vortex_array::dtype::DType::is_binary(&self) -> bool
 
@@ -9421,6 +9427,8 @@ pub fn vortex_array::dtype::DType::is_primitive(&self) -> bool
 pub fn vortex_array::dtype::DType::is_signed_int(&self) -> bool
 
 pub fn vortex_array::dtype::DType::is_struct(&self) -> bool
+
+pub fn vortex_array::dtype::DType::is_union(&self) -> bool
 
 pub fn vortex_array::dtype::DType::is_unsigned_int(&self) -> bool
 
@@ -10505,6 +10513,66 @@ pub fn vortex_array::dtype::StructFields::from_arrow(&arrow_schema::fields::Fiel
 impl<T, V> core::iter::traits::collect::FromIterator<(T, V)> for vortex_array::dtype::StructFields where T: core::convert::Into<vortex_array::dtype::FieldName>, V: core::convert::Into<vortex_array::dtype::FieldDType>
 
 pub fn vortex_array::dtype::StructFields::from_iter<I: core::iter::traits::collect::IntoIterator<Item = (T, V)>>(I) -> Self
+
+pub struct vortex_array::dtype::UnionVariants(_)
+
+impl vortex_array::dtype::UnionVariants
+
+pub fn vortex_array::dtype::UnionVariants::child_index_to_tag(&self, usize) -> i8
+
+pub fn vortex_array::dtype::UnionVariants::empty() -> Self
+
+pub fn vortex_array::dtype::UnionVariants::find(&self, impl core::convert::AsRef<str>) -> core::option::Option<usize>
+
+pub fn vortex_array::dtype::UnionVariants::is_consecutive(&self) -> bool
+
+pub fn vortex_array::dtype::UnionVariants::is_empty(&self) -> bool
+
+pub fn vortex_array::dtype::UnionVariants::len(&self) -> usize
+
+pub fn vortex_array::dtype::UnionVariants::names(&self) -> &vortex_array::dtype::FieldNames
+
+pub fn vortex_array::dtype::UnionVariants::new_consecutive(vortex_array::dtype::FieldNames, alloc::vec::Vec<vortex_array::dtype::DType>) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::dtype::UnionVariants::nullability_constraints_satisfied(&self, vortex_array::dtype::Nullability) -> bool
+
+pub fn vortex_array::dtype::UnionVariants::tag_to_child_index(&self, i8) -> core::option::Option<usize>
+
+pub fn vortex_array::dtype::UnionVariants::try_new(vortex_array::dtype::FieldNames, alloc::vec::Vec<vortex_array::dtype::DType>, alloc::vec::Vec<i8>) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::dtype::UnionVariants::type_ids(&self) -> &[i8]
+
+pub fn vortex_array::dtype::UnionVariants::variant(&self, impl core::convert::AsRef<str>) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::dtype::UnionVariants::variant_by_index(&self, usize) -> core::option::Option<vortex_array::dtype::DType>
+
+pub fn vortex_array::dtype::UnionVariants::variants(&self) -> impl core::iter::traits::exact_size::ExactSizeIterator<Item = vortex_array::dtype::DType> + '_
+
+impl core::clone::Clone for vortex_array::dtype::UnionVariants
+
+pub fn vortex_array::dtype::UnionVariants::clone(&self) -> vortex_array::dtype::UnionVariants
+
+impl core::cmp::Eq for vortex_array::dtype::UnionVariants
+
+impl core::cmp::PartialEq for vortex_array::dtype::UnionVariants
+
+pub fn vortex_array::dtype::UnionVariants::eq(&self, &Self) -> bool
+
+impl core::default::Default for vortex_array::dtype::UnionVariants
+
+pub fn vortex_array::dtype::UnionVariants::default() -> Self
+
+impl core::fmt::Debug for vortex_array::dtype::UnionVariants
+
+pub fn vortex_array::dtype::UnionVariants::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_array::dtype::UnionVariants
+
+pub fn vortex_array::dtype::UnionVariants::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_array::dtype::UnionVariants
+
+pub fn vortex_array::dtype::UnionVariants::hash<__H: core::hash::Hasher>(&self, &mut __H)
 
 #[repr(transparent)] pub struct vortex_array::dtype::i256(_)
 

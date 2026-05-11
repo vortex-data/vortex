@@ -274,6 +274,7 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             *n,
             capacity,
         )),
+        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity(
             Arc::clone(dtype),
             *n,

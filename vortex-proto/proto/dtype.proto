@@ -74,6 +74,13 @@ message Variant {
   bool nullable = 1;
 }
 
+message Union {
+  repeated string names = 1;
+  repeated DType dtypes = 2;
+  repeated int32 type_ids = 3; // length must equal dtypes.len(); each value must fit in int8
+  bool nullable = 4;
+}
+
 message DType {
   oneof dtype_type {
     Null null = 1;
@@ -87,6 +94,7 @@ message DType {
     Extension extension = 9;
     FixedSizeList fixed_size_list = 10; // This is after `Extension` for backwards compatibility.
     Variant variant = 11;
+    Union union = 12;
   }
 }
 

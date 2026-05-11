@@ -27,6 +27,7 @@ use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::UnionVariants;
 use crate::dtype::decimal::DecimalDType;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
@@ -115,6 +116,12 @@ impl Serialize for DType {
                 state.serialize_field(n)?;
                 state.end()
             }
+            DType::Union(uv, n) => {
+                let mut state = serializer.serialize_tuple_variant("DType", 11, "Union", 2)?;
+                state.serialize_field(&uv)?;
+                state.serialize_field(n)?;
+                state.end()
+            }
             DType::Extension(ext) => {
                 serializer.serialize_newtype_variant("DType", 9, "Extension", ext)
             }
@@ -132,6 +139,20 @@ impl Serialize for StructFields {
         state.serialize_field("names", self.names())?;
         let dtypes: Vec<DType> = self.fields().collect();
         state.serialize_field("dtypes", &dtypes)?;
+        state.end()
+    }
+}
+
+impl Serialize for UnionVariants {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("UnionVariants", 3)?;
+        state.serialize_field("names", self.names())?;
+        let dtypes: Vec<DType> = self.variants().collect();
+        state.serialize_field("dtypes", &dtypes)?;
+        state.serialize_field("type_ids", self.type_ids())?;
         state.end()
     }
 }
@@ -157,6 +178,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
             "List",
             "FixedSizeList",
             "Struct",
+            "Union",
             "Extension",
             "Variant",
         ];
@@ -213,6 +235,9 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
                         session: self.session,
                     }),
                     "Struct" => access.newtype_variant_seed(StructFieldsSeed {
+                        session: self.session,
+                    }),
+                    "Union" => access.newtype_variant_seed(UnionVariantsSeed {
                         session: self.session,
                     }),
                     "Extension" => {
@@ -379,6 +404,132 @@ impl<'de> DeserializeSeed<'de> for StructFieldsSeed<'_> {
         deserializer.deserialize_tuple(
             2,
             StructVisitor {
+                session: self.session,
+            },
+        )
+    }
+}
+
+struct UnionVariantsSeed<'a> {
+    session: &'a VortexSession,
+}
+
+impl<'de> DeserializeSeed<'de> for UnionVariantsSeed<'_> {
+    type Value = DType;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct UnionVisitor<'a> {
+            session: &'a VortexSession,
+        }
+
+        impl<'de> Visitor<'de> for UnionVisitor<'_> {
+            type Value = DType;
+
+            fn expecting(&self, f: &mut Formatter) -> fmt::Result {
+                f.write_str("Union tuple (variants, nullability)")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let variants = seq
+                    .next_element_seed(DTypeSerde::<UnionVariants>::new(self.session))?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let nullability: Nullability = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                if !variants.nullability_constraints_satisfied(nullability) {
+                    return Err(de::Error::custom(format!(
+                        "Union nullability constraint not satisfied: nullability={:?}",
+                        nullability
+                    )));
+                }
+                Ok(DType::Union(variants, nullability))
+            }
+        }
+
+        deserializer.deserialize_tuple(
+            2,
+            UnionVisitor {
+                session: self.session,
+            },
+        )
+    }
+}
+
+impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, UnionVariants> {
+    type Value = UnionVariants;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &["names", "dtypes", "type_ids"];
+
+        struct UnionVariantsInnerVisitor<'a> {
+            session: &'a VortexSession,
+        }
+
+        impl<'de> Visitor<'de> for UnionVariantsInnerVisitor<'_> {
+            type Value = UnionVariants;
+
+            fn expecting(&self, f: &mut Formatter) -> fmt::Result {
+                f.write_str("struct UnionVariants")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<Self::Value, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut names: Option<FieldNames> = None;
+                let mut dtypes: Option<Vec<DType>> = None;
+                let mut type_ids: Option<Vec<i8>> = None;
+
+                while let Some(key) = map.next_key::<Cow<'_, str>>()? {
+                    match key.as_ref() {
+                        "names" => {
+                            if names.is_some() {
+                                return Err(de::Error::duplicate_field("names"));
+                            }
+                            names = Some(map.next_value()?);
+                        }
+                        "dtypes" => {
+                            if dtypes.is_some() {
+                                return Err(de::Error::duplicate_field("dtypes"));
+                            }
+                            dtypes = Some(
+                                map.next_value_seed(DTypeSerde::<Vec<DType>>::new(self.session))?,
+                            );
+                        }
+                        "type_ids" => {
+                            if type_ids.is_some() {
+                                return Err(de::Error::duplicate_field("type_ids"));
+                            }
+                            type_ids = Some(map.next_value()?);
+                        }
+                        _ => {
+                            let _ = map.next_value::<de::IgnoredAny>()?;
+                        }
+                    }
+                }
+
+                let names = names.ok_or_else(|| de::Error::missing_field("names"))?;
+                let dtypes = dtypes.ok_or_else(|| de::Error::missing_field("dtypes"))?;
+                let type_ids = type_ids.ok_or_else(|| de::Error::missing_field("type_ids"))?;
+
+                UnionVariants::try_new(names, dtypes, type_ids)
+                    .map_err(|e| de::Error::custom(e.to_string()))
+            }
+        }
+
+        deserializer.deserialize_struct(
+            "UnionVariants",
+            FIELDS,
+            UnionVariantsInnerVisitor {
                 session: self.session,
             },
         )

@@ -147,7 +147,7 @@ pub fn take_canonical_array(
             }
             Ok(builder.finish())
         }
-        d @ (DType::Null | DType::Extension(_) | DType::Variant(_)) => {
+        d @ (DType::Null | DType::Union(..) | DType::Extension(_) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

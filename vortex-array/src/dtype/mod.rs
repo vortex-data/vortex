@@ -24,6 +24,7 @@ mod ptype;
 pub mod serde;
 pub mod session;
 mod struct_;
+mod union;
 
 use std::sync::Arc;
 
@@ -98,6 +99,13 @@ pub enum DType {
     /// `DType`. See [`StructFields`] for more information.
     Struct(StructFields, Nullability),
 
+    /// A logical union (sum) type.
+    ///
+    /// A `Union` is composed of one or more *variants*, each with a name and a `DType`. A
+    /// per-row `i8` tag selects which variant is live at that row. See [`UnionVariants`] for
+    /// the type-tag conventions and accessors.
+    Union(UnionVariants, Nullability),
+
     /// A user-defined extension type.
     ///
     /// See [`ExtDTypeRef`] for more information.
@@ -124,8 +132,11 @@ impl PartialEq for DType {
             }
             // StructFields handles its own Arc::ptr_eq in its PartialEq impl.
             (Self::Struct(a, na), Self::Struct(b, nb)) => na == nb && a == b,
+            // UnionVariants handles its own Arc::ptr_eq in its PartialEq impl.
+            (Self::Union(a, na), Self::Union(b, nb)) => na == nb && a == b,
             (Self::Extension(a), Self::Extension(b)) => a == b,
             (Self::Variant(a), Self::Variant(b)) => a == b,
+
             // Every variant is listed in the first position so that adding a new
             // variant produces a non-exhaustive match compile error.
             (Self::Null, _)
@@ -137,6 +148,7 @@ impl PartialEq for DType {
             | (Self::List(..), _)
             | (Self::FixedSizeList(..), _)
             | (Self::Struct(..), _)
+            | (Self::Union(..), _)
             | (Self::Extension(_), _)
             | (Self::Variant(_), _) => false,
         }
@@ -154,6 +166,7 @@ pub use half;
 pub use nullability::*;
 pub use ptype::*;
 pub use struct_::*;
+pub use union::*;
 
 use crate::dtype::extension::ExtDTypeRef;
 

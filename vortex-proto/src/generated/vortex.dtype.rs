@@ -72,8 +72,20 @@ pub struct Variant {
     pub nullable: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Union {
+    #[prost(string, repeated, tag = "1")]
+    pub names: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(message, repeated, tag = "2")]
+    pub dtypes: ::prost::alloc::vec::Vec<DType>,
+    /// length must equal dtypes.len(); each value must fit in int8
+    #[prost(int32, repeated, tag = "3")]
+    pub type_ids: ::prost::alloc::vec::Vec<i32>,
+    #[prost(bool, tag = "4")]
+    pub nullable: bool,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DType {
-    #[prost(oneof = "d_type::DtypeType", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
+    #[prost(oneof = "d_type::DtypeType", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12")]
     pub dtype_type: ::core::option::Option<d_type::DtypeType>,
 }
 /// Nested message and enum types in `DType`.
@@ -103,6 +115,8 @@ pub mod d_type {
         FixedSizeList(::prost::alloc::boxed::Box<super::FixedSizeList>),
         #[prost(message, tag = "11")]
         Variant(super::Variant),
+        #[prost(message, tag = "12")]
+        Union(super::Union),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

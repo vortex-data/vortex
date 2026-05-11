@@ -59,6 +59,7 @@ pub enum vx_dtype_variant {
     DTYPE_FIXED_SIZE_LIST = 9,
 }
 
+// TODO(connor)[Union]: Do we need to add union and variant here?
 impl From<&DType> for vx_dtype_variant {
     fn from(value: &DType) -> Self {
         match value {
@@ -69,6 +70,7 @@ impl From<&DType> for vx_dtype_variant {
             DType::Utf8(_) => vx_dtype_variant::DTYPE_UTF8,
             DType::Binary(_) => vx_dtype_variant::DTYPE_BINARY,
             DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
             DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
             DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,

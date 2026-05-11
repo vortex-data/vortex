@@ -320,6 +320,7 @@ impl DType {
 
                 DataType::Struct(Fields::from(fields))
             }
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Variant(_) => vortex_bail!(
                 "DType::Variant requires Arrow Field metadata; use to_arrow_schema or a Field helper"
             ),

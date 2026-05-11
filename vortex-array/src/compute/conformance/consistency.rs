@@ -705,7 +705,11 @@ fn test_comparison_inverse_consistency(array: &ArrayRef) {
 
     // Skip non-comparable types.
     match array.dtype() {
-        DType::Null | DType::Extension(_) | DType::Struct(..) | DType::List(..) => return,
+        DType::Null
+        | DType::Extension(_)
+        | DType::Struct(..)
+        | DType::Union(..)
+        | DType::List(..) => return,
         _ => {}
     }
 
@@ -833,7 +837,11 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef) {
 
     // Skip non-comparable types.
     match array.dtype() {
-        DType::Null | DType::Extension(_) | DType::Struct(..) | DType::List(..) => return,
+        DType::Null
+        | DType::Extension(_)
+        | DType::Struct(..)
+        | DType::Union(..)
+        | DType::List(..) => return,
         _ => {}
     }
 
@@ -1226,6 +1234,7 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
             };
             vec![DType::Struct(fields.clone(), opposite)]
         }
+        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::List(element_type, nullability) => {
             let opposite = match nullability {
                 Nullability::NonNullable => Nullability::Nullable,
