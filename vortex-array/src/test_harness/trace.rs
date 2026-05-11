@@ -6,8 +6,7 @@
 //! # What this records
 //!
 //! [`trace_op`] runs a closure with a thread-local recorder installed. While the recorder is
-//! active, calls to the [`trace_op!`][crate::trace_op] macro inside the optimizer
-//! ([`optimizer`][crate::optimizer]) and executor ([`executor`][crate::executor]) push
+//! active, calls to the `trace_op!` macro inside the optimizer and executor push
 //! structured events into the recorder. The recorder produces a [`TraceDisplay`] that renders
 //! as a deterministic, hierarchical text trace suitable for `insta` snapshot assertions.
 //!
@@ -47,7 +46,7 @@
 //! - Nested captures return an error so that unrelated traces never merge.
 //! - In release builds and CodSpeed benchmark builds, every `trace_op!` invocation is compiled
 //!   away by the macro's `cfg` gating; this module is then unused. See
-//!   [`trace_op`][crate::trace_op] for the gating rules.
+//!   `trace_op!` for the gating rules.
 //!
 //! # Example
 //!
@@ -189,8 +188,8 @@ fn write_indent(f: &mut fmt::Formatter<'_>, depth: usize) -> fmt::Result {
 ///
 /// `f` typically invokes an operation that drives the executor or optimizer, such as
 /// [`ArrayOptimizer::optimize`][crate::optimizer::ArrayOptimizer::optimize] or
-/// [`VortexSessionExecute::execute`][crate::VortexSessionExecute::execute]. While `f` runs,
-/// the optimizer and executor emit structured events via the [`trace_op!`][crate::trace_op]
+/// [`ArrayRef::execute`][crate::ArrayRef::execute]. While `f` runs,
+/// the optimizer and executor emit structured events via the `trace_op!`
 /// macro into a thread-local recorder. When `f` returns, the recorder is finalized and
 /// returned alongside the closure's output as a [`Traced<T>`].
 ///
