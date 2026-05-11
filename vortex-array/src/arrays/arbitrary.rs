@@ -235,29 +235,43 @@ fn random_list(
     null: Nullability,
     chunk_len: Option<usize>,
 ) -> Result<ArrayRef> {
+    let array_length = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
+    // Worst-case total elements: each list can have up to 20 elements.
+    let max_total_elements = array_length as u64 * 20;
+
     match u.int_in_range(0..=5)? {
-        0 => random_list_with_offset_type::<i16>(u, elem_dtype, null, chunk_len),
-        1 => random_list_with_offset_type::<i32>(u, elem_dtype, null, chunk_len),
-        2 => random_list_with_offset_type::<i64>(u, elem_dtype, null, chunk_len),
-        3 => random_list_with_offset_type::<u16>(u, elem_dtype, null, chunk_len),
-        4 => random_list_with_offset_type::<u32>(u, elem_dtype, null, chunk_len),
-        5 => random_list_with_offset_type::<u64>(u, elem_dtype, null, chunk_len),
-        _ => unreachable!("int_in_range returns a value in the above range"),
+        0 if i16::max_value_as_u64() >= max_total_elements => {
+            random_list_with_offset_type::<i16>(u, elem_dtype, null, array_length)
+        }
+        1 if i32::max_value_as_u64() >= max_total_elements => {
+            random_list_with_offset_type::<i32>(u, elem_dtype, null, array_length)
+        }
+        3 if u16::max_value_as_u64() >= max_total_elements => {
+            random_list_with_offset_type::<u16>(u, elem_dtype, null, array_length)
+        }
+        4 if u32::max_value_as_u64() >= max_total_elements => {
+            random_list_with_offset_type::<u32>(u, elem_dtype, null, array_length)
+        }
+        // i64 and u64 always fit; also the fallback for when narrower types don't.
+        _ => {
+            if u.arbitrary::<bool>()? {
+                random_list_with_offset_type::<i64>(u, elem_dtype, null, array_length)
+            } else {
+                random_list_with_offset_type::<u64>(u, elem_dtype, null, array_length)
+            }
+        }
     }
 }
 
 /// Creates a random list array with the given [`IntegerPType`] for the internal offsets child.
-///
-/// If the `chunk_len` is specified, the length of the array will be equal to the chunk length.
 fn random_list_with_offset_type<O: IntegerPType>(
     u: &mut Unstructured,
     elem_dtype: &Arc<DType>,
     null: Nullability,
-    chunk_len: Option<usize>,
+    array_length: usize,
 ) -> Result<ArrayRef> {
-    let array_length = chunk_len.unwrap_or(u.int_in_range(0..=20)?);
-
-    let mut builder = ListViewBuilder::<O, O>::with_capacity(Arc::clone(elem_dtype), null, 20, 10);
+    let mut builder =
+        ListViewBuilder::<O, O>::with_capacity(Arc::clone(elem_dtype), null, array_length, 10);
 
     for _ in 0..array_length {
         if null == Nullability::Nullable && u.arbitrary::<bool>()? {
@@ -378,4 +392,31 @@ fn arbitrary_vec_of_len<'a, T: Arbitrary<'a>>(
 ) -> Result<Vec<T>> {
     len.map(|l| (0..l).map(|_| T::arbitrary(u)).collect::<Result<Vec<_>>>())
         .unwrap_or_else(|| Vec::<T>::arbitrary(u))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arbitrary::Unstructured;
+
+    use super::*;
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/7856>.
+    ///
+    /// With a large chunk_len, `random_list` must not select narrow offset types (e.g. i16)
+    /// that would overflow. Previously it could pick i16 for any chunk_len, causing a panic
+    /// in `ListViewBuilder::append_value`.
+    #[test]
+    fn random_list_large_chunk_len_does_not_overflow() {
+        // 2000 lists * up to 20 elements each = 40000 > i16::MAX (32767).
+        // Before the fix, random_list could pick i16 and panic.
+        let data = vec![0u8; 8192];
+        let mut u = Unstructured::new(&data);
+        let elem_dtype = Arc::new(DType::Bool(Nullability::NonNullable));
+
+        // Should not panic — random_list now filters out offset types that are too narrow.
+        let result = random_list(&mut u, &elem_dtype, Nullability::NonNullable, Some(2000));
+        drop(result);
+    }
 }
