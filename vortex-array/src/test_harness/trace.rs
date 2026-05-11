@@ -242,11 +242,12 @@ impl From<TraceResolution> for TraceInterest {
     }
 }
 
-/// Snapshot-friendly wrapper around [`ArrayRef`] that renders just the encoding, length, and
-/// dtype using the trace format (`vortex.primitive len=4 dtype=i32`).
+/// Snapshot-friendly wrapper around [`ArrayRef`] that renders the encoding, dtype, and length
+/// using the canonical [`Display`] format (`vortex.primitive(i32, len=4)`).
 ///
-/// Carries a clone of the [`ArrayRef`] (a cheap [`Arc`] bump) instead of cloning individual
-/// fields, so trace events stay small and don't duplicate the existing array metadata.
+/// Carries a clone of the [`ArrayRef`] (a cheap [`Arc`] bump) instead of duplicating fields,
+/// so trace events stay small and share the same rendering as every other `{array}` print in
+/// the codebase.
 #[derive(Clone, Debug)]
 pub(crate) struct ArraySummary(ArrayRef);
 
@@ -258,13 +259,7 @@ impl ArraySummary {
 
 impl Display for ArraySummary {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} len={} dtype={}",
-            self.0.encoding_id(),
-            self.0.len(),
-            self.0.dtype(),
-        )
+        Display::fmt(&self.0, f)
     }
 }
 
@@ -1168,9 +1163,9 @@ mod tests {
         assert!(traced.output.is::<Primitive>());
         assert_arrays_eq!(traced.output, values);
         insta::assert_snapshot!(traced.trace.to_string(), @r"
-optimize root=vortex.filter len=4 dtype=i32 session=false
-  reduce TrivialFilterRule: vortex.filter len=4 dtype=i32 -> vortex.primitive len=4 dtype=i32
-  done output=vortex.primitive len=4 dtype=i32
+optimize root=vortex.filter(i32, len=4) session=false
+  reduce TrivialFilterRule: vortex.filter(i32, len=4) -> vortex.primitive(i32, len=4)
+  done output=vortex.primitive(i32, len=4)
 ");
 
         Ok(())
@@ -1198,9 +1193,9 @@ optimize root=vortex.filter len=4 dtype=i32 session=false
         assert!(optimized_filter.child().is::<Primitive>());
         assert_arrays_eq!(traced.output, PrimitiveArray::from_iter([2i32, 3]));
         insta::assert_snapshot!(traced.trace.to_string(), @r"
-optimize root=vortex.filter len=2 dtype=i32 session=false
-  reduce_parent static:FilterFilterRule slot=0 parent=vortex.filter len=2 dtype=i32 child=vortex.filter len=4 dtype=i32 -> vortex.filter len=2 dtype=i32
-  done output=vortex.filter len=2 dtype=i32
+optimize root=vortex.filter(i32, len=2) session=false
+  reduce_parent static:FilterFilterRule slot=0 parent=vortex.filter(i32, len=2) child=vortex.filter(i32, len=4) -> vortex.filter(i32, len=2)
+  done output=vortex.filter(i32, len=2)
 ");
 
         let mut ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
@@ -1212,17 +1207,17 @@ optimize root=vortex.filter len=2 dtype=i32 session=false
         )?;
 
         insta::assert_snapshot!(traced.trace.to_string(), @r"
-execute_until target=AnyCanonical root=vortex.filter len=2 dtype=i32
-  iter 1 current=vortex.filter len=2 dtype=i32 builder_active=false
-    ExecuteSlot slot=0 parent=vortex.filter len=2 dtype=i32 child=vortex.filter len=4 dtype=i32
-  iter 2 current=vortex.filter len=4 dtype=i32 stack_parent=vortex.filter len=2 dtype=i32 slot=0 builder_active=false
-    Done array=vortex.primitive len=4 dtype=i32
-  iter 3 current=vortex.primitive len=4 dtype=i32 stack_parent=vortex.filter len=2 dtype=i32 slot=0 builder_active=false
-    pop_frame slot=0 parent=vortex.filter len=2 dtype=i32 child=vortex.primitive len=4 dtype=i32 output=vortex.filter len=2 dtype=i32
-  iter 4 current=vortex.filter len=2 dtype=i32 builder_active=false
-    Done array=vortex.primitive len=2 dtype=i32
-  iter 5 current=vortex.primitive len=2 dtype=i32 builder_active=false
-  return output=vortex.primitive len=2 dtype=i32
+execute_until target=AnyCanonical root=vortex.filter(i32, len=2)
+  iter 1 current=vortex.filter(i32, len=2) builder_active=false
+    ExecuteSlot slot=0 parent=vortex.filter(i32, len=2) child=vortex.filter(i32, len=4)
+  iter 2 current=vortex.filter(i32, len=4) stack_parent=vortex.filter(i32, len=2) slot=0 builder_active=false
+    Done array=vortex.primitive(i32, len=4)
+  iter 3 current=vortex.primitive(i32, len=4) stack_parent=vortex.filter(i32, len=2) slot=0 builder_active=false
+    pop_frame slot=0 parent=vortex.filter(i32, len=2) child=vortex.primitive(i32, len=4) output=vortex.filter(i32, len=2)
+  iter 4 current=vortex.filter(i32, len=2) builder_active=false
+    Done array=vortex.primitive(i32, len=2)
+  iter 5 current=vortex.primitive(i32, len=2) builder_active=false
+  return output=vortex.primitive(i32, len=2)
 ");
 
         Ok(())
@@ -1242,28 +1237,28 @@ execute_until target=AnyCanonical root=vortex.filter len=2 dtype=i32
 
         assert_arrays_eq!(traced.output, PrimitiveArray::from_iter([1i32, 2, 3]));
         insta::assert_snapshot!(traced.trace.to_string(), @r"
-execute_until target=AnyCanonical root=vortex.test.stack-parent len=3 dtype=i32
-  iter 1 current=vortex.test.stack-parent len=3 dtype=i32 builder_active=false
+execute_until target=AnyCanonical root=vortex.test.stack-parent(i32, len=3)
+  iter 1 current=vortex.test.stack-parent(i32, len=3) builder_active=false
     done_check target=false canonical=false
-    child_execute_parent attempt slot=0 parent=vortex.test.stack-parent len=3 dtype=i32 child=vortex.test.stack-child len=3 dtype=i32 source=static kernel=kernel[0] outcome=declined
-    child_execute_parent attempt slot=0 parent=vortex.test.stack-parent len=3 dtype=i32 child=vortex.test.stack-child len=3 dtype=i32 source=static kernel=kernel[1] outcome=declined
-    child_execute_parent none current=vortex.test.stack-parent len=3 dtype=i32
-    execute encoding=vortex.test.stack-parent len=3 dtype=i32
-    request ExecuteSlot slot=0 target=Primitive parent=vortex.test.stack-parent len=3 dtype=i32
-    ExecuteSlot slot=0 parent=vortex.test.stack-parent len=3 dtype=i32 child=vortex.test.stack-child len=3 dtype=i32
-  iter 2 current=vortex.test.stack-child len=3 dtype=i32 stack_parent=vortex.test.stack-parent len=3 dtype=i32 slot=0 builder_active=false
+    child_execute_parent attempt slot=0 parent=vortex.test.stack-parent(i32, len=3) child=vortex.test.stack-child(i32, len=3) source=static kernel=kernel[0] outcome=declined
+    child_execute_parent attempt slot=0 parent=vortex.test.stack-parent(i32, len=3) child=vortex.test.stack-child(i32, len=3) source=static kernel=kernel[1] outcome=declined
+    child_execute_parent none current=vortex.test.stack-parent(i32, len=3)
+    execute encoding=vortex.test.stack-parent(i32, len=3)
+    request ExecuteSlot slot=0 target=Primitive parent=vortex.test.stack-parent(i32, len=3)
+    ExecuteSlot slot=0 parent=vortex.test.stack-parent(i32, len=3) child=vortex.test.stack-child(i32, len=3)
+  iter 2 current=vortex.test.stack-child(i32, len=3) stack_parent=vortex.test.stack-parent(i32, len=3) slot=0 builder_active=false
     done_check target=false canonical=false
-    stack_execute_parent attempt slot=0 parent=vortex.test.stack-parent len=3 dtype=i32 child=vortex.test.stack-child len=3 dtype=i32 source=static kernel=kernel[0] outcome=declined
-    stack_execute_parent applied slot=0 parent=vortex.test.stack-parent len=3 dtype=i32 child=vortex.test.stack-child len=3 dtype=i32 source=static kernel=kernel[1] output=vortex.primitive len=3 dtype=i32
-optimize root=vortex.primitive len=3 dtype=i32 session=true
-  loop input=vortex.primitive len=3 dtype=i32
-    reduce none array=vortex.primitive len=3 dtype=i32
-    reduce_parent none array=vortex.primitive len=3 dtype=i32
-  done output=vortex.primitive len=3 dtype=i32 changed=false
-    optimize_ctx input=vortex.primitive len=3 dtype=i32 output=vortex.primitive len=3 dtype=i32 changed=false
-  iter 3 current=vortex.primitive len=3 dtype=i32 builder_active=false
+    stack_execute_parent attempt slot=0 parent=vortex.test.stack-parent(i32, len=3) child=vortex.test.stack-child(i32, len=3) source=static kernel=kernel[0] outcome=declined
+    stack_execute_parent applied slot=0 parent=vortex.test.stack-parent(i32, len=3) child=vortex.test.stack-child(i32, len=3) source=static kernel=kernel[1] output=vortex.primitive(i32, len=3)
+optimize root=vortex.primitive(i32, len=3) session=true
+  loop input=vortex.primitive(i32, len=3)
+    reduce none array=vortex.primitive(i32, len=3)
+    reduce_parent none array=vortex.primitive(i32, len=3)
+  done output=vortex.primitive(i32, len=3) changed=false
+    optimize_ctx input=vortex.primitive(i32, len=3) output=vortex.primitive(i32, len=3) changed=false
+  iter 3 current=vortex.primitive(i32, len=3) builder_active=false
     done_check target=true canonical=true
-  return output=vortex.primitive len=3 dtype=i32
+  return output=vortex.primitive(i32, len=3)
 ");
 
         Ok(())
@@ -1288,40 +1283,40 @@ optimize root=vortex.primitive len=3 dtype=i32 session=true
 
         assert_arrays_eq!(traced.output, PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]));
         insta::assert_snapshot!(traced.trace.to_string(), @r"
-execute_until target=AnyCanonical root=vortex.chunked len=5 dtype=i32
-  iter 1 current=vortex.chunked len=5 dtype=i32 builder_active=false
-    builder start array=vortex.chunked len=5 dtype=i32
-    AppendChild slot=1 parent=vortex.chunked len=5 dtype=i32 child=vortex.primitive len=2 dtype=i32
-    builder append child=vortex.primitive len=2 dtype=i32
-execute_until target=AnyCanonical root=vortex.primitive len=2 dtype=i32
-  iter 1 current=vortex.primitive len=2 dtype=i32 builder_active=false
-  return output=vortex.primitive len=2 dtype=i32
-execute_until target=AnyCanonical root=vortex.primitive len=2 dtype=i32
-  iter 1 current=vortex.primitive len=2 dtype=i32 builder_active=false
-  return output=vortex.primitive len=2 dtype=i32
-  iter 2 current=vortex.chunked len=5 dtype=i32 builder_active=true
-    AppendChild slot=2 parent=vortex.chunked len=5 dtype=i32 child=vortex.primitive len=1 dtype=i32
-    builder append child=vortex.primitive len=1 dtype=i32
-execute_until target=AnyCanonical root=vortex.primitive len=1 dtype=i32
-  iter 1 current=vortex.primitive len=1 dtype=i32 builder_active=false
-  return output=vortex.primitive len=1 dtype=i32
-execute_until target=AnyCanonical root=vortex.primitive len=1 dtype=i32
-  iter 1 current=vortex.primitive len=1 dtype=i32 builder_active=false
-  return output=vortex.primitive len=1 dtype=i32
-  iter 3 current=vortex.chunked len=5 dtype=i32 builder_active=true
-    AppendChild slot=3 parent=vortex.chunked len=5 dtype=i32 child=vortex.primitive len=2 dtype=i32
-    builder append child=vortex.primitive len=2 dtype=i32
-execute_until target=AnyCanonical root=vortex.primitive len=2 dtype=i32
-  iter 1 current=vortex.primitive len=2 dtype=i32 builder_active=false
-  return output=vortex.primitive len=2 dtype=i32
-execute_until target=AnyCanonical root=vortex.primitive len=2 dtype=i32
-  iter 1 current=vortex.primitive len=2 dtype=i32 builder_active=false
-  return output=vortex.primitive len=2 dtype=i32
-  iter 4 current=vortex.chunked len=5 dtype=i32 builder_active=true
-    Done array=vortex.primitive len=0 dtype=i32
-    builder finish output=vortex.primitive len=5 dtype=i32
-  iter 5 current=vortex.primitive len=5 dtype=i32 builder_active=false
-  return output=vortex.primitive len=5 dtype=i32
+execute_until target=AnyCanonical root=vortex.chunked(i32, len=5)
+  iter 1 current=vortex.chunked(i32, len=5) builder_active=false
+    builder start array=vortex.chunked(i32, len=5)
+    AppendChild slot=1 parent=vortex.chunked(i32, len=5) child=vortex.primitive(i32, len=2)
+    builder append child=vortex.primitive(i32, len=2)
+execute_until target=AnyCanonical root=vortex.primitive(i32, len=2)
+  iter 1 current=vortex.primitive(i32, len=2) builder_active=false
+  return output=vortex.primitive(i32, len=2)
+execute_until target=AnyCanonical root=vortex.primitive(i32, len=2)
+  iter 1 current=vortex.primitive(i32, len=2) builder_active=false
+  return output=vortex.primitive(i32, len=2)
+  iter 2 current=vortex.chunked(i32, len=5) builder_active=true
+    AppendChild slot=2 parent=vortex.chunked(i32, len=5) child=vortex.primitive(i32, len=1)
+    builder append child=vortex.primitive(i32, len=1)
+execute_until target=AnyCanonical root=vortex.primitive(i32, len=1)
+  iter 1 current=vortex.primitive(i32, len=1) builder_active=false
+  return output=vortex.primitive(i32, len=1)
+execute_until target=AnyCanonical root=vortex.primitive(i32, len=1)
+  iter 1 current=vortex.primitive(i32, len=1) builder_active=false
+  return output=vortex.primitive(i32, len=1)
+  iter 3 current=vortex.chunked(i32, len=5) builder_active=true
+    AppendChild slot=3 parent=vortex.chunked(i32, len=5) child=vortex.primitive(i32, len=2)
+    builder append child=vortex.primitive(i32, len=2)
+execute_until target=AnyCanonical root=vortex.primitive(i32, len=2)
+  iter 1 current=vortex.primitive(i32, len=2) builder_active=false
+  return output=vortex.primitive(i32, len=2)
+execute_until target=AnyCanonical root=vortex.primitive(i32, len=2)
+  iter 1 current=vortex.primitive(i32, len=2) builder_active=false
+  return output=vortex.primitive(i32, len=2)
+  iter 4 current=vortex.chunked(i32, len=5) builder_active=true
+    Done array=vortex.primitive(i32, len=0)
+    builder finish output=vortex.primitive(i32, len=5)
+  iter 5 current=vortex.primitive(i32, len=5) builder_active=false
+  return output=vortex.primitive(i32, len=5)
 ");
 
         Ok(())
