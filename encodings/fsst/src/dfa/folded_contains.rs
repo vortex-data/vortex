@@ -135,15 +135,9 @@ impl FoldedContainsDfa {
         // Total states: 2N+1 (normal 0..=N, escape N+1..=2N for base 0..=N-1).
         let n_states_usize = 2 * usize::from(accept_state) + 1;
 
-        let trace = std::env::var_os("VORTEX_FSST_BUILD_TRACE")
-            .map(|v| !v.is_empty())
-            .unwrap_or(false);
-        let t0 = trace.then(std::time::Instant::now);
         let byte_table = kmp_byte_transitions(needle);
-        let t_byte = trace.then(std::time::Instant::now);
         let sym_trans =
             build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_normal, accept_state);
-        let t_sym = trace.then(std::time::Instant::now);
 
         // Build the folded fused table: (2N+1) * 256.
         let n_symbols = symbols.len();
@@ -231,21 +225,6 @@ impl FoldedContainsDfa {
             if v.is_empty() { None } else { Some(v) }
         });
 
-        if let (Some(t0), Some(t_byte), Some(t_sym)) = (t0, t_byte, t_sym) {
-            let t_end = std::time::Instant::now();
-            let us = |a: std::time::Instant, b: std::time::Instant| {
-                b.duration_since(a).as_secs_f64() * 1e6
-            };
-            eprintln!(
-                "[fsst::build] N={} n_syms={} total={:.2}µs kmp={:.2} sym_trans={:.2} fused_table+collect={:.2}",
-                accept_state,
-                n_symbols,
-                us(t0, t_end),
-                us(t0, t_byte),
-                us(t_byte, t_sym),
-                us(t_sym, t_end),
-            );
-        }
         Ok(Self {
             transitions,
             accept_state,
