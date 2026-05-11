@@ -71,20 +71,20 @@ fn try_optimize(
     let mut any_optimizations = false;
     let array_ref = session.and_then(|s| s.get_opt::<ArrayKernels>());
 
-    crate::trace_array!(record_optimize_start(array, session.is_some()));
+    crate::trace_op!(record_optimize_start(array, session.is_some()));
 
     // Apply reduction rules to the current array until no more rules apply.
     for _ in 0..=100 {
-        crate::trace_array!(record_optimize_loop_start(&current_array));
+        crate::trace_op!(record_optimize_loop_start(&current_array));
 
         if let Some(new_array) = current_array.reduce()? {
             current_array = new_array;
             any_optimizations = true;
-            crate::trace_array!(record_optimize_loop_end());
+            crate::trace_op!(record_optimize_loop_end());
             continue;
         }
 
-        crate::trace_array!(record_optimize_reduce_none(&current_array));
+        crate::trace_op!(record_optimize_reduce_none(&current_array));
 
         // Apply parent reduction rules to each slot in the context of the current array.
         // Its important to take all slots here, as `current_array` can change inside the loop.
@@ -98,9 +98,9 @@ fn try_optimize(
                     array_ref.find_reduce_parent(current_array.encoding_id(), child.encoding_id())
             {
                 for (plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
-                    crate::trace_array!(use(plugin_idx));
+                    crate::trace_op!(use(plugin_idx));
                     if let Some(new_array) = plugin(child, &current_array, slot_idx)? {
-                        crate::trace_array!(record_parent_reduce_applied(
+                        crate::trace_op!(record_parent_reduce_applied(
                             &current_array,
                             child,
                             slot_idx,
@@ -111,7 +111,7 @@ fn try_optimize(
                         parent_reduced = Some(new_array);
                         break;
                     }
-                    crate::trace_array!(record_parent_reduce_attempt(
+                    crate::trace_op!(record_parent_reduce_attempt(
                         &current_array,
                         child,
                         slot_idx,
@@ -135,15 +135,15 @@ fn try_optimize(
             // If the parent was replaced, then we attempt to reduce it again.
             current_array = new_array;
             any_optimizations = true;
-            crate::trace_array!(record_optimize_loop_end());
+            crate::trace_op!(record_optimize_loop_end());
             continue;
         }
 
-        crate::trace_array!(record_optimize_parent_reduce_none(&current_array));
-        crate::trace_array!(record_optimize_loop_end());
+        crate::trace_op!(record_optimize_parent_reduce_none(&current_array));
+        crate::trace_op!(record_optimize_loop_end());
 
         // No more optimizations can be applied
-        crate::trace_array!(record_optimize_done(&current_array, any_optimizations));
+        crate::trace_op!(record_optimize_done(&current_array, any_optimizations));
 
         if any_optimizations {
             return Ok(Some(current_array));
@@ -162,7 +162,7 @@ fn try_optimize_recursive(
     let mut current_array = array.clone();
     let mut any_optimizations = false;
 
-    crate::trace_array!(record_optimize_recursive_start(array));
+    crate::trace_op!(record_optimize_recursive_start(array));
 
     if let Some(new_array) = try_optimize(&current_array, Some(session))? {
         current_array = new_array;
@@ -175,7 +175,7 @@ fn try_optimize_recursive(
         match slot {
             Some(child) => {
                 if let Some(new_child) = try_optimize_recursive(child, session)? {
-                    crate::trace_array!(record_optimize_recursive_slot(
+                    crate::trace_op!(record_optimize_recursive_slot(
                         new_slots.len(),
                         child,
                         &new_child,

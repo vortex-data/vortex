@@ -1,6 +1,68 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Snapshot-friendly tracing harness for the optimizer and executor.
+//!
+//! # What this records
+//!
+//! [`trace_op`] runs a closure with a thread-local recorder installed. While the recorder is
+//! active, calls to the [`trace_op!`][crate::trace_op] macro inside the optimizer
+//! ([`optimizer`][crate::optimizer]) and executor ([`executor`][crate::executor]) push
+//! structured events into the recorder. The recorder produces a [`TraceDisplay`] that renders
+//! as a deterministic, hierarchical text trace suitable for `insta` snapshot assertions.
+//!
+//! Events cover:
+//!
+//! - **Optimization**: optimize/recursive-optimize entry, fixpoint loop iterations, applied
+//!   reduce rules, applied parent-reduce rules.
+//! - **Execution**: `execute_until` iterations, single-step entries, parent kernel attempts and
+//!   matches, slot transitions, builder start/append/finish, and the eventual canonical output.
+//!
+//! Despite the name `trace_op`, the harness is *not* a generic logging facility: it is closely
+//! coupled to the optimizer/executor state machines so that the resulting trace is stable enough
+//! to commit as a snapshot.
+//!
+//! # When to use it
+//!
+//! Use [`trace_op`] to write a regression test that asserts on the sequence of optimizer
+//! rewrites or executor steps an array goes through. Typical scenarios:
+//!
+//! - A reduce rule should fire exactly once on a specific input shape.
+//! - A parent kernel should be tried in a specific order and the first match should win.
+//! - The executor should walk into a slot, finish it, and pop back to the parent without
+//!   building a canonical intermediate.
+//! - A chunked array should drive the builder path rather than the stack path.
+//!
+//! Two resolutions are available:
+//!
+//! - [`TraceResolution::ExecutedOnly`] (default) — only events that actually fired (rule
+//!   rewrites that matched, kernels that succeeded, execution steps that ran). Optimizer
+//!   passes that produced no change are elided.
+//! - [`TraceResolution::Attempts`] — also records declined rule attempts, kernels that did
+//!   not match, and per-loop bookkeeping. Use this when ordering or fall-through matters.
+//!
+//! # Cost and scope
+//!
+//! - Capture is thread-local. Worker threads spawned inside `f` do not inherit the recorder.
+//! - Nested captures return an error so that unrelated traces never merge.
+//! - In release builds and CodSpeed benchmark builds, every `trace_op!` invocation is compiled
+//!   away by the macro's `cfg` gating; this module is then unused. See
+//!   [`trace_op`][crate::trace_op] for the gating rules.
+//!
+//! # Example
+//!
+//! ```ignore
+//! use vortex_array::test_harness::trace::trace_op;
+//!
+//! let traced = trace_op(|| filter_array.optimize())?;
+//! assert!(traced.output.is::<Primitive>());
+//! insta::assert_snapshot!(traced.trace.to_string(), @r"
+//! optimize root=vortex.filter(i32, len=4) session=false
+//!   reduce TrivialFilterRule: vortex.filter(i32, len=4) -> vortex.primitive(i32, len=4)
+//!   done output=vortex.primitive(i32, len=4)
+//! ");
+//! ```
+
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::fmt;
@@ -25,7 +87,7 @@ pub enum TraceResolution {
     Attempts,
 }
 
-/// Options for [`trace_array_with`].
+/// Options for [`trace_op_with`].
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TraceOptions {
     /// The amount of rule and kernel resolution detail to include.
@@ -123,20 +185,49 @@ fn write_indent(f: &mut fmt::Formatter<'_>, depth: usize) -> fmt::Result {
     Ok(())
 }
 
-/// Run `f` while capturing default trace output.
+/// Run `f` while capturing a trace of the optimizer and executor work it performs.
 ///
-/// The default resolution records the rule rewrites, parent kernels, execution steps, and builder
-/// activity that actually executed. Use [`trace_array_with`] and [`TraceResolution::Attempts`]
-/// when a test needs to assert on every declined rule or kernel attempt.
-pub fn trace_array<T>(f: impl FnOnce() -> VortexResult<T>) -> VortexResult<Traced<T>> {
-    trace_array_with(TraceOptions::default(), f)
+/// `f` typically invokes an operation that drives the executor or optimizer, such as
+/// [`ArrayOptimizer::optimize`][crate::optimizer::ArrayOptimizer::optimize] or
+/// [`VortexSessionExecute::execute`][crate::VortexSessionExecute::execute]. While `f` runs,
+/// the optimizer and executor emit structured events via the [`trace_op!`][crate::trace_op]
+/// macro into a thread-local recorder. When `f` returns, the recorder is finalized and
+/// returned alongside the closure's output as a [`Traced<T>`].
+///
+/// The default resolution ([`TraceResolution::ExecutedOnly`]) records the rule rewrites,
+/// parent kernels, execution steps, and builder activity that actually executed. Optimizer
+/// passes that produced no change are hidden from the rendered trace. Use [`trace_op_with`]
+/// with [`TraceResolution::Attempts`] when a test needs to assert on declined rule attempts,
+/// kernels that did not match, or other fall-through detail.
+///
+/// # Examples
+///
+/// ```ignore
+/// let traced = trace_op(|| filter_array.optimize())?;
+/// assert!(traced.output.is::<Primitive>());
+/// insta::assert_snapshot!(traced.trace.to_string(), @r"
+/// optimize root=vortex.filter(i32, len=4) session=false
+///   reduce TrivialFilterRule: vortex.filter(i32, len=4) -> vortex.primitive(i32, len=4)
+///   done output=vortex.primitive(i32, len=4)
+/// ");
+/// ```
+///
+/// # Errors
+///
+/// Returns whatever error `f` produces. Returns an error if a recorder is already active on
+/// the current thread — nested traces are not supported.
+pub fn trace_op<T>(f: impl FnOnce() -> VortexResult<T>) -> VortexResult<Traced<T>> {
+    trace_op_with(TraceOptions::default(), f)
 }
 
-/// Run `f` while capturing trace output using `options`.
+/// Run `f` while capturing a trace using `options`.
+///
+/// See [`trace_op`] for the common case. Use this when you need to override the default
+/// [`TraceResolution`] to capture declined rules and unmatched kernels.
 ///
 /// Trace capture is thread-local and intentionally does not propagate to worker threads. Nested
 /// trace captures return an error so tests do not accidentally merge unrelated traces.
-pub fn trace_array_with<T>(
+pub fn trace_op_with<T>(
     options: TraceOptions,
     f: impl FnOnce() -> VortexResult<T>,
 ) -> VortexResult<Traced<T>> {
@@ -144,7 +235,7 @@ pub fn trace_array_with<T>(
     ACTIVE_TRACE.with(|active| {
         let mut active = active.borrow_mut();
         if active.is_some() {
-            return Err(vortex_err!("trace_array captures cannot be nested"));
+            return Err(vortex_err!("trace_op captures cannot be nested"));
         }
         *active = Some(TraceRecorder::new(options));
         Ok(())
@@ -1148,8 +1239,8 @@ mod tests {
     use crate::session::ArraySession;
     use crate::test_harness::trace::TraceOptions;
     use crate::test_harness::trace::TraceResolution;
-    use crate::test_harness::trace::trace_array;
-    use crate::test_harness::trace::trace_array_with;
+    use crate::test_harness::trace::trace_op;
+    use crate::test_harness::trace::trace_op_with;
     use crate::test_harness::trace_arrays::stack_parent_fixture;
 
     #[test]
@@ -1158,7 +1249,7 @@ mod tests {
         let filter =
             FilterArray::try_new(values.clone(), Mask::new_true(values.len()))?.into_array();
 
-        let traced = trace_array(|| filter.optimize())?;
+        let traced = trace_op(|| filter.optimize())?;
 
         assert!(traced.output.is::<Primitive>());
         assert_arrays_eq!(traced.output, values);
@@ -1182,7 +1273,7 @@ optimize root=vortex.filter(i32, len=4) session=false
         let outer =
             FilterArray::try_new(inner, Mask::from_iter([false, true, true, false]))?.into_array();
 
-        let traced = trace_array_with(
+        let traced = trace_op_with(
             TraceOptions {
                 resolution: TraceResolution::ExecutedOnly,
             },
@@ -1199,7 +1290,7 @@ optimize root=vortex.filter(i32, len=2) session=false
 ");
 
         let mut ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
-        let traced = trace_array_with(
+        let traced = trace_op_with(
             TraceOptions {
                 resolution: TraceResolution::ExecutedOnly,
             },
@@ -1228,7 +1319,7 @@ execute_until target=AnyCanonical root=vortex.filter(i32, len=2)
         let mut ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
         let parent = stack_parent_fixture()?;
 
-        let traced = trace_array_with(
+        let traced = trace_op_with(
             TraceOptions {
                 resolution: TraceResolution::Attempts,
             },
@@ -1275,7 +1366,7 @@ optimize root=vortex.primitive(i32, len=3) session=true
         let chunked = ChunkedArray::try_new(chunks, dtype)?.into_array();
         let mut ctx = ExecutionCtx::new(VortexSession::empty().with::<ArraySession>());
 
-        let traced = trace_array(|| {
+        let traced = trace_op(|| {
             chunked
                 .execute::<Canonical>(&mut ctx)
                 .map(IntoArray::into_array)
