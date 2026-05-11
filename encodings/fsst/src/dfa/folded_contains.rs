@@ -340,16 +340,7 @@ impl FoldedContainsDfa {
             let trace = std::env::var_os("VORTEX_FSST_TEDDY_TRACE")
                 .map(|v| !v.is_empty())
                 .unwrap_or(false);
-            let force_pair = std::env::var_os("VORTEX_FSST_FORCE_TEDDY_PAIR")
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-            let force_one_byte = std::env::var_os("VORTEX_FSST_FORCE_ONE_BYTE")
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-            if !force_pair
-                && !force_one_byte
-                && let Some(triples) = self.bucketed_triple_codes.as_ref()
-            {
+            if let Some(triples) = self.bucketed_triple_codes.as_ref() {
                 let t = trace.then(std::time::Instant::now);
                 let result = anchor_scan::fused_teddy_triple_scan(
                     n,
@@ -370,7 +361,7 @@ impl FoldedContainsDfa {
                 }
                 return result;
             }
-            if !force_one_byte && let Some(buckets) = self.bucketed_pair_codes.as_ref() {
+            if let Some(buckets) = self.bucketed_pair_codes.as_ref() {
                 let t = trace.then(std::time::Instant::now);
                 let result = anchor_scan::fused_teddy_pair_scan(
                     n,
