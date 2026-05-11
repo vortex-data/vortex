@@ -279,6 +279,15 @@ impl VTable for ParquetVariant {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use arrow_array::ArrayRef as ArrowArrayRef;
+    use arrow_array::Int32Array;
+    use arrow_array::StructArray;
+    use arrow_array::builder::BinaryViewBuilder;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use parquet_variant_compute::VariantArray as ArrowVariantArray;
     use vortex_array::ArrayContext;
     use vortex_array::ArrayEq;
     use vortex_array::ArrayRef;
@@ -299,12 +308,18 @@ mod tests {
     use vortex_array::serde::SerializedArray;
     use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
+    use vortex_array::stream::ArrayStreamExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_file::OpenOptionsSessionExt;
+    use vortex_file::WriteOptionsSessionExt;
+    use vortex_io::session::RuntimeSession;
+    use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
+    use vortex_layout::session::LayoutSession;
     use vortex_session::VortexSession;
     use vortex_session::registry::ReadContext;
 
@@ -333,6 +348,16 @@ mod tests {
         parts
             .decode(&dtype, len, &ReadContext::new(ctx.to_ids()), &session)
             .unwrap()
+    }
+
+    fn file_session() -> VortexSession {
+        let session = VortexSession::empty()
+            .with::<ArraySession>()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>();
+        vortex_file::register_default_encodings(&session);
+        session.arrays().register(ParquetVariant);
+        session
     }
 
     #[test]
@@ -372,6 +397,47 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(10), None, Some(30)])
         );
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_file_roundtrip_typed_value_variant() -> VortexResult<()> {
+        let mut metadata = BinaryViewBuilder::new();
+        for _ in 0..3 {
+            metadata.append_value(b"\x01\x00");
+        }
+        let metadata: ArrowArrayRef = Arc::new(metadata.finish());
+        let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
+        let arrow_storage = StructArray::try_new(
+            vec![
+                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+                Arc::new(Field::new("typed_value", DataType::Int32, false)),
+            ]
+            .into(),
+            vec![metadata, typed_value],
+            None,
+        )?;
+        let expected =
+            ParquetVariant::from_arrow_variant(&ArrowVariantArray::try_new(&arrow_storage)?)?;
+
+        let session = file_session();
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(Arc::new(FlatLayoutStrategy::default()))
+            .with_file_statistics(Vec::new())
+            .write(&mut bytes, expected.to_array_stream())
+            .await?;
+
+        let actual = session
+            .open_options()
+            .open_buffer(bytes)?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
+
+        assert_arrays_eq!(expected, actual);
         Ok(())
     }
 

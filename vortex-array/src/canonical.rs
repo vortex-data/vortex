@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -686,6 +687,27 @@ impl Executable for CanonicalValidity {
 /// callers should prefer an execution target that's suitable for their use case instead of this one.
 pub struct RecursiveCanonical(pub Canonical);
 
+fn recursively_canonicalize_slots(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let slots = array
+        .slots()
+        .iter()
+        .map(|slot| {
+            slot.as_ref()
+                .map(|child| {
+                    child
+                        .clone()
+                        .execute::<RecursiveCanonical>(ctx)
+                        .map(|canonical| canonical.0.into_array())
+                })
+                .transpose()
+        })
+        .collect::<VortexResult<ArraySlots>>()?;
+    array.clone().with_slots(slots)
+}
+
 impl Executable for RecursiveCanonical {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         match array.execute::<Canonical>(ctx)? {
@@ -806,12 +828,7 @@ impl Executable for RecursiveCanonical {
                 ),
             ))),
             Canonical::Variant(variant) => {
-                let core_storage = variant
-                    .core_storage()
-                    .clone()
-                    .execute::<RecursiveCanonical>(ctx)?
-                    .0
-                    .into_array();
+                let core_storage = recursively_canonicalize_slots(variant.core_storage(), ctx)?;
                 let shredded = if let Some(shredded) = variant.shredded() {
                     Some(
                         shredded
