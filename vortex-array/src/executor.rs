@@ -163,7 +163,7 @@ impl ArrayRef {
     /// partially consumes `current_array`: some slots already live in the builder, so a
     /// parent rewrite would observe inconsistent state and could discard accumulated builder
     /// data.
-    #[expect(clippy::cognitive_complexity)]
+    #[allow(clippy::cognitive_complexity)]
     pub fn execute_until<M: Matcher>(self, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let mut current_array = self;
         let mut current_builder: Option<Box<dyn ArrayBuilder>> = None;
@@ -172,11 +172,11 @@ impl ArrayRef {
         let kernels = execute_parent_kernels.as_ref();
         let max_iterations = max_iterations();
 
-        crate::trace_array!(record_execute_until_start::<M>(&current_array));
+        crate::trace_op!(record_execute_until_start::<M>(&current_array));
 
         for iteration in 1..=max_iterations {
-            crate::trace_array!(use(iteration));
-            crate::trace_array!(record_execute_until_iteration(
+            crate::trace_op!(use(iteration));
+            crate::trace_op!(record_execute_until_iteration(
                 iteration,
                 &current_array,
                 stack
@@ -191,7 +191,7 @@ impl ArrayRef {
 
             let done_target = is_done(&current_array);
             let done_canonical = AnyCanonical::matches(&current_array);
-            crate::trace_array!(record_execute_until_done_check(done_target, done_canonical));
+            crate::trace_op!(record_execute_until_done_check(done_target, done_canonical));
 
             if done_target || done_canonical {
                 match stack.pop() {
@@ -200,11 +200,11 @@ impl ArrayRef {
                             current_builder.is_none(),
                             "root activation should not retain a builder"
                         );
-                        crate::trace_array!(record_execute_until_return(&current_array));
+                        crate::trace_op!(record_execute_until_return(&current_array));
                         return Ok(current_array);
                     }
                     Some(frame) => {
-                        let trace_pop_frame = crate::trace_array!(value(
+                        let trace_pop_frame = crate::trace_op!(value(
                             Some((
                                 frame.parent_array.clone(),
                                 current_array.clone(),
@@ -214,8 +214,8 @@ impl ArrayRef {
                         ));
                         (current_array, current_builder) = pop_frame(frame, current_array)?;
                         if let Some((parent_before, child_before, slot_idx)) = trace_pop_frame {
-                            crate::trace_array!(use(parent_before, child_before, slot_idx,));
-                            crate::trace_array!(record_execute_until_pop_frame(
+                            crate::trace_op!(use(parent_before, child_before, slot_idx,));
+                            crate::trace_op!(record_execute_until_pop_frame(
                                 &parent_before,
                                 slot_idx,
                                 &child_before,
@@ -252,13 +252,13 @@ impl ArrayRef {
             {
                 let frame = stack.pop().vortex_expect("just peeked");
                 let optimized = result.optimize_ctx(ctx.session())?;
-                crate::trace_array!(record_execute_optimized(&result, &optimized));
+                crate::trace_op!(record_execute_optimized(&result, &optimized));
                 current_array = optimized;
                 current_builder = frame.parent_builder;
                 continue;
             }
             if current_builder.is_none() && stack.last().is_some() {
-                crate::trace_array!(record_execute_parent_none(
+                crate::trace_op!(record_execute_parent_none(
                     "stack_execute_parent",
                     &current_array,
                 ));
@@ -269,12 +269,12 @@ impl ArrayRef {
                 && let Some(rewritten) = try_execute_parent(&current_array, kernels, ctx)?
             {
                 let optimized = rewritten.optimize_ctx(ctx.session())?;
-                crate::trace_array!(record_execute_optimized(&rewritten, &optimized));
+                crate::trace_op!(record_execute_optimized(&rewritten, &optimized));
                 current_array = optimized;
                 continue;
             }
             if current_builder.is_none() {
-                crate::trace_array!(record_execute_parent_none(
+                crate::trace_op!(record_execute_parent_none(
                     "child_execute_parent",
                     &current_array,
                 ));
@@ -284,14 +284,14 @@ impl ArrayRef {
             let expected_dtype = current_array.dtype().clone();
             let stats = current_array.statistics().to_array_stats();
             let encoding_id = current_array.encoding_id();
-            crate::trace_array!(record_execute_encoding(&current_array));
+            crate::trace_op!(record_execute_encoding(&current_array));
             let result = current_array.execute_encoding_unchecked(ctx)?;
             let (array, step) = result.into_parts();
             match step {
                 ExecutionStep::ExecuteSlot(i, done) => {
                     let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
 
-                    crate::trace_array!(record_execute_slot(i, &parent, &child));
+                    crate::trace_op!(record_execute_slot(i, &parent, &child));
                     stack.push(StackFrame {
                         parent_array: parent,
                         parent_builder: current_builder.take(),
@@ -305,7 +305,7 @@ impl ArrayRef {
                 }
                 ExecutionStep::AppendChild(i) => {
                     if current_builder.is_none() {
-                        crate::trace_array!(record_builder_start(&array));
+                        crate::trace_op!(record_builder_start(&array));
                         current_builder = Some(builder_with_capacity_in(
                             ctx.allocator(),
                             array.dtype(),
@@ -314,8 +314,8 @@ impl ArrayRef {
                     }
                     let (parent, child) = unsafe { array.take_slot_unchecked(i) }?;
 
-                    crate::trace_array!(record_append_child(i, &parent, &child));
-                    crate::trace_array!(record_builder_append(&child));
+                    crate::trace_op!(record_append_child(i, &parent, &child));
+                    crate::trace_op!(record_builder_append(&child));
 
                     // TODO(joe)[7674]: replace with a builder kernel registry so we don't
                     // need to go through the VTable append_to_builder indirection.
@@ -329,7 +329,7 @@ impl ArrayRef {
                 }
                 ExecutionStep::Done => {
                     let had_builder = current_builder.is_some();
-                    crate::trace_array!(record_execute_done(&array));
+                    crate::trace_op!(record_execute_done(&array));
                     (current_array, current_builder) = finalize_done(
                         array,
                         current_builder,
@@ -339,7 +339,7 @@ impl ArrayRef {
                         encoding_id,
                     )?;
                     if had_builder {
-                        crate::trace_array!(record_builder_finish(&current_array));
+                        crate::trace_op!(record_builder_finish(&current_array));
                     }
                 }
             }
@@ -465,27 +465,27 @@ impl Drop for ExecutionCtx {
 /// `AppendChild` is returned.
 impl Executable for ArrayRef {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        crate::trace_array!(record_single_step_start(&array));
+        crate::trace_op!(record_single_step_start(&array));
 
         if let Some(canonical) = array.as_opt::<AnyCanonical>() {
             let output = Canonical::from(canonical).into_array();
-            crate::trace_array!(record_single_step_applied("canonical", &array, &output));
+            crate::trace_op!(record_single_step_applied("canonical", &array, &output));
             return Ok(output);
         }
-        crate::trace_array!(record_single_step_phase_none("canonical", &array));
+        crate::trace_op!(record_single_step_phase_none("canonical", &array));
 
         if let Some(reduced) = array.reduce()? {
             reduced.statistics().inherit_from(array.statistics());
-            crate::trace_array!(record_single_step_applied("reduce", &array, &reduced));
+            crate::trace_op!(record_single_step_applied("reduce", &array, &reduced));
             return Ok(reduced);
         }
-        crate::trace_array!(record_single_step_phase_none("reduce", &array));
+        crate::trace_op!(record_single_step_phase_none("reduce", &array));
 
         for (slot_idx, slot) in array.slots().iter().enumerate() {
             let Some(child) = slot else { continue };
             if let Some(reduced_parent) = child.reduce_parent(&array, slot_idx)? {
                 reduced_parent.statistics().inherit_from(array.statistics());
-                crate::trace_array!(record_single_step_applied(
+                crate::trace_op!(record_single_step_applied(
                     "reduce_parent",
                     &array,
                     &reduced_parent,
@@ -493,7 +493,7 @@ impl Executable for ArrayRef {
                 return Ok(reduced_parent);
             }
         }
-        crate::trace_array!(record_single_step_phase_none("reduce_parent", &array));
+        crate::trace_op!(record_single_step_phase_none("reduce_parent", &array));
 
         let execute_parent_kernels = Arc::clone(&ctx.execute_parent_kernels);
         let kernels = execute_parent_kernels.as_ref();
@@ -518,7 +518,7 @@ impl Executable for ArrayRef {
                 executed_parent
                     .statistics()
                     .inherit_from(array.statistics());
-                crate::trace_array!(record_single_step_applied(
+                crate::trace_op!(record_single_step_applied(
                     "execute_parent",
                     &array,
                     &executed_parent,
@@ -526,14 +526,14 @@ impl Executable for ArrayRef {
                 return Ok(executed_parent);
             }
         }
-        crate::trace_array!(record_single_step_phase_none("execute_parent", &array));
-        crate::trace_array!(record_execute_encoding(&array));
+        crate::trace_op!(record_single_step_phase_none("execute_parent", &array));
+        crate::trace_op!(record_execute_encoding(&array));
 
         let result = array.execute_encoding(ctx)?;
         let (array, step) = result.into_parts();
         match step {
             ExecutionStep::Done => {
-                crate::trace_array!(record_execute_done(&array));
+                crate::trace_op!(record_execute_done(&array));
                 Ok(array)
             }
             ExecutionStep::ExecuteSlot(i, _) => {
@@ -545,11 +545,11 @@ impl Executable for ArrayRef {
             }
             ExecutionStep::AppendChild(_) => {
                 // Single-step: build the entire parent via the builder path.
-                crate::trace_array!(record_builder_start(&array));
+                crate::trace_op!(record_builder_start(&array));
                 let builder = builder_with_capacity_in(ctx.allocator(), array.dtype(), array.len());
                 let mut builder = execute_into_builder(array, builder, ctx)?;
                 let output = builder.finish();
-                crate::trace_array!(record_builder_finish(&output));
+                crate::trace_op!(record_builder_finish(&output));
                 Ok(output)
             }
         }
@@ -633,11 +633,11 @@ fn execute_parent_for_child(
     kernels: &ParentExecutionKernels,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    crate::trace_array!(use(phase));
+    crate::trace_op!(use(phase));
     let key = execute_parent_key(parent.encoding_id(), child.encoding_id());
     if let Some(plugins) = kernels.get(&key) {
         for (plugin_idx, plugin) in plugins.as_ref().iter().enumerate() {
-            crate::trace_array!(use(plugin_idx));
+            crate::trace_op!(use(plugin_idx));
             if let Some(result) = plugin.execute_parent(child, parent, slot_idx, ctx)? {
                 if cfg!(debug_assertions) {
                     vortex_ensure!(
@@ -649,7 +649,7 @@ fn execute_parent_for_child(
                         "Executed parent canonical dtype mismatch"
                     );
                 }
-                crate::trace_array!(record_execute_parent_applied(
+                crate::trace_op!(record_execute_parent_applied(
                     phase,
                     parent,
                     child,
@@ -660,7 +660,7 @@ fn execute_parent_for_child(
                 ));
                 return Ok(Some(result));
             }
-            crate::trace_array!(record_execute_parent_attempt(
+            crate::trace_op!(record_execute_parent_attempt(
                 phase,
                 parent,
                 child,
@@ -800,7 +800,7 @@ impl ExecutionResult {
     /// The provided array is the (possibly modified) parent that still needs its slot executed.
     pub fn execute_slot<M: Matcher>(array: impl IntoArray, slot_idx: usize) -> Self {
         let array = array.into_array();
-        crate::trace_array!(record_execute_step_request::<M>(&array, slot_idx));
+        crate::trace_op!(record_execute_step_request::<M>(&array, slot_idx));
         Self {
             array,
             step: ExecutionStep::ExecuteSlot(slot_idx, M::matches),
@@ -812,7 +812,7 @@ impl ExecutionResult {
     /// `current_array`.
     pub fn append_child(array: impl IntoArray, slot_idx: usize) -> Self {
         let array = array.into_array();
-        crate::trace_array!(record_append_child_request(&array, slot_idx));
+        crate::trace_op!(record_append_child_request(&array, slot_idx));
         Self {
             array,
             step: ExecutionStep::AppendChild(slot_idx),
