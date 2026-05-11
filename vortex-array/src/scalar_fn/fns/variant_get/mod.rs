@@ -4,12 +4,9 @@
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::str::FromStr;
 
 use prost::Message;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
@@ -282,14 +279,6 @@ impl VariantPath {
         Self(vec![VariantPathElement::field(field)])
     }
 
-    /// Parses the strict path grammar supported by this skeleton.
-    ///
-    /// The accepted grammar is an optional leading `$`, dot-separated ASCII identifier fields,
-    /// and non-negative decimal list indexes in brackets, for example `$.data[1].a` or `data[1]`.
-    pub fn parse(path: &str) -> VortexResult<Self> {
-        Self::from_str(path)
-    }
-
     /// Returns the path elements.
     pub fn elements(&self) -> &[VariantPathElement] {
         &self.0
@@ -323,61 +312,6 @@ impl Display for VariantPath {
             }
         }
         Ok(())
-    }
-}
-
-impl FromStr for VariantPath {
-    type Err = VortexError;
-
-    fn from_str(path: &str) -> Result<Self, Self::Err> {
-        if path.is_empty() || path == "$" {
-            return Ok(Self::root());
-        }
-
-        let mut elements = Vec::new();
-        let mut pos = usize::from(path.as_bytes().first() == Some(&b'$'));
-        if pos == 1
-            && path
-                .as_bytes()
-                .get(pos)
-                .is_some_and(|byte| !matches!(byte, b'.' | b'['))
-        {
-            vortex_bail!("Invalid Variant path {path:?}: expected '.' or '[' after '$'");
-        }
-
-        while pos < path.len() {
-            match path.as_bytes()[pos] {
-                b'.' => {
-                    pos += 1;
-                    let (field, next_pos) = parse_field(path, pos)?;
-                    elements.push(VariantPathElement::field(field));
-                    pos = next_pos;
-                }
-                b'[' => {
-                    let (index, next_pos) = parse_index(path, pos + 1)?;
-                    elements.push(VariantPathElement::index(index));
-                    pos = next_pos;
-                }
-                _ if pos == 0 => {
-                    let (field, next_pos) = parse_field(path, pos)?;
-                    elements.push(VariantPathElement::field(field));
-                    pos = next_pos;
-                }
-                _ => {
-                    vortex_bail!("Invalid Variant path {path:?}: expected '.', '[', or end of path")
-                }
-            }
-        }
-
-        Ok(Self(elements))
-    }
-}
-
-impl TryFrom<&str> for VariantPath {
-    type Error = VortexError;
-
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::parse(value)
     }
 }
 
@@ -430,48 +364,12 @@ impl From<u64> for VariantPathElement {
     }
 }
 
-fn parse_field(path: &str, start: usize) -> VortexResult<(FieldName, usize)> {
-    let mut pos = start;
-    while path
-        .as_bytes()
-        .get(pos)
-        .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
-    {
-        pos += 1;
-    }
-    vortex_ensure!(
-        pos > start,
-        "Invalid Variant path {path:?}: expected field name"
-    );
-    Ok((FieldName::from(&path[start..pos]), pos))
-}
-
-fn parse_index(path: &str, start: usize) -> VortexResult<(u64, usize)> {
-    let mut pos = start;
-    while path
-        .as_bytes()
-        .get(pos)
-        .is_some_and(|byte| byte.is_ascii_digit())
-    {
-        pos += 1;
-    }
-    vortex_ensure!(
-        pos > start,
-        "Invalid Variant path {path:?}: expected list index"
-    );
-    vortex_ensure!(
-        path.as_bytes().get(pos) == Some(&b']'),
-        "Invalid Variant path {path:?}: expected closing ']'"
-    );
-    let index = path[start..pos]
-        .parse()
-        .map_err(|_| vortex_err!("Invalid Variant path {path:?}: list index is too large"))?;
-    Ok((index, pos + 1))
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
+    use vortex_error::vortex_ensure;
+    use vortex_error::vortex_err;
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
@@ -525,12 +423,96 @@ mod tests {
         ChunkedArray::try_new(chunks, dtype).map(|array| array.into_array())
     }
 
+    /// Test-only syntax for keeping `variant_get` cases compact without committing
+    /// to a public string grammar yet.
+    fn parse_path(path: &str) -> VortexResult<VariantPath> {
+        if path.is_empty() || path == "$" {
+            return Ok(VariantPath::root());
+        }
+
+        let mut elements = Vec::new();
+        let mut pos = usize::from(path.as_bytes().first() == Some(&b'$'));
+        if pos == 1
+            && path
+                .as_bytes()
+                .get(pos)
+                .is_some_and(|byte| !matches!(byte, b'.' | b'['))
+        {
+            vortex_bail!("Invalid Variant path {path:?}: expected '.' or '[' after '$'");
+        }
+
+        while pos < path.len() {
+            match path.as_bytes()[pos] {
+                b'.' => {
+                    pos += 1;
+                    let (field, next_pos) = parse_field(path, pos)?;
+                    elements.push(VariantPathElement::field(field));
+                    pos = next_pos;
+                }
+                b'[' => {
+                    let (index, next_pos) = parse_index(path, pos + 1)?;
+                    elements.push(VariantPathElement::index(index));
+                    pos = next_pos;
+                }
+                _ if pos == 0 => {
+                    let (field, next_pos) = parse_field(path, pos)?;
+                    elements.push(VariantPathElement::field(field));
+                    pos = next_pos;
+                }
+                _ => {
+                    vortex_bail!("Invalid Variant path {path:?}: expected '.', '[', or end of path")
+                }
+            }
+        }
+
+        Ok(VariantPath::new(elements))
+    }
+
+    fn parse_field(path: &str, start: usize) -> VortexResult<(&str, usize)> {
+        let mut pos = start;
+        while path
+            .as_bytes()
+            .get(pos)
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        {
+            pos += 1;
+        }
+        vortex_ensure!(
+            pos > start,
+            "Invalid Variant path {path:?}: expected field name"
+        );
+        Ok((&path[start..pos], pos))
+    }
+
+    fn parse_index(path: &str, start: usize) -> VortexResult<(u64, usize)> {
+        let mut pos = start;
+        while path
+            .as_bytes()
+            .get(pos)
+            .is_some_and(|byte| byte.is_ascii_digit())
+        {
+            pos += 1;
+        }
+        vortex_ensure!(
+            pos > start,
+            "Invalid Variant path {path:?}: expected list index"
+        );
+        vortex_ensure!(
+            path.as_bytes().get(pos) == Some(&b']'),
+            "Invalid Variant path {path:?}: expected closing ']'"
+        );
+        let index = path[start..pos]
+            .parse()
+            .map_err(|_| vortex_err!("Invalid Variant path {path:?}: list index is too large"))?;
+        Ok((index, pos + 1))
+    }
+
     fn execute_variant_get(
         array: ArrayRef,
         path: &str,
         dtype: Option<DType>,
     ) -> VortexResult<ArrayRef> {
-        let expr = variant_get(root(), VariantPath::parse(path)?, dtype);
+        let expr = variant_get(root(), parse_path(path)?, dtype);
         array
             .apply(&expr)?
             .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())
@@ -538,7 +520,7 @@ mod tests {
 
     #[test]
     fn variant_get_path_parse_and_display() {
-        let path = VariantPath::parse("$.data[1].a").unwrap();
+        let path = parse_path("$.data[1].a").unwrap();
         assert_eq!(
             path.elements(),
             &[
@@ -549,11 +531,11 @@ mod tests {
         );
         assert_eq!(path.to_string(), "$.data[1].a");
 
-        let bare_path = VariantPath::parse("data[2]").unwrap();
+        let bare_path = parse_path("data[2]").unwrap();
         assert_eq!(bare_path.to_string(), "$.data[2]");
-        assert!(VariantPath::parse("$.").is_err());
-        assert!(VariantPath::parse("$data").is_err());
-        assert!(VariantPath::parse("$.data[-1]").is_err());
+        assert!(parse_path("$.").is_err());
+        assert!(parse_path("$data").is_err());
+        assert!(parse_path("$.data[-1]").is_err());
     }
 
     #[test]
@@ -591,7 +573,7 @@ mod tests {
     fn variant_get_formats_sql() {
         let expr = variant_get(
             root(),
-            VariantPath::parse("$.data[1].a").unwrap(),
+            parse_path("$.data[1].a").unwrap(),
             Some(DType::Utf8(Nullability::NonNullable)),
         );
 
@@ -620,7 +602,7 @@ mod tests {
     fn variant_get_expression_roundtrip_serialization() {
         let expr: Expression = variant_get(
             root(),
-            VariantPath::parse("$.data[1].a").unwrap(),
+            parse_path("$.data[1].a").unwrap(),
             Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
         );
         let proto = expr.serialize_proto().unwrap();

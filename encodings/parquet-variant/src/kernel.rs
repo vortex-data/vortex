@@ -221,8 +221,11 @@ mod tests {
     use vortex_array::expr::root;
     use vortex_array::expr::variant_get;
     use vortex_array::scalar_fn::fns::variant_get::VariantPath;
+    use vortex_array::scalar_fn::fns::variant_get::VariantPathElement;
     use vortex_array::validity::Validity;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_bail;
+    use vortex_error::vortex_ensure;
     use vortex_error::vortex_err;
     use vortex_mask::Mask;
 
@@ -261,12 +264,94 @@ mod tests {
         ParquetVariant::from_arrow_variant(&arrow_variant)
     }
 
+    fn parse_path(path: &str) -> VortexResult<VariantPath> {
+        if path.is_empty() || path == "$" {
+            return Ok(VariantPath::root());
+        }
+
+        let mut elements = Vec::new();
+        let mut pos = usize::from(path.as_bytes().first() == Some(&b'$'));
+        if pos == 1
+            && path
+                .as_bytes()
+                .get(pos)
+                .is_some_and(|byte| !matches!(byte, b'.' | b'['))
+        {
+            vortex_bail!("Invalid Variant path {path:?}: expected '.' or '[' after '$'");
+        }
+
+        while pos < path.len() {
+            match path.as_bytes()[pos] {
+                b'.' => {
+                    pos += 1;
+                    let (field, next_pos) = parse_field(path, pos)?;
+                    elements.push(VariantPathElement::field(field));
+                    pos = next_pos;
+                }
+                b'[' => {
+                    let (index, next_pos) = parse_index(path, pos + 1)?;
+                    elements.push(VariantPathElement::index(index));
+                    pos = next_pos;
+                }
+                _ if pos == 0 => {
+                    let (field, next_pos) = parse_field(path, pos)?;
+                    elements.push(VariantPathElement::field(field));
+                    pos = next_pos;
+                }
+                _ => {
+                    vortex_bail!("Invalid Variant path {path:?}: expected '.', '[', or end of path")
+                }
+            }
+        }
+
+        Ok(VariantPath::new(elements))
+    }
+
+    fn parse_field(path: &str, start: usize) -> VortexResult<(&str, usize)> {
+        let mut pos = start;
+        while path
+            .as_bytes()
+            .get(pos)
+            .is_some_and(|byte| byte.is_ascii_alphanumeric() || *byte == b'_')
+        {
+            pos += 1;
+        }
+        vortex_ensure!(
+            pos > start,
+            "Invalid Variant path {path:?}: expected field name"
+        );
+        Ok((&path[start..pos], pos))
+    }
+
+    fn parse_index(path: &str, start: usize) -> VortexResult<(u64, usize)> {
+        let mut pos = start;
+        while path
+            .as_bytes()
+            .get(pos)
+            .is_some_and(|byte| byte.is_ascii_digit())
+        {
+            pos += 1;
+        }
+        vortex_ensure!(
+            pos > start,
+            "Invalid Variant path {path:?}: expected list index"
+        );
+        vortex_ensure!(
+            path.as_bytes().get(pos) == Some(&b']'),
+            "Invalid Variant path {path:?}: expected closing ']'"
+        );
+        let index = path[start..pos]
+            .parse()
+            .map_err(|_| vortex_err!("Invalid Variant path {path:?}: list index is too large"))?;
+        Ok((index, pos + 1))
+    }
+
     fn execute_variant_get(
         array: ArrayRef,
         path: &str,
         dtype: Option<VortexDType>,
     ) -> VortexResult<ArrayRef> {
-        let expr = variant_get(root(), VariantPath::parse(path)?, dtype);
+        let expr = variant_get(root(), parse_path(path)?, dtype);
         array
             .apply(&expr)?
             .execute::<ArrayRef>(&mut LEGACY_SESSION.create_execution_ctx())

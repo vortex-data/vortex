@@ -21,6 +21,7 @@ use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
 use crate::array::ArrayId;
+use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
 use crate::array::VTable;
@@ -143,7 +144,7 @@ impl VTable for Variant {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         vortex_ensure!(
             buffers.is_empty(),
             "VariantArray expects 0 buffers, got {}",
@@ -168,7 +169,7 @@ impl VTable for Variant {
             .map(|dtype| children.get(1, &dtype, len))
             .transpose()?;
         Ok(
-            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
+            ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
                 .with_slots(vec![Some(core_storage), shredded].into()),
         )
     }
