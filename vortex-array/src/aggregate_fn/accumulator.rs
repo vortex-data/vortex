@@ -151,12 +151,12 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             return Ok(());
         }
 
-        // 3. Iteratively execute one step at a time, re-checking the kernel registry against
-        //    each intermediate encoding. (The initial batch's encoding was already checked in
-        //    step 1, so execute first.)
+        // 3. Iteratively check the registry against each intermediate encoding, executing one
+        //    step between checks. Mirrors the loop in `GroupedAccumulator::accumulate_list_view`.
+        //    Iteration 0 re-checks the initial encoding — a redundant HashMap miss, the price of
+        //    keeping the loop body uniform.
         let mut batch = batch.clone();
         for _ in 0..max_iterations() {
-            batch = batch.execute(ctx)?;
             if batch.is::<AnyCanonical>() {
                 break;
             }
@@ -180,6 +180,8 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
                 self.vtable.combine_partials(&mut self.partial, result)?;
                 return Ok(());
             }
+
+            batch = batch.execute(ctx)?;
         }
 
         // 4. Otherwise, execute the batch until it is columnar and accumulate it into the state.
@@ -273,32 +275,53 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::session::ArraySession;
 
-    /// Stub kernel that always returns the configured `Option<Scalar>`.
-    /// `Some(_)` means "I handled this batch with this partial"; `None` means
-    /// "kernel does not apply, fall through".
+    /// Mean partial sentinel `{sum: 42.0, count: 1}` — distinguishable from the
+    /// natural fan-out result `{sum: 7.0, count: 1}` that `Combined::try_accumulate`
+    /// would produce for `dict_of_seven()`.
     #[derive(Debug)]
-    struct StubKernel(Option<Scalar>);
-
-    impl DynAggregateKernel for StubKernel {
+    struct SentinelMeanPartialKernel;
+    impl DynAggregateKernel for SentinelMeanPartialKernel {
         fn aggregate(
             &self,
             _aggregate_fn: &AggregateFnRef,
             _batch: &ArrayRef,
             _ctx: &mut ExecutionCtx,
         ) -> VortexResult<Option<Scalar>> {
-            Ok(self.0.clone())
+            Ok(Some(sentinel_partial()))
         }
     }
 
-    fn session_with_stub_kernel(kernel_result: Option<Scalar>) -> VortexSession {
-        let session = VortexSession::empty().with::<ArraySession>();
-        // Leak the kernel so it has the `'static` lifetime the registry requires.
-        // The session is short-lived so a couple of bytes of test-only leakage is fine.
-        let kernel: &'static StubKernel = Box::leak(Box::new(StubKernel(kernel_result)));
-        session
-            .get::<AggregateFnSession>()
-            .register_aggregate_kernel(Dict.id(), Some(Mean::combined().id()), kernel);
-        session
+    /// Returns `Ok(None)` => kernel declined, dispatch falls through.
+    #[derive(Debug)]
+    struct DeclineKernel;
+    impl DynAggregateKernel for DeclineKernel {
+        fn aggregate(
+            &self,
+            _aggregate_fn: &AggregateFnRef,
+            _batch: &ArrayRef,
+            _ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Option<Scalar>> {
+            Ok(None)
+        }
+    }
+
+    /// Sum partial sentinel `42.0` — distinguishable from the natural Sum of
+    /// `dict_of_seven()` which is `7.0`.
+    #[derive(Debug)]
+    struct SentinelSumPartialKernel;
+    impl DynAggregateKernel for SentinelSumPartialKernel {
+        fn aggregate(
+            &self,
+            _aggregate_fn: &AggregateFnRef,
+            _batch: &ArrayRef,
+            _ctx: &mut ExecutionCtx,
+        ) -> VortexResult<Option<Scalar>> {
+            Ok(Some(Scalar::primitive(42.0f64, Nullability::Nullable)))
+        }
+    }
+
+    fn fresh_session() -> VortexSession {
+        VortexSession::empty().with::<ArraySession>()
     }
 
     fn dict_of_seven() -> ArrayRef {
@@ -316,8 +339,6 @@ mod tests {
         )
     }
 
-    /// Sentinel partial: `{sum: 42.0, count: 1}`. Distinguishable from the natural
-    /// fallback `{sum: 7.0, count: 1}` that `Combined::try_accumulate` would produce.
     fn sentinel_partial() -> Scalar {
         let acc = mean_f64_accumulator().expect("build accumulator");
         let sum = Scalar::primitive(42.0f64, Nullability::Nullable);
@@ -329,7 +350,11 @@ mod tests {
     /// `Combined::try_accumulate`'s fan-out path — proves the dispatch reorder.
     #[test]
     fn combined_kernel_fires() -> VortexResult<()> {
-        let session = session_with_stub_kernel(Some(sentinel_partial()));
+        static KERNEL: SentinelMeanPartialKernel = SentinelMeanPartialKernel;
+        let session = fresh_session();
+        session
+            .get::<AggregateFnSession>()
+            .register_aggregate_kernel(Dict.id(), Some(Mean::combined().id()), &KERNEL);
         let mut ctx = session.create_execution_ctx();
 
         let mut acc = mean_f64_accumulator()?;
@@ -352,7 +377,11 @@ mod tests {
     /// natural fan-out. The natural partial is `{sum: 7.0, count: 1}`.
     #[test]
     fn fallback_when_kernel_declines() -> VortexResult<()> {
-        let session = session_with_stub_kernel(None);
+        static KERNEL: DeclineKernel = DeclineKernel;
+        let session = fresh_session();
+        session
+            .get::<AggregateFnSession>()
+            .register_aggregate_kernel(Dict.id(), Some(Mean::combined().id()), &KERNEL);
         let mut ctx = session.create_execution_ctx();
 
         let mut acc = mean_f64_accumulator()?;
@@ -376,13 +405,11 @@ mod tests {
     /// refactor enables: no `(Dict, Combined<Mean>)` kernel is needed.
     #[test]
     fn child_kernel_fires_through_combined() -> VortexResult<()> {
-        let session = VortexSession::empty().with::<ArraySession>();
-        let sum_sentinel: &'static StubKernel = Box::leak(Box::new(StubKernel(Some(
-            Scalar::primitive(42.0f64, Nullability::Nullable),
-        ))));
+        static KERNEL: SentinelSumPartialKernel = SentinelSumPartialKernel;
+        let session = fresh_session();
         session
             .get::<AggregateFnSession>()
-            .register_aggregate_kernel(Dict.id(), Some(Sum.id()), sum_sentinel);
+            .register_aggregate_kernel(Dict.id(), Some(Sum.id()), &KERNEL);
         let mut ctx = session.create_execution_ctx();
 
         let mut acc = mean_f64_accumulator()?;
