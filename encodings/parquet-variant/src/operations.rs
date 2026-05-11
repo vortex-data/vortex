@@ -30,14 +30,11 @@ use crate::ParquetVariantArrayExt;
 use crate::vtable::ParquetVariant;
 
 impl OperationsVTable<ParquetVariant> for ParquetVariant {
-    /// Resolves a single variant value according to the Parquet Variant shredding spec:
+    /// Resolves one row according to the Parquet Variant shredding rules.
     ///
-    /// | value    | typed_value | Meaning                                              |
-    /// |----------|-------------|------------------------------------------------------|
-    /// | NULL     | NULL        | Missing (only valid for shredded object fields)       |
-    /// | non-NULL | NULL        | Un-shredded: decode from metadata + value bytes       |
-    /// | NULL     | non-NULL    | Perfectly shredded: use typed_value directly           |
-    /// | non-NULL | non-NULL    | Partially shredded object (typed_value takes priority) |
+    /// For valid data, a row with both `value` and struct `typed_value` is a partially
+    /// shredded object: recursively reconstruct shredded fields and merge them with the
+    /// raw-only fields from `value`.
     fn scalar_at(
         array: ArrayView<'_, ParquetVariant>,
         index: usize,
@@ -76,6 +73,9 @@ fn scalar_from_variant_storage(
     index: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Scalar> {
+    // A valid typed row owns the logical value except for partially shredded
+    // objects, where the raw `value` may carry object fields that were not
+    // represented in `typed_value`.
     if let Some(typed_value) = typed_value
         && typed_value.is_valid(index, ctx)?
     {
@@ -98,15 +98,15 @@ fn scalar_from_typed_value_array(
     index: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Scalar> {
-    let value_scalar = match value {
-        Some(value) if value.is_valid(index, ctx)? => Some(value.execute_scalar(index, ctx)?),
+    let typed_value_scalar = typed_value.execute_scalar(index, ctx)?;
+    let value_scalar = match typed_value_scalar.dtype() {
+        DType::Struct(..) => match value {
+            Some(value) if value.is_valid(index, ctx)? => Some(value.execute_scalar(index, ctx)?),
+            _ => None,
+        },
         _ => None,
     };
-    scalar_from_typed_value_scalar(
-        metadata,
-        value_scalar,
-        typed_value.execute_scalar(index, ctx)?,
-    )
+    scalar_from_typed_value_scalar(metadata, value_scalar, typed_value_scalar)
 }
 
 fn scalar_from_typed_value_scalar(
@@ -132,6 +132,8 @@ fn scalar_from_typed_value_scalar(
                 Nullability::NonNullable,
             ))
         }
+        // A struct `typed_value` represents object shredding. It may be paired
+        // with a raw object containing only fields absent from the typed struct.
         DType::Struct(..) => scalar_from_shredded_object_scalar(metadata, value, typed_value),
         _ => Ok(typed_value),
     }
@@ -225,6 +227,8 @@ fn scalar_from_shredded_object_scalar(
                     .iter()
                     .any(|typed_name| typed_name.as_ref() == name.as_ref())
                 {
+                    // Invalid writers may duplicate a shredded field in `value`.
+                    // Keep the typed field so field reads remain consistent.
                     continue;
                 }
                 let field = unshredded

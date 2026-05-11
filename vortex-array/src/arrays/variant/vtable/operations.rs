@@ -17,16 +17,19 @@ impl OperationsVTable<Variant> for Variant {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let fallback = array.core_storage().execute_scalar(index, ctx)?;
-        if fallback.is_null() {
-            return Ok(fallback);
+        let core_storage = array.core_storage();
+        if !core_storage.is_valid(index, ctx)? {
+            return Ok(Scalar::null(array.dtype().clone()));
         }
 
         let Some(shredded) = array.shredded() else {
-            return Ok(fallback);
+            return core_storage.execute_scalar(index, ctx);
         };
 
         let typed = shredded.execute_scalar(index, ctx)?;
-        merge_typed_scalar_as_variant(typed, Some(fallback), array.dtype())
+        let fallback = (typed.is_null() || typed.dtype().is_struct())
+            .then(|| core_storage.execute_scalar(index, ctx))
+            .transpose()?;
+        merge_typed_scalar_as_variant(typed, fallback, array.dtype())
     }
 }
