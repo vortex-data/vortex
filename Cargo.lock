@@ -10856,6 +10856,7 @@ name = "vortex-fuzz"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "cudarc",
  "itertools 0.14.0",
  "libfuzzer-sys",
  "strum 0.28.0",

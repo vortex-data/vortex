@@ -18,6 +18,8 @@ use libfuzzer_sys::Corpus;
 use libfuzzer_sys::fuzz_target;
 use vortex_error::vortex_panic;
 use vortex_fuzz::FuzzCompressGpu;
+use vortex_fuzz::cuda_probe::CudaProbeMode;
+use vortex_fuzz::cuda_probe::log_cuda_driver_probe;
 use vortex_fuzz::run_compress_gpu;
 
 static STARTUP_DIAGNOSTICS: OnceLock<()> = OnceLock::new();
@@ -41,6 +43,10 @@ fn log_command(label: &str, command: &str, args: &[&str]) {
         }
         Err(err) => eprintln!("failed to run `{command}`: {err}"),
     }
+}
+
+fn log_shell_command(label: &str, command: &str) {
+    log_command(label, "bash", &["-lc", command]);
 }
 
 fn log_relevant_processes(pid: u32) {
@@ -126,6 +132,8 @@ fn log_nvidia_proc_files() {
     for (label, path) in [
         ("nvidia driver version", "/proc/driver/nvidia/version"),
         ("current cgroup", "/proc/self/cgroup"),
+        ("current limits", "/proc/self/limits"),
+        ("memory pressure", "/proc/pressure/memory"),
     ] {
         if let Ok(contents) = fs::read_to_string(path) {
             let trimmed = contents.trim();
@@ -185,6 +193,14 @@ fn log_cuda_diagnostics(phase: &str) {
         "LD_LIBRARY_PATH={}",
         env::var("LD_LIBRARY_PATH").unwrap_or_else(|_| "<unset>".to_string())
     );
+    log_cuda_driver_probe(
+        phase,
+        if phase == "startup" {
+            CudaProbeMode::ReadOnly
+        } else {
+            CudaProbeMode::Full
+        },
+    );
 
     log_command("nvcc --version", "nvcc", &["--version"]);
     log_command("nvidia-smi", "nvidia-smi", &[]);
@@ -194,7 +210,7 @@ fn log_cuda_diagnostics(phase: &str) {
         "nvidia-smi gpu summary",
         "nvidia-smi",
         &[
-            "--query-gpu=index,uuid,name,driver_version,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu",
+            "--query-gpu=index,uuid,name,driver_version,pci.bus_id,compute_mode,persistence_mode,pstate,memory.total,memory.used,memory.free,utilization.gpu,utilization.memory,temperature.gpu,power.draw,power.limit,clocks.current.graphics,clocks.current.memory",
             "--format=csv",
         ],
     );
@@ -205,6 +221,20 @@ fn log_cuda_diagnostics(phase: &str) {
             "--query-compute-apps=gpu_uuid,pid,process_name,used_memory",
             "--format=csv,noheader",
         ],
+    );
+    log_command("nvidia-smi topo -m", "nvidia-smi", &["topo", "-m"]);
+    log_command(
+        "nvidia-smi compute details",
+        "nvidia-smi",
+        &["-q", "-d", "Memory,Compute,Performance,Utilization"],
+    );
+    log_shell_command(
+        "ldconfig CUDA/NVIDIA libraries",
+        "ldconfig -p | grep -E 'libcuda|libcudart|libnvidia|libnvrtc|libnvJitLink' || true",
+    );
+    log_shell_command(
+        "loaded nvidia kernel modules",
+        "lsmod | grep '^nvidia' || true",
     );
 }
 

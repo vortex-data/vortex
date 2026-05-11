@@ -5,6 +5,8 @@
 
 mod array;
 pub mod compress;
+#[cfg(feature = "cuda")]
+pub mod cuda_probe;
 pub mod error;
 pub mod fsst_like;
 
