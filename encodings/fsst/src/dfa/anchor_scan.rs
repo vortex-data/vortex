@@ -87,35 +87,6 @@ impl NibbleTables {
     }
 }
 
-/// Build a packed bitset of length `all_bytes.len()` whose bit `i` is set iff
-/// `all_bytes[i]` is in `progressing_codes`.
-///
-/// Returns `None` when the set has more than [`MAX_SET_BYTES`] entries (the
-/// caller must fall back to a different scan strategy in that case).
-///
-/// The output `Vec<u64>` is sized to fit `all_bytes.len()` bits, padded up to
-/// the next 64-bit boundary.
-pub(super) fn build_progressing_bitset(
-    all_bytes: &[u8],
-    progressing_codes: &[u8],
-) -> Option<Vec<u64>> {
-    let tables = NibbleTables::build(progressing_codes)?;
-    let n_words = all_bytes.len().div_ceil(64);
-    let mut out = vec![0u64; n_words];
-
-    #[cfg(target_arch = "x86_64")]
-    {
-        if std::is_x86_feature_detected!("avx2") {
-            // SAFETY: AVX2 feature was just detected at runtime.
-            unsafe { fill_bitset_avx2(all_bytes, &tables, &mut out) };
-            return Some(out);
-        }
-    }
-
-    fill_bitset_scalar(all_bytes, &tables, &mut out);
-    Some(out)
-}
-
 /// Build a packed bitset of length `all_bytes.len()` whose bit `i` is set
 /// iff `all_bytes[i] ∈ c1_codes` AND `all_bytes[i+1] ∈ c2_codes`. The last
 /// bit (`i == all_bytes.len() - 1`) is forced to 0 — there is no
@@ -490,70 +461,6 @@ pub(super) fn next_set_in_range(bitset: &[u64], start: usize, end: usize) -> Opt
     let bit = w.trailing_zeros() as usize;
     let pos = (word_idx << 6) | bit;
     (pos < end).then_some(pos)
-}
-
-/// Probe the bitset for any set bit in the byte range `[start, end)`. Used by
-/// the streaming-merge phase to decide whether to dispatch a per-string DFA
-/// run or write `false` (or `negated`) directly.
-#[inline]
-pub(super) fn range_has_hit(bitset: &[u64], start: usize, end: usize) -> bool {
-    if start >= end {
-        return false;
-    }
-    let first_word = start >> 6;
-    let last_word = (end - 1) >> 6;
-    let first_off = (start & 63) as u64;
-    // Bits to keep in the last word: bits 0..=(end-1)&63 inclusive.
-    let last_off = ((end - 1) & 63) as u64;
-
-    if first_word == last_word {
-        // Build a mask covering bits [first_off..=last_off].
-        let width = last_off - first_off + 1;
-        let mask: u64 = if width == 64 {
-            u64::MAX
-        } else {
-            ((1u64 << width) - 1) << first_off
-        };
-        // SAFETY: caller guarantees bitset is large enough.
-        return (unsafe { *bitset.get_unchecked(first_word) } & mask) != 0;
-    }
-
-    // Multi-word range.
-    let head_mask: u64 = !0u64 << first_off;
-    if (unsafe { *bitset.get_unchecked(first_word) } & head_mask) != 0 {
-        return true;
-    }
-    for w in (first_word + 1)..last_word {
-        if unsafe { *bitset.get_unchecked(w) } != 0 {
-            return true;
-        }
-    }
-    let tail_mask: u64 = if last_off == 63 {
-        u64::MAX
-    } else {
-        (1u64 << (last_off + 1)) - 1
-    };
-    (unsafe { *bitset.get_unchecked(last_word) } & tail_mask) != 0
-}
-
-/// Collect the progressing codes from a 256-entry transition row, returning
-/// `None` if there are more than [`MAX_SET_BYTES`] of them.
-///
-/// Mirrors the criterion used by [`super::skip::SkipStrategy`]: a code is
-/// "progressing" if `transition_row[code] != start_state` or `code` is the
-/// FSST escape code.
-pub(super) fn collect_progressing_codes(transition_row: &[u8], start_state: u8) -> Option<Vec<u8>> {
-    debug_assert!(transition_row.len() >= 256);
-    let mut codes: Vec<u8> = Vec::with_capacity(MAX_SET_BYTES);
-    for code in 0..=255u8 {
-        if transition_row[usize::from(code)] != start_state || code == fsst::ESCAPE_CODE {
-            if codes.len() >= MAX_SET_BYTES {
-                return None;
-            }
-            codes.push(code);
-        }
-    }
-    Some(codes)
 }
 
 /// Like [`collect_progressing_codes`], but never returns `None` — collects
@@ -2149,39 +2056,6 @@ mod tests {
         out
     }
 
-    #[rstest]
-    #[case(&[1, 2, 3], 0)]
-    #[case(&[1, 2, 3], 7)]
-    #[case(&[1, 2, 3], 31)]
-    #[case(&[1, 2, 3], 32)]
-    #[case(&[1, 2, 3], 33)]
-    #[case(&[1, 2, 3], 63)]
-    #[case(&[1, 2, 3], 64)]
-    #[case(&[1, 2, 3], 65)]
-    #[case(&[1, 2, 3], 127)]
-    #[case(&[1, 2, 3], 128)]
-    #[case(&[1, 2, 3], 1000)]
-    #[case(&[0xFF, 0x80, 0x42, 0x00], 257)]
-    #[case(&[0xFF], 200)]
-    #[case(&[0x00, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70], 4096)]
-    fn bitset_matches_naive(#[case] codes: &[u8], #[case] len: usize) {
-        // Build a deterministic input that exercises every byte value.
-        let bytes: Vec<u8> = (0..len)
-            .map(|i| u8::try_from(i & 0xFF).unwrap().wrapping_mul(31))
-            .collect();
-        let got = build_progressing_bitset(&bytes, codes).expect("set fits");
-        let expected = naive_bitset(&bytes, codes);
-        assert_eq!(got, expected, "mismatch for len={len}, codes={codes:?}");
-    }
-
-    #[test]
-    fn rejects_too_many_codes() {
-        let codes: Vec<u8> =
-            (0..u8::try_from(MAX_SET_BYTES).unwrap() + 1).collect();
-        let bytes = vec![0u8; 100];
-        assert!(build_progressing_bitset(&bytes, &codes).is_none());
-    }
-
     #[test]
     fn next_set_in_range_basic() {
         // bits 5, 70, 130 set across 192 bits (3 words). Caller must size the
@@ -2452,16 +2326,4 @@ mod tests {
         assert_eq!(got, exp, "mismatch at len={len}");
     }
 
-    #[test]
-    fn range_has_hit_basic() {
-        // bits 5, 70, 130 set
-        let bitset = vec![1u64 << 5, 1u64 << 6, 1u64 << 2];
-        assert!(range_has_hit(&bitset, 5, 6));
-        assert!(!range_has_hit(&bitset, 6, 70));
-        assert!(range_has_hit(&bitset, 6, 71));
-        assert!(range_has_hit(&bitset, 70, 71));
-        assert!(!range_has_hit(&bitset, 71, 130));
-        assert!(range_has_hit(&bitset, 0, 200));
-        assert!(!range_has_hit(&bitset, 10, 10));
-    }
 }

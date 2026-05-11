@@ -128,6 +128,26 @@ Across mined patterns from ClickBench URL/SearchPhrase columns:
 The FSST DFA always beats decompress-then-LIKE (the duckdb "no pushdown"
 path). Whether it beats raw varbin is selectivity-conditional.
 
+**SSA hole in the above table.** The "1–10% ~even" row papers over a
+real regression on SSA-anchored needles. Measured on the synthetic
+ClickBench URL corpus (`fsst_url_compare` shape):
+
+| Pattern | Matches | Raw varbin | FSST DFA | Ratio |
+|---|---|---|---|---|
+| `%htt%` | 100% (999,735) | 7.4 ms | 45.7 ms | 0.16× (6.0× slower) |
+| `%ear%` | 8% (83,060) | 14.3 ms | 92.7 ms | 0.15× (6.6× slower) |
+
+`%htt%` is the dense regime the TL;DR caveat covers, but `%ear%` at
+**8% selectivity** is squarely in the "should be ~even" cell and is
+nonetheless 6.6× slower. Both regress for the same structural reason:
+the FSST trainer mints SSA symbols on URL data (`http`, `https`,
+`search`, …), `single_step_accept_codes.is_some()` fires, and
+`scan_to_bitbuf` skips Teddy entirely for the 1-byte fallback
+(folded_contains.rs:355). So the "dense pattern = lost cause"
+disclaimer in the TL;DR is too narrow: SSA-bearing needles hit the
+fallback at *any* selectivity, and the fix is the SSA-merge Teddy
+path described under "What's still open".
+
 ## Where this work lights up across benchmarks
 
 LIKE queries in the four benchmark suites that *don't* project the
@@ -163,21 +183,40 @@ single-segment contains).
 - **SSA-merge Teddy path** — today `scan_to_bitbuf` skips Teddy
   entirely when `single_step_accept_codes.is_some()` and falls to the
   1-byte progressing bitset (folded_contains.rs:355). On URL data this
-  fires for short ambient needles like `%htt%` / `%ear%` because the
-  FSST trainer mints SSA symbols (e.g. `http`, `https`, `https://`,
-  `search`) — any such symbol is a one-step accept from state 0, so
-  the pair scheme can't anchor on it. The 1-byte fallback then runs
-  on a dense bitset and verifies most positions, producing the 6×
-  regression vs raw varbin reported in
-  `fsst_prefilter_compare`. Proposed scheme: build Teddy-2/3 over the
-  **non-SSA** progressing codes, separately build a 1-byte PSHUFB
-  bitset over the **SSA** codes, and OR the two candidate streams
-  inside `fused_teddy_*_scan`. Verifier still inline, candidate set =
+  fires for short needles like `%htt%` (dense, 100% match) *and*
+  `%ear%` (selective, 8% match) because the FSST trainer mints SSA
+  symbols (e.g. `http`, `https`, `https://`, `search`) — any such
+  symbol is a one-step accept from state 0, so the pair scheme can't
+  anchor on it. The 1-byte fallback then runs on a dense bitset and
+  verifies most positions, producing the 6× regressions reported in
+  the SSA-hole table above. Note that this is *not* a dense-pattern
+  problem — `%ear%` at 8% selectivity hits the same branch and is
+  the more damning case, since the mined-query table predicts
+  Teddy to be ~even with raw varbin there.
+
+  Proposed scheme: build Teddy-2/3 over the **non-SSA** progressing
+  codes, separately build a 1-byte PSHUFB bitset over the **SSA**
+  codes, and OR the two candidate streams inside
+  `fused_teddy_*_scan`. Verifier still inline, candidate set =
   "starts an SSA symbol" ∪ "matches the c1·c2(·c3) fingerprint";
   correctness preserved, candidate density drops to roughly
-  `|SSA| / 256 + Teddy-density`. Expected to flip `%htt%` / `%ear%`
-  from "6× slower than raw varbin" to "comparable or faster" without
-  touching the selective regime.
+  `|SSA| / 256 + Teddy-density`. Expected to flip `%ear%` cleanly
+  into the "selective ⇒ Teddy wins" regime and bring `%htt%` close
+  to raw-varbin parity (the dense short-circuit below covers the
+  rest).
+
+  Correctness sub-bullets the implementation must preserve:
+  - **Escape-byte path.** The non-SSA Teddy must still anchor on
+    `(ESCAPE_CODE, literal-byte)` pairs where the literal byte
+    advances the KMP state. The existing builder handles this via
+    the escape-state rows of `transitions`; the SSA split must not
+    drop those c1's.
+  - **Case folding.** `kmp_byte_transitions` already folds `[A-Z]`
+    to `[a-z]` in the byte table, so the SSA set and the
+    progressing set both inherit folding; the SSA split is a
+    partition of `progressing_codes`, so folding survives by
+    construction. Worth a unit test on a needle with mixed case to
+    pin this down.
 - **Dense-pattern short-circuit** — even with SSA-merge Teddy, a
   needle whose SSA codes alone cover most bytes (`%htt%` on URL data)
   will produce a near-saturated candidate bitmap. After building the
@@ -199,6 +238,15 @@ single-segment contains).
   *why* a given pattern took the path it did — e.g. proving the
   `%htt%` regression is the SSA-fallback branch rather than the DFA
   itself. Required to validate the SSA-merge Teddy work above.
+- **Bench corpus extension for SSA cases** —
+  `benches/fsst_prefilter_compare.rs` currently covers `%google%` /
+  `%lazy dog%` / `%.ru%`, none of which exercise the SSA fallback on
+  trained URL data. Add `%htt%` (dense + SSA: `http`, `https`,
+  `https://` likely SSA) and `%ear%` (selective + SSA: `search`
+  likely SSA) so the SSA-merge Teddy patch has a direct A/B
+  microbench, not just the end-to-end `fsst_url_compare` numbers in
+  the SSA-hole table. Should also report the candidate count for the
+  new path alongside the existing `aaa_selectivity_report` output.
 - **`offsets_to_prim` allocation** — 10 µs/chunk, ~47 ms single-thread
   on Q20. The conversion materializes a fresh primitive array per call.
   Could be elided by reading offsets in-place.
@@ -216,6 +264,17 @@ single-segment contains).
 - **Bucket-bit-aware verifier dispatch** — Hyperscan-style per-bucket
   verify. Marginal for single-needle case.
 - **NEON / WASM SIMD** — portability, not raw perf.
+- **Shift-Or / Bitap as an alternative matcher kernel** — for very
+  short needles (≤8 bytes after FSST encoding), a bit-parallel
+  Shift-Or pass over `all_bytes` could in principle replace the
+  Teddy + DFA-verify pipeline with a single u64-state stream: one
+  `(state << 1) | B[byte]` step per code byte, match on a fixed bit.
+  Not pursued because Teddy already dominates the time budget on the
+  shapes that matter (its bottleneck is path-selection, not the
+  matcher kernel), and Shift-Or would need its own variant of the
+  SSA/escape correctness handling. Worth revisiting only if a future
+  shape shows up where Teddy's per-bucket verifier dispatch is the
+  hot loop.
 
 ## Code surface summary
 
