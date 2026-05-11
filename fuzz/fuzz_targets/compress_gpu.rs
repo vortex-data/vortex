@@ -4,10 +4,15 @@
 #![no_main]
 #![expect(clippy::unwrap_used)]
 
+use std::collections::BTreeSet;
 use std::env;
 use std::fs;
+use std::panic;
 use std::process::Command;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::thread;
 
 use libfuzzer_sys::Corpus;
 use libfuzzer_sys::fuzz_target;
@@ -16,6 +21,7 @@ use vortex_fuzz::FuzzCompressGpu;
 use vortex_fuzz::run_compress_gpu;
 
 static STARTUP_DIAGNOSTICS: OnceLock<()> = OnceLock::new();
+static PANIC_DIAGNOSTICS_RUNNING: AtomicBool = AtomicBool::new(false);
 
 fn log_command(label: &str, command: &str, args: &[&str]) {
     eprintln!("## {label}");
@@ -68,7 +74,11 @@ fn log_relevant_processes(pid: u32) {
 fn log_process_snapshot() {
     let pid = std::process::id();
     eprintln!("pid={pid}");
-    eprintln!("argv={:?}", env::args().collect::<Vec<_>>());
+    let argv = env::args().collect::<Vec<_>>();
+    eprintln!("argv_count={}", argv.len());
+    for (index, arg) in argv.iter().enumerate() {
+        eprintln!("argv[{index}]={arg}");
+    }
 
     if let Ok(status) = fs::read_to_string("/proc/self/status") {
         let interesting = status
@@ -112,10 +122,57 @@ fn log_process_snapshot() {
     log_relevant_processes(pid);
 }
 
+fn log_nvidia_proc_files() {
+    for (label, path) in [
+        ("nvidia driver version", "/proc/driver/nvidia/version"),
+        ("current cgroup", "/proc/self/cgroup"),
+    ] {
+        if let Ok(contents) = fs::read_to_string(path) {
+            let trimmed = contents.trim();
+            if !trimmed.is_empty() {
+                eprintln!("## {label}");
+                eprintln!("{trimmed}");
+            }
+        }
+    }
+}
+
+fn log_mapped_cuda_libraries() {
+    eprintln!("## mapped CUDA/NVIDIA libraries");
+    match fs::read_to_string("/proc/self/maps") {
+        Ok(maps) => {
+            let libraries = maps
+                .lines()
+                .filter_map(|line| line.split_whitespace().last())
+                .filter(|path| path.starts_with('/'))
+                .filter(|path| {
+                    path.contains("libcuda")
+                        || path.contains("libcudart")
+                        || path.contains("libnv")
+                        || path.contains("/nvidia/")
+                })
+                .map(str::to_owned)
+                .collect::<BTreeSet<_>>();
+
+            if libraries.is_empty() {
+                eprintln!("<none>");
+            } else {
+                for library in libraries {
+                    eprintln!("{library}");
+                }
+            }
+        }
+        Err(err) => eprintln!("failed to read `/proc/self/maps`: {err}"),
+    }
+}
+
 fn log_cuda_diagnostics(phase: &str) {
     eprintln!("===== compress_gpu CUDA diagnostics ({phase}) =====");
+    eprintln!("thread={}", thread::current().name().unwrap_or("<unnamed>"));
     eprintln!("cuda_available()={}", vortex_cuda::cuda_available());
     log_process_snapshot();
+    log_nvidia_proc_files();
+    log_mapped_cuda_libraries();
     eprintln!(
         "CUDA_VISIBLE_DEVICES={}",
         env::var("CUDA_VISIBLE_DEVICES").unwrap_or_else(|_| "<unset>".to_string())
@@ -151,8 +208,22 @@ fn log_cuda_diagnostics(phase: &str) {
     );
 }
 
+fn install_panic_hook() {
+    let previous_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |panic_info| {
+        if !PANIC_DIAGNOSTICS_RUNNING.swap(true, Ordering::Relaxed) {
+            eprintln!("panic hook captured: {panic_info}");
+            log_cuda_diagnostics("panic");
+        }
+        previous_hook(panic_info);
+    }));
+}
+
 fuzz_target!(|fuzz: FuzzCompressGpu| -> Corpus {
-    STARTUP_DIAGNOSTICS.get_or_init(|| log_cuda_diagnostics("startup"));
+    STARTUP_DIAGNOSTICS.get_or_init(|| {
+        install_panic_hook();
+        log_cuda_diagnostics("startup");
+    });
 
     // Use tokio runtime to run async GPU fuzzer
     let rt = tokio::runtime::Builder::new_current_thread()
