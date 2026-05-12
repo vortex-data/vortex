@@ -11,6 +11,7 @@ use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
 use itertools::Itertools;
+use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -229,7 +230,7 @@ impl LayoutReader for ChunkedReader {
 
         let name = Arc::clone(&self.name);
         Ok(MaskFuture::new(mask.len(), async move {
-            tracing::debug!(
+            trace!(
                 "Chunked pruning evaluation {} (mask = {})",
                 name,
                 mask.density()
@@ -272,7 +273,7 @@ impl LayoutReader for ChunkedReader {
 
         let name = Arc::clone(&self.name);
         Ok(MaskFuture::new(mask.len(), async move {
-            tracing::debug!("Chunked mask evaluation {}", name);
+            trace!("Chunked mask evaluation {}", name);
 
             // Split the mask over each chunk.
             let masks: Vec<_> = FuturesOrdered::from_iter(chunk_evals).try_collect().await?;

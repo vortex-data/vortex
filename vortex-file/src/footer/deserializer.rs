@@ -124,7 +124,7 @@ impl FooterDeserializer {
 
         // Read more bytes if necessary.
         if read_more_offset < initial_offset {
-            tracing::debug!(
+            tracing::trace!(
                 "Initial read from {initial_offset} did not cover all footer segments, reading from {read_more_offset}"
             );
             return Ok(DeserializeStep::NeedMoreData {

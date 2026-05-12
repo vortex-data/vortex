@@ -12,6 +12,7 @@ use futures::TryFutureExt;
 use futures::future::BoxFuture;
 use futures::future::Shared;
 use parking_lot::RwLock;
+use tracing::trace;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
@@ -79,13 +80,11 @@ impl PruningState {
             .entry(expr.clone())
             .or_insert_with(|| match self.pruning_predicate(expr.clone()) {
                 None => {
-                    tracing::debug!("No pruning predicate for expr: {expr}");
+                    trace!(%expr, "no pruning predicate");
                     None
                 }
                 Some(predicate) => {
-                    tracing::debug!(
-                        "Constructed pruning predicate for expr: {expr}: {predicate:?}"
-                    );
+                    trace!(%expr, ?predicate, "constructed pruning predicate");
                     let zone_map = self.zone_map();
                     let dynamic_updates = DynamicExprUpdates::new(&expr);
                     let session = self.session.clone();
@@ -192,9 +191,10 @@ impl PruningResult {
             return Ok(guard.1.clone());
         }
 
-        tracing::debug!(
-            "Re-computing pruning mask for version {version} on {}",
-            self.predicate
+        trace!(
+            version,
+            predicate = %self.predicate,
+            "recomputing pruning mask"
         );
 
         let next_mask = self

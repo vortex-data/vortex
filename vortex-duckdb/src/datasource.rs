@@ -29,13 +29,11 @@ use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
-use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
-use vortex::expr::cast;
 use vortex::expr::col;
 use vortex::expr::merge;
 use vortex::expr::pack;
@@ -281,7 +279,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
     }
 
     fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
-        debug!("table init input: {init_input:?}");
+        debug!(input=?init_input, "table function global input");
 
         let bind_data = init_input.bind_data();
         let column_ids = init_input.column_ids();
@@ -307,13 +305,16 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             bind_data.data_source.dtype(),
         )?;
 
-        let filter_expr_str = filter
-            .as_ref()
-            .map_or_else(|| "true".to_string(), |f| f.to_string());
         debug!(
-            "Global init Vortex scan SELECT {projection} WHERE {filter_expr_str}\n
-                 row selection: {row_selection:?}, row range: {row_range:?},
-                 file selection: {file_selection:?}, file range: {file_range:?}"
+            %projection,
+            filter = filter
+                .as_ref()
+                .map_or_else(|| "true".to_string(), |f| f.to_string()),
+            ?row_selection,
+            ?row_range,
+            ?file_selection,
+            ?file_range,
+            "table function scan input"
         );
 
         let request = ScanRequest {
@@ -500,10 +501,12 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         bind_data: &mut Self::BindData,
         expr: &ExpressionRef,
     ) -> VortexResult<bool> {
-        tracing::debug!("Attempting to push down filter expression: {expr}");
+        debug!(%expr, "pushing down expression");
         let Some(expr) = try_from_bound_expression(expr)? else {
+            debug!(%expr, "failed to push down expression");
             return Ok(false);
         };
+        debug!(%expr, "pushed down expression");
         bind_data.filter_exprs.push(expr);
 
         // NOTE(ngates): Vortex does indeed run exact filters, so in theory we should return `true`
@@ -663,12 +666,9 @@ fn extract_projection_expr(
     };
 
     // file_index column will be filled later when exporting the chunk.
-
     let projection = if file_row_number_column_pos.is_some() {
-        // row_idx will be rearranged to correct position in scan(), prepend
-        // here
-        let row_idx = cast(row_idx(), DType::Primitive(PType::I64, false.into()));
-        let row_idx_struct = pack([("file_row_number", row_idx)], false.into());
+        // row_idx will be moved to correct position in scan(), prepend here
+        let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
         merge([row_idx_struct, select])
     } else {
         select
@@ -751,8 +751,6 @@ mod tests {
     use std::sync::atomic::Ordering::Relaxed;
 
     use vortex::dtype::DType;
-    use vortex::dtype::PType;
-    use vortex::expr::cast;
     use vortex::expr::merge;
     use vortex::expr::pack;
     use vortex::expr::root;
@@ -807,8 +805,7 @@ mod tests {
 
         let ids = [FILE_ROW_NUMBER_COLUMN_IDX, 0, 1, FILE_INDEX_COLUMN_IDX, 2];
         let exprs = extract_projection_expr(None, &ids, &fields);
-        let row_idx = cast(row_idx(), DType::Primitive(PType::I64, false.into()));
-        let row_idx_struct = pack([("file_row_number", row_idx)], false.into());
+        let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
         let root_with_virtual_cols = merge([row_idx_struct, root()]);
 
         assert_eq!(exprs.projection, root_with_virtual_cols);

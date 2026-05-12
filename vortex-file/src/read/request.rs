@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use std::ops::Range;
 use std::sync::Arc;
 
+use tracing::trace;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
@@ -113,7 +114,7 @@ impl Debug for ReadRequest {
 impl ReadRequest {
     pub(crate) fn resolve(self, result: VortexResult<BufferHandle>) {
         if let Err(e) = self.callback.send(result) {
-            tracing::debug!("ReadRequest {} dropped before resolving: {e}", self.id);
+            trace!("ReadRequest {} dropped before resolving: {e}", self.id);
         }
     }
 }

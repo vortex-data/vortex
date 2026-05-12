@@ -413,7 +413,10 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const d
         return {
             {COLUMN_IDENTIFIER_EMPTY, {"", LogicalTypeId::BOOLEAN}},
             {COLUMN_IDENTIFIER_FILE_INDEX, {"file_index", LogicalType::UBIGINT}},
-            {COLUMN_IDENTIFIER_FILE_ROW_NUMBER, {"file_row_number", LogicalType::BIGINT}},
+            // MultiFileReader's file_row_number column is BIGINT.
+            // row_idx() is UBIGINT. Use UBIGINT since there's no difference to
+            // Duckdb what to compare.
+            {COLUMN_IDENTIFIER_FILE_ROW_NUMBER, {"file_row_number", LogicalType::UBIGINT}},
         };
     };
 

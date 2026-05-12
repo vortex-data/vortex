@@ -9,6 +9,7 @@ use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
@@ -48,7 +49,10 @@ pub fn try_from_bound_expression(
     value: &duckdb::ExpressionRef,
 ) -> VortexResult<Option<Expression>> {
     let Some(value) = value.as_class() else {
-        debug!("no expression class id {:?}", value.as_class_id());
+        debug!(
+            class_id = ?value.as_class_id(),
+            "unknown expression class id"
+        );
         return Ok(None);
     };
     Ok(Some(match value {
@@ -97,7 +101,7 @@ pub fn try_from_bound_expression(
             | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NULL
             | DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_OPERATOR_IS_NOT_NULL => {
                 let children: Vec<_> = operator.children().collect();
-                assert_eq!(children.len(), 1);
+                vortex_ensure!(children.len() == 1);
                 let Some(child) = try_from_bound_expression(children[0])? else {
                     return Ok(None);
                 };
@@ -113,7 +117,7 @@ pub fn try_from_bound_expression(
             DUCKDB_VX_EXPR_TYPE::DUCKDB_VX_EXPR_TYPE_COMPARE_IN => {
                 // First child is element, rest form the list.
                 let children: Vec<_> = operator.children().collect();
-                assert!(children.len() >= 2);
+                vortex_ensure!(children.len() >= 2);
                 let Some(element) = try_from_bound_expression(children[0])? else {
                     return Ok(None);
                 };
@@ -146,7 +150,7 @@ pub fn try_from_bound_expression(
                 list_contains(lit(list), element)
             }
             _ => {
-                debug!(op=?operator.op, "cannot be pushed down");
+                debug!(op=?operator.op, "cannot push down operator");
                 return Ok(None);
             }
         },
@@ -164,7 +168,10 @@ pub fn try_from_bound_expression(
                 Like.new_expr(LikeOptions::default(), [value, pattern])
             }
             _ => {
-                debug!("bound function {}", func.scalar_function.name());
+                debug!(
+                    name = func.scalar_function.name(),
+                    "cannot push down function"
+                );
                 return Ok(None);
             }
         },

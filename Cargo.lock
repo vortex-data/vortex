@@ -10652,6 +10652,7 @@ dependencies = [
  "rstest",
  "tempfile",
  "tracing",
+ "tracing-subscriber",
  "url",
  "vortex",
  "vortex-array",
