@@ -23,11 +23,12 @@ def record(x: int, columns: list[str] | set[str] | None = None) -> dict[str, int
 def vxf(tmpdir_factory) -> vx.VortexFile:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
     fname = tmpdir_factory.mktemp("data") / "foo.vortex"  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
+    session = vx.Session()
     if not os.path.exists(fname):  # pyright: ignore[reportUnknownArgumentType]
         a = pa.array([record(x) for x in range(1_000_000)])
-        arr = vx.compress(vx.array(a))
-        vx.io.write(arr, str(fname))  # pyright: ignore[reportUnknownArgumentType]
-    return vx.open(str(fname), without_segment_cache=True)  # pyright: ignore[reportUnknownArgumentType]
+        arr = vx.compress(vx.array(a), session=session)
+        vx.io.write(arr, str(fname), session=session)  # pyright: ignore[reportUnknownArgumentType]
+    return vx.open(str(fname), without_segment_cache=True, session=session)  # pyright: ignore[reportUnknownArgumentType]
 
 
 def test_dtype(vxf: VortexFile):
@@ -62,7 +63,7 @@ def test_to_arrow_columns(vxf: VortexFile):
     assert rbr.schema == pa.schema([("string", pa.string_view()), ("bool", pa.bool_())])
 
 
-def test_empty_file(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+def test_empty_file(tmpdir_factory, session: vx.Session):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
     # test for writing empty files with null columns
     # create an empty table with schema `empty: null`
     table = pa.Table.from_pydict({"empty": []})
@@ -75,10 +76,10 @@ def test_empty_file(tmpdir_factory):  # pyright: ignore[reportUnknownParameterTy
 
     # writing file should succeed
     empty_file = tmpdir_factory.mktemp("data") / "empty.vortex"  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-    vx.io.write(empty, str(empty_file))  # pyright: ignore[reportUnknownArgumentType]
+    vx.io.write(empty, str(empty_file), session=session)  # pyright: ignore[reportUnknownArgumentType]
 
 
-def test_stream_pyarrow(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+def test_stream_pyarrow(tmpdir_factory, session: vx.Session):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
     import pyarrow.parquet as pq
 
     data_dir = tmpdir_factory.mktemp("data")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
@@ -91,4 +92,4 @@ def test_stream_pyarrow(tmpdir_factory):  # pyright: ignore[reportUnknownParamet
     pq.write_table(table, str(data_dir / "names.parquet"))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
 
     df = pq.read_table(str(data_dir / "names.parquet"))  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
-    vx.io.write(df, str(data_dir / "names.vortex"))  # pyright: ignore[reportUnknownArgumentType]
+    vx.io.write(df, str(data_dir / "names.vortex"), session=session)  # pyright: ignore[reportUnknownArgumentType]

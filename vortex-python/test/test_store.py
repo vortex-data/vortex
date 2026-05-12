@@ -8,7 +8,7 @@ from vortex.store import LocalStore
 import vortex as vx
 
 
-def test_store_roundtrip(tmp_path: Path) -> None:
+def test_store_roundtrip(tmp_path: Path, session: vx.Session) -> None:
     # create a local store to write into
     local = LocalStore(prefix=tmp_path)
 
@@ -17,12 +17,12 @@ def test_store_roundtrip(tmp_path: Path) -> None:
     assert len(records) == 3
 
     # write to the local store
-    vx.io.write(records, "people.vortex", store=local)
+    vx.io.write(records, "people.vortex", store=local, session=session)
 
     # verify file got written to correct location
     assert (tmp_path / "people.vortex").exists()
 
     # test vx.read for eager full-scan
-    people = vx.io.read_url("people.vortex", store=local)
+    people = vx.io.read_url("people.vortex", store=local, session=session)
 
-    assert people.to_pylist() == records.to_pylist()
+    assert people.to_pylist(session=session) == records.to_pylist(session=session)

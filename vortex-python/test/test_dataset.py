@@ -29,9 +29,10 @@ def ds(tmpdir_factory) -> vx.dataset.VortexDataset:  # pyright: ignore[reportUnk
 
     assert not os.path.exists(fname)  # pyright: ignore[reportUnknownArgumentType]
 
+    session = vx.Session()
     a = pa.array([record(x) for x in range(1_000_000)])
-    vx.io.write(vx.array(a), str(fname))  # pyright: ignore[reportUnknownArgumentType]
-    return vx.dataset.VortexDataset.from_path(str(fname))  # pyright: ignore[reportUnknownArgumentType]
+    vx.io.write(vx.array(a), str(fname), session=session)  # pyright: ignore[reportUnknownArgumentType]
+    return vx.dataset.VortexDataset.from_path(str(fname), session=session)  # pyright: ignore[reportUnknownArgumentType]
 
 
 def test_schema(ds: pd.Dataset):
@@ -129,7 +130,7 @@ def test_filter(ds: vx.dataset.VortexDataset):
     assert len(tbl) == 20
 
 
-def test_filter_with_nested_null_dtype(tmp_path: Path):
+def test_filter_with_nested_null_dtype(tmp_path: Path, session: vx.Session):
     path = tmp_path / "test.vortex"
 
     batch = pa.RecordBatch.from_pylist(
@@ -140,9 +141,9 @@ def test_filter_with_nested_null_dtype(tmp_path: Path):
     )
 
     arr = vx.array(batch.to_struct_array())
-    vx.io.write(vx.ArrayIterator.from_iter(arr.dtype, iter([arr])), str(path))
+    vx.io.write(vx.ArrayIterator.from_iter(arr.dtype, iter([arr]), session=session), str(path), session=session)
 
-    dataset = vx.open(str(path)).to_dataset()
+    dataset = vx.open(str(path), session=session).to_dataset()
     actual = dataset.to_table(filter=pc.field("a") == 0)
 
     assert actual.to_pylist() == [{"a": 0, "b": {"x": None}}]

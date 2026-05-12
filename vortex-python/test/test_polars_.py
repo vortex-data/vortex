@@ -45,10 +45,11 @@ def test_exprs(polars: pl.Expr, vortex: ve.Expr):
 def vxf(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
     fname = tmpdir_factory.mktemp("data") / "polars_test.vortex"  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
+    session = vx.Session()
     if not os.path.exists(fname):  # pyright: ignore[reportUnknownArgumentType]
         a = pa.array([{"index": x, "value": math.sqrt(x)} for x in range(1_000_000)])
-        vx.io.write(vx.compress(vx.array(a)), str(fname))  # pyright: ignore[reportUnknownArgumentType]
-    return vx.open(str(fname), without_segment_cache=True)  # pyright: ignore[reportUnknownArgumentType]
+        vx.io.write(vx.compress(vx.array(a), session=session), str(fname), session=session)  # pyright: ignore[reportUnknownArgumentType]
+    return vx.open(str(fname), without_segment_cache=True, session=session)  # pyright: ignore[reportUnknownArgumentType]
 
 
 def test_to_polars_with_limit(vxf: vx.VortexFile):

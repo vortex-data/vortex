@@ -18,6 +18,7 @@ from typing_extensions import override
 from .. import open as vx_open
 from ..arrow.expression import ensure_vortex_expression
 from ..expr import Expr as VortexExpr
+from ..session import Session
 from ..type_aliases import IntoProjection
 
 if TYPE_CHECKING:
@@ -51,12 +52,14 @@ class VortexDatasource(Datasource):
         self,
         *,
         url: str,
+        session: Session,
         columns: IntoProjection = None,
         filter: pc.Expression | VortexExpr | None = None,
         batch_size: int | None = None,
         meta_provider: BaseFileMetadataProvider = DefaultFileMetadataProvider(),  # pyright: ignore[reportCallInDefaultInitializer]
     ):
         super().__init__()
+        self._session = session
         self._columns = columns
         self._filter = filter
 
@@ -101,6 +104,7 @@ class VortexDatasource(Datasource):
                 self._columns,
                 self._filter,
                 per_task_row_limit if per_task_row_limit is not None else self._batch_size,
+                self._session,
             )
             for paths in partition(parallelism, self._paths)
             if len(paths) > 0
@@ -118,11 +122,12 @@ def _read_task(
     columns: IntoProjection,
     filter: pc.Expression | VortexExpr | None,
     batch_size: int | None,
+    session: Session,
 ) -> ReadTask:
     if not paths:
         raise ValueError("no paths specified")
 
-    files = [vx_open(path) for path in paths]
+    files = [vx_open(path, session=session) for path in paths]
     schemas = [f.dtype.to_arrow_schema() for f in files]
     schema = schemas[0]
     assert all(s == schema for s in schemas[1:])
@@ -140,8 +145,11 @@ def _read_task(
         # If we could serialize a PyVortexFile and a PyExpr, we could set those up earlier.
 
         vx_filter = ensure_vortex_expression(filter, schema=schema)
+        # Ray read functions may execute in worker processes, so use a worker-local session
+        # instead of closing over the driver session.
+        session = Session()
         for path in paths:
-            f = vx_open(path)
+            f = vx_open(path, session=session)
             for rb in f.to_arrow(columns, expr=vx_filter, batch_size=batch_size):
                 # We would prefer to generate Arrow, but we run into this issue: https://github.com/apache/arrow/issues/47279
                 #

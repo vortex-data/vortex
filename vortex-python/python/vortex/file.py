@@ -61,9 +61,7 @@ def open(
     See also: :class:`vortex.dataset.VortexDataset`
     """
 
-    return VortexFile(
-        _file.open(path, store=store, without_segment_cache=without_segment_cache, session=session)
-    )
+    return VortexFile(_file.open(path, store=store, without_segment_cache=without_segment_cache, session=session))
 
 
 @final

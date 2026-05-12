@@ -41,16 +41,16 @@ def test_partition():
     assert partition(3, list(range(11))) == [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10]]
 
 
-def test_vortex_datasource(ray_init, tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType, reportUnusedParameter]
+def test_vortex_datasource(ray_init, tmpdir_factory, session: vx.Session):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType, reportUnusedParameter]
     folder = tmpdir_factory.mktemp("data")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     arr1 = vx.array([record(x) for x in range(5)])
-    vx.io.write(arr1, str(folder / "01.vortex"))  # pyright: ignore[reportUnknownArgumentType]
+    vx.io.write(arr1, str(folder / "01.vortex"), session=session)  # pyright: ignore[reportUnknownArgumentType]
 
     arr2 = vx.array([record(x) for x in range(5, 10)])
-    vx.io.write(arr2, str(folder / "02.vortex"))  # pyright: ignore[reportUnknownArgumentType]
+    vx.io.write(arr2, str(folder / "02.vortex"), session=session)  # pyright: ignore[reportUnknownArgumentType]
 
-    ds = read_datasource(VortexDatasource(url=str(folder)))  # pyright: ignore[reportUnknownArgumentType]
+    ds = read_datasource(VortexDatasource(url=str(folder), session=session))  # pyright: ignore[reportUnknownArgumentType]
 
     # Without an explicit sort, Ray may reorder rows *even within a single record batch*.
     ds = ds.sort("index")

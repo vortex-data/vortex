@@ -29,11 +29,12 @@ def vxscan(vxfile: vx.VortexFile) -> vx.RepeatedScan:
 def vxfile(tmpdir_factory) -> vx.VortexFile:  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
     fname = tmpdir_factory.mktemp("data") / "foo.vortex"  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
+    session = vx.Session()
     if not os.path.exists(fname):  # pyright: ignore[reportUnknownArgumentType]
         a = pa.array([record(x) for x in range(1_000)])
-        arr = vx.compress(vx.array(a))
-        vx.io.write(arr, str(fname))  # pyright: ignore[reportUnknownArgumentType]
-    return vx.open(str(fname))  # pyright: ignore[reportUnknownArgumentType]
+        arr = vx.compress(vx.array(a), session=session)
+        vx.io.write(arr, str(fname), session=session)  # pyright: ignore[reportUnknownArgumentType]
+    return vx.open(str(fname), session=session)  # pyright: ignore[reportUnknownArgumentType]
 
 
 def test_execute(vxscan: RepeatedScan):
@@ -63,7 +64,7 @@ def test_scan_with_cast(vxfile: vx.VortexFile):
     expected = pa.array(
         [{"index": 1, "string": pa.scalar("1", pa.string_view()), "bool": False, "float": math.sqrt(1)}]
     )
-    assert str(actual.to_arrow_array()) == str(expected)
+    assert str(actual.to_arrow_array(session=vxfile.session)) == str(expected)
 
 
 def test_scanner_property_projected(vxfile: vx.VortexFile):
