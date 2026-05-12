@@ -380,6 +380,8 @@ pub fn vortex_io::runtime::Handle::spawn_blocking<F, R>(&self, F) -> vortex_io::
 
 pub fn vortex_io::runtime::Handle::spawn_cpu<F, R>(&self, F) -> vortex_io::runtime::Task<R> where F: core::ops::function::FnOnce() -> R + core::marker::Send + 'static, R: core::marker::Send + 'static
 
+pub fn vortex_io::runtime::Handle::spawn_io<Fut, R>(&self, Fut) -> vortex_io::runtime::Task<R> where Fut: core::future::future::Future<Output = R> + core::marker::Send + 'static, R: core::marker::Send + 'static
+
 pub fn vortex_io::runtime::Handle::spawn_nested<F, Fut, R>(&self, F) -> vortex_io::runtime::Task<R> where F: core::ops::function::FnOnce(vortex_io::runtime::Handle) -> Fut, Fut: core::future::future::Future<Output = R> + core::marker::Send + 'static, R: core::marker::Send + 'static
 
 impl core::clone::Clone for vortex_io::runtime::Handle
