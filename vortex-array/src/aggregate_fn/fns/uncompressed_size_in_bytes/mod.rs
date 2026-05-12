@@ -150,24 +150,15 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
         false
     }
 
-    fn try_accumulate(
-        &self,
-        partial: &mut Self::Partial,
-        batch: &ArrayRef,
-        _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<bool> {
+    fn try_partial_from_stats(&self, batch: &ArrayRef) -> VortexResult<Option<Scalar>> {
         let Some(Precision::Exact(size_scalar)) =
             batch.statistics().get(Stat::UncompressedSizeInBytes)
         else {
-            return Ok(false);
+            return Ok(None);
         };
-
         let size = u64::try_from(&size_scalar)
             .map_err(|e| vortex_err!("Failed to convert uncompressed size stat to u64: {e}"))?;
-        *partial = partial
-            .checked_add(size)
-            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
-        Ok(true)
+        Ok(Some(Scalar::primitive(size, NonNullable)))
     }
 
     fn accumulate(

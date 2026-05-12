@@ -102,6 +102,25 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// final result is fully determined.
     fn is_saturated(&self, state: &Self::Partial) -> bool;
 
+    /// Try to derive a partial scalar from the batch's cached statistics, before any
+    /// kernel dispatch or canonicalization.
+    ///
+    /// Returns `Some(partial_scalar)` if the answer can be read directly from `batch.statistics()`,
+    /// otherwise `Ok(None)` to fall through to the rest of dispatch. The returned scalar must
+    /// have the dtype reported by `partial_dtype`.
+    ///
+    /// This is the single place stats-based shortcuts live; encoding kernels must not consult
+    /// stats themselves. Runs first so that an upstream producer who pre-populates the relevant
+    /// stat (e.g. a layout reader hydrating `Stat::UncompressedSizeInBytes` from file metadata)
+    /// can skip both kernel dispatch and decode.
+    ///
+    /// TODO: this hook may be removed once `ArrayStats` stores aggregate partials internally —
+    /// at that point stat-driven shortcuts can be resolved automatically by the dispatch layer
+    /// without each aggregate vtable opting in.
+    fn try_partial_from_stats(&self, _batch: &ArrayRef) -> VortexResult<Option<Scalar>> {
+        Ok(None)
+    }
+
     /// Try to accumulate the raw array before decompression.
     ///
     /// Returns `true` if the array was handled, `false` to fall through to

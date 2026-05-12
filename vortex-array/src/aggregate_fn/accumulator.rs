@@ -5,7 +5,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
@@ -13,6 +12,7 @@ use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::session::AggregateFnSessionExt;
+use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
 use crate::executor::max_iterations;
 use crate::scalar::Scalar;
@@ -116,6 +116,20 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             batch.dtype()
         );
 
+        // 0. Stats-driven shortcut: if the aggregate can be derived directly from the batch's
+        //    cached statistics, use that and skip both kernel dispatch and decode. This is the
+        //    only layer that consults `batch.statistics()`; encoding kernels must not.
+        if let Some(result) = self.vtable.try_partial_from_stats(batch)? {
+            vortex_ensure!(
+                result.dtype() == &self.partial_dtype,
+                "Aggregate try_partial_from_stats returned {}, expected {}",
+                result.dtype(),
+                self.partial_dtype,
+            );
+            self.vtable.combine_partials(&mut self.partial, result)?;
+            return Ok(());
+        }
+
         let session = ctx.session().clone();
         let kernels = &session.aggregate_fns().kernels;
 
@@ -154,10 +168,11 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         // 3. Iteratively check the registry against each intermediate encoding, executing one
         //    step between checks. Mirrors the loop in `GroupedAccumulator::accumulate_list_view`.
         //    Iteration 0 re-checks the initial encoding — a redundant HashMap miss, the price of
-        //    keeping the loop body uniform.
+        //    keeping the loop body uniform. Terminates on `AnyColumnar` (Canonical or Constant)
+        //    since the vtable's `accumulate(&Columnar)` handles both cases directly.
         let mut batch = batch.clone();
         for _ in 0..max_iterations() {
-            if batch.is::<AnyCanonical>() {
+            if batch.is::<AnyColumnar>() {
                 break;
             }
 

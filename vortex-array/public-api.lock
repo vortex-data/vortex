@@ -84,6 +84,8 @@ pub fn vortex_array::aggregate_fn::combined::Combined<T>::to_scalar(&self, &Self
 
 pub fn vortex_array::aggregate_fn::combined::Combined<T>::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
 pub struct vortex_array::aggregate_fn::combined::PairOptions<L, R>(pub L, pub R)
 
 impl<L, R> core::marker::StructuralPartialEq for vortex_array::aggregate_fn::combined::PairOptions<L, R>
@@ -222,6 +224,8 @@ pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::to_sca
 
 pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
 pub struct vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinctPartial
 
 pub fn vortex_array::aggregate_fn::fns::all_non_distinct::all_non_distinct(&vortex_array::ArrayRef, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
@@ -274,6 +278,8 @@ pub fn vortex_array::aggregate_fn::fns::count::Count::to_scalar(&self, &Self::Pa
 
 pub fn vortex_array::aggregate_fn::fns::count::Count::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
+pub fn vortex_array::aggregate_fn::fns::count::Count::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
 pub mod vortex_array::aggregate_fn::fns::first
 
 pub struct vortex_array::aggregate_fn::fns::first::First
@@ -321,6 +327,8 @@ pub fn vortex_array::aggregate_fn::fns::first::First::serialize(&self, &Self::Op
 pub fn vortex_array::aggregate_fn::fns::first::First::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::first::First::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::fns::first::First::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
 
 pub struct vortex_array::aggregate_fn::fns::first::FirstPartial
 
@@ -384,6 +392,8 @@ pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::to_scalar(&self
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
+pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
 pub struct vortex_array::aggregate_fn::fns::is_constant::IsConstantPartial
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::is_constant(&vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
@@ -441,6 +451,8 @@ pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::serialize(&self, &S
 pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
 
 pub struct vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions
 
@@ -533,6 +545,8 @@ pub fn vortex_array::aggregate_fn::fns::last::Last::serialize(&self, &Self::Opti
 pub fn vortex_array::aggregate_fn::fns::last::Last::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::last::Last::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::fns::last::Last::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
 
 pub struct vortex_array::aggregate_fn::fns::last::LastPartial
 
@@ -634,6 +648,8 @@ pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::to_scalar(&self, &Self:
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
 pub struct vortex_array::aggregate_fn::fns::min_max::MinMaxPartial
 
 pub struct vortex_array::aggregate_fn::fns::min_max::MinMaxResult
@@ -714,6 +730,8 @@ pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::to_scalar(&self, &S
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
+pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
 pub fn vortex_array::aggregate_fn::fns::nan_count::nan_count(&vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<usize>
 
 pub mod vortex_array::aggregate_fn::fns::sum
@@ -778,6 +796,8 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::to_scalar(&self, &Self::Partia
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
 pub struct vortex_array::aggregate_fn::fns::sum::SumPartial
 
 pub fn vortex_array::aggregate_fn::fns::sum::sum(&vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
@@ -829,6 +849,8 @@ pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::Uncompressed
 pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
 
 pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes(&vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<usize>
 
@@ -1088,6 +1110,8 @@ pub fn vortex_array::aggregate_fn::AggregateFnVTable::to_scalar(&self, &Self::Pa
 
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
+pub fn vortex_array::aggregate_fn::AggregateFnVTable::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct
 
 pub type vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::Options = vortex_array::aggregate_fn::EmptyOptions
@@ -1123,6 +1147,8 @@ pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::serial
 pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::count::Count
 
@@ -1160,6 +1186,8 @@ pub fn vortex_array::aggregate_fn::fns::count::Count::to_scalar(&self, &Self::Pa
 
 pub fn vortex_array::aggregate_fn::fns::count::Count::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
+pub fn vortex_array::aggregate_fn::fns::count::Count::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::first::First
 
 pub type vortex_array::aggregate_fn::fns::first::First::Options = vortex_array::aggregate_fn::EmptyOptions
@@ -1195,6 +1223,8 @@ pub fn vortex_array::aggregate_fn::fns::first::First::serialize(&self, &Self::Op
 pub fn vortex_array::aggregate_fn::fns::first::First::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::first::First::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::fns::first::First::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::is_constant::IsConstant
 
@@ -1232,6 +1262,8 @@ pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::to_scalar(&self
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
+pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::is_sorted::IsSorted
 
 pub type vortex_array::aggregate_fn::fns::is_sorted::IsSorted::Options = vortex_array::aggregate_fn::fns::is_sorted::IsSortedOptions
@@ -1267,6 +1299,8 @@ pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::serialize(&self, &S
 pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::last::Last
 
@@ -1304,6 +1338,8 @@ pub fn vortex_array::aggregate_fn::fns::last::Last::to_scalar(&self, &Self::Part
 
 pub fn vortex_array::aggregate_fn::fns::last::Last::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
+pub fn vortex_array::aggregate_fn::fns::last::Last::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::min_max::MinMax
 
 pub type vortex_array::aggregate_fn::fns::min_max::MinMax::Options = vortex_array::aggregate_fn::EmptyOptions
@@ -1339,6 +1375,8 @@ pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::serialize(&self, &Self:
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::nan_count::NanCount
 
@@ -1376,6 +1414,8 @@ pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::to_scalar(&self, &S
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
+pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::sum::Sum
 
 pub type vortex_array::aggregate_fn::fns::sum::Sum::Options = vortex_array::aggregate_fn::EmptyOptions
@@ -1411,6 +1451,8 @@ pub fn vortex_array::aggregate_fn::fns::sum::Sum::serialize(&self, &Self::Option
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::fns::sum::Sum::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
 
 impl vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
 
@@ -1448,6 +1490,8 @@ pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::Uncompressed
 
 pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
 
+pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
+
 impl<T: vortex_array::aggregate_fn::combined::BinaryCombined> vortex_array::aggregate_fn::AggregateFnVTable for vortex_array::aggregate_fn::combined::Combined<T>
 
 pub type vortex_array::aggregate_fn::combined::Combined<T>::Options = vortex_array::aggregate_fn::combined::PairOptions<<<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Left as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <<T as vortex_array::aggregate_fn::combined::BinaryCombined>::Right as vortex_array::aggregate_fn::AggregateFnVTable>::Options>
@@ -1483,6 +1527,8 @@ pub fn vortex_array::aggregate_fn::combined::Combined<T>::serialize(&self, &Self
 pub fn vortex_array::aggregate_fn::combined::Combined<T>::to_scalar(&self, &Self::Partial) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::aggregate_fn::combined::Combined<T>::try_accumulate(&self, &mut Self::Partial, &vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<bool>
+
+pub fn vortex_array::aggregate_fn::combined::Combined<T>::try_partial_from_stats(&self, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
 
 pub trait vortex_array::aggregate_fn::AggregateFnVTableExt: vortex_array::aggregate_fn::AggregateFnVTable
 
