@@ -25182,6 +25182,10 @@ impl vortex_array::Executable for vortex_array::arrays::VarBinViewArray
 
 pub fn vortex_array::arrays::VarBinViewArray::execute(vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
+impl vortex_array::Executable for vortex_array::arrays::VariantArray
+
+pub fn vortex_array::arrays::VariantArray::execute(vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
+
 impl vortex_array::Executable for vortex_array::arrays::null::NullArray
 
 pub fn vortex_array::arrays::null::NullArray::execute(vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
