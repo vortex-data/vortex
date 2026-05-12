@@ -11,6 +11,7 @@ use futures::stream::BoxStream;
 use object_store::CopyOptions;
 use object_store::GetOptions;
 use object_store::GetResult;
+use object_store::GetResultPayload;
 use object_store::ListResult;
 use object_store::MultipartUpload;
 use object_store::ObjectMeta;
@@ -56,7 +57,15 @@ impl<T: ObjectStore> ObjectStore for Compat<T> {
     }
 
     async fn get_opts(&self, location: &Path, options: GetOptions) -> Result<GetResult> {
-        Compat::new(self.inner().get_opts(location, options)).await
+        let mut result = Compat::new(self.inner().get_opts(location, options)).await?;
+        result.payload = match result.payload {
+            GetResultPayload::Stream(stream) => {
+                GetResultPayload::Stream(Compat::new(stream).boxed())
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            GetResultPayload::File(file, path) => GetResultPayload::File(file, path),
+        };
+        Ok(result)
     }
 
     async fn get_ranges(&self, location: &Path, ranges: &[Range<u64>]) -> Result<Vec<Bytes>> {
