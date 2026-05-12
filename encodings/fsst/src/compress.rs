@@ -69,8 +69,12 @@ where
     I: Iterator<Item = Option<&'a [u8]>>,
 {
     let mut buffer = Vec::with_capacity(DEFAULT_BUFFER_LEN);
-    let mut builder = VarBinBuilder::<i32>::with_capacity(len);
+
+    // Offsets are widened to i64 because the cumulative compressed bytes can exceed i32::MAX for
+    // large inputs (see issue #7833). Per-string sizes still fit in i32.
+    let mut builder = VarBinBuilder::<i64>::with_capacity(len);
     let mut uncompressed_lengths: BufferMut<i32> = BufferMut::with_capacity(len);
+
     for string in iter {
         match string {
             None => {
