@@ -401,25 +401,3 @@ fn take_filter_struct_large_random_mask_random_indices(
 
     bench_take_filter(bencher, array, indices);
 }
-
-#[divan::bench(args = LARGE_TAKE_CASES)]
-fn take_filter_list_large_random_mask_random_indices(
-    bencher: Bencher,
-    (filtered_len, num_indices): (usize, usize),
-) {
-    let array = list_array().filter(random_mask(filtered_len)).unwrap();
-    let indices = random_indices(num_indices, filtered_len);
-
-    bench_take_filter(bencher, array, indices);
-}
-
-#[divan::bench(args = LARGE_TAKE_CASES)]
-fn take_filter_string_large_random_mask_random_indices(
-    bencher: Bencher,
-    (filtered_len, num_indices): (usize, usize),
-) {
-    let array = string_array().filter(random_mask(filtered_len)).unwrap();
-    let indices = random_indices(num_indices, filtered_len);
-
-    bench_take_filter(bencher, array, indices);
-}
