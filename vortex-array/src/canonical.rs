@@ -543,8 +543,7 @@ impl Executable for Canonical {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let result = array.execute_until::<AnyCanonical>(ctx)?;
         Ok(result
-            .as_opt::<AnyCanonical>()
-            .map(Canonical::from)
+            .try_into_matched::<AnyCanonical>()
             .vortex_expect("execute_until::<AnyCanonical> must return a canonical array"))
     }
 }

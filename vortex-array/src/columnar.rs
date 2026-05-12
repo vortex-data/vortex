@@ -72,16 +72,9 @@ impl IntoArray for Columnar {
 impl Executable for Columnar {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let result = array.execute_until::<AnyColumnar>(ctx)?;
-        if let Some(constant) = result.as_opt::<Constant>() {
-            Ok(Columnar::Constant(constant.into_owned()))
-        } else {
-            Ok(Columnar::Canonical(
-                result
-                    .as_opt::<AnyCanonical>()
-                    .map(Canonical::from)
-                    .vortex_expect("execute_until::<AnyColumnar> must return a columnar array"),
-            ))
-        }
+        Ok(result
+            .try_into_matched::<AnyColumnar>()
+            .vortex_expect("execute_until::<AnyColumnar> must return a columnar array"))
     }
 }
 

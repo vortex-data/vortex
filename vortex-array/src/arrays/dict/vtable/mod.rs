@@ -190,11 +190,10 @@ impl VTable for Dict {
 
         let DictParts { values, codes, .. } = array.into_parts();
 
-        Ok(ExecutionResult::done(take_canonical(
-            values.as_::<AnyCanonical>(),
-            &codes.downcast::<Primitive>(),
-            ctx,
-        )?))
+        let codes = codes.downcast::<Primitive>();
+        let values = values.into_::<AnyCanonical>();
+
+        Ok(ExecutionResult::done(take_canonical(values, &codes, ctx)?))
     }
 
     fn reduce_parent(

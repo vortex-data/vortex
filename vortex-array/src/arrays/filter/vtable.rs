@@ -17,7 +17,6 @@ use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
@@ -155,8 +154,7 @@ impl VTable for Filter {
 
         // We rely on the optimization pass that runs prior to this execution for filter pushdown,
         // so now we can just execute the filter without worrying.
-        // TODO(joe): fix the ownership of AnyCanonical
-        let child = Canonical::from(array.child().as_::<AnyCanonical>());
+        let child = array.child().clone().into_::<AnyCanonical>();
         Ok(ExecutionResult::done(
             execute_filter(child, &mask_values).into_array(),
         ))

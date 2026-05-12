@@ -19,7 +19,6 @@ use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::Precision;
@@ -178,7 +177,7 @@ impl VTable for Masked {
         // While we could manually convert the dtype, `mask_validity_canonical` is already O(1) for
         // `AllTrue` masks (no data copying), so there's no benefit.
 
-        let child = Canonical::from(array.child().as_::<AnyCanonical>());
+        let child = array.child().clone().into_::<AnyCanonical>();
         Ok(ExecutionResult::done(
             mask_validity_canonical(child, validity, ctx)?.into_array(),
         ))
