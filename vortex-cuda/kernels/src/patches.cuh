@@ -56,23 +56,33 @@ public:
             return;
         }
 
-        // mirrors the logic from vortex-array/src/arrays/primitive/array/patch.rs
+        if (chunk >= patches.n_chunks) {
+            indices = nullptr;
+            values = nullptr;
+            remaining = 0;
+            return;
+        }
 
-        // Compute base_offset from the first chunk offset.
-        uint32_t base_offset = load_chunk_offset(patches, 0);
+        const uint32_t indices_base = patches.indices_base == PATCH_DERIVE_INDICES_BASE
+                                          ? load_chunk_offset(patches, 0) + patches.offset_within_chunk
+                                          : patches.indices_base;
 
-        uint32_t patches_start_idx = load_chunk_offset(patches, chunk) - base_offset;
-        patches_start_idx -= min(patches_start_idx, patches.offset_within_chunk);
+        // Convert chunk_offsets entries into offsets within indices/values.
+        // Ordinary sliced patches derive the base from the first chunk offset;
+        // chunk-offset-only sliced views provide it explicitly.
+        uint32_t patches_start_idx = load_chunk_offset(patches, chunk);
+        patches_start_idx = (patches_start_idx > indices_base) ? patches_start_idx - indices_base : 0;
 
         // calculate the ending index.
         uint32_t patches_end_idx;
         if ((chunk + 1) < patches.n_chunks) {
-            patches_end_idx = load_chunk_offset(patches, chunk + 1) - base_offset;
-            // if this is the end of times, we should drop it out here...
-            patches_end_idx -= min(patches_end_idx, patches.offset_within_chunk);
+            patches_end_idx = load_chunk_offset(patches, chunk + 1);
+            patches_end_idx = (patches_end_idx > indices_base) ? patches_end_idx - indices_base : 0;
         } else {
             patches_end_idx = patches.num_patches;
         }
+        patches_end_idx = min(patches_end_idx, patches.num_patches);
+        patches_end_idx = max(patches_end_idx, patches_start_idx);
 
         // calculate how many patches are in the chunk
         uint32_t num_patches = patches_end_idx - patches_start_idx;

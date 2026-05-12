@@ -171,9 +171,6 @@ scalar_op(T *values, const struct ScalarOp &op, char *__restrict smem, uint64_t 
         // straddle two FL chunks, so each value needs its own lookup.
         if (op.params.alp.patches_ptr != 0) {
             const auto &patches = *reinterpret_cast<const GPUPatches *>(op.params.alp.patches_ptr);
-            // The sliced chunk_offsets array starts at original chunk
-            // (offset / FL_CHUNK). PatchesCursor indexes from 0, so
-            // subtract that base to get the index into chunk_offsets.
             const uint32_t chunk_start = patches.offset / FL_CHUNK;
 #pragma unroll
             for (uint32_t i = 0; i < N; ++i) {
