@@ -399,6 +399,36 @@ jobs:
       - run: ./gradlew test --parallel
         working-directory: ./java
 
+  go:
+    name: "Go"
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=amd64-medium/image=ubuntu24-full-x64-pre-v2/tag=go', github.run_id)
+          || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - uses: runs-on/action@v2
+        if: github.repository == 'vortex-data/vortex'
+        with:
+          sccache: s3
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - uses: ./.github/actions/setup-prebuild
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
+        with:
+          go-version-file: lang/go/go.mod
+          cache-dependency-path: lang/go/go.sum
+      - name: Build Vortex FFI library
+        run: cargo build --profile ci -p vortex-ffi
+      - name: Go Lint
+        run: make lint
+        working-directory: ./lang/go
+      - name: Go Build
+        run: go build ./...
+        working-directory: ./lang/go
+      - name: Go Test
+        run: go test ./...
+        working-directory: ./lang/go
+
   license-check-and-audit-check:
     name: License Check and Audit Check
     runs-on: ubuntu-latest
