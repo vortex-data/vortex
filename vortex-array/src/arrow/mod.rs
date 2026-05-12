@@ -12,7 +12,6 @@ mod datum;
 mod executor;
 mod iter;
 mod null_buffer;
-mod record_batch;
 mod session;
 
 pub(crate) use convert::nulls;

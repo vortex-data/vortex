@@ -252,7 +252,7 @@ impl DType {
             } else {
                 Field::new(
                     field_name.as_ref(),
-                    field_dtype.to_arrow_dtype()?,
+                    to_data_type_naive(&field_dtype)?,
                     field_dtype.is_nullable(),
                 )
             };
@@ -269,102 +269,110 @@ impl DType {
     /// outside the builtin temporal set will fail or silently lose its
     /// `ARROW:extension:name` metadata. The session methods recurse through containers
     /// and dispatch plugins at every extension node.
+    #[deprecated(note = "Use `ArrowSession::to_arrow_datatype` instead")]
     pub fn to_arrow_dtype(&self) -> VortexResult<DataType> {
-        Ok(match self {
-            DType::Null => DataType::Null,
-            DType::Bool(_) => DataType::Boolean,
-            DType::Primitive(ptype, _) => match ptype {
-                PType::U8 => DataType::UInt8,
-                PType::U16 => DataType::UInt16,
-                PType::U32 => DataType::UInt32,
-                PType::U64 => DataType::UInt64,
-                PType::I8 => DataType::Int8,
-                PType::I16 => DataType::Int16,
-                PType::I32 => DataType::Int32,
-                PType::I64 => DataType::Int64,
-                PType::F16 => DataType::Float16,
-                PType::F32 => DataType::Float32,
-                PType::F64 => DataType::Float64,
-            },
-            DType::Decimal(dt, _) => {
-                let precision = dt.precision();
-                let scale = dt.scale();
-
-                match precision {
-                    // This code is commented out until DataFusion improves its support for smaller decimals.
-                    // // DECIMAL32_MAX_PRECISION
-                    // 0..=9 => DataType::Decimal32(precision, scale),
-                    // // DECIMAL64_MAX_PRECISION
-                    // 10..=18 => DataType::Decimal64(precision, scale),
-                    // DECIMAL128_MAX_PRECISION
-                    0..=38 => DataType::Decimal128(precision, scale),
-                    // DECIMAL256_MAX_PRECISION
-                    39.. => DataType::Decimal256(precision, scale),
-                }
-            }
-            DType::Utf8(_) => DataType::Utf8View,
-            DType::Binary(_) => DataType::BinaryView,
-            // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
-            // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
-            // Arrow dtype because we do not how large our offsets are.
-            DType::List(elem_dtype, _) => DataType::List(FieldRef::new(Field::new_list_field(
-                elem_dtype.to_arrow_dtype()?,
-                elem_dtype.nullability().into(),
-            ))),
-            DType::FixedSizeList(elem_dtype, size, _) => DataType::FixedSizeList(
-                FieldRef::new(Field::new_list_field(
-                    elem_dtype.to_arrow_dtype()?,
-                    elem_dtype.nullability().into(),
-                )),
-                *size as i32,
-            ),
-            DType::Struct(struct_dtype, _) => {
-                let mut fields = Vec::with_capacity(struct_dtype.names().len());
-                for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.fields())
-                {
-                    fields.push(FieldRef::from(Field::new(
-                        field_name.as_ref(),
-                        field_dt.to_arrow_dtype()?,
-                        field_dt.is_nullable(),
-                    )));
-                }
-
-                DataType::Struct(Fields::from(fields))
-            }
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            DType::Variant(_) => vortex_bail!(
-                "DType::Variant requires Arrow Field metadata; use to_arrow_schema or a Field helper"
-            ),
-            DType::Extension(ext_dtype) => {
-                // Try and match against the known extension DTypes.
-                if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
-                    return Ok(match temporal {
-                        TemporalMetadata::Timestamp(unit, tz) => {
-                            DataType::Timestamp(ArrowTimeUnit::try_from(*unit)?, tz.clone())
-                        }
-                        TemporalMetadata::Date(unit) => match unit {
-                            TimeUnit::Days => DataType::Date32,
-                            TimeUnit::Milliseconds => DataType::Date64,
-                            TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
-                                vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
-                            }
-                        },
-                        TemporalMetadata::Time(unit) => match unit {
-                            TimeUnit::Seconds => DataType::Time32(ArrowTimeUnit::Second),
-                            TimeUnit::Milliseconds => DataType::Time32(ArrowTimeUnit::Millisecond),
-                            TimeUnit::Microseconds => DataType::Time64(ArrowTimeUnit::Microsecond),
-                            TimeUnit::Nanoseconds => DataType::Time64(ArrowTimeUnit::Nanosecond),
-                            TimeUnit::Days => {
-                                vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
-                            }
-                        },
-                    });
-                };
-
-                vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id())
-            }
-        })
+        to_data_type_naive(self)
     }
+}
+
+/// Naive conversion from a Vortex `DType` to the nearest Arrow physical data type.
+pub(crate) fn to_data_type_naive(dtype: &DType) -> VortexResult<DataType> {
+    Ok(match dtype {
+        DType::Null => DataType::Null,
+        DType::Bool(_) => DataType::Boolean,
+        DType::Primitive(ptype, _) => match ptype {
+            PType::U8 => DataType::UInt8,
+            PType::U16 => DataType::UInt16,
+            PType::U32 => DataType::UInt32,
+            PType::U64 => DataType::UInt64,
+            PType::I8 => DataType::Int8,
+            PType::I16 => DataType::Int16,
+            PType::I32 => DataType::Int32,
+            PType::I64 => DataType::Int64,
+            PType::F16 => DataType::Float16,
+            PType::F32 => DataType::Float32,
+            PType::F64 => DataType::Float64,
+        },
+        DType::Decimal(dt, _) => {
+            let precision = dt.precision();
+            let scale = dt.scale();
+
+            match precision {
+                // This code is commented out until DataFusion improves its support for smaller decimals.
+                // // DECIMAL32_MAX_PRECISION
+                // 0..=9 => DataType::Decimal32(precision, scale),
+                // // DECIMAL64_MAX_PRECISION
+                // 10..=18 => DataType::Decimal64(precision, scale),
+                // DECIMAL128_MAX_PRECISION
+                0..=38 => DataType::Decimal128(precision, scale),
+                // DECIMAL256_MAX_PRECISION
+                39.. => DataType::Decimal256(precision, scale),
+            }
+        }
+        DType::Utf8(_) => DataType::Utf8View,
+        DType::Binary(_) => DataType::BinaryView,
+        // There are four kinds of lists: List (32-bit offsets), Large List (64-bit), List View
+        // (32-bit), Large List View (64-bit). We cannot both guarantee zero-copy and commit to an
+        // Arrow dtype because we do not how large our offsets are.
+        DType::List(elem_dtype, _) => DataType::List(FieldRef::new(Field::new_list_field(
+            to_data_type_naive(elem_dtype)?,
+            elem_dtype.nullability().into(),
+        ))),
+        DType::FixedSizeList(elem_dtype, size, _) => DataType::FixedSizeList(
+            FieldRef::new(Field::new_list_field(
+                to_data_type_naive(elem_dtype)?,
+                elem_dtype.nullability().into(),
+            )),
+            *size as i32,
+        ),
+        DType::Struct(struct_dtype, _) => {
+            let mut fields = Vec::with_capacity(struct_dtype.names().len());
+            for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
+                fields.push(FieldRef::from(Field::new(
+                    field_name.as_ref(),
+                    to_data_type_naive(&field_dt)?,
+                    field_dt.is_nullable(),
+                )));
+            }
+
+            DataType::Struct(Fields::from(fields))
+        }
+        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Variant(_) => vortex_bail!(
+            "DType::Variant requires Arrow Field metadata; use to_arrow_schema or a Field helper"
+        ),
+        DType::Extension(ext_dtype) => {
+            // NOTE: Temporal are the only builtin and default-loaded extension types, and they map
+            // directly onto non-extension Arrow physical encodings. For this reason, we
+            // choose to special-case them as part of this function rather than implementing them
+            // as an import/export VTable.
+            if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
+                return Ok(match temporal {
+                    TemporalMetadata::Timestamp(unit, tz) => {
+                        DataType::Timestamp(ArrowTimeUnit::try_from(*unit)?, tz.clone())
+                    }
+                    TemporalMetadata::Date(unit) => match unit {
+                        TimeUnit::Days => DataType::Date32,
+                        TimeUnit::Milliseconds => DataType::Date64,
+                        TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
+                            vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
+                        }
+                    },
+                    TemporalMetadata::Time(unit) => match unit {
+                        TimeUnit::Seconds => DataType::Time32(ArrowTimeUnit::Second),
+                        TimeUnit::Milliseconds => DataType::Time32(ArrowTimeUnit::Millisecond),
+                        TimeUnit::Microseconds => DataType::Time64(ArrowTimeUnit::Microsecond),
+                        TimeUnit::Nanoseconds => DataType::Time64(ArrowTimeUnit::Nanosecond),
+                        TimeUnit::Days => {
+                            vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
+                        }
+                    },
+                });
+            };
+
+            vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id())
+        }
+    })
 }
 
 fn variant_storage_fields_minimal() -> Fields {
@@ -376,6 +384,7 @@ fn variant_storage_fields_minimal() -> Fields {
 
 #[cfg(test)]
 mod test {
+    #![expect(deprecated, reason = "tests for deprecated methods")]
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use arrow_schema::FieldRef;

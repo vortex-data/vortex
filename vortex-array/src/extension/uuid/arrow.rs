@@ -33,11 +33,11 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::extension::ExtensionArrayExt;
-use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::ArrowExport;
 use crate::arrow::ArrowExportVTable;
 use crate::arrow::ArrowImport;
 use crate::arrow::ArrowImportVTable;
+use crate::arrow::ArrowSessionExt;
 use crate::arrow::nulls;
 use crate::buffer::BufferHandle;
 use crate::dtype::DType;
@@ -64,6 +64,7 @@ impl ArrowExportVTable for Uuid {
         Uuid.id()
     }
 
+    // Encode all of these.
     fn to_arrow_field(&self, name: &str, dtype: &ExtDTypeRef) -> VortexResult<Option<Field>> {
         let mut field = Field::new(
             name.to_string(),
@@ -155,7 +156,17 @@ fn try_fsl_to_fsb(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Arrow
         Arc::new(Field::new("item", DataType::UInt8, false)),
         UUID_BYTE_LEN,
     );
-    let arrow_storage = storage.execute_arrow(Some(&storage_arrow_type), ctx)?;
+
+    let storage_field = Field::new(
+        String::new(),
+        storage_arrow_type,
+        storage.dtype().is_nullable(),
+    );
+
+    let session = ctx.session().clone();
+    let arrow_storage = session
+        .arrow()
+        .execute_arrow(storage, Some(&storage_field), ctx)?;
 
     let fsl = arrow_storage.as_fixed_size_list();
     let bytes = fsl

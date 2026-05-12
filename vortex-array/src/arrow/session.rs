@@ -33,6 +33,8 @@ use arrow_schema::Field;
 use arrow_schema::Schema;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use arrow_schema::extension::ExtensionType;
+use tracing::debug;
+use tracing::trace;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::Ref;
@@ -46,13 +48,14 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrow::FromArrowArray;
-use crate::arrow::executor::canonical_execute_arrow;
+use crate::arrow::executor::execute_arrow_naive;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::StructFields;
 use crate::dtype::arrow::FromArrowType;
+use crate::dtype::arrow::to_data_type_naive;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
 use crate::extension::uuid::Uuid;
@@ -278,7 +281,7 @@ impl ArrowSession {
                 }
                 match data_type {
                     Some(dt) => dt,
-                    None => dtype.to_arrow_dtype()?,
+                    None => to_data_type_naive(dtype)?,
                 }
             }
             DType::List(elem, _) => DataType::List(Arc::new(self.to_arrow_field("item", elem)?)),
@@ -292,7 +295,8 @@ impl ArrowSession {
                 }
                 DataType::Struct(fields.into())
             }
-            _ => dtype.to_arrow_dtype()?,
+            // Fallback,
+            _ => to_data_type_naive(dtype)?,
         })
     }
 
@@ -407,46 +411,55 @@ impl ArrowSession {
 
     /// Execute a Vortex array into an Arrow array.
     ///
-    /// If `target` carries an `ARROW:extension:name`, the matching export plugin runs. If no
-    /// plugin matches (or all return [`ArrowExport::Unsupported`]), falls back to the
-    /// canonical Vortex → Arrow path. With `target = None` the canonical path picks the
-    /// array's preferred Arrow type.
+    /// If `target` carries an `ARROW:extension:name`, the plugin registry is probed for one that
+    /// can support executing to the target extension type.
+    ///
+    /// With `target = None` the fallback path picks the array's preferred Arrow physical type
+    /// and executes directly into that, ignoring extension types.
     pub fn execute_arrow(
         &self,
         array: ArrayRef,
         target: Option<&Field>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
-        let Some(target_field) = target else {
-            return canonical_execute_arrow(array, None, ctx);
-        };
-        let Some(arrow_ext_name) = target_field.metadata().get(EXTENSION_TYPE_NAME_KEY) else {
-            return canonical_execute_arrow(array, Some(target_field.data_type()), ctx);
-        };
+        if let Some(target_field) = target
+            && let Some(arrow_ext_name) = target_field.metadata().get(EXTENSION_TYPE_NAME_KEY)
+        {
+            // There can be multiple plugins that report support for a particular extension type.
+            // We try them in order until one of them reports a successful conversion.
+            let len = array.len();
+            let mut current = array;
 
-        let exporters = self.exporters(&Id::new(arrow_ext_name));
-        if exporters.is_empty() {
-            return canonical_execute_arrow(array, Some(target_field.data_type()), ctx);
-        }
+            for plugin in self.exporters(&Id::new(arrow_ext_name)).iter() {
+                trace!(
+                    plugin = ?plugin,
+                    extension_name = arrow_ext_name,
+                    "probing plugin for converting Arrow array"
+                );
 
-        let len = array.len();
-        let mut current = array;
-        for plugin in exporters.iter() {
-            match plugin.execute_arrow(current, target_field, ctx)? {
-                ArrowExport::Exported(arrow) => {
-                    vortex_ensure!(
-                        arrow.len() == len,
-                        "Arrow array length does not match Vortex array length after conversion to {:?}",
-                        arrow
-                    );
-                    return Ok(arrow);
+                match plugin.execute_arrow(current, target_field, ctx)? {
+                    ArrowExport::Exported(arrow) => {
+                        vortex_ensure!(
+                            arrow.len() == len,
+                            "Arrow array length does not match Vortex array length after conversion to {:?}",
+                            arrow
+                        );
+                        return Ok(arrow);
+                    }
+                    ArrowExport::Unsupported(array) => current = array,
                 }
-                ArrowExport::Unsupported(array) => current = array,
             }
+
+            debug!(
+                extension_id = arrow_ext_name,
+                data_type = ?target_field.data_type(),
+                "unsupported Arrow extension type encountered, falling back to naive execution"
+            );
+
+            return execute_arrow_naive(current, Some(target_field.data_type()), ctx);
         }
 
-        // Fallback to canonical execution path
-        canonical_execute_arrow(current, Some(target_field.data_type()), ctx)
+        execute_arrow_naive(array, target.map(|field| field.data_type()), ctx)
     }
 
     /// Decode an Arrow array into a Vortex array.
@@ -623,7 +636,6 @@ mod tests {
     use super::*;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::arrow::ArrowArrayExecutor;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
     use crate::dtype::Nullability;
@@ -766,7 +778,11 @@ mod tests {
         )?);
 
         let vortex_array = session.from_arrow_array(arrow_array, &field)?;
-        let exported = vortex_array.execute_arrow(None, &mut ctx)?;
+
+        let vortex_ext = vortex_array.dtype().as_extension();
+        assert!(vortex_ext.is::<Uuid>());
+
+        let exported = session.execute_arrow(vortex_array, None, &mut ctx)?;
         assert_eq!(exported.data_type(), &DataType::FixedSizeBinary(16));
         let fsb = exported.as_fixed_size_binary();
         assert_eq!(fsb.len(), 2);

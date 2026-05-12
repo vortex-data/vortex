@@ -1071,7 +1071,7 @@ mod test {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
-    use crate::arrow::ArrowArrayExecutor;
+    use crate::arrow::ArrowSessionExt;
     use crate::arrow::FromArrowArray;
     use crate::canonical::StructArray;
 
@@ -1097,9 +1097,9 @@ mod test {
         ])
         .unwrap();
 
-        let arrow_struct = nested_struct_array
-            .into_array()
-            .execute_arrow(None, &mut ctx)
+        let arrow_struct = LEGACY_SESSION
+            .arrow()
+            .execute_arrow(nested_struct_array.into_array(), None, &mut ctx)
             .unwrap()
             .as_any()
             .downcast_ref::<ArrowStructArray>()
@@ -1167,14 +1167,11 @@ mod test {
         );
 
         let vortex_struct = ArrayRef::from_arrow(&arrow_struct, true).unwrap();
-
-        assert_eq!(
-            &arrow_struct,
-            vortex_struct
-                .execute_arrow(None, &mut ctx)
-                .unwrap()
-                .as_struct()
-        );
+        let vortex_struct = LEGACY_SESSION
+            .arrow()
+            .execute_arrow(vortex_struct, None, &mut ctx)
+            .unwrap();
+        assert_eq!(&arrow_struct, vortex_struct.as_struct());
     }
 
     #[test]
@@ -1193,11 +1190,13 @@ mod test {
             None,
         );
         let list_data_type = arrow_list.data_type();
+        let list_field = Field::new(String::new(), list_data_type.clone(), true);
 
         let vortex_list = ArrayRef::from_arrow(&arrow_list, true).unwrap();
 
-        let rt_arrow_list = vortex_list
-            .execute_arrow(Some(list_data_type), &mut ctx)
+        let rt_arrow_list = LEGACY_SESSION
+            .arrow()
+            .execute_arrow(vortex_list, Some(&list_field), &mut ctx)
             .unwrap();
 
         assert_eq!(

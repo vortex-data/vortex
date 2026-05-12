@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![expect(
+    deprecated,
+    reason = "This module defines and implements a deprecated trait `ArrowArrayExecutor`"
+)]
+
 pub mod bool;
 mod byte;
 pub mod byte_view;
@@ -25,6 +30,7 @@ use arrow_schema::Field;
 use arrow_schema::FieldRef;
 use arrow_schema::Schema;
 use itertools::Itertools;
+use vortex_array::dtype::arrow::to_data_type_naive;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -55,11 +61,13 @@ use crate::dtype::PType;
 use crate::executor::ExecutionCtx;
 
 /// Trait for executing a Vortex array to produce an Arrow array.
+#[deprecated(note = "Use an `ArrowSession` to perform conversions to/from Arrow arrays")]
 pub trait ArrowArrayExecutor: Sized {
     /// Execute the array to produce an Arrow array.
     ///
     /// If a [`DataType`] is given, the array will be converted to the desired Arrow type.
     /// If `None`, the array's preferred (cheapest) Arrow type will be used.
+    #[deprecated(note = "Use an `ArrowSession` to perform conversions to/from Arrow arrays")]
     fn execute_arrow(
         self,
         data_type: Option<&DataType>,
@@ -67,6 +75,7 @@ pub trait ArrowArrayExecutor: Sized {
     ) -> VortexResult<ArrowArrayRef>;
 
     /// Execute the array to produce an Arrow `RecordBatch` with the given schema.
+    #[deprecated(note = "Use an `ArrowSession` to perform conversions to/from Arrow arrays")]
     fn execute_record_batch(
         self,
         schema: &Schema,
@@ -77,6 +86,7 @@ pub trait ArrowArrayExecutor: Sized {
     }
 
     /// Execute the array to produce Arrow `RecordBatch`'s with the given schema.
+    #[deprecated(note = "Use an `ArrowSession` to perform conversions to/from Arrow arrays")]
     fn execute_record_batches(
         self,
         schema: &Schema,
@@ -84,27 +94,15 @@ pub trait ArrowArrayExecutor: Sized {
     ) -> VortexResult<Vec<RecordBatch>>;
 }
 
+#[expect(deprecated, reason = "backward compatibility")]
 impl ArrowArrayExecutor for ArrayRef {
     fn execute_arrow(
         self,
         data_type: Option<&DataType>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
-        // Clone the session out of `ctx` to break the immutable borrow chain that prevents
-        // `ctx` from being passed back through to the session method.
+        let target = data_type.map(|dt| Field::new("", dt.clone(), self.dtype().is_nullable()));
         let session = ctx.session().clone();
-        let target = match data_type {
-            Some(dt) => Some(Field::new("", dt.clone(), self.dtype().is_nullable())),
-            // No target supplied: if the source dtype tree contains any Vortex extension,
-            // synthesize a Field via session-aware inference so registered plugins run and
-            // ARROW:extension:name metadata is preserved end-to-end. For non-extension
-            // trees we leave target as None so canonical preferred-type logic (e.g.
-            // VarBin → Utf8 instead of Utf8View) keeps running.
-            None if dtype_has_extension(self.dtype()) => {
-                Some(session.arrow().to_arrow_field("", self.dtype())?)
-            }
-            None => None,
-        };
         session.arrow().execute_arrow(self, target.as_ref(), ctx)
     }
 
@@ -119,12 +117,12 @@ impl ArrowArrayExecutor for ArrayRef {
     }
 }
 
-/// Canonical Vortex → Arrow conversion, dispatched by Arrow [`DataType`].
+/// Execute an arbitrary Vortex array into an Arrow array, dispatched by [`DataType`]. This pathway
+/// is naive to any extension type information, and only seeks to map canonical Vortex arrays to
+/// some target Arrow physical encoding.
 ///
-/// This is the fallback path used by [`crate::arrow::ArrowSession::execute_arrow`] when no
-/// extension plugin matches. Callers normally go through the session; this is `pub(crate)`
-/// purely so the session can hand off after its own dispatch.
-pub(crate) fn canonical_execute_arrow(
+/// Public callers should go through the `ArrowSession` instead.
+pub(crate) fn execute_arrow_naive(
     array: ArrayRef,
     data_type: Option<&DataType>,
     ctx: &mut ExecutionCtx,
@@ -133,7 +131,7 @@ pub(crate) fn canonical_execute_arrow(
 
     let resolved_type: DataType = match data_type {
         Some(dt) => dt.clone(),
-        None => preferred_arrow_type(&array)?,
+        None => infer_nearest_arrow_type(&array)?,
     };
 
     let arrow = match &resolved_type {
@@ -217,7 +215,7 @@ pub(crate) fn canonical_execute_arrow(
 /// However, some encodings have cheaper Arrow representations:
 /// - `VarBinArray`: Uses `Utf8`/`Binary` (offset-based) instead of `Utf8View`/`BinaryView`
 /// - `ListArray`: Uses `List` instead of `ListView`
-fn preferred_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
+fn infer_nearest_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
     // VarBinArray: use offset-based Binary/Utf8 instead of View types
     if let Some(varbin) = array.as_opt::<VarBin>() {
         let offsets_ptype = PType::try_from(varbin.offsets().dtype())?;
@@ -237,7 +235,7 @@ fn preferred_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
         let offsets_ptype = PType::try_from(list.offsets().dtype())?;
         let use_large = matches!(offsets_ptype, PType::I64 | PType::U64);
         // Recursively get the preferred type for elements
-        let elem_dtype = preferred_arrow_type(list.elements())?;
+        let elem_dtype = infer_nearest_arrow_type(list.elements())?;
         let field = FieldRef::new(Field::new_list_field(
             elem_dtype,
             list.elements().dtype().is_nullable(),
@@ -251,19 +249,5 @@ fn preferred_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
     }
 
     // Everything else: use canonical dtype conversion
-    array.dtype().to_arrow_dtype()
-}
-
-/// Recursively check whether a dtype tree contains a [`DType::Extension`] node.
-///
-/// Used by the executor entry to decide whether to synthesize a session-aware target
-/// [`Field`] (so plugins run + extension metadata survives) or to fall through to the
-/// canonical `preferred_arrow_type` path.
-fn dtype_has_extension(dtype: &DType) -> bool {
-    match dtype {
-        DType::Extension(_) => true,
-        DType::List(elem, _) | DType::FixedSizeList(elem, ..) => dtype_has_extension(elem),
-        DType::Struct(fields, _) => fields.fields().any(|f| dtype_has_extension(&f)),
-        _ => false,
-    }
+    to_data_type_naive(array.dtype())
 }
