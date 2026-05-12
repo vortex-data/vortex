@@ -19,6 +19,7 @@ categories = { workspace = true }
 [dependencies]
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-schema = { workspace = true }
+async-fs = { workspace = true }
 futures = { workspace = true }
 jni = { workspace = true }
 object_store = { workspace = true, features = ["aws", "azure", "gcp"] }

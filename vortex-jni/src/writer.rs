@@ -6,12 +6,14 @@
 //! Writes go through an in-flight queue of at most [`WRITE_CHANNEL_CAPACITY`] pending
 //! batches on the same thread that drives the current-thread runtime.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use arrow_array::RecordBatch;
 use arrow_array::StructArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::FFI_ArrowSchema;
+use async_fs::File;
 use futures::SinkExt;
 use futures::channel::mpsc;
 use jni::EnvUnowned;
@@ -22,7 +24,8 @@ use jni::sys::JNI_FALSE;
 use jni::sys::JNI_TRUE;
 use jni::sys::jboolean;
 use jni::sys::jlong;
-use object_store::path::Path;
+use object_store::ObjectStore;
+use object_store::path::Path as ObjectStorePath;
 use url::Url;
 use vortex::array::ArrayRef;
 use vortex::array::arrow::FromArrowArray;
@@ -51,6 +54,40 @@ use crate::session::session_ref;
 /// Capacity of the in-flight write queue. Small on purpose so that back-pressure from
 /// the writer is felt on the Java thread producing batches.
 const WRITE_CHANNEL_CAPACITY: usize = 4;
+
+enum WriteTarget {
+    Local(PathBuf),
+    ObjectStore {
+        store: Arc<dyn ObjectStore>,
+        path: ObjectStorePath,
+    },
+}
+
+fn resolve_write_target(
+    uri: &str,
+    properties: &HashMap<String, String>,
+) -> VortexResult<WriteTarget> {
+    match Url::parse(uri) {
+        Ok(url) if url.scheme() == "file" => {
+            let path = url
+                .to_file_path()
+                .map_err(|_| vortex_err!("invalid file URL: {uri}"))?;
+            return Ok(WriteTarget::Local(path));
+        }
+        Ok(url) if uri.contains("://") => {
+            let path = ObjectStorePath::from_url_path(url.path())
+                .map_err(|_| vortex_err!("invalid object_store path: {}", url.path()))?;
+            let store = make_object_store(&url, properties)?;
+            return Ok(WriteTarget::ObjectStore { store, path });
+        }
+        Err(err) if uri.contains("://") => {
+            return Err(vortex_err!("invalid URL {uri}: {err}"));
+        }
+        _ => {}
+    }
+
+    Ok(WriteTarget::Local(PathBuf::from(uri)))
+}
 
 /// Native writer holding a write-task handle and a sender that Java pushes batches into.
 pub struct NativeWriter {
@@ -136,21 +173,27 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         let write_schema = import_dtype_from_arrow(arrow_schema_addr)?;
 
         let file_path: String = uri.try_to_string(env)?;
-        let url = Url::parse(&file_path)
-            .map_err(|e| JNIError::Vortex(vortex_err!("invalid URL {file_path}: {e}")))?;
         let properties: HashMap<String, String> = extract_properties(env, &options)?;
-        let path = Path::from_url_path(url.path())
-            .map_err(|_| vortex_err!("invalid object_store path: {}", url.path()))?;
-
-        let store = make_object_store(&url, &properties)?;
+        let target = resolve_write_target(&file_path, &properties)?;
         let (tx, rx) = mpsc::channel(WRITE_CHANNEL_CAPACITY);
         let stream = ArrayStreamAdapter::new(write_schema.clone(), rx);
 
         let handle = session.handle().spawn(async move {
-            let mut write = ObjectStoreWrite::new(Arc::new(Compat::new(store)), &path).await?;
-            let summary = session.write_options().write(&mut write, stream).await?;
-            write.shutdown().await?;
-            Ok(summary)
+            match target {
+                WriteTarget::Local(path) => {
+                    let mut file = File::create(path).await?;
+                    let summary = session.write_options().write(&mut file, stream).await?;
+                    file.shutdown().await?;
+                    Ok(summary)
+                }
+                WriteTarget::ObjectStore { store, path } => {
+                    let mut write =
+                        ObjectStoreWrite::new(Arc::new(Compat::new(store)), &path).await?;
+                    let summary = session.write_options().write(&mut write, stream).await?;
+                    write.shutdown().await?;
+                    Ok(summary)
+                }
+            }
         });
 
         Ok(Box::new(NativeWriter::new(write_schema, handle, tx)).into_raw())

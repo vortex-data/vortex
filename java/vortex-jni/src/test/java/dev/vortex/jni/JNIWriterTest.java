@@ -69,6 +69,22 @@ public final class JNIWriterTest {
     }
 
     @Test
+    public void testCreateWriterPlainLocalPath() throws IOException {
+        Path outputPath = tempDir.resolve("test_create_plain_path.vortex");
+        String writePath = outputPath.toAbsolutePath().toString();
+
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Map<String, String> options = new HashMap<>();
+
+        Session session = Session.create();
+        try (VortexWriter writer = VortexWriter.create(session, writePath, personSchema(), options, allocator)) {
+            assertNotNull(writer);
+        }
+
+        assertTrue(Files.exists(outputPath), "output file should exist");
+    }
+
+    @Test
     public void testWriteBatch() throws IOException {
         Path outputPath = tempDir.resolve("test_ffi.vortex");
         String writePath = outputPath.toAbsolutePath().toUri().toString();

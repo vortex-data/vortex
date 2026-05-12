@@ -10871,6 +10871,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 58.2.0",
  "arrow-schema 58.2.0",
+ "async-fs",
  "futures",
  "jni",
  "object_store 0.13.2",
