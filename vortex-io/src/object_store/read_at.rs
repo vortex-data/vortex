@@ -117,10 +117,10 @@ impl VortexReadAt for ObjectStoreReadAt {
         let allocator = Arc::clone(&self.allocator);
         let range = offset..(offset + length as u64);
 
-        async move {
-            let blocking_handle = handle.clone();
+        // Requires to deal with borrowed lifetimes
+        let io_handle = handle.clone();
 
-            handle
+        handle
                 .spawn_io(async move {
                     let mut buffer = allocator.allocate(length, alignment)?;
 
@@ -137,7 +137,7 @@ impl VortexReadAt for ObjectStoreReadAt {
                     let buffer = match response.payload {
                         #[cfg(not(target_arch = "wasm32"))]
                         GetResultPayload::File(file, _) => {
-                            blocking_handle
+                            io_handle
                                 .spawn_blocking(move || {
                                     read_exact_at(&file, buffer.as_mut_slice(), range.start)?;
                                     Ok::<_, io::Error>(buffer)
@@ -179,8 +179,6 @@ impl VortexReadAt for ObjectStoreReadAt {
 
                     Ok(BufferHandle::new_host(buffer.freeze()))
                 })
-                .await
-        }
         .boxed()
     }
 }
