@@ -418,6 +418,25 @@ impl<T> BufferMut<T> {
         }
     }
 
+    /// Create a new buffer by applying a function to each element of a slice.
+    ///
+    /// This uses a direct indexed loop over contiguous memory, which autovectorizes
+    /// better than iterator-based approaches.
+    pub fn map_from_slice<F>(src: &[F], mut f: impl FnMut(F) -> T) -> Self
+    where
+        F: Copy,
+    {
+        let len = src.len();
+        let mut buf = Self::with_capacity(len);
+        // SAFETY: we write exactly `len` initialized elements below.
+        unsafe { buf.set_len(len) };
+        let dst = buf.as_mut_slice();
+        for i in 0..len {
+            dst[i] = f(src[i]);
+        }
+        buf
+    }
+
     /// Map each element of the buffer with a closure.
     pub fn map_each_in_place<R, F>(self, mut f: F) -> BufferMut<R>
     where

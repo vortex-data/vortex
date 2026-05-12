@@ -7,6 +7,7 @@ use arrow_buffer::ArrowNativeType;
 use arrow_buffer::MutableBuffer;
 use arrow_buffer::ScalarBuffer;
 use divan::Bencher;
+use num_traits::AsPrimitive;
 use num_traits::PrimInt;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -137,6 +138,24 @@ fn push_n_vortex_buffer<T: PrimInt>(bencher: Bencher, length: usize) {
             for _ in 0..100 {
                 unsafe { buffer.push_n_unchecked(*one, *length / 100) };
             }
+        });
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn cast_map_from_slice(bencher: Bencher, n: i32) {
+    let src: Vec<i32> = (0..n).collect();
+    bencher
+        .with_inputs(|| src.clone())
+        .bench_values(|src| BufferMut::<i64>::map_from_slice(&src, |v| v.as_()));
+}
+
+#[divan::bench(args = INPUT_SIZE)]
+fn cast_from_trusted_len_iter(bencher: Bencher, n: i32) {
+    let src: Vec<i32> = (0..n).collect();
+    bencher
+        .with_inputs(|| src.clone())
+        .bench_values(|src| {
+            BufferMut::<i64>::from_trusted_len_iter(src.iter().map(|&v| -> i64 { v.as_() }))
         });
 }
 

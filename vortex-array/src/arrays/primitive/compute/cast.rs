@@ -135,7 +135,7 @@ fn values_fit_in(
 /// Out-of-range values at invalid positions are truncated/wrapped by `as`,
 /// which is fine because they are masked out by validity.
 fn cast<F: NativePType + AsPrimitive<T>, T: NativePType>(array: &[F]) -> Buffer<T> {
-    BufferMut::from_trusted_len_iter(array.iter().map(|&src| src.as_())).freeze()
+    BufferMut::map_from_slice(array, |src| src.as_()).freeze()
 }
 
 #[cfg(test)]
