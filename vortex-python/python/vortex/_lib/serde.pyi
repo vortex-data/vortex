@@ -30,6 +30,11 @@ class SerializedArray:
 class ArrayContext:
     def __len__(self) -> int: ...
 
+def encode_ipc_array_buffers(
+    array: Array,
+    *,
+    session: Session,
+) -> tuple[list[bytes], list[bytes]]: ...
 def decode_ipc_array(array_bytes: bytes, dtype_bytes: bytes, *, session: Session) -> Array: ...
 def decode_ipc_array_buffers(
     array_buffers: Sequence[bytes | memoryview],

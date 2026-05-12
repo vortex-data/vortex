@@ -13,7 +13,9 @@ use pyo3::prelude::*;
 use vortex::array::ArrayRef;
 use vortex::dtype::DType;
 use vortex::ipc::messages::DecoderMessage;
+use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageDecoder;
+use vortex::ipc::messages::MessageEncoder;
 use vortex::ipc::messages::PollRead;
 use vortex::session::VortexSession;
 
@@ -25,6 +27,8 @@ use crate::serde::context::PyReadContext;
 use crate::serde::parts::PySerializedArray;
 use crate::session::PyVortexSession;
 
+type PyIpcArrayBuffers = (Vec<Vec<u8>>, Vec<Vec<u8>>);
+
 /// Register serde functions and classes.
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "serde")?;
@@ -34,10 +38,37 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PySerializedArray>()?;
     m.add_class::<PyArrayContext>()?;
     m.add_class::<PyReadContext>()?;
+    m.add_function(wrap_pyfunction!(encode_ipc_array_buffers, &m)?)?;
     m.add_function(wrap_pyfunction!(decode_ipc_array, &m)?)?;
     m.add_function(wrap_pyfunction!(decode_ipc_array_buffers, &m)?)?;
 
     Ok(())
+}
+
+/// Encode a Vortex array into IPC array and dtype buffers.
+#[pyfunction]
+#[pyo3(signature = (array, *, session))]
+fn encode_ipc_array_buffers(
+    py: Python,
+    array: PyArrayRef,
+    session: &Bound<PyVortexSession>,
+) -> PyVortexResult<PyIpcArrayBuffers> {
+    let session = session.get().inner().clone();
+    let array = array.into_inner();
+    py.detach(move || {
+        let mut encoder = MessageEncoder::new(session);
+        let array_buffers = encoder
+            .encode(EncoderMessage::Array(&array))?
+            .iter()
+            .map(|buffer| buffer.to_vec())
+            .collect();
+        let dtype_buffers = encoder
+            .encode(EncoderMessage::DType(array.dtype()))?
+            .iter()
+            .map(|buffer| buffer.to_vec())
+            .collect();
+        Ok((array_buffers, dtype_buffers))
+    })
 }
 
 /// Decode a Vortex array from IPC-encoded bytes.
