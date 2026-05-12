@@ -81,44 +81,31 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///
 /// Read an array from an HTTPS URL:
 ///
-/// ```python
 /// >>> import vortex as vx
 /// >>> a = vx.io.read_url("https://example.com/dataset.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// Read an array from an S3 URL:
 ///
-/// ```python
 /// >>> a = vx.io.read_url("s3://bucket/path/to/dataset.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// Read an array from an Azure Blob File System URL:
 ///
-/// ```python
 /// >>> a = vx.io.read_url("abfss://my_file_system@my_account.dfs.core.windows.net/path/to/dataset.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// Read an array from an Azure Blob Storage URL:
 ///
-/// ```python
 /// >>> a = vx.io.read_url("https://my_account.blob.core.windows.net/my_container/path/to/dataset.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// Read an array from a Google Storage URL:
 ///
-/// ```python
 /// >>> a = vx.io.read_url("gs://bucket/path/to/dataset.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// Read an array from a local file URL:
 ///
-/// ```python
 /// >>> a = vx.io.read_url("file:///path/to/dataset.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// Read from S3 with explicit credentials:
 ///
-/// ```python
 /// >>> from vortex import store as S
 /// >>> store = S.S3Store(
 /// ...     bucket="my-bucket",
@@ -127,7 +114,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ...     secret_access_key="..."
 /// ... )
 /// >>> a = vx.io.read_url("s3://my-bucket/data.vortex", store=store)  # doctest: +SKIP
-/// ```
 ///
 #[pyfunction]
 #[pyo3(signature = (url, *, store = None, projection = None, row_filter = None, indices = None, row_range = None, session))]
@@ -174,8 +160,8 @@ pub fn read_url<'py>(
 ///
 /// Write a single Vortex array `a` to the local file `a.vortex`.
 ///
-/// ```python
 /// >>> import vortex as vx
+/// >>> session = vx.Session()
 /// >>> a = vx.array([
 /// ...     {'x': 1},
 /// ...     {'x': 2},
@@ -183,26 +169,23 @@ pub fn read_url<'py>(
 /// ...     {'x': 11},
 /// ...     {'x': None},
 /// ... ])
-/// >>> vx.io.write(a, "a.vortex") # doctest: +SKIP
-/// ```
+/// >>> vx.io.write(a, "a.vortex", session=session) # doctest: +SKIP
 ///
 /// Stream a PyArrow Table directly to Vortex without loading into memory:
 ///
-/// ```python
 /// >>> import pyarrow as pa
 /// >>> import vortex as vx
+/// >>> session = vx.Session()
 /// >>> table = pa.table({'x': [1, 2, 3, 4, 5]})
-/// >>> vx.io.write(table, "streamed.vortex")  # doctest: +SKIP
-/// ```
+/// >>> vx.io.write(table, "streamed.vortex", session=session)  # doctest: +SKIP
 ///
 /// Stream from a PyArrow RecordBatchReader:
 ///
-/// ```python
 /// >>> import pyarrow as pa
 /// >>> import vortex as vx
+/// >>> session = vx.Session()
 /// >>> reader = pa.RecordBatchReader.from_batches(schema, batches) # doctest: +SKIP
-/// >>> vx.io.write(reader, "streamed.vortex")  # doctest: +SKIP
-/// ```
+/// >>> vx.io.write(reader, "streamed.vortex", session=session)  # doctest: +SKIP
 ///
 /// See also
 /// --------
@@ -272,22 +255,19 @@ impl PyVortexWriteOptions {
     /// Let's model some stock ticker data. As you may know, the stock market always (noisly) goes
     /// up:
     ///
-    /// ```python
     /// >>> import os
     /// >>> import random
+    /// >>> session = vx.Session()
     /// >>> sprl = vx.array([random.randint(i, i + 10) for i in range(100_000)])
-    /// ```
     ///
     /// If we naively wrote 4-bytes for each of these integers to a file we'd have 400,000 bytes!
     /// Let's see how small this is when we write with the default Vortex write options (which are
     /// also used by :func:`vortex.io.write`):
     ///
-    /// ```python
-    /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
+    /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex", session=session)
     /// >>> import os
     /// >>> os.path.getsize('chonky.vortex')
     /// 215972
-    /// ```
     ///
     /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.
     ///
@@ -295,11 +275,9 @@ impl PyVortexWriteOptions {
     ///
     /// We sure can.
     ///
-    /// ```python
-    /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
+    /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex", session=session)
     /// >>> os.path.getsize('tiny.vortex')
     /// 55088
-    /// ```
     ///
     /// Random numbers are not (usually) composed of random bytes!
     #[staticmethod]
@@ -329,20 +307,17 @@ impl PyVortexWriteOptions {
     ///
     /// Write a single Vortex array `a` to the local file `a.vortex` using the default settings:
     ///
-    /// ```python
     /// >>> import vortex as vx
     /// >>> import random
+    /// >>> session = vx.Session()
     /// >>> a = vx.array([0, 1, 2, 3, None, 4])
-    /// >>> vx.io.VortexWriteOptions.default().write(a, "a.vortex") # doctest: +SKIP
-    /// ```
+    /// >>> vx.io.VortexWriteOptions.default().write(a, "a.vortex", session=session) # doctest: +SKIP
     ///
     /// Write the same array while preferring small file sizes over read-throughput and
     /// read-latency:
     ///
-    /// ```python
     /// >>> import vortex as vx
-    /// >>> vx.io.VortexWriteOptions.compact().write(a, "a.vortex") # doctest: +SKIP
-    /// ```
+    /// >>> vx.io.VortexWriteOptions.compact().write(a, "a.vortex", session=session) # doctest: +SKIP
     ///
     /// See also
     /// --------

@@ -57,11 +57,11 @@ the following expression represents the set of rows for which the `age` column l
       ...     {"x": 2, "y": {"yy": "b"}},
       ... ])
       >>>
-      >>> vx.io.write(vx.array(array), '/tmp/foo.vortex')
-      >>> (vx.file.open('/tmp/foo.vortex')
+      >>> session = vx.Session()
+      >>> vx.io.write(vx.array(array), '/tmp/foo.vortex', session=session)
+      >>> (vx.file.open('/tmp/foo.vortex', session=session)
       ...    .scan(expr=vx.expr.column("y")["yy"] == "a")
       ...    .read_all()
-      ...    .to_pylist()
+      ...    .to_pylist(session=session)
       ... )
       [{'x': 1, 'y': {'yy': 'a'}}]
-

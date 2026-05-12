@@ -55,7 +55,8 @@ def open(
     Open a Vortex file and perform a scan operation:
 
     >>> import vortex as vx
-    >>> vxf = vx.open("data.vortex") # doctest: +SKIP
+    >>> session = vx.Session()
+    >>> vxf = vx.open("data.vortex", session=session) # doctest: +SKIP
     >>> array_iterator = vxf.scan() # doctest: +SKIP
 
     See also: :class:`vortex.dataset.VortexDataset`
@@ -123,9 +124,10 @@ class VortexFile:
         ...     {'name': 'Mikhail', 'age': 57},
         ...     {'name': None, 'age': None},
         ... ])
-        >>> vx.io.write(a, "a.vortex")
-        >>> vxf = vx.open("a.vortex")
-        >>> vxf.scan().read_all().to_arrow_array()
+        >>> session = vx.Session()
+        >>> vx.io.write(a, "a.vortex", session=session)
+        >>> vxf = vx.open("a.vortex", session=session)
+        >>> vxf.scan().read_all().to_arrow_array(session=session)
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
         -- child 0 type: int64
@@ -147,7 +149,7 @@ class VortexFile:
 
         Read just the age column:
 
-        >>> vxf.scan(['age']).read_all().to_arrow_array()
+        >>> vxf.scan(['age']).read_all().to_arrow_array(session=session)
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
         -- child 0 type: int64
@@ -162,7 +164,7 @@ class VortexFile:
 
         Keep rows with an age above 35. This will read O(N_KEPT) rows, when the file format allows.
 
-        >>> vxf.scan(expr=ve.column("age") > 35).read_all().to_arrow_array()
+        >>> vxf.scan(expr=ve.column("age") > 35).read_all().to_arrow_array(session=session)
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
         -- child 0 type: int64

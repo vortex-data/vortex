@@ -136,11 +136,11 @@ impl<'py> IntoPyObject<'py> for PyVortex<ArrayRef> {
 ///
 /// Arrays support all the standard comparison operations:
 ///
-/// ```python
 /// >>> import vortex as vx
+/// >>> session = vx.Session()
 /// >>> a = vx.array(['dog', None, 'cat', 'mouse', 'fish'])
 /// >>> b = vx.array(['doug', 'jennifer', 'casper', 'mouse', 'faust'])
-/// >>> (a < b).to_arrow_array()
+/// >>> (a < b).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
 /// <pyarrow.lib.BooleanArray object at ...>
 /// [
 ///    true,
@@ -149,7 +149,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<ArrayRef> {
 ///    false,
 ///    false
 /// ]
-/// >>> (a <= b).to_arrow_array()
+/// >>> (a <= b).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
 /// <pyarrow.lib.BooleanArray object at ...>
 /// [
 ///    true,
@@ -158,7 +158,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<ArrayRef> {
 ///    true,
 ///    false
 /// ]
-/// >>> (a == b).to_arrow_array()
+/// >>> (a == b).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
 /// <pyarrow.lib.BooleanArray object at ...>
 /// [
 ///    false,
@@ -167,7 +167,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<ArrayRef> {
 ///    true,
 ///    false
 /// ]
-/// >>> (a != b).to_arrow_array()
+/// >>> (a != b).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
 /// <pyarrow.lib.BooleanArray object at ...>
 /// [
 ///    true,
@@ -176,7 +176,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<ArrayRef> {
 ///    false,
 ///    true
 /// ]
-/// >>> (a >= b).to_arrow_array()
+/// >>> (a >= b).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
 /// <pyarrow.lib.BooleanArray object at ...>
 /// [
 ///    false,
@@ -185,7 +185,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<ArrayRef> {
 ///    true,
 ///    true
 /// ]
-/// >>> (a > b).to_arrow_array()
+/// >>> (a > b).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
 /// <pyarrow.lib.BooleanArray object at ...>
 /// [
 ///    false,
@@ -194,7 +194,6 @@ impl<'py> IntoPyObject<'py> for PyVortex<ArrayRef> {
 ///    false,
 ///    true
 /// ]
-/// ```
 #[pyclass(name = "Array", module = "vortex", sequence, subclass, frozen)]
 pub struct PyArray;
 
@@ -240,11 +239,11 @@ impl PyArray {
     /// Examples
     /// --------
     ///
-    /// ```python
+    /// >>> session = vx.Session()
     /// >>> array = vx.Array.from_range(range(0, 10))
     /// >>> array
     /// <vortex.SequenceArray object at ...>
-    /// >>> array.to_arrow_array()
+    /// >>> array.to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     /// <pyarrow.lib.Int64Array object at ...>
     /// [
     ///   0,
@@ -258,7 +257,6 @@ impl PyArray {
     ///   8,
     ///   9
     /// ]
-    /// ```
     #[staticmethod]
     #[pyo3(signature = (range, *, dtype = None))]
     fn from_range(
@@ -310,16 +308,15 @@ impl PyArray {
     ///
     /// Round-trip an Arrow array through a Vortex array:
     ///
-    /// ```python
     /// >>> import vortex as vx
-    /// >>> vx.array([1, 2, 3]).to_arrow_array()
+    /// >>> session = vx.Session()
+    /// >>> vx.array([1, 2, 3]).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     /// <pyarrow.lib.Int64Array object at ...>
     /// [
     ///   1,
     ///   2,
     ///   3
     /// ]
-    /// ```
     ///
     #[pyo3(signature = (*, session))]
     fn to_arrow_array<'py>(
@@ -407,25 +404,19 @@ impl PyArray {
     ///
     /// By default, :func:`vortex.array` uses the largest available bit-width:
     ///
-    /// ```python
     /// >>> import vortex as vx
     /// >>> vx.array([1, 2, 3]).dtype
     /// int(64, nullable=False)
-    /// ```
     ///
     /// Including a :obj:`None` forces a nullable type:
     ///
-    /// ```python
     /// >>> vx.array([1, None, 2, 3]).dtype
     /// int(64, nullable=True)
-    /// ```
     ///
     /// A UTF-8 string array:
     ///
-    /// ```python
     /// >>> vx.array(['hello, ', 'is', 'it', 'me?']).dtype
     /// utf8(nullable=False)
-    /// ```
     #[getter]
     fn dtype<'py>(slf: &'py Bound<'py, Self>) -> PyResult<Bound<'py, PyDType>> {
         PyDType::init(
@@ -443,15 +434,14 @@ impl PyArray {
     ///
     /// Extract one column from a Vortex array:
     ///
-    /// ```python
     /// >>> import vortex.expr as ve
     /// >>> import vortex as vx
+    /// >>> session = vx.Session()
     /// >>> array = vx.array([{"a": 0, "b": "hello"}, {"a": 1, "b": "goodbye"}])
     /// >>> expr = ve.column("a")
     /// >>> array = array.apply(expr)
-    /// >>> array.to_arrow_array().to_pylist()
+    /// >>> array.to_arrow_array(session=session).to_pylist()
     /// [0, 1]
-    /// ```
     ///
     /// See also
     /// --------
@@ -545,18 +535,17 @@ impl PyArray {
     ///
     /// Keep only the single digit positive integers.
     ///
-    /// ```python
     /// >>> import vortex as vx
+    /// >>> session = vx.Session()
     /// >>> a = vx.array([0, 42, 1_000, -23, 10, 9, 5])
     /// >>> filter = vx.array([True, False, False, False, False, True, True])
-    /// >>> a.filter(filter).to_arrow_array()
+    /// >>> a.filter(filter, session=session).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     /// <pyarrow.lib.Int64Array object at ...>
     /// [
     ///   0,
     ///   9,
     ///   5
     /// ]
-    /// ```
     #[pyo3(signature = (mask, *, session))]
     fn filter(
         slf: Bound<Self>,
@@ -595,23 +584,19 @@ impl PyArray {
     ///
     /// Retrieve the last element from an array of integers:
     ///
-    /// ```python
     /// >>> import vortex as vx
-    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(3).as_py()
+    /// >>> session = vx.Session()
+    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(3, session=session).as_py()
     /// 1992
-    /// ```
     ///
     /// Retrieve the third element from an array of strings:
     ///
-    /// ```python
     /// >>> array = vx.array(["hello", "goodbye", "it", "is"])
-    /// >>> array.scalar_at(2).as_py()
+    /// >>> array.scalar_at(2, session=session).as_py()
     /// 'it'
-    /// ```
     ///
     /// Retrieve an element from an array of structures:
     ///
-    /// ```python
     /// >>> array = vx.array([
     /// ...     {'name': 'Joseph', 'age': 25},
     /// ...     {'name': 'Narendra', 'age': 31},
@@ -619,34 +604,27 @@ impl PyArray {
     /// ...     None,
     /// ...     {'name': 'Mikhail', 'age': 57},
     /// ... ])
-    /// >>> array.scalar_at(2).as_py()
+    /// >>> array.scalar_at(2, session=session).as_py()
     /// {'age': 33, 'name': 'Angela'}
-    /// ```
     ///
     /// Retrieve a missing element from an array of structures:
     ///
-    /// ```python
-    /// >>> array.scalar_at(3).as_py() is None
+    /// >>> array.scalar_at(3, session=session).as_py() is None
     /// True
-    /// ```
     ///
     /// Out of bounds accesses are prohibited:
     ///
-    /// ```python
-    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(10)
+    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(10, session=session)
     /// Traceback (most recent call last):
     /// ...
     /// IndexError: Index 10 out of bounds from 0 to 4
-    /// ```
     ///
     /// Unlike Python, negative indices are not supported:
     ///
-    /// ```python
-    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(-2)
+    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(-2, session=session)
     /// Traceback (most recent call last):
     /// ...
     /// OverflowError: can't convert negative int to unsigned
-    /// ```
     // TODO(ngates): return a vortex.Scalar
     #[pyo3(signature = (index, *, session))]
     fn scalar_at<'py>(
@@ -686,24 +664,22 @@ impl PyArray {
     ///
     /// Keep only the first and third elements:
     ///
-    /// ```python
     /// >>> import vortex as vx
+    /// >>> session = vx.Session()
     /// >>> a = vx.array(['a', 'b', 'c', 'd'])
     /// >>> indices = vx.array([0, 2])
-    /// >>> a.take(indices).to_arrow_array()
+    /// >>> a.take(indices).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     /// <pyarrow.lib.StringViewArray object at ...>
     /// [
     ///   "a",
     ///   "c"
     /// ]
-    /// ```
     ///
     /// Permute and repeat the first and second elements:
     ///
-    /// ```python
     /// >>> a = vx.array(['a', 'b', 'c', 'd'])
     /// >>> indices = vx.array([0, 1, 1, 0])
-    /// >>> a.take(indices).to_arrow_array()
+    /// >>> a.take(indices).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     /// <pyarrow.lib.StringViewArray object at ...>
     /// [
     ///   "a",
@@ -711,7 +687,6 @@ impl PyArray {
     ///   "b",
     ///   "a"
     /// ]
-    /// ```
     fn take(slf: Bound<Self>, indices: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let py = slf.py();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?;
@@ -754,7 +729,6 @@ impl PyArray {
     ///
     /// Uncompressed arrays have straightforward encodings:
     ///
-    /// ```python
     /// >>> import vortex as vx
     /// >>> arr = vx.array([1, 2, None, 3])
     /// >>> print(arr.display_tree()) # doctest: +ELLIPSIS
@@ -765,7 +739,6 @@ impl PyArray {
     ///     metadata: offset: 0
     ///     buffer: bits host 1 B (align=1) (100.00%)
     /// <BLANKLINE>
-    /// ```
     ///
     /// Compressed arrays often have more complex, deeply nested encoding trees.
     fn display_tree(slf: &Bound<Self>) -> PyResult<String> {

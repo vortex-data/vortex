@@ -82,20 +82,21 @@ Available types: {func}`~vortex.null`, {func}`~vortex.bool_`,
 ### Element Access
 
 ```{doctest} pycon
+>>> session = vx.Session()
 >>> arr = vx.array([10, 20, 30, 40, 50])
->>> arr.scalar_at(0).as_py()
+>>> arr.scalar_at(0, session=session).as_py()
 10
->>> arr.to_arrow_array().to_pylist()
+>>> arr.to_arrow_array(session=session).to_pylist()
 [10, 20, 30, 40, 50]
 ```
 
 ### Slicing and Selection
 
 ```{doctest} pycon
->>> arr.slice(1, 3).to_arrow_array().to_pylist()
+>>> arr.slice(1, 3).to_arrow_array(session=session).to_pylist()
 [20, 30]
 >>> indices = vx.array([0, 2, 4])
->>> arr.take(indices).to_arrow_array().to_pylist()
+>>> arr.take(indices).to_arrow_array(session=session).to_pylist()
 [10, 30, 50]
 ```
 
@@ -103,7 +104,7 @@ Available types: {func}`~vortex.null`, {func}`~vortex.bool_`,
 
 ```{doctest} pycon
 >>> mask = vx.array([True, False, True, False, True])
->>> arr.filter(mask).to_arrow_array().to_pylist()
+>>> arr.filter(mask, session=session).to_arrow_array(session=session).to_pylist()
 [10, 30, 50]
 ```
 
@@ -111,7 +112,7 @@ Available types: {func}`~vortex.null`, {func}`~vortex.bool_`,
 
 ```{doctest} pycon
 >>> other = vx.array([10, 25, 25, 45, 50])
->>> (arr > other).to_arrow_array().to_pylist()
+>>> (arr > other).to_arrow_array(session=session).to_pylist()
 [False, False, True, False, False]
 ```
 
@@ -129,7 +130,7 @@ applied directly:
 ...     {'name': 'Carol', 'age': 35},
 ... ])
 >>> expr = ve.column('age') > 28
->>> arr.apply(expr).to_arrow_array().to_pylist()
+>>> arr.apply(expr).to_arrow_array(session=session).to_pylist()
 [True, False, True]
 ```
 
@@ -139,9 +140,10 @@ applied directly:
 
 ```{doctest} pycon
 >>> import pyarrow.parquet as pq
->>> vx.io.write(pq.read_table("_static/example.parquet"), 'example.vortex')
+>>> session = vx.Session()
+>>> vx.io.write(pq.read_table("_static/example.parquet"), 'example.vortex', session=session)
 >>>
->>> f = vx.open('example.vortex')
+>>> f = vx.open('example.vortex', session=session)
 >>> len(f)
 1000
 ```
@@ -150,7 +152,7 @@ Use {meth}`.VortexFile.scan` to read data with optional projection, filtering, a
 
 ```{doctest} pycon
 >>> result = f.scan(['tip_amount'], limit=3).read_all()
->>> result.to_arrow_array()
+>>> result.to_arrow_array(session=session)
 <pyarrow.lib.StructArray object at ...>
 -- is_valid: all not null
 -- child 0 type: double

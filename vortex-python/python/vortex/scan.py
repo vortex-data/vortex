@@ -45,9 +45,10 @@ class RepeatedScan:
         ...     {'name': 'Mikhail', 'age': 57},
         ...     {'name': None, 'age': None},
         ... ])
-        >>> vx.io.write(a, "a.vortex")
-        >>> scan = vx.open("a.vortex").to_repeated_scan()
-        >>> scan.execute(row_range=(1, 3)).read_all().to_arrow_array()
+        >>> session = vx.Session()
+        >>> vx.io.write(a, "a.vortex", session=session)
+        >>> scan = vx.open("a.vortex", session=session).to_repeated_scan()
+        >>> scan.execute(row_range=(1, 3)).read_all().to_arrow_array(session=session)
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
         -- child 0 type: int64
@@ -90,8 +91,9 @@ class RepeatedScan:
         ...     {'name': 'Mikhail', 'age': 57},
         ...     {'name': None, 'age': None},
         ... ])
-        >>> vx.io.write(a, "a.vortex")
-        >>> scan = vx.open("a.vortex").to_repeated_scan()
+        >>> session = vx.Session()
+        >>> vx.io.write(a, "a.vortex", session=session)
+        >>> scan = vx.open("a.vortex", session=session).to_repeated_scan()
         >>> scan.scalar_at(1)
         <vortex.StructScalar object at ...>
         """

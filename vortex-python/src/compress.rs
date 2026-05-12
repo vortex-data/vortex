@@ -33,14 +33,15 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// Compress a very sparse array of integers:
 ///
 ///    >>> import vortex as vx
+///    >>> session = vx.Session()
 ///    >>> a = vx.array([42 for _ in range(1000)])
-///    >>> str(vx.compress(a))
+///    >>> str(vx.compress(a, session=session))
 ///    'vortex.constant(i64, len=1000)'
 ///
 /// Compress an array of increasing integers:
 ///
 ///    >>> a = vx.array(list(range(1000)))
-///    >>> str(vx.compress(a))
+///    >>> str(vx.compress(a, session=session))
 ///    'vortex.sequence(i64, len=1000)'
 ///
 /// Compress an array of increasing floating-point numbers and a few nulls:
@@ -49,7 +50,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///    ...     float(x) if x % 20 != 0 else None
 ///    ...     for x in range(1000)
 ///    ... ])
-///    >>> str(vx.compress(a))
+///    >>> str(vx.compress(a, session=session))
 ///    'vortex.alp(f64?, len=1000)'
 #[pyfunction]
 #[pyo3(signature = (array, *, session))]

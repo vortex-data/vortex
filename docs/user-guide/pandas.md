@@ -10,10 +10,11 @@ convert:
 ```{doctest} pycon
 >>> import vortex as vx
 >>> import pyarrow.parquet as pq
->>> vx.io.write(pq.read_table("_static/example.parquet"), 'example.vortex')
+>>> session = vx.Session()
+>>> vx.io.write(pq.read_table("_static/example.parquet"), 'example.vortex', session=session)
 >>>
->>> f = vx.open('example.vortex')
->>> df = f.scan().read_all().to_pandas()
+>>> f = vx.open('example.vortex', session=session)
+>>> df = f.scan().read_all().to_pandas(session=session)
 >>> df[['tip_amount', 'fare_amount']].head(3)
    tip_amount  fare_amount
 0         0.0         61.8
@@ -36,7 +37,7 @@ convert:
 ... {'name': 'Angela', 'age': 33},
 ... {'name': 'Mikhail', 'age': 57},
 ... ])
->>> struct_arr.to_pandas()
+>>> struct_arr.to_pandas(session=session)
       age      name
    0   25    Joseph
    1   31  Narendra
@@ -49,7 +50,7 @@ convert:
 ```{doctest} pycon
 >>> import pandas as pd
 >>> df = pd.DataFrame({'age': [25, 31, 33, 57], 'name': ['Joseph', 'Narendra', 'Angela', 'Mikhail']})
->>> vx.array(df).to_arrow_table()
+>>> vx.array(df).to_arrow_table(session=session)
 pyarrow.Table
 age: int64
 name: string_view

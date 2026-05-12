@@ -13,9 +13,10 @@ Vortex integrates with Polars via {meth}`.VortexFile.to_polars`, which returns a
 ```{doctest} pycon
 >>> import vortex as vx
 >>> import pyarrow.parquet as pq
->>> vx.io.write(pq.read_table("_static/example.parquet"), 'example.vortex')
+>>> session = vx.Session()
+>>> vx.io.write(pq.read_table("_static/example.parquet"), 'example.vortex', session=session)
 >>>
->>> lf = vx.open('example.vortex').to_polars()
+>>> lf = vx.open('example.vortex', session=session).to_polars()
 >>> lf = lf.select('tip_amount', 'fare_amount')
 >>> lf = lf.head(3)
 >>> lf.collect()

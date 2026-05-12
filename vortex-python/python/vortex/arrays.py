@@ -79,13 +79,15 @@ def _Array_to_arrow_table(self: _arrays.Array, *, session: Session) -> pyarrow.T
     Examples
     --------
 
+    >>> import vortex
     >>> array = vortex.array([
     ...     {'name': 'Joseph', 'age': 25},
     ...     {'name': 'Narendra', 'age': 31},
     ...     {'name': 'Angela', 'age': 33},
     ...     {'name': 'Mikhail', 'age': 57},
     ... ])
-    >>> array.to_arrow_table()
+    >>> session = vortex.Session()
+    >>> array.to_arrow_table(session=session)
     pyarrow.Table
     age: int64
     name: string
@@ -119,13 +121,15 @@ def _Array_to_pandas(self: _arrays.Array, *, session: Session) -> pandas.DataFra
 
     Construct a dataframe from a Vortex array:
 
+    >>> import vortex
     >>> array = vortex.array([
     ...     {'name': 'Joseph', 'age': 25},
     ...     {'name': 'Narendra', 'age': 31},
     ...     {'name': 'Angela', 'age': 33},
     ...     {'name': 'Mikhail', 'age': 57},
     ... ])
-    >>> array.to_pandas()
+    >>> session = vortex.Session()
+    >>> array.to_pandas(session=session)
        age      name
     0   25    Joseph
     1   31  Narendra
@@ -167,13 +171,16 @@ def _Array_to_polars_dataframe(
     Examples
     --------
 
+    >>> import vortex
     >>> array = vortex.array([
     ...     {'name': 'Joseph', 'age': 25},
     ...     {'name': 'Narendra', 'age': 31},
     ...     {'name': 'Angela', 'age': 33},
     ...     {'name': 'Mikhail', 'age': 57},
     ... ])
-    >>> array.to_polars_dataframe()
+    >>> import vortex
+    >>> session = vortex.Session()
+    >>> array.to_polars_dataframe(session=session)
     shape: (4, 2)
     ┌─────┬──────────┐
     │ age ┆ name     │
@@ -218,7 +225,9 @@ def _Array_to_polars_series(
 
     Convert a numeric array with nulls to a Polars Series:
 
-    >>> vortex.array([1, None, 2, 3]).to_polars_series()  # doctest: +NORMALIZE_WHITESPACE
+    >>> import vortex
+    >>> session = vortex.Session()
+    >>> vortex.array([1, None, 2, 3]).to_polars_series(session=session)  # doctest: +NORMALIZE_WHITESPACE
     shape: (4,)
     Series: '' [i64]
     [
@@ -230,7 +239,8 @@ def _Array_to_polars_series(
 
     Convert a UTF-8 string array to a Polars Series:
 
-    >>> vortex.array(['hello, ', 'is', 'it', 'me?']).to_polars_series()  # doctest: +NORMALIZE_WHITESPACE
+    >>> session = vortex.Session()
+    >>> vortex.array(['hello, ', 'is', 'it', 'me?']).to_polars_series(session=session)  # doctest: +NORMALIZE_WHITESPACE
     shape: (4,)
     Series: '' [str]
     [
@@ -248,7 +258,8 @@ def _Array_to_polars_series(
     ...     {'name': 'Angela', 'age': 33},
     ...     {'name': 'Mikhail', 'age': 57},
     ... ])
-    >>> array.to_polars_series()  # doctest: +NORMALIZE_WHITESPACE
+    >>> session = vortex.Session()
+    >>> array.to_polars_series(session=session)  # doctest: +NORMALIZE_WHITESPACE
     shape: (4,)
     Series: '' [struct[2]]
     [
@@ -292,8 +303,10 @@ def _Array_to_numpy(
 
     Construct an immutable ndarray from a Vortex array:
 
+    >>> import vortex
     >>> array = vortex.array([1, 0, 0, 1])
-    >>> array.to_numpy()
+    >>> session = vortex.Session()
+    >>> array.to_numpy(session=session)
     array([1, 0, 0, 1])
 
     """
@@ -313,12 +326,16 @@ def _Array_to_pylist(self: _arrays.Array, *, session: Session) -> list[Any]:  # 
     Examples
     --------
 
+    >>> import vortex
     >>> array = vortex.array([
     ...     {'name': 'Joseph', 'age': 25},
     ...     {'name': 'Narendra', 'age': 31},
     ...     {'name': 'Angela', 'age': 33},
     ... ])
-    >>> array.to_pylist()
+    >>> import pyarrow
+    >>> import vortex
+    >>> session = vortex.Session()
+    >>> array.to_pylist(session=session)
     [{'age': 25, 'name': 'Joseph'}, {'age': 31, 'name': 'Narendra'}, {'age': 33, 'name': 'Angela'}]
 
     """
@@ -355,7 +372,10 @@ def array(
 
     A Vortex array containing the first three integers:
 
-    >>> vortex.array([1, 2, 3]).to_arrow_array()
+    >>> import pyarrow
+    >>> import vortex
+    >>> session = vortex.Session()
+    >>> vortex.array([1, 2, 3]).to_arrow_array(session=session)
     <pyarrow.lib.Int64Array object at ...>
     [
       1,
@@ -365,7 +385,8 @@ def array(
 
     The same Vortex array with a null value in the third position:
 
-    >>> vortex.array([1, 2, None, 3]).to_arrow_array()
+    >>> session = vortex.Session()
+    >>> vortex.array([1, 2, None, 3]).to_arrow_array(session=session)
     <pyarrow.lib.Int64Array object at ...>
     [
       1,
@@ -377,7 +398,8 @@ def array(
     Initialize a Vortex array from an Arrow array:
 
     >>> arrow = pyarrow.array(['Hello', 'it', 'is', 'me'], type=pyarrow.string_view())
-    >>> vortex.array(arrow).to_arrow_array()
+    >>> session = vortex.Session()
+    >>> vortex.array(arrow).to_arrow_array(session=session)
     <pyarrow.lib.StringViewArray object at ...>
     [
       "Hello",
@@ -393,7 +415,8 @@ def array(
     ...     "Name": ["Braund", "Allen", "Bonnell"],
     ...     "Age": [22, 35, 58],
     ... })
-    >>> vortex.array(df).to_arrow_array()
+    >>> session = vortex.Session()
+    >>> vortex.array(df).to_arrow_array(session=session)
     <pyarrow.lib.ChunkedArray object at ...>
     [
       -- is_valid: all not null
@@ -413,7 +436,8 @@ def array(
 
     Initialize a Vortex array from a range:
 
-    >>> vortex.array(range(-3, 3)).to_arrow_array()
+    >>> session = vortex.Session()
+    >>> vortex.array(range(-3, 3)).to_arrow_array(session=session)
     <pyarrow.lib.Int64Array object at ...>
     [
       -3,
@@ -426,7 +450,8 @@ def array(
 
     With a step:
 
-    >>> vortex.array(range(-1_000_000, 10_000_000, 2_000_000)).to_arrow_array()
+    >>> session = vortex.Session()
+    >>> vortex.array(range(-1_000_000, 10_000_000, 2_000_000)).to_arrow_array(session=session)
     <pyarrow.lib.Int64Array object at ...>
     [
       -1000000,

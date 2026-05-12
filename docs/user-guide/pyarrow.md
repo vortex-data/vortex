@@ -13,8 +13,9 @@ anything that implements `IntoArrayIterator`, including {class}`pyarrow.Table` a
 >>> import pyarrow.parquet as pq
 >>> import vortex as vx
 >>>
+>>> session = vx.Session()
 >>> table = pq.read_table("_static/example.parquet")
->>> vx.io.write(table, 'example.vortex')
+>>> vx.io.write(table, 'example.vortex', session=session)
 ```
 
 ## Reading Vortex Files
@@ -22,7 +23,7 @@ anything that implements `IntoArrayIterator`, including {class}`pyarrow.Table` a
 Use {func}`~vortex.open` to lazily open a Vortex file:
 
 ```{doctest} pycon
->>> f = vx.open('example.vortex')
+>>> f = vx.open('example.vortex', session=session)
 >>> len(f)
 1000
 ```
@@ -75,7 +76,7 @@ int(64, nullable=True)
 {meth}`.Array.to_arrow_array` converts back:
 
 ```{doctest} pycon
->>> arr.to_arrow_array()
+>>> arr.to_arrow_array(session=session)
 <pyarrow.lib.Int64Array object at ...>
 [
 1,
@@ -94,7 +95,7 @@ Struct arrays convert to Arrow tables with {meth}`.Array.to_arrow_table`:
 ... {'name': 'Angela', 'age': 33},
 ... {'name': 'Mikhail', 'age': 57},
 ... ])
->>> struct_arr.to_arrow_table()
+>>> struct_arr.to_arrow_table(session=session)
 pyarrow.Table
 age: int64
 name: string

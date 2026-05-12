@@ -58,7 +58,9 @@ git_root = Path(__file__).parent.parent
 nitpicky = True  # ensures all :class:, :obj:, etc. links are valid
 nitpick_ignore = []
 
-doctest_global_setup = "import pyarrow; import vortex; import vortex as vx; import random; random.seed(a=0)"
+doctest_global_setup = (
+    "import pyarrow; import vortex; import vortex as vx; import random; random.seed(a=0); session = vx.Session()"
+)
 doctest_default_flags = (
     doctest.ELLIPSIS | doctest.IGNORE_EXCEPTION_DETAIL | doctest.DONT_ACCEPT_TRUE_FOR_1 | doctest.NORMALIZE_WHITESPACE
 )
