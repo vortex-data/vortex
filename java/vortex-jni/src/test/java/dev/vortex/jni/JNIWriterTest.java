@@ -85,6 +85,22 @@ public final class JNIWriterTest {
     }
 
     @Test
+    public void testCreateWriterCreatesParentDirectories() throws IOException {
+        Path outputPath = tempDir.resolve("nested/sub/dir/test_create_nested.vortex");
+        String writePath = outputPath.toAbsolutePath().toUri().toString();
+
+        BufferAllocator allocator = ArrowAllocation.rootAllocator();
+        Map<String, String> options = new HashMap<>();
+
+        Session session = Session.create();
+        try (VortexWriter writer = VortexWriter.create(session, writePath, personSchema(), options, allocator)) {
+            assertNotNull(writer);
+        }
+
+        assertTrue(Files.exists(outputPath), "output file should exist");
+    }
+
+    @Test
     public void testWriteBatch() throws IOException {
         Path outputPath = tempDir.resolve("test_ffi.vortex");
         String writePath = outputPath.toAbsolutePath().toUri().toString();

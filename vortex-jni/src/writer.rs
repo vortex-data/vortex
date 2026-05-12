@@ -181,6 +181,9 @@ pub extern "system" fn Java_dev_vortex_jni_NativeWriter_create(
         let handle = session.handle().spawn(async move {
             match target {
                 WriteTarget::Local(path) => {
+                    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                        async_fs::create_dir_all(parent).await?;
+                    }
                     let mut file = File::create(path).await?;
                     let summary = session.write_options().write(&mut file, stream).await?;
                     file.shutdown().await?;
