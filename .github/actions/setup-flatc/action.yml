@@ -3,7 +3,7 @@ description: "Download and install flatc binary"
 inputs:
   flatc_version:
     description: "Version of the flatc binary"
-    default: "25.9.23"
+    default: "25.12.19"
 runs:
   using: "composite"
   steps:
