@@ -269,11 +269,6 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             DType::Binary(*n),
             capacity,
         )),
-        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
-            struct_dtype.clone(),
-            *n,
-            capacity,
-        )),
         DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity(
             Arc::clone(dtype),
             *n,
@@ -288,11 +283,16 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
                 capacity,
             ))
         }
-        DType::Extension(ext_dtype) => {
-            Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
-        }
+        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
+            struct_dtype.clone(),
+            *n,
+            capacity,
+        )),
         DType::Variant(_) => {
             unimplemented!()
+        }
+        DType::Extension(ext_dtype) => {
+            Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
         }
     }
 }

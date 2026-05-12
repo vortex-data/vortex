@@ -113,21 +113,6 @@ pub fn take_canonical_array(
             )
             .into_array())
         }
-        DType::Struct(..) => {
-            let struct_array = array.clone().execute::<StructArray>(ctx)?;
-            let taken_children = struct_array
-                .iter_unmasked_fields()
-                .map(|c| take_canonical_array_non_nullable_indices(c, indices_slice_non_opt, ctx))
-                .collect::<VortexResult<Vec<_>>>()?;
-
-            StructArray::try_new(
-                struct_array.names().clone(),
-                taken_children,
-                indices_slice_non_opt.len(),
-                validity,
-            )
-            .map(|a| a.into_array())
-        }
         DType::List(..) | DType::FixedSizeList(..) => {
             let mut builder = builder_with_capacity(
                 &array.dtype().union_nullability(nullable),
@@ -147,7 +132,22 @@ pub fn take_canonical_array(
             }
             Ok(builder.finish())
         }
-        d @ (DType::Null | DType::Extension(_) | DType::Variant(_)) => {
+        DType::Struct(..) => {
+            let struct_array = array.clone().execute::<StructArray>(ctx)?;
+            let taken_children = struct_array
+                .iter_unmasked_fields()
+                .map(|c| take_canonical_array_non_nullable_indices(c, indices_slice_non_opt, ctx))
+                .collect::<VortexResult<Vec<_>>>()?;
+
+            StructArray::try_new(
+                struct_array.names().clone(),
+                taken_children,
+                indices_slice_non_opt.len(),
+                validity,
+            )
+            .map(|a| a.into_array())
+        }
+        d @ (DType::Null | DType::Variant(_) | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

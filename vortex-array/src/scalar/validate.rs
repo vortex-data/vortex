@@ -118,7 +118,6 @@ impl Scalar {
                     Self::validate(&field, field_value.as_ref())?;
                 }
             }
-            DType::Extension(ext_dtype) => ext_dtype.validate_storage_value(value)?,
             DType::Variant(_) => {
                 let ScalarValue::Variant(inner) = value else {
                     vortex_bail!("variant dtype expected Variant value, got {value}");
@@ -131,6 +130,7 @@ impl Scalar {
                     inner.dtype(),
                 );
             }
+            DType::Extension(ext_dtype) => ext_dtype.validate_storage_value(value)?,
         }
 
         Ok(())

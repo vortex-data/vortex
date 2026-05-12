@@ -111,16 +111,16 @@ impl PyScalar {
             DType::Decimal(..) => Self::with_subclass(py, scalar, PyDecimalScalar),
             DType::Utf8(..) => Self::with_subclass(py, scalar, PyUtf8Scalar),
             DType::Binary(..) => Self::with_subclass(py, scalar, PyBinaryScalar),
-            DType::Struct(..) => Self::with_subclass(py, scalar, PyStructScalar),
             DType::List(..) | DType::FixedSizeList(..) => {
                 // We represent both lists and fixed-size lists with `PyListScalar` since the notion
                 // of "fixed-size" only applies to full arrays, not scalars.
                 Self::with_subclass(py, scalar, PyListScalar)
             }
-            DType::Extension(..) => Self::with_subclass(py, scalar, PyExtensionScalar),
+            DType::Struct(..) => Self::with_subclass(py, scalar, PyStructScalar),
             DType::Variant(_) => Err(PyValueError::new_err(
                 "Variant scalars are not supported in Python yet",
             )),
+            DType::Extension(..) => Self::with_subclass(py, scalar, PyExtensionScalar),
         }
     }
 

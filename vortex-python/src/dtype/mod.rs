@@ -129,13 +129,13 @@ impl PyDType {
             DType::Decimal(..) => Self::with_subclass(py, dtype, PyDecimalDType),
             DType::Utf8(..) => Self::with_subclass(py, dtype, PyUtf8DType),
             DType::Binary(..) => Self::with_subclass(py, dtype, PyBinaryDType),
-            DType::Struct(..) => Self::with_subclass(py, dtype, PyStructDType),
             DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
             DType::FixedSizeList(..) => Self::with_subclass(py, dtype, PyFixedSizeListDType),
-            DType::Extension(..) => Self::with_subclass(py, dtype, PyExtensionDType),
+            DType::Struct(..) => Self::with_subclass(py, dtype, PyStructDType),
             DType::Variant(_) => Err(PyValueError::new_err(
                 "Variant DType is not supported in Python yet",
             )),
+            DType::Extension(..) => Self::with_subclass(py, dtype, PyExtensionDType),
         }
     }
 

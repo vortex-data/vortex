@@ -705,7 +705,7 @@ fn test_comparison_inverse_consistency(array: &ArrayRef) {
 
     // Skip non-comparable types.
     match array.dtype() {
-        DType::Null | DType::Extension(_) | DType::Struct(..) | DType::List(..) => return,
+        DType::Null | DType::List(..) | DType::Struct(..) | DType::Extension(_) => return,
         _ => {}
     }
 
@@ -833,7 +833,7 @@ fn test_comparison_symmetry_consistency(array: &ArrayRef) {
 
     // Skip non-comparable types.
     match array.dtype() {
-        DType::Null | DType::Extension(_) | DType::Struct(..) | DType::List(..) => return,
+        DType::Null | DType::List(..) | DType::Struct(..) | DType::Extension(_) => return,
         _ => {}
     }
 
@@ -1195,6 +1195,13 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
             }
             targets
         }
+        DType::Decimal(decimal_type, nullability) => {
+            let opposite = match nullability {
+                Nullability::NonNullable => Nullability::Nullable,
+                Nullability::Nullable => Nullability::NonNullable,
+            };
+            vec![DType::Decimal(*decimal_type, opposite)]
+        }
         DType::Utf8(nullability) => {
             let opposite = match nullability {
                 Nullability::NonNullable => Nullability::Nullable,
@@ -1211,20 +1218,6 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
                 DType::Binary(opposite),
                 DType::Utf8(*nullability), // May fail if not valid UTF-8
             ]
-        }
-        DType::Decimal(decimal_type, nullability) => {
-            let opposite = match nullability {
-                Nullability::NonNullable => Nullability::Nullable,
-                Nullability::Nullable => Nullability::NonNullable,
-            };
-            vec![DType::Decimal(*decimal_type, opposite)]
-        }
-        DType::Struct(fields, nullability) => {
-            let opposite = match nullability {
-                Nullability::NonNullable => Nullability::Nullable,
-                Nullability::Nullable => Nullability::NonNullable,
-            };
-            vec![DType::Struct(fields.clone(), opposite)]
         }
         DType::List(element_type, nullability) => {
             let opposite = match nullability {
@@ -1244,8 +1237,15 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
                 opposite,
             )]
         }
-        DType::Extension(_) => vec![], // Extension types typically only cast to themselves
+        DType::Struct(fields, nullability) => {
+            let opposite = match nullability {
+                Nullability::NonNullable => Nullability::Nullable,
+                Nullability::Nullable => Nullability::NonNullable,
+            };
+            vec![DType::Struct(fields.clone(), opposite)]
+        }
         DType::Variant(_) => unimplemented!(),
+        DType::Extension(_) => vec![], // Extension types typically only cast to themselves
     };
 
     // Test each target dtype

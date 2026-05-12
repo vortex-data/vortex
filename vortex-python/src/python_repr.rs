@@ -67,16 +67,6 @@ impl Display for DTypePythonRepr<'_> {
             }
             DType::Utf8(n) => write!(f, "utf8(nullable={})", n.python_repr()),
             DType::Binary(n) => write!(f, "binary(nullable={})", n.python_repr()),
-            DType::Struct(st, n) => write!(
-                f,
-                "struct({{{}}}, nullable={})",
-                st.names()
-                    .iter()
-                    .zip(st.fields())
-                    .map(|(n, dt)| format!("\"{}\": {}", n, dt.python_repr()))
-                    .join(", "),
-                n.python_repr()
-            ),
             DType::List(edt, n) => write!(
                 f,
                 "list({}, nullable={})",
@@ -90,6 +80,17 @@ impl Display for DTypePythonRepr<'_> {
                 size,
                 n.python_repr()
             ),
+            DType::Struct(st, n) => write!(
+                f,
+                "struct({{{}}}, nullable={})",
+                st.names()
+                    .iter()
+                    .zip(st.fields())
+                    .map(|(n, dt)| format!("\"{}\": {}", n, dt.python_repr()))
+                    .join(", "),
+                n.python_repr()
+            ),
+            DType::Variant(_) => write!(f, "variant()"),
             DType::Extension(ext) => {
                 write!(
                     f,
@@ -103,7 +104,6 @@ impl Display for DTypePythonRepr<'_> {
                 }
                 write!(f, ")")
             }
-            DType::Variant(_) => write!(f, "variant()"),
         }
     }
 }

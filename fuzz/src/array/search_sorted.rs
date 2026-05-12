@@ -142,13 +142,13 @@ pub fn search_sorted_canonical_array(
             };
             SearchNullableSlice(opt_values).search_sorted(&Some(to_find), side)
         }
-        DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
+        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) => {
             let scalar_vals = (0..array.len())
                 .map(|i| array.execute_scalar(i, ctx))
                 .collect::<VortexResult<Vec<_>>>()?;
             scalar_vals.search_sorted(&scalar.cast(array.dtype())?, side)
         }
-        d @ (DType::Null | DType::Extension(_) | DType::Variant(_)) => {
+        d @ (DType::Null | DType::Variant(_) | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

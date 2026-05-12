@@ -218,17 +218,14 @@ impl TryFrom<&DType> for LogicalType {
             DType::Null => DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL,
             DType::Bool(_) => DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN,
             DType::Primitive(ptype, _) => return LogicalType::try_from(*ptype),
-            DType::Utf8(_) => DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR,
-            DType::Binary(_) => DUCKDB_TYPE::DUCKDB_TYPE_BLOB,
-            DType::Struct(struct_type, _) => {
-                return LogicalType::try_from(struct_type);
-            }
             DType::Decimal(decimal_dtype, _) => {
                 return LogicalType::decimal_type(
                     decimal_dtype.precision(),
                     decimal_dtype.scale().try_into()?,
                 );
             }
+            DType::Utf8(_) => DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR,
+            DType::Binary(_) => DUCKDB_TYPE::DUCKDB_TYPE_BLOB,
             DType::List(element_dtype, _) => {
                 let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
                 return LogicalType::list_type(element_logical_type);
@@ -236,6 +233,9 @@ impl TryFrom<&DType> for LogicalType {
             DType::FixedSizeList(element_dtype, list_size, _) => {
                 let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
                 return LogicalType::array_type(element_logical_type, *list_size);
+            }
+            DType::Struct(struct_type, _) => {
+                return LogicalType::try_from(struct_type);
             }
             DType::Variant(_) => {
                 vortex_bail!("Vortex Variant array aren't supported in DuckDB")

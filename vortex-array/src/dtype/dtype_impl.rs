@@ -55,16 +55,16 @@ impl DType {
     pub fn is_nullable(&self) -> bool {
         match self {
             Null => true,
-            Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
             Bool(null)
             | Primitive(_, null)
             | Decimal(_, null)
             | Utf8(null)
             | Binary(null)
-            | Struct(_, null)
             | List(_, null)
             | FixedSizeList(_, _, null)
+            | Struct(_, null)
             | Variant(null) => matches!(null, Nullability::Nullable),
+            Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
         }
     }
 
@@ -87,11 +87,11 @@ impl DType {
             Decimal(ddt, _) => Decimal(*ddt, nullability),
             Utf8(_) => Utf8(nullability),
             Binary(_) => Binary(nullability),
-            Struct(sf, _) => Struct(sf.clone(), nullability),
             List(edt, _) => List(Arc::clone(edt), nullability),
             FixedSizeList(edt, size, _) => FixedSizeList(Arc::clone(edt), *size, nullability),
-            Extension(ext) => Extension(ext.with_nullability(nullability)),
+            Struct(sf, _) => Struct(sf.clone(), nullability),
             Variant(_) => Variant(nullability),
+            Extension(ext) => Extension(ext.with_nullability(nullability)),
         }
     }
 
@@ -121,10 +121,10 @@ impl DType {
                         .zip_eq(rhs_dtype.fields())
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
             }
+            (Variant(_), Variant(_)) => true,
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
                 lhs_extdtype.eq_ignore_nullability(rhs_extdtype)
             }
-            (Variant(_), Variant(_)) => true,
             _ => false,
         }
     }
@@ -244,14 +244,14 @@ impl DType {
         matches!(self, Struct(_, _))
     }
 
-    /// Check if `self` is a [`DType::Extension`] type
-    pub fn is_extension(&self) -> bool {
-        matches!(self, Extension(_))
-    }
-
     /// Check if `self` is a [`DType::Variant`] type
     pub fn is_variant(&self) -> bool {
         matches!(self, Variant(_))
+    }
+
+    /// Check if `self` is a [`DType::Extension`] type
+    pub fn is_extension(&self) -> bool {
+        matches!(self, Extension(_))
     }
 
     /// Check if `self` is a nested type, i.e. list, fixed size list, struct, or extension of a
@@ -291,8 +291,8 @@ impl DType {
                 }
                 Some(sum)
             }
-            Extension(ext) => ext.storage_dtype().element_size(),
             Variant(_) => None,
+            Extension(ext) => ext.storage_dtype().element_size(),
         }
     }
 
@@ -456,6 +456,8 @@ impl Display for DType {
             Decimal(ddt, null) => write!(f, "{ddt}{null}"),
             Utf8(null) => write!(f, "utf8{null}"),
             Binary(null) => write!(f, "binary{null}"),
+            List(edt, null) => write!(f, "list({edt}){null}"),
+            FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
             Struct(sf, null) => write!(
                 f,
                 "{{{}}}{null}",
@@ -465,10 +467,8 @@ impl Display for DType {
                     .map(|(field_null, dt)| format!("{field_null}={dt}"))
                     .join(", "),
             ),
-            List(edt, null) => write!(f, "list({edt}){null}"),
-            FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
-            Extension(ext) => write!(f, "{}", ext),
             Variant(null) => write!(f, "variant{null}"),
+            Extension(ext) => write!(f, "{}", ext),
         }
     }
 }

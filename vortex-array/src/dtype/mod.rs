@@ -98,13 +98,13 @@ pub enum DType {
     /// `DType`. See [`StructFields`] for more information.
     Struct(StructFields, Nullability),
 
+    /// Variant type.
+    Variant(Nullability),
+
     /// A user-defined extension type.
     ///
     /// See [`ExtDTypeRef`] for more information.
     Extension(ExtDTypeRef),
-
-    /// Variant type.
-    Variant(Nullability),
 }
 
 impl PartialEq for DType {
@@ -124,8 +124,8 @@ impl PartialEq for DType {
             }
             // StructFields handles its own Arc::ptr_eq in its PartialEq impl.
             (Self::Struct(a, na), Self::Struct(b, nb)) => na == nb && a == b,
-            (Self::Extension(a), Self::Extension(b)) => a == b,
             (Self::Variant(a), Self::Variant(b)) => a == b,
+            (Self::Extension(a), Self::Extension(b)) => a == b,
             // Every variant is listed in the first position so that adding a new
             // variant produces a non-exhaustive match compile error.
             (Self::Null, _)
@@ -137,8 +137,8 @@ impl PartialEq for DType {
             | (Self::List(..), _)
             | (Self::FixedSizeList(..), _)
             | (Self::Struct(..), _)
-            | (Self::Extension(_), _)
-            | (Self::Variant(_), _) => false,
+            | (Self::Variant(_), _)
+            | (Self::Extension(_), _) => false,
         }
     }
 }

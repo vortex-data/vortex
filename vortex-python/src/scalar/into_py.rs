@@ -80,16 +80,16 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
                 .cloned()
                 .map(PyVortex)
                 .into_pyobject(py),
-            DType::Struct(..) => PyVortex(self.0.as_struct()).into_pyobject(py),
             DType::List(..) | DType::FixedSizeList(..) => {
                 PyVortex(self.0.as_list()).into_pyobject(py)
             }
-            DType::Extension(_) => {
-                PyVortex(&self.0.as_extension().to_storage_scalar()).into_pyobject(py)
-            }
+            DType::Struct(..) => PyVortex(self.0.as_struct()).into_pyobject(py),
             DType::Variant(_) => Err(PyValueError::new_err(
                 "Variant scalars are not supported in Python yet",
             )),
+            DType::Extension(_) => {
+                PyVortex(&self.0.as_extension().to_storage_scalar()).into_pyobject(py)
+            }
         }
     }
 }

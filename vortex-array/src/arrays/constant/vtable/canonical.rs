@@ -124,6 +124,18 @@ pub(crate) fn constant_canonicalize(
                 array.len(),
             ))
         }
+        DType::List(..) => Canonical::List(constant_canonical_list_array(scalar, array.len())),
+        DType::FixedSizeList(element_dtype, list_size, _) => {
+            let value = scalar.as_list();
+
+            Canonical::FixedSizeList(constant_canonical_fixed_size_list_array(
+                value.elements(),
+                element_dtype,
+                *list_size,
+                value.dtype().nullability(),
+                array.len(),
+            ))
+        }
         DType::Struct(struct_dtype, _) => {
             let value = scalar.as_struct();
             let fields: Vec<_> = match value.fields_iter() {
@@ -151,17 +163,10 @@ pub(crate) fn constant_canonicalize(
                 StructArray::new_unchecked(fields, struct_dtype.clone(), array.len(), validity)
             })
         }
-        DType::List(..) => Canonical::List(constant_canonical_list_array(scalar, array.len())),
-        DType::FixedSizeList(element_dtype, list_size, _) => {
-            let value = scalar.as_list();
-
-            Canonical::FixedSizeList(constant_canonical_fixed_size_list_array(
-                value.elements(),
-                element_dtype,
-                *list_size,
-                value.dtype().nullability(),
-                array.len(),
-            ))
+        DType::Variant(_) => {
+            unimplemented!(
+                "TODO(variant): canonicalization will use the child-array design in a follow-up"
+            )
         }
         DType::Extension(ext_dtype) => {
             let s = scalar.as_extension();
@@ -178,11 +183,6 @@ pub(crate) fn constant_canonicalize(
                 .into_array();
 
             Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
-        }
-        DType::Variant(_) => {
-            unimplemented!(
-                "TODO(variant): canonicalization will use the child-array design in a follow-up"
-            )
         }
     })
 }

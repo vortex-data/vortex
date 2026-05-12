@@ -115,10 +115,10 @@ impl Serialize for DType {
                 state.serialize_field(n)?;
                 state.end()
             }
+            DType::Variant(n) => serializer.serialize_newtype_variant("DType", 10, "Variant", n),
             DType::Extension(ext) => {
                 serializer.serialize_newtype_variant("DType", 9, "Extension", ext)
             }
-            DType::Variant(n) => serializer.serialize_newtype_variant("DType", 10, "Variant", n),
         }
     }
 }
@@ -157,8 +157,8 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
             "List",
             "FixedSizeList",
             "Struct",
-            "Extension",
             "Variant",
+            "Extension",
         ];
 
         struct DTypeVisitor<'a> {
@@ -215,14 +215,14 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
                     "Struct" => access.newtype_variant_seed(StructFieldsSeed {
                         session: self.session,
                     }),
+                    "Variant" => {
+                        let n = access.newtype_variant()?;
+                        Ok(DType::Variant(n))
+                    }
                     "Extension" => {
                         let ext = access
                             .newtype_variant_seed(DTypeSerde::<ExtDTypeRef>::new(self.session))?;
                         Ok(DType::Extension(ext))
-                    }
-                    "Variant" => {
-                        let n = access.newtype_variant()?;
-                        Ok(DType::Variant(n))
                     }
                     _ => Err(de::Error::unknown_variant(&variant, VARIANTS)),
                 }

@@ -64,15 +64,6 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
             ))),
         )
         .vortex_expect("unable to construct random `Scalar`_"),
-        DType::Struct(sdt, _) => Scalar::try_new(
-            dtype.clone(),
-            Some(ScalarValue::Tuple(
-                sdt.fields()
-                    .map(|d| random_scalar(u, &d).map(|s| s.into_value()))
-                    .collect::<Result<Vec<_>>>()?,
-            )),
-        )
-        .vortex_expect("unable to construct random `Scalar`_"),
         DType::List(edt, _) => Scalar::try_new(
             dtype.clone(),
             Some(ScalarValue::Tuple(
@@ -95,10 +86,19 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
             )),
         )
         .vortex_expect("unable to construct random `Scalar`_"),
+        DType::Struct(sdt, _) => Scalar::try_new(
+            dtype.clone(),
+            Some(ScalarValue::Tuple(
+                sdt.fields()
+                    .map(|d| random_scalar(u, &d).map(|s| s.into_value()))
+                    .collect::<Result<Vec<_>>>()?,
+            )),
+        )
+        .vortex_expect("unable to construct random `Scalar`_"),
+        DType::Variant(_) => todo!(),
         DType::Extension(..) => {
             unreachable!("Can't yet generate arbitrary scalars for ext dtype")
         }
-        DType::Variant(_) => todo!(),
     })
 }
 
