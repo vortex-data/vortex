@@ -45,10 +45,10 @@ fn main() {
     divan::main();
 }
 
-const ARRAY_LEN: usize = 100_000;
-const FILTERED_LENS: &[usize] = &[16384, 65536];
+const ARRAY_LEN: usize = 25_000;
+const FILTERED_LENS: &[usize] = &[4_096, 16_384];
 const NUM_INDICES: &[usize] = &[1_000];
-const LARGE_TAKE_CASES: &[(usize, usize)] = &[(10_000, 100_000), (50_000, 100_000)];
+const LARGE_TAKE_CASES: &[(usize, usize)] = &[(2_500, 25_000), (12_500, 25_000)];
 
 /// Nested types are heavier per element, so they use a much smaller array and take fewer indices.
 const NESTED_ARRAY_LEN: usize = 1_024;
