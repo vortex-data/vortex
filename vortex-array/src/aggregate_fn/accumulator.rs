@@ -64,6 +64,29 @@ impl<V: AggregateFnVTable> Accumulator<V> {
             partial,
         })
     }
+
+    /// Look up a kernel for `batch`'s encoding (preferring the aggregate-specific entry over
+    /// the wildcard) and, if one fires, combine its partial into our state.
+    /// Returns `true` if the kernel handled the batch.
+    fn try_kernel(&mut self, batch: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
+        let session = ctx.session().clone();
+        let kernels = &session.aggregate_fns().kernels;
+        let kernel = {
+            let kernels_r = kernels.read();
+            let batch_id = batch.encoding_id();
+            kernels_r
+                .get(&(batch_id, Some(self.aggregate_fn.id())))
+                .or_else(|| kernels_r.get(&(batch_id, None)))
+                .copied()
+        };
+        if let Some(kernel) = kernel
+            && let Some(result) = kernel.aggregate(&self.aggregate_fn, batch, ctx)?
+        {
+            self.combine_partials(result)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
 }
 
 /// A trait object for type-erased accumulators, used for dynamic dispatch when the aggregate
@@ -120,92 +143,52 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         //    cached statistics, use that and skip both kernel dispatch and decode. This is the
         //    only layer that consults `batch.statistics()`; encoding kernels must not.
         if let Some(result) = self.vtable.try_partial_from_stats(batch)? {
-            vortex_ensure!(
-                result.dtype() == &self.partial_dtype,
-                "Aggregate try_partial_from_stats returned {}, expected {}",
-                result.dtype(),
-                self.partial_dtype,
-            );
-            self.vtable.combine_partials(&mut self.partial, result)?;
+            self.combine_partials(result)?;
             return Ok(());
         }
 
-        let session = ctx.session().clone();
-        let kernels = &session.aggregate_fns().kernels;
-
-        // 1. Kernel registry first: a registered `(encoding, aggregate_fn)` kernel is strictly
-        //    more specific than the vtable's `try_accumulate` short-circuit. Checking the
-        //    registry first gives kernels for `Combined<V>` aggregates a chance to fire —
-        //    `Combined::try_accumulate` always returns true, so a later kernel check would be
-        //    unreachable.
-        {
-            let kernels_r = kernels.read();
-            let batch_id = batch.encoding_id();
-            let kernel = kernels_r
-                .get(&(batch_id, Some(self.aggregate_fn.id())))
-                .or_else(|| kernels_r.get(&(batch_id, None)))
-                .copied();
-            drop(kernels_r);
-            if let Some(kernel) = kernel
-                && let Some(result) = kernel.aggregate(&self.aggregate_fn, batch, ctx)?
-            {
-                vortex_ensure!(
-                    result.dtype() == &self.partial_dtype,
-                    "Aggregate kernel returned {}, expected {}",
-                    result.dtype(),
-                    self.partial_dtype,
-                );
-                self.vtable.combine_partials(&mut self.partial, result)?;
-                return Ok(());
-            }
+        // 1. `(Encoding, Aggregate)` kernel on the initial encoding. Runs before
+        //    `try_accumulate` so that a registered encoding-specific kernel for an aggregate
+        //    like `Combined<V>` — whose own `try_accumulate` always returns true — gets the
+        //    chance to fire before the vtable's generic dispatch swallows the batch.
+        if self.try_kernel(batch, ctx)? {
+            return Ok(());
         }
 
-        // 2. Allow the vtable to short-circuit on the raw array before decompression.
+        // 2. `(Any, Aggregate)` dispatch: vtable's aggregate-specific, encoding-agnostic
+        //    fast path. Used by `Count` (valid_count), `First`/`Last` (single-scalar pluck),
+        //    and `Combined<V>` (fan-out to children).
         if self.vtable.try_accumulate(&mut self.partial, batch, ctx)? {
             return Ok(());
         }
 
-        // 3. Iteratively check the registry against each intermediate encoding, executing one
-        //    step between checks. Mirrors the loop in `GroupedAccumulator::accumulate_list_view`.
-        //    Iteration 0 re-checks the initial encoding — a redundant HashMap miss, the price of
-        //    keeping the loop body uniform. Terminates on `AnyColumnar` (Canonical or Constant)
-        //    since the vtable's `accumulate(&Columnar)` handles both cases directly.
+        // 3. Iteratively decode toward `AnyColumnar` (Canonical or Constant), re-checking the
+        //    registry against each intermediate encoding. Mirrors the loop in
+        //    `GroupedAccumulator::accumulate_list_view`. The vtable's `accumulate(&Columnar)`
+        //    handles both columnar variants in step 4, so we don't need to reach `AnyCanonical`.
         let mut batch = batch.clone();
         for _ in 0..max_iterations() {
             if batch.is::<AnyColumnar>() {
                 break;
             }
-
-            let kernels_r = kernels.read();
-            let batch_id = batch.encoding_id();
-            let kernel = kernels_r
-                .get(&(batch_id, Some(self.aggregate_fn.id())))
-                .or_else(|| kernels_r.get(&(batch_id, None)))
-                .copied();
-            drop(kernels_r);
-            if let Some(kernel) = kernel
-                && let Some(result) = kernel.aggregate(&self.aggregate_fn, &batch, ctx)?
-            {
-                vortex_ensure!(
-                    result.dtype() == &self.partial_dtype,
-                    "Aggregate kernel returned {}, expected {}",
-                    result.dtype(),
-                    self.partial_dtype,
-                );
-                self.vtable.combine_partials(&mut self.partial, result)?;
+            batch = batch.execute(ctx)?;
+            if self.try_kernel(&batch, ctx)? {
                 return Ok(());
             }
-
-            batch = batch.execute(ctx)?;
         }
 
-        // 4. Otherwise, execute the batch until it is columnar and accumulate it into the state.
+        // 4. Final fallback: decode to columnar and accumulate.
         let columnar = batch.execute::<Columnar>(ctx)?;
-
         self.vtable.accumulate(&mut self.partial, &columnar, ctx)
     }
 
     fn combine_partials(&mut self, other: Scalar) -> VortexResult<()> {
+        vortex_ensure!(
+            other.dtype() == &self.partial_dtype,
+            "Aggregate received partial with dtype {}, expected {}",
+            other.dtype(),
+            self.partial_dtype,
+        );
         self.vtable.combine_partials(&mut self.partial, other)
     }
 

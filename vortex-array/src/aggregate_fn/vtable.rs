@@ -121,13 +121,24 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
         Ok(None)
     }
 
-    /// Try to accumulate the raw array before decompression.
+    /// Aggregate-specific, encoding-agnostic dispatch on the raw array before canonicalization.
     ///
-    /// Returns `true` if the array was handled, `false` to fall through to
-    /// the default kernel dispatch and canonicalization path.
+    /// Conceptually this is the `(Any, Aggregate)` slot of the kernel registry: a fast path
+    /// that the aggregate vtable provides for *all* encodings, dispatched by aggregate function
+    /// rather than by encoding. It runs after the `(Encoding, Aggregate)` registry lookup so
+    /// that encoding-specific kernels take precedence.
     ///
-    /// This is useful for aggregates that only depend on array metadata (e.g., validity)
-    /// rather than the encoded data, avoiding unnecessary decompression.
+    /// Returns `true` if the array was handled, `false` to fall through to the iterative
+    /// kernel dispatch and canonical fallback.
+    ///
+    /// Typical uses:
+    /// - `Count`: reads `batch.valid_count(ctx)` without decoding values.
+    /// - `First` / `Last`: scan validity for the first/last valid index and pluck a single
+    ///   scalar, avoiding full canonicalization.
+    /// - `Combined<V>`: fan out to child accumulators on the raw batch. Not a shortcut —
+    ///   it's the primary dispatch path for delegating aggregates.
+    ///
+    /// Must *not* consult `batch.statistics()` — that belongs in `try_partial_from_stats`.
     fn try_accumulate(
         &self,
         _state: &mut Self::Partial,
