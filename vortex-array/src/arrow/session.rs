@@ -463,11 +463,16 @@ impl ArrowSession {
         target: Option<&Field>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
+        // NOTE(aduffy): this looks strange, but we do this to keep target_field as &Field so
+        //  we can avoid cloning target when it is provided. It contains a HashMap internally that
+        //  can be expensive to copy.
+        let arrow_field;
         let target_field = match target {
-            Some(field) => field.clone(),
+            Some(field) => field,
             None => {
                 let session = ctx.session().clone();
-                session.arrow().to_arrow_field("", array.dtype())?
+                arrow_field = session.arrow().to_arrow_field("", array.dtype())?;
+                &arrow_field
             }
         };
 
@@ -484,7 +489,7 @@ impl ArrowSession {
                     "probing plugin for converting Arrow array"
                 );
 
-                match plugin.execute_arrow(current, &target_field, ctx)? {
+                match plugin.execute_arrow(current, target_field, ctx)? {
                     ArrowExport::Exported(arrow) => {
                         vortex_ensure!(
                             arrow.len() == len,
