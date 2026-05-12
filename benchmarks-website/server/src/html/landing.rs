@@ -32,6 +32,8 @@ use crate::api::Summary;
 pub(super) struct LandingGroup {
     /// Display name rendered in the disclosure header.
     pub(super) name: String,
+    /// Slug for `/api/group/{slug}` used by group-level hydration.
+    pub(super) slug: String,
     /// Optional editorial blurb rendered as a hover tooltip on the
     /// disclosure title's info-icon.
     pub(super) description: Option<String>,
@@ -61,7 +63,7 @@ pub(super) fn landing_body(groups: &[LandingGroup], universe: &api::FilterUniver
     let mut idx_iter = 0usize..total_charts;
     html! {
         @for group in groups.iter() {
-            section.group-details data-group-name=(group.name) {
+            section.group-details data-group-name=(group.name) data-group-slug=(group.slug) {
                 details.group-disclosure {
                     summary.group-summary {
                         span.group-summary-row {

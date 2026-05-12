@@ -265,6 +265,7 @@ async fn collect_landing_groups(state: &AppState, groups: &[Group]) -> Result<Ve
         };
         out.push(LandingGroup {
             name: group.name.clone(),
+            slug: group.slug.clone(),
             description: group.description.clone(),
             summary: group.summary.clone(),
             chart_links: group.charts.clone(),

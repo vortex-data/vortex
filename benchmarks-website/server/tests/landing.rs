@@ -55,6 +55,10 @@ async fn landing_page_snapshot() -> Result<()> {
         "every chart card carries data-chart-slug for the lazy-fetch path"
     );
     assert!(
+        body.contains(r#"data-group-slug="#),
+        "every group carries data-group-slug for group-level hydration"
+    );
+    assert!(
         !body.contains(r#"id="group-search""#),
         "landing page should not render the old group search bar"
     );

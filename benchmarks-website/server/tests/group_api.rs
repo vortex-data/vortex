@@ -81,6 +81,33 @@ async fn group_api_returns_charts() -> Result<()> {
 }
 
 #[tokio::test]
+async fn group_api_respects_commit_window() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let slug = pick_group_slug(&server, |s| s.starts_with("TPC-H")).await?;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(server.url(&format!("/api/group/{slug}?n=1")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    let charts = body["charts"].as_array().context("charts is array")?;
+    assert!(!charts.is_empty(), "group must have at least one chart");
+    for chart in charts {
+        let commits = chart["commits"].as_array().context("commits is array")?;
+        assert!(
+            commits.len() <= 1,
+            "group hydration should honor the requested commit window"
+        );
+        assert!(chart["series"].as_object().is_some(), "series is present");
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn group_summaries_match_v2_contract() -> Result<()> {
     let server = Server::start().await?;
     seed(&server).await?;

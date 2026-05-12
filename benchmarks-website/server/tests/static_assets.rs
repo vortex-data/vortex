@@ -58,6 +58,37 @@ async fn static_assets_are_served() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn chart_init_uses_group_first_hydration() -> Result<()> {
+    let server = Server::start().await?;
+    let client = reqwest::Client::new();
+
+    let js = client
+        .get(server.url("/static/chart-init.js"))
+        .send()
+        .await?
+        .text()
+        .await?;
+
+    assert!(
+        js.contains(r#""/api/group/""#),
+        "landing hydration should fetch a whole group payload"
+    );
+    assert!(
+        !js.contains("startBackgroundPrefetch();"),
+        "chart-init must not fan out full-history chart fetches on page load"
+    );
+    assert!(
+        js.contains("if (allowFullFetch) maybeRefetchFullPayload"),
+        "full-history chart fetches should be gated behind user-driven range changes"
+    );
+    assert!(
+        !js.contains("WIDE_DEFAULT_GROUPS"),
+        "group-open hydration should default every group to the latest-100 window"
+    );
+    Ok(())
+}
+
 /// Every response — landing HTML, chart JSON, bundled JS — flows through
 /// `tower-http`'s `CompressionLayer` so a client advertising
 /// `Accept-Encoding: gzip` gets a gzipped (or brotli) body. The

@@ -65,6 +65,24 @@ use crate::error::ApiError;
 use crate::slug::ChartKey;
 use crate::slug::GroupKey;
 
+fn read_transaction<T>(
+    conn: &mut Connection,
+    f: impl FnOnce(&Connection) -> Result<T>,
+) -> Result<T> {
+    conn.execute_batch("BEGIN TRANSACTION")?;
+    let result = f(conn);
+    match result {
+        Ok(value) => {
+            conn.execute_batch("COMMIT")?;
+            Ok(value)
+        }
+        Err(err) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(err)
+        }
+    }
+}
+
 /// Handler for `GET /api/groups`.
 pub async fn groups(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let groups = cached_groups(&state).await?;
@@ -106,7 +124,9 @@ pub async fn cached_groups(state: &AppState) -> Result<std::sync::Arc<Vec<Group>
     let db = state.db.clone();
     state
         .cache
-        .groups(move || async move { db::run_blocking(&db, |conn| collect_groups(conn)).await })
+        .groups(move || async move {
+            db::run_read_blocking(&db, |conn| read_transaction(conn, collect_groups)).await
+        })
         .await
 }
 
@@ -116,7 +136,7 @@ pub async fn cached_filter_universe(state: &AppState) -> Result<std::sync::Arc<F
     state
         .cache
         .filter_universe(move || async move {
-            db::run_blocking(&db, |conn| collect_filter_universe(conn)).await
+            db::run_read_blocking(&db, |conn| read_transaction(conn, collect_filter_universe)).await
         })
         .await
 }
@@ -134,8 +154,10 @@ pub async fn cached_chart_payload(
     state
         .cache
         .chart_payload(slug, window, move || async move {
-            db::run_blocking(&db, move |conn| {
-                chart_payload(conn, &key_for_compute, &window_for_compute)
+            db::run_read_blocking(&db, move |conn| {
+                read_transaction(conn, |conn| {
+                    chart_payload(conn, &key_for_compute, &window_for_compute)
+                })
             })
             .await
         })
@@ -155,8 +177,10 @@ pub async fn cached_group_charts(
     state
         .cache
         .group_charts(slug, window, move || async move {
-            db::run_blocking(&db, move |conn| {
-                collect_group_charts(conn, &key_for_compute, &window_for_compute)
+            db::run_read_blocking(&db, move |conn| {
+                read_transaction(conn, |conn| {
+                    collect_group_charts(conn, &key_for_compute, &window_for_compute)
+                })
             })
             .await
         })
@@ -166,7 +190,10 @@ pub async fn cached_group_charts(
 /// Handler for `GET /health`.
 pub async fn health(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let path = state.db_path.display().to_string();
-    let response = db::run_blocking(&state.db, move |conn| collect_health(conn, path)).await?;
+    let response = db::run_read_blocking(&state.db, move |conn| {
+        read_transaction(conn, |conn| collect_health(conn, path))
+    })
+    .await?;
     Ok(Json(response))
 }
 

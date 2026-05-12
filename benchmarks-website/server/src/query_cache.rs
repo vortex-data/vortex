@@ -11,32 +11,33 @@
 //! / clients open at once peg the read API behind that lock even though the
 //! underlying answer hasn't changed in hours.
 //!
-//! The cache is a cache-aside store of [`Arc`]-wrapped payloads, one
-//! [`DashMap`] per result type:
+//! The cache is a generation-keyed, single-flight store of [`Arc`]-wrapped
+//! payloads, one [`DashMap`] per result type:
 //! - reads check the slot, clone the [`Arc`] out, and return — no DuckDB
 //!   round-trip on the hot path;
-//! - misses run `compute`, wrap the result in [`Arc`], and stash it for the
-//!   next reader;
+//! - the first miss for a key runs `compute` while concurrent waiters share the
+//!   same async slot;
 //! - [`QueryCache::invalidate`] is called from [`crate::ingest`] after a
-//!   successful commit so the next read recomputes against the fresh
-//!   snapshot.
+//!   successful commit; it advances the generation and clears the visible
+//!   maps so old in-flight computes cannot repopulate the current snapshot.
 //!
 //! The two unkeyed slots — `/api/groups` and the filter universe — use a
-//! [`DashMap`] with `()` as the key, so every slot in the cache is the same
-//! primitive. Concurrent misses for the same slot each run `compute` and the
-//! last writer wins. Both writers produce identical data because the DB is
-//! read-only between invalidations, so the only cost is the redundant work
-//! in the brief window between an invalidate and the first repopulation.
+//! [`DashMap`] with `()` as the logical key, so every slot in the cache is the
+//! same primitive.
 //!
 //! Cached values are wrapped in [`std::sync::Arc`] and never cloned on the
 //! cache-hit path; [`axum::Json`] serialises through the [`Arc`] so the JSON
 //! bytes on the wire are produced once per cached value.
 
 use std::future::Future;
+use std::hash::Hash;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use anyhow::Result;
 use dashmap::DashMap;
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::api::ChartResponse;
 use crate::api::CommitWindow;
@@ -51,15 +52,25 @@ use crate::api::GroupChartsResponse;
 /// [`Self::invalidate`] when ingest changes the underlying snapshot.
 #[derive(Default)]
 pub struct QueryCache {
+    /// Monotonically advances whenever ingest invalidates the read snapshot.
+    generation: AtomicU64,
     /// `/api/groups` discovery result. Keyed by `()` because there is only
     /// ever one group list per snapshot.
-    groups: DashMap<(), Arc<Vec<Group>>>,
+    groups: DashMap<VersionedKey<()>, CacheSlot<Arc<Vec<Group>>>>,
     /// Global filter universe (engines + formats). Also unkeyed.
-    filter_universe: DashMap<(), Arc<FilterUniverse>>,
+    filter_universe: DashMap<VersionedKey<()>, CacheSlot<Arc<FilterUniverse>>>,
     /// Per-chart payloads, keyed by `(slug, window)`.
-    chart_payloads: DashMap<ChartCacheKey, Option<Arc<ChartResponse>>>,
+    chart_payloads: DashMap<VersionedKey<ChartCacheKey>, CacheSlot<Option<Arc<ChartResponse>>>>,
     /// Per-group payloads, keyed by `(slug, window)`.
-    group_charts: DashMap<GroupCacheKey, Option<Arc<GroupChartsResponse>>>,
+    group_charts: DashMap<VersionedKey<GroupCacheKey>, CacheSlot<Option<Arc<GroupChartsResponse>>>>,
+}
+
+type CacheSlot<T> = Arc<AsyncMutex<Option<T>>>;
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+struct VersionedKey<K> {
+    generation: u64,
+    key: K,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -80,6 +91,41 @@ impl QueryCache {
         Self::default()
     }
 
+    async fn get_or_compute<K, V, Raw, F, Fut, Wrap>(
+        &self,
+        map: &DashMap<VersionedKey<K>, CacheSlot<V>>,
+        key: K,
+        compute: F,
+        wrap: Wrap,
+    ) -> Result<V>
+    where
+        K: Clone + Eq + Hash,
+        V: Clone,
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<Raw>>,
+        Wrap: FnOnce(Raw) -> V,
+    {
+        let generation = self.generation.load(Ordering::Acquire);
+        let cache_key = VersionedKey { generation, key };
+        let slot = map
+            .entry(cache_key.clone())
+            .or_insert_with(|| Arc::new(AsyncMutex::new(None)))
+            .clone();
+
+        let mut guard = slot.lock().await;
+        if let Some(value) = guard.as_ref() {
+            return Ok(value.clone());
+        }
+
+        let fresh = wrap(compute().await?);
+        if self.generation.load(Ordering::Acquire) == generation {
+            *guard = Some(fresh.clone());
+        } else {
+            map.remove(&cache_key);
+        }
+        Ok(fresh)
+    }
+
     /// Get the cached `Arc<Vec<Group>>` from `/api/groups`, or run `compute`
     /// if the slot is empty and store the result.
     pub async fn groups<F, Fut>(&self, compute: F) -> Result<Arc<Vec<Group>>>
@@ -87,12 +133,8 @@ impl QueryCache {
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<Vec<Group>>>,
     {
-        if let Some(entry) = self.groups.get(&()) {
-            return Ok(entry.value().clone());
-        }
-        let fresh = Arc::new(compute().await?);
-        self.groups.insert((), Arc::clone(&fresh));
-        Ok(fresh)
+        self.get_or_compute(&self.groups, (), compute, Arc::new)
+            .await
     }
 
     /// Get the cached `Arc<FilterUniverse>` for the global filter bar, or
@@ -102,12 +144,8 @@ impl QueryCache {
         F: FnOnce() -> Fut,
         Fut: Future<Output = Result<FilterUniverse>>,
     {
-        if let Some(entry) = self.filter_universe.get(&()) {
-            return Ok(entry.value().clone());
-        }
-        let fresh = Arc::new(compute().await?);
-        self.filter_universe.insert((), Arc::clone(&fresh));
-        Ok(fresh)
+        self.get_or_compute(&self.filter_universe, (), compute, Arc::new)
+            .await
     }
 
     /// Get the cached chart payload for `(slug, window)`, or run `compute`
@@ -128,12 +166,10 @@ impl QueryCache {
             slug: slug.to_string(),
             window: *window,
         };
-        if let Some(entry) = self.chart_payloads.get(&key) {
-            return Ok(entry.value().clone());
-        }
-        let arc_opt = compute().await?.map(Arc::new);
-        self.chart_payloads.insert(key, arc_opt.clone());
-        Ok(arc_opt)
+        self.get_or_compute(&self.chart_payloads, key, compute, |value| {
+            value.map(Arc::new)
+        })
+        .await
     }
 
     /// Get the cached per-group payload for `(slug, window)`, or run
@@ -152,17 +188,16 @@ impl QueryCache {
             slug: slug.to_string(),
             window: *window,
         };
-        if let Some(entry) = self.group_charts.get(&key) {
-            return Ok(entry.value().clone());
-        }
-        let arc_opt = compute().await?.map(Arc::new);
-        self.group_charts.insert(key, arc_opt.clone());
-        Ok(arc_opt)
+        self.get_or_compute(&self.group_charts, key, compute, |value| {
+            value.map(Arc::new)
+        })
+        .await
     }
 
     /// Drop every cached value. Called from the ingest handler after a
     /// successful commit so the next read sees the fresh snapshot.
     pub fn invalidate(&self) {
+        self.generation.fetch_add(1, Ordering::AcqRel);
         self.groups.clear();
         self.filter_universe.clear();
         self.chart_payloads.clear();
@@ -174,14 +209,23 @@ impl QueryCache {
 mod tests {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::time::Duration;
 
     use anyhow::anyhow;
+    use tokio::sync::oneshot;
 
     use super::*;
     use crate::api::FilterUniverse;
 
     fn empty_universe() -> FilterUniverse {
         FilterUniverse::default()
+    }
+
+    fn universe_with_engine(engine: &str) -> FilterUniverse {
+        FilterUniverse {
+            engines: vec![engine.to_string()],
+            formats: Vec::new(),
+        }
     }
 
     #[tokio::test]
@@ -234,6 +278,84 @@ mod tests {
         assert!(
             !Arc::ptr_eq(&a, &b),
             "post-invalidate read should produce a fresh Arc"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn concurrent_singleton_misses_share_one_compute() -> Result<()> {
+        let cache = Arc::new(QueryCache::new());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut tasks = Vec::new();
+
+        for _ in 0..16 {
+            let cache = Arc::clone(&cache);
+            let calls = Arc::clone(&calls);
+            tasks.push(tokio::spawn(async move {
+                cache
+                    .filter_universe(|| {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        async {
+                            tokio::time::sleep(Duration::from_millis(50)).await;
+                            Ok(empty_universe())
+                        }
+                    })
+                    .await
+            }));
+        }
+
+        for task in tasks {
+            task.await??;
+        }
+
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "concurrent misses for one key should collapse to one compute"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn stale_in_flight_compute_does_not_repopulate_after_invalidate() -> Result<()> {
+        let cache = Arc::new(QueryCache::new());
+        let (started_tx, started_rx) = oneshot::channel();
+        let (release_tx, release_rx) = oneshot::channel();
+
+        let stale_cache = Arc::clone(&cache);
+        let stale_task = tokio::spawn(async move {
+            stale_cache
+                .filter_universe(|| {
+                    started_tx.send(()).expect("test receiver is alive");
+                    async {
+                        release_rx
+                            .await
+                            .expect("test sender releases stale compute");
+                        Ok(universe_with_engine("stale"))
+                    }
+                })
+                .await
+        });
+
+        started_rx.await?;
+        cache.invalidate();
+
+        let fresh = cache
+            .filter_universe(|| async { Ok(universe_with_engine("fresh")) })
+            .await?;
+        assert_eq!(fresh.engines, ["fresh"]);
+
+        release_tx.send(()).expect("stale compute is waiting");
+        let stale = stale_task.await??;
+        assert_eq!(stale.engines, ["stale"]);
+
+        let cached = cache
+            .filter_universe(|| async { Ok(universe_with_engine("unexpected")) })
+            .await?;
+        assert_eq!(
+            cached.engines,
+            ["fresh"],
+            "old in-flight computations must not populate the new generation"
         );
         Ok(())
     }
