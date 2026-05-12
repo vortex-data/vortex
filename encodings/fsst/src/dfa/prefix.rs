@@ -13,6 +13,8 @@
 //! now to keep the code simple and support long prefixes.
 
 use fsst::Symbol;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -94,6 +96,7 @@ impl FlatPrefixDfa {
         })
     }
 
+    #[inline]
     pub(crate) fn matches(&self, codes: &[u8]) -> bool {
         let mut state = 0u8;
         let mut pos = 0;
@@ -119,6 +122,103 @@ impl FlatPrefixDfa {
             }
         }
         state == self.accept_state
+    }
+
+    #[inline]
+    fn matches_in_range(&self, all_bytes: &[u8], start: usize, end: usize) -> bool {
+        if start >= end {
+            return false;
+        }
+
+        let mut pos = start;
+        let first = all_bytes[pos];
+        pos += 1;
+
+        let next = self.transitions[usize::from(first)];
+        let mut state = if next == self.sentinel {
+            if pos >= end {
+                return false;
+            }
+            let byte = all_bytes[pos];
+            pos += 1;
+            self.escape_transitions[usize::from(byte)]
+        } else {
+            next
+        };
+
+        if state == self.accept_state {
+            return true;
+        }
+        if state == self.fail_state {
+            return false;
+        }
+
+        while pos < end {
+            let code = all_bytes[pos];
+            pos += 1;
+            let next = self.transitions[usize::from(state) * 256 + usize::from(code)];
+            if next == self.sentinel {
+                if pos >= end {
+                    return false;
+                }
+                let byte = all_bytes[pos];
+                pos += 1;
+                state = self.escape_transitions[usize::from(state) * 256 + usize::from(byte)];
+            } else {
+                state = next;
+            }
+            if state == self.accept_state {
+                return true;
+            }
+            if state == self.fail_state {
+                return false;
+            }
+        }
+
+        state == self.accept_state
+    }
+
+    /// Specialized scan over `n` strings, returning a `BitBuffer` of accept
+    /// results (XOR `negated`).
+    ///
+    /// Prefix patterns usually fail on the first compressed code. Drive the
+    /// scan directly over `offsets` so those row-start rejects stay in a tight
+    /// loop instead of paying the generic "slice then call `matches`" path.
+    #[inline]
+    pub(crate) fn scan_to_bitbuf<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        debug_assert!(offsets.len() > n);
+        let mut bits = if negated {
+            BitBufferMut::new_set(n)
+        } else {
+            BitBufferMut::new_unset(n)
+        };
+
+        let mut start: usize = unsafe { *offsets.get_unchecked(0) }.as_();
+        for i in 0..n {
+            let end: usize = unsafe { *offsets.get_unchecked(i + 1) }.as_();
+            debug_assert!(start <= end && end <= all_bytes.len());
+            if self.matches_in_range(all_bytes, start, end) {
+                unsafe {
+                    if negated {
+                        bits.unset_unchecked(i);
+                    } else {
+                        bits.set_unchecked(i);
+                    }
+                }
+            }
+            start = end;
+        }
+
+        bits.freeze()
     }
 }
 

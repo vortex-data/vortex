@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[cfg(test)]
+use std::cell::Cell;
+
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -17,7 +20,29 @@ use vortex_error::VortexResult;
 use crate::FSST;
 use crate::FSSTArrayExt;
 use crate::dfa::FsstMatcher;
-use crate::dfa::dfa_scan_to_bitbuf;
+
+const DISABLE_LIKE_PUSHDOWN_ENV: &str = "VORTEX_FSST_DISABLE_LIKE_PUSHDOWN";
+const LIKE_TRACE_ENV: &str = "VORTEX_FSST_LIKE_TRACE";
+
+#[cfg(test)]
+thread_local! {
+    static TEST_DISABLE_LIKE_PUSHDOWN: Cell<bool> = const { Cell::new(false) };
+}
+
+fn like_pushdown_disabled() -> bool {
+    #[cfg(test)]
+    if TEST_DISABLE_LIKE_PUSHDOWN.with(Cell::get) {
+        return true;
+    }
+
+    std::env::var_os(DISABLE_LIKE_PUSHDOWN_ENV).is_some()
+}
+
+fn like_trace_enabled() -> bool {
+    std::env::var_os(LIKE_TRACE_ENV)
+        .map(|value| !value.is_empty())
+        .unwrap_or(false)
+}
 
 impl LikeKernel for FSST {
     fn like(
@@ -26,6 +51,19 @@ impl LikeKernel for FSST {
         options: LikeOptions,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        let trace = like_trace_enabled();
+        let phase_us = |start: Option<std::time::Instant>| {
+            start
+                .map(|t| t.elapsed().as_secs_f64() * 1e6)
+                .unwrap_or_default()
+        };
+        let total_t = trace.then(std::time::Instant::now);
+        let mut phase_t = trace.then(std::time::Instant::now);
+
+        if like_pushdown_disabled() {
+            return Ok(None);
+        }
+
         let Some(pattern_scalar) = pattern.as_constant() else {
             return Ok(None);
         };
@@ -47,15 +85,11 @@ impl LikeKernel for FSST {
         } else {
             return Ok(None);
         };
+        let pattern_us = phase_us(phase_t);
+        phase_t = trace.then(std::time::Instant::now);
 
         let symbols = array.symbols();
         let symbol_lengths = array.symbol_lengths();
-
-        let Some(matcher) =
-            FsstMatcher::try_new(symbols.as_slice(), symbol_lengths.as_slice(), pattern_bytes)?
-        else {
-            return Ok(None);
-        };
 
         let negated = options.negated;
         let codes = array.codes();
@@ -64,11 +98,51 @@ impl LikeKernel for FSST {
         let all_bytes = codes.bytes();
         let all_bytes = all_bytes.as_slice();
         let n = codes.len();
+        let layout_us = phase_us(phase_t);
+        phase_t = trace.then(std::time::Instant::now);
+
+        let Some(matcher) =
+            FsstMatcher::try_new(symbols.as_slice(), symbol_lengths.as_slice(), pattern_bytes)?
+        else {
+            return Ok(None);
+        };
+        let matcher_us = phase_us(phase_t);
+        phase_t = trace.then(std::time::Instant::now);
 
         let result = match_each_integer_ptype!(offsets.ptype(), |T| {
             let off = offsets.as_slice::<T>();
-            dfa_scan_to_bitbuf(n, off, all_bytes, negated, |codes| matcher.matches(codes))
+            if negated {
+                crate::dfa::scan_to_bitbuf_with(n, off, all_bytes, negated, |codes| {
+                    matcher.matches(codes)
+                })
+            } else {
+                matcher.scan_to_bitbuf(n, off, all_bytes, negated)
+            }
         });
+        let scan_us = phase_us(phase_t);
+        let total_us = phase_us(total_t);
+
+        if trace {
+            let scan_plan = if negated {
+                "negated_row_loop"
+            } else {
+                matcher.scan_plan_name()
+            };
+            eprintln!(
+                "[fsst::like] rows={} bytes={} pattern_len={} negated={} matcher={} scan_plan={} pattern_us={:.3} layout_us={:.3} matcher_us={:.3} scan_us={:.3} total_us={:.3}",
+                n,
+                all_bytes.len(),
+                pattern_bytes.len(),
+                negated,
+                matcher.matcher_name(),
+                scan_plan,
+                pattern_us,
+                layout_us,
+                matcher_us,
+                scan_us,
+                total_us,
+            );
+        }
 
         // FSST delegates validity to its codes array, so we can read it
         // directly without cloning the entire FSSTArray into an ArrayRef.
@@ -102,6 +176,7 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
+    use super::TEST_DISABLE_LIKE_PUSHDOWN;
     use crate::FSST;
     use crate::FSSTArray;
     use crate::fsst_compress;
@@ -109,6 +184,21 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
+    struct DisableLikePushdownGuard;
+
+    impl DisableLikePushdownGuard {
+        fn new() -> Self {
+            TEST_DISABLE_LIKE_PUSHDOWN.with(|disabled| disabled.set(true));
+            Self
+        }
+    }
+
+    impl Drop for DisableLikePushdownGuard {
+        fn drop(&mut self) {
+            TEST_DISABLE_LIKE_PUSHDOWN.with(|disabled| disabled.set(false));
+        }
+    }
 
     fn make_fsst(strings: &[Option<&str>], nullability: Nullability) -> FSSTArray {
         let varbin = VarBinArray::from_iter(strings.iter().copied(), DType::Utf8(nullability));
@@ -261,6 +351,23 @@ mod tests {
         Ok(())
     }
 
+    /// Direct-call check for the suffix pattern `%suffix`.
+    #[test]
+    fn test_like_suffix_kernel_handles() -> VortexResult<()> {
+        let fsst = make_fsst(
+            &[Some("hello world"), Some("goodbye"), Some("new world")],
+            Nullability::NonNullable,
+        );
+        let pattern = ConstantArray::new("%world", fsst.len()).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let fsst = fsst.as_view();
+        let result = <FSST as LikeKernel>::like(fsst, &pattern, LikeOptions::default(), &mut ctx)?;
+        assert!(result.is_some(), "FSST LikeKernel should handle %suffix");
+        assert_arrays_eq!(result.unwrap(), BoolArray::from_iter([true, false, true]));
+        Ok(())
+    }
+
     /// Patterns we can't handle should return `None` (fall back).
     #[test]
     fn test_like_kernel_falls_back_for_complex_pattern() -> VortexResult<()> {
@@ -283,6 +390,30 @@ mod tests {
         let result = <FSST as LikeKernel>::like(fsst_v, &pattern, opts, &mut ctx)?;
         assert!(result.is_none(), "ilike should fall back");
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_like_kernel_falls_back_when_pushdown_disabled() -> VortexResult<()> {
+        let _guard = DisableLikePushdownGuard::new();
+        let fsst = make_fsst(
+            &[Some("hello world"), Some("goodbye"), Some("new world")],
+            Nullability::NonNullable,
+        );
+        let pattern = ConstantArray::new("%world%", fsst.len()).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let direct = {
+            let fsst = fsst.as_view();
+            <FSST as LikeKernel>::like(fsst, &pattern, LikeOptions::default(), &mut ctx)?
+        };
+        assert!(
+            direct.is_none(),
+            "disabled LIKE pushdown should fall back to decompression"
+        );
+
+        let result = like(fsst, "%world%")?;
+        assert_arrays_eq!(&result, &BoolArray::from_iter([true, false, true]));
         Ok(())
     }
 

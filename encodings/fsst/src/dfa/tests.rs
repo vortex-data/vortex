@@ -26,6 +26,8 @@ use vortex_session::VortexSession;
 use super::FsstMatcher;
 use super::LikeKind;
 use super::flat_contains::FlatContainsDfa;
+use super::folded_contains::FoldedContainsDfa;
+use super::multi_contains::MultiContainsDfa;
 use super::prefix::FlatPrefixDfa;
 use crate::FSSTArray;
 use crate::fsst_compress;
@@ -61,8 +63,27 @@ fn test_like_kind_parse() {
         Some(LikeKind::Contains(b"needle"))
     ));
     assert!(matches!(LikeKind::parse(b"%"), Some(LikeKind::Prefix(b""))));
-    // Suffix and underscore patterns are not supported.
-    assert!(LikeKind::parse(b"%suffix").is_none());
+    assert!(matches!(
+        LikeKind::parse(b"%suffix"),
+        Some(LikeKind::Suffix(b"suffix"))
+    ));
+    // Multi-contains
+    assert!(matches!(
+        LikeKind::parse(b"%abc%def%"),
+        Some(LikeKind::MultiContains(_))
+    ));
+    assert!(matches!(
+        LikeKind::parse(b"%a%b%c%"),
+        Some(LikeKind::MultiContains(_))
+    ));
+    // Consecutive %% in multi-contains is fine (empty segments filtered out)
+    assert!(matches!(
+        LikeKind::parse(b"%abc%%def%"),
+        Some(LikeKind::MultiContains(_))
+    ));
+    // Underscore in any segment rejects
+    assert!(LikeKind::parse(b"%abc%d_f%").is_none());
+    // Underscore patterns are not supported.
     assert!(LikeKind::parse(b"a_c").is_none());
 }
 
@@ -192,6 +213,41 @@ fn test_prefix_pushdown_rejects_len_254() {
 }
 
 #[test]
+fn test_prefix_scan_to_bitbuf_matches_row_start_fast_path() -> VortexResult<()> {
+    let symbols = [sym(b"ab"), sym(b"cd")];
+    let lengths = [2u8, 2];
+    let dfa = FlatPrefixDfa::new(&symbols, &lengths, b"xy")?;
+
+    let rows = [
+        escaped(b"xy"),
+        vec![0u8],
+        vec![ESCAPE_CODE, b'x', 1u8],
+        Vec::new(),
+    ];
+    let mut all_bytes = Vec::new();
+    let mut offsets = Vec::with_capacity(rows.len() + 1);
+    offsets.push(0u32);
+    for row in rows {
+        all_bytes.extend_from_slice(&row);
+        offsets.push(u32::try_from(all_bytes.len()).expect("test data fits in u32"));
+    }
+
+    let bits = dfa.scan_to_bitbuf(4, &offsets, &all_bytes, false);
+    assert!(bits.value(0));
+    assert!(!bits.value(1));
+    assert!(!bits.value(2));
+    assert!(!bits.value(3));
+
+    let negated = dfa.scan_to_bitbuf(4, &offsets, &all_bytes, true);
+    assert!(!negated.value(0));
+    assert!(negated.value(1));
+    assert!(negated.value(2));
+    assert!(negated.value(3));
+
+    Ok(())
+}
+
+#[test]
 fn test_contains_pushdown_len_254_with_escapes() {
     let needle = "a".repeat(FlatContainsDfa::MAX_NEEDLE_LEN);
     let pattern = format!("%{needle}%");
@@ -215,6 +271,360 @@ fn test_contains_pushdown_rejects_len_255() {
             .unwrap()
             .is_none()
     );
+}
+
+/// Folded contains DFA boundary check: matches and rejects across the full
+/// supported needle length range.
+#[rstest]
+#[case(1)]
+#[case(7)]
+#[case(8)]
+#[case(127)]
+fn test_folded_contains_needle_len_boundaries(#[case] n: usize) -> VortexResult<()> {
+    let needle: Vec<u8> = (0..n)
+        .map(|i| b'a' + u8::try_from(i % 26).expect("i%26 fits in u8"))
+        .collect();
+    let dfa = FoldedContainsDfa::new(&[], &[], &needle)?;
+
+    // Plain match: needle itself, escaped.
+    assert!(dfa.matches(&escaped(&needle)));
+
+    // Match in the middle of a longer string.
+    let mut wrapped = escaped(b"prefix");
+    wrapped.extend_from_slice(&escaped(&needle));
+    wrapped.extend_from_slice(&escaped(b"suffix"));
+    assert!(dfa.matches(&wrapped));
+
+    // Near-miss (last byte changed).
+    let mut mismatch = needle;
+    mismatch[n - 1] = mismatch[n - 1].wrapping_add(1);
+    assert!(!dfa.matches(&escaped(&mismatch)));
+
+    // Empty input never matches a non-empty needle.
+    assert!(!dfa.matches(&[]));
+
+    Ok(())
+}
+
+/// `FoldedContainsDfa::new` rejects needles longer than its max.
+#[test]
+fn test_folded_contains_rejects_len_128() {
+    let needle = vec![b'a'; FoldedContainsDfa::MAX_NEEDLE_LEN + 1];
+    assert!(FoldedContainsDfa::new(&[], &[], &needle).is_err());
+}
+
+/// `FsstMatcher` selects the folded DFA at the boundary length 127 and the
+/// flat DFA for length 128, and both produce correct results.
+#[test]
+fn test_contains_matcher_routing_at_folded_boundary() -> VortexResult<()> {
+    for n in [127usize, 128] {
+        let needle = "a".repeat(n);
+        let pattern = format!("%{needle}%");
+        let matcher = FsstMatcher::try_new(&[], &[], pattern.as_bytes())?
+            .expect("contains pattern must produce a matcher");
+        assert!(
+            matcher.matches(&escaped(needle.as_bytes())),
+            "match failed for needle length {n}"
+        );
+        let mut mismatch = needle.into_bytes();
+        mismatch[n - 1] = b'b';
+        assert!(
+            !matcher.matches(&escaped(&mismatch)),
+            "false match for needle length {n}"
+        );
+    }
+    Ok(())
+}
+
+/// The Teddy-3 prefilter is more selective than Teddy-2, but it does not cover
+/// valid 2-code matches such as `c1 -> accept` or escape-followed continuations.
+/// The production scan must keep those pair-only cases alive when triple buckets
+/// exist, otherwise `%http://%`-style substring queries can undercount.
+#[test]
+fn test_folded_contains_scan_keeps_pair_only_matches_when_triples_exist() -> VortexResult<()> {
+    let symbols = [sym(b"a"), sym(b"b"), sym(b"ab"), sym(b"c")];
+    let lengths = [1u8, 1, 2, 1];
+    let dfa = FoldedContainsDfa::new(&symbols, &lengths, b"abc")?;
+
+    // Row 0 matches in 2 codes via "ab" + "c" and is only visible to Teddy-2.
+    // Row 1 matches in 3 codes via "a" + "b" + "c" and is visible to Teddy-3.
+    let offsets = [0u32, 2, 5];
+    let all_bytes = [2u8, 3, 0, 1, 3];
+
+    let bits = dfa.scan_to_bitbuf(2, &offsets, &all_bytes, false);
+    assert!(
+        bits.value(0),
+        "2-code match was dropped by the scan prefilter"
+    );
+    assert!(bits.value(1), "3-code match should still be preserved");
+
+    let negated = dfa.scan_to_bitbuf(2, &offsets, &all_bytes, true);
+    assert!(!negated.value(0));
+    assert!(!negated.value(1));
+
+    Ok(())
+}
+
+#[test]
+fn test_folded_contains_scan_handles_escape_only_pair_anchor() -> VortexResult<()> {
+    let dfa = FoldedContainsDfa::new(&[], &[], b"XY")?;
+    let rows = [escaped(b"AB"), escaped(b"WXYZ"), escaped(b"XQ"), Vec::new()];
+    let mut all_bytes = Vec::new();
+    let mut offsets = Vec::with_capacity(rows.len() + 1);
+    offsets.push(0u32);
+    for row in rows {
+        all_bytes.extend_from_slice(&row);
+        offsets.push(u32::try_from(all_bytes.len()).expect("test data fits in u32"));
+    }
+
+    let bits = dfa.scan_to_bitbuf(4, &offsets, &all_bytes, false);
+    assert!(!bits.value(0));
+    assert!(bits.value(1));
+    assert!(!bits.value(2));
+    assert!(!bits.value(3));
+
+    let negated = dfa.scan_to_bitbuf(4, &offsets, &all_bytes, true);
+    assert!(negated.value(0));
+    assert!(!negated.value(1));
+    assert!(negated.value(2));
+    assert!(negated.value(3));
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// MultiContainsDfa unit tests
+// ---------------------------------------------------------------------------
+
+/// No symbols — all bytes escaped. Two segments.
+#[test]
+fn test_multi_contains_dfa_no_symbols() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"ab", b"cd"])?;
+
+    assert!(dfa.matches(&escaped(b"abcd")));
+    assert!(dfa.matches(&escaped(b"xxabxxcdxx")));
+    assert!(dfa.matches(&escaped(b"abxcd")));
+    assert!(!dfa.matches(&escaped(b"cdab"))); // wrong order
+    assert!(!dfa.matches(&escaped(b"ab"))); // missing cd
+    assert!(!dfa.matches(&escaped(b"cd"))); // missing ab
+    assert!(!dfa.matches(&[]));
+
+    Ok(())
+}
+
+/// Three segments, all escaped.
+#[test]
+fn test_multi_contains_dfa_three_segments() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"a", b"b", b"c"])?;
+
+    assert!(dfa.matches(&escaped(b"abc")));
+    assert!(dfa.matches(&escaped(b"xaxbxcx")));
+    assert!(dfa.matches(&escaped(b"abc")));
+    assert!(!dfa.matches(&escaped(b"cba"))); // wrong order
+    assert!(!dfa.matches(&escaped(b"ab"))); // missing c
+    assert!(!dfa.matches(&escaped(b"ac"))); // missing b between a and c
+
+    Ok(())
+}
+
+/// With symbols — multi-byte symbols can straddle segment boundaries.
+#[test]
+fn test_multi_contains_dfa_with_symbols() -> VortexResult<()> {
+    // code 0 = "ab", code 1 = "cd"
+    let symbols = [sym(b"ab"), sym(b"cd")];
+    let lengths = [2u8, 2];
+    let dfa = MultiContainsDfa::new(&symbols, &lengths, &[b"ab", b"cd"])?;
+
+    // "abcd" via symbols: code 0 ("ab") + code 1 ("cd")
+    assert!(dfa.matches(&[0, 1]));
+    // "abcd" all escaped
+    assert!(dfa.matches(&escaped(b"abcd")));
+    // "ab...cd" with gap via escape
+    assert!(dfa.matches(&[0, ESCAPE_CODE, b'x', 1]));
+    // Only first segment
+    assert!(!dfa.matches(&[0]));
+    // Wrong order
+    assert!(!dfa.matches(&[1, 0]));
+
+    Ok(())
+}
+
+/// KMP overlap within a segment: "abab" has failure [0,0,1,2].
+#[test]
+fn test_multi_contains_dfa_kmp_within_segment() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"abab", b"xy"])?;
+
+    assert!(dfa.matches(&escaped(b"ababxy")));
+    assert!(dfa.matches(&escaped(b"xababxyx")));
+    // "abababxy" — KMP for "abab" matches at position 0-3, then "xy" at 6-7
+    assert!(dfa.matches(&escaped(b"abababxy")));
+    assert!(!dfa.matches(&escaped(b"xyabab"))); // wrong order
+    assert!(!dfa.matches(&escaped(b"abab"))); // missing xy
+
+    Ok(())
+}
+
+/// Greedy-first-match correctness: %ab%ab% on "abab".
+/// Find "ab" at 0, then "ab" from position 2 onward — found at 2.
+#[test]
+fn test_multi_contains_dfa_greedy_correctness() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"ab", b"ab"])?;
+
+    assert!(dfa.matches(&escaped(b"abab")));
+    assert!(dfa.matches(&escaped(b"xababx")));
+    assert!(!dfa.matches(&escaped(b"ab"))); // only one "ab"
+    assert!(!dfa.matches(&escaped(b"xabx"))); // only one "ab"
+
+    Ok(())
+}
+
+/// State-space limit: total 254 bytes across segments.
+#[test]
+fn test_multi_contains_dfa_max_total_len() -> VortexResult<()> {
+    let seg1 = "a".repeat(127);
+    let seg2 = "b".repeat(127);
+    let dfa = MultiContainsDfa::new(&[], &[], &[seg1.as_bytes(), seg2.as_bytes()])?;
+
+    let matching = format!("{seg1}{seg2}");
+    assert!(dfa.matches(&escaped(matching.as_bytes())));
+
+    let non_matching = format!("{seg2}{seg1}"); // wrong order
+    assert!(!dfa.matches(&escaped(non_matching.as_bytes())));
+
+    Ok(())
+}
+
+#[test]
+fn test_multi_contains_dfa_rejects_over_max() {
+    let seg1 = "a".repeat(128);
+    let seg2 = "b".repeat(127);
+    // total = 255 > MAX_TOTAL_LEN = 254
+    assert!(MultiContainsDfa::new(&[], &[], &[seg1.as_bytes(), seg2.as_bytes()]).is_err());
+}
+
+/// FsstMatcher integration: %abc%def% should be handled.
+#[test]
+fn test_multi_contains_matcher_handles() {
+    let matcher = FsstMatcher::try_new(&[], &[], b"%abc%def%")
+        .unwrap()
+        .unwrap();
+
+    assert!(matcher.matches(&escaped(b"abcdef")));
+    assert!(matcher.matches(&escaped(b"xxabcxxdefxx")));
+    assert!(!matcher.matches(&escaped(b"defabc")));
+    assert!(!matcher.matches(&escaped(b"abc")));
+}
+
+// ---------------------------------------------------------------------------
+// Seek-verify and decompress+memmem tests
+// ---------------------------------------------------------------------------
+
+/// Long input (>28 escaped codes) triggers decompress+memmem fallback.
+#[test]
+fn test_multi_contains_decompress_fallback() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"ab", b"cd"])?;
+
+    // 30+ escaped bytes → exceeds decompress_threshold of 28
+    let mut long_match = escaped(&[b'x'; 20]);
+    long_match.extend_from_slice(&escaped(b"ab"));
+    long_match.extend_from_slice(&escaped(&[b'y'; 5]));
+    long_match.extend_from_slice(&escaped(b"cd"));
+    long_match.extend_from_slice(&escaped(&[b'z'; 5]));
+    assert!(dfa.matches(&long_match));
+
+    // Same length, wrong order
+    let mut long_no_match = escaped(&[b'x'; 20]);
+    long_no_match.extend_from_slice(&escaped(b"cd"));
+    long_no_match.extend_from_slice(&escaped(&[b'y'; 5]));
+    long_no_match.extend_from_slice(&escaped(b"ab"));
+    long_no_match.extend_from_slice(&escaped(&[b'z'; 5]));
+    assert!(!dfa.matches(&long_no_match));
+
+    Ok(())
+}
+
+/// Decompress+memmem with three segments on a long string.
+#[test]
+fn test_multi_contains_decompress_three_segments() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"foo", b"bar", b"baz"])?;
+
+    let mut long = escaped(&[b'x'; 15]);
+    long.extend_from_slice(&escaped(b"foo"));
+    long.extend_from_slice(&escaped(&[b'y'; 5]));
+    long.extend_from_slice(&escaped(b"bar"));
+    long.extend_from_slice(&escaped(&[b'z'; 5]));
+    long.extend_from_slice(&escaped(b"baz"));
+    assert!(dfa.matches(&long));
+
+    // Missing middle segment
+    let mut long_miss = escaped(&[b'x'; 15]);
+    long_miss.extend_from_slice(&escaped(b"foo"));
+    long_miss.extend_from_slice(&escaped(&[b'y'; 10]));
+    long_miss.extend_from_slice(&escaped(b"baz"));
+    assert!(!dfa.matches(&long_miss));
+
+    Ok(())
+}
+
+/// Seek-verify with symbols: many non-progressing codes followed by match.
+/// With code 0 = "ab", code 1 = "cd", code 2 = "xx":
+/// Phase 0 has few progressing codes (code 0 and ESCAPE_CODE) → memchr skip.
+#[test]
+fn test_multi_contains_seek_verify_with_symbols() -> VortexResult<()> {
+    let symbols = [sym(b"ab"), sym(b"cd"), sym(b"xx")];
+    let lengths = [2u8, 2, 2];
+    let dfa = MultiContainsDfa::new(&symbols, &lengths, &[b"ab", b"cd"])?;
+
+    // Many non-progressing codes (2 = "xx") then match
+    assert!(dfa.matches(&[2, 2, 2, 2, 2, 0, 2, 2, 1]));
+    assert!(dfa.matches(&[2, 2, 2, 2, 2, 0, 1]));
+    // Wrong order
+    assert!(!dfa.matches(&[2, 2, 2, 2, 2, 1, 0]));
+    // Only first segment
+    assert!(!dfa.matches(&[2, 2, 2, 2, 2, 0, 2, 2, 2]));
+
+    Ok(())
+}
+
+/// DFA and decompress paths must agree on the same input.
+#[test]
+fn test_multi_contains_dfa_decompress_consistency() -> VortexResult<()> {
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"abc", b"def"])?;
+
+    let cases: &[(&[u8], bool)] = &[
+        (b"abcdef", true),
+        (b"xxabcxxdefxx", true),
+        (b"defabc", false),
+        (b"abc", false),
+        (b"def", false),
+        (b"xabcdefx", true),
+    ];
+
+    for &(input, expected) in cases {
+        let short_codes = escaped(input);
+        // Force DFA path (short input)
+        assert_eq!(
+            dfa.matches(&short_codes),
+            expected,
+            "DFA mismatch on {:?}",
+            input
+        );
+        // Force decompress path (pad to >28 codes)
+        let mut long_codes = escaped(&[b'_'; 20]);
+        long_codes.extend_from_slice(&escaped(input));
+        // The padded string has "_"*20 + input, so pattern must be adjusted:
+        // We need segments to appear in the padded string too.
+        // Actually, "_"*20 doesn't contain "abc", so if input starts with "abc"
+        // the match is still found after the padding.
+        assert_eq!(
+            dfa.matches(&long_codes),
+            expected,
+            "decompress mismatch on {:?}",
+            input
+        );
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -302,6 +712,33 @@ fn run_like(array: FSSTArray, pattern_arr: ArrayRef) -> VortexResult<BoolArray> 
     "%abcabcabc%",
     &[true, true, false, false]
 )]
+// Suffix patterns (`%suffix`)
+#[case(&["hello", "world", "jello"], "%ello", &[true, false, true])]
+#[case(&["foobar", "bazbar", "bar", "ba"], "%bar", &[true, true, true, false])]
+#[case(&["abc", "xabc", "abcd", ""], "%abc", &[true, true, false, false])]
+#[case(&["BRASS", "xBRASS", "BRASSx", "brass"], "%BRASS", &[true, true, false, false])]
+#[case(&["aa", "aaa", "aaaa", "ba"], "%aa", &[true, true, true, false])]
+// Suffix with KMP overlap: "abab" — "xababab" ends with "abab"
+#[case(&["ababab", "abab", "aba", "xabab"], "%abab", &[true, true, false, true])]
+// Empty suffix matches everything
+#[case(&["abc", "", "xyz"], "%", &[true, true, true])]
+// Multi-contains: two segments
+#[case(&["abcdef", "abxdef", "defabc", "abc"], "%abc%def%", &[true, false, false, false])]
+#[case(&["xxabcxxdefxx", "abcdef", "defabc"], "%abc%def%", &[true, true, false])]
+// Multi-contains: three segments (single-char each)
+#[case(&["axbxc", "abc", "cba", "ab"], "%a%b%c%", &[true, true, false, false])]
+// Multi-contains: greedy first match
+#[case(&["abab", "ab", "aba", "xababx"], "%ab%ab%", &[true, false, false, true])]
+// Multi-contains: segments don't overlap ("abcdef" has no "cd" after "abc")
+#[case(&["abccd", "abcd", "abcdef"], "%abc%cd%", &[true, false, false])]
+// Multi-contains: KMP overlap within segment
+#[case(&["xxabcabcabcxxdefxx", "abcabcabcdef", "defabcabcabc"], "%abcabcabc%def%", &[true, true, false])]
+// Multi-contains with longer segments
+#[case(&["hello world goodbye", "hello goodbye", "world hello goodbye"], "%hello%goodbye%", &[true, true, true])]
+// Multi-contains: segment appears but not in order
+#[case(&["barfoo", "foobar", "fooxbar"], "%foo%bar%", &[false, true, true])]
+// Multi-contains: same segment repeated three times ("xaxax" has only 2 'a's)
+#[case(&["aaa", "aa", "axaxa", "xaxax"], "%a%a%a%", &[true, false, true, false])]
 fn test_like_edge_cases(
     #[case] strings: &[&str],
     #[case] pattern: &str,
@@ -315,5 +752,59 @@ fn test_like_edge_cases(
     )?;
     let expected_arr = BoolArray::from_iter(expected.iter().copied());
     assert_arrays_eq!(&result, &expected_arr);
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Randomized cross-check vs ground truth `String::contains`
+// ---------------------------------------------------------------------------
+//
+// Exercises the FSST `%needle%` DFA path (including the global-anchor-scan
+// fast path used by `FoldedContainsDfa::scan_to_bitbuf` for ≤8 progressing
+// codes) against random ClickBench-style URLs and random short needles.
+
+/// Verify that the FSST `%needle%` DFA agrees with naive `String::contains`
+/// across many random needles applied to random ClickBench-style URLs.
+#[cfg(feature = "_test-harness")]
+#[test]
+fn test_random_needles_match_naive_contains() -> VortexResult<()> {
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::prelude::StdRng;
+
+    use crate::test_utils::generate_clickbench_urls;
+    use crate::test_utils::make_fsst_clickbench_urls;
+
+    const N_STRINGS: usize = 10_000;
+    const N_NEEDLES: usize = 32;
+
+    let urls = generate_clickbench_urls(N_STRINGS);
+    let fsst = make_fsst_clickbench_urls(N_STRINGS);
+
+    let mut rng = StdRng::seed_from_u64(0xCAFE_BABE);
+
+    // A pool of bytes most likely to occur in URLs, so most needles actually
+    // match something in the corpus and exercise both branches.
+    const URL_BYTES: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789-./";
+
+    for _ in 0..N_NEEDLES {
+        let len = rng.random_range(1..=7);
+        let needle: Vec<u8> = (0..len)
+            .map(|_| URL_BYTES[rng.random_range(0..URL_BYTES.len())])
+            .collect();
+        let needle_str = std::str::from_utf8(&needle).expect("ascii");
+        let pattern = format!("%{needle_str}%");
+
+        let result = run_like(
+            fsst.clone(),
+            ConstantArray::new(pattern.as_str(), N_STRINGS).into_array(),
+        )?;
+
+        let expected_bits: Vec<bool> = urls.iter().map(|u| u.contains(needle_str)).collect();
+        let expected = BoolArray::from_iter(expected_bits.iter().copied());
+
+        assert_arrays_eq!(&result, &expected);
+    }
+
     Ok(())
 }

@@ -15,7 +15,14 @@ mod array;
 mod canonical;
 mod compress;
 mod compute;
+#[cfg(feature = "_test-harness")]
+pub mod dfa;
+#[cfg(not(feature = "_test-harness"))]
 mod dfa;
+#[cfg(feature = "_test-harness")]
+pub mod dfa_compressed;
+#[cfg(not(feature = "_test-harness"))]
+mod dfa_compressed;
 mod kernel;
 mod ops;
 mod rules;

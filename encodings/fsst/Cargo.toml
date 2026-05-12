@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 fsst-rs = { workspace = true }
+memchr = { workspace = true }
 prost = { workspace = true }
 rand = { workspace = true, optional = true }
 vortex-array = { workspace = true }

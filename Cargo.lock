@@ -10643,6 +10643,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "fsst-rs",
+ "memchr",
  "prost 0.14.3",
  "rand 0.10.1",
  "rstest",
