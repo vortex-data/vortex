@@ -53,6 +53,20 @@ use crate::kernel::PARENT_KERNELS;
 /// At least one of `value` or `typed_value` must be present. `typed_value` may be a primitive,
 /// list, or struct, with nested shredded children following the same recursive rules as the
 /// Arrow canonical extension type docs.
+///
+/// Row values are interpreted according to the [Parquet Variant shredding] rules:
+///
+/// | `value`  | `typed_value` | Meaning |
+/// |----------|---------------|---------|
+/// | null     | null          | Missing value; only valid for shredded object fields. |
+/// | non-null | null          | Unshredded value decoded from `metadata` and `value`. |
+/// | null     | non-null      | Perfectly shredded value decoded from `typed_value`. |
+/// | non-null | non-null      | Partially shredded object; merge shredded fields with raw-only fields from `value`. |
+///
+/// The final row is only valid for object shredding. Duplicate field names between `value` and
+/// `typed_value` are invalid writer output.
+///
+/// [Parquet Variant shredding]: https://github.com/apache/parquet-format/blob/master/VariantShredding.md#value-shredding
 #[derive(Debug, Clone)]
 pub struct ParquetVariant;
 
