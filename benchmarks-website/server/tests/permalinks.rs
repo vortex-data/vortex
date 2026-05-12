@@ -11,18 +11,19 @@ use anyhow::Context as _;
 use anyhow::Result;
 
 use self::common::Server;
+use self::common::attr_value;
 use self::common::extract_chart_data;
 use self::common::pick_chart_slug;
 use self::common::pick_group_slug;
 use self::common::seed;
 use self::common::seed_long_history;
 
-/// `/chart/{slug}` and `/group/{slug}` permalinks default to the unbounded
-/// commit window, and the inlined JSON payload contains the full raw
-/// history (no server-side downsampling). Visual downsampling now lives in
-/// `chart-init.js` and runs on the *visible* commit range only.
+/// `/chart/{slug}` defaults to the materialized latest-100 window and
+/// upgrades to full raw history only with `?n=all`. `/group/{slug}` renders
+/// shell markup and hydrates the same latest-100 materialized shards as the
+/// landing page.
 #[tokio::test]
-async fn permalink_pages_inline_full_raw_history() -> Result<()> {
+async fn permalink_pages_default_to_latest_100_and_opt_into_full_history() -> Result<()> {
     let server = Server::start().await?;
     seed_long_history(&server, 200).await?;
 
@@ -43,8 +44,25 @@ async fn permalink_pages_inline_full_raw_history() -> Result<()> {
             .as_array()
             .context("commits is array")?
             .len(),
+        100,
+        "/chart permalink should default to the latest-100 materialized window",
+    );
+
+    let chart_all_body = client
+        .get(server.url(&format!("/chart/{chart_slug}?n=all")))
+        .send()
+        .await?
+        .text()
+        .await?;
+    let chart_all_payload =
+        extract_chart_data(&chart_all_body, 0).context("chart all inline payload present")?;
+    assert_eq!(
+        chart_all_payload["commits"]
+            .as_array()
+            .context("all commits is array")?
+            .len(),
         200,
-        "/chart permalink should inline the full raw history",
+        "/chart?n=all should inline the full raw history",
     );
 
     let group_body = client
@@ -53,15 +71,35 @@ async fn permalink_pages_inline_full_raw_history() -> Result<()> {
         .await?
         .text()
         .await?;
-    let group_payload =
-        extract_chart_data(&group_body, 0).context("group inline payload present")?;
+    assert!(
+        !group_body.contains(r#"id="chart-data-0""#),
+        "/group permalink should not inline chart payloads"
+    );
+    let generation = attr_value(&group_body, "data-artifact-generation")
+        .context("group page exposes artifact generation")?;
+    let shard_prefix = attr_value(&group_body, "data-group-shard-prefix")
+        .context("group page exposes shard prefix")?;
+    let shard_path = shard_prefix
+        .strip_prefix('/')
+        .map(|s| format!("/{s}0"))
+        .context("absolute shard prefix")?;
+    let shard: serde_json::Value = client
+        .get(server.url(&shard_path))
+        .send()
+        .await?
+        .json()
+        .await?;
     assert_eq!(
-        group_payload["commits"]
+        shard["charts"][0]["commits"]
             .as_array()
-            .context("commits is array")?
+            .context("shard commits is array")?
             .len(),
-        200,
-        "/group permalink should inline the full raw history",
+        100,
+        "/group permalink should hydrate the latest-100 shard",
+    );
+    assert!(
+        shard_path.contains(&generation),
+        "group shard URL should be versioned by generation"
     );
 
     Ok(())

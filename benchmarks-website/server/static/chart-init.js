@@ -17,7 +17,7 @@
 //                                        external tooltip handler.
 //  10. Payload + datasets              — readInlinePayload, buildDatasets,
 //                                        rebuildVisibleAndUpdate.
-//  11. Lazy refetch                    — maybeRefetchFullPayload,
+//  11. Full-history refetch            — maybeRefetchFullPayload,
 //                                        replaceChartPayload, plus the
 //                                        slider + downsample-badge sync
 //                                        helpers.
@@ -25,7 +25,8 @@
 //  13. Range scrollbar strip           — bindRangeStrip + pointer math.
 //  14. Per-chart toolbar wiring        — bindToolbar, attachWheelPan,
 //                                        applyScope, applyY.
-//  15. Lazy fetch on details.toggle    — fetchAndConstruct + UI helpers.
+//  15. Group hydration                 — bounded shard fetch queue + UI
+//                                        helpers.
 //  16. Global filter wiring            — chip toggle, URL sync, bindings.
 //  17. Per-group toolbar wiring        — group-level filter + Y override.
 //  18. Header controls                 — theme toggle, expand/collapse all.
@@ -34,9 +35,9 @@
 // Per-chart UX (for orientation):
 //   - Each `.chart-card` carries `data-chart-slug`. The card *owns* its own
 //     toolbar (`.toolbar--card`) — there is no page-level toolbar.
-//   - Each chart fetches the **entire raw history** once (`?n=all`). The
-//     server does no downsampling; we keep the raw payload on the canvas
-//     and re-derive what Chart.js renders on every scope/pan/zoom change.
+//   - Landing groups fetch materialized latest-100 group shards, with bounded
+//     concurrency. A chart fetches `?n=all` only after the user expands beyond
+//     that loaded range.
 //   - `rebuildVisibleAndUpdate` is the single source of truth for the
 //     rendered point count. The cap is one constant: at most
 //     `MAX_VISIBLE_POINTS` *unique commit indices* (x-positions) are
@@ -75,22 +76,17 @@
 //                                     wrapper; called from pan/zoom/wheel.
 //   canvas.__bench_wheel_attached     true once attachWheelPan has wired
 //                                     a wheel listener (idempotency).
-//   canvas.__bench_inline_trimmed     true if the payload came from inline
-//                                     `<script id="chart-data-N">` and
-//                                     reached LANDING_INLINE_N commits, so
-//                                     might have been trimmed server-side.
+//   canvas.__bench_inline_trimmed     true if the latest-100 payload reached
+//                                     LANDING_INLINE_N commits, so it might
+//                                     have been trimmed server-side.
 //   canvas.__bench_full_loaded        true once a `?n=all` refetch has
 //                                     replaced the payload.
 //   canvas.__bench_full_fetch_pending true while a `?n=all` refetch is in
 //                                     flight; dedupes the pan-frame retry.
-//   canvas.__bench_prefetch_pending   Promise of an in-flight background
-//                                     prefetch; set by startBackgroundPrefetch
-//                                     so toggle / re-prefetch deduplicates.
-//   canvas.__bench_built_offscreen    true if `constructChart` ran while the
-//                                     enclosing `<details>` was closed; the
-//                                     toggle handler calls `chart.resize()`
-//                                     on these to recompute layout once the
-//                                     container is visible.
+//   canvas.__bench_payload_window     The server-side commit window used for
+//                                     the current payload (`"100"` for
+//                                     lazy chart hydration, absent for
+//                                     inline/full).
 //   canvas.__bench_display_unit       The picked display unit (`format`,
 //                                     `axisLabel`, `multiplier`) used by the
 //                                     tooltip and y-axis label. Recomputed
@@ -135,21 +131,15 @@
   // -----------------------------------------------------------------------
   var ZOOM_THROTTLE_MS = 16;     // one frame at ~60fps for slider drag
   var PAN_THROTTLE_MS = 50;      // pan/zoom throttle — looser than slider
-  var FETCH_N = "all";           // lazy-fetch the entire raw history
+  var FETCH_N = "all";           // explicit full-history upgrade
   var DEFAULT_VISIBLE = 100;     // initial visible window (last 100 of fetched)
-  // Groups that should default to the full commit history instead of the
-  // 100-commit window. Compression Size has very low variance, so the
-  // default window hides most of the interesting history.
-  var WIDE_DEFAULT_GROUPS = new Set(["Compression Size"]);
+  var CHART_FETCH_N = String(DEFAULT_VISIBLE); // materialized shard window
+  var HYDRATION_CONCURRENCY = 4; // per-tab cap for latest-100 shard requests
 
-  // Resolve the default scope for a chart card based on its enclosing group's
-  // name. Returns either `"all"` for groups in `WIDE_DEFAULT_GROUPS` or
-  // `DEFAULT_VISIBLE` otherwise. Used at construction time and when seeding
-  // the toolbar slider's initial value.
-  function defaultScopeForCard(card) {
-    var group = card && card.closest && card.closest(".group-details");
-    var name = group && group.dataset ? group.dataset.groupName : null;
-    if (name && WIDE_DEFAULT_GROUPS.has(name)) return "all";
+  // Resolve the default scope for a chart card. Group-open hydration always
+  // starts with the latest-100 window; fetching full history is opt-in via a
+  // user-driven scope/range/zoom action.
+  function defaultScopeForCard(_card) {
     return DEFAULT_VISIBLE;
   }
   // Mirror of `LANDING_INLINE_N` in `server/src/html/mod.rs`. The first
@@ -803,7 +793,7 @@
   // Mutates `dataset.data` in place to avoid GC churn on every pan frame.
   // Updates the per-card downsample badge as a side effect.
   // -----------------------------------------------------------------------
-  function rebuildVisibleAndUpdate(card, chart, rangeMin, rangeMax) {
+  function rebuildVisibleAndUpdate(card, chart, rangeMin, rangeMax, allowFullFetch) {
     var canvas = chart.canvas;
     var payload = canvas.__bench_payload;
     if (!payload) return;
@@ -923,7 +913,7 @@
     // background. The `__bench_full_loaded` / `__bench_full_fetch_pending`
     // flags dedupe so this fires once per chart even when called every
     // pan frame.
-    maybeRefetchFullPayload(card, min, max, n);
+    if (allowFullFetch) maybeRefetchFullPayload(card, min, max, n);
   }
 
   // -----------------------------------------------------------------------
@@ -1107,7 +1097,6 @@
     if (!canvas || typeof Chart === "undefined") return null;
     if (canvas.__bench_chart) return canvas.__bench_chart;
 
-    var payloadFromInline = !canvas.__bench_payload;
     var payload = canvas.__bench_payload || readInlinePayload(idx);
     if (!payload) return null;
     canvas.__bench_payload = payload;
@@ -1116,8 +1105,12 @@
     // have the whole history already and never need to refetch.
     if (canvas.__bench_full_loaded === undefined) {
       var inlineN = (payload.commits || []).length;
+      var payloadWindow = canvas.__bench_payload_window
+        || card.getAttribute("data-payload-window")
+        || null;
       canvas.__bench_inline_trimmed =
-        payloadFromInline && inlineN >= LANDING_INLINE_N;
+        inlineN >= LANDING_INLINE_N
+        && payloadWindow === CHART_FETCH_N;
       canvas.__bench_full_loaded = !canvas.__bench_inline_trimmed;
     }
 
@@ -1151,7 +1144,7 @@
     var throttledRebuild = throttle(function (chart) {
       var sx = chart.scales && chart.scales.x;
       if (!sx) return;
-      rebuildVisibleAndUpdate(card, chart, sx.min, sx.max);
+      rebuildVisibleAndUpdate(card, chart, sx.min, sx.max, true);
       if (canvas.__bench_strip_render) canvas.__bench_strip_render();
     }, PAN_THROTTLE_MS);
 
@@ -1361,7 +1354,7 @@
       // LTTB, and mirrors the new scope onto the toolbar slider, so the
       // strip-driven pan/resize stays in lockstep with both the data
       // density and the slider readout.
-      rebuildVisibleAndUpdate(card, chart, newMin, newMax);
+      rebuildVisibleAndUpdate(card, chart, newMin, newMax, true);
       render();
     }
 
@@ -1544,7 +1537,7 @@
     var range = visibleRange(commits, scope, currentRange);
     chart.options.scales.x.min = range.min;
     chart.options.scales.x.max = range.max;
-    rebuildVisibleAndUpdate(card, chart, range.min, range.max);
+    rebuildVisibleAndUpdate(card, chart, range.min, range.max, true);
     syncToolbarUi(card, "scope", String(scopeValue));
     if (canvas.__bench_strip_render) canvas.__bench_strip_render();
   }
@@ -1602,61 +1595,109 @@
   }
 
   // -----------------------------------------------------------------------
-  // Lazy fetch on `<details>` toggle. Every group renders closed; this
-  // hydrates the chart cards inside whichever group the user expands.
+  // Group hydration. Every landing group renders chart shells with versioned
+  // shard metadata. On intent or first open we fetch materialized latest-100
+  // group shards through a small per-tab queue and construct each chart as
+  // soon as its shard arrives.
   // -----------------------------------------------------------------------
+  var hydrationActive = 0;
+  var hydrationQueue = [];
+
+  function scheduleHydration(task, priority) {
+    var entry = {
+      task: task,
+      priority: priority || 0,
+      promise: null,
+      resolve: null,
+      reject: null,
+    };
+    entry.promise = new Promise(function (resolve, reject) {
+      entry.resolve = resolve;
+      entry.reject = reject;
+    });
+    hydrationQueue.push(entry);
+    drainHydrationQueue();
+    return entry;
+  }
+
+  function drainHydrationQueue() {
+    while (hydrationActive < HYDRATION_CONCURRENCY && hydrationQueue.length) {
+      hydrationQueue.sort(function (a, b) { return b.priority - a.priority; });
+      var item = hydrationQueue.shift();
+      hydrationActive++;
+      Promise.resolve()
+        .then(item.task)
+        .then(
+          function (value) {
+            hydrationActive--;
+            item.resolve(value);
+            drainHydrationQueue();
+          },
+          function (err) {
+            hydrationActive--;
+            item.reject(err);
+            drainHydrationQueue();
+          }
+        );
+    }
+  }
+
   function fetchAndConstruct(card) {
     var canvas = card.querySelector("canvas");
     if (!canvas) return Promise.resolve();
     if (canvas.__bench_chart) return Promise.resolve();
-    // If a background prefetch is mid-flight for this slug, ride on its
-    // promise rather than constructing from inline JSON straight away.
-    // First-group inline payloads are trimmed at `LANDING_INLINE_N`; using
-    // them on toggle would render a partial chart that immediately upgrades
-    // when the prefetch arrives, which is exactly the visible "100 commits
-    // then it grows" flash we want to avoid. Waiting for the prefetch
-    // gives the user one render at the full range.
-    var pending = canvas.__bench_prefetch_pending;
-    if (pending) {
-      showCardLoading(card, true);
-      return pending
-        .then(function () { showCardLoading(card, false); })
-        .then(function () { return fetchAndConstruct(card); });
-    }
-    // No prefetch in flight: try a synchronous construct from inline JSON
-    // (`<script id="chart-data-N">`) or any payload already on the canvas.
-    // `constructChart` short-circuits when `__bench_payload` is populated
-    // (the prefetch resolved + `prefetch_pending` is now null). For cards
-    // whose prefetch failed, this is the inline fallback path; the chart
-    // renders the trimmed slice and `maybeRefetchFullPayload` retries the
-    // upgrade on the next pan that covers the loaded range.
     if (constructChart(card)) {
       bindToolbar(card);
-      return Promise.resolve();
     }
-    var slug = card.getAttribute("data-chart-slug");
-    if (!slug) return Promise.resolve();
-    showCardLoading(card, true);
-    var url = "/api/chart/" + encodeURIComponent(slug)
-      + "?n=" + encodeURIComponent(FETCH_N);
-    return fetch(url, {
-      headers: { "accept": "application/json" },
-    })
-      .then(function (r) {
-        if (r.status === 404) return null; // empty chart, leave the shell
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        return r.json();
-      })
-      .then(function (payload) {
-        if (!payload) return;
-        canvas.__bench_payload = payload;
-        constructChart(card);
-        bindToolbar(card);
-      })
-      .catch(function (err) {
-        showCardError(card, "failed to load: " + (err && err.message ? err.message : err));
-      })
-      .then(function () { showCardLoading(card, false); });
+    return Promise.resolve();
+  }
+
+  function groupCards(group) {
+    return Array.prototype.slice.call(
+      group.querySelectorAll(".chart-card[data-chart-slug]")
+    );
+  }
+
+  function cardHasPayloadAvailable(card) {
+    var canvas = card.querySelector("canvas");
+    if (!canvas) return true;
+    if (canvas.__bench_payload) return true;
+    var idx = card.getAttribute("data-chart-index");
+    return idx != null && !!readInlinePayload(idx);
+  }
+
+  function groupShardCount(group) {
+    var n = parseInt(group.getAttribute("data-group-shard-count") || "0", 10);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+
+  function groupShardPrefix(group) {
+    return group.getAttribute("data-group-shard-prefix") || "";
+  }
+
+  function groupShardUrl(group, index) {
+    var prefix = groupShardPrefix(group);
+    return prefix ? prefix + encodeURIComponent(String(index)) : "";
+  }
+
+  function groupHydrationState(group) {
+    if (!group.__bench_group_hydration) {
+      group.__bench_group_hydration = {
+        loaded: {},
+        pending: {},
+        entries: {},
+        errors: {},
+      };
+    }
+    return group.__bench_group_hydration;
+  }
+
+  function cardBySlug(group, slug) {
+    var cards = groupCards(group);
+    for (var i = 0; i < cards.length; i++) {
+      if (cards[i].getAttribute("data-chart-slug") === slug) return cards[i];
+    }
+    return null;
   }
 
   function showCardLoading(card, on) {
@@ -1680,6 +1721,101 @@
     el.textContent = msg;
     card.appendChild(el);
     setTimeout(function () { if (el.parentNode) el.remove(); }, 4000);
+  }
+
+  function applyGroupShard(group, shard) {
+    if (!shard || !Array.isArray(shard.charts)) return;
+    shard.charts.forEach(function (payload) {
+      if (!payload || !payload.slug) return;
+      var card = cardBySlug(group, payload.slug);
+      var canvas = card && card.querySelector("canvas");
+      if (!canvas) return;
+      canvas.__bench_payload = payload;
+      canvas.__bench_payload_window = CHART_FETCH_N;
+      showCardLoading(card, false);
+      if (groupIsOpen(group)) fetchAndConstruct(card);
+    });
+  }
+
+  function fetchGroupShard(group, index, priority) {
+    var state = groupHydrationState(group);
+    if (state.loaded[index]) return Promise.resolve();
+    if (state.pending[index]) {
+      if (state.entries[index] && priority) {
+        state.entries[index].priority = Math.max(state.entries[index].priority, priority);
+        drainHydrationQueue();
+      }
+      return state.pending[index];
+    }
+    var url = groupShardUrl(group, index);
+    if (!url) return Promise.resolve();
+    var entry = scheduleHydration(function () {
+      return fetch(url, { headers: { "accept": "application/json" } })
+        .then(function (r) {
+          if (r.status === 404) throw new Error("not found");
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.json();
+        })
+        .then(function (payload) {
+          state.loaded[index] = true;
+          state.errors[index] = null;
+          applyGroupShard(group, payload);
+        });
+    }, priority);
+    state.entries[index] = entry;
+    state.pending[index] = entry.promise.catch(function (err) {
+      state.errors[index] = err;
+      if (index === 0) {
+        groupCards(group).forEach(function (card) {
+          if (!cardHasPayloadAvailable(card)) {
+            showCardLoading(card, false);
+            showCardError(card, "failed to load: " + (err.message || "unknown error"));
+          }
+        });
+      }
+    }).then(function () {
+      state.pending[index] = null;
+      state.entries[index] = null;
+    });
+    return state.pending[index];
+  }
+
+  function groupIsOpen(group) {
+    var details = group.querySelector("details.group-disclosure");
+    return !details || details.open;
+  }
+
+  function queueRemainingGroupShards(group) {
+    var count = groupShardCount(group);
+    for (var i = 1; i < count; i++) fetchGroupShard(group, i, 0);
+  }
+
+  function hydrateGroupShardZero(group, showLoading) {
+    if (showLoading) {
+      groupCards(group).forEach(function (card) {
+        if (!cardHasPayloadAvailable(card)) showCardLoading(card, true);
+      });
+    }
+    return fetchGroupShard(group, 0, showLoading ? 1 : 0).then(function () {
+      if (showLoading) {
+        groupCards(group).forEach(function (card) {
+          if (cardHasPayloadAvailable(card)) showCardLoading(card, false);
+        });
+      }
+    });
+  }
+
+  function hydrateOpenGroup(disclosure) {
+    if (!disclosure || !disclosure.open) return;
+    var group = disclosure.closest(".group-details");
+    if (!group) return;
+    hydrateGroupShardZero(group, true).then(function () {
+      queueRemainingGroupShards(group);
+    });
+  }
+
+  function prefetchGroupOnIntent(group) {
+    fetchGroupShard(group, 0, 0);
   }
 
   // -----------------------------------------------------------------------
@@ -2204,21 +2340,10 @@
     });
   }
 
-  function hydrateOpenGroup(disclosure) {
-    if (!disclosure || !disclosure.open) return;
-    var group = disclosure.closest(".group-details");
-    if (!group) return;
-    group.querySelectorAll(".chart-card[data-chart-slug]").forEach(function (card) {
-      fetchAndConstruct(card);
-      wakeUpChart(card);
-    });
-  }
-
   function setAllGroups(open) {
     document.querySelectorAll("details.group-disclosure").forEach(function (disclosure) {
-      var wasOpen = disclosure.open;
       disclosure.open = open;
-      if (open && wasOpen) hydrateOpenGroup(disclosure);
+      if (open) hydrateOpenGroup(disclosure);
     });
   }
 
@@ -2307,208 +2432,23 @@
         if (!d.open) return;
         hydrateOpenGroup(d);
       });
+      if (d.open) hydrateOpenGroup(d);
     });
   }
 
-  // Background prefetch of closed-group chart payloads, kicked off after
-  // `init()`. Each card's `?n=all` JSON is fetched and stashed on
-  // `canvas.__bench_payload`; once a payload lands we enqueue a Chart.js
-  // construction so the toggle path becomes a no-op (chart already built).
-  // Constructions are serialized through a single-slot queue, with each
-  // card running in its own task, so input handlers can run between heavy
-  // `constructChart` calls. We use `requestIdleCallback` with a short
-  // timeout so the queue never stalls behind a busy main thread (default
-  // idle callbacks can defer for seconds during initial paint).
-  //
-  // For Chart.js to measure the canvas at real dimensions, the
-  // `body.bench-prebuilding` class temporarily overrides
-  // `.group-disclosure:not([open]) ~ .chart-grid { display: none }` and
-  // moves closed-group grids to a hidden offscreen position with the
-  // measured `<main>` width (`--bench-prebuild-width`). Without that
-  // override, charts construct at 0x0 and the on-toggle resize shows a
-  // brief blank, full-zoomed flash before paint. The class is added when
-  // we kick off the sweep and removed once every prefetch and construct
-  // has settled.
-  var PREFETCH_IDLE_TIMEOUT_MS = 100;
-  var constructQueue = [];
-  var constructDraining = false;
-  var prebuildPendingFetches = 0;
-  var prebuildQueuedConstructs = 0;
-
-  function scheduleIdle(cb) {
-    if (window.requestIdleCallback) {
-      return window.requestIdleCallback(cb, { timeout: PREFETCH_IDLE_TIMEOUT_MS });
-    }
-    return setTimeout(cb, 0);
-  }
-
-  function enqueueConstruct(card) {
-    constructQueue.push(card);
-    prebuildQueuedConstructs++;
-    if (!constructDraining) drainConstructQueue();
-  }
-
-  function drainConstructQueue() {
-    if (!constructQueue.length) {
-      constructDraining = false;
-      checkPrebuildSettled();
-      return;
-    }
-    constructDraining = true;
-    scheduleIdle(function () {
-      var card = constructQueue.shift();
-      if (card) buildOffscreenChart(card);
-      prebuildQueuedConstructs--;
-      drainConstructQueue();
-    });
-  }
-
-  // The disclosure is a *sibling* of `.chart-grid` inside the same
-  // `section.group-details`, not an ancestor of the chart card. Walk up to
-  // the section and pick the disclosure from there. Returns `null` for
-  // pages that have no group structure (single-chart and group pages).
-  function disclosureForCard(card) {
-    var section = card.closest(".group-details");
-    if (!section) return null;
-    return section.querySelector(":scope > details.group-disclosure");
-  }
-
-  function buildOffscreenChart(card) {
-    var canvas = card.querySelector("canvas");
-    if (!canvas) return;
-    if (canvas.__bench_chart) return;
-    // Don't gate on `__bench_payload`: `constructChart` reads inline
-    // `<script id="chart-data-N">` data directly when no payload is on the
-    // canvas yet, and we deliberately leave that path intact for first-group
-    // cards so its `payloadFromInline` detection stays accurate (otherwise
-    // `__bench_inline_trimmed` would be wrongly cleared and
-    // `maybeRefetchFullPayload` could never upgrade to the full history).
-    var details = disclosureForCard(card);
-    var offscreen = !!(details && !details.open);
-    if (constructChart(card)) {
-      bindToolbar(card);
-      if (offscreen) canvas.__bench_built_offscreen = true;
-    }
-  }
-
-  function checkPrebuildSettled() {
-    if (prebuildPendingFetches > 0) return;
-    if (prebuildQueuedConstructs > 0) return;
-    if (constructDraining) return;
-    document.body.classList.remove("bench-prebuilding");
-  }
-
-  // Resolve a card's payload either from a prior prefetch, an inline
-  // `<script id="chart-data-N">` tag (first group on the landing page),
-  // or a fresh `?n=all` GET. Inline payloads skip the network entirely so
-  // first-group cards are eligible for offscreen construction immediately
-  // after `init()` returns.
-  function prefetchCard(card) {
-    var canvas = card.querySelector("canvas");
-    if (!canvas) return Promise.resolve();
-    if (canvas.__bench_chart) return Promise.resolve();
-    if (canvas.__bench_payload) {
-      enqueueConstruct(card);
-      return Promise.resolve();
-    }
-    // Cards with an inline `<script id="chart-data-N">` (first group on the
-    // landing page) get one of two treatments:
-    //
-    //   * If the inline payload's commit count is below `LANDING_INLINE_N`,
-    //     the server didn't trim — inline IS the full history, so skip the
-    //     network and enqueue construction directly.
-    //   * If the inline payload reached the cap, the server trimmed it. We
-    //     fall through to fire `?n=all` instead of using the partial slice,
-    //     so the user's first view of the chart shows the unbounded history
-    //     rather than the visible "100 commits, then a few hundred ms later
-    //     it grows to the full range" upgrade flash that
-    //     `maybeRefetchFullPayload` would otherwise produce.
-    //
-    // The inline payload is still the toggle-time fallback if the network
-    // fetch fails; `fetchAndConstruct` will let `constructChart` read the
-    // inline `<script>` directly when no prefetch is in flight.
-    var idx = card.getAttribute("data-chart-index");
-    if (idx != null) {
-      var inline = readInlinePayload(idx);
-      if (inline) {
-        var inlineN = (inline.commits || []).length;
-        if (inlineN < LANDING_INLINE_N) {
-          enqueueConstruct(card);
-          return Promise.resolve();
-        }
-      }
-    }
-    if (canvas.__bench_prefetch_pending) return canvas.__bench_prefetch_pending;
-    var slug = card.getAttribute("data-chart-slug");
-    if (!slug) return Promise.resolve();
-    var url = "/api/chart/" + encodeURIComponent(slug)
-      + "?n=" + encodeURIComponent(FETCH_N);
-    prebuildPendingFetches++;
-    var p = fetch(url, { headers: { "accept": "application/json" } })
-      .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (payload) {
-        if (payload && !canvas.__bench_payload) {
-          canvas.__bench_payload = payload;
-          enqueueConstruct(card);
-        }
-      })
-      .catch(function () {})
-      .then(function () {
-        canvas.__bench_prefetch_pending = null;
-        prebuildPendingFetches--;
-        checkPrebuildSettled();
+  function initGroupIntentPrefetch() {
+    document.querySelectorAll(".group-details").forEach(function (group) {
+      if (group.__bench_intent_prefetch_bound) return;
+      group.__bench_intent_prefetch_bound = true;
+      var summary = group.querySelector(".group-summary");
+      var target = summary || group;
+      target.addEventListener("pointerenter", function () {
+        prefetchGroupOnIntent(group);
       });
-    canvas.__bench_prefetch_pending = p;
-    return p;
-  }
-
-  function startBackgroundPrefetch() {
-    var cards = Array.prototype.slice.call(
-      document.querySelectorAll(".chart-card[data-chart-slug]")
-    ).filter(function (card) {
-      var details = disclosureForCard(card);
-      return details && !details.open;
+      target.addEventListener("focusin", function () {
+        prefetchGroupOnIntent(group);
+      });
     });
-    if (!cards.length) return;
-    // Capture the visible `.group-details` width so the offscreen chart-grids
-    // during prebuild render at the same dimensions they will have when the
-    // user toggles a group open. The summary stays in flow even when the
-    // grid below is hidden, so `.group-details.clientWidth` is the right
-    // measurement; Chart.js then sees per-card dimensions identical to the
-    // visible state, and the on-toggle resize is a no-op. Falls back to
-    // `<main>` and finally `100vw` for layouts that lack groups.
-    var sample = document.querySelector(".group-details")
-      || document.querySelector("main");
-    var sampleWidth = sample ? sample.clientWidth : 0;
-    if (sampleWidth > 0) {
-      document.body.style.setProperty(
-        "--bench-prebuild-width", sampleWidth + "px",
-      );
-    }
-    document.body.classList.add("bench-prebuilding");
-    // Fire every prefetch immediately so the browser starts dispatching
-    // them on the same tick as page-load. With no JS-side concurrency cap,
-    // the only queueing is at the HTTP layer (browser per-host limits and
-    // the server's own concurrency); on HTTP/2 the fan-out is effectively
-    // unlimited. By the time the user clicks any group the responses are
-    // either already in flight or already parsed, so the toggle path
-    // hits the synchronous-construct branch instead of the on-toggle
-    // fetch fallback.
-    for (var i = 0; i < cards.length; i++) prefetchCard(cards[i]);
-    checkPrebuildSettled();
-  }
-
-  // Force a layout recompute on charts that were constructed while their
-  // enclosing `<details>` was closed. Chart.js measures the canvas parent
-  // at construction time, and a `display: none` ancestor means it cached
-  // a 0x0 size; once the disclosure opens we re-measure and redraw.
-  function wakeUpChart(card) {
-    var canvas = card.querySelector("canvas");
-    var chart = canvas && canvas.__bench_chart;
-    if (!chart || !canvas.__bench_built_offscreen) return;
-    canvas.__bench_built_offscreen = false;
-    chart.resize();
-    chart.update("none");
   }
 
   function init() {
@@ -2516,15 +2456,8 @@
     initGlobalFilterBar();
     initGroupToolbars();
     initDetailsToggle();
+    initGroupIntentPrefetch();
     initOpenCharts();
-    // Kick off the prefetch sweep on the same tick as `init()` so every
-    // card's `/api/chart/` request is queued before the user has a chance
-    // to click. `fetch()` returns a promise immediately and the actual
-    // request dispatch is async, so calling it for N cards here does not
-    // block the main thread; it just hands the requests to the browser
-    // network layer as early as possible. Chart.js construction, which is
-    // CPU-bound, is still scheduled via the idle queue downstream.
-    startBackgroundPrefetch();
   }
 
   if (document.readyState === "loading") {

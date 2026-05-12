@@ -10371,10 +10371,14 @@ dependencies = [
  "anyhow",
  "axum",
  "base64",
+ "brotli",
+ "bytes",
+ "dashmap",
  "duckdb",
  "flate2",
  "insta",
  "maud",
+ "parking_lot",
  "reqwest 0.13.3",
  "serde",
  "serde_json",
@@ -10387,6 +10391,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "twox-hash",
+ "vortex-utils",
 ]
 
 [[package]]

@@ -57,6 +57,9 @@ use crate::records::Record;
 use crate::records::VectorSearchRun;
 use crate::schema::SCHEMA_VERSION;
 
+// Unless we start merging 128 PR every second we are not hitting this max.
+const WRITE_CONFLICT_ATTEMPTS: usize = 128;
+
 /// Successful ingest response body.
 #[derive(Debug, Serialize)]
 pub struct IngestResponse {
@@ -83,6 +86,11 @@ pub async fn handle(
             Ok(ingest) => ingest,
             Err(other) => IngestError::Internal(other),
         })?;
+    // Fallback read endpoints serve from `state.cache`; the materialized
+    // website hot path serves from `state.read_store`. Keep the old
+    // generation live while a background rebuild warms the next one.
+    state.cache.invalidate();
+    state.read_store.schedule_rebuild(state.db.clone()).await;
     Ok(Json(response))
 }
 
@@ -102,7 +110,38 @@ fn validate_envelope(env: &Envelope) -> Result<(), IngestError> {
     Ok(())
 }
 
+fn retry_write_conflicts<F, T>(mut op: F) -> Result<T>
+where
+    F: FnMut() -> Result<T>,
+{
+    for attempt in 1..=WRITE_CONFLICT_ATTEMPTS {
+        match op() {
+            Ok(value) => return Ok(value),
+            Err(err) if attempt < WRITE_CONFLICT_ATTEMPTS && is_retryable_write_conflict(&err) => {
+                std::thread::yield_now();
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    unreachable!("loop either returns a value or the final error")
+}
+
+fn is_retryable_write_conflict(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        let message = cause.to_string().to_ascii_lowercase();
+        message.contains("conflict")
+            && (message.contains("transaction")
+                || message.contains("write")
+                || message.contains("tuple")
+                || message.contains("update"))
+    })
+}
+
 fn apply_envelope(conn: &mut Connection, env: Envelope) -> Result<IngestResponse> {
+    retry_write_conflicts(|| apply_envelope_once(conn, &env))
+}
+
+fn apply_envelope_once(conn: &mut Connection, env: &Envelope) -> Result<IngestResponse> {
     let tx = conn.transaction().context("begin transaction")?;
 
     upsert_commit(&tx, &env.commit).context("upsert commit")?;

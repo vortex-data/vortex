@@ -10,7 +10,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 use self::common::Server;
-use self::common::extract_chart_data;
+use self::common::attr_value;
 use self::common::extract_chip;
 use self::common::filter_bar_section;
 use self::common::filter_section;
@@ -39,20 +39,33 @@ async fn landing_page_snapshot() -> Result<()> {
     );
     let body = resp.text().await?;
 
-    // Inline canvas + chart-data-0 from the first group (every group is
-    // collapsed by default, but the first group's payload is inlined for
-    // fast on-toggle hydration).
+    // Canvas shells render immediately, but chart data comes from
+    // versioned group shard artifacts instead of inline JSON.
     assert!(
         body.contains("<canvas"),
         "landing page must render at least one <canvas>"
     );
     assert!(
-        body.contains(r#"id="chart-data-0""#),
-        "the first group must inline its chart payload for fast on-toggle hydration"
+        !body.contains(r#"id="chart-data-0""#),
+        "landing page should not inline chart payloads"
     );
     assert!(
         body.contains(r#"data-chart-slug="#),
         "every chart card carries data-chart-slug for the lazy-fetch path"
+    );
+    assert!(
+        body.contains(r#"data-group-slug="#),
+        "every group carries data-group-slug as stable metadata"
+    );
+    assert!(
+        body.contains(r#"data-artifact-generation="#)
+            && body.contains(r#"data-group-shard-count="#)
+            && body.contains(r#"data-group-shard-prefix="#),
+        "every group should carry versioned shard hydration metadata"
+    );
+    assert!(
+        attr_value(&body, "data-artifact-generation").is_some_and(|v| !v.is_empty()),
+        "artifact generation should be non-empty"
     );
     assert!(
         !body.contains(r#"id="group-search""#),
@@ -92,9 +105,9 @@ async fn landing_page_snapshot() -> Result<()> {
 }
 
 /// All group disclosures render closed by default — the user picks which
-/// to expand. The first group's chart payloads are still inlined in the
-/// HTML (so opening it skips the JS fetch), but the disclosure itself
-/// stays collapsed until clicked.
+/// to expand. Chart payloads are intentionally not inlined; the disclosure
+/// carries shard metadata so JS can fetch the materialized latest-100
+/// artifact on intent/open.
 #[tokio::test]
 async fn details_all_groups_closed_by_default() -> Result<()> {
     let server = Server::start().await?;
@@ -114,11 +127,13 @@ async fn details_all_groups_closed_by_default() -> Result<()> {
     for (i, is_open) in opens.iter().enumerate() {
         assert!(!is_open, "group #{i} must be closed by default");
     }
-    // The first group's chart payload should still be inlined — fast
-    // hydration on toggle without a network round-trip.
     assert!(
-        body.contains(r#"id="chart-data-0""#),
-        "first group's chart payload should be inlined for fast on-toggle hydration",
+        !body.contains(r#"id="chart-data-0""#),
+        "landing page should hydrate charts from materialized artifacts",
+    );
+    assert!(
+        body.contains(r#"data-group-shard-count="#),
+        "closed groups should still carry shard metadata",
     );
     Ok(())
 }
@@ -396,34 +411,41 @@ async fn landing_page_honours_filter_query_params() -> Result<()> {
     Ok(())
 }
 
-/// The landing page caps the first group's inline JSON at
-/// `LANDING_INLINE_N` (= 100) commits regardless of `?n=`. Power users get
-/// the unbounded view via the `/api/chart/{slug}?n=all` refetch
-/// `chart-init.js` triggers when they zoom past the inlined window. Sending
-/// the full history inline would balloon the cold landing HTML — for the
-/// inlined chart with one big history every kilobyte is paid by every
-/// cold landing-page hit.
+/// The landing page does not inline chart JSON. Its first materialized shard
+/// caps chart payloads at 100 commits regardless of `?n=`; power users get
+/// full history via the explicit `/api/chart/{slug}?n=all` refetch.
 #[tokio::test]
-async fn landing_first_group_caps_inline_commits() -> Result<()> {
-    // 250 commits is comfortably above the 100-commit landing inline cap so
-    // the cap actually kicks in. `seed_long_history` only seeds the
-    // Random-Access group; with the canonical group ordering Random Access
-    // sorts first on the landing page, so its chart-data-0 carries the
-    // inlined payload.
+async fn landing_first_group_shard_caps_commits() -> Result<()> {
+    // 250 commits is comfortably above the 100-commit artifact cap so the
+    // cap actually kicks in. `seed_long_history` only seeds the Random-Access
+    // group; with the canonical group ordering Random Access sorts first.
     let server = Server::start().await?;
     seed_long_history(&server, 250).await?;
 
     let client = reqwest::Client::new();
     let body = client.get(server.url("/")).send().await?.text().await?;
+    assert!(
+        !body.contains(r#"id="chart-data-0""#),
+        "landing page should not inline chart JSON"
+    );
 
-    let payload =
-        extract_chart_data(&body, 0).context("the first group must inline its chart payload")?;
-    let commits = payload["commits"]
+    let generation = attr_value(&body, "data-artifact-generation")
+        .context("landing exposes artifact generation")?;
+    let group_slug = attr_value(&body, "data-group-slug").context("landing exposes group slug")?;
+    let shard: Value = client
+        .get(server.url(&format!(
+            "/api/artifacts/{generation}/groups/{group_slug}/shards/0"
+        )))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let commits = shard["charts"][0]["commits"]
         .as_array()
-        .context("inline commits array")?;
+        .context("shard chart commits array")?;
     assert!(
         commits.len() <= 100,
-        "landing chart-data-0 must cap inline commits at LANDING_INLINE_N=100, \
+        "landing shard must cap commits at 100, \
          got {}",
         commits.len(),
     );
@@ -432,30 +454,22 @@ async fn landing_first_group_caps_inline_commits() -> Result<()> {
     assert_eq!(
         commits.len(),
         100,
-        "with 250 seeded commits the inline payload should be exactly the \
+        "with 250 seeded commits the shard payload should be exactly the \
          100-commit cap; got {}",
         commits.len(),
     );
 
-    // ?n=all on the URL still parses without panicking and still applies the
-    // inline cap — the page-level `?n` is intentionally ignored for the
-    // inline payloads, so a power user with `?n=all` in the bookmark gets
-    // the same compact landing HTML and relies on chart-init.js to refetch
-    // a wider window.
+    // ?n=all on the URL still parses without panicking and still leaves the
+    // landing page as shell-only metadata.
     let body_all = client
         .get(server.url("/?n=all"))
         .send()
         .await?
         .text()
         .await?;
-    let payload_all = extract_chart_data(&body_all, 0).context("inline payload present")?;
-    assert_eq!(
-        payload_all["commits"]
-            .as_array()
-            .context("inline commits array")?
-            .len(),
-        100,
-        "?n=all on the landing page must NOT bypass the inline cap"
+    assert!(
+        !body_all.contains(r#"id="chart-data-0""#),
+        "?n=all on the landing page must not inline full-history chart data"
     );
     Ok(())
 }

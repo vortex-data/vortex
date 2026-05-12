@@ -4,34 +4,38 @@
 //! Landing-page body rendering.
 //!
 //! Every group is wrapped in a collapsed `<details>`; the first group's
-//! chart payloads are inlined so opening it skips the JS fetch round-trip,
-//! and every other group ships only chart-card shells fetched lazily on
-//! `details.toggle`.
+//! chart-card shells are hydrated from versioned group shard artifacts on
+//! first intent/open.
 
 use maud::Markup;
-use maud::PreEscaped;
 use maud::html;
 
-use super::render::escape_json_for_script;
 use super::render::filter_icon;
 use super::summary::summary_markup;
 use super::toolbar::per_chart_toolbar;
 use super::toolbar::range_strip;
 use crate::api;
-use crate::api::NamedChartResponse;
 use crate::api::Summary;
 
 /// One group's worth of data for the landing page.
 ///
-/// Every disclosure renders closed by default. The first group (in
-/// canonical order) ships with its chart payloads inlined, so the moment
-/// the user expands it the chart hydrates from the inline JSON without a
-/// network round-trip. Every other group ships only its chart-card
-/// shells — payloads are fetched client-side on first `details.toggle`
-/// to keep the cold landing HTML small.
+/// Every disclosure renders closed by default on the landing page. Chart
+/// payloads are fetched from versioned materialized group shards, so the
+/// cold HTML stays metadata-only while first-open hydration is served from
+/// memory on the server.
 pub(super) struct LandingGroup {
     /// Display name rendered in the disclosure header.
     pub(super) name: String,
+    /// Slug for `/api/group/{slug}` exposed as stable group metadata.
+    pub(super) slug: String,
+    /// Active materialized read generation.
+    pub(super) generation: String,
+    /// Number of latest-100 shard artifacts available for this group.
+    pub(super) shard_count: usize,
+    /// URL prefix ending in `/shards/`; JS appends the shard index.
+    pub(super) shard_prefix: String,
+    /// Whether the group's `<details>` should render open initially.
+    pub(super) open: bool,
     /// Optional editorial blurb rendered as a hover tooltip on the
     /// disclosure title's info-icon.
     pub(super) description: Option<String>,
@@ -41,9 +45,6 @@ pub(super) struct LandingGroup {
     /// the slugs server-side so the chart-card shell can carry
     /// `data-chart-slug` for the lazy fetch.
     pub(super) chart_links: Vec<api::ChartLink>,
-    /// Pre-fetched payloads. Populated only for the first group in
-    /// canonical order. `Vec` indices line up with `chart_links`.
-    pub(super) inlined: Vec<Option<NamedChartResponse>>,
 }
 
 /// Render the landing-page body — one `<section>` per group, each wrapping a
@@ -61,8 +62,13 @@ pub(super) fn landing_body(groups: &[LandingGroup], universe: &api::FilterUniver
     let mut idx_iter = 0usize..total_charts;
     html! {
         @for group in groups.iter() {
-            section.group-details data-group-name=(group.name) {
-                details.group-disclosure {
+            section.group-details
+                data-group-name=(group.name)
+                data-group-slug=(group.slug)
+                data-artifact-generation=(group.generation)
+                data-group-shard-count=(group.shard_count)
+                data-group-shard-prefix=(group.shard_prefix) {
+                details.group-disclosure open[group.open] {
                     summary.group-summary {
                         span.group-summary-row {
                             span.group-name { (group.name) }
@@ -76,10 +82,9 @@ pub(super) fn landing_body(groups: &[LandingGroup], universe: &api::FilterUniver
                 (summary_markup(group.summary.as_ref()))
                 (per_group_toolbar(universe))
                 div.chart-grid {
-                    @for (chart_idx, link) in group.chart_links.iter().enumerate() {
+                    @for link in &group.chart_links {
                         @let idx = idx_iter.next().expect("indices match charts");
-                        @let inlined = group.inlined.get(chart_idx).and_then(|o| o.as_ref());
-                        (chart_card(link, idx, inlined))
+                        (chart_card(link, idx))
                     }
                 }
             }
@@ -210,10 +215,9 @@ pub(super) fn group_description_icon(description: Option<&str>) -> Markup {
     }
 }
 
-/// Render one chart-card. `inlined` carries the JSON payload when the
-/// server pre-fetched it; absent on closed-by-default landing groups, where
-/// the JS fetches on first `details.toggle`.
-fn chart_card(link: &api::ChartLink, idx: usize, inlined: Option<&NamedChartResponse>) -> Markup {
+/// Render one chart-card shell. The payload arrives later from the group's
+/// materialized shard artifact.
+fn chart_card(link: &api::ChartLink, idx: usize) -> Markup {
     let permalink = format!("/chart/{}", link.slug);
     html! {
         section.chart-card data-chart-index=(idx) data-chart-slug=(link.slug) {
@@ -227,14 +231,6 @@ fn chart_card(link: &api::ChartLink, idx: usize, inlined: Option<&NamedChartResp
                 canvas data-chart-index=(idx) {}
             }
             (range_strip(idx))
-            @if let Some(item) = inlined {
-                script id={ "chart-data-" (idx) } type="application/json" {
-                    (PreEscaped(escape_json_for_script(
-                        &serde_json::to_string(&item.chart)
-                            .expect("ChartResponse serialises"),
-                    )))
-                }
-            }
         }
     }
 }
