@@ -247,7 +247,7 @@ impl AggregateFnVTable for IsSorted {
             | DType::List(..)
             | DType::FixedSizeList(..)
             | DType::Struct(..)
-            | DType::Union(_)
+            | DType::Union(..)
             | DType::Variant(..)
             | DType::Extension(_) => None,
             DType::Bool(_)
@@ -264,7 +264,7 @@ impl AggregateFnVTable for IsSorted {
             | DType::List(..)
             | DType::FixedSizeList(..)
             | DType::Struct(..)
-            | DType::Union(_)
+            | DType::Union(..)
             | DType::Variant(..)
             | DType::Extension(_) => None,
             DType::Bool(_)

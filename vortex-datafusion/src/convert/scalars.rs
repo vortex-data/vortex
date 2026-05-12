@@ -382,6 +382,7 @@ mod tests {
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex::dtype::StructFields;
+    use vortex::dtype::UnionVariants;
     use vortex::dtype::i256;
     use vortex::scalar::DecimalValue;
     use vortex::scalar::Scalar;
@@ -826,7 +827,14 @@ mod tests {
         2,
         Nullability::Nullable
     )))]
-    #[case::union(Scalar::null(DType::Union(Nullability::Nullable)))]
+    #[case::union(Scalar::null(DType::Union(
+        UnionVariants::new(
+            ["a"].into(),
+            vec![DType::Primitive(PType::I32, Nullability::Nullable)],
+        )
+        .unwrap(),
+        Nullability::Nullable
+    )))]
     fn unsupported_vortex_scalars_return_errors(#[case] scalar: Scalar) {
         let err = scalar.try_to_df().unwrap_err();
 

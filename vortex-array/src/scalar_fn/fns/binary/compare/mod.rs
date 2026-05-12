@@ -217,7 +217,7 @@ fn compare_arrays(
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
             nested::compare_nested(lhs, rhs, op, nullability, ctx)
         }
-        DType::Union(_) | DType::Variant(_) | DType::Extension(_) => {
+        DType::Union(..) | DType::Variant(_) | DType::Extension(_) => {
             vortex_bail!("compare is not supported for dtype {}", lhs.dtype())
         }
     }
