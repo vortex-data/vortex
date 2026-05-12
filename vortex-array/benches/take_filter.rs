@@ -150,7 +150,7 @@ fn bench_take_filter(bencher: Bencher, array: ArrayRef, indices: ArrayRef) {
 }
 
 #[divan::bench(args = NUM_INDICES, consts = FILTERED_LENS)]
-fn take_filter_slice_mask_sequential_indices<const FILTERED_LEN: usize>(
+fn take_filter_primitive_slice_mask_sequential_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
@@ -161,7 +161,7 @@ fn take_filter_slice_mask_sequential_indices<const FILTERED_LEN: usize>(
 }
 
 #[divan::bench(args = NUM_INDICES, consts = FILTERED_LENS)]
-fn take_filter_slice_mask_random_indices<const FILTERED_LEN: usize>(
+fn take_filter_primitive_slice_mask_random_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
@@ -172,7 +172,7 @@ fn take_filter_slice_mask_random_indices<const FILTERED_LEN: usize>(
 }
 
 #[divan::bench(args = NUM_INDICES, consts = FILTERED_LENS)]
-fn take_filter_random_mask_sequential_indices<const FILTERED_LEN: usize>(
+fn take_filter_primitive_random_mask_sequential_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
@@ -183,7 +183,7 @@ fn take_filter_random_mask_sequential_indices<const FILTERED_LEN: usize>(
 }
 
 #[divan::bench(args = NUM_INDICES, consts = FILTERED_LENS)]
-fn take_filter_random_mask_random_indices<const FILTERED_LEN: usize>(
+fn take_filter_primitive_random_mask_random_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
@@ -326,7 +326,7 @@ fn take_filter_string_random_mask_random_indices<const FILTERED_LEN: usize>(
 }
 
 #[divan::bench(args = NUM_INDICES, consts = FILTERED_LENS)]
-fn take_filter_nullable_slice_mask_random_indices<const FILTERED_LEN: usize>(
+fn take_filter_primitive_nullable_slice_mask_random_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
@@ -337,7 +337,7 @@ fn take_filter_nullable_slice_mask_random_indices<const FILTERED_LEN: usize>(
 }
 
 #[divan::bench(args = NUM_INDICES, consts = FILTERED_LENS)]
-fn take_filter_nullable_random_mask_random_indices<const FILTERED_LEN: usize>(
+fn take_filter_primitive_nullable_random_mask_random_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
@@ -381,7 +381,7 @@ fn take_filter_string_nullable_random_mask_random_indices<const FILTERED_LEN: us
 }
 
 #[divan::bench(args = LARGE_TAKE_CASES)]
-fn take_filter_large_random_mask_random_indices(
+fn take_filter_primitive_large_random_mask_random_indices(
     bencher: Bencher,
     (filtered_len, num_indices): (usize, usize),
 ) {
