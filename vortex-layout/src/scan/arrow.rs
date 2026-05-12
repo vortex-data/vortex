@@ -6,15 +6,14 @@ use std::sync::Arc;
 use arrow_array::RecordBatch;
 use arrow_array::RecordBatchReader;
 use arrow_array::cast::AsArray;
-use arrow_schema::ArrowError;
-use arrow_schema::DataType;
 use arrow_schema::SchemaRef;
+use arrow_schema::{ArrowError, Field};
 use futures::Stream;
 use futures::TryStreamExt;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrow::ArrowArrayExecutor;
+use vortex_array::arrow::ArrowSessionExt;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 
@@ -31,13 +30,13 @@ impl ScanBuilder<ArrayRef> {
         schema: SchemaRef,
         runtime: &B,
     ) -> VortexResult<impl RecordBatchReader + 'static> {
-        let data_type = DataType::Struct(schema.fields().clone());
+        let struct_field = Field::new_struct("", schema.fields().clone(), false);
         let session = self.session().clone();
 
         let iter = self
             .map(move |chunk| {
                 let mut ctx = session.create_execution_ctx();
-                to_record_batch(chunk, &data_type, &mut ctx)
+                to_record_batch(chunk, &struct_field, &mut ctx)
             })
             .into_iter(runtime)?
             .map(|result| result.map_err(|e| ArrowError::ExternalError(Box::new(e))));
@@ -49,13 +48,13 @@ impl ScanBuilder<ArrayRef> {
         self,
         schema: SchemaRef,
     ) -> VortexResult<impl Stream<Item = Result<RecordBatch, ArrowError>> + Send + 'static> {
-        let data_type = DataType::Struct(schema.fields().clone());
+        let struct_field = Field::new_struct("", schema.fields().clone(), false);
         let session = self.session().clone();
 
         let stream = self
             .map(move |chunk| {
                 let mut ctx = session.create_execution_ctx();
-                to_record_batch(chunk, &data_type, &mut ctx)
+                to_record_batch(chunk, &struct_field, &mut ctx)
             })
             .into_stream()?
             .map_err(|e| ArrowError::ExternalError(Box::new(e)));
@@ -66,10 +65,11 @@ impl ScanBuilder<ArrayRef> {
 
 fn to_record_batch(
     chunk: ArrayRef,
-    data_type: &DataType,
+    data_type: &Field,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<RecordBatch> {
-    let arrow = chunk.execute_arrow(Some(data_type), ctx)?;
+    let session = ctx.session().clone();
+    let arrow = session.arrow().execute_arrow(chunk, Some(data_type), ctx)?;
     Ok(RecordBatch::from(arrow.as_struct().clone()))
 }
 
@@ -167,10 +167,10 @@ mod tests {
     fn test_record_batch_conversion() -> VortexResult<()> {
         let vortex_array = create_test_struct_array()?;
         let schema = create_arrow_schema();
-        let data_type = DataType::Struct(schema.fields().clone());
+        let struct_field = Field::new_struct("", schema.fields().clone(), false);
         let mut ctx = SCAN_SESSION.create_execution_ctx();
 
-        let batch = to_record_batch(vortex_array, &data_type, &mut ctx)?;
+        let batch = to_record_batch(vortex_array, &struct_field, &mut ctx)?;
         assert_eq!(batch.num_columns(), 2);
         assert_eq!(batch.num_rows(), 4);
 

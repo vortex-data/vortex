@@ -552,7 +552,7 @@ pub fn vortex_tensor::vector::Vector::arrow_ext_id(&self) -> vortex_session::reg
 
 pub fn vortex_tensor::vector::Vector::execute_arrow(&self, vortex_array::array::erased::ArrayRef, &arrow_schema::field::Field, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrow::session::ArrowExport>
 
-pub fn vortex_tensor::vector::Vector::to_arrow_field(&self, &str, &vortex_array::dtype::extension::erased::ExtDTypeRef) -> vortex_error::VortexResult<core::option::Option<arrow_schema::field::Field>>
+pub fn vortex_tensor::vector::Vector::to_arrow_field(&self, &str, &vortex_array::dtype::extension::erased::ExtDTypeRef, &vortex_array::arrow::session::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::field::Field>>
 
 pub fn vortex_tensor::vector::Vector::vortex_ext_id(&self) -> vortex_array::dtype::extension::ExtId
 
