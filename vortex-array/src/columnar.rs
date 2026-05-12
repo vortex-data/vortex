@@ -16,6 +16,7 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::matcher::Matcher;
+use crate::matcher::OwnedMatcher;
 use crate::scalar::Scalar;
 
 /// Represents a columnnar array of data, either in canonical form or as a constant array.
@@ -98,6 +99,19 @@ impl Matcher for AnyColumnar {
             Some(ColumnarView::Constant(constant))
         } else {
             array.as_opt::<AnyCanonical>().map(ColumnarView::Canonical)
+        }
+    }
+}
+
+impl OwnedMatcher for AnyColumnar {
+    type OwnedMatch = Columnar;
+
+    fn maybe_match(array: ArrayRef) -> Option<Self::OwnedMatch> {
+        match array.try_downcast::<Constant>() {
+            Ok(constant) => Some(Columnar::Constant(constant)),
+            Err(array) => {
+                <AnyCanonical as OwnedMatcher>::maybe_match(array).map(Columnar::Canonical)
+            }
         }
     }
 }

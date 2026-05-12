@@ -52,6 +52,7 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::matcher::Matcher;
+use crate::matcher::OwnedMatcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 use crate::stats::StatsSetRef;
@@ -420,6 +421,18 @@ impl ArrayRef {
             .unwrap_or_else(|_| vortex_panic!("Failed to downcast to {}", type_name::<V>()))
     }
 
+    /// Returns the array matched by the given owned matcher, consuming the `ArrayRef`.
+    pub fn into_<M: OwnedMatcher>(self) -> M::OwnedMatch {
+        self.try_into_matched::<M>()
+            .vortex_expect("Failed to downcast")
+    }
+
+    /// Try to match the given array using an owned matcher, returning the owned matched type
+    /// if successful.
+    pub fn try_into_matched<M: OwnedMatcher>(self) -> Option<M::OwnedMatch> {
+        M::maybe_match(self)
+    }
+
     /// Returns a reference to the typed `ArrayData<V>` if this array matches the given vtable type.
     pub fn as_typed<V: VTable>(&self) -> Option<ArrayView<'_, V>> {
         let inner = self.0.data.as_any().downcast_ref::<ArrayData<V>>()?;
@@ -747,5 +760,14 @@ impl<V: VTable> Matcher for V {
         let inner = array.0.data.as_any().downcast_ref::<ArrayData<V>>()?;
         // # Safety checked by `downcast_ref`.
         Some(unsafe { ArrayView::new_unchecked(array, &inner.data) })
+    }
+}
+
+/// Implement an owned matcher for a specific VTable type.
+impl<V: VTable> OwnedMatcher for V {
+    type OwnedMatch = Array<V>;
+
+    fn maybe_match(array: ArrayRef) -> Option<Self::OwnedMatch> {
+        array.try_downcast::<V>().ok()
     }
 }

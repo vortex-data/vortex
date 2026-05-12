@@ -55,6 +55,7 @@ use crate::dtype::PType;
 use crate::match_each_decimal_value_type;
 use crate::match_each_native_ptype;
 use crate::matcher::Matcher;
+use crate::matcher::OwnedMatcher;
 use crate::validity::Validity;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
@@ -1040,6 +1041,56 @@ impl Matcher for AnyCanonical {
             Some(CanonicalView::Variant(a))
         } else {
             array.as_opt::<Extension>().map(CanonicalView::Extension)
+        }
+    }
+}
+
+impl OwnedMatcher for AnyCanonical {
+    type OwnedMatch = Canonical;
+
+    fn maybe_match(array: ArrayRef) -> Option<Self::OwnedMatch> {
+        if !<AnyCanonical as Matcher>::matches(&array) {
+            return None;
+        }
+        let array = match array.try_downcast::<Null>() {
+            Ok(a) => return Some(Canonical::Null(a)),
+            Err(array) => array,
+        };
+        let array = match array.try_downcast::<Bool>() {
+            Ok(a) => return Some(Canonical::Bool(a)),
+            Err(array) => array,
+        };
+        let array = match array.try_downcast::<Primitive>() {
+            Ok(a) => return Some(Canonical::Primitive(a)),
+            Err(array) => array,
+        };
+        let array = match array.try_downcast::<Decimal>() {
+            Ok(a) => return Some(Canonical::Decimal(a)),
+            Err(array) => array,
+        };
+        let array = match array.try_downcast::<Struct>() {
+            Ok(a) => return Some(Canonical::Struct(a)),
+            Err(array) => array,
+        };
+        let array = match array.try_downcast::<ListView>() {
+            Ok(a) => return Some(Canonical::List(a)),
+            Err(array) => array,
+        };
+        let array = match array.try_downcast::<FixedSizeList>() {
+            Ok(a) => return Some(Canonical::FixedSizeList(a)),
+            Err(array) => array,
+        };
+        let array = match array.try_downcast::<VarBinView>() {
+            Ok(a) => return Some(Canonical::VarBinView(a)),
+            Err(array) => array,
+        };
+        let array = match array.try_downcast::<Variant>() {
+            Ok(a) => return Some(Canonical::Variant(a)),
+            Err(array) => array,
+        };
+        match array.try_downcast::<Extension>() {
+            Ok(a) => Some(Canonical::Extension(a)),
+            Err(_) => None,
         }
     }
 }
