@@ -33,10 +33,9 @@ pub(crate) fn object_store_fs(
     handle: Handle,
 ) -> VortexResult<FileSystemRef> {
     let object_store = make_object_store(url, properties)?;
-    Ok(Arc::new(Compat::new(ObjectStoreFileSystem::new(
-        object_store,
-        handle,
-    ))))
+    let object_store = Arc::new(Compat::new(object_store)) as Arc<dyn ObjectStore>;
+
+    Ok(Arc::new(ObjectStoreFileSystem::new(object_store, handle)))
 }
 
 #[expect(clippy::cognitive_complexity)]
