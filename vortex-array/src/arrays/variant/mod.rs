@@ -332,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn variant_get_uses_fully_shredded_path_without_core_fallback() -> VortexResult<()> {
+    fn variant_get_keeps_valid_shredded_rows_for_matching_dtype() -> VortexResult<()> {
         let core_storage = row_storage([1, 2, 3])?;
         let shredded = StructArray::try_from_iter([(
             "a",

@@ -44,13 +44,13 @@ pub(crate) static PARENT_KERNELS: ParentKernelSet<ParquetVariant> = ParentKernel
     ParentKernelSet::lift(&FilterExecuteAdaptor(ParquetVariant)),
     ParentKernelSet::lift(&SliceExecuteAdaptor(ParquetVariant)),
     ParentKernelSet::lift(&TakeExecuteAdaptor(ParquetVariant)),
-    ParentKernelSet::lift(&VariantGetExecute),
+    ParentKernelSet::lift(&VariantGetKernel),
 ]);
 
 #[derive(Default, Debug)]
-struct VariantGetExecute;
+struct VariantGetKernel;
 
-impl ExecuteParentKernel<ParquetVariant> for VariantGetExecute {
+impl ExecuteParentKernel<ParquetVariant> for VariantGetKernel {
     type Parent = ExactScalarFn<VariantGet>;
 
     fn execute_parent(
@@ -875,10 +875,18 @@ mod tests {
     }
 
     #[test]
-    fn test_variant_get_canonical_shredded_rewrites_to_core_storage() -> VortexResult<()> {
+    fn test_variant_get_canonicalized_parquet_uses_top_level_shredded() -> VortexResult<()> {
         let canonical = make_partially_shredded_object_array()?;
-        let shredded = canonical
-            .as_::<Variant>()
+        let canonical_variant = canonical.as_::<Variant>();
+
+        let core_storage = canonical_variant
+            .core_storage()
+            .as_opt::<ParquetVariant>()
+            .ok_or_else(|| vortex_err!("expected parquet variant core storage"))?;
+        assert!(core_storage.typed_value_array().is_none());
+        assert!(core_storage.value_array().is_some());
+
+        let shredded = canonical_variant
             .shredded()
             .ok_or_else(|| vortex_err!("expected canonical shredded child"))?
             .clone()

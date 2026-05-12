@@ -24,6 +24,7 @@ use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::VariantArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::builders::builder_with_capacity;
 use crate::dtype::DType;
@@ -165,9 +166,7 @@ pub(crate) fn constant_canonicalize(
         }
         DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::Variant(_) => {
-            unimplemented!(
-                "TODO(variant): canonicalization will use the child-array design in a follow-up"
-            )
+            Canonical::Variant(VariantArray::new(array.array().clone().into_array()))
         }
         DType::Extension(ext_dtype) => {
             let s = scalar.as_extension();

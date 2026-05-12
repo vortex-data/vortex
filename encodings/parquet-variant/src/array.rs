@@ -14,11 +14,11 @@ use vortex_array::EmptyArrayData;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::TypedArrayRef;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::List;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::StructArray;
-use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
@@ -30,6 +30,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
+use vortex_array::scalar::Scalar;
 use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
@@ -39,6 +40,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::ParquetVariant;
+use crate::ParquetVariantArray;
 
 /// The validity bitmap indicating which elements are non-null.
 pub(crate) const VALIDITY_SLOT: usize = 0;
@@ -131,7 +133,7 @@ impl ParquetVariant {
 }
 
 pub(crate) fn core_storage_without_typed_value(
-    array: &Array<ParquetVariant>,
+    array: &ParquetVariantArray,
 ) -> VortexResult<ArrayRef> {
     // The spec requires at least one of `value`/`typed_value` to be present
     // (matching the Arrow canonical extension contract). When we lift `typed_value` out into
@@ -140,8 +142,11 @@ pub(crate) fn core_storage_without_typed_value(
     // can round-trip back through `to_arrow`.
     let value = array.value_array().cloned().or_else(|| {
         array.typed_value_array().map(|_| {
-            VarBinViewArray::from_iter_nullable_bin(std::iter::repeat_n(None::<&[u8]>, array.len()))
-                .into_array()
+            ConstantArray::new(
+                Scalar::null(DType::Binary(Nullability::Nullable)),
+                array.len(),
+            )
+            .into_array()
         })
     });
 

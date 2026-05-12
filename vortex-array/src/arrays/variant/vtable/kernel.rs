@@ -29,15 +29,14 @@ use crate::scalar_fn::fns::variant_get::VariantGet;
 use crate::scalar_fn::fns::variant_get::VariantGetOptions;
 use crate::scalar_fn::fns::variant_get::VariantPath;
 use crate::scalar_fn::fns::variant_get::VariantPathElement;
-use crate::validity::Validity;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<Variant> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&VariantGetExecute)]);
+    ParentKernelSet::new(&[ParentKernelSet::lift(&VariantGetKernel)]);
 
 #[derive(Default, Debug)]
-struct VariantGetExecute;
+struct VariantGetKernel;
 
-impl ExecuteParentKernel<Variant> for VariantGetExecute {
+impl ExecuteParentKernel<Variant> for VariantGetKernel {
     type Parent = ExactScalarFn<VariantGet>;
 
     fn execute_parent(
@@ -71,7 +70,10 @@ impl ExecuteParentKernel<Variant> for VariantGetExecute {
             .shredded()
             .map(|shredded| {
                 typed_shredded_path(shredded, parent.options.path().elements(), ctx)?
-                    .map(|typed| mask_with_validity(typed, core_validity.clone()))
+                    .map(|typed| {
+                        let len = typed.len();
+                        typed.mask(core_validity.to_array(len))
+                    })
                     .transpose()
             })
             .transpose()?
@@ -104,8 +106,12 @@ impl ExecuteParentKernel<Variant> for VariantGetExecute {
                 DType::List(..) | DType::FixedSizeList(..) => {
                     return make_fallback(ctx).map(Some);
                 }
-                _ if all_valid(&typed, ctx)? => None,
-                _ => Some(make_fallback(ctx)?),
+                _ => {
+                    let typed_mask = typed.validity()?.execute_mask(typed.len(), ctx)?;
+                    (!typed_mask.all_true())
+                        .then(|| make_fallback(ctx))
+                        .transpose()?
+                }
             };
             return merge_typed_as_variant(typed, fallback, ctx).map(Some);
         }
@@ -121,15 +127,16 @@ impl ExecuteParentKernel<Variant> for VariantGetExecute {
         }
 
         let typed = typed.cast(parent.dtype().clone())?;
-        if all_valid(&typed, ctx)? {
+        let typed_mask = typed.validity()?.execute_mask(typed.len(), ctx)?;
+        if typed_mask.all_true() {
             return Ok(Some(typed));
         }
 
         // Null typed rows are not necessarily missing from the logical variant value;
         // fill those rows from core storage and keep valid typed rows unchanged.
         let fallback = make_fallback(ctx)?;
-        let typed_mask = typed.is_not_null()?;
         typed_mask
+            .into_array()
             .zip(typed, fallback)?
             .execute::<ArrayRef>(ctx)
             .map(Some)
@@ -153,27 +160,13 @@ fn typed_shredded_path(
         let Some(field) = current_struct.unmasked_field_by_name_opt(name.as_ref()) else {
             return Ok(None);
         };
-        current = mask_with_validity(field.clone(), current_struct.validity()?)?;
+        let len = current_struct.len();
+        let current_validity = current_struct.validity()?.to_array(len);
+
+        current = field.clone().mask(current_validity.clone())?;
     }
 
     Ok(Some(current))
-}
-
-fn mask_with_validity(array: ArrayRef, validity: Validity) -> VortexResult<ArrayRef> {
-    if validity.no_nulls() {
-        return Ok(array);
-    }
-
-    let len = array.len();
-    array.mask(validity.to_array(len))
-}
-
-fn all_valid(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-    let validity = array.validity()?;
-    if validity.no_nulls() {
-        return Ok(true);
-    }
-    Ok(validity.execute_mask(array.len(), ctx)?.all_true())
 }
 
 fn merge_typed_as_variant(
@@ -182,6 +175,8 @@ fn merge_typed_as_variant(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let dtype = DType::Variant(Nullability::Nullable);
+    // TODO(variant): replace this with a Variant builder once one exists.
+    // Chunked<Variant> canonicalizes to VariantArray, so this row-wise fallback is safe.
     let mut chunks = Vec::with_capacity(typed.len());
 
     for idx in 0..typed.len() {

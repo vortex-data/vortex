@@ -985,6 +985,21 @@ impl Executable for StructArray {
     }
 }
 
+/// Execute the array to canonical form and unwrap as a [`VariantArray`].
+///
+/// This will panic if the array's dtype is not variant.
+impl Executable for VariantArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_downcast::<Variant>() {
+            Ok(variant_array) => Ok(variant_array),
+            Err(array) => match Canonical::execute(array, ctx)? {
+                Canonical::Variant(variant_array) => Ok(variant_array),
+                canonical => vortex_panic!("Cannot unwrap VariantArray from {:?}", canonical),
+            },
+        }
+    }
+}
+
 /// A view into a canonical array type.
 ///
 /// Uses `ArrayView<V>` because these are obtained by

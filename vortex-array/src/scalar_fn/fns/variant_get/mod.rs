@@ -20,6 +20,7 @@ use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::VariantArray;
+use crate::builders::builder_with_capacity_in;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
 use crate::dtype::Nullability;
@@ -133,6 +134,20 @@ impl ScalarFnVTable for VariantGet {
         let dtype = options
             .dtype()
             .map_or(DType::Variant(Nullability::Nullable), DType::as_nullable);
+
+        if !dtype.is_variant() {
+            let mut builder = builder_with_capacity_in(ctx.allocator(), &dtype, input.len());
+            for idx in 0..input.len() {
+                let scalar = input.execute_scalar(idx, ctx)?;
+                let output = variant_get_scalar(&scalar, options, &dtype)?;
+                builder.append_scalar(&output)?;
+            }
+
+            return Ok(builder.finish_into_canonical().into_array());
+        }
+
+        // TODO(variant): replace this with a Variant builder once one exists.
+        // Chunked<Variant> canonicalizes to VariantArray, so this row-wise fallback is safe.
         let mut chunks = Vec::with_capacity(input.len());
 
         for idx in 0..input.len() {
@@ -141,12 +156,8 @@ impl ScalarFnVTable for VariantGet {
             chunks.push(ConstantArray::new(output, 1).into_array());
         }
 
-        let array = ChunkedArray::try_new(chunks, dtype.clone())?.into_array();
-        if dtype.is_variant() {
-            VariantArray::try_new(array, None).map(|array| array.into_array())
-        } else {
-            Ok(array)
-        }
+        let array = ChunkedArray::try_new(chunks, dtype)?.into_array();
+        VariantArray::try_new(array, None).map(|array| array.into_array())
     }
 }
 
@@ -378,12 +389,16 @@ mod tests {
     use vortex_session::VortexSession;
 
     use crate::ArrayRef;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
+    use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::VariantArray;
+    use crate::arrays::variant::VariantArrayExt;
     use crate::assert_arrays_eq;
     use crate::assert_nth_scalar_is_null;
     use crate::dtype::DType;
@@ -662,6 +677,37 @@ mod tests {
     }
 
     #[test]
+    fn variant_get_fallback_typed_output_is_contiguous() -> VortexResult<()> {
+        let array = variant_rows([
+            Scalar::variant(variant_object([(
+                "a",
+                Scalar::primitive(10i32, Nullability::NonNullable),
+            )])),
+            Scalar::variant(variant_object([(
+                "a",
+                Scalar::primitive(20i32, Nullability::NonNullable),
+            )])),
+            Scalar::variant(variant_object([(
+                "b",
+                Scalar::primitive(30i32, Nullability::NonNullable),
+            )])),
+        ])?;
+
+        let result = execute_variant_get(
+            array,
+            "$.a",
+            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        )?;
+
+        assert!(!result.is::<Chunked>());
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10i32), Some(20), None])
+        );
+        Ok(())
+    }
+
+    #[test]
     fn variant_get_generic_fallback_preserves_variant_null() -> VortexResult<()> {
         let array = variant_rows([
             Scalar::variant(variant_object([(
@@ -696,6 +742,50 @@ mod tests {
             Some(true)
         );
         assert_nth_scalar_is_null!(result, 3);
+        Ok(())
+    }
+
+    #[test]
+    fn variant_get_fallback_variant_output_canonicalizes() -> VortexResult<()> {
+        let array = variant_rows([
+            Scalar::variant(variant_object([(
+                "a",
+                Scalar::primitive(10i32, Nullability::NonNullable),
+            )])),
+            Scalar::variant(variant_object([(
+                "a",
+                Scalar::primitive(20i32, Nullability::NonNullable),
+            )])),
+        ])?;
+
+        let result = execute_variant_get(array, "$.a", None)?;
+        let variant = result
+            .clone()
+            .execute::<VariantArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        let canonical = result.execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        let Canonical::Variant(canonical_variant) = canonical else {
+            vortex_bail!("expected Variant canonical array");
+        };
+
+        assert_eq!(variant.len(), 2);
+        assert_eq!(canonical_variant.len(), 2);
+        assert!(variant.core_storage().is::<Chunked>());
+
+        let core_variant = variant
+            .core_storage()
+            .clone()
+            .execute::<VariantArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
+        assert_eq!(core_variant.len(), 2);
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        for (idx, expected) in [10i32, 20].into_iter().enumerate() {
+            let scalar = variant.execute_scalar(idx, &mut ctx)?;
+            let actual = scalar
+                .as_variant()
+                .value()
+                .and_then(|value| value.as_primitive().as_::<i32>());
+            assert_eq!(actual, Some(expected), "row {idx}");
+        }
         Ok(())
     }
 }
