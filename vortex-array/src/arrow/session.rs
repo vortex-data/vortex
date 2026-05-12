@@ -28,14 +28,15 @@ use arc_swap::ArcSwap;
 use arrow_array::Array as _;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;
-use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
 use arrow_schema::extension::EXTENSION_TYPE_NAME_KEY;
 use arrow_schema::extension::ExtensionType;
+use arrow_schema::{DataType, Fields};
 use tracing::debug;
 use tracing::trace;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
@@ -58,6 +59,7 @@ use crate::dtype::arrow::FromArrowType;
 use crate::dtype::arrow::to_data_type_naive;
 use crate::dtype::extension::ExtDTypeRef;
 use crate::dtype::extension::ExtId;
+use crate::extension::datetime::AnyTemporal;
 use crate::extension::uuid::Uuid;
 use crate::validity::Validity;
 
@@ -100,7 +102,12 @@ pub trait ArrowExportVTable: 'static + Send + Sync + Debug {
 
     /// Build the Arrow [`Field`] this plugin produces for the given Vortex extension
     /// `dtype`. Used during schema inference.
-    fn to_arrow_field(&self, name: &str, dtype: &ExtDTypeRef) -> VortexResult<Option<Field>>;
+    fn to_arrow_field(
+        &self,
+        name: &str,
+        dtype: &ExtDTypeRef,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<Field>>;
 
     /// Convert a Vortex array into an Arrow array shaped to `target`.
     ///
@@ -248,18 +255,52 @@ impl ArrowSession {
     /// [`DType::FixedSizeList`], [`DType::Struct`]) recurse through this method so
     /// extension metadata on nested fields is preserved.
     pub fn to_arrow_field(&self, name: &str, dtype: &DType) -> VortexResult<Field> {
-        if let Some(ext) = dtype.as_extension_opt() {
-            for plugin in self.exporters_by_vortex(&ext.id()).iter() {
-                if let Some(field) = plugin.to_arrow_field(name, ext)? {
-                    return Ok(field);
-                }
+        // Handle the structural encodings, which may have recursive types
+        match dtype {
+            DType::List(elem_dtype, nullability) => {
+                let elem_field = self.to_arrow_field(Field::LIST_FIELD_DEFAULT_NAME, elem_dtype)?;
+                Ok(Field::new_list(name, elem_field, nullability.is_nullable()))
             }
+            DType::FixedSizeList(elem_dtype, elem_size, nullability) => {
+                let elem_field = self.to_arrow_field(Field::LIST_FIELD_DEFAULT_NAME, elem_dtype)?;
+                Ok(Field::new_fixed_size_list(
+                    name,
+                    elem_field,
+                    (*elem_size).try_into()?,
+                    nullability.is_nullable(),
+                ))
+            }
+            DType::Struct(fields, nullability) => {
+                let arrow_fields = Fields::from_iter(
+                    fields
+                        .fields()
+                        .zip(fields.names().iter())
+                        .map(|(field, name)| self.to_arrow_field(name.as_ref(), &field))
+                        .collect::<VortexResult<Vec<_>>>()?,
+                );
+                Ok(Field::new_struct(
+                    name,
+                    arrow_fields,
+                    nullability.is_nullable(),
+                ))
+            }
+            DType::Extension(ext) if !ext.is::<AnyTemporal>() => {
+                for plugin in self.exporters_by_vortex(&ext.id()).iter() {
+                    if let Some(field) = plugin.to_arrow_field(name, ext, self)? {
+                        return Ok(field);
+                    }
+                }
+                vortex_bail!("extension type cannot be converted to Arrow without a plugin: {ext}");
+            }
+            DType::Variant(_) => {
+                vortex_bail!("Arrow does not have a raw/transparent Variant encoding");
+            }
+            _ => Ok(Field::new(
+                name,
+                to_data_type_naive(dtype)?,
+                dtype.is_nullable(),
+            )),
         }
-        Ok(Field::new(
-            name,
-            self.to_arrow_data_type(dtype)?,
-            dtype.is_nullable(),
-        ))
     }
 
     /// Build the Arrow [`DataType`] for a Vortex [`DType`].
@@ -274,7 +315,7 @@ impl ArrowSession {
             DType::Extension(ext) => {
                 let mut data_type = None;
                 for plugin in self.exporters_by_vortex(&ext.id()).iter() {
-                    if let Some(field) = plugin.to_arrow_field("", ext)? {
+                    if let Some(field) = plugin.to_arrow_field("", ext, self)? {
                         data_type = Some(field.data_type().clone());
                         break;
                     }

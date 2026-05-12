@@ -18,6 +18,7 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::extension::ExtensionType;
 use arrow_schema::extension::Uuid as ArrowUuid;
+use vortex_array::arrow::ArrowSession;
 use vortex_array::arrow::has_valid_extension_type;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -65,7 +66,12 @@ impl ArrowExportVTable for Uuid {
     }
 
     // Encode all of these.
-    fn to_arrow_field(&self, name: &str, dtype: &ExtDTypeRef) -> VortexResult<Option<Field>> {
+    fn to_arrow_field(
+        &self,
+        name: &str,
+        dtype: &ExtDTypeRef,
+        _session: &ArrowSession,
+    ) -> VortexResult<Option<Field>> {
         let mut field = Field::new(
             name.to_string(),
             DataType::FixedSizeBinary(UUID_BYTE_LEN),

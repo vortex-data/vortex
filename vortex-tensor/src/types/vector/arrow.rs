@@ -19,11 +19,12 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
-use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_array::arrow::ArrowExport;
 use vortex_array::arrow::ArrowExportVTable;
 use vortex_array::arrow::ArrowImport;
 use vortex_array::arrow::ArrowImportVTable;
+use vortex_array::arrow::ArrowSession;
+use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::arrow::FromArrowType;
@@ -71,12 +72,18 @@ impl ArrowExportVTable for Vector {
         Vector.id()
     }
 
-    fn to_arrow_field(&self, name: &str, dtype: &ExtDTypeRef) -> VortexResult<Option<Field>> {
+    fn to_arrow_field(
+        &self,
+        name: &str,
+        dtype: &ExtDTypeRef,
+        session: &ArrowSession,
+    ) -> VortexResult<Option<Field>> {
         if !dtype.is::<Vector>() {
             return Ok(None);
         }
-        let storage_data_type = dtype.storage_dtype().to_arrow_dtype()?;
-        let mut field = Field::new(name, storage_data_type, dtype.is_nullable());
+
+        // Delegate to Arrow encoding of storage type.
+        let mut field = session.to_arrow_field(name, dtype.storage_dtype())?;
         field.set_metadata(vector_extension_metadata());
         Ok(Some(field))
     }
@@ -97,7 +104,10 @@ impl ArrowExportVTable for Vector {
 
         let executed = array.execute::<ExtensionArray>(ctx)?;
         let storage = executed.storage_array().clone();
-        let arrow_storage = storage.execute_arrow(Some(target.data_type()), ctx)?;
+
+        let session = ctx.session().clone();
+        let arrow_storage = session.arrow().execute_arrow(storage, Some(target), ctx)?;
+
         Ok(ArrowExport::Exported(arrow_storage))
     }
 }
