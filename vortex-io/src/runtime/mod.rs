@@ -45,6 +45,13 @@ pub trait Executor: Send + Sync {
     /// The returned `AbortHandle` may be used to optimistically cancel the future.
     fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef;
 
+    /// Spawns a future doing IO to be executed on the runtime.
+    /// This allows `Executor` implementation to split work between multiple async runtime.
+    /// By default, it just calls `Executor::spawn`.
+    fn spawn_io(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
+        self.spawn(fut)
+    }
+
     /// Spawns a CPU-bound task for execution on the runtime.
     ///
     /// The returned `AbortHandle` may be used to optimistically cancel the task if it has not
