@@ -9416,6 +9416,8 @@ pub vortex_array::dtype::DType::Primitive(vortex_array::dtype::PType, vortex_arr
 
 pub vortex_array::dtype::DType::Struct(vortex_array::dtype::StructFields, vortex_array::dtype::Nullability)
 
+pub vortex_array::dtype::DType::Union(vortex_array::dtype::Nullability)
+
 pub vortex_array::dtype::DType::Utf8(vortex_array::dtype::Nullability)
 
 pub vortex_array::dtype::DType::Variant(vortex_array::dtype::Nullability)
@@ -9491,6 +9493,8 @@ pub fn vortex_array::dtype::DType::is_primitive(&self) -> bool
 pub fn vortex_array::dtype::DType::is_signed_int(&self) -> bool
 
 pub fn vortex_array::dtype::DType::is_struct(&self) -> bool
+
+pub fn vortex_array::dtype::DType::is_union(&self) -> bool
 
 pub fn vortex_array::dtype::DType::is_unsigned_int(&self) -> bool
 

@@ -126,10 +126,10 @@ impl ::flatbuffers::SimpleToVerifyInSlice for PType {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_TYPE: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_TYPE: u8 = 11;
+pub const ENUM_MAX_TYPE: u8 = 12;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_TYPE: [Type; 12] = [
+pub const ENUM_VALUES_TYPE: [Type; 13] = [
   Type::NONE,
   Type::Null,
   Type::Bool,
@@ -142,6 +142,7 @@ pub const ENUM_VALUES_TYPE: [Type; 12] = [
   Type::Extension,
   Type::FixedSizeList,
   Type::Variant,
+  Type::Union,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -161,9 +162,10 @@ impl Type {
   pub const Extension: Self = Self(9);
   pub const FixedSizeList: Self = Self(10);
   pub const Variant: Self = Self(11);
+  pub const Union: Self = Self(12);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 11;
+  pub const ENUM_MAX: u8 = 12;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::NONE,
     Self::Null,
@@ -177,6 +179,7 @@ impl Type {
     Self::Extension,
     Self::FixedSizeList,
     Self::Variant,
+    Self::Union,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
@@ -193,6 +196,7 @@ impl Type {
       Self::Extension => Some("Extension"),
       Self::FixedSizeList => Some("FixedSizeList"),
       Self::Variant => Some("Variant"),
+      Self::Union => Some("Union"),
       _ => None,
     }
   }
@@ -1457,6 +1461,102 @@ impl ::core::fmt::Debug for Variant<'_> {
       ds.finish()
   }
 }
+pub enum UnionOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+pub struct Union<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for Union<'a> {
+  type Inner = Union<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> Union<'a> {
+  pub const VT_NULLABLE: ::flatbuffers::VOffsetT = 4;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    Union { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args UnionArgs
+  ) -> ::flatbuffers::WIPOffset<Union<'bldr>> {
+    let mut builder = UnionBuilder::new(_fbb);
+    builder.add_nullable(args.nullable);
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn nullable(&self) -> bool {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<bool>(Union::VT_NULLABLE, Some(false)).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for Union<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<bool>("nullable", Self::VT_NULLABLE, false)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct UnionArgs {
+    pub nullable: bool,
+}
+impl<'a> Default for UnionArgs {
+  #[inline]
+  fn default() -> Self {
+    UnionArgs {
+      nullable: false,
+    }
+  }
+}
+
+pub struct UnionBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> UnionBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_nullable(&mut self, nullable: bool) {
+    self.fbb_.push_slot::<bool>(Union::VT_NULLABLE, nullable, false);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> UnionBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    UnionBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<Union<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for Union<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("Union");
+      ds.field("nullable", &self.nullable());
+      ds.finish()
+  }
+}
 pub enum DTypeOffset {}
 #[derive(Copy, Clone, PartialEq)]
 
@@ -1671,6 +1771,21 @@ impl<'a> DType<'a> {
     }
   }
 
+  #[inline]
+  #[allow(non_snake_case)]
+  pub fn type__as_union(&self) -> Option<Union<'a>> {
+    if self.type_type() == Type::Union {
+      self.type_().map(|t| {
+       // Safety:
+       // Created from a valid Table for this object
+       // Which contains a valid union in this slot
+       unsafe { Union::init_from_table(t) }
+     })
+    } else {
+      None
+    }
+  }
+
 }
 
 impl ::flatbuffers::Verifiable for DType<'_> {
@@ -1692,6 +1807,7 @@ impl ::flatbuffers::Verifiable for DType<'_> {
           Type::Extension => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<Extension>>("Type::Extension", pos),
           Type::FixedSizeList => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<FixedSizeList>>("Type::FixedSizeList", pos),
           Type::Variant => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<Variant>>("Type::Variant", pos),
+          Type::Union => v.verify_union_variant::<::flatbuffers::ForwardsUOffset<Union>>("Type::Union", pos),
           _ => Ok(()),
         }
      })?
@@ -1818,6 +1934,13 @@ impl ::core::fmt::Debug for DType<'_> {
         },
         Type::Variant => {
           if let Some(x) = self.type__as_variant() {
+            ds.field("type_", &x)
+          } else {
+            ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")
+          }
+        },
+        Type::Union => {
+          if let Some(x) = self.type__as_union() {
             ds.field("type_", &x)
           } else {
             ds.field("type_", &"InvalidFlatbuffer: Union discriminant does not match value.")

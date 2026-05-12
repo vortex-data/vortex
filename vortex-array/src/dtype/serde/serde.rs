@@ -115,6 +115,7 @@ impl Serialize for DType {
                 state.serialize_field(n)?;
                 state.end()
             }
+            DType::Union(n) => serializer.serialize_newtype_variant("DType", 11, "Union", n),
             DType::Extension(ext) => {
                 serializer.serialize_newtype_variant("DType", 9, "Extension", ext)
             }
@@ -157,6 +158,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
             "List",
             "FixedSizeList",
             "Struct",
+            "Union",
             "Extension",
             "Variant",
         ];
@@ -215,6 +217,10 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
                     "Struct" => access.newtype_variant_seed(StructFieldsSeed {
                         session: self.session,
                     }),
+                    "Union" => {
+                        let n = access.newtype_variant()?;
+                        Ok(DType::Union(n))
+                    }
                     "Extension" => {
                         let ext = access
                             .newtype_variant_seed(DTypeSerde::<ExtDTypeRef>::new(self.session))?;

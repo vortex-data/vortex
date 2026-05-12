@@ -122,7 +122,7 @@ pub fn filter_canonical_array(
             }
             take_canonical_array_non_nullable_indices(array, indices.as_slice(), ctx)
         }
-        d @ (DType::Null | DType::Extension(_) | DType::Variant(_)) => {
+        d @ (DType::Null | DType::Union(..) | DType::Extension(_) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

@@ -73,6 +73,7 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
             )),
         )
         .vortex_expect("unable to construct random `Scalar`_"),
+        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::List(edt, _) => Scalar::try_new(
             dtype.clone(),
             Some(ScalarValue::Tuple(

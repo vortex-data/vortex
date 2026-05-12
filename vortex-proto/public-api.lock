@@ -24,6 +24,8 @@ pub vortex_proto::dtype::d_type::DtypeType::Primitive(vortex_proto::dtype::Primi
 
 pub vortex_proto::dtype::d_type::DtypeType::Struct(vortex_proto::dtype::Struct)
 
+pub vortex_proto::dtype::d_type::DtypeType::Union(vortex_proto::dtype::Union)
+
 pub vortex_proto::dtype::d_type::DtypeType::Utf8(vortex_proto::dtype::Utf8)
 
 pub vortex_proto::dtype::d_type::DtypeType::Variant(vortex_proto::dtype::Variant)
@@ -573,6 +575,42 @@ impl prost::message::Message for vortex_proto::dtype::Struct
 pub fn vortex_proto::dtype::Struct::clear(&mut self)
 
 pub fn vortex_proto::dtype::Struct::encoded_len(&self) -> usize
+
+pub struct vortex_proto::dtype::Union
+
+pub vortex_proto::dtype::Union::nullable: bool
+
+impl core::clone::Clone for vortex_proto::dtype::Union
+
+pub fn vortex_proto::dtype::Union::clone(&self) -> vortex_proto::dtype::Union
+
+impl core::cmp::Eq for vortex_proto::dtype::Union
+
+impl core::cmp::PartialEq for vortex_proto::dtype::Union
+
+pub fn vortex_proto::dtype::Union::eq(&self, &vortex_proto::dtype::Union) -> bool
+
+impl core::default::Default for vortex_proto::dtype::Union
+
+pub fn vortex_proto::dtype::Union::default() -> Self
+
+impl core::fmt::Debug for vortex_proto::dtype::Union
+
+pub fn vortex_proto::dtype::Union::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_proto::dtype::Union
+
+pub fn vortex_proto::dtype::Union::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::Copy for vortex_proto::dtype::Union
+
+impl core::marker::StructuralPartialEq for vortex_proto::dtype::Union
+
+impl prost::message::Message for vortex_proto::dtype::Union
+
+pub fn vortex_proto::dtype::Union::clear(&mut self)
+
+pub fn vortex_proto::dtype::Union::encoded_len(&self) -> usize
 
 pub struct vortex_proto::dtype::Utf8
 
