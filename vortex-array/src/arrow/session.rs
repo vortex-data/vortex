@@ -463,9 +463,15 @@ impl ArrowSession {
         target: Option<&Field>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
-        if let Some(target_field) = target
-            && let Some(arrow_ext_name) = target_field.metadata().get(EXTENSION_TYPE_NAME_KEY)
-        {
+        let target_field = match target {
+            Some(field) => field.clone(),
+            None => {
+                let session = ctx.session().clone();
+                session.arrow().to_arrow_field("", array.dtype())?
+            }
+        };
+
+        if let Some(arrow_ext_name) = target_field.metadata().get(EXTENSION_TYPE_NAME_KEY) {
             // There can be multiple plugins that report support for a particular extension type.
             // We try them in order until one of them reports a successful conversion.
             let len = array.len();
@@ -478,7 +484,7 @@ impl ArrowSession {
                     "probing plugin for converting Arrow array"
                 );
 
-                match plugin.execute_arrow(current, target_field, ctx)? {
+                match plugin.execute_arrow(current, &target_field, ctx)? {
                     ArrowExport::Exported(arrow) => {
                         vortex_ensure!(
                             arrow.len() == len,
