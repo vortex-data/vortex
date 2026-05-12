@@ -1462,13 +1462,25 @@ pub vortex_flatbuffers::dtype::Union::_tab: flatbuffers::table::Table<'a>
 
 impl<'a> vortex_flatbuffers::dtype::Union<'a>
 
+pub const vortex_flatbuffers::dtype::Union<'a>::VT_DTYPES: flatbuffers::primitives::VOffsetT
+
+pub const vortex_flatbuffers::dtype::Union<'a>::VT_NAMES: flatbuffers::primitives::VOffsetT
+
 pub const vortex_flatbuffers::dtype::Union<'a>::VT_NULLABLE: flatbuffers::primitives::VOffsetT
 
-pub fn vortex_flatbuffers::dtype::Union<'a>::create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::builder::Allocator + 'bldr>(&'mut_bldr mut flatbuffers::builder::FlatBufferBuilder<'bldr, A>, &'args vortex_flatbuffers::dtype::UnionArgs) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::dtype::Union<'bldr>>
+pub const vortex_flatbuffers::dtype::Union<'a>::VT_TYPE_IDS: flatbuffers::primitives::VOffsetT
+
+pub fn vortex_flatbuffers::dtype::Union<'a>::create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::builder::Allocator + 'bldr>(&'mut_bldr mut flatbuffers::builder::FlatBufferBuilder<'bldr, A>, &'args vortex_flatbuffers::dtype::UnionArgs<'args>) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::dtype::Union<'bldr>>
+
+pub fn vortex_flatbuffers::dtype::Union<'a>::dtypes(&self) -> core::option::Option<flatbuffers::vector::Vector<'a, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::dtype::DType<'a>>>>
 
 pub unsafe fn vortex_flatbuffers::dtype::Union<'a>::init_from_table(flatbuffers::table::Table<'a>) -> Self
 
+pub fn vortex_flatbuffers::dtype::Union<'a>::names(&self) -> core::option::Option<flatbuffers::vector::Vector<'a, flatbuffers::primitives::ForwardsUOffset<&'a str>>>
+
 pub fn vortex_flatbuffers::dtype::Union<'a>::nullable(&self) -> bool
+
+pub fn vortex_flatbuffers::dtype::Union<'a>::type_ids(&self) -> core::option::Option<flatbuffers::vector::Vector<'a, i8>>
 
 impl core::fmt::Debug for vortex_flatbuffers::dtype::Union<'_>
 
@@ -1496,19 +1508,31 @@ pub type vortex_flatbuffers::dtype::Union<'a>::Inner = vortex_flatbuffers::dtype
 
 pub unsafe fn vortex_flatbuffers::dtype::Union<'a>::follow(&'a [u8], usize) -> Self::Inner
 
-pub struct vortex_flatbuffers::dtype::UnionArgs
+pub struct vortex_flatbuffers::dtype::UnionArgs<'a>
+
+pub vortex_flatbuffers::dtype::UnionArgs::dtypes: core::option::Option<flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'a, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::dtype::DType<'a>>>>>
+
+pub vortex_flatbuffers::dtype::UnionArgs::names: core::option::Option<flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'a, flatbuffers::primitives::ForwardsUOffset<&'a str>>>>
 
 pub vortex_flatbuffers::dtype::UnionArgs::nullable: bool
 
-impl<'a> core::default::Default for vortex_flatbuffers::dtype::UnionArgs
+pub vortex_flatbuffers::dtype::UnionArgs::type_ids: core::option::Option<flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'a, i8>>>
 
-pub fn vortex_flatbuffers::dtype::UnionArgs::default() -> Self
+impl<'a> core::default::Default for vortex_flatbuffers::dtype::UnionArgs<'a>
+
+pub fn vortex_flatbuffers::dtype::UnionArgs<'a>::default() -> Self
 
 pub struct vortex_flatbuffers::dtype::UnionBuilder<'a: 'b, 'b, A: flatbuffers::builder::Allocator + 'a>
 
 impl<'a: 'b, 'b, A: flatbuffers::builder::Allocator + 'a> vortex_flatbuffers::dtype::UnionBuilder<'a, 'b, A>
 
+pub fn vortex_flatbuffers::dtype::UnionBuilder<'a, 'b, A>::add_dtypes(&mut self, flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'b, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::dtype::DType<'b>>>>)
+
+pub fn vortex_flatbuffers::dtype::UnionBuilder<'a, 'b, A>::add_names(&mut self, flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'b, flatbuffers::primitives::ForwardsUOffset<&'b str>>>)
+
 pub fn vortex_flatbuffers::dtype::UnionBuilder<'a, 'b, A>::add_nullable(&mut self, bool)
+
+pub fn vortex_flatbuffers::dtype::UnionBuilder<'a, 'b, A>::add_type_ids(&mut self, flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'b, i8>>)
 
 pub fn vortex_flatbuffers::dtype::UnionBuilder<'a, 'b, A>::finish(self) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::dtype::Union<'a>>
 

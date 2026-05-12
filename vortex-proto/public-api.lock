@@ -578,13 +578,17 @@ pub fn vortex_proto::dtype::Struct::encoded_len(&self) -> usize
 
 pub struct vortex_proto::dtype::Union
 
+pub vortex_proto::dtype::Union::dtypes: alloc::vec::Vec<vortex_proto::dtype::DType>
+
+pub vortex_proto::dtype::Union::names: alloc::vec::Vec<alloc::string::String>
+
 pub vortex_proto::dtype::Union::nullable: bool
+
+pub vortex_proto::dtype::Union::type_ids: alloc::vec::Vec<i32>
 
 impl core::clone::Clone for vortex_proto::dtype::Union
 
 pub fn vortex_proto::dtype::Union::clone(&self) -> vortex_proto::dtype::Union
-
-impl core::cmp::Eq for vortex_proto::dtype::Union
 
 impl core::cmp::PartialEq for vortex_proto::dtype::Union
 
@@ -597,12 +601,6 @@ pub fn vortex_proto::dtype::Union::default() -> Self
 impl core::fmt::Debug for vortex_proto::dtype::Union
 
 pub fn vortex_proto::dtype::Union::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_proto::dtype::Union
-
-pub fn vortex_proto::dtype::Union::hash<__H: core::hash::Hasher>(&self, &mut __H)
-
-impl core::marker::Copy for vortex_proto::dtype::Union
 
 impl core::marker::StructuralPartialEq for vortex_proto::dtype::Union
 

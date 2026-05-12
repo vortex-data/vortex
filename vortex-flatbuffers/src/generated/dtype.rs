@@ -1477,7 +1477,10 @@ impl<'a> ::flatbuffers::Follow<'a> for Union<'a> {
 }
 
 impl<'a> Union<'a> {
-  pub const VT_NULLABLE: ::flatbuffers::VOffsetT = 4;
+  pub const VT_NAMES: ::flatbuffers::VOffsetT = 4;
+  pub const VT_DTYPES: ::flatbuffers::VOffsetT = 6;
+  pub const VT_TYPE_IDS: ::flatbuffers::VOffsetT = 8;
+  pub const VT_NULLABLE: ::flatbuffers::VOffsetT = 10;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -1486,14 +1489,38 @@ impl<'a> Union<'a> {
   #[allow(unused_mut)]
   pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
     _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
-    args: &'args UnionArgs
+    args: &'args UnionArgs<'args>
   ) -> ::flatbuffers::WIPOffset<Union<'bldr>> {
     let mut builder = UnionBuilder::new(_fbb);
+    if let Some(x) = args.type_ids { builder.add_type_ids(x); }
+    if let Some(x) = args.dtypes { builder.add_dtypes(x); }
+    if let Some(x) = args.names { builder.add_names(x); }
     builder.add_nullable(args.nullable);
     builder.finish()
   }
 
 
+  #[inline]
+  pub fn names(&self) -> Option<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>(Union::VT_NAMES, None)}
+  }
+  #[inline]
+  pub fn dtypes(&self) -> Option<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<DType<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<DType>>>>(Union::VT_DTYPES, None)}
+  }
+  #[inline]
+  pub fn type_ids(&self) -> Option<::flatbuffers::Vector<'a, i8>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, i8>>>(Union::VT_TYPE_IDS, None)}
+  }
   #[inline]
   pub fn nullable(&self) -> bool {
     // Safety:
@@ -1509,18 +1536,27 @@ impl ::flatbuffers::Verifiable for Union<'_> {
     v: &mut ::flatbuffers::Verifier, pos: usize
   ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
     v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<&'_ str>>>>("names", Self::VT_NAMES, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<DType>>>>("dtypes", Self::VT_DTYPES, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, i8>>>("type_ids", Self::VT_TYPE_IDS, false)?
      .visit_field::<bool>("nullable", Self::VT_NULLABLE, false)?
      .finish();
     Ok(())
   }
 }
-pub struct UnionArgs {
+pub struct UnionArgs<'a> {
+    pub names: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<&'a str>>>>,
+    pub dtypes: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<DType<'a>>>>>,
+    pub type_ids: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, i8>>>,
     pub nullable: bool,
 }
-impl<'a> Default for UnionArgs {
+impl<'a> Default for UnionArgs<'a> {
   #[inline]
   fn default() -> Self {
     UnionArgs {
+      names: None,
+      dtypes: None,
+      type_ids: None,
       nullable: false,
     }
   }
@@ -1531,6 +1567,18 @@ pub struct UnionBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
   start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
 }
 impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> UnionBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_names(&mut self, names: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<&'b  str>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(Union::VT_NAMES, names);
+  }
+  #[inline]
+  pub fn add_dtypes(&mut self, dtypes: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<DType<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(Union::VT_DTYPES, dtypes);
+  }
+  #[inline]
+  pub fn add_type_ids(&mut self, type_ids: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , i8>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(Union::VT_TYPE_IDS, type_ids);
+  }
   #[inline]
   pub fn add_nullable(&mut self, nullable: bool) {
     self.fbb_.push_slot::<bool>(Union::VT_NULLABLE, nullable, false);
@@ -1553,6 +1601,9 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> UnionBuilder<'a, 'b, A> {
 impl ::core::fmt::Debug for Union<'_> {
   fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
     let mut ds = f.debug_struct("Union");
+      ds.field("names", &self.names());
+      ds.field("dtypes", &self.dtypes());
+      ds.field("type_ids", &self.type_ids());
       ds.field("nullable", &self.nullable());
       ds.finish()
   }

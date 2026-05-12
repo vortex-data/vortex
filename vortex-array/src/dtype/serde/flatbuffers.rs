@@ -11,6 +11,7 @@ use itertools::Itertools;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::FlatBufferRoot;
@@ -21,8 +22,10 @@ use vortex_session::VortexSession;
 use crate::dtype::DType;
 use crate::dtype::DecimalDType;
 use crate::dtype::FieldDType;
+use crate::dtype::Nullability;
 use crate::dtype::PType;
 use crate::dtype::StructFields;
+use crate::dtype::UnionVariants;
 use crate::dtype::extension::ExtId;
 use crate::dtype::extension::ForeignExtDType;
 use crate::dtype::flatbuffers as fb;
@@ -87,6 +90,42 @@ impl StructFields {
             .collect::<Vec<_>>();
 
         Ok(StructFields::from_fields(names, dtypes))
+    }
+}
+
+impl UnionVariants {
+    /// Creates a new instance from a flatbuffer-defined object and its underlying buffer.
+    fn from_fb(
+        fb_union: fbd::Union<'_>,
+        buffer: FlatBuffer,
+        session: VortexSession,
+    ) -> VortexResult<Self> {
+        let names = fb_union
+            .names()
+            .ok_or_else(|| vortex_err!("failed to parse union names from flatbuffer"))?
+            .iter()
+            .collect();
+
+        let dtypes = fb_union
+            .dtypes()
+            .ok_or_else(|| vortex_err!("failed to parse union dtypes from flatbuffer"))?
+            .iter()
+            .map(|dt| {
+                FieldDType::from(ViewedDType::from_fb_loc(
+                    dt._tab.loc(),
+                    buffer.clone(),
+                    session.clone(),
+                ))
+            })
+            .collect::<Vec<_>>();
+
+        let type_ids: Vec<i8> = fb_union
+            .type_ids()
+            .ok_or_else(|| vortex_err!("failed to parse union type_ids from flatbuffer"))?
+            .iter()
+            .collect();
+
+        UnionVariants::try_from_fields(names, dtypes, type_ids)
     }
 }
 
@@ -195,7 +234,17 @@ impl TryFrom<ViewedDType> for DType {
                 let fb_union = fb
                     .type__as_union()
                     .ok_or_else(|| vortex_err!("failed to parse union from flatbuffer"))?;
-                Ok(Self::Union(fb_union.nullable().into()))
+                let variants =
+                    UnionVariants::from_fb(fb_union, vfdt.buffer().clone(), vfdt.session.clone())?;
+
+                let nullability: Nullability = fb_union.nullable().into();
+                vortex_ensure!(
+                    variants.nullability_constraints_satisfied(nullability),
+                    "Union nullability constraint not satisfied: nullability={:?}",
+                    nullability
+                );
+
+                Ok(Self::Union(variants, nullability))
             }
             fb::Type::Extension => {
                 let fb_ext = fb
@@ -317,13 +366,33 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
-            Self::Union(n) => fb::Union::create(
-                fbb,
-                &fb::UnionArgs {
-                    nullable: (*n).into(),
-                },
-            )
-            .as_union_value(),
+            Self::Union(uv, n) => {
+                let names = uv
+                    .names()
+                    .iter()
+                    .map(|name| fbb.create_string(name.as_ref()))
+                    .collect_vec();
+                let names = Some(fbb.create_vector(&names));
+
+                let dtypes = uv
+                    .variants()
+                    .map(|dtype| dtype.write_flatbuffer(fbb))
+                    .collect::<VortexResult<Vec<_>>>()?;
+                let dtypes = Some(fbb.create_vector(&dtypes));
+
+                let type_ids = Some(fbb.create_vector(uv.type_ids()));
+
+                fb::Union::create(
+                    fbb,
+                    &fb::UnionArgs {
+                        names,
+                        dtypes,
+                        type_ids,
+                        nullable: (*n).into(),
+                    },
+                )
+                .as_union_value()
+            }
             Self::List(edt, n) => {
                 let element_type = Some(edt.as_ref().write_flatbuffer(fbb)?);
                 fb::List::create(
@@ -445,6 +514,7 @@ mod test {
     use crate::dtype::DType;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
+    use crate::dtype::UnionVariants;
     use crate::dtype::flatbuffers as fb;
     use crate::dtype::nullability::Nullability;
     use crate::dtype::serde::flatbuffers::ViewedDType;
@@ -500,5 +570,166 @@ mod test {
             Nullability::NonNullable,
         ));
         roundtrip_dtype(DType::Variant(Nullability::Nullable));
+    }
+
+    fn make_basic_union() -> DType {
+        DType::Union(
+            UnionVariants::new_consecutive(
+                ["int", "str"].into(),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Utf8(Nullability::NonNullable),
+                ],
+            )
+            .unwrap(),
+            Nullability::NonNullable,
+        )
+    }
+
+    #[test]
+    fn test_union_round_trip_flatbuffer() {
+        roundtrip_dtype(make_basic_union());
+    }
+
+    #[test]
+    fn test_union_round_trip_flatbuffer_with_nullability() {
+        let dtype = DType::Union(
+            UnionVariants::new_consecutive(
+                ["null_variant", "str"].into(),
+                vec![DType::Null, DType::Utf8(Nullability::NonNullable)],
+            )
+            .unwrap(),
+            Nullability::Nullable,
+        );
+        roundtrip_dtype(dtype);
+    }
+
+    #[test]
+    fn test_union_round_trip_flatbuffer_with_type_id_indirection() {
+        let dtype = DType::Union(
+            UnionVariants::try_new(
+                ["a", "b", "c"].into(),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Utf8(Nullability::NonNullable),
+                    DType::Bool(Nullability::NonNullable),
+                ],
+                vec![0, 5, 7],
+            )
+            .unwrap(),
+            Nullability::NonNullable,
+        );
+
+        let bytes = dtype.write_flatbuffer_bytes().unwrap();
+        let root_fb = root::<fb::DType>(&bytes).unwrap();
+        let view = ViewedDType::from_fb_loc(
+            root_fb._tab.loc(),
+            FlatBuffer::from(bytes.clone()),
+            SESSION.clone(),
+        );
+
+        let deserialized = DType::try_from(view).unwrap();
+        assert_eq!(dtype, deserialized);
+        let DType::Union(uv, _) = &deserialized else {
+            panic!("Expected Union");
+        };
+        assert_eq!(uv.type_ids(), &[0, 5, 7]);
+    }
+
+    #[test]
+    fn test_nested_union_round_trip_flatbuffer() {
+        let inner_union = make_basic_union();
+        let struct_with_union = DType::Struct(
+            StructFields::from_iter([
+                ("id", DType::Primitive(PType::I64, Nullability::NonNullable)),
+                ("inner", inner_union),
+            ]),
+            Nullability::NonNullable,
+        );
+
+        let outer_union = DType::Union(
+            UnionVariants::new_consecutive(
+                ["plain", "nested"].into(),
+                vec![DType::Utf8(Nullability::NonNullable), struct_with_union],
+            )
+            .unwrap(),
+            Nullability::NonNullable,
+        );
+
+        roundtrip_dtype(outer_union);
+    }
+
+    /// A `UnionVariants` parsed lazily from a flatbuffer must compare equal to its eager
+    /// counterpart.
+    #[test]
+    fn test_union_viewed_dtype_equality() {
+        let eager = make_basic_union();
+
+        let bytes = eager.write_flatbuffer_bytes().unwrap();
+        let root_fb = root::<fb::DType>(&bytes).unwrap();
+        let view = ViewedDType::from_fb_loc(
+            root_fb._tab.loc(),
+            FlatBuffer::from(bytes.clone()),
+            SESSION.clone(),
+        );
+
+        let viewed = DType::try_from(view).unwrap();
+        assert_eq!(eager, viewed);
+        assert_eq!(viewed, eager);
+    }
+
+    /// A malformed flatbuffer (here, `dtypes.len() != type_ids.len()`) must round-trip
+    /// to `Err`, not panic.
+    #[test]
+    fn test_union_malformed_flatbuffer_errors() {
+        use flatbuffers::FlatBufferBuilder;
+        use vortex_buffer::ByteBuffer;
+        use vortex_flatbuffers::WriteFlatBuffer;
+
+        let mut fbb = FlatBufferBuilder::new();
+
+        // Build a Union with 2 names + 2 dtypes but only 1 type_id.
+        let name_a = fbb.create_string("a");
+        let name_b = fbb.create_string("b");
+        let names = fbb.create_vector(&[name_a, name_b]);
+
+        let dtype_a = DType::Primitive(PType::I32, Nullability::NonNullable)
+            .write_flatbuffer(&mut fbb)
+            .unwrap();
+        let dtype_b = DType::Utf8(Nullability::NonNullable)
+            .write_flatbuffer(&mut fbb)
+            .unwrap();
+        let dtypes = fbb.create_vector(&[dtype_a, dtype_b]);
+
+        let type_ids = fbb.create_vector::<i8>(&[0]);
+
+        let union_table = fb::Union::create(
+            &mut fbb,
+            &fb::UnionArgs {
+                names: Some(names),
+                dtypes: Some(dtypes),
+                type_ids: Some(type_ids),
+                nullable: false,
+            },
+        );
+
+        let dtype = fb::DType::create(
+            &mut fbb,
+            &fb::DTypeArgs {
+                type_type: fb::Type::Union,
+                type_: Some(union_table.as_union_value()),
+            },
+        );
+        fbb.finish_minimal(dtype);
+        let (vec, start) = fbb.collapse();
+        let end = vec.len();
+        let buffer = FlatBuffer::align_from(ByteBuffer::from(vec).slice(start..end));
+
+        let root_fb = root::<fb::DType>(&buffer).unwrap();
+        let view = ViewedDType::from_fb_loc(root_fb._tab.loc(), buffer, SESSION.clone());
+
+        let result = DType::try_from(view);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("length mismatch"));
     }
 }

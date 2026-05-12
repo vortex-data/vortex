@@ -2,8 +2,8 @@
 // @generated
 extern crate alloc;
 
-use crate::array::*;
 use crate::dtype::*;
+use crate::array::*;
 
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_MESSAGE_VERSION: u8 = 0;
