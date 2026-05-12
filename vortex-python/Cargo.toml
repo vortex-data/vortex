@@ -56,4 +56,3 @@ vortex-tui = { workspace = true, optional = true }
 
 [dev-dependencies]
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }
-
