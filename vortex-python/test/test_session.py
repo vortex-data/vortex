@@ -1,24 +1,33 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+from pathlib import Path
+from typing import cast
+
+import pyarrow as pa
+
 import vortex as vx
 
 
-def test_session_exports_and_array_execution():
+def _int64_pylist(array: vx.Array, session: vx.Session) -> list[int | None]:
+    return cast(pa.Int64Array, array.to_arrow_array(session=session)).to_pylist()
+
+
+def test_session_exports_and_array_execution() -> None:
     session = vx.Session()
 
     array = vx.array([1, 2, 3])
 
     assert array.scalar_at(1, session=session).as_py() == 2
-    assert array.to_arrow_array(session=session).to_pylist() == [1, 2, 3]
-    assert vx.compress(array, session=session).to_arrow_array(session=session).to_pylist() == [
+    assert _int64_pylist(array, session) == [1, 2, 3]
+    assert _int64_pylist(vx.compress(array, session=session), session) == [
         1,
         2,
         3,
     ]
 
 
-def test_file_dataset_and_scan_keep_session(tmp_path):
+def test_file_dataset_and_scan_keep_session(tmp_path: Path) -> None:
     session = vx.Session()
     path = tmp_path / "data.vortex"
 

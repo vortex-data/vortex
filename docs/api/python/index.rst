@@ -62,6 +62,7 @@ API Reference
    arrays
    expr
    compress
+   session
    io
    store
    dataset

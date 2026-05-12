@@ -24,6 +24,10 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+/// A Vortex execution session.
+///
+/// Sessions hold runtime state and registries used by Vortex operations. Create one session and
+/// pass it to APIs that read, write, convert, compress, or otherwise execute arrays.
 #[pyclass(name = "Session", module = "vortex", frozen)]
 pub struct PyVortexSession {
     inner: VortexSession,

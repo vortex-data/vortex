@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import pyarrow
@@ -11,11 +11,7 @@ from typing_extensions import override
 
 import vortex._lib.arrays as _arrays  # pyright: ignore[reportMissingModuleSource]
 from vortex._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
-from vortex._lib.serde import (  # pyright: ignore[reportMissingModuleSource]
-    ArrayContext,
-    SerializedArray,
-    decode_ipc_array_buffers,
-)
+from vortex._lib.serde import ArrayContext, SerializedArray  # pyright: ignore[reportMissingModuleSource]
 from vortex._lib.session import Session  # pyright: ignore[reportMissingModuleSource]
 
 try:
@@ -507,20 +503,3 @@ class PyArray(Array, metaclass=abc.ABCMeta):
         that represent the current array. Implementations of this function should validate this
         information, and then construct a new array.
         """
-
-
-def _unpickle_array(
-    array_buffers: Sequence[bytes | memoryview],
-    dtype_buffers: Sequence[bytes | memoryview],
-    *,
-    session: Session,
-) -> Array:  # pyright: ignore[reportUnusedFunction]
-    """Unpickle a Vortex array from IPC-encoded buffer lists.
-
-    This is an internal function used by the pickle module for both protocol 4 and 5.
-
-    For protocol 4, receives list[bytes] from __reduce__.
-    For protocol 5, receives list[PickleBuffer/memoryview] from __reduce_ex__.
-    Both use decode_ipc_array_buffers which concatenates the buffers during deserialization.
-    """
-    return decode_ipc_array_buffers(array_buffers, dtype_buffers, session=session)

@@ -79,7 +79,6 @@ from ._lib.session import Session  # pyright: ignore[reportMissingModuleSource]
 from .arrays import (
     Array,
     PyArray,
-    _unpickle_array,  # pyright: ignore[reportPrivateUsage]
     array,
 )
 from .file import VortexFile, open
@@ -193,7 +192,6 @@ __all__ = [
     "dumps",
     "load",
     "loads",
-    "_unpickle_array",
     # File
     "VortexFile",
     "open",
