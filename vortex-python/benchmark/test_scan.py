@@ -11,13 +11,13 @@ import vortex as vx
 
 @pytest.mark.benchmark(group="scan", disable_gc=True)
 def test_scan(benchmark: BenchmarkFixture, vxf: vx.VortexFile):
-    benchmark(lambda: pa.concat_tables(x.to_arrow_table() for x in vxf.scan()))
+    benchmark(lambda: pa.concat_tables(x.to_arrow_table(session=vxf.session) for x in vxf.scan()))
 
 
 @pytest.mark.benchmark(group="scan", disable_gc=True)
 def test_repeated_scan(benchmark: BenchmarkFixture, vxf: vx.VortexFile):
     rscan = vxf.to_repeated_scan()
-    benchmark(lambda: pa.concat_tables(x.to_arrow_table() for x in rscan.execute()))
+    benchmark(lambda: pa.concat_tables(x.to_arrow_table(session=vxf.session) for x in rscan.execute()))
 
 
 @pytest.mark.benchmark(group="scan", disable_gc=True)

@@ -11,7 +11,11 @@ import vortex as vx
 
 @pytest.mark.benchmark(group="scalar_at", disable_gc=True)
 def test_scan_scalar_at(benchmark: BenchmarkFixture, vxf: vx.VortexFile):
-    benchmark(lambda: pa.concat_tables(x.to_arrow_table() for x in vxf.scan(indices=vx.array([50_000]))))
+    benchmark(
+        lambda: pa.concat_tables(
+            x.to_arrow_table(session=vxf.session) for x in vxf.scan(indices=vx.array([50_000]))
+        )
+    )
 
 
 @pytest.mark.benchmark(group="scalar_at", disable_gc=True)

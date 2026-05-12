@@ -23,7 +23,11 @@ def test_arrow_table_aggregation(benchmark: BenchmarkFixture, vxf: vx.VortexFile
         for field in vxf.dtype.to_arrow_schema()  # pyright: ignore[reportUnknownVariableType]
         if _has_mean(field.type)  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
     ]
-    benchmark(lambda: pa.concat_tables(x.to_arrow_table() for x in vxf.scan()).group_by([]).aggregate(aggregations))
+    benchmark(
+        lambda: pa.concat_tables(x.to_arrow_table(session=vxf.session) for x in vxf.scan())
+        .group_by([])
+        .aggregate(aggregations)
+    )
 
 
 @pytest.mark.benchmark(group="aggregation", disable_gc=True)

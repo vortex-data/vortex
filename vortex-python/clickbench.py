@@ -620,6 +620,7 @@ def main(args: argparse.Namespace):
     if args.formats is None or "vortex" in args.formats:  # pyright: ignore[reportUnknownMemberType]
         vx_base, _ = os.path.splitext(args.path)
         vx_path = f"{vx_base}.vortex"
+        session = vx.Session()
 
         if not os.path.exists(vx_path):
             import pyarrow.parquet as pq
@@ -632,10 +633,12 @@ def main(args: argparse.Namespace):
                     arr = vx.Array.from_arrow(arr)
                     yield arr
 
-            it = vx.ArrayIterator.from_iter(vx.DType.from_arrow(pf.schema_arrow, non_nullable=True), _iter())
-            vx.io.write(it, vx_path)
+            it = vx.ArrayIterator.from_iter(
+                vx.DType.from_arrow(pf.schema_arrow, non_nullable=True), _iter(), session=session
+            )
+            vx.io.write(it, vx_path, session=session)
 
-        lf = vx.open(vx_path).to_polars()
+        lf = vx.open(vx_path, session=session).to_polars()
         run_queries("vortex", lf)
 
     if args.formats is None or "parquet" in args.formats:  # pyright: ignore[reportUnknownMemberType]

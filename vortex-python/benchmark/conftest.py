@@ -12,12 +12,21 @@ import pytest
 import vortex as vx
 
 
+@pytest.fixture(scope="session")
+def session() -> vx.Session:
+    return vx.Session()
+
+
 @pytest.fixture(
     scope="session",
     params=[{"x"}, {"x", "y"}, {"x", "z"}, {"x", "y", "z"}],
     ids=["int", "int_str", "int_float", "int_str_float"],
 )
-def vxf(tmpdir_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) -> vx.VortexFile:
+def vxf(
+    tmpdir_factory: pytest.TempPathFactory,
+    request: pytest.FixtureRequest,
+    session: vx.Session,
+) -> vx.VortexFile:
     fname = tmpdir_factory.mktemp("data") / "foo.vortex"
 
     if not os.path.exists(fname):
@@ -33,8 +42,8 @@ def vxf(tmpdir_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) 
             columns["z"] = [math.sqrt(x) for x in range(length)]
 
         a = vx.array(pa.table(columns))  # pyright: ignore[reportCallIssue, reportUnknownArgumentType, reportArgumentType]
-        vx.io.write(a, str(fname))
-    return vx.open(str(fname))
+        vx.io.write(a, str(fname), session=session)
+    return vx.open(str(fname), session=session)
 
 
 @pytest.fixture(scope="session", params=[10_000, 2_000_000], ids=["small", "large"])
