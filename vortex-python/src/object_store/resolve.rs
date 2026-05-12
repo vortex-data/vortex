@@ -10,6 +10,7 @@ use object_store::path::Path;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 
 use crate::object_store::registry::Registry;
 
@@ -32,6 +33,12 @@ pub(crate) fn resolve_store(
         None => {
             // If the URL does not parse
             match Url::parse(url_or_path) {
+                Ok(url) if url.scheme() == "file" => {
+                    let path = url
+                        .to_file_path()
+                        .map_err(|_| vortex_err!("invalid file URL: {url_or_path}"))?;
+                    Ok(ResolvedStore::Path(path))
+                }
                 Ok(url) => {
                     let (store, path) = REGISTRY.resolve(&url)?;
                     Ok(ResolvedStore::ObjectStore(store, path))
@@ -87,6 +94,13 @@ mod test {
     fn test_resolve() {
         assert_eq!(
             resolve_store("/my/absolute/path", None)
+                .unwrap()
+                .unwrap_path(),
+            PathBuf::from("/my/absolute/path")
+        );
+
+        assert_eq!(
+            resolve_store("file:///my/absolute/path", None)
                 .unwrap()
                 .unwrap_path(),
             PathBuf::from("/my/absolute/path")

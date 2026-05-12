@@ -42,8 +42,8 @@ public final class VortexWriter implements AutoCloseable {
     }
 
     /**
-     * Create a writer that streams records into the file at {@code uri}. The Arrow schema describes the exact layout of
-     * every batch written.
+     * Create a writer that streams records into the file at {@code uri}. The path may be a full URI or a plain local
+     * filesystem path. The Arrow schema describes the exact layout of every batch written.
      */
     public static VortexWriter create(
             Session session, String uri, Schema arrowSchema, Map<String, String> options, BufferAllocator allocator)
