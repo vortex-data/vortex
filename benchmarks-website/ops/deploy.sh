@@ -90,7 +90,26 @@ if ! git fetch --quiet origin "$DEPLOY_BRANCH"; then
 fi
 new_sha="$(git rev-parse "origin/${DEPLOY_BRANCH}")"
 
-if [ "$new_sha" = "$last_sha" ]; then
+# --- Force mode ---
+# A `FORCE=1` env var (or a `.force-rebuild` sentinel under the state
+# dir) bypasses the SHA-unchanged fast path and treats this run as if
+# nothing was ever deployed. Used by `force-rebuild.sh` for the
+# "redeploy current branch right now" path. The sentinel is consumed
+# so the next ordinary timer fire is a no-op again.
+force=0
+if [ "${FORCE:-0}" = "1" ]; then
+    force=1
+fi
+if [ -f "${STATE_DIR}/.force-rebuild" ]; then
+    rm -f "${STATE_DIR}/.force-rebuild"
+    force=1
+fi
+if [ "$force" = "1" ]; then
+    log "force mode: ignoring stamp comparison and path filter"
+    last_sha=""
+fi
+
+if [ "$force" = "0" ] && [ "$new_sha" = "$last_sha" ]; then
     # Common case: nothing new since last fire. Silent on stdout to
     # keep the journal clean.
     exit 0

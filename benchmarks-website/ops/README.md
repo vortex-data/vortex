@@ -91,6 +91,7 @@ out-of-tree state — every script and unit lives in
 | [`migrate.sh`](migrate.sh)                 | Manual: stop, snapshot prev DB, run migrate, restart.            |
 | [`backup.sh`](backup.sh)                   | Hourly: trigger `/api/admin/snapshot`, sync to S3, prune local.  |
 | [`inspect.sh`](inspect.sh)                 | Read-only SQL via `/api/admin/sql`, no server stop.              |
+| [`force-rebuild.sh`](force-rebuild.sh)     | Re-run a deploy of `$DEPLOY_BRANCH` even when origin hasn't moved. |
 | [`config/vortex-bench.env.example`](config/vortex-bench.env.example) | Template for `/etc/vortex-bench.env`.       |
 | [`systemd/`](systemd/)                     | Unit files installed into `/etc/systemd/system/`.                |
 
@@ -345,6 +346,51 @@ sudo systemctl start vortex-bench-deploy.timer   # resume auto-deploy
 The timer's next fire (within 60s) will overwrite your manual binary
 with whatever `origin/$DEPLOY_BRANCH` produces, which is usually what
 you want — manual binaries are scratch space, not a long-term state.
+
+### "How do I manually restart or redeploy?"
+
+Three knobs, in increasing order of work done:
+
+**(a) Restart the running binary, no rebuild.** Cheapest restart;
+useful after editing `/etc/vortex-bench.env` or recovering from a hung
+connection. `build_sha` on `/health` will be unchanged afterwards.
+
+```bash
+sudo systemctl restart vortex-bench-server
+journalctl -fu vortex-bench-server               # confirm it came up
+```
+
+**(b) Run a deploy now if origin has moved.** Triggers the same flow
+the 60s timer runs. No-op if `origin/$DEPLOY_BRANCH` hasn't moved
+since the last successful deploy.
+
+```bash
+sudo systemctl start vortex-bench-deploy.service
+journalctl -fu vortex-bench-deploy.service
+```
+
+**(c) Force-rebuild `origin/$DEPLOY_BRANCH` even if origin hasn't
+moved.** Ignores the stamp-file comparison and the path filter and
+runs the full build → atomic swap → restart → `/health` check. Use
+this when you want to redeploy "whatever's on the branch I'm tracking"
+without waiting for a new commit — e.g. after flipping `DEPLOY_BRANCH`
+or recovering from wedged build artefacts:
+
+```bash
+/var/lib/vortex-bench/ops/force-rebuild.sh
+journalctl -fu vortex-bench-deploy.service
+```
+
+Under the hood, `force-rebuild.sh` drops a `.force-rebuild` sentinel
+under `$STATE_DIR` and triggers `vortex-bench-deploy.service`. The
+script consumes the sentinel on its next fire, so the very next
+ordinary timer tick is a normal no-op again.
+
+To test a branch that isn't `$DEPLOY_BRANCH`, edit the env file to
+point `DEPLOY_BRANCH` at it, then call `force-rebuild.sh` (or wait
+60s). The deploy script always builds origin's tip — there is no
+"build whatever I have locally checked out" mode by design. Push to
+a branch first.
 
 ### "A vortex-array PR landed — does the website rebuild?"
 
