@@ -67,39 +67,6 @@ impl LikeKernel for FSST {
             .map(|v| !v.is_empty())
             .unwrap_or(false);
 
-        // Per-thread trace: track wall-clock at FSST::like entry to see
-        // gap-between-calls (= time the thread spent OUTSIDE this kernel,
-        // i.e. in DuckDB plumbing / Vortex scan). VORTEX_FSST_LIKE_TIMELINE=1.
-        let _timeline = std::env::var_os("VORTEX_FSST_LIKE_TIMELINE")
-            .map(|v| !v.is_empty())
-            .unwrap_or(false);
-        thread_local! {
-            static LAST_EXIT: std::cell::Cell<Option<std::time::Instant>> =
-                const { std::cell::Cell::new(None) };
-            static QUERY_START: std::cell::Cell<Option<std::time::Instant>> =
-                const { std::cell::Cell::new(None) };
-        }
-        let _entry_t = std::time::Instant::now();
-        if _timeline {
-            let tid = std::thread::current().id();
-            QUERY_START.with(|qs| {
-                if qs.get().is_none() {
-                    qs.set(Some(_entry_t));
-                }
-            });
-            let gap = LAST_EXIT.with(|le| {
-                le.get().map(|t| _entry_t.duration_since(t).as_secs_f64() * 1e6)
-            });
-            eprintln!(
-                "[fsst::like] tid={:?} t={:>8.1}µs gap_since_last={:>8.1}µs",
-                tid,
-                QUERY_START.with(|qs| {
-                    qs.get().map(|s| _entry_t.duration_since(s).as_secs_f64() * 1e6).unwrap_or(0.0)
-                }),
-                gap.unwrap_or(0.0),
-            );
-        }
-
         macro_rules! tlog {
             ($trace:expr, $name:literal, $body:block) => {{
                 if $trace {
@@ -199,9 +166,6 @@ impl LikeKernel for FSST {
                         std::str::from_utf8(needle).unwrap_or("?")
                     );
                 }
-                if _timeline {
-                    LAST_EXIT.with(|le| le.set(Some(std::time::Instant::now())));
-                }
                 return Ok(Some(BoolArray::new(result, validity).into_array()));
             }
         }
@@ -235,9 +199,6 @@ impl LikeKernel for FSST {
                 call_t.elapsed().as_secs_f64() * 1e6,
                 std::str::from_utf8(pattern_bytes).unwrap_or("?")
             );
-        }
-        if _timeline {
-            LAST_EXIT.with(|le| le.set(Some(std::time::Instant::now())));
         }
 
         Ok(Some(BoolArray::new(result, validity).into_array()))
