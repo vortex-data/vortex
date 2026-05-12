@@ -92,6 +92,7 @@ out-of-tree state — every script and unit lives in
 | [`backup.sh`](backup.sh)                   | Hourly: trigger `/api/admin/snapshot`, sync to S3, prune local.  |
 | [`inspect.sh`](inspect.sh)                 | Read-only SQL via `/api/admin/sql`, no server stop.              |
 | [`force-rebuild.sh`](force-rebuild.sh)     | Re-run a deploy of `$DEPLOY_BRANCH` even when origin hasn't moved. |
+| [`restart.sh`](restart.sh)                 | Restart the binary in place with visible before/after state.     |
 | [`config/vortex-bench.env.example`](config/vortex-bench.env.example) | Template for `/etc/vortex-bench.env`.       |
 | [`systemd/`](systemd/)                     | Unit files installed into `/etc/systemd/system/`.                |
 
@@ -293,60 +294,6 @@ saw when it produced the running binary. If it disagrees with
 `last-deployed-sha`, the running process is stale (e.g. a manual
 binary swap, or systemd is still running an older PID).
 
-### "How do I manually rebuild and restart, outside the timer?"
-
-You shouldn't normally need this — the deploy timer covers all
-ordinary cases — but it's useful when you want to test an unmerged
-branch or recover from a stuck timer. Three knobs:
-
-**(a) Restart the running binary, no rebuild.** Cheapest restart;
-useful after editing `/etc/vortex-bench.env` or recovering from a
-hung connection.
-
-```bash
-sudo systemctl restart vortex-bench-server
-journalctl -fu vortex-bench-server               # confirm it came up
-curl -fsS http://127.0.0.1:3000/health | jq      # build_sha unchanged
-```
-
-**(b) Force a deploy of the configured branch right now.** Triggers
-exactly the same flow the timer runs, including build, atomic symlink
-swap, and `/health` rollback if anything fails.
-
-```bash
-sudo systemctl start vortex-bench-deploy.service
-journalctl -fu vortex-bench-deploy.service       # watch it
-```
-
-**(c) Manually build a binary from the current working tree and
-install it.** Use this to test a branch that isn't `$DEPLOY_BRANCH`
-without flipping the env file. The deploy timer will overwrite your
-manual binary on the next tick that sees a relevant change, so you
-probably want to pause it first:
-
-```bash
-. /etc/vortex-bench.env
-sudo systemctl stop vortex-bench-deploy.timer    # pause auto-deploy
-cd "$REPO_DIR"
-git fetch origin
-git checkout --force --detach origin/<branch>    # pin to whatever you want
-cargo build --release -p vortex-bench-server
-ts=$(date -u +%Y%m%dT%H%M%SZ)
-sudo install -m 0755 -o ec2-user -g ec2-user \
-    target/release/vortex-bench-server \
-    "/var/lib/vortex-bench/bin/vortex-bench-server.manual-${ts}"
-ln -sfnT "/var/lib/vortex-bench/bin/vortex-bench-server.manual-${ts}" \
-         /var/lib/vortex-bench/bin/vortex-bench-server
-sudo systemctl restart vortex-bench-server
-curl -fsS http://127.0.0.1:3000/health | jq .build_sha   # verify new SHA
-# When done testing:
-sudo systemctl start vortex-bench-deploy.timer   # resume auto-deploy
-```
-
-The timer's next fire (within 60s) will overwrite your manual binary
-with whatever `origin/$DEPLOY_BRANCH` produces, which is usually what
-you want — manual binaries are scratch space, not a long-term state.
-
 ### "How do I manually restart or redeploy?"
 
 Three knobs, in increasing order of work done:
@@ -354,11 +301,37 @@ Three knobs, in increasing order of work done:
 **(a) Restart the running binary, no rebuild.** Cheapest restart;
 useful after editing `/etc/vortex-bench.env` or recovering from a hung
 connection. `build_sha` on `/health` will be unchanged afterwards.
+`sudo systemctl restart vortex-bench-server` is silent on success;
+prefer the wrapper, which prints before/after state so you actually
+see the new pid:
 
 ```bash
-sudo systemctl restart vortex-bench-server
-journalctl -fu vortex-bench-server               # confirm it came up
+/var/lib/vortex-bench/ops/restart.sh
 ```
+
+Sample output:
+
+```
+BEFORE:
+  pid:        12345
+  started:    Wed 2026-05-08 14:30:01 UTC
+  binary:     /var/lib/vortex-bench/bin/vortex-bench-server.20260508T143000Z
+  /health:    {"status":"ok",...,"build_sha":"abc123..."}
+
+running: sudo systemctl restart vortex-bench-server
+
+AFTER:
+  pid:        12678        ← different pid proves it restarted
+  started:    Wed 2026-05-08 14:35:42 UTC
+  binary:     /var/lib/vortex-bench/bin/vortex-bench-server.20260508T143000Z
+  /health:    {"status":"ok",...,"build_sha":"abc123..."}
+
+RESTART OK
+```
+
+The binary path and `build_sha` don't change (restart doesn't rebuild);
+the **pid** and **started** values do. Exit 0 on success, 1 on failure
+(with a pointer to `journalctl`) so the script is usable from automation.
 
 **(b) Run a deploy now if origin has moved.** Triggers the same flow
 the 60s timer runs. No-op if `origin/$DEPLOY_BRANCH` hasn't moved
