@@ -9,9 +9,9 @@ with the rest of the Go ecosystem via the [Apache Arrow C Data
 Interface](https://arrow.apache.org/docs/format/CDataInterface.html), using
 [`arrow-go`](https://github.com/apache/arrow-go).
 
-The scope mirrors the C++, Java and Python bindings: **reading and writing Arrow
-data, plus building the expression trees used for projection and predicate
-pushdown.**
+The scope mirrors the C++, Java and Python bindings: **reading and writing
+Vortex arrays, Arrow conversion, plus building the expression trees used for
+projection and predicate pushdown.**
 
 ## Building
 
@@ -45,7 +45,7 @@ tests: `make test`.
 
 ## Usage
 
-### Writing Arrow data
+### Writing Vortex arrays converted from Arrow data
 
 ```go
 package main
@@ -74,10 +74,13 @@ func main() {
 	rb.Release()
 	defer rec.Release()
 
-	reader, _ := array.NewRecordReader(schema, []arrow.RecordBatch{rec})
-	defer reader.Release()
+	vxArr, err := vortex.FromArrow(rec)
+	if err != nil {
+		panic(err)
+	}
+	defer vxArr.Close()
 
-	if err := vortex.WriteArrow(session, "people.vortex", reader); err != nil {
+	if err := vortex.Write(session, "people.vortex", vxArr); err != nil {
 		panic(err)
 	}
 }
@@ -143,10 +146,10 @@ the columns; filter columns need not be in the projection.
 
 ## Memory and threading
 
-* `Session`, `File` and the `array.RecordReader` returned by `Scan` hold native
-  resources. Call `Close()` (or `Release()` for the reader) when done; a
-  finalizer is registered as a backstop. `Expr` values are cleaned up by a
-  finalizer only.
+* `Session`, `File`, `Array` and the `array.RecordReader` returned by `Scan`
+  hold native resources. Call `Close()` (or `Release()` for the reader) when
+  done; a finalizer is registered as a backstop. `Expr` values are cleaned up by
+  a finalizer only.
 * A `Session` may be shared between goroutines, but a given `File`, scan reader,
   or write call is not safe for concurrent use — serialise access, or use one
   per goroutine.
@@ -157,6 +160,7 @@ the columns; filter columns need not be in the projection.
   or a glob. Object-store URLs (`s3://`, `gs://`, …) resolve to whatever
   credentials are present in the environment; per-call credentials are not
   exposed here.
-* These bindings deliberately cover only Arrow read/write and expression
-  building. Lower-level Vortex array, scalar and dtype manipulation is available
-  through the C FFI directly (`vortex-ffi/cinclude/vortex.h`).
+* These bindings deliberately cover only Vortex array writing, Arrow conversion,
+  Arrow scanning and expression building. Lower-level Vortex scalar and dtype
+  manipulation is available through the C FFI directly
+  (`vortex-ffi/cinclude/vortex.h`).

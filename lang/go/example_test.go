@@ -37,11 +37,15 @@ func Example() {
 	rb.Release()
 	defer rec.Release()
 
-	in, _ := array.NewRecordReader(schema, []arrow.RecordBatch{rec})
-	if err := vortex.WriteArrow(session, path, in); err != nil {
+	vxArr, err := vortex.FromArrow(rec)
+	if err != nil {
 		panic(err)
 	}
-	in.Release()
+	defer vxArr.Close()
+
+	if err := vortex.Write(session, path, vxArr); err != nil {
+		panic(err)
+	}
 
 	// Read back the "name" column for rows with id >= 2.
 	f, err := vortex.Open(session, path)

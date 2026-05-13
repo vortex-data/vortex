@@ -39,15 +39,16 @@ func writeSample(t *testing.T, session *vortex.Session) string {
 	t.Helper()
 	rec := sampleRecord(t)
 	defer rec.Release()
-	reader, err := array.NewRecordReader(sampleSchema(), []arrow.RecordBatch{rec})
+
+	arr, err := vortex.FromArrow(rec)
 	if err != nil {
-		t.Fatalf("NewRecordReader: %v", err)
+		t.Fatalf("FromArrow: %v", err)
 	}
-	defer reader.Release()
+	defer arr.Close()
 
 	path := filepath.Join(t.TempDir(), "sample.vortex")
-	if err := vortex.WriteArrow(session, path, reader); err != nil {
-		t.Fatalf("WriteArrow: %v", err)
+	if err := vortex.Write(session, path, arr); err != nil {
+		t.Fatalf("Write: %v", err)
 	}
 	return path
 }
@@ -127,6 +128,24 @@ func TestRoundTrip(t *testing.T) {
 			t.Fatalf("column b row %d = (%q, valid=%v); want (%q, valid=%v)",
 				i, gotStr[i], gotValid[i], wantStr[i], wantValid[i])
 		}
+	}
+}
+
+func TestFromArrowArray(t *testing.T) {
+	builder := array.NewInt64Builder(memory.DefaultAllocator)
+	defer builder.Release()
+	builder.AppendValues([]int64{10, 20, 30}, nil)
+	arrowArr := builder.NewArray()
+	defer arrowArr.Release()
+
+	arr, err := vortex.FromArrow(arrowArr)
+	if err != nil {
+		t.Fatalf("FromArrow: %v", err)
+	}
+	defer arr.Close()
+
+	if got, want := arr.Len(), 3; got != want {
+		t.Fatalf("array len = %d; want %d", got, want)
 	}
 }
 
