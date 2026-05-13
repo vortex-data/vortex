@@ -30,8 +30,14 @@ divan = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-btrblocks = { workspace = true }
 vortex-error = { workspace = true }
+vortex-fastlanes = { workspace = true }
 
 [[bench]]
 name = "neats_compress"
+harness = false
+
+[[bench]]
+name = "neats_compare"
 harness = false

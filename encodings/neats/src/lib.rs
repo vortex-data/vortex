@@ -38,7 +38,7 @@ use vortex_session::VortexSession;
 mod array;
 mod canonical;
 mod compress;
-mod compute;
+pub mod compute;
 pub mod models;
 mod ops;
 

@@ -1,5 +1,11 @@
 pub mod vortex_neats
 
+pub mod vortex_neats::compute
+
+pub mod vortex_neats::compute::compare
+
+pub fn vortex_neats::compute::compare::count_greater_than(&vortex_neats::NeaTSArray, f64, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<(usize, usize, usize)>
+
 pub mod vortex_neats::models
 
 #[repr(u8)] pub enum vortex_neats::models::ModelKind

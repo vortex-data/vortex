@@ -4,4 +4,5 @@
 //! NeaTS compute kernels that exploit the encoded form.
 
 pub(crate) mod bounds;
+pub mod compare;
 pub(crate) mod min_max;
