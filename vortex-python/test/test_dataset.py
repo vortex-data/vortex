@@ -11,6 +11,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset as pd
 import pytest
+import vortex.dataset as vx_dataset
 
 import vortex as vx
 
@@ -69,6 +70,58 @@ def test_to_batches(ds: pd.Dataset):
     assert chunk0.to_struct_array() == pa.array(
         [record(x, columns=["string", "bool"]) for x in range(len(chunk0))], type=schema
     )
+
+
+def test_use_threads_configures_worker_pool(monkeypatch: pytest.MonkeyPatch):
+    current_workers = 3
+    calls: list[tuple[str, int]] = []
+
+    def fake_worker_count() -> int:
+        return current_workers
+
+    def fake_set_worker_threads(count: int) -> None:
+        nonlocal current_workers
+        calls.append(("set", count))
+        current_workers = count
+
+    def fake_set_worker_threads_to_available_parallelism() -> None:
+        nonlocal current_workers
+        calls.append(("available", current_workers))
+        current_workers = 11
+
+    monkeypatch.setattr(vx_dataset, "_worker_count", fake_worker_count)
+    monkeypatch.setattr(vx_dataset, "_set_worker_threads", fake_set_worker_threads)
+    monkeypatch.setattr(
+        vx_dataset,
+        "_set_worker_threads_to_available_parallelism",
+        fake_set_worker_threads_to_available_parallelism,
+    )
+
+    with vx_dataset._temporary_worker_threads(True):  # pyright: ignore[reportPrivateUsage]
+        assert current_workers == 11
+
+    assert current_workers == 3
+
+    with vx_dataset._temporary_worker_threads(False):  # pyright: ignore[reportPrivateUsage]
+        assert current_workers == 0
+
+    assert current_workers == 3
+    assert calls == [("available", 3), ("set", 3), ("set", 0), ("set", 3)]
+
+    calls.clear()
+    reader = pa.RecordBatchReader.from_batches(
+        pa.schema([("x", pa.int64())]),
+        [
+            pa.record_batch([pa.array([1])], names=["x"]),
+            pa.record_batch([pa.array([2])], names=["x"]),
+        ],
+    )
+
+    batches = list(vx_dataset._read_batches_with_temporary_worker_threads(reader, True))  # pyright: ignore[reportPrivateUsage]
+
+    assert [batch.to_pylist() for batch in batches] == [[{"x": 1}], [{"x": 2}]]
+    assert current_workers == 3
+    assert calls == [("available", 3), ("set", 3)]
 
 
 @pytest.mark.parametrize("batch_size", [1234, 8192, 1 << 31])
