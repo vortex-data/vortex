@@ -193,6 +193,11 @@ impl Stage {
             source_ptype,
         }
     }
+
+    fn with_source_patches(mut self, source_patches: Option<PlanPatches>) -> Self {
+        self.source_patches = source_patches;
+        self
+    }
 }
 
 type SmemByteOffset = u32;
@@ -532,16 +537,15 @@ impl FusedPlan {
             })?);
             let buf_index = self.source_buffers.len();
             self.source_buffers.push(Some(packed));
-            let mut stage = Stage::new(
+            return Ok(Stage::new(
                 SourceOp::bitunpack(bp.bit_width(), bitpacked_offset),
                 Some(buf_index),
                 source_ptype,
-            );
-            stage.source_patches = bp.patches().map(|patches| PlanPatches {
+            )
+            .with_source_patches(bp.patches().map(|patches| PlanPatches {
                 patches,
                 range: Some(patch_range),
-            });
-            return Ok(stage);
+            })));
         }
 
         // ALP doesn't implement reduce_parent. Slice the encoded child here,
@@ -588,16 +592,15 @@ impl FusedPlan {
         })?);
         let buf_index = self.source_buffers.len();
         self.source_buffers.push(Some(bp.packed().clone()));
-        let mut stage = Stage::new(
+        Ok(Stage::new(
             SourceOp::bitunpack(bp.bit_width(), bp.offset()),
             Some(buf_index),
             source_ptype,
-        );
-        stage.source_patches = bp.patches().map(|patches| PlanPatches {
+        )
+        .with_source_patches(bp.patches().map(|patches| PlanPatches {
             patches,
             range: None,
-        });
-        Ok(stage)
+        })))
     }
 
     fn walk_for(
