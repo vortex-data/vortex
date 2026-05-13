@@ -75,6 +75,8 @@ pub fn initialize(session: &vortex_session::VortexSession) {
 
     session.scalar_fns().register(TQEncode);
     session.scalar_fns().register(TQDecode);
+
+    scalar_fns::compute::register_kernels(session);
 }
 
 #[cfg(test)]

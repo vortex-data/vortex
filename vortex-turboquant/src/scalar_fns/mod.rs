@@ -3,6 +3,8 @@
 
 //! Scalar functions for lazy TurboQuant vector encode and decode operations.
 
+pub(crate) mod compute;
+
 mod decode;
 mod encode;
 mod metadata;

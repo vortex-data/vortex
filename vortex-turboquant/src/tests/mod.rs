@@ -39,6 +39,7 @@ use crate::initialize;
 
 mod encode_decode;
 mod file;
+mod kernels;
 mod malformed;
 mod metadata;
 mod parity;
@@ -46,6 +47,17 @@ mod scalar_fns;
 
 fn test_session() -> VortexSession {
     let session = VortexSession::empty().with::<ArraySession>();
+    initialize(&session);
+    session
+}
+
+/// In-memory session with both `vortex_tensor` and `vortex_turboquant` initialized.
+///
+/// Tests that exercise tensor scalar functions over TurboQuant inputs need `L2Norm` registered
+/// alongside the TurboQuant extension type and kernels.
+fn tensor_test_session() -> VortexSession {
+    let session = VortexSession::empty().with::<ArraySession>();
+    vortex_tensor::initialize(&session);
     initialize(&session);
     session
 }
