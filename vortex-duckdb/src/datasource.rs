@@ -17,7 +17,7 @@ use custom_labels::CURRENT_LABELSET;
 use futures::StreamExt;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use tracing::debug;
+use tracing::{debug, trace};
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::VortexSessionExecute;
@@ -32,6 +32,7 @@ use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::error::vortex_panic;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::col;
@@ -41,6 +42,8 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::expr::stats::Precision;
 use vortex::expr::stats::Stat;
+use vortex::file::multi::MultiFileSessionExt;
+use vortex::file::multi::VortexFileReaderFactory;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::io::kanal_ext::KanalExt;
 use vortex::io::runtime::BlockingRuntime;
@@ -55,6 +58,7 @@ use vortex::scalar_fn::fns::pack::Pack;
 use vortex::scan::DataSource;
 use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
+use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -118,6 +122,7 @@ pub struct DataSourceBindData {
     data_source: Arc<MultiLayoutDataSource>,
     filter_exprs: Vec<Expression>,
     column_fields: Vec<DuckdbField>,
+    stats_cache: Arc<DashMap<usize, ColumnStatisticsAggregate>>,
 }
 
 impl Clone for DataSourceBindData {
@@ -127,6 +132,7 @@ impl Clone for DataSourceBindData {
             // filter_exprs are consumed once in `init_global`.
             filter_exprs: vec![],
             column_fields: self.column_fields.clone(),
+            stats_cache: Arc::clone(&self.stats_cache),
         }
     }
 }
@@ -191,18 +197,22 @@ impl ColumnStatistics {
                 .vortex_expect("can't convert Scalar to duckdb Value")
         });
 
-        let max_string_length = stats
-            .max_string_length
-            .map_or(0, |len| (1u64 << 63) | (len as u64));
+        let max_string_length = stats.max_string_length.unwrap_or(0);
 
+        let mut flags = 0u32;
+        if stats.max_string_length.is_some() {
+            flags |= 1;
+        }
         // Useful estimate if we didn't get null count stats
-        let has_null = stats.has_null && dtype.is_nullable();
+        if stats.has_null && dtype.is_nullable() {
+            flags |= 2;
+        }
 
         Self {
             min,
             max,
             max_string_length,
-            has_null,
+            flags,
         }
     }
 }
@@ -219,11 +229,11 @@ pub struct ColumnStatisticsAggregate {
 impl ColumnStatisticsAggregate {
     pub fn new(stats: &StatsSet) -> Self {
         let min = match stats.get(Stat::Min) {
-            Some(Precision::Exact(min)) => Some(min),
+            Some(Precision::Exact(min) | Precision::Inexact(min)) => Some(min),
             _ => None,
         };
         let max = match stats.get(Stat::Max) {
-            Some(Precision::Exact(max)) => Some(max),
+            Some(Precision::Exact(max) | Precision::Inexact(max)) => Some(max),
             _ => None,
         };
 
@@ -250,6 +260,41 @@ impl ColumnStatisticsAggregate {
             has_null,
         }
     }
+
+    pub fn merge(&mut self, other: ColumnStatisticsAggregate) {
+        self.min = match (self.min.take(), other.min) {
+            (Some(a), Some(b)) => match partial_cmp_scalar_value(&a, &b) {
+                Some(std::cmp::Ordering::Greater) => Some(b),
+                Some(_) => Some(a),
+                None => None,
+            },
+            _ => None,
+        };
+        self.max = match (self.max.take(), other.max) {
+            (Some(a), Some(b)) => match partial_cmp_scalar_value(&a, &b) {
+                Some(std::cmp::Ordering::Less) => Some(b),
+                Some(_) => Some(a),
+                None => None,
+            },
+            _ => None,
+        };
+        self.max_string_length = match (self.max_string_length, other.max_string_length) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            _ => None,
+        };
+        self.has_null |= other.has_null;
+    }
+}
+
+fn partial_cmp_scalar_value(left: &ScalarValue, right: &ScalarValue) -> Option<std::cmp::Ordering> {
+    match (left, right) {
+        (ScalarValue::Bool(la), ScalarValue::Bool(lb)) => la.partial_cmp(lb),
+        (ScalarValue::Primitive(la), ScalarValue::Primitive(lb)) => la.partial_cmp(lb),
+        (ScalarValue::Decimal(la), ScalarValue::Decimal(lb)) => la.partial_cmp(lb),
+        (ScalarValue::Utf8(la), ScalarValue::Utf8(lb)) => la.partial_cmp(lb),
+        (ScalarValue::Binary(la), ScalarValue::Binary(lb)) => la.partial_cmp(lb),
+        _ => None,
+    }
 }
 
 impl<T: DataSourceTableFunction> TableFunction for T {
@@ -275,6 +320,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             data_source: Arc::new(data_source),
             filter_exprs: vec![],
             column_fields,
+            stats_cache: Arc::new(DashMap::default()),
         })
     }
 
@@ -520,27 +566,74 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         Ok(false)
     }
 
-    /// Get column-wise statistics. Available only if we're reading a single
-    /// file.
     fn statistics(bind_data: &Self::BindData, column_index: usize) -> Option<ColumnStatistics> {
         let children = bind_data.data_source.children();
-        // Otherwise we'd have to open all files eagerly which is a performance
-        // regression. Duckdb's Parquet reader only gets metadata for multiple
-        // files with a UNION BY NAME and we don't support it (yet)
-        // See duckdb/common/multi_file/multi_file_function.hpp#L691
-        if children.len() != 1 {
-            return None;
+        debug!(
+            children = children.len(),
+            column_index, "requested statistics"
+        );
+        use std::time::Instant;
+        let now = Instant::now();
+
+        let dtype = bind_data.column_fields[column_index].dtype.clone();
+        if let Some(cache) = bind_data.stats_cache.get(&column_index) {
+            let stats = ColumnStatistics::from(cache.value(), dtype);
+            let elapsed = now.elapsed();
+            debug!("Cached, took {elapsed:.2?}");
+            return Some(stats);
         }
+
         let MultiLayoutChild::Opened(reader) = &children[0] else {
             return None;
         };
-        let stats_sets = match reader.as_any().downcast_ref::<FileStatsLayoutReader>() {
-            Some(inner) => inner.file_stats().stats_sets(),
-            None => return None,
+        let Some(reader) = reader.as_any().downcast_ref::<FileStatsLayoutReader>() else {
+            vortex_panic!("File reader is not FileStatsLayoutReader");
         };
-        let stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[column_index]);
-        let dtype = bind_data.column_fields[column_index].dtype.clone();
-        Some(ColumnStatistics::from(&stats_aggregate, dtype))
+        let stats_sets = reader.file_stats().stats_sets();
+        let mut stats_aggregate = ColumnStatisticsAggregate::new(&stats_sets[column_index]);
+
+        // Duckdb's statistics() for Parquet return multi-file statistics only
+        // for UNION BY NAME. However, checking whether we have all footers
+        // cached is relatively cheap, so we try to always return multi-file
+        // statistics.
+        let session = (&*SESSION).multi_file();
+        let mut footers = Vec::with_capacity(children.len() - 1);
+        for child in &children[1..] {
+            let MultiLayoutChild::Deferred(factory) = child else {
+                vortex_panic!("Non-first file is opened eagerly");
+            };
+            let Some(factory) = factory.as_any().downcast_ref::<VortexFileReaderFactory>() else {
+                vortex_panic!("Layout factory is not file factory");
+            };
+            let path = factory.path();
+            let Some(footer) = session.get_footer(&path) else {
+                trace!(path, "No footer found");
+                return None;
+            };
+            if footer.statistics().is_none() {
+                trace!(path, "No statistics found for footer");
+                return None;
+            };
+            // Statistics merge is meaningful work, we want to skip it if any
+            // footer or footer statistics is missing.
+            footers.push(footer);
+        }
+
+        for footer in footers {
+            let Some(stats_sets) = footer.statistics() else {
+                vortex_panic!("Statistics for footer disappeared");
+            };
+            stats_aggregate.merge(ColumnStatisticsAggregate::new(
+                &stats_sets.stats_sets()[column_index],
+            ));
+        }
+
+        let stats = ColumnStatistics::from(&stats_aggregate, dtype);
+        bind_data.stats_cache.insert(column_index, stats_aggregate);
+
+        let elapsed = now.elapsed();
+        debug!("Took {elapsed:.2?}");
+        Some(stats)
     }
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {

@@ -39,8 +39,10 @@ pub struct PartitionData {
 pub struct ColumnStatistics {
     pub min: Option<Value>,
     pub max: Option<Value>,
-    pub max_string_length: u64,
-    pub has_null: bool,
+    pub max_string_length: u32,
+    // 1: has string length
+    // 2: has null
+    pub flags: u32,
 }
 
 // String map lifetime is managed by C++ code
@@ -196,7 +198,7 @@ unsafe extern "C-unwind" fn statistics<T: TableFunction>(
     stats_out.min = stats.min.map_or(ptr::null_mut(), |v| v.into_ptr());
     stats_out.max = stats.max.map_or(ptr::null_mut(), |v| v.into_ptr());
     stats_out.max_string_length = stats.max_string_length;
-    stats_out.has_null = stats.has_null;
+    stats_out.flags = stats.flags;
     true
 }
 

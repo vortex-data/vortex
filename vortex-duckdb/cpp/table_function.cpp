@@ -104,7 +104,7 @@ unique_ptr<BaseStatistics> numeric_stats(duckdb_column_statistics &stats, Logica
         NumericStats::SetMax(out, UnwrapValue(stats.max));
         duckdb_destroy_value(&stats.max);
     }
-    if (!stats.has_null) {
+    if (!(stats.flags & ColumnStatisticsFlags::HasNull)) {
         out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
     }
     return out.ToUnique();
@@ -120,10 +120,10 @@ unique_ptr<BaseStatistics> string_stats(duckdb_column_statistics &stats, Logical
         StringStats::SetMax(out, StringValue::Get(UnwrapValue(stats.max)));
         duckdb_destroy_value(&stats.max);
     }
-    if (stats.max_string_length >> 63) {
+    if (stats.flags & ColumnStatisticsFlags::HasMaxStringLength) {
         StringStats::SetMaxStringLength(out, uint32_t(stats.max_string_length));
     }
-    if (!stats.has_null) {
+    if (!(stats.flags & ColumnStatisticsFlags::HasNull)) {
         out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
     }
 
@@ -132,7 +132,7 @@ unique_ptr<BaseStatistics> string_stats(duckdb_column_statistics &stats, Logical
 
 unique_ptr<BaseStatistics> base_stats(duckdb_column_statistics &stats, LogicalType type) {
     BaseStatistics out = StringStats::CreateUnknown(type);
-    if (!stats.has_null) {
+    if (!(stats.flags & ColumnStatisticsFlags::HasNull)) {
         out.Set(StatsInfo::CANNOT_HAVE_NULL_VALUES);
     }
     return out.ToUnique();

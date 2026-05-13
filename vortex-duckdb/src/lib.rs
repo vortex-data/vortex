@@ -6,7 +6,6 @@
 use std::ffi::CStr;
 use std::ffi::c_char;
 use std::sync::LazyLock;
-use std::sync::OnceLock;
 
 use vortex::VortexSessionDefault;
 use vortex::error::VortexExpect;
@@ -50,14 +49,11 @@ static SESSION: LazyLock<VortexSession> =
 // would be hard to integrate with tracing::. We use logging for
 // debugging only anyway, so that's good enough.
 fn init_tracing() {
-    static ONCE: OnceLock<()> = OnceLock::new();
-    ONCE.get_or_init(|| {
-        drop(
-            tracing_subscriber::fmt()
-                .with_writer(std::io::stdout)
-                .try_init(),
-        );
-    });
+    drop(
+        tracing_subscriber::fmt()
+            .with_writer(std::io::stdout)
+            .try_init(),
+    )
 }
 
 /// Initialize the Vortex extension by registering the extension functions.

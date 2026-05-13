@@ -78,14 +78,19 @@ typedef struct {
     bool has_max_cardinality;
 } duckdb_vx_node_statistics;
 
+typedef enum {
+    HasMaxStringLength = 1 << 0,
+    HasNull = 1 << 1,
+} ColumnStatisticsFlags;
+
 typedef struct {
     // Set only for strings and primitive types
     duckdb_value min;
     duckdb_value max;
-    // upper bit: "length is set". lower 32 bits: DuckDB's max string length.
-    // set only for strings
-    uint64_t max_string_length;
-    bool has_null;
+    uint32_t max_string_length;
+    // 1: has max string length
+    // 2: has null
+    ColumnStatisticsFlags flags;
 } duckdb_column_statistics;
 
 const idx_t INVALID_IDX = UINT64_MAX;

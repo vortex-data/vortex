@@ -22,7 +22,7 @@ use crate::footer::Footer;
 ///
 /// Consider generalizing this cache into [`VortexOpenOptions`](crate::VortexOpenOptions) so
 /// that single-file opens also benefit from session-level footer caching.
-pub(super) struct MultiFileSession {
+pub struct MultiFileSession {
     footer_cache: moka::sync::Cache<String, Footer>,
 }
 
@@ -74,7 +74,7 @@ impl SessionVar for MultiFileSession {
 }
 
 /// Extension trait for accessing the [`MultiFileSession`] from a session.
-pub(super) trait MultiFileSessionExt: SessionExt {
+pub trait MultiFileSessionExt: SessionExt {
     /// Returns a reference to the [`MultiFileSession`] state.
     fn multi_file(&self) -> vortex_session::Ref<'_, MultiFileSession> {
         self.get::<MultiFileSession>()

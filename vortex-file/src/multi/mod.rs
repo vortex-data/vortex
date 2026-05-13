@@ -5,11 +5,13 @@
 
 mod session;
 
+use std::any::Any;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::TryStreamExt;
-use session::MultiFileSessionExt;
+pub use session::MultiFileSession;
+pub use session::MultiFileSessionExt;
 use tracing::debug;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -252,11 +254,17 @@ fn layout_reader_with_stats(file: &crate::VortexFile) -> VortexResult<LayoutRead
 }
 
 /// A [`LayoutReaderFactory`] that lazily opens a single Vortex file and returns its layout reader.
-struct VortexFileReaderFactory {
+pub struct VortexFileReaderFactory {
     fs: FileSystemRef,
     file: FileListing,
     session: VortexSession,
     open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
+}
+
+impl VortexFileReaderFactory {
+    pub fn path(&self) -> String {
+        self.file.path.clone()
+    }
 }
 
 #[async_trait]
@@ -270,5 +278,9 @@ impl LayoutReaderFactory for VortexFileReaderFactory {
         )
         .await?;
         Ok(Some(layout_reader_with_stats(&file)?))
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }

@@ -70,6 +70,7 @@ const DEFAULT_CONCURRENCY: usize = 8;
 pub trait LayoutReaderFactory: 'static + Send + Sync {
     /// Opens the layout reader, or returns `None` if it should be skipped.
     async fn open(&self) -> VortexResult<Option<LayoutReaderRef>>;
+    fn as_any(&self) -> &dyn Any;
 }
 
 /// A [`DataSource`] that combines multiple [`LayoutReaderRef`]s into a single scannable source.
