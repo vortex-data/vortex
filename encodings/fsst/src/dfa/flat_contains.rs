@@ -26,13 +26,16 @@
 
 use fsst::Symbol;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use super::build_escape_only_encoded_pattern;
 use super::build_fused_table;
 use super::build_symbol_transitions;
 use super::kmp_byte_transitions;
+use super::needle_bytes_absent_from_all_symbols;
 use super::scan_to_bitbuf_with;
 use super::skip::SkipStrategy;
 
@@ -48,6 +51,13 @@ pub(crate) struct FlatContainsDfa {
     skip: SkipStrategy,
     /// Optional memchr anchor prefilter: a code byte that MUST appear for a match.
     anchor: Option<u8>,
+    /// Compressed `[ESCAPE, needle[0], …, ESCAPE, needle[L-1]]`, populated
+    /// when no symbol's expansion contains any needle byte. In that
+    /// regime the only DFA-accepting compressed sequence is exactly this
+    /// 2L-byte pattern, so [`Self::scan_to_bitbuf`] can prefilter rows
+    /// with a single `memmem` over `all_bytes` rather than running the
+    /// sentinel-branching per-code DFA on every row.
+    escape_only_pattern: Option<Vec<u8>>,
 }
 
 impl FlatContainsDfa {
@@ -85,6 +95,18 @@ impl FlatContainsDfa {
         // would need to account for all possible encodings, which is complex.
         let anchor = None;
 
+        // Escape-only fast path: when no symbol's expansion contains any
+        // needle byte, every needle byte in the decompressed stream must
+        // come from an `ESCAPE` pair and any symbol code resets the DFA
+        // back to state 0. So the unique compressed sequence reaching
+        // accept is exactly `[ESCAPE, needle[0], …, ESCAPE, needle[L-1]]`,
+        // and `scan_to_bitbuf` can prefilter with a single `memmem` over
+        // `all_bytes` whose length matches the encoded needle. Disabled
+        // for L < 2 (no possible win over the existing scan path).
+        let escape_only_pattern = (needle.len() >= 2
+            && needle_bytes_absent_from_all_symbols(symbols, symbol_lengths, needle))
+        .then(|| build_escape_only_encoded_pattern(needle));
+
         Ok(Self {
             transitions,
             escape_transitions: byte_table,
@@ -92,6 +114,7 @@ impl FlatContainsDfa {
             sentinel,
             skip,
             anchor,
+            escape_only_pattern,
         })
     }
 
@@ -150,7 +173,75 @@ impl FlatContainsDfa {
     where
         T: vortex_array::dtype::IntegerPType,
     {
+        if let Some(pattern) = self.escape_only_pattern.as_deref() {
+            return self.scan_via_escape_only_memmem(n, offsets, all_bytes, pattern, negated);
+        }
         scan_to_bitbuf_with(n, offsets, all_bytes, negated, |codes| self.matches(codes))
+    }
+
+    /// Single-`memmem` prefilter for the escape-only regime. Each hit is
+    /// mapped to its containing row; rare false positives at literal-byte
+    /// positions are eliminated by re-running [`Self::matches`] on the row.
+    fn scan_via_escape_only_memmem<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        pattern: &[u8],
+        negated: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        let mut bits = if negated {
+            BitBufferMut::new_set(n)
+        } else {
+            BitBufferMut::new_unset(n)
+        };
+        if n == 0 || pattern.len() > all_bytes.len() {
+            return bits.freeze();
+        }
+        debug_assert!(offsets.len() > n);
+
+        let mut string_idx: usize = 0;
+        // SAFETY: caller guarantees `offsets.len() > n`.
+        let mut string_start: usize = unsafe { *offsets.get_unchecked(0) }.as_();
+        let mut string_end: usize = unsafe { *offsets.get_unchecked(1) }.as_();
+        let mut last_processed_row: Option<usize> = None;
+
+        for hit in memchr::memmem::find_iter(all_bytes, pattern) {
+            while hit >= string_end {
+                string_idx += 1;
+                if string_idx >= n {
+                    return bits.freeze();
+                }
+                string_start = string_end;
+                // SAFETY: `string_idx < n` and `offsets.len() >= n + 1`.
+                string_end = unsafe { *offsets.get_unchecked(string_idx + 1) }.as_();
+            }
+            if last_processed_row == Some(string_idx) {
+                continue;
+            }
+            if hit + pattern.len() > string_end {
+                last_processed_row = Some(string_idx);
+                continue;
+            }
+            // SAFETY: `string_start <= string_end <= all_bytes.len()`.
+            let row = unsafe { all_bytes.get_unchecked(string_start..string_end) };
+            if self.matches(row) {
+                // SAFETY: `string_idx < n`.
+                unsafe {
+                    if negated {
+                        bits.unset_unchecked(string_idx);
+                    } else {
+                        bits.set_unchecked(string_idx);
+                    }
+                }
+            }
+            last_processed_row = Some(string_idx);
+        }
+
+        bits.freeze()
     }
 }
 

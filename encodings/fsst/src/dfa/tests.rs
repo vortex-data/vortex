@@ -273,6 +273,64 @@ fn test_contains_pushdown_rejects_len_255() {
     );
 }
 
+/// Escape-only fast path on the FlatContainsDfa: a 128-byte needle (just
+/// past the folded boundary) whose bytes don't appear in any symbol.
+#[test]
+fn test_flat_contains_escape_only_path() -> VortexResult<()> {
+    let symbols = [sym(b"ab"), sym(b"cd"), sym(b"ef")];
+    let lengths = [2u8, 2, 2];
+    // 128 'X's — pushes beyond FoldedContainsDfa::MAX_NEEDLE_LEN = 127
+    // and routes to FlatContainsDfa. 'X' is absent from every symbol.
+    let needle: Vec<u8> = vec![b'X'; FoldedContainsDfa::MAX_NEEDLE_LEN + 1];
+    let dfa = FlatContainsDfa::new(&symbols, &lengths, &needle)?;
+
+    // Matching row: needle escaped.
+    let row_match = escaped(&needle);
+    assert!(dfa.matches(&row_match));
+
+    // Mismatch: change one byte to break the contiguous escape sequence.
+    let mut bad = needle.clone();
+    bad[needle.len() - 1] = b'a';
+    let row_miss = escaped(&bad);
+    assert!(!dfa.matches(&row_miss));
+
+    // Scan two rows through the memmem fast path.
+    let mut all_bytes = Vec::new();
+    let mut offsets = Vec::with_capacity(3);
+    offsets.push(0u32);
+    all_bytes.extend_from_slice(&row_match);
+    offsets.push(u32::try_from(all_bytes.len()).expect("fits in u32"));
+    all_bytes.extend_from_slice(&row_miss);
+    offsets.push(u32::try_from(all_bytes.len()).expect("fits in u32"));
+
+    let bits = dfa.scan_to_bitbuf(2, &offsets, &all_bytes, false);
+    assert!(bits.value(0));
+    assert!(!bits.value(1));
+
+    let negated = dfa.scan_to_bitbuf(2, &offsets, &all_bytes, true);
+    assert!(!negated.value(0));
+    assert!(negated.value(1));
+
+    Ok(())
+}
+
+/// FlatContainsDfa escape-only path stays disabled when a symbol contains
+/// any needle byte — the standard sentinel-branching DFA scan handles it.
+#[test]
+fn test_flat_contains_escape_only_disabled_when_symbol_overlap() -> VortexResult<()> {
+    let symbols = [sym(b"Xy")];
+    let lengths = [2u8];
+    let needle: Vec<u8> = vec![b'X'; FoldedContainsDfa::MAX_NEEDLE_LEN + 1];
+    let dfa = FlatContainsDfa::new(&symbols, &lengths, &needle)?;
+
+    // A row with 'X' from the symbol then escaped X's — verifies the
+    // standard DFA still produces a correct match.
+    let mut row = vec![0u8]; // symbol "Xy" → bytes Xy
+    row.extend_from_slice(&escaped(&needle));
+    assert!(dfa.matches(&row));
+    Ok(())
+}
+
 /// Folded contains DFA boundary check: matches and rejects across the full
 /// supported needle length range.
 #[rstest]
@@ -671,6 +729,77 @@ fn test_multi_contains_matcher_handles() {
     assert!(matcher.matches(&escaped(b"xxabcxxdefxx")));
     assert!(!matcher.matches(&escaped(b"defabc")));
     assert!(!matcher.matches(&escaped(b"abc")));
+}
+
+/// MultiContainsDfa escape-only prefilter: with no segment byte present
+/// in any symbol, scan_to_bitbuf should route through the longest
+/// segment's encoded-pattern memmem and still return exact results
+/// (rejecting rows that contain only one segment, or both in the wrong
+/// order).
+#[test]
+fn test_multi_contains_scan_escape_only_anchor() -> VortexResult<()> {
+    // Symbols use only lowercase 'abcdefgh' — none of the segment bytes.
+    let symbols = [sym(b"ab"), sym(b"cd"), sym(b"ef"), sym(b"gh")];
+    let lengths = [2u8, 2, 2, 2];
+    let dfa = MultiContainsDfa::new(&symbols, &lengths, &[b"XYZ", b"PQ"])?;
+
+    // Row 0: both segments in order — match.
+    let mut row0 = Vec::new();
+    row0.extend_from_slice(&escaped(b"XYZ"));
+    row0.extend_from_slice(&[0u8, 1]); // "abcd"
+    row0.extend_from_slice(&escaped(b"PQ"));
+
+    // Row 1: only longest segment — should NOT match.
+    let row1 = escaped(b"XYZ");
+
+    // Row 2: both segments in wrong order — should NOT match.
+    let mut row2 = Vec::new();
+    row2.extend_from_slice(&escaped(b"PQ"));
+    row2.extend_from_slice(&escaped(b"XYZ"));
+
+    // Row 3: empty.
+    let row3: Vec<u8> = Vec::new();
+
+    let rows = [row0, row1, row2, row3];
+    let mut all_bytes = Vec::new();
+    let mut offsets = Vec::with_capacity(rows.len() + 1);
+    offsets.push(0u32);
+    for row in rows {
+        all_bytes.extend_from_slice(&row);
+        offsets.push(u32::try_from(all_bytes.len()).expect("fits in u32"));
+    }
+
+    let bits = dfa.scan_to_bitbuf(4, &offsets, &all_bytes, false);
+    assert!(bits.value(0));
+    assert!(!bits.value(1));
+    assert!(!bits.value(2));
+    assert!(!bits.value(3));
+
+    let negated = dfa.scan_to_bitbuf(4, &offsets, &all_bytes, true);
+    assert!(!negated.value(0));
+    assert!(negated.value(1));
+    assert!(negated.value(2));
+    assert!(negated.value(3));
+    Ok(())
+}
+
+/// MultiContainsDfa anchor stays disabled if any segment byte appears in
+/// any symbol — the standard DFA scan path handles it.
+#[test]
+fn test_multi_contains_scan_escape_only_disabled_when_symbol_overlap() -> VortexResult<()> {
+    // Symbol "Xy" contains 'X', a segment byte — disables the anchor path.
+    let symbols = [sym(b"Xy"), sym(b"PQ"), sym(b"ab")];
+    let lengths = [2u8, 2, 2];
+    let dfa = MultiContainsDfa::new(&symbols, &lengths, &[b"XYZ", b"PQ"])?;
+
+    // Standard DFA correctness: a match across symbol+escape boundaries.
+    // "XyXYZab PQ" — contains "XYZ" then later "PQ".
+    let mut row = vec![0u8]; // symbol "Xy"
+    row.extend_from_slice(&escaped(b"XYZ"));
+    row.push(2u8); // symbol "ab"
+    row.push(1u8); // symbol "PQ"
+    assert!(dfa.matches(&row));
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
