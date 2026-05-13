@@ -98,7 +98,24 @@ identical on every supported platform).
 | `natural_words`  | bag-of-words English-ish                                           |
 | `json_like`      | small JSON snippets (punctuation-heavy)                             |
 | `short_codes`    | `US-12345`-shaped fixed-length identifiers                          |
+| `fsst12_high_card`| 512-token vocabulary of 3-5-byte enums, joined with `\|`. FSST-12 sweet spot — FSST-8's 255-symbol table is not big enough to hold the whole vocabulary |
+| `log_templates`  | ~250-byte structured log lines with two short variable fields. OnPair sweet spot — its uncapped token can swallow the whole template; FSST symbols cap at 8 B and OnPair16 caps at 16 B |
 | `adversarial_mix`| four interleaved anti-patterns (high-entropy session IDs, 9-byte periodic motifs, hex blobs, random ASCII) crafted so no backend can converge on a useful dictionary |
+
+### Which backend is each dataset built for?
+
+| dataset           | sweet spot for       | why                                                                    |
+| ----------------- | -------------------- | ---------------------------------------------------------------------- |
+| `skewed_dict`     | `fsst-cpp-8`         | small high-frequency vocab → tight 1-byte codes                        |
+| `urls`            | `fsst-cpp-8`         | many recurring 2-8 byte fragments (`https://`, `.com`, `/v1/`)         |
+| `natural_words`   | `fsst-cpp-8`         | classic FSST text workload                                             |
+| `json_like`       | `fsst-cpp-8`         | repeating quoted keys + small value enums                              |
+| `long_prefix`     | `fsst-cpp-8`         | 8-byte chunks of the shared prefix tile cleanly                        |
+| `short_codes`     | `fsst-cpp-12`        | very low average length → table overhead dominates 8-bit codes         |
+| `random_alnum`    | `fsst-cpp-12`        | 64-char alphabet exceeds FSST-8's effective coverage                   |
+| `fsst12_high_card`| **`fsst-cpp-12`**    | 512 distinct enum values → only FSST-12's 4096-symbol table fits them  |
+| `log_templates`   | **`onpair`**         | 250-byte shared template → uncapped OnPair token, vs 30+ FSST codes    |
+| `adversarial_mix` | nobody — see below   | designed to defeat every algorithm                                     |
 
 All seeds are pinned so the report is reproducible across runs.
 
@@ -203,6 +220,43 @@ means the backend decompressed each row first.
 | `onpair`       |  30 714 | 1.07×  |   0.86 ms |    0.12 ms |  0.039 ms     |   0.091 ms      |  0.060 ms      |
 | `onpair16`     |  30 767 | 1.07×  |   0.88 ms |    0.12 ms |  0.030 ms     |   0.091 ms      |  0.059 ms      |
 | `onpair-cpp`   |  44 329 | 0.74×  |   0.73 ms |    0.14 ms |  0.004 ms PD  |   0.034 ms PD   |  0.011 ms      |
+
+### `fsst12_high_card` — 149 054 B raw, 4 096 rows (FSST-12 sweet spot)
+
+| backend        | payload | ratio  |  compress | decompress | eq (PD?)      | contains (PD?)  | starts_with    |
+| -------------- | ------: | -----: | --------: | ---------: | ------------: | --------------: | -------------: |
+| `fsst-rs`      |  90 427 | 1.65×  |   2.00 ms |    0.27 ms |  0.001 ms PD  |   0.404 ms      |  0.171 ms      |
+| `fsst-cpp-8`   |  84 147 | 1.77×  |   4.85 ms |    0.22 ms |  0.001 ms PD  |   0.538 ms      |  0.303 ms      |
+| **`fsst-cpp-12`** | **61 366** | **2.43×** | 72.17 ms | 0.24 ms |  0.001 ms PD  |   0.558 ms      |  0.340 ms      |
+| `onpair`       |  76 638 | 1.94×  |   2.54 ms |    0.19 ms |  0.061 ms     |   0.312 ms      |  0.069 ms      |
+| `onpair16`     |  77 013 | 1.94×  |   2.52 ms |    0.18 ms |  0.062 ms     |   0.280 ms      |  0.069 ms      |
+| `onpair-cpp`   |  90 960 | 1.64×  |   2.05 ms |    0.15 ms |  0.004 ms PD  |   0.077 ms PD   |  0.020 ms      |
+
+FSST-12 beats FSST-8 by ~37 % here (2.43× vs 1.77×) because the 512-entry
+enum vocabulary overflows FSST-8's 255-symbol table — half the values get
+demoted to byte-level codes. FSST-12 has room for all of them. The
+compression-time cost is steep (≈15× slower than FSST-8) so the win only
+pays off when you're size-bound, not throughput-bound.
+
+### `log_templates` — 1 146 806 B raw, 4 096 rows (OnPair sweet spot)
+
+| backend        | payload | ratio  |  compress | decompress | eq (PD?)      | contains (PD?)  | starts_with    |
+| -------------- | ------: | -----: | --------: | ---------: | ------------: | --------------: | -------------: |
+| `fsst-rs`      | 309 940 | 3.70×  |   2.63 ms |    0.54 ms |  0.001 ms PD  |   1.365 ms      |  0.243 ms      |
+| `fsst-cpp-8`   | 243 594 | 4.71×  |   3.43 ms |    0.32 ms |  0.001 ms PD  |   1.477 ms      |  0.377 ms      |
+| `fsst-cpp-12`  | 268 049 | 4.28×  |  22.65 ms |    0.60 ms |  0.001 ms PD  |   1.515 ms      |  0.396 ms      |
+| **`onpair`**   | **171 176** | **6.70×** | 12.80 ms | 0.22 ms |  0.065 ms    |   1.375 ms      |  0.071 ms      |
+| `onpair16`     | 275 533 | 4.16×  |   6.31 ms |    0.28 ms |  0.110 ms     |   1.228 ms      |  0.113 ms      |
+| `onpair-cpp`   | 241 128 | 4.76×  |   3.89 ms |    0.28 ms |  0.004 ms PD  |   0.081 ms PD   |  0.009 ms      |
+
+The 250-byte template fits into a single OnPair dictionary entry, so every
+log line costs ~2 bytes for the template plus a handful for the two
+variable fields. FSST has to chain ≈30 8-byte symbols to cover the same
+template; OnPair16 needs ≈16 of its capped 16-byte tokens. `onpair-cpp` is
+tuned for fast pushdown rather than ratio — its 14-bit code width and
+dictionary layout cost some ratio relative to the no-cap Rust port but
+still beat both FSST variants. (`onpair-cpp` keeps its huge pushdown lead
+on `contains`: 0.08 ms vs 1.4 ms.)
 
 ### `adversarial_mix` — 126 085 B raw, 4 096 rows (designed to defeat every backend)
 

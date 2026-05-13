@@ -58,6 +58,8 @@ pub fn all_datasets(scale: usize) -> Vec<Corpus> {
         natural_words(scale),
         json_like(scale),
         short_codes(scale),
+        high_cardinality_enum(scale),
+        log_templates(scale),
         adversarial_mix(scale),
     ]
 }
@@ -277,6 +279,107 @@ pub fn short_codes(scale: usize) -> Corpus {
         name: "short_codes",
         strings,
         needles: vec![b"US-".to_vec(), b"JP-".to_vec()],
+    }
+}
+
+/// FSST-12 sweet spot: a 512-entry vocabulary of 3-5-byte tokens, each row
+/// is 5-10 tokens separated by `|`. FSST-8 caps at 255 symbols so it can
+/// keep at most ~half the vocabulary in its table and falls back to
+/// byte-level codes for the rest. FSST-12 (≤4096 symbols) fits the entire
+/// vocabulary and represents each token as a single 1.5-byte code, beating
+/// every other backend on ratio.
+pub fn high_cardinality_enum(scale: usize) -> Corpus {
+    let mut rng = StdRng::seed_from_u64(0xC0DEC0DE);
+    let mut vocab: Vec<String> = Vec::with_capacity(512);
+    // Two-letter prefix (676 combinations) + two-digit suffix gives plenty
+    // of headroom; we keep only the first 512 unique entries.
+    let mut seen = std::collections::HashSet::with_capacity(512);
+    let letters: Vec<u8> = (b'a'..=b'z').collect();
+    while vocab.len() < 512 {
+        let a = *letters.choose(&mut rng).unwrap();
+        let b = *letters.choose(&mut rng).unwrap();
+        let n: u16 = rng.random_range(10..100);
+        let s = format!("{}{}{n:02}", a as char, b as char);
+        if seen.insert(s.clone()) {
+            vocab.push(s);
+        }
+    }
+
+    let strings: Vec<Vec<u8>> = (0..scale)
+        .map(|_| {
+            let n = rng.random_range(5..=10);
+            let mut buf = Vec::with_capacity(n * 5);
+            for i in 0..n {
+                if i > 0 {
+                    buf.push(b'|');
+                }
+                buf.extend_from_slice(vocab.choose(&mut rng).unwrap().as_bytes());
+            }
+            buf
+        })
+        .collect();
+
+    let needle = vocab[0].as_bytes().to_vec();
+    let prefix_needle = vocab[3].as_bytes()[..2].to_vec();
+    Corpus { name: "fsst12_high_card", strings, needles: vec![needle, prefix_needle] }
+}
+
+/// OnPair (no token-size cap) sweet spot: synthetic structured log lines
+/// where a ~250-byte template appears verbatim on most rows, with only a
+/// handful of short variable fields filled in.
+///
+/// FSST's symbol table caps each *symbol* at 8 bytes so the long template
+/// degrades into ~30 chained 8-byte codes per row. OnPair16 caps tokens at
+/// 16 bytes, requiring ~16 codes. OnPair has no cap — once the LPM trainer
+/// stitches the full template into a single dictionary entry, every
+/// occurrence costs exactly one 16-bit token (2 bytes).
+///
+/// The template includes a long Lorem-Ipsum-style suffix specifically so
+/// that the bytes saved by capturing one giant token dominate the cost of
+/// storing it once in the dictionary header.
+pub fn log_templates(scale: usize) -> Corpus {
+    let mut rng = StdRng::seed_from_u64(0x10610610);
+    // One pronounced template — the more it recurs, the cleaner OnPair's
+    // win. Including a long quasi-natural suffix beyond the structured log
+    // header pushes the captured-token length well past FSST's 8-byte
+    // symbol cap and OnPair16's 16-byte token cap.
+    let template: &[u8] =
+        b"[2026-05-13T17:42:00.000000Z] [service=vortex-ingest] [region=us-east-1] [pod=ingest-7f9c4-r2s8q] [trace_id=00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01] [REQUEST] method=GET path=/v1/users/profile/preferences subsystem=preferences result=%STATUS% id=%ID%";
+    let statuses = [b"ok".as_slice(), b"throttled", b"rejected", b"timeout"];
+    let strings: Vec<Vec<u8>> = (0..scale)
+        .map(|_| {
+            let id: u64 = rng.random();
+            let status = *statuses.choose(&mut rng).unwrap();
+            // Walk the template substituting placeholders. We avoid format!
+            // here because doing the substitution by hand keeps the
+            // surrounding template bytes byte-identical across rows, which
+            // is the whole point.
+            let mut out = Vec::with_capacity(template.len() + 32);
+            let mut i = 0;
+            while i < template.len() {
+                if template[i..].starts_with(b"%ID%") {
+                    out.extend_from_slice(id.to_string().as_bytes());
+                    i += b"%ID%".len();
+                } else if template[i..].starts_with(b"%STATUS%") {
+                    out.extend_from_slice(status);
+                    i += b"%STATUS%".len();
+                } else {
+                    out.push(template[i]);
+                    i += 1;
+                }
+            }
+            out
+        })
+        .collect();
+
+    Corpus {
+        name: "log_templates",
+        strings,
+        needles: vec![
+            b"[REQUEST]".to_vec(),
+            b"trace_id=00".to_vec(),
+            b"result=throttled".to_vec(),
+        ],
     }
 }
 
