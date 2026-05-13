@@ -957,12 +957,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "base16ct"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd307490d624467aa6f74b0eabb77633d1f758a7b25f12bceb0b22e08d9726f6"
-
-[[package]]
 name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1693,7 +1687,7 @@ dependencies = [
  "indicatif",
  "itertools 0.14.0",
  "lance-bench",
- "parquet 58.2.0",
+ "parquet",
  "regex",
  "tokio",
  "tracing",
@@ -2284,7 +2278,7 @@ dependencies = [
  "log",
  "object_store 0.13.2",
  "parking_lot",
- "parquet 58.2.0",
+ "parquet",
  "rand 0.9.4",
  "regex",
  "sqlparser 0.61.0",
@@ -2457,7 +2451,7 @@ dependencies = [
  "libc",
  "log",
  "object_store 0.13.2",
- "parquet 58.2.0",
+ "parquet",
  "paste",
  "recursive",
  "sqlparser 0.61.0",
@@ -2737,7 +2731,7 @@ dependencies = [
  "log",
  "object_store 0.13.2",
  "parking_lot",
- "parquet 58.2.0",
+ "parquet",
  "tokio",
 ]
 
@@ -5226,13 +5220,13 @@ name = "lance-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arrow-cast 57.3.0",
+ "arrow-cast 58.2.0",
  "async-trait",
  "clap",
  "futures",
  "lance",
  "lance-encoding",
- "parquet 57.3.0",
+ "parquet",
  "tempfile",
  "tokio",
  "tracing",
@@ -6780,40 +6774,6 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
-]
-
-[[package]]
-name = "parquet"
-version = "57.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ee96b29972a257b855ff2341b37e61af5f12d6af1158b6dcdb5b31ea07bb3cb"
-dependencies = [
- "ahash 0.8.12",
- "arrow-array 57.3.0",
- "arrow-buffer 57.3.0",
- "arrow-cast 57.3.0",
- "arrow-data 57.3.0",
- "arrow-ipc 57.3.0",
- "arrow-schema 57.3.0",
- "arrow-select 57.3.0",
- "base64",
- "brotli",
- "bytes",
- "chrono",
- "flate2",
- "half",
- "hashbrown 0.16.1",
- "lz4_flex 0.12.2",
- "num-bigint",
- "num-integer",
- "num-traits",
- "paste",
- "seq-macro",
- "simdutf8",
- "snap",
- "thrift",
- "twox-hash",
- "zstd",
 ]
 
 [[package]]
@@ -10132,7 +10092,7 @@ dependencies = [
  "clap",
  "futures",
  "indicatif",
- "parquet 58.2.0",
+ "parquet",
  "rand 0.10.1",
  "serde",
  "tabled",
@@ -10161,7 +10121,7 @@ dependencies = [
  "fastlanes",
  "futures",
  "mimalloc",
- "parquet 58.2.0",
+ "parquet",
  "paste",
  "rand 0.10.1",
  "rand_distr 0.6.0",
@@ -10318,7 +10278,7 @@ dependencies = [
  "noodles-bgzf",
  "noodles-vcf",
  "parking_lot",
- "parquet 58.2.0",
+ "parquet",
  "rand 0.10.1",
  "regex",
  "reqwest 0.13.3",
@@ -10460,11 +10420,10 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 58.2.0",
  "arrow-select 58.2.0",
- "base16ct",
  "bytes",
  "clap",
  "futures",
- "parquet 58.2.0",
+ "parquet",
  "reqwest 0.13.3",
  "serde",
  "serde_json",
@@ -11176,7 +11135,7 @@ dependencies = [
  "indicatif",
  "itertools 0.14.0",
  "js-sys",
- "parquet 58.2.0",
+ "parquet",
  "ratatui",
  "ratzilla",
  "serde",

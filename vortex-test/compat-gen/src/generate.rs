@@ -3,7 +3,6 @@
 
 use std::path::Path;
 
-use base16ct::HexDisplay;
 use serde::Serialize;
 use sha2::Digest;
 use sha2::Sha256;
@@ -51,7 +50,10 @@ pub fn write_fixtures(output_dir: &Path, exclude: &[String]) -> VortexResult<Vec
             let path = output_dir.join(&entry.name);
             let file_bytes = std::fs::read(&path)
                 .map_err(|e| vortex_err!("failed to read back {}: {e}", path.display()))?;
-            let sha256 = format!("{:x}", HexDisplay(&Sha256::digest(&file_bytes)));
+            let sha256: String = Sha256::digest(&file_bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
             eprintln!("  wrote {}", entry.name);
             infos.push(FixtureInfo {
                 name: entry.name,

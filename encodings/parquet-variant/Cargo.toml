@@ -21,7 +21,7 @@ workspace = true
 arrow-array = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true }
-chrono = { workspace = true }
+chrono = { version = "0.4", default-features = false }
 parquet-variant = { workspace = true }
 parquet-variant-compute = { workspace = true }
 prost = { workspace = true }
