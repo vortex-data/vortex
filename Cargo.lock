@@ -10964,8 +10964,10 @@ dependencies = [
  "rand 0.10.1",
  "rstest",
  "vortex-array",
+ "vortex-btrblocks",
  "vortex-buffer",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-mask",
  "vortex-session",
 ]
