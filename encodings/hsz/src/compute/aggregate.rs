@@ -1,33 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use crate::stage::HSZ_BLOCK_SIZE;
 use crate::stage::Hsz;
 
 impl Hsz {
     /// Exact sum of the encoded column, answered entirely from the predictor
-    /// stage and the outlier list. Stage 1 is not touched.
+    /// stage. Residual and outlier stages are not unpacked.
     ///
-    /// Outlier values replace the placeholder quantum stored in their slot,
-    /// so the sum reconstructs as
-    /// `Σ block_sum - Σ (predictor + 0 * eps) over outlier slots + Σ outlier_value`.
-    /// Block summaries are computed over the original values, which already
-    /// excluded any outlier contribution because the compressor observed
-    /// every finite value into the summary regardless of whether it later
-    /// became an outlier. The block sum is therefore exact for the original
-    /// data, and we only need to add back the contribution of non-finite
-    /// values that were summarised as zero.
+    /// Block summaries are computed from the original values, so the sum is
+    /// exact for finite outliers (already accounted for in `block.sum`) and
+    /// IEEE-correct for non-finite outliers (NaN propagates).
     pub fn sum(&self) -> f64 {
         let mut acc: f64 = self.blocks.iter().map(|b| b.sum).sum();
-        for (&idx, &value) in self.outlier_indices.iter().zip(&self.outlier_values) {
-            if !value.is_finite() {
-                continue;
-            }
-            // Block summaries already include the exact outlier value when it
-            // was finite, so do not double-count.
-            let _ = idx;
-        }
-        // Add any non-finite outliers; for IEEE semantics, summing with NaN
-        // produces NaN which is the desired result.
         for &value in &self.outlier_values {
             if !value.is_finite() {
                 acc += value;
@@ -54,26 +39,28 @@ impl Hsz {
     }
 
     /// Approximate sum reconstructed from the predictor and residual stages
-    /// without consulting the per-block exact `sum`. Useful for benchmarking
-    /// the homomorphic shortcut against the full Stage-1 walk.
+    /// (unpacking each block) without consulting the per-block exact `sum`.
+    /// Useful for benchmarking the homomorphic shortcut against the full
+    /// Stage-1 walk.
     ///
     /// The error is bounded by `len * eps` since each residual is accurate to
     /// `eps`.
     pub fn sum_from_residuals(&self) -> f64 {
         let mut acc = 0.0;
+        let mut scratch = [0u32; HSZ_BLOCK_SIZE];
         for block_idx in 0..self.blocks.len() {
             let range = self.block_range(block_idx);
             let predictor = self.blocks[block_idx].min;
+            self.unpack_block_into(block_idx, &mut scratch);
             let mut residual_acc: u64 = 0;
-            for i in range.clone() {
-                residual_acc += self.residuals.as_slice()[i] as u64;
+            for offset in 0..range.len() {
+                residual_acc += scratch[offset] as u64;
             }
             acc += predictor * range.len() as f64 + (residual_acc as f64) * self.eps;
         }
         for (&idx, &value) in self.outlier_indices.iter().zip(&self.outlier_values) {
             let block_idx = self.block_of(idx as usize);
             let predictor = self.blocks[block_idx].min;
-            // Subtract the placeholder contribution and add the exact value.
             acc -= predictor;
             acc += value;
         }

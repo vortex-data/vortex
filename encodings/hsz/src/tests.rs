@@ -21,19 +21,14 @@ fn smooth_signal(n: usize) -> Vec<f64> {
 #[case(0)]
 #[case(1)]
 #[case(7)]
+#[case(1023)]
 #[case(1024)]
 #[case(1025)]
 #[case(10_000)]
 fn roundtrip_within_eps(#[case] n: usize) -> VortexResult<()> {
     let values = smooth_signal(n);
     let eps = 1e-3;
-    let hsz = Hsz::compress(
-        &values,
-        HszConfig {
-            block_size: 128,
-            eps,
-        },
-    )?;
+    let hsz = Hsz::compress(&values, HszConfig { eps })?;
     assert_eq!(hsz.len(), n);
     let decoded = hsz.decompress();
     assert_eq!(decoded.len(), n);
@@ -50,46 +45,10 @@ fn roundtrip_within_eps(#[case] n: usize) -> VortexResult<()> {
 #[test]
 fn rejects_invalid_config() {
     let values = vec![1.0, 2.0, 3.0];
-    assert!(
-        Hsz::compress(
-            &values,
-            HszConfig {
-                block_size: 0,
-                eps: 1e-3
-            }
-        )
-        .is_err()
-    );
-    assert!(
-        Hsz::compress(
-            &values,
-            HszConfig {
-                block_size: 8,
-                eps: 0.0
-            }
-        )
-        .is_err()
-    );
-    assert!(
-        Hsz::compress(
-            &values,
-            HszConfig {
-                block_size: 8,
-                eps: -1.0
-            }
-        )
-        .is_err()
-    );
-    assert!(
-        Hsz::compress(
-            &values,
-            HszConfig {
-                block_size: 8,
-                eps: f64::NAN
-            }
-        )
-        .is_err()
-    );
+    assert!(Hsz::compress(&values, HszConfig { eps: 0.0 }).is_err());
+    assert!(Hsz::compress(&values, HszConfig { eps: -1.0 }).is_err());
+    assert!(Hsz::compress(&values, HszConfig { eps: f64::NAN }).is_err());
+    assert!(Hsz::compress(&values, HszConfig { eps: f64::INFINITY }).is_err());
 }
 
 #[test]
@@ -133,14 +92,8 @@ fn min_max_match_reference() -> VortexResult<()> {
 
 #[test]
 fn between_mask_is_exact() -> VortexResult<()> {
-    let values = smooth_signal(4096);
-    let hsz = Hsz::compress(
-        &values,
-        HszConfig {
-            block_size: 256,
-            eps: 1e-4,
-        },
-    )?;
+    let values = smooth_signal(8 * 1024);
+    let hsz = Hsz::compress(&values, HszConfig { eps: 1e-4 })?;
     let (mask, stats) = hsz.between_mask(7.0, 12.0);
     let expected: usize = values.iter().filter(|v| **v >= 7.0 && **v <= 12.0).count();
     assert_eq!(mask.true_count(), expected);
@@ -175,20 +128,14 @@ fn between_mask_disjoint_range_is_all_false() -> VortexResult<()> {
 
 #[test]
 fn slice_roundtrips() -> VortexResult<()> {
-    let values = smooth_signal(2000);
-    let hsz = Hsz::compress(
-        &values,
-        HszConfig {
-            block_size: 256,
-            eps: 1e-3,
-        },
-    )?;
+    let values = smooth_signal(2500);
+    let hsz = Hsz::compress(&values, HszConfig { eps: 1e-3 })?;
     for &(s, e) in &[
         (0usize, 0usize),
-        (0, 256),
-        (0, 2000),
+        (0, 1024),
+        (0, 2500),
         (137, 1500),
-        (1999, 2000),
+        (2499, 2500),
     ] {
         let sliced = hsz.slice(s..e)?;
         assert_eq!(sliced.len(), e - s);
@@ -207,13 +154,7 @@ fn slice_roundtrips() -> VortexResult<()> {
 #[test]
 fn filter_roundtrips() -> VortexResult<()> {
     let values: Vec<f64> = (0..1024).map(|i| i as f64).collect();
-    let hsz = Hsz::compress(
-        &values,
-        HszConfig {
-            block_size: 64,
-            eps: 0.5,
-        },
-    )?;
+    let hsz = Hsz::compress(&values, HszConfig { eps: 0.5 })?;
     let mask = vortex_mask::Mask::from_iter(values.iter().map(|v| (*v as i64) % 3 == 0));
     let filtered = hsz.filter(&mask)?;
     let expected: Vec<f64> = values
@@ -232,43 +173,31 @@ fn filter_roundtrips() -> VortexResult<()> {
 #[test]
 fn take_uses_outliers_correctly() -> VortexResult<()> {
     // Construct data where one value is so far out it forces an outlier.
-    let mut values: Vec<f64> = (0..256).map(|i| i as f64).collect();
+    let mut values: Vec<f64> = (0..1024).map(|i| i as f64).collect();
     values[42] = 1e20;
-    let hsz = Hsz::compress(
-        &values,
-        HszConfig {
-            block_size: 64,
-            eps: 0.5,
-        },
-    )?;
+    let hsz = Hsz::compress(&values, HszConfig { eps: 0.5 })?;
     assert!(
         !hsz.outlier_indices().is_empty(),
         "expected the giant value to become an outlier"
     );
-    let taken = hsz.take(&[0, 42, 100, 255])?;
+    let taken = hsz.take(&[0, 42, 100, 1023])?;
     assert!((taken.as_slice()[0] - 0.0).abs() <= 0.5);
     assert_eq!(taken.as_slice()[1], 1e20);
     assert!((taken.as_slice()[2] - 100.0).abs() <= 0.5);
-    assert!((taken.as_slice()[3] - 255.0).abs() <= 0.5);
+    assert!((taken.as_slice()[3] - 1023.0).abs() <= 0.5);
     Ok(())
 }
 
 #[test]
 fn outliers_roundtrip_through_decompress() -> VortexResult<()> {
-    let mut values: Vec<f64> = (0..128).map(|i| (i as f64) * 0.1).collect();
+    let mut values: Vec<f64> = (0..1024).map(|i| (i as f64) * 0.1).collect();
     values[10] = 1e15;
-    values[100] = -1e15;
-    let hsz = Hsz::compress(
-        &values,
-        HszConfig {
-            block_size: 32,
-            eps: 1e-3,
-        },
-    )?;
+    values[1000] = -1e15;
+    let hsz = Hsz::compress(&values, HszConfig { eps: 1e-3 })?;
     let decoded = hsz.decompress();
     assert_eq!(decoded.as_slice()[10], 1e15);
-    assert_eq!(decoded.as_slice()[100], -1e15);
-    for i in [0usize, 1, 50, 64, 127] {
+    assert_eq!(decoded.as_slice()[1000], -1e15);
+    for i in [0usize, 1, 50, 500, 1023] {
         assert!((decoded.as_slice()[i] - values[i]).abs() <= hsz.eps());
     }
     Ok(())

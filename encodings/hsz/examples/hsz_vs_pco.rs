@@ -90,10 +90,7 @@ fn time<Func: FnOnce() -> Out, Out>(func: Func) -> (Out, Duration) {
 }
 
 fn run_hsz(name: &'static str, data: &[f64], eps: f64) -> Codec<'static> {
-    let cfg = HszConfig {
-        block_size: 1024,
-        eps,
-    };
+    let cfg = HszConfig { eps };
     let (hsz, t_compress) = time(|| Hsz::compress(data, cfg).unwrap());
     let bytes = hsz.encoded_bytes();
     let (_, t_decompress) = time(|| hsz.decompress());

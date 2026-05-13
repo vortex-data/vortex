@@ -3,6 +3,7 @@
 
 use vortex_mask::Mask;
 
+use crate::stage::HSZ_BLOCK_SIZE;
 use crate::stage::Hsz;
 
 /// Statistics returned by [`Hsz::between_mask`]. Useful for measuring how much
@@ -22,16 +23,13 @@ impl Hsz {
     /// Compute the mask `lo <= x <= hi` over the encoded column.
     ///
     /// Blocks whose `[min, max]` interval lies fully inside `[lo, hi]` are
-    /// marked all-true without scanning residuals. Blocks whose interval is
+    /// marked all-true without unpacking residuals. Blocks whose interval is
     /// disjoint from `[lo, hi]` are marked all-false. Only blocks whose
-    /// interval straddles a boundary are scanned at the residual level.
-    ///
-    /// The mask is constructed pessimistically: in the boundary case we
-    /// dequantise each residual and apply the predicate exactly. Outliers
-    /// are tested against their exact value.
+    /// interval straddles a boundary are unpacked at the residual level.
     pub fn between_mask(&self, lo: f64, hi: f64) -> (Mask, BetweenStats) {
         let mut bits = vec![false; self.len];
         let mut stats = BetweenStats::default();
+        let mut scratch = [0u32; HSZ_BLOCK_SIZE];
 
         for block_idx in 0..self.blocks.len() {
             let block = self.blocks[block_idx];
@@ -40,9 +38,8 @@ impl Hsz {
                 continue;
             }
             // Stage-0 fast paths. We widen the predicate interval by `eps`
-            // when assessing "fully inside" because residual reconstruction
-            // can drift by up to `eps`. Strict containment by `eps` on each
-            // side guarantees the residual would also pass.
+            // on each side when assessing "fully inside" because residual
+            // reconstruction can drift by up to `eps`.
             if block.max < lo || block.min > hi {
                 stats.blocks_all_false += 1;
                 continue;
@@ -52,20 +49,17 @@ impl Hsz {
                     bits[i] = true;
                 }
                 stats.blocks_all_true += 1;
-                // We still need to honour outliers that might fall in this
-                // block and be outside the range.
                 self.fix_outliers_in(&range, lo, hi, &mut bits);
                 continue;
             }
             stats.blocks_descended += 1;
             let predictor = block.min;
-            for i in range {
-                let v = predictor + (self.residuals.as_slice()[i] as f64) * self.eps;
+            self.unpack_block_into(block_idx, &mut scratch);
+            for (offset, i) in range.clone().enumerate() {
+                let v = predictor + (scratch[offset] as f64) * self.eps;
                 bits[i] = v >= lo && v <= hi;
             }
         }
-        // Apply exact outlier values everywhere they appear, regardless of
-        // whether the block was fast-pathed.
         for (&idx, &value) in self.outlier_indices.iter().zip(&self.outlier_values) {
             bits[idx as usize] = value >= lo && value <= hi;
         }
@@ -73,8 +67,6 @@ impl Hsz {
     }
 
     fn fix_outliers_in(&self, range: &std::ops::Range<usize>, lo: f64, hi: f64, bits: &mut [bool]) {
-        // Find outliers whose global index lies in `range` and re-apply the
-        // predicate against the exact stored value.
         let start = self
             .outlier_indices
             .partition_point(|&i| (i as usize) < range.start);

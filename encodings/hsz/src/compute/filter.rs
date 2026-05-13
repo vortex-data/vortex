@@ -7,6 +7,7 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 
 use crate::compress::HszConfig;
+use crate::stage::HSZ_BLOCK_SIZE;
 use crate::stage::Hsz;
 
 impl Hsz {
@@ -15,7 +16,7 @@ impl Hsz {
     /// The result is rebuilt from the surviving values. Block summaries are
     /// invalidated by filtering (since the surviving subset is rarely a
     /// contiguous prefix of a block), so we recompress against the
-    /// configured `block_size` and `eps`.
+    /// configured `eps`.
     pub fn filter(&self, mask: &Mask) -> VortexResult<Self> {
         vortex_ensure!(
             mask.len() == self.len,
@@ -24,42 +25,30 @@ impl Hsz {
             self.len
         );
         if mask.all_false() {
-            return Hsz::compress(
-                &[],
-                HszConfig {
-                    block_size: self.block_size,
-                    eps: self.eps,
-                },
-            );
+            return Hsz::compress(&[], HszConfig { eps: self.eps });
         }
         if mask.all_true() {
             return Ok(self.clone());
         }
 
         let mut keep = BufferMut::<f64>::with_capacity(mask.true_count());
-        // Walk decompressed values applying the mask. We avoid the global
-        // `decompress` allocation by stepping block-by-block.
+        let mut scratch = [0u32; HSZ_BLOCK_SIZE];
         for block_idx in 0..self.blocks.len() {
             let range = self.block_range(block_idx);
             let predictor = self.blocks[block_idx].min;
-            for i in range {
+            self.unpack_block_into(block_idx, &mut scratch);
+            for (offset, i) in range.clone().enumerate() {
                 if mask.value(i) {
                     let v = if let Some(pos) = self.outlier_position(i as u64) {
                         self.outlier_values[pos]
                     } else {
-                        predictor + (self.residuals.as_slice()[i] as f64) * self.eps
+                        predictor + (scratch[offset] as f64) * self.eps
                     };
                     keep.push(v);
                 }
             }
         }
 
-        Hsz::compress(
-            keep.as_slice(),
-            HszConfig {
-                block_size: self.block_size,
-                eps: self.eps,
-            },
-        )
+        Hsz::compress(keep.as_slice(), HszConfig { eps: self.eps })
     }
 }

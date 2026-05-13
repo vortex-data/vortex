@@ -3,9 +3,14 @@
 
 use vortex_buffer::Buffer;
 
+/// Fixed block size used by HSZ. Matches the FastLanes vector group size, so
+/// per-block residual buffers can be bit-packed directly via the FastLanes
+/// `BitPacking` trait.
+pub const HSZ_BLOCK_SIZE: usize = 1024;
+
 /// Per-block summary stored in the predictor stage.
 ///
-/// Each block covers up to [`Hsz::block_size`] consecutive elements. Aggregate
+/// Each block covers up to [`HSZ_BLOCK_SIZE`] consecutive elements. Aggregate
 /// and zone-map operators read these summaries without touching the residual
 /// or outlier stages.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -17,8 +22,8 @@ pub struct BlockSummary {
     /// Exact sum of the block's original values, used for homomorphic
     /// aggregates without descending into residuals.
     pub sum: f64,
-    /// Number of elements in the block. Equal to [`Hsz::block_size`] for all
-    /// blocks except possibly the last.
+    /// Number of logical elements in the block. Equal to [`HSZ_BLOCK_SIZE`]
+    /// for all blocks except possibly the last.
     pub count: u32,
 }
 
@@ -51,24 +56,25 @@ impl BlockSummary {
 /// [`Hsz::decompress`].
 #[derive(Clone, Debug)]
 pub struct Hsz {
-    pub(crate) block_size: u32,
     pub(crate) eps: f64,
     pub(crate) len: usize,
     pub(crate) blocks: Vec<BlockSummary>,
-    /// `block_offsets[i]` is the position in [`Self::residuals`] where block
-    /// `i` starts. `block_offsets` has length `blocks.len() + 1`, with the
-    /// final entry equal to [`Self::len`]. After fresh compression every
-    /// block except possibly the last has length `block_size`, but slicing
-    /// and other operations may produce partial blocks anywhere.
-    pub(crate) block_offsets: Vec<u32>,
-    /// Residuals indexed positionally, one per input element. The element at
-    /// position `i` belongs to the block `b` for which
-    /// `block_offsets[b] <= i < block_offsets[b+1]`, and reconstructs as
-    /// `blocks[b].min + residuals[i] as f64 * eps`.
-    ///
-    /// Positions covered by [`Self::outlier_indices`] still have a residual
-    /// slot (set to zero) so that positional addressing is preserved.
-    pub(crate) residuals: Buffer<u32>,
+    /// `block_starts[i]` is the logical position of block `i` in the decoded
+    /// column. Length is `blocks.len() + 1` with a trailing sentinel of
+    /// [`Self::len`].
+    pub(crate) block_starts: Vec<u32>,
+    /// Bit width used to pack each block's residuals. `0` means every
+    /// residual in the block was zero (constant block, no storage needed).
+    pub(crate) bit_widths: Vec<u8>,
+    /// `packed_offsets[i]` is the start of block `i`'s packed payload inside
+    /// [`Self::packed`], expressed in `u32` units. Length is
+    /// `blocks.len() + 1`. `packed_offsets[i+1] - packed_offsets[i]` equals
+    /// `32 * bit_widths[i]`.
+    pub(crate) packed_offsets: Vec<u32>,
+    /// Bit-packed residual payloads for every block, concatenated. Each
+    /// block contributes `32 * bit_widths[i]` `u32` words (i.e.
+    /// `HSZ_BLOCK_SIZE * bit_widths[i] / 32`).
+    pub(crate) packed: Buffer<u32>,
     /// Sorted global indices of outlier elements.
     pub(crate) outlier_indices: Vec<u64>,
     /// Exact values for elements listed in [`Self::outlier_indices`], same
@@ -77,9 +83,9 @@ pub struct Hsz {
 }
 
 impl Hsz {
-    /// Block size used by the predictor stage.
+    /// Fixed block size of the encoding. See [`HSZ_BLOCK_SIZE`].
     pub fn block_size(&self) -> u32 {
-        self.block_size
+        HSZ_BLOCK_SIZE as u32
     }
 
     /// Error bound used by the residual quantiser. Reconstructed values are
@@ -103,9 +109,14 @@ impl Hsz {
         &self.blocks
     }
 
-    /// Residual buffer in storage order. Length equals [`Self::len`].
-    pub fn residuals(&self) -> &Buffer<u32> {
-        &self.residuals
+    /// Bit width used to pack each block's residuals.
+    pub fn bit_widths(&self) -> &[u8] {
+        &self.bit_widths
+    }
+
+    /// Packed residual storage. Layout is documented on the field.
+    pub fn packed(&self) -> &Buffer<u32> {
+        &self.packed
     }
 
     /// Sorted indices of outlier elements.
@@ -118,30 +129,35 @@ impl Hsz {
         &self.outlier_values
     }
 
-    /// Number of bytes occupied by the encoded stages. Excludes the
-    /// `Hsz` struct overhead itself.
+    /// Number of bytes occupied by the encoded stages.
     pub fn encoded_bytes(&self) -> usize {
         self.blocks.len() * size_of::<BlockSummary>()
-            + self.block_offsets.len() * size_of::<u32>()
-            + self.residuals.len() * size_of::<u32>()
+            + self.block_starts.len() * size_of::<u32>()
+            + self.bit_widths.len()
+            + self.packed_offsets.len() * size_of::<u32>()
+            + self.packed.len() * size_of::<u32>()
             + self.outlier_indices.len() * size_of::<u64>()
             + self.outlier_values.len() * size_of::<f64>()
     }
 
     pub(crate) fn block_of(&self, index: usize) -> usize {
-        // `block_offsets` is monotone with a trailing sentinel of `len`. The
-        // block containing `index` is the largest `b` with
-        // `block_offsets[b] <= index`. `index < len <= u32::MAX` is an
-        // encoding-level invariant established by `compress`.
         let probe = u32::try_from(index).unwrap_or(u32::MAX);
-        match self.block_offsets.binary_search(&probe) {
-            Ok(b) => b,
+        match self.block_starts.binary_search(&probe) {
+            Ok(b) => b.min(self.blocks.len().saturating_sub(1)),
             Err(b) => b - 1,
         }
     }
 
+    /// Logical range covered by block `block_idx` in the decoded column.
     pub(crate) fn block_range(&self, block_idx: usize) -> std::ops::Range<usize> {
-        self.block_offsets[block_idx] as usize..self.block_offsets[block_idx + 1] as usize
+        self.block_starts[block_idx] as usize..self.block_starts[block_idx + 1] as usize
+    }
+
+    /// Packed `u32` slice for block `block_idx`.
+    pub(crate) fn packed_block(&self, block_idx: usize) -> &[u32] {
+        let start = self.packed_offsets[block_idx] as usize;
+        let end = self.packed_offsets[block_idx + 1] as usize;
+        &self.packed.as_slice()[start..end]
     }
 
     pub(crate) fn outlier_position(&self, index: u64) -> Option<usize> {

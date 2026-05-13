@@ -10825,6 +10825,7 @@ dependencies = [
 name = "vortex-hsz"
 version = "0.1.0"
 dependencies = [
+ "fastlanes",
  "num-traits",
  "pco",
  "rstest",
