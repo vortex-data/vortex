@@ -632,9 +632,7 @@ def main(args: argparse.Namespace):
                     arr = vx.Array.from_arrow(arr)
                     yield arr
 
-            it = vx.ArrayIterator.from_iter(
-                vx.DType.from_arrow(pf.schema_arrow, non_nullable=True), _iter()
-            )
+            it = vx.ArrayIterator.from_iter(vx.DType.from_arrow(pf.schema_arrow, non_nullable=True), _iter())
             vx.io.write(it, vx_path)
 
         lf = vx.open(vx_path).to_polars()
