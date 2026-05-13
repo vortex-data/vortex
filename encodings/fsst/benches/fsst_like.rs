@@ -135,3 +135,28 @@ fn fsst_prefix(bencher: Bencher, dataset: &Dataset) {
 fn fsst_contains(bencher: Bencher, dataset: &Dataset) {
     bench_like(bencher, dataset.fsst_array(), dataset.contains_pattern());
 }
+
+#[divan::bench]
+fn fsst_contains_htt_urls(bencher: Bencher) {
+    bench_like(bencher, &FSST_URLS, "%htt%");
+}
+
+#[divan::bench]
+fn fsst_contains_htt_cb(bencher: Bencher) {
+    bench_like(bencher, &FSST_CB_URLS, "%htt%");
+}
+
+#[divan::bench]
+fn fsst_contains_ear_urls(bencher: Bencher) {
+    bench_like(bencher, &FSST_URLS, "%ear%");
+}
+
+#[divan::bench]
+fn fsst_contains_ear_cb(bencher: Bencher) {
+    bench_like(bencher, &FSST_CB_URLS, "%ear%");
+}
+
+#[divan::bench]
+fn fsst_contains_https_urls(bencher: Bencher) {
+    bench_like(bencher, &FSST_URLS, "%https%");
+}

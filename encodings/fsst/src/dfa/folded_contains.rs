@@ -364,20 +364,24 @@ impl FoldedContainsDfa {
         if self.escape_only_pattern.is_some() {
             return "escape_only_memmem";
         }
-        if self.single_step_accept_codes.is_none() {
-            if self.bucketed_triple_codes.is_some() {
-                return triple_streaming_plan_name();
-            }
-
-            if let Some(buckets) = self.bucketed_pair_codes.as_ref() {
-                if escape_pair_targets(buckets).is_some() {
-                    return "escape_pair_streaming";
-                }
-
-                return pair_streaming_plan_name();
-            }
+        let has_ssa = self.single_step_accept_codes.is_some();
+        if self.bucketed_triple_codes.is_some() {
+            return if has_ssa {
+                "triple_streaming+ssa_fused"
+            } else {
+                triple_streaming_plan_name()
+            };
         }
-
+        if let Some(buckets) = self.bucketed_pair_codes.as_ref() {
+            if !has_ssa && escape_pair_targets(buckets).is_some() {
+                return "escape_pair_streaming";
+            }
+            return if has_ssa {
+                "pair_streaming+ssa_fused"
+            } else {
+                pair_streaming_plan_name()
+            };
+        }
         if self.progressing_codes.is_some() {
             "one_byte_bitset"
         } else {
@@ -444,112 +448,122 @@ impl FoldedContainsDfa {
         // each have their own preferred c2 the bucketed path is
         // 3–10× sparser.
         //
-        // SSA-present needles (e.g. `%https%` on synthetic ClickBench
-        // where code 127 = "https://" already accepts in one step) skip
-        // the pair path: they're already fast on the 1-byte path
-        // because each progressing-position match completes in a single
-        // table lookup, and the pair scheme would add a second
-        // PSHUFB-Mula pass for the SSA-merge bitset that pure
-        // overhead.
-        if self.single_step_accept_codes.is_none() {
-            // Streaming Teddy paths: no materialized bitset. Inline DFA
-            // verify per AVX2 32-byte block; empty blocks short-circuit
-            // at the movemask. This drops the
-            // `Vec<u64>` allocation per chunk and folds the bitset walk
-            // into the same pass that produced it.
-            let trace = std::env::var_os("VORTEX_FSST_TEDDY_TRACE")
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-            if let Some(triples) = self.bucketed_triple_codes.as_ref() {
-                let t = trace.then(std::time::Instant::now);
-                let triple = anchor_scan::fused_teddy_triple_scan(
+        // Streaming Teddy paths with fused SSA. Buckets exclude SSA c1's
+        // by construction; when `single_step_accept_codes` is present
+        // we pass it as `ssa_codes` so the AVX2/AVX-512 inner loop
+        // ORs an SSA nibble-table lookup into the same per-block
+        // candidate mask. Verifier runs inline as before. Skips the
+        // gate that previously routed SSA-present needles to the
+        // dense 1-byte path.
+        let ssa_codes = self.single_step_accept_codes.as_deref();
+        let trace = std::env::var_os("VORTEX_FSST_TEDDY_TRACE")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        if let Some(triples) = self.bucketed_triple_codes.as_ref() {
+            let t = trace.then(std::time::Instant::now);
+            let triple = anchor_scan::fused_teddy_triple_scan(
+                n,
+                offsets,
+                all_bytes,
+                triples,
+                ssa_codes,
+                negated,
+                |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
+            );
+            let pair_fallback_buckets = self.bucketed_pair_fallback_codes.as_ref();
+            let result = if let Some(pairs) = pair_fallback_buckets {
+                // SSA already folded into the triple pass; don't re-emit
+                // the same candidates in the pair-fallback pass.
+                let pair = anchor_scan::fused_teddy_pair_scan(
                     n,
                     offsets,
                     all_bytes,
-                    triples,
+                    pairs,
+                    None,
                     negated,
                     |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
                 );
-                let pair_fallback_buckets = self.bucketed_pair_fallback_codes.as_ref();
-                let result = if let Some(pairs) = pair_fallback_buckets {
-                    let pair = anchor_scan::fused_teddy_pair_scan(
-                        n,
-                        offsets,
-                        all_bytes,
-                        pairs,
-                        negated,
-                        |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
-                    );
-                    if negated {
-                        &triple & &pair
-                    } else {
-                        &triple | &pair
-                    }
+                if negated {
+                    &triple & &pair
                 } else {
-                    triple
-                };
+                    &triple | &pair
+                }
+            } else {
+                triple
+            };
+            let total_us = t
+                .map(|t| t.elapsed().as_secs_f64() * 1e6)
+                .unwrap_or_default();
+            if trace {
+                eprintln!(
+                    "[fsst::teddy] path=triple_streaming{}{} triple_buckets={} pair_fallback_buckets={} ssa_codes={} bytes={} total_us={:.3}",
+                    if pair_fallback_buckets.is_some() {
+                        "+pair_fallback"
+                    } else {
+                        ""
+                    },
+                    if ssa_codes.is_some() { "+ssa" } else { "" },
+                    triples.len(),
+                    pair_fallback_buckets.map_or(0, |pairs| pairs.len()),
+                    ssa_codes.map_or(0, |c| c.len()),
+                    all_bytes.len(),
+                    total_us,
+                );
+            }
+            return result;
+        }
+        if let Some(buckets) = self.bucketed_pair_codes.as_ref() {
+            // The escape_pair specialization (one bucket, c1 = ESCAPE,
+            // small c2 set) doesn't fuse SSA today; skip it when SSA
+            // codes are present and let the generic pair scan handle
+            // both. Otherwise prefer the specialized memmem path.
+            if let Some(c2_codes) = escape_pair_targets(buckets).filter(|_| ssa_codes.is_none()) {
+                let t = trace.then(std::time::Instant::now);
+                let result = anchor_scan::fused_escape_pair_scan(
+                    n,
+                    offsets,
+                    all_bytes,
+                    c2_codes,
+                    negated,
+                    |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
+                );
                 let total_us = t
                     .map(|t| t.elapsed().as_secs_f64() * 1e6)
                     .unwrap_or_default();
                 if trace {
                     eprintln!(
-                        "[fsst::teddy] path=triple_streaming{} triple_buckets={} pair_fallback_buckets={} bytes={} total_us={:.3}",
-                        if pair_fallback_buckets.is_some() {
-                            "+pair_fallback"
-                        } else {
-                            ""
-                        },
-                        triples.len(),
-                        pair_fallback_buckets.map_or(0, |pairs| pairs.len()),
+                        "[fsst::teddy] path=escape_pair_streaming c2_codes={} bytes={} total_us={:.3}",
+                        c2_codes.len(),
                         all_bytes.len(),
                         total_us,
                     );
                 }
                 return result;
             }
-            if let Some(buckets) = self.bucketed_pair_codes.as_ref() {
-                let t = trace.then(std::time::Instant::now);
-                let result = if let Some(c2_codes) = escape_pair_targets(buckets) {
-                    anchor_scan::fused_escape_pair_scan(
-                        n,
-                        offsets,
-                        all_bytes,
-                        c2_codes,
-                        negated,
-                        |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
-                    )
-                } else {
-                    anchor_scan::fused_teddy_pair_scan(
-                        n,
-                        offsets,
-                        all_bytes,
-                        buckets,
-                        negated,
-                        |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
-                    )
-                };
-                let total_us = t
-                    .map(|t| t.elapsed().as_secs_f64() * 1e6)
-                    .unwrap_or_default();
-                if trace {
-                    if let Some(c2_codes) = escape_pair_targets(buckets) {
-                        eprintln!(
-                            "[fsst::teddy] path=escape_pair_streaming c2_codes={} bytes={} total_us={:.3}",
-                            c2_codes.len(),
-                            all_bytes.len(),
-                            total_us,
-                        );
-                    } else {
-                        eprintln!(
-                            "[fsst::teddy] path=pair_streaming buckets={} bytes={} total_us={:.3}",
-                            buckets.len(),
-                            all_bytes.len(),
-                            total_us,
-                        );
-                    }
-                }
-                return result;
+            let t = trace.then(std::time::Instant::now);
+            let result = anchor_scan::fused_teddy_pair_scan(
+                n,
+                offsets,
+                all_bytes,
+                buckets,
+                ssa_codes,
+                negated,
+                |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
+            );
+            let total_us = t
+                .map(|t| t.elapsed().as_secs_f64() * 1e6)
+                .unwrap_or_default();
+            if trace {
+                eprintln!(
+                    "[fsst::teddy] path=pair_streaming{} buckets={} ssa_codes={} bytes={} total_us={:.3}",
+                    if ssa_codes.is_some() { "+ssa" } else { "" },
+                    buckets.len(),
+                    ssa_codes.map_or(0, |c| c.len()),
+                    all_bytes.len(),
+                    total_us,
+                );
             }
+            return result;
         }
 
         // Pair path unavailable (or sets too large). Fall back to the
