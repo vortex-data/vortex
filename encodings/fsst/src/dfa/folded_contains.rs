@@ -364,20 +364,28 @@ impl FoldedContainsDfa {
         if self.escape_only_pattern.is_some() {
             return "escape_only_memmem";
         }
-        if self.single_step_accept_codes.is_none() {
-            if self.bucketed_triple_codes.is_some() {
-                return triple_streaming_plan_name();
-            }
-
-            if let Some(buckets) = self.bucketed_pair_codes.as_ref() {
-                if escape_pair_targets(buckets).is_some() {
-                    return "escape_pair_streaming";
-                }
-
-                return pair_streaming_plan_name();
-            }
+        let has_ssa = self.single_step_accept_codes.is_some();
+        if self.bucketed_triple_codes.is_some() {
+            return if has_ssa {
+                "triple_streaming+ssa_merge"
+            } else {
+                triple_streaming_plan_name()
+            };
         }
-
+        if let Some(buckets) = self.bucketed_pair_codes.as_ref() {
+            if escape_pair_targets(buckets).is_some() {
+                return if has_ssa {
+                    "escape_pair_streaming+ssa_merge"
+                } else {
+                    "escape_pair_streaming"
+                };
+            }
+            return if has_ssa {
+                "pair_streaming+ssa_merge"
+            } else {
+                pair_streaming_plan_name()
+            };
+        }
         if self.progressing_codes.is_some() {
             "one_byte_bitset"
         } else {
@@ -432,124 +440,27 @@ impl FoldedContainsDfa {
             return self.scan_via_escape_only_memmem(n, offsets, all_bytes, pattern, negated);
         }
 
-        // Prefer the bucketed 2-byte pair anchor when buckets exist AND
-        // there are no single-step-accept codes. This is the most
-        // selective prefilter the folded DFA can run — eliminates
-        // cross-bucket false-positive pairs that the legacy Cartesian
-        // path admits, at the same single-pass SIMD cost when there
-        // are ≤ MAX_SET_BYTES distinct c1's (multi-pass OR-merge for
-        // more). On real ClickBench URL data on `%google%` with
-        // single-byte 'g'/'o' anchors this is identical to Cartesian
-        // (one bucket); on multi-anchor needles where several c1's
-        // each have their own preferred c2 the bucketed path is
-        // 3–10× sparser.
-        //
-        // SSA-present needles (e.g. `%https%` on synthetic ClickBench
-        // where code 127 = "https://" already accepts in one step) skip
-        // the pair path: they're already fast on the 1-byte path
-        // because each progressing-position match completes in a single
-        // table lookup, and the pair scheme would add a second
-        // PSHUFB-Mula pass for the SSA-merge bitset that pure
-        // overhead.
-        if self.single_step_accept_codes.is_none() {
-            // Streaming Teddy paths: no materialized bitset. Inline DFA
-            // verify per AVX2 32-byte block; empty blocks short-circuit
-            // at the movemask. This drops the
-            // `Vec<u64>` allocation per chunk and folds the bitset walk
-            // into the same pass that produced it.
-            let trace = std::env::var_os("VORTEX_FSST_TEDDY_TRACE")
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-            if let Some(triples) = self.bucketed_triple_codes.as_ref() {
-                let t = trace.then(std::time::Instant::now);
-                let triple = anchor_scan::fused_teddy_triple_scan(
-                    n,
-                    offsets,
-                    all_bytes,
-                    triples,
-                    negated,
-                    |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
-                );
-                let pair_fallback_buckets = self.bucketed_pair_fallback_codes.as_ref();
-                let result = if let Some(pairs) = pair_fallback_buckets {
-                    let pair = anchor_scan::fused_teddy_pair_scan(
-                        n,
-                        offsets,
-                        all_bytes,
-                        pairs,
-                        negated,
-                        |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
-                    );
-                    if negated {
-                        &triple & &pair
-                    } else {
-                        &triple | &pair
-                    }
+        // Streaming Teddy paths: no materialized bitset. Inline DFA
+        // verify per AVX2 32-byte block; empty blocks short-circuit at
+        // the movemask. Buckets are built from non-SSA progressing c1's
+        // only (`collect_bucketed_pair_codes` skips c1's whose one-step
+        // is `accept_state`), so Teddy never sees an SSA c1. When SSA
+        // codes also exist, the SSA-merge step below contributes the
+        // matches Teddy can't reach: a sparse 1-byte bitset over the
+        // SSA codes plus a per-row `matches` verify, OR-merged with
+        // Teddy's result.
+        let teddy_result: Option<BitBuffer> = self.run_teddy(n, offsets, all_bytes, negated);
+
+        if let Some(teddy) = teddy_result {
+            if let Some(ssa_codes) = self.single_step_accept_codes.as_deref() {
+                let ssa = self.scan_ssa_only(n, offsets, all_bytes, ssa_codes, negated);
+                return if negated {
+                    &teddy & &ssa
                 } else {
-                    triple
+                    &teddy | &ssa
                 };
-                let total_us = t
-                    .map(|t| t.elapsed().as_secs_f64() * 1e6)
-                    .unwrap_or_default();
-                if trace {
-                    eprintln!(
-                        "[fsst::teddy] path=triple_streaming{} triple_buckets={} pair_fallback_buckets={} bytes={} total_us={:.3}",
-                        if pair_fallback_buckets.is_some() {
-                            "+pair_fallback"
-                        } else {
-                            ""
-                        },
-                        triples.len(),
-                        pair_fallback_buckets.map_or(0, |pairs| pairs.len()),
-                        all_bytes.len(),
-                        total_us,
-                    );
-                }
-                return result;
             }
-            if let Some(buckets) = self.bucketed_pair_codes.as_ref() {
-                let t = trace.then(std::time::Instant::now);
-                let result = if let Some(c2_codes) = escape_pair_targets(buckets) {
-                    anchor_scan::fused_escape_pair_scan(
-                        n,
-                        offsets,
-                        all_bytes,
-                        c2_codes,
-                        negated,
-                        |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
-                    )
-                } else {
-                    anchor_scan::fused_teddy_pair_scan(
-                        n,
-                        offsets,
-                        all_bytes,
-                        buckets,
-                        negated,
-                        |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
-                    )
-                };
-                let total_us = t
-                    .map(|t| t.elapsed().as_secs_f64() * 1e6)
-                    .unwrap_or_default();
-                if trace {
-                    if let Some(c2_codes) = escape_pair_targets(buckets) {
-                        eprintln!(
-                            "[fsst::teddy] path=escape_pair_streaming c2_codes={} bytes={} total_us={:.3}",
-                            c2_codes.len(),
-                            all_bytes.len(),
-                            total_us,
-                        );
-                    } else {
-                        eprintln!(
-                            "[fsst::teddy] path=pair_streaming buckets={} bytes={} total_us={:.3}",
-                            buckets.len(),
-                            all_bytes.len(),
-                            total_us,
-                        );
-                    }
-                }
-                return result;
-            }
+            return teddy;
         }
 
         // Pair path unavailable (or sets too large). Fall back to the
@@ -584,6 +495,168 @@ impl FoldedContainsDfa {
         }
 
         scan_to_bitbuf_with(n, offsets, all_bytes, negated, |codes| self.matches(codes))
+    }
+
+    /// Run the streaming Teddy (triple, pair, or escape-pair) when its
+    /// buckets exist; returns `None` to signal "no Teddy applicable, fall
+    /// through to the 1-byte / row_loop path". The buckets exclude SSA
+    /// c1's by construction; the caller adds an SSA-merge pass when
+    /// `single_step_accept_codes` is `Some`.
+    fn run_teddy<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+    ) -> Option<BitBuffer>
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        let trace = std::env::var_os("VORTEX_FSST_TEDDY_TRACE")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false);
+        if let Some(triples) = self.bucketed_triple_codes.as_ref() {
+            let t = trace.then(std::time::Instant::now);
+            let triple = anchor_scan::fused_teddy_triple_scan(
+                n,
+                offsets,
+                all_bytes,
+                triples,
+                negated,
+                |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
+            );
+            let pair_fallback_buckets = self.bucketed_pair_fallback_codes.as_ref();
+            let result = if let Some(pairs) = pair_fallback_buckets {
+                let pair = anchor_scan::fused_teddy_pair_scan(
+                    n,
+                    offsets,
+                    all_bytes,
+                    pairs,
+                    negated,
+                    |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
+                );
+                if negated {
+                    &triple & &pair
+                } else {
+                    &triple | &pair
+                }
+            } else {
+                triple
+            };
+            let total_us = t
+                .map(|t| t.elapsed().as_secs_f64() * 1e6)
+                .unwrap_or_default();
+            if trace {
+                eprintln!(
+                    "[fsst::teddy] path=triple_streaming{} triple_buckets={} pair_fallback_buckets={} bytes={} total_us={:.3}",
+                    if pair_fallback_buckets.is_some() {
+                        "+pair_fallback"
+                    } else {
+                        ""
+                    },
+                    triples.len(),
+                    pair_fallback_buckets.map_or(0, |pairs| pairs.len()),
+                    all_bytes.len(),
+                    total_us,
+                );
+            }
+            return Some(result);
+        }
+        if let Some(buckets) = self.bucketed_pair_codes.as_ref() {
+            let t = trace.then(std::time::Instant::now);
+            let result = if let Some(c2_codes) = escape_pair_targets(buckets) {
+                anchor_scan::fused_escape_pair_scan(
+                    n,
+                    offsets,
+                    all_bytes,
+                    c2_codes,
+                    negated,
+                    |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
+                )
+            } else {
+                anchor_scan::fused_teddy_pair_scan(
+                    n,
+                    offsets,
+                    all_bytes,
+                    buckets,
+                    negated,
+                    |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
+                )
+            };
+            let total_us = t
+                .map(|t| t.elapsed().as_secs_f64() * 1e6)
+                .unwrap_or_default();
+            if trace {
+                if let Some(c2_codes) = escape_pair_targets(buckets) {
+                    eprintln!(
+                        "[fsst::teddy] path=escape_pair_streaming c2_codes={} bytes={} total_us={:.3}",
+                        c2_codes.len(),
+                        all_bytes.len(),
+                        total_us,
+                    );
+                } else {
+                    eprintln!(
+                        "[fsst::teddy] path=pair_streaming buckets={} bytes={} total_us={:.3}",
+                        buckets.len(),
+                        all_bytes.len(),
+                        total_us,
+                    );
+                }
+            }
+            return Some(result);
+        }
+        None
+    }
+
+    /// SSA-only row-level pass. Builds a 1-byte PSHUFB-Mula bitset of
+    /// the SSA code byte values and marks rows that contain at least one
+    /// such byte; the full DFA `matches` then confirms (so the rare
+    /// literal-byte position whose value equals an SSA code is filtered
+    /// out without affecting correctness). Designed to be OR-merged with
+    /// the Teddy result.
+    fn scan_ssa_only<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        ssa_codes: &[u8],
+        negated: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        let mut bits = if negated {
+            BitBufferMut::new_set(n)
+        } else {
+            BitBufferMut::new_unset(n)
+        };
+        if n == 0 || all_bytes.is_empty() || ssa_codes.is_empty() {
+            return bits.freeze();
+        }
+        debug_assert!(offsets.len() > n);
+        let bitset = anchor_scan::build_progressing_bitset_unbounded(all_bytes, ssa_codes);
+        // SAFETY: caller guarantees `offsets.len() > n`.
+        let mut start: usize = unsafe { *offsets.get_unchecked(0) }.as_();
+        for i in 0..n {
+            // SAFETY: `i < n` and `offsets.len() >= n + 1`.
+            let end: usize = unsafe { *offsets.get_unchecked(i + 1) }.as_();
+            if start < end && anchor_scan::next_set_in_range(&bitset, start, end).is_some() {
+                // SAFETY: `start <= end <= all_bytes.len()`.
+                let row = unsafe { all_bytes.get_unchecked(start..end) };
+                if self.matches(row) {
+                    // SAFETY: `i < n`.
+                    unsafe {
+                        if negated {
+                            bits.unset_unchecked(i);
+                        } else {
+                            bits.set_unchecked(i);
+                        }
+                    }
+                }
+            }
+            start = end;
+        }
+        bits.freeze()
     }
 
     /// Scan via a single `memmem` pass for the precomputed escape-only
