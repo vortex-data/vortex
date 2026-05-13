@@ -46,7 +46,6 @@ vortex-nvcomp = { path = "nvcomp" }
 [dev-dependencies]
 criterion = { package = "codspeed-criterion-compat-walltime", version = "4.3.0" }
 futures = { workspace = true, features = ["executor"] }
-mimalloc = { workspace = true }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
