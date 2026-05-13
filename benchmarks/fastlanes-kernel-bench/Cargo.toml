@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "fastlanes-kernel-bench"
+description = "Microbenchmarks for the FastLanes 1024-element unpack and fused FoR+unpack kernels"
+authors = { workspace = true }
+categories = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+# Workspace clippy/rust lints are intentionally not inherited: this crate vendors
+# the upstream `fastlanes` 0.5 kernel sources verbatim, which use a different
+# style (deep macro expansion, panics, etc.).
+
+[dependencies]
+arrayref = "0.3.9"
+const_for = "0.1.4"
+num-traits = { workspace = true }
+paste = { workspace = true }
+seq-macro = "0.3.5"
+
+[dev-dependencies]
+divan = { workspace = true }
+
+[[bench]]
+name = "unpack_vs_fused"
+harness = false

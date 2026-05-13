@@ -3994,6 +3994,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastlanes-kernel-bench"
+version = "0.1.0"
+dependencies = [
+ "arrayref",
+ "codspeed-divan-compat",
+ "const_for",
+ "num-traits",
+ "paste",
+ "seq-macro",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
