@@ -10,8 +10,8 @@ use string_compress_bench::backends::Pushdown;
 use string_compress_bench::backends::fsst_rs_backend::FsstRsBackend;
 use string_compress_bench::datasets::{
     Corpus, adversarial_mix, high_cardinality_enum, json_like, log_templates,
-    long_shared_prefix, natural_words, random_bytes, short_codes, skewed_dictionary,
-    url_like,
+    long_shared_prefix, natural_words, random_bytes, real_world, short_codes,
+    skewed_dictionary, url_like,
 };
 
 #[cfg(feature = "onpair-cpp")]
@@ -33,7 +33,7 @@ const ONPAIR_CPP_BITS: u8 = 14;
 const ONPAIR_CPP_SEED: u32 = 42;
 
 fn corpora() -> Vec<Corpus> {
-    vec![
+    let mut all = vec![
         skewed_dictionary(ROWS),
         url_like(ROWS),
         random_bytes(ROWS),
@@ -44,7 +44,14 @@ fn corpora() -> Vec<Corpus> {
         high_cardinality_enum(ROWS),
         log_templates(ROWS),
         adversarial_mix(ROWS),
-    ]
+        real_world::pride_and_prejudice(ROWS),
+        real_world::english_words(ROWS),
+        real_world::gov_hostnames(ROWS),
+        real_world::airport_records(ROWS),
+        real_world::world_cities(ROWS),
+    ];
+    all.retain(|c| !c.is_empty());
+    all
 }
 
 /// Generates the four bench functions for a backend whose factory takes only

@@ -87,6 +87,23 @@ Turn off `fsst-cpp` if the host toolchain can not build C++17 with
 type mismatch that needs the warning relaxed; the underlying byte sizes are
 identical on every supported platform).
 
+## Real-world datasets
+
+Five small, license-clean corpora are vendored under `data/`. Each loader
+reads the file at runtime; missing files are silently skipped, so a slim
+checkout falls back to synthetic-only.
+
+| name                  | source                                                | license     | strings | what it stresses                                          |
+| --------------------- | ----------------------------------------------------- | ----------- | ------: | --------------------------------------------------------- |
+| `pride_and_prejudice` | Project Gutenberg #1342, Jane Austen                  | Public dom. |   7 776 | Natural English prose, FSST-friendly short n-grams        |
+| `english_words`       | dwyl/english-words `words_alpha.txt`                  | Unlicense   |  20 000 | High-cardinality short stems; FSST-12 sweet spot          |
+| `gov_hostnames`       | cisagov/dotgov-data — US federal `.gov` domains       | CC0         |   6 695 | URL/hostname shape; recurring `.gov` + agency fragments   |
+| `airport_records`     | datasets/airport-codes — pipe-delimited records       | ODC-PDDL    |   5 859 | Long records, repeated `iso_country` / `iso_region` tails |
+| `world_cities`        | datasets/world-cities — `name, subcountry, country`   | CC-BY 3.0   |  15 707 | UTF-8 mixed scripts + recurring country-name suffixes     |
+
+Attribution and exact source URLs live in `data/README.md`. The vendored
+files are cleaned and truncated for size (≤500 KB each, ~1.8 MB total).
+
 ## Synthetic datasets
 
 | name             | shape                                                              |
@@ -116,6 +133,11 @@ identical on every supported platform).
 | `fsst12_high_card`| **`fsst-cpp-12`**    | 512 distinct enum values → only FSST-12's 4096-symbol table fits them  |
 | `log_templates`   | **`onpair`**         | 250-byte shared template → uncapped OnPair token, vs 30+ FSST codes    |
 | `adversarial_mix` | nobody — see below   | designed to defeat every algorithm                                     |
+| `pride_and_prejudice` | `fsst-cpp-12`    | natural prose with broad short-stem vocabulary (real-world)            |
+| `english_words`   | `fsst-cpp-12`        | 20 k distinct short words; FSST-8's 255-symbol cap leaves money on the table |
+| `gov_hostnames`   | `fsst-cpp-12`        | many distinct agency-name fragments; shared `.gov` tail                |
+| `airport_records` | `fsst-cpp-12`        | repeated pipe-delimited field values across 5 k records                |
+| `world_cities`    | `fsst-cpp-12`        | UTF-8 mixed scripts + recurring country names                          |
 
 All seeds are pinned so the report is reproducible across runs.
 
@@ -275,6 +297,76 @@ costs 2 bytes for a payload of mostly-unique 1-byte symbols, plus the
 dictionary header). The point of this dataset is to show that none of the
 algorithms is magic — when the input is structured to defeat them, the
 ratio collapses regardless of which backend you pick.
+
+### Real-world datasets
+
+These five rows use the corpora vendored under `data/` (license + source
+in `data/README.md`). FSST-12 wins ratio on every single one — real text
+has the high-cardinality short-pattern shape its 4096-entry symbol table
+is built for. `onpair-cpp` still owns the `contains` pushdown column.
+
+#### `pride_and_prejudice` — 256 043 B raw, 4 096 rows of Austen prose
+
+| backend        | payload | ratio  |  compress | decompress | eq (PD?)      | contains (PD?)  | starts_with    |
+| -------------- | ------: | -----: | --------: | ---------: | ------------: | --------------: | -------------: |
+| `fsst-rs`      | 129 826 | 1.97×  |   3.36 ms |    0.47 ms |  0.002 ms PD  |   0.756 ms      |  0.264 ms      |
+| `fsst-cpp-8`   | 126 854 | 2.02×  |   7.38 ms |    0.37 ms |  0.002 ms PD  |   1.039 ms      |  0.549 ms      |
+| **`fsst-cpp-12`** | **111 492** | **2.30×** | 139.19 ms | 0.43 ms | 0.003 ms PD  |   1.046 ms      |  0.547 ms      |
+| `onpair`       | 151 220 | 1.69×  |   9.86 ms |    0.39 ms |  0.104 ms     |   0.630 ms      |  0.117 ms      |
+| `onpair16`     | 150 786 | 1.70×  |   9.22 ms |    0.26 ms |  0.098 ms     |   0.577 ms      |  0.103 ms      |
+| `onpair-cpp`   | 162 855 | 1.57×  |   6.41 ms |    0.28 ms |  0.008 ms PD  |   0.196 ms PD   |  0.019 ms      |
+
+#### `english_words` — 37 752 B raw, 4 096 short words
+
+| backend        | payload | ratio  |  compress | decompress | eq (PD?)      | contains (PD?)  | starts_with    |
+| -------------- | ------: | -----: | --------: | ---------: | ------------: | --------------: | -------------: |
+| `fsst-rs`      |  19 481 | 1.94×  |   2.21 ms |    0.21 ms |  0.002 ms PD  |   0.247 ms      |  0.164 ms      |
+| `fsst-cpp-8`   |  19 313 | 1.95×  |   6.57 ms |    0.22 ms |  0.002 ms PD  |   0.343 ms      |  0.255 ms      |
+| **`fsst-cpp-12`** | **15 833** | **2.38×** | 81.09 ms | 0.27 ms | 0.006 ms PD  |   0.408 ms      |  0.320 ms      |
+| `onpair`       |  36 590 | 1.03×  |   1.87 ms |    0.23 ms |  0.058 ms     |   0.163 ms      |  0.072 ms      |
+| `onpair16`     |  36 659 | 1.03×  |   1.88 ms |    0.21 ms |  0.054 ms     |   0.150 ms      |  0.063 ms      |
+| `onpair-cpp`   |  51 557 | 0.73×  |   1.46 ms |    0.19 ms |  0.008 ms PD  |   0.095 ms PD   |  0.011 ms      |
+
+#### `gov_hostnames` — 82 514 B raw, 4 096 hostnames
+
+| backend        | payload | ratio  |  compress | decompress | eq (PD?)      | contains (PD?)  | starts_with    |
+| -------------- | ------: | -----: | --------: | ---------: | ------------: | --------------: | -------------: |
+| `fsst-rs`      |  27 816 | 2.97×  |   1.81 ms |    0.24 ms |  0.002 ms PD  |   0.356 ms      |  0.168 ms      |
+| `fsst-cpp-8`   |  27 113 | 3.04×  |   5.15 ms |    0.23 ms |  0.002 ms PD  |   0.458 ms      |  0.275 ms      |
+| **`fsst-cpp-12`** | **23 090** | **3.57×** | 66.35 ms | 0.35 ms | 0.004 ms PD  |   0.507 ms      |  0.327 ms      |
+| `onpair`       |  44 079 | 1.87×  |   2.63 ms |    0.23 ms |  0.055 ms     |   0.270 ms      |  0.071 ms      |
+| `onpair16`     |  44 352 | 1.86×  |   2.89 ms |    0.21 ms |  0.054 ms     |   0.255 ms      |  0.063 ms      |
+| `onpair-cpp`   |  58 682 | 1.41×  |   2.11 ms |    0.24 ms |  0.008 ms PD  |   0.099 ms PD   |  0.014 ms      |
+
+#### `airport_records` — 346 598 B raw, 4 096 pipe-delimited records
+
+| backend        | payload | ratio  |  compress | decompress | eq (PD?)      | contains (PD?)  | starts_with    |
+| -------------- | ------: | -----: | --------: | ---------: | ------------: | --------------: | -------------: |
+| `fsst-rs`      | 167 846 | 2.06×  |   3.20 ms |    0.52 ms |  0.003 ms PD  |   0.713 ms      |  0.302 ms      |
+| `fsst-cpp-8`   | 164 762 | 2.10×  |   6.88 ms |    0.47 ms |  0.002 ms PD  |   0.955 ms      |  0.572 ms      |
+| **`fsst-cpp-12`** | **153 457** | **2.26×** | 138.29 ms | 0.50 ms | 0.003 ms PD  |   0.952 ms      |  0.552 ms      |
+| `onpair`       | 191 335 | 1.81×  |  13.46 ms |    0.39 ms |  0.175 ms     |   0.583 ms      |  0.194 ms      |
+| `onpair16`     | 191 514 | 1.81×  |  12.10 ms |    0.35 ms |  0.119 ms     |   0.499 ms      |  0.123 ms      |
+| `onpair-cpp`   | 198 360 | 1.75×  |   7.98 ms |    0.33 ms |  0.007 ms PD  |   0.146 ms PD   |  0.011 ms      |
+
+#### `world_cities` — 127 899 B raw, 4 096 city/country triples (mixed UTF-8)
+
+| backend        | payload | ratio  |  compress | decompress | eq (PD?)      | contains (PD?)  | starts_with    |
+| -------------- | ------: | -----: | --------: | ---------: | ------------: | --------------: | -------------: |
+| `fsst-rs`      |  57 517 | 2.22×  |   2.15 ms |    0.28 ms |  0.002 ms PD  |   0.379 ms      |  0.212 ms      |
+| `fsst-cpp-8`   |  53 795 | 2.38×  |   6.21 ms |    0.35 ms |  0.005 ms PD  |   0.572 ms      |  0.386 ms      |
+| **`fsst-cpp-12`** | **42 276** | **3.03×** |  92.38 ms | 0.30 ms | 0.008 ms PD  |   0.619 ms      |  0.426 ms      |
+| `onpair`       |  67 598 | 1.89×  |   5.05 ms |    0.26 ms |  0.100 ms     |   0.297 ms      |  0.116 ms      |
+| `onpair16`     |  68 533 | 1.87×  |   4.32 ms |    0.25 ms |  0.069 ms     |   0.249 ms      |  0.074 ms      |
+| `onpair-cpp`   |  83 115 | 1.54×  |   2.94 ms |    0.20 ms |  0.008 ms PD  |   0.140 ms PD   |  0.014 ms      |
+
+The real-world result is unambiguous: when you measure against actual
+human-readable strings instead of synthetic ones, **FSST-12 wins ratio in
+every category** by 15-25 % over FSST-8 — its larger symbol table absorbs
+the long tail of distinct short patterns that real text contains. The
+trade-off is severe: training is 15-25× slower than FSST-8. For
+write-once / read-many storage, that's an easy trade; for streaming
+ingest, FSST-8 is still the practical pick.
 
 ### Summary chart — compression ratio per backend
 

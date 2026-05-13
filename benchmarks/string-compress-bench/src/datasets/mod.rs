@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Synthetic string-corpus generators.
+//! String-corpus generators (synthetic + real-world).
 //!
-//! We can not download real-world datasets here, so each generator produces a
-//! deterministic seeded corpus that exercises a different property a string
-//! compressor cares about (skewed dictionaries, long shared prefixes, random
-//! noise, URL-shaped strings, fragmented bag-of-words, etc.).
+//! Each synthetic generator produces a deterministic seeded corpus that
+//! exercises a different property a string compressor cares about (skewed
+//! dictionaries, long shared prefixes, random noise, URL-shaped strings,
+//! fragmented bag-of-words, etc.). The companion [`real_world`] module
+//! adds loaders for the vendored corpora under `data/`.
 
 use rand::RngExt;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::IndexedRandom;
+
+pub mod real_world;
 
 /// A synthetic string corpus shared by every backend benchmark.
 #[derive(Clone)]
@@ -48,9 +51,12 @@ impl Corpus {
     }
 }
 
-/// Build the suite of synthetic datasets used by every bench / report run.
+/// Build the suite of every dataset (synthetic + vendored real-world) used
+/// by the bench / report run. Real-world corpora that fail to load (file
+/// missing) are silently dropped so a slim checkout still produces a
+/// usable report.
 pub fn all_datasets(scale: usize) -> Vec<Corpus> {
-    vec![
+    let mut all = vec![
         skewed_dictionary(scale),
         url_like(scale),
         random_bytes(scale),
@@ -61,7 +67,14 @@ pub fn all_datasets(scale: usize) -> Vec<Corpus> {
         high_cardinality_enum(scale),
         log_templates(scale),
         adversarial_mix(scale),
-    ]
+        real_world::pride_and_prejudice(scale),
+        real_world::english_words(scale),
+        real_world::gov_hostnames(scale),
+        real_world::airport_records(scale),
+        real_world::world_cities(scale),
+    ];
+    all.retain(|c| !c.is_empty());
+    all
 }
 
 /// 32-word vocabulary; each row is `1-6` words drawn from a Zipf-ish
