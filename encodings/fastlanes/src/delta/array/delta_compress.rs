@@ -9,6 +9,7 @@ use fastlanes::FastLanes;
 use fastlanes::Transpose;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::Buffer;
@@ -17,27 +18,46 @@ use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
 use crate::bit_transpose::transpose_validity;
+use crate::delta::array::unsigned_counterpart;
 use crate::fill_forward_nulls;
 pub fn delta_compress(
     array: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
     let validity = array.validity()?;
-    let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |T| {
+    let original_ptype = array.ptype();
+    let unsigned_ptype = unsigned_counterpart(original_ptype);
+    // Signed integers are processed through their unsigned counterpart: `wrapping_sub`
+    // is bit-identical for signed and unsigned operands, so the encoded bytes are the
+    // same regardless of how the buffer's elements are interpreted.
+    let work = if original_ptype == unsigned_ptype {
+        array.clone()
+    } else {
+        array.reinterpret_cast(unsigned_ptype)
+    };
+
+    let (bases, deltas) = match_each_unsigned_integer_ptype!(work.ptype(), |T| {
         // Fill-forward null values so that transposed deltas at null positions remain
         // small. Without this, bitpacking may skip patches for null positions, and the
         // corrupted delta values propagate through the cumulative sum during decompression.
-        let filled = fill_forward_nulls(array.to_buffer::<T>(), &validity, ctx)?;
+        let filled = fill_forward_nulls(work.to_buffer::<T>(), &validity, ctx)?;
         let (bases, deltas) = compress_primitive::<T, { T::LANES }>(&filled);
         // TODO(robert): This can be avoided if we add TransposedBoolArray that performs index translation when necessary.
         let validity = transpose_validity(&validity, ctx)?;
         (
-            PrimitiveArray::new(bases, array.dtype().nullability().into()),
+            PrimitiveArray::new(bases, work.dtype().nullability().into()),
             PrimitiveArray::new(deltas, validity),
         )
     });
 
-    Ok((bases, deltas))
+    Ok(if original_ptype == unsigned_ptype {
+        (bases, deltas)
+    } else {
+        (
+            bases.reinterpret_cast(original_ptype),
+            deltas.reinterpret_cast(original_ptype),
+        )
+    })
 }
 
 fn compress_primitive<T, const LANES: usize>(array: &[T]) -> (Buffer<T>, Buffer<T>)
@@ -113,10 +133,30 @@ mod tests {
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[rstest]
-    #[case((0u32..10_000).collect())]
-    #[case((0..10_000).map(|i| (i % (u8::MAX as i32)) as u8).collect())]
-    #[case(PrimitiveArray::from_option_iter(
+    #[case::u32((0u32..10_000).collect())]
+    #[case::u8((0..10_000).map(|i| (i % (u8::MAX as i32)) as u8).collect())]
+    #[case::nullable_u32(PrimitiveArray::from_option_iter(
             (0u32..10_000).map(|i| (i % 2 == 0).then_some(i)),
+    ))]
+    // Signed inputs that stay non-negative: encoded deltas are identical to the u32 case
+    // bit-for-bit, but the buffer's dtype carries the signedness through round-trip.
+    #[case::i32_non_negative((0i32..10_000).collect())]
+    // Signed inputs crossing zero: deltas alternate in sign, which under wrapping_sub
+    // populates the high bits of negative deltas. Bit-packing without preprocessing
+    // would explode here, but round-tripping the raw delta buffer is still correct.
+    #[case::i32_crossing_zero((-5_000i32..5_000).collect())]
+    // All-negative signed values.
+    #[case::i32_all_negative((-10_000i32..0).collect())]
+    // i8 across the full type range: tests T::MIN / T::MAX boundaries and the
+    // remainder-padded chunk path (256 < FL_CHUNK_SIZE).
+    #[case::i8_full_range((i8::MIN..=i8::MAX).collect())]
+    // i16 crossing zero.
+    #[case::i16_crossing_zero((-2_000i16..2_000).collect())]
+    // i64 with large negative offset.
+    #[case::i64_large_negative((0i64..5_000).map(|i| i - 1_000_000_000_000).collect())]
+    // Nullable signed array with values around zero.
+    #[case::nullable_i32_crossing(PrimitiveArray::from_option_iter(
+            (-2_000i32..2_000).map(|i| (i % 3 != 0).then_some(i)),
     ))]
     fn test_compress(#[case] array: PrimitiveArray) -> VortexResult<()> {
         let delta = Delta::try_from_primitive_array(&array, &mut SESSION.create_execution_ctx())?;

@@ -24,6 +24,12 @@ impl CastReduce for Delta {
         if target_ptype.is_signed_int() || source_ptype.bit_width() > target_ptype.bit_width() {
             return Ok(None);
         }
+        // Signed deltas widened by per-element value-preserving cast (e.g. -1i8 -> 4294967295u32)
+        // break the wrapping-add invariant: zero-extending the delta bytes would preserve it,
+        // sign-extending the deltas does not. Fall back to full decompress + re-encode.
+        if source_ptype.is_signed_int() {
+            return Ok(None);
+        }
 
         // Cast both bases and deltas to the target type
         let casted_bases = array.bases().cast(dtype.with_nullability(NonNullable))?;
