@@ -32,19 +32,13 @@ impl Hsz {
         }
 
         let mut keep = BufferMut::<f64>::with_capacity(mask.true_count());
-        let mut scratch = [0u32; HSZ_BLOCK_SIZE];
+        let mut recon = [0f64; HSZ_BLOCK_SIZE];
         for block_idx in 0..self.blocks.len() {
             let range = self.block_range(block_idx);
-            let predictor = self.blocks[block_idx].min;
-            self.unpack_block_into(block_idx, &mut scratch);
+            self.reconstruct_block_into(block_idx, &mut recon);
             for (offset, i) in range.clone().enumerate() {
                 if mask.value(i) {
-                    let v = if let Some(pos) = self.outlier_position(i as u64) {
-                        self.outlier_values[pos]
-                    } else {
-                        predictor + (scratch[offset] as f64) * self.eps
-                    };
-                    keep.push(v);
+                    keep.push(recon[offset]);
                 }
             }
         }

@@ -29,7 +29,7 @@ impl Hsz {
     pub fn between_mask(&self, lo: f64, hi: f64) -> (Mask, BetweenStats) {
         let mut bits = vec![false; self.len];
         let mut stats = BetweenStats::default();
-        let mut scratch = [0u32; HSZ_BLOCK_SIZE];
+        let mut recon = [0f64; HSZ_BLOCK_SIZE];
 
         for block_idx in 0..self.blocks.len() {
             let block = self.blocks[block_idx];
@@ -53,11 +53,13 @@ impl Hsz {
                 continue;
             }
             stats.blocks_descended += 1;
-            let predictor = block.min;
-            self.unpack_block_into(block_idx, &mut scratch);
-            for (offset, i) in range.clone().enumerate() {
-                let v = predictor + (scratch[offset] as f64) * self.eps;
-                bits[i] = v >= lo && v <= hi;
+            self.reconstruct_block_into(block_idx, &mut recon);
+            // SIMD-friendly: straight-line predicate over a slice of f64,
+            // writing into a contiguous slice of bool.
+            let n = range.len();
+            let dst = &mut bits[range.start..range.end];
+            for i in 0..n {
+                dst[i] = recon[i] >= lo && recon[i] <= hi;
             }
         }
         for (&idx, &value) in self.outlier_indices.iter().zip(&self.outlier_values) {

@@ -47,22 +47,18 @@ impl Hsz {
     /// `eps`.
     pub fn sum_from_residuals(&self) -> f64 {
         let mut acc = 0.0;
-        let mut scratch = [0u32; HSZ_BLOCK_SIZE];
+        let mut recon = [0f64; HSZ_BLOCK_SIZE];
         for block_idx in 0..self.blocks.len() {
             let range = self.block_range(block_idx);
-            let predictor = self.blocks[block_idx].min;
-            self.unpack_block_into(block_idx, &mut scratch);
-            let mut residual_acc: u64 = 0;
-            for offset in 0..range.len() {
-                residual_acc += scratch[offset] as u64;
+            self.reconstruct_block_into(block_idx, &mut recon);
+            // Straight-line sum over the reconstructed slice; LLVM
+            // autovectorises to a chain of `vaddpd`.
+            let n = range.len();
+            let mut local = 0.0;
+            for i in 0..n {
+                local += recon[i];
             }
-            acc += predictor * range.len() as f64 + (residual_acc as f64) * self.eps;
-        }
-        for (&idx, &value) in self.outlier_indices.iter().zip(&self.outlier_values) {
-            let block_idx = self.block_of(idx as usize);
-            let predictor = self.blocks[block_idx].min;
-            acc -= predictor;
-            acc += value;
+            acc += local;
         }
         acc
     }
@@ -113,7 +109,7 @@ impl Hsz {
     /// blocks introduce drift bounded by `eps × rows_in_boundary_blocks`.
     pub fn sum_in_range(&self, lo: f64, hi: f64) -> f64 {
         let mut acc = 0.0;
-        let mut scratch = [0u32; HSZ_BLOCK_SIZE];
+        let mut recon = [0f64; HSZ_BLOCK_SIZE];
         for block_idx in 0..self.blocks.len() {
             let block = self.blocks[block_idx];
             let range = self.block_range(block_idx);
@@ -137,20 +133,19 @@ impl Hsz {
                 acc += self.outliers_passing(&range, lo, hi, false);
                 continue;
             }
-            // Boundary. Unpack the block; substitute exact values at
-            // outlier positions.
-            let predictor = block.min;
-            self.unpack_block_into(block_idx, &mut scratch);
-            for (offset, i) in range.clone().enumerate() {
-                let v = if let Some(pos) = self.outlier_position(i as u64) {
-                    self.outlier_values[pos]
-                } else {
-                    predictor + (scratch[offset] as f64) * self.eps
-                };
-                if v >= lo && v <= hi {
-                    acc += v;
-                }
+            // Boundary. Reconstruct the block into an f64 scratch buffer
+            // (outliers patched in by `reconstruct_block_into`), then run
+            // a branchless masked sum LLVM autovectorises to AVX2
+            // `vmaskmovpd`/`vaddpd`.
+            self.reconstruct_block_into(block_idx, &mut recon);
+            let n = range.len();
+            let mut local = 0.0;
+            for i in 0..n {
+                let v = recon[i];
+                let pass = v >= lo && v <= hi;
+                local += if pass { v } else { 0.0 };
             }
+            acc += local;
         }
         acc
     }

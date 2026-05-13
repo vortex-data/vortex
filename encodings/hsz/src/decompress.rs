@@ -13,17 +13,11 @@ impl Hsz {
     /// and exactly for outliers.
     pub fn decompress(&self) -> Buffer<f64> {
         let mut out = BufferMut::<f64>::with_capacity(self.len);
-        let mut scratch = [0u32; HSZ_BLOCK_SIZE];
+        let mut recon = [0f64; HSZ_BLOCK_SIZE];
         for block_idx in 0..self.blocks.len() {
             let range = self.block_range(block_idx);
-            let predictor = self.blocks[block_idx].min;
-            self.unpack_block_into(block_idx, &mut scratch);
-            for (offset, _) in range.clone().enumerate() {
-                out.push(predictor + (scratch[offset] as f64) * self.eps);
-            }
-        }
-        for (&idx, &value) in self.outlier_indices.iter().zip(&self.outlier_values) {
-            out[idx as usize] = value;
+            self.reconstruct_block_into(block_idx, &mut recon);
+            out.extend_from_slice(&recon[..range.len()]);
         }
         out.freeze()
     }
@@ -52,20 +46,49 @@ impl Hsz {
         predictor + (residual as f64) * self.eps
     }
 
-    /// Unpack block `block_idx` into the provided 1024-element scratch
-    /// buffer. Positions beyond [`crate::stage::BlockSummary::count`] are
-    /// undefined; callers should only read the first `count` slots.
-    pub(crate) fn unpack_block_into(&self, block_idx: usize, scratch: &mut [u32; HSZ_BLOCK_SIZE]) {
+    /// Reconstruct block `block_idx` directly into an `f64` scratch buffer,
+    /// with outlier positions substituted by their exact value.
+    ///
+    /// This is the SIMD-friendly entry point for boundary-block compute. The
+    /// two halves — `predictor + residual * eps` reconstruction and outlier
+    /// patching — are split so the first is a straight-line loop that LLVM
+    /// auto-vectorises into AVX2 `vcvtdq2pd` + `vfmadd` and the second is an
+    /// out-of-band slot patch over the typically tiny outlier list. Callers
+    /// should only read the first `block.count` slots.
+    pub(crate) fn reconstruct_block_into(&self, block_idx: usize, out: &mut [f64; HSZ_BLOCK_SIZE]) {
+        let predictor = self.blocks[block_idx].min;
+        let eps = self.eps;
         let bit_width = self.bit_widths[block_idx];
         if bit_width == 0 {
-            scratch.fill(0);
-            return;
+            out.fill(predictor);
+        } else {
+            let mut scratch = [0u32; HSZ_BLOCK_SIZE];
+            let packed = self.packed_block(block_idx);
+            // SAFETY: packed length matches the per-block invariant
+            // established by `compress` (`HSZ_BLOCK_SIZE * bit_width / 32`
+            // u32 words), `scratch` is exactly HSZ_BLOCK_SIZE long, and
+            // bit_width is in the supported 1..=31 range.
+            unsafe {
+                <u32 as BitPacking>::unchecked_unpack(bit_width as usize, packed, &mut scratch);
+            }
+            // Tight straight-line loop — autovectorises to AVX2
+            // vcvtdq2pd + vfmadd.
+            for i in 0..HSZ_BLOCK_SIZE {
+                out[i] = predictor + (scratch[i] as f64) * eps;
+            }
         }
-        let packed = self.packed_block(block_idx);
-        // SAFETY: same invariants as `scalar_at`. `scratch` is exactly
-        // HSZ_BLOCK_SIZE long.
-        unsafe {
-            <u32 as BitPacking>::unchecked_unpack(bit_width as usize, packed, scratch);
+        // Patch outlier slots with exact values. Range is contiguous so we
+        // binary-search the outlier index list once per block.
+        let range = self.block_range(block_idx);
+        let start = self
+            .outlier_indices
+            .partition_point(|&i| (i as usize) < range.start);
+        let end = self
+            .outlier_indices
+            .partition_point(|&i| (i as usize) < range.end);
+        for k in start..end {
+            let off = self.outlier_indices[k] as usize - range.start;
+            out[off] = self.outlier_values[k];
         }
     }
 }

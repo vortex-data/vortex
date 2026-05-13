@@ -37,7 +37,7 @@ impl Hsz {
     pub fn compare_mask(&self, op: CompareOp, value: f64) -> (Mask, CompareStats) {
         let mut bits = vec![false; self.len];
         let mut stats = CompareStats::default();
-        let mut scratch = [0u32; HSZ_BLOCK_SIZE];
+        let mut recon = [0f64; HSZ_BLOCK_SIZE];
 
         for block_idx in 0..self.blocks.len() {
             let block = self.blocks[block_idx];
@@ -57,11 +57,43 @@ impl Hsz {
                 stats.blocks_all_false += 1;
             } else {
                 stats.blocks_descended += 1;
-                let predictor = block.min;
-                self.unpack_block_into(block_idx, &mut scratch);
-                for (offset, i) in range.clone().enumerate() {
-                    let v = predictor + (scratch[offset] as f64) * self.eps;
-                    bits[i] = compare_scalar(op, v, value);
+                self.reconstruct_block_into(block_idx, &mut recon);
+                let n = range.len();
+                let dst = &mut bits[range.start..range.end];
+                // Hoist the op match outside the hot loop: monomorphises
+                // into six straight-line predicate kernels so each one is
+                // SIMD-friendly.
+                match op {
+                    CompareOp::Lt => {
+                        for i in 0..n {
+                            dst[i] = recon[i] < value;
+                        }
+                    }
+                    CompareOp::Le => {
+                        for i in 0..n {
+                            dst[i] = recon[i] <= value;
+                        }
+                    }
+                    CompareOp::Gt => {
+                        for i in 0..n {
+                            dst[i] = recon[i] > value;
+                        }
+                    }
+                    CompareOp::Ge => {
+                        for i in 0..n {
+                            dst[i] = recon[i] >= value;
+                        }
+                    }
+                    CompareOp::Eq => {
+                        for i in 0..n {
+                            dst[i] = recon[i] == value;
+                        }
+                    }
+                    CompareOp::Ne => {
+                        for i in 0..n {
+                            dst[i] = recon[i] != value;
+                        }
+                    }
                 }
             }
         }

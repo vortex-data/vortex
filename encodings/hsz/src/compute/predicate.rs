@@ -53,7 +53,7 @@ impl Hsz {
     /// value.
     pub fn count_in_range(&self, lo: f64, hi: f64) -> usize {
         let mut count: usize = 0;
-        let mut scratch = [0u32; crate::stage::HSZ_BLOCK_SIZE];
+        let mut recon = [0f64; crate::stage::HSZ_BLOCK_SIZE];
         for block_idx in 0..self.blocks.len() {
             let block = self.blocks[block_idx];
             let range = self.block_range(block_idx);
@@ -70,18 +70,14 @@ impl Hsz {
                 count -= self.outliers_outside(&range, lo, hi);
                 continue;
             }
-            let predictor = block.min;
-            self.unpack_block_into(block_idx, &mut scratch);
-            for (offset, i) in range.clone().enumerate() {
-                let v = if let Some(pos) = self.outlier_position(i as u64) {
-                    self.outlier_values[pos]
-                } else {
-                    predictor + (scratch[offset] as f64) * self.eps
-                };
-                if v >= lo && v <= hi {
-                    count += 1;
-                }
+            self.reconstruct_block_into(block_idx, &mut recon);
+            let n = range.len();
+            // Branchless SIMD-friendly count over the reconstructed slice.
+            let mut local: u64 = 0;
+            for i in 0..n {
+                local += u64::from(recon[i] >= lo && recon[i] <= hi);
             }
+            count += local as usize;
         }
         count
     }
