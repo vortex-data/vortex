@@ -172,7 +172,6 @@ mod tests {
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::FixedSizeListArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::arrow::ArrowArrayExecutor;
     use vortex_array::arrow::ArrowExport;
     use vortex_array::arrow::ArrowImport;
     use vortex_array::arrow::ArrowSession;
@@ -398,7 +397,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let session = SESSION.arrow();
         let original = sample_vector_array();
-        let arrow = original.clone().execute_arrow(None, &mut ctx)?;
+        let arrow = session.execute_arrow(original.clone(), None, &mut ctx)?;
 
         let field = session.to_arrow_field("v", original.dtype())?;
         let imported = session.from_arrow_array(arrow, &field)?;
