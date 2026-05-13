@@ -64,12 +64,12 @@ async fn main() -> anyhow::Result<()> {
         .build()?;
 
     println!("=== Pre-optimization logical plan ===");
-    println!("{}", plan.display_indent());
+    println!("{}", plan.display_indent_schema());
 
     let optimized = optimize_with_logging(&plan, &ctx)?;
 
     println!("\n=== Optimized logical plan ===");
-    println!("{}", optimized.display_indent());
+    println!("{}", optimized.display_indent_schema());
 
     println!("\n=== Results ===");
     ctx.execute_logical_plan(optimized).await?.show().await?;
@@ -107,8 +107,8 @@ fn optimize_with_logging(plan: &LogicalPlan, ctx: &SessionContext) -> anyhow::Re
 }
 
 fn log_rule(stage: &str, rule: &str, before: &LogicalPlan, after: &LogicalPlan) {
-    let before_s = format!("{}", before.display_indent());
-    let after_s = format!("{}", after.display_indent());
+    let before_s = format!("{}", before.display_indent_schema());
+    let after_s = format!("{}", after.display_indent_schema());
     if before_s == after_s {
         println!("(no-op) [{stage}] {rule}");
         return;
