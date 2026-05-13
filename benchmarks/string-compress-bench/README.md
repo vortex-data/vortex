@@ -276,6 +276,112 @@ dictionary header). The point of this dataset is to show that none of the
 algorithms is magic — when the input is structured to defeat them, the
 ratio collapses regardless of which backend you pick.
 
+### Summary chart — compression ratio per backend
+
+Each `█` represents 0.5× ratio. `★` marks the winner for each dataset.
+Higher is better.
+
+```text
+skewed_dict       (51 KB raw)  -- small high-frequency vocab, classic FSST shape
+  fsst-rs       ██████▏      3.08×  ★
+  fsst-cpp-8    ██████▏      3.07×
+  fsst-cpp-12   ████▏        2.10×
+  onpair        ████         2.02×
+  onpair16      ████         2.02×
+  onpair-cpp    ██▌          1.29×
+
+urls              (180 KB raw)  -- recurring 2-8 byte fragments
+  fsst-cpp-8    ███████      3.51×  ★
+  fsst-rs       █████▉       2.98×
+  fsst-cpp-12   █████▉       2.96×
+  onpair        █████▉       2.90×
+  onpair16      ████▉        2.41×
+  onpair-cpp    ████▎        2.10×
+
+random_alnum      (138 KB raw)  -- worst-case high-entropy bytes
+  fsst-cpp-12   ██▌          1.27×  ★
+  fsst-cpp-8    ██▏          1.05×
+  fsst-rs       ██▏          1.05×
+  onpair        █▋           0.82×
+  onpair16      █▋           0.82×
+  onpair-cpp    █▌           0.75×
+
+long_prefix       (287 KB raw)  -- 60-byte shared prefix
+  fsst-cpp-8    ██████████▍  5.19×  ★
+  fsst-rs       ████████▎    4.16×
+  onpair        ████         4.03×
+  fsst-cpp-12   ███████▉     3.93×
+  onpair16      ███████▏     3.56×
+  onpair-cpp    ██████▎      3.11×
+
+natural_words     (178 KB raw)  -- bag-of-words English-ish
+  fsst-cpp-8    █████████▉   4.97×  ★
+  fsst-rs       ████████▉    4.44×
+  fsst-cpp-12   ██████▌      3.29×
+  onpair        █████▉       2.97×
+  onpair16      █████▉       2.97×
+  onpair-cpp    █████▌       2.74×
+
+json_like         (184 KB raw)  -- recurring quoted keys
+  fsst-cpp-8    ███████▉     3.93×  ★
+  fsst-rs       ███████▍     3.72×
+  fsst-cpp-12   ██████▋      3.35×
+  onpair16      █████▍       2.69×
+  onpair        █████▎       2.62×
+  onpair-cpp    ████▋        2.33×
+
+short_codes       (33 KB raw)  -- 8-byte fixed-format identifiers
+  fsst-cpp-12   ████▌        2.26×  ★
+  fsst-cpp-8    ████▎        2.15×
+  fsst-rs       ████▎        2.14×
+  onpair        ██▏          1.08×
+  onpair16      ██▏          1.06×
+  onpair-cpp    █▌           0.74×
+
+fsst12_high_card  (149 KB raw)  -- 512 distinct enum values
+  fsst-cpp-12   ████▉        2.43×  ★  ← FSST-12 sweet spot (vs 1.77× for FSST-8)
+  onpair        ███▉         1.94×
+  onpair16      ███▉         1.94×
+  fsst-cpp-8    ███▌         1.77×
+  fsst-rs       ███▎         1.65×
+  onpair-cpp    ███▎         1.64×
+
+log_templates     (1147 KB raw)  -- 250-byte shared template
+  onpair        █████████████▍  6.70×  ★  ← OnPair sweet spot
+  onpair-cpp    █████████▌      4.76×
+  fsst-cpp-8    █████████▍      4.71×
+  fsst-cpp-12   ████████▌       4.28×
+  onpair16      ████████▍       4.16×
+  fsst-rs       ███████▍        3.70×
+
+adversarial_mix   (126 KB raw)  -- designed to defeat every backend
+  fsst-cpp-12   ██▊          1.35×  ← best of a bad bunch
+  fsst-cpp-8    ██▍          1.16×
+  fsst-rs       ██▎          1.12×
+  onpair        █▋           0.80×  ← output LARGER than input
+  onpair16      █▋           0.80×
+  onpair-cpp    █▍           0.70×
+```
+
+### Summary chart — `LIKE '%needle%'` latency on `log_templates`
+
+Each `█` represents 0.1 ms; full corpus 1.1 MB / 4 096 rows. Lower is
+better. `★` marks the winner.
+
+```text
+  onpair-cpp    ▉                  0.08 ms  ★  compressed-domain KMP
+  onpair16      ████████████▎      1.23 ms
+  fsst-rs       █████████████▋     1.37 ms
+  onpair        █████████████▊     1.38 ms
+  fsst-cpp-8    ██████████████▊    1.48 ms
+  fsst-cpp-12   ███████████████▏   1.52 ms
+```
+
+`onpair-cpp` is ~17× faster than the next-best backend on substring
+search: its KMP automaton scans the packed token stream directly, while
+every FSST variant and the Rust OnPair port has to decompress each row
+first.
+
 ### Reading the table
 
 - **Compression ratio**: `fsst-cpp-8` is the consistent winner on
