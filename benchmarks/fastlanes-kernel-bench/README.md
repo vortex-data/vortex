@@ -69,27 +69,90 @@ The signed types are therefore intentionally not benchmarked in this crate.
 
 ## Running
 
+> **Use the helper script** (`scripts/bench.sh`) to compile the kernels with
+> `target-cpu=native` and a single codegen unit. Plain `cargo bench` builds at
+> the `x86-64-v1` baseline (SSE2 only) and leaves a large speedup on the table
+> &mdash; see "Why the helper script matters" below.
+
 Run every case (360 benchmarks total &mdash; takes a while):
 
 ```bash
-cargo bench -p fastlanes-kernel-bench
+./benchmarks/fastlanes-kernel-bench/scripts/bench.sh
 ```
 
-Filter by type or bit width:
+Filter by type or bit width (filters are regexes against the function name):
 
 ```bash
 # All u32 cases
-cargo bench -p fastlanes-kernel-bench -- u32
+./benchmarks/fastlanes-kernel-bench/scripts/bench.sh u32
 
 # Just W=10 across all types
-cargo bench -p fastlanes-kernel-bench -- '__w10$'
+./benchmarks/fastlanes-kernel-bench/scripts/bench.sh '__w10$'
 
 # Just the three variants of u64 W=33
-cargo bench -p fastlanes-kernel-bench -- 'u64__w33$'
+./benchmarks/fastlanes-kernel-bench/scripts/bench.sh 'u64__w33$'
+
+# Smaller sample count
+./benchmarks/fastlanes-kernel-bench/scripts/bench.sh u32__w10 --sample-count 100
 ```
 
-Speed up iteration with a smaller sample count:
+For a reproducible portable baseline (skylake-class instead of host CPU):
 
 ```bash
-cargo bench -p fastlanes-kernel-bench -- u32__w10 --sample-count 100
+RUSTFLAGS_NATIVE='-C target-cpu=x86-64-v3' \
+    ./benchmarks/fastlanes-kernel-bench/scripts/bench.sh
 ```
+
+### Why the helper script matters
+
+Profiling the binary built by plain `cargo bench` shows scalar SSE2 code, e.g.
+the `<u32 as BitPacking>::unpack` body is a stream of:
+
+```
+movdqu  xmm1, [rdi+rax*1+0x80]   # 128-bit load
+pand    xmm2, xmm0               # mask
+psrld   xmm2, 0x8                # shift right
+movdqu  [rsi+rax*1+0x280], xmm2  # 128-bit store
+```
+
+i.e. 4-wide u32 vectors with no AVX VEX-encoded ops at all. With the script's
+`-C target-cpu=native` we get AVX2:
+
+```
+vmovdqu ymm3, [rdi+rax*1+0x80]   # 256-bit load
+vpand   ymm4, ymm3, ymm0
+vpshufb ymm4, ymm3, ymm1         # SSSE3/AVX2 byte permute
+vmovdqu [rsi+rax*1+0x280], ymm4
+```
+
+i.e. 8-wide u32 vectors plus byte-shuffle. The fused FoR variant additionally
+gets `vpaddd ymm, ymm, broadcast(reference)` interleaved with the unpack chain,
+which the compiler can only do when the kernel body is in one codegen unit.
+
+Measured medians on a Sapphire-Rapids-class Xeon @ 2.1&nbsp;GHz, 1024-element
+block, in nanoseconds (lower is better):
+
+| case             | SSE2 baseline | AVX2 + cgu=1 | speedup |
+|------------------|--------------:|-------------:|--------:|
+| u8  W=3 bare     |  21           |  17          | 1.24x   |
+| u8  W=3 fused    |  47           |  17          | 2.76x   |
+| u16 W=3 fused    |  46           |  45          | 1.02x   |
+| u32 W=3 fused    |  92           |  85          | 1.08x   |
+| u32 W=10 fused   | 140           |  77          | 1.82x   |
+| u32 W=17 fused   | 135           |  77          | 1.75x   |
+| u64 W=3 fused    | 198           | 148          | 1.34x   |
+| u64 W=17 fused   | 202           | 172          | 1.17x   |
+| u64 W=33 fused   | 226           | 185          | 1.22x   |
+
+Headline: **with proper SIMD compile flags the fused FoR kernel is uniformly
+the fastest option**, often by ~2x vs the unfused two-pass alternative. With
+SSE2-only compilation the win is much smaller or even negative for narrow
+types, which is misleading -- without the helper script you would conclude
+that fusing FoR into the unpack barely matters.
+
+Note: LLVM defaults to 256-bit (`ymm`) on this host even though `avx512f`
+is available, because the default `prefer-vector-width` for a generic
+`native` CPU model favours 256-bit to avoid the AVX-512 frequency
+licence-domain dip on older Xeons. To force 512-bit, use
+`RUSTFLAGS_NATIVE='-C target-cpu=sapphirerapids'` (or your CPU-specific
+codename that sets `prefer-vector-width=512`).
