@@ -44,9 +44,11 @@
 //    u16    chunk_bytes + 2 ≤ 8, fill_pos % 2 == 0     ld.global.u16
 //    u8     (always)                                   ld.global.u8
 //
-// The 256-entry symbol table is read directly from global memory; L1
-// retention is sufficient for the per-string kernel. (Split-based access
-// changes the trade-off; a later commit re-stages it in shared memory.)
+// The 256-entry symbol table is cooperatively loaded into shared memory
+// once per block. Per-string kernels were fine with global reads (L1
+// retention), but with splits the per-thread workload is smaller and the
+// table-lookup latency dominates more — shared-memory staging wins back
+// what split-based parallelism would otherwise lose.
 
 // 24-byte scratch buffer split across three u64 lanes. `cursor` is the
 // number of bytes currently buffered and the next-push offset.
@@ -163,6 +165,14 @@ extern "C" __global__ void fsst(const uint8_t *__restrict codes_bytes,
                                 const uint8_t *__restrict symbol_lengths,
                                 uint8_t *__restrict output_bytes,
                                 uint64_t num_splits) {
+    __shared__ uint64_t sm_symbols[256];
+    __shared__ uint8_t sm_symbol_lengths[256];
+    for (uint32_t i = threadIdx.x; i < 256; i += blockDim.x) {
+        sm_symbols[i] = symbols[i];
+        sm_symbol_lengths[i] = symbol_lengths[i];
+    }
+    __syncthreads();
+
     const uint64_t elements_per_block = (uint64_t)blockDim.x * ELEMENTS_PER_THREAD;
     const uint64_t block_start = (uint64_t)blockIdx.x * elements_per_block;
     const uint64_t block_end = (block_start + elements_per_block < num_splits)
@@ -210,8 +220,8 @@ extern "C" __global__ void fsst(const uint8_t *__restrict codes_bytes,
                 len = 1;
                 consumed = 2;
             } else {
-                sym = symbols[code];
-                len = symbol_lengths[code];
+                sym = sm_symbols[code];
+                len = sm_symbol_lengths[code];
                 consumed = 1;
             }
 
