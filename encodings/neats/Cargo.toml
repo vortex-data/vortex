@@ -23,6 +23,7 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-pco = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]

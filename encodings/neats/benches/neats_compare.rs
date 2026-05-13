@@ -103,17 +103,20 @@ fn make_btr(values: &[f64]) -> ArrayRef {
 
 fn make_neats(values: &[f64]) -> NeaTSArray {
     let array = primitive(values);
-    neats_encode(array.as_view(), NeaTSOptions::default()).unwrap()
+    let mut ctx = SESSION.create_execution_ctx();
+    neats_encode(array.as_view(), NeaTSOptions::default(), &mut ctx).unwrap()
 }
 
 fn make_neats_lossy(values: &[f64], epsilon: f64) -> NeaTSArray {
     let array = primitive(values);
+    let mut ctx = SESSION.create_execution_ctx();
     neats_encode(
         array.as_view(),
         NeaTSOptions {
             epsilon: Some(epsilon),
             ..NeaTSOptions::default()
         },
+        &mut ctx,
     )
     .unwrap()
 }

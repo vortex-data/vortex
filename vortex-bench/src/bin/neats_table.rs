@@ -70,63 +70,52 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // Header (two-line so it fits): encoder columns are {bytes, ratio, compress_us, decompress_us, err}.
-    println!("## SIZE + LATENCY TABLE (per encoder)");
+    // `neats_bp` / `neats_bp_lossy` use the legacy BitPack residuals path; `neats` /
+    // `neats_lossy` use the new PCO-on-residuals default.
+    println!("## COMPRESSED BYTES (and ratio vs raw)");
     println!(
-        "{:<28} {:>8} | {:>10} {:>6} {:>8} {:>8} {:>10} | {:>10} {:>6} {:>8} {:>8} {:>10} | {:>10} {:>6} {:>8} {:>8} | {:>10} {:>6} {:>8} {:>8} {:>10}",
+        "{:<28} {:>8} | {:>10} {:>6} | {:>10} {:>6} | {:>10} {:>6} | {:>10} {:>6} | {:>10} {:>6} | {:>10} {:>6}",
         "input",
         "rows",
-        "neats_B",
+        "neats_bp",
         "ratio",
-        "cmp_us",
-        "dec_us",
-        "max_err",
-        "lossy_B",
+        "bp_lossy",
         "ratio",
-        "cmp_us",
-        "dec_us",
-        "max_err",
-        "btr_B",
+        "neats",
         "ratio",
-        "cmp_us",
-        "dec_us",
-        "pco_B",
+        "lossy",
         "ratio",
-        "cmp_us",
-        "dec_us",
-        "max_err",
+        "btr",
+        "ratio",
+        "pco",
+        "ratio",
     );
 
     for (name, values) in inputs {
         let raw_bytes = (values.len() * size_of::<f64>()) as f64;
+        let neats_bp = run_neats_bitpack(&values, None)?;
+        let neats_bp_lossy = run_neats_bitpack(&values, Some(1e-3))?;
         let neats = run_neats(&values, None)?;
         let neats_lossy = run_neats(&values, Some(1e-3))?;
         let btr = run_btr(&values)?;
         let pco = run_pco(&values)?;
 
         println!(
-            "{:<28} {:>8} | {:>10.0} {:>5.2}x {:>8} {:>8} {:>10.2e} | {:>10.0} {:>5.2}x {:>8} {:>8} {:>10.2e} | {:>10.0} {:>5.2}x {:>8} {:>8} | {:>10.0} {:>5.2}x {:>8} {:>8} {:>10.2e}",
+            "{:<28} {:>8} | {:>10.0} {:>5.2}x | {:>10.0} {:>5.2}x | {:>10.0} {:>5.2}x | {:>10.0} {:>5.2}x | {:>10.0} {:>5.2}x | {:>10.0} {:>5.2}x",
             name,
             values.len(),
+            neats_bp.bytes,
+            raw_bytes / neats_bp.bytes.max(1.0),
+            neats_bp_lossy.bytes,
+            raw_bytes / neats_bp_lossy.bytes.max(1.0),
             neats.bytes,
             raw_bytes / neats.bytes.max(1.0),
-            neats.compress.as_micros(),
-            neats.decompress.as_micros(),
-            neats.max_abs_err,
             neats_lossy.bytes,
             raw_bytes / neats_lossy.bytes.max(1.0),
-            neats_lossy.compress.as_micros(),
-            neats_lossy.decompress.as_micros(),
-            neats_lossy.max_abs_err,
             btr.bytes,
             raw_bytes / btr.bytes.max(1.0),
-            btr.compress.as_micros(),
-            btr.decompress.as_micros(),
             pco.bytes,
             raw_bytes / pco.bytes.max(1.0),
-            pco.compress.as_micros(),
-            pco.decompress.as_micros(),
-            pco.max_abs_err,
         );
     }
 
@@ -140,12 +129,62 @@ fn run_neats(values: &[f64], epsilon: Option<f64>) -> anyhow::Result<Row> {
         epsilon,
         ..NeaTSOptions::default()
     };
+    let mut enc_ctx = SESSION.create_execution_ctx();
     let t0 = Instant::now();
-    let encoded = neats_encode(array.as_view(), opts)?;
+    let encoded = neats_encode(array.as_view(), opts, &mut enc_ctx)?;
     let compress = t0.elapsed();
 
     let mut ctx = SESSION.create_execution_ctx();
     let mut bytes = 0u64;
+    // Cascade the small slots through BtrBlocks (they're raw primitives). Take residuals'
+    // nbytes() directly because the encoder may have already applied PCO and we don't want
+    // to round-trip through canonicalisation.
+    for slot in [
+        encoded.piece_starts(),
+        encoded.model_ids(),
+        encoded.coeff_a(),
+        encoded.coeff_b(),
+        encoded.coeff_c(),
+    ] {
+        bytes += BtrBlocksCompressor::default()
+            .compress(slot, &mut ctx)?
+            .nbytes();
+    }
+    bytes += encoded.residuals().nbytes();
+
+    let mut ctx2 = SESSION.create_execution_ctx();
+    let t1 = Instant::now();
+    let decoded = encoded
+        .clone()
+        .into_array()
+        .execute::<PrimitiveArray>(&mut ctx2)?;
+    let decompress = t1.elapsed();
+    let max_abs_err = max_abs_err(values, decoded.as_slice::<f64>());
+
+    Ok(Row {
+        bytes: bytes as f64,
+        compress,
+        decompress,
+        max_abs_err,
+    })
+}
+
+/// Force the legacy "BitPack on residuals" path (no PCO) — for comparison.
+fn run_neats_bitpack(values: &[f64], epsilon: Option<f64>) -> anyhow::Result<Row> {
+    let array = PrimitiveArray::from_iter(values.iter().copied());
+    let opts = NeaTSOptions {
+        epsilon,
+        residual_encoding: vortex_neats::ResidualEncoding::BitPack,
+        ..NeaTSOptions::default()
+    };
+    let mut enc_ctx = SESSION.create_execution_ctx();
+    let t0 = Instant::now();
+    let encoded = neats_encode(array.as_view(), opts, &mut enc_ctx)?;
+    let compress = t0.elapsed();
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let mut bytes = 0u64;
+    // BitPack path: residuals are raw, cascade everything through BtrBlocks.
     for slot in [
         encoded.piece_starts(),
         encoded.model_ids(),
@@ -221,6 +260,26 @@ fn run_pco(values: &[f64]) -> anyhow::Result<Row> {
         decompress,
         max_abs_err,
     })
+}
+
+/// PCO doesn't accept i8 input. Widen to i16 if needed.
+fn widen_i8_to_i16(p: PrimitiveArray) -> PrimitiveArray {
+    use vortex::buffer::BufferMut;
+    use vortex::dtype::PType;
+    match p.ptype() {
+        PType::I8 => {
+            let mut out = BufferMut::<i16>::with_capacity(p.len());
+            for v in p.as_slice::<i8>() {
+                out.push(i16::from(*v));
+            }
+            PrimitiveArray::new(
+                out.freeze(),
+                p.validity()
+                    .unwrap_or(vortex::array::validity::Validity::NonNullable),
+            )
+        }
+        _ => p,
+    }
 }
 
 fn max_abs_err(original: &[f64], decoded: &[f64]) -> f64 {

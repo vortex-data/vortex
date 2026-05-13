@@ -107,8 +107,9 @@ async fn main() -> anyhow::Result<()> {
                 epsilon,
                 ..NeaTSOptions::default()
             };
+            let mut ctx_enc = SESSION.create_execution_ctx();
             let t0 = Instant::now();
-            let encoded = neats_encode(array.as_view(), opts)?;
+            let encoded = neats_encode(array.as_view(), opts, &mut ctx_enc)?;
             let compress_time = t0.elapsed();
             let neats_bytes = encoded.as_ref().nbytes() as f64;
 

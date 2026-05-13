@@ -80,16 +80,17 @@ fn bench_compress<F: Fn(usize) -> Vec<f64>>(
         ..NeaTSOptions::default()
     };
     bencher
-        .with_inputs(|| array.clone())
-        .bench_values(|a| neats_encode(a.as_view(), opts).unwrap());
+        .with_inputs(|| (array.clone(), LEGACY_SESSION.create_execution_ctx()))
+        .bench_values(|(a, mut ctx)| neats_encode(a.as_view(), opts, &mut ctx).unwrap());
 }
 
 fn bench_decompress<F: Fn(usize) -> Vec<f64>>(bencher: Bencher, n: usize, generator: F) {
     let array = primitive(generator(n));
     bencher
         .with_inputs(|| {
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
             (
-                neats_encode(array.as_view(), NeaTSOptions::default()).unwrap(),
+                neats_encode(array.as_view(), NeaTSOptions::default(), &mut ctx).unwrap(),
                 LEGACY_SESSION.create_execution_ctx(),
             )
         })
@@ -112,12 +113,11 @@ fn bench_min_max_pushdown<F: Fn(usize) -> Vec<f64>>(bencher: Bencher, n: usize, 
     let array = primitive(generator(n));
     bencher
         .with_inputs(|| {
-            (
-                neats_encode(array.as_view(), NeaTSOptions::default())
-                    .unwrap()
-                    .into_array(),
-                SESSION.create_execution_ctx(),
-            )
+            let mut ctx = SESSION.create_execution_ctx();
+            let encoded = neats_encode(array.as_view(), NeaTSOptions::default(), &mut ctx)
+                .unwrap()
+                .into_array();
+            (encoded, SESSION.create_execution_ctx())
         })
         .bench_values(|(a, mut ctx)| min_max(&a, &mut ctx).unwrap());
 }
@@ -129,12 +129,11 @@ fn bench_min_max_canonicalised<F: Fn(usize) -> Vec<f64>>(bencher: Bencher, n: us
     let array = primitive(generator(n));
     bencher
         .with_inputs(|| {
-            (
-                neats_encode(array.as_view(), NeaTSOptions::default())
-                    .unwrap()
-                    .into_array(),
-                LEGACY_SESSION.create_execution_ctx(),
-            )
+            let mut ctx = LEGACY_SESSION.create_execution_ctx();
+            let encoded = neats_encode(array.as_view(), NeaTSOptions::default(), &mut ctx)
+                .unwrap()
+                .into_array();
+            (encoded, LEGACY_SESSION.create_execution_ctx())
         })
         .bench_values(|(a, mut ctx)| {
             let decoded = a.execute::<PrimitiveArray>(&mut ctx).unwrap();

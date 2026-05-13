@@ -114,6 +114,7 @@ mod test {
                 epsilon: Some(1e-9),
                 ..NeaTSOptions::default()
             },
+            &mut ctx,
         )?;
         let decoded = encoded.into_array().execute::<PrimitiveArray>(&mut ctx)?;
         assert_close(decoded.as_slice::<f64>(), &values, 2e-9);
@@ -133,6 +134,7 @@ mod test {
                 epsilon: Some(1e-3),
                 ..NeaTSOptions::default()
             },
+            &mut ctx,
         )?;
         let decoded = encoded.into_array().execute::<PrimitiveArray>(&mut ctx)?;
         assert_close(decoded.as_slice::<f64>(), &values, 2e-3);
@@ -152,6 +154,7 @@ mod test {
                 epsilon: Some(1e-4),
                 ..NeaTSOptions::default()
             },
+            &mut ctx,
         )?;
         let decoded = encoded
             .clone()
@@ -207,6 +210,7 @@ mod test {
                 epsilon: Some(1e-6),
                 ..NeaTSOptions::default()
             },
+            &mut ctx,
         )?;
 
         let result = min_max(&encoded.into_array(), &mut ctx)?.expect("non-empty input");
@@ -256,6 +260,7 @@ mod test {
                 epsilon: Some(1e-9),
                 ..NeaTSOptions::default()
             },
+            &mut ctx,
         )?;
         let decoded = encoded.into_array().execute::<PrimitiveArray>(&mut ctx)?;
         let decoded_slice = decoded.as_slice::<f64>();

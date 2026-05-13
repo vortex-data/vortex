@@ -110,6 +110,30 @@ pub fn vortex_neats::models::eval(vortex_neats::models::ModelKind, f64, f64, f64
 
 pub fn vortex_neats::models::fit_best(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
 
+pub enum vortex_neats::ResidualEncoding
+
+pub vortex_neats::ResidualEncoding::BitPack
+
+pub vortex_neats::ResidualEncoding::Pco
+
+impl core::clone::Clone for vortex_neats::ResidualEncoding
+
+pub fn vortex_neats::ResidualEncoding::clone(&self) -> vortex_neats::ResidualEncoding
+
+impl core::cmp::Eq for vortex_neats::ResidualEncoding
+
+impl core::cmp::PartialEq for vortex_neats::ResidualEncoding
+
+pub fn vortex_neats::ResidualEncoding::eq(&self, &vortex_neats::ResidualEncoding) -> bool
+
+impl core::fmt::Debug for vortex_neats::ResidualEncoding
+
+pub fn vortex_neats::ResidualEncoding::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_neats::ResidualEncoding
+
+impl core::marker::StructuralPartialEq for vortex_neats::ResidualEncoding
+
 pub struct vortex_neats::NeaTS
 
 impl vortex_neats::NeaTS
@@ -236,6 +260,8 @@ pub vortex_neats::NeaTSOptions::max_piece_len: usize
 
 pub vortex_neats::NeaTSOptions::min_piece_len: usize
 
+pub vortex_neats::NeaTSOptions::residual_encoding: vortex_neats::ResidualEncoding
+
 impl core::clone::Clone for vortex_neats::NeaTSOptions
 
 pub fn vortex_neats::NeaTSOptions::clone(&self) -> vortex_neats::NeaTSOptions
@@ -350,6 +376,6 @@ pub fn T::slots_view(&self) -> vortex_neats::NeaTSSlotsView<'_>
 
 pub fn vortex_neats::initialize(&vortex_session::VortexSession)
 
-pub fn vortex_neats::neats_encode(vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, vortex_neats::NeaTSOptions) -> vortex_error::VortexResult<vortex_neats::NeaTSArray>
+pub fn vortex_neats::neats_encode(vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, vortex_neats::NeaTSOptions, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_neats::NeaTSArray>
 
 pub type vortex_neats::NeaTSArray = vortex_array::array::typed::Array<vortex_neats::NeaTS>

@@ -18,15 +18,18 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_pco::Pco;
 
 use crate::array::NeaTS;
 use crate::array::NeaTSArray;
@@ -34,6 +37,21 @@ use crate::array::NeaTSData;
 use crate::models::FitResult;
 use crate::models::ModelKind;
 use crate::models::fit_best;
+
+/// Choice of encoding for the residuals slot.
+///
+/// The residuals carry 99% of the compressed bytes in practice, so this is the highest-leverage
+/// knob. `Pco` (default) hands the residuals to `vortex-pco` which uses pcodec's signed-integer
+/// pipeline (delta + FSE + chunked statistics) — much tighter than FoR + bit-pack on noisy
+/// residual streams. `BitPack` leaves the residuals as a `PrimitiveArray` so the cascading
+/// compressor downstream picks FoR + FastLanes bit-pack; faster encode/decode, looser ratio.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResidualEncoding {
+    /// Hand residuals to PCO. Best compression, slower compress + decompress.
+    Pco,
+    /// Leave residuals as a plain primitive array. Cascading compressor handles the rest.
+    BitPack,
+}
 
 /// Options for [`neats_encode`].
 #[derive(Clone, Copy, Debug)]
@@ -45,6 +63,9 @@ pub struct NeaTSOptions {
     /// cannot extend further; they will not exceed `max_piece_len`.
     pub min_piece_len: usize,
     pub max_piece_len: usize,
+    /// Encoding to use for the residuals slot. Defaults to `Pco` because it consistently halves
+    /// the residual bytes on time-series-shaped signals.
+    pub residual_encoding: ResidualEncoding,
 }
 
 impl Default for NeaTSOptions {
@@ -53,6 +74,7 @@ impl Default for NeaTSOptions {
             epsilon: None,
             min_piece_len: 8,
             max_piece_len: 4096,
+            residual_encoding: ResidualEncoding::Pco,
         }
     }
 }
@@ -62,9 +84,13 @@ impl Default for NeaTSOptions {
 const MAX_RESIDUAL_BITS: u32 = 62;
 
 /// Encode a `PrimitiveArray` of `f32` or `f64` into a [`NeaTSArray`].
+///
+/// The execution context is used when the chosen [`ResidualEncoding`] needs to cascade through
+/// another encoding (currently only PCO requires this).
 pub fn neats_encode(
     parray: ArrayView<'_, Primitive>,
     options: NeaTSOptions,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<NeaTSArray> {
     let values_f64: Vec<f64> = match parray.ptype() {
         PType::F32 => parray.as_slice::<f32>().iter().map(|v| *v as f64).collect(),
@@ -113,7 +139,11 @@ pub fn neats_encode(
     let coeff_b = PrimitiveArray::new(coeff_b.freeze(), Validity::NonNullable).into_array();
     let coeff_c = PrimitiveArray::new(coeff_c.freeze(), Validity::NonNullable).into_array();
     // Carry validity on residuals so downstream sees the same mask as input.
-    let residuals: ArrayRef = narrow_residuals(residuals.freeze(), validity);
+    let residuals = narrow_residuals(residuals.freeze(), validity);
+    let residuals: ArrayRef = match options.residual_encoding {
+        ResidualEncoding::BitPack => residuals,
+        ResidualEncoding::Pco => encode_residuals_pco(residuals, ctx)?,
+    };
 
     NeaTS::try_new(
         logical_dtype,
@@ -127,11 +157,33 @@ pub fn neats_encode(
     )
 }
 
+/// Hand the residuals slot to PCO so its signed-integer pipeline (delta + FSE + chunked
+/// statistics) can compress it. The other slots (`piece_starts`, `model_ids`, coefficients) are
+/// already tiny and BtrBlocks's FoR/bitpack/constant schemes handle them well, so they go
+/// through the normal cascade.
+///
+/// PCO doesn't support `i8`, so we widen i8 residuals to i16 before handing over. The two-byte
+/// stride is still tighter than FoR+bitpack on most signals.
+fn encode_residuals_pco(residuals: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    let prim = residuals.execute::<PrimitiveArray>(ctx)?;
+    let prim = if matches!(prim.ptype(), PType::I8) {
+        let mut widened = BufferMut::<i16>::with_capacity(prim.len());
+        for v in prim.as_slice::<i8>() {
+            widened.push(i16::from(*v));
+        }
+        PrimitiveArray::new(widened.freeze(), prim.validity()?)
+    } else {
+        prim
+    };
+    // Level 8 is PCO's library default, values_per_page=0 picks pco's internal default page size.
+    Ok(Pco::from_primitive(prim.as_view(), 8, 0, ctx)?.into_array())
+}
+
 /// Downcast the `i64` residual buffer to the narrowest signed integer ptype that fits every
 /// residual. This shrinks the residuals slot by 2-8x in the common case (when the chosen scale
 /// keeps residuals inside `i8`/`i16`/`i32`), with no precision loss — only the storage width
 /// changes; the logical value is unchanged.
-fn narrow_residuals(residuals: vortex_buffer::Buffer<i64>, validity: Validity) -> ArrayRef {
+fn narrow_residuals(residuals: Buffer<i64>, validity: Validity) -> ArrayRef {
     let max_abs = residuals
         .as_slice()
         .iter()

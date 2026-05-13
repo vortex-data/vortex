@@ -182,6 +182,7 @@ mod tests {
                 epsilon: Some(1e-6),
                 ..NeaTSOptions::default()
             },
+            &mut ctx,
         )?;
 
         for threshold in [-1.0, -0.5, 0.0, 0.5, 1.0, 2.5, 3.5] {
