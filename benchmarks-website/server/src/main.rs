@@ -6,9 +6,9 @@
 //! Reads the following environment variables before handing off to
 //! [`vortex_bench_server::app::router`]:
 //!
-//! - `INGEST_BEARER_TOKEN` — required. Token presented by ingest clients
+//! - `INGEST_BEARER_TOKEN` — required and non-empty. Token presented by ingest clients
 //!   on `Authorization: Bearer <token>`. Compared in constant time.
-//! - `ADMIN_BEARER_TOKEN` — optional. When set, mounts the
+//! - `ADMIN_BEARER_TOKEN` — optional. When set to a non-empty value, mounts the
 //!   `/api/admin/snapshot` and `/api/admin/sql` endpoints; both expect
 //!   this token in the `Authorization: Bearer …` header. Without it the
 //!   admin router is not mounted at all (404). The `INGEST_BEARER_TOKEN`
@@ -44,7 +44,9 @@ async fn main() -> Result<()> {
         .into();
     let bearer_token =
         env::var("INGEST_BEARER_TOKEN").context("INGEST_BEARER_TOKEN env var must be set")?;
-    let admin_bearer_token = env::var("ADMIN_BEARER_TOKEN").ok();
+    let admin_bearer_token = env::var("ADMIN_BEARER_TOKEN")
+        .ok()
+        .filter(|token| !token.trim().is_empty());
     let bind_addr = env::var("VORTEX_BENCH_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
 
     let mut state = vortex_bench_server::app::AppState::open(&db_path, bearer_token)
@@ -53,7 +55,7 @@ async fn main() -> Result<()> {
         state = state.with_admin(token);
     } else {
         tracing::warn!(
-            "ADMIN_BEARER_TOKEN is unset — /api/admin/* will return 404 \
+            "ADMIN_BEARER_TOKEN is unset or empty — /api/admin/* will return 404 \
             (snapshot + read-only SQL disabled)"
         );
     }

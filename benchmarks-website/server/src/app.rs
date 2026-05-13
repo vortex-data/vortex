@@ -22,6 +22,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
+use anyhow::ensure;
 use axum::Router;
 use axum::routing::get;
 use axum::routing::post;
@@ -62,9 +63,11 @@ pub struct AppState {
 
 impl AppState {
     /// Open the DuckDB at `db_path`, apply the schema, and return shared state.
-    /// Admin endpoints are unmounted by default; call [`AppState::with_admin`]
-    /// to enable them.
+    /// `bearer_token` must be non-empty. Admin endpoints are unmounted by
+    /// default; call [`AppState::with_admin`] with a non-empty token to enable
+    /// them.
     pub fn open<P: AsRef<Path>>(db_path: P, bearer_token: String) -> Result<Self> {
+        validate_bearer_token("INGEST_BEARER_TOKEN", &bearer_token)?;
         let path = db_path.as_ref().to_path_buf();
         let snapshot_dir = path
             .parent()
@@ -86,7 +89,9 @@ impl AppState {
     /// Enable the `/api/admin/*` router, gated by `admin_bearer_token`.
     /// Without this call, the admin router is not mounted at all.
     pub fn with_admin(mut self, admin_bearer_token: String) -> Self {
-        self.admin_bearer_token = Some(Arc::new(admin_bearer_token));
+        if !admin_bearer_token.trim().is_empty() {
+            self.admin_bearer_token = Some(Arc::new(admin_bearer_token));
+        }
         self
     }
 
@@ -96,6 +101,11 @@ impl AppState {
         self.snapshot_dir = Arc::new(dir);
         self
     }
+}
+
+fn validate_bearer_token(name: &str, token: &str) -> Result<()> {
+    ensure!(!token.trim().is_empty(), "{name} must not be empty");
+    Ok(())
 }
 
 /// Build the full Axum router for the bench server.
@@ -134,4 +144,33 @@ pub fn router(state: AppState) -> Router {
     }
 
     router.layer(CompressionLayer::new()).with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn open_rejects_empty_ingest_token() {
+        let tmp = TempDir::new().unwrap();
+        let result = AppState::open(tmp.path().join("bench.duckdb"), String::new());
+        assert!(
+            result.is_err(),
+            "empty INGEST_BEARER_TOKEN should fail startup"
+        );
+    }
+
+    #[test]
+    fn empty_admin_token_leaves_admin_disabled() -> Result<()> {
+        let tmp = TempDir::new()?;
+        let state = AppState::open(tmp.path().join("bench.duckdb"), "ingest-token".to_string())?
+            .with_admin(String::new());
+        assert!(
+            state.admin_bearer_token.is_none(),
+            "empty ADMIN_BEARER_TOKEN should not mount admin routes"
+        );
+        Ok(())
+    }
 }
