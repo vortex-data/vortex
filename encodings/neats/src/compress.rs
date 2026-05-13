@@ -24,6 +24,7 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::PType;
 use vortex_array::validity::Validity;
+use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -138,10 +139,25 @@ pub fn neats_encode(
     let coeff_a = PrimitiveArray::new(coeff_a.freeze(), Validity::NonNullable).into_array();
     let coeff_b = PrimitiveArray::new(coeff_b.freeze(), Validity::NonNullable).into_array();
     let coeff_c = PrimitiveArray::new(coeff_c.freeze(), Validity::NonNullable).into_array();
-    // Carry validity on residuals so downstream sees the same mask as input.
+
+    // Compress the small slots with BtrBlocks. FoR + bit-pack handles `piece_starts`
+    // (monotonic u32), Constant compresses `model_ids` when only one family fires, and the
+    // coefficient slots get FoR + bit-pack on smooth pieces. Doing the cascade inside the
+    // encoder means `NeaTSArray::nbytes()` already reflects the on-disk size without an
+    // external pass.
+    let btr = BtrBlocksCompressor::default();
+    let piece_starts = btr.compress(&piece_starts, ctx)?;
+    let model_ids = btr.compress(&model_ids, ctx)?;
+    let coeff_a = btr.compress(&coeff_a, ctx)?;
+    let coeff_b = btr.compress(&coeff_b, ctx)?;
+    let coeff_c = btr.compress(&coeff_c, ctx)?;
+
+    // Carry validity on residuals so downstream sees the same mask as input. Residuals
+    // already get their own residual_encoding (PCO by default) so we don't cascade them
+    // through BtrBlocks again — that path canonicalises and re-compresses, undoing PCO.
     let residuals = narrow_residuals(residuals.freeze(), validity);
     let residuals: ArrayRef = match options.residual_encoding {
-        ResidualEncoding::BitPack => residuals,
+        ResidualEncoding::BitPack => btr.compress(&residuals, ctx)?,
         ResidualEncoding::Pco => encode_residuals_pco(residuals, ctx)?,
     };
 

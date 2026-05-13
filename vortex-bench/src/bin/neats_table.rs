@@ -40,12 +40,12 @@ use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex_bench::SESSION;
 use vortex_bench::conversions::parquet_to_vortex_chunks;
-use vortex_neats::NeaTSArraySlotsExt;
 use vortex_neats::NeaTSOptions;
 use vortex_neats::neats_encode;
 use vortex_pco::Pco;
 
 #[derive(Default, Debug, Clone, Copy)]
+#[allow(dead_code, reason = "fields populated for ad-hoc inspection")]
 struct Row {
     bytes: f64,
     compress: Duration,
@@ -134,28 +134,12 @@ fn run_neats(values: &[f64], epsilon: Option<f64>) -> anyhow::Result<Row> {
     let encoded = neats_encode(array.as_view(), opts, &mut enc_ctx)?;
     let compress = t0.elapsed();
 
-    let mut ctx = SESSION.create_execution_ctx();
-    let mut bytes = 0u64;
-    // Cascade the small slots through BtrBlocks (they're raw primitives). Take residuals'
-    // nbytes() directly because the encoder may have already applied PCO and we don't want
-    // to round-trip through canonicalisation.
-    for slot in [
-        encoded.piece_starts(),
-        encoded.model_ids(),
-        encoded.coeff_a(),
-        encoded.coeff_b(),
-        encoded.coeff_c(),
-    ] {
-        bytes += BtrBlocksCompressor::default()
-            .compress(slot, &mut ctx)?
-            .nbytes();
-    }
-    bytes += encoded.residuals().nbytes();
+    // The encoder now cascades all slots internally — just sum nbytes() of the encoded array.
+    let bytes = encoded.as_ref().nbytes();
 
     let mut ctx2 = SESSION.create_execution_ctx();
     let t1 = Instant::now();
     let decoded = encoded
-        .clone()
         .into_array()
         .execute::<PrimitiveArray>(&mut ctx2)?;
     let decompress = t1.elapsed();
@@ -182,26 +166,11 @@ fn run_neats_bitpack(values: &[f64], epsilon: Option<f64>) -> anyhow::Result<Row
     let encoded = neats_encode(array.as_view(), opts, &mut enc_ctx)?;
     let compress = t0.elapsed();
 
-    let mut ctx = SESSION.create_execution_ctx();
-    let mut bytes = 0u64;
-    // BitPack path: residuals are raw, cascade everything through BtrBlocks.
-    for slot in [
-        encoded.piece_starts(),
-        encoded.model_ids(),
-        encoded.coeff_a(),
-        encoded.coeff_b(),
-        encoded.coeff_c(),
-        encoded.residuals(),
-    ] {
-        bytes += BtrBlocksCompressor::default()
-            .compress(slot, &mut ctx)?
-            .nbytes();
-    }
+    let bytes = encoded.as_ref().nbytes();
 
     let mut ctx2 = SESSION.create_execution_ctx();
     let t1 = Instant::now();
     let decoded = encoded
-        .clone()
         .into_array()
         .execute::<PrimitiveArray>(&mut ctx2)?;
     let decompress = t1.elapsed();
@@ -260,26 +229,6 @@ fn run_pco(values: &[f64]) -> anyhow::Result<Row> {
         decompress,
         max_abs_err,
     })
-}
-
-/// PCO doesn't accept i8 input. Widen to i16 if needed.
-fn widen_i8_to_i16(p: PrimitiveArray) -> PrimitiveArray {
-    use vortex::buffer::BufferMut;
-    use vortex::dtype::PType;
-    match p.ptype() {
-        PType::I8 => {
-            let mut out = BufferMut::<i16>::with_capacity(p.len());
-            for v in p.as_slice::<i8>() {
-                out.push(i16::from(*v));
-            }
-            PrimitiveArray::new(
-                out.freeze(),
-                p.validity()
-                    .unwrap_or(vortex::array::validity::Validity::NonNullable),
-            )
-        }
-        _ => p,
-    }
 }
 
 fn max_abs_err(original: &[f64], decoded: &[f64]) -> f64 {
