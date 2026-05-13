@@ -7,10 +7,13 @@ use arrow_buffer::BooleanBufferBuilder;
 use arrow_buffer::MutableBuffer;
 use arrow_buffer::bit_iterator::BitIterator;
 use enum_iterator::last;
+pub use expr::stat;
 pub use stats_set::*;
 
 mod array;
+pub mod expr;
 pub mod flatbuffers;
+pub(crate) mod legacy;
 mod stats_set;
 
 pub use array::*;
