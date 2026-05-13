@@ -10340,6 +10340,7 @@ dependencies = [
  "uuid",
  "vortex",
  "vortex-neats",
+ "vortex-pco",
  "vortex-tensor",
 ]
 

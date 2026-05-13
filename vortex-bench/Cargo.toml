@@ -25,6 +25,7 @@ vortex = { workspace = true, features = [
 ] }
 vortex-tensor = { workspace = true } # TODO(connor): In the future, this might be inside vortex.
 vortex-neats = { workspace = true }
+vortex-pco = { workspace = true }
 
 anyhow = { workspace = true }
 arrow-array = { workspace = true }
@@ -77,3 +78,7 @@ unstable_encodings = ["vortex/unstable_encodings"]
 [[bin]]
 name = "neats-real"
 path = "src/bin/neats_real.rs"
+
+[[bin]]
+name = "neats-table"
+path = "src/bin/neats_table.rs"
