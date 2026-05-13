@@ -125,6 +125,83 @@ async fn admin_sql_table_format_renders_ascii() -> Result<()> {
 }
 
 #[tokio::test]
+async fn admin_sql_allows_single_trailing_semicolon() -> Result<()> {
+    let server = Server::start_with_admin().await?;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(server.url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({ "sql": "SELECT 1 AS x;" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    assert_eq!(body["rows"], json!([[1]]));
+    Ok(())
+}
+
+#[tokio::test]
+async fn admin_sql_allows_semicolon_inside_string_literal() -> Result<()> {
+    let server = Server::start_with_admin().await?;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(server.url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({ "sql": "SELECT 'not; another statement' AS text" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    assert_eq!(body["rows"], json!([["not; another statement"]]));
+    Ok(())
+}
+
+#[tokio::test]
+async fn admin_sql_rejects_multi_statement_reads() -> Result<()> {
+    let server = Server::start_with_admin().await?;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(server.url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({ "sql": "SELECT 1; DROP TABLE commits; SELECT 2" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 403);
+    let body: Value = resp.json().await?;
+    assert_eq!(body["error"], json!("forbidden"));
+
+    let resp = client
+        .post(server.url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({ "sql": "SELECT COUNT(*) AS n FROM commits" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    Ok(())
+}
+
+#[tokio::test]
+async fn admin_sql_caps_large_results() -> Result<()> {
+    let server = Server::start_with_admin().await?;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(server.url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({ "sql": "SELECT * FROM range(10005)" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    assert_eq!(body["row_count"], json!(10000));
+    assert_eq!(body["truncated"], json!(true));
+    Ok(())
+}
+
+#[tokio::test]
 async fn admin_sql_rejects_writes() -> Result<()> {
     let server = Server::start_with_admin().await?;
     let client = reqwest::Client::new();

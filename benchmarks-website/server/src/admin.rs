@@ -41,6 +41,7 @@
 //! SELECT briefly delays ingest.
 
 use std::fmt::Write as _;
+use std::path::Path;
 use std::path::PathBuf;
 
 use anyhow::Context as _;
@@ -67,6 +68,8 @@ use thiserror::Error;
 use crate::app::AppState;
 use crate::db;
 use crate::schema;
+
+const ADMIN_SQL_ROW_LIMIT: usize = 10_000;
 
 /// Errors surfaced by `/api/admin/*` handlers. Auth (401) is handled by
 /// [`require_admin_bearer`] and never reaches a handler.
@@ -182,44 +185,78 @@ pub async fn snapshot(
             target.display()
         )));
     }
-    std::fs::create_dir_all(&target)
-        .with_context(|| format!("creating snapshot dir {}", target.display()))?;
 
+    let tmp = tmp_snapshot_dir(&target, &q.ts);
+    if tmp.exists() {
+        std::fs::remove_dir_all(&tmp)
+            .with_context(|| format!("removing stale temp snapshot dir {}", tmp.display()))?;
+    }
+    std::fs::create_dir_all(&tmp)
+        .with_context(|| format!("creating temp snapshot dir {}", tmp.display()))?;
+
+    let result = write_snapshot(&state, &tmp).await;
+    if let Err(err) = result {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err(AdminError::Internal(err));
+    }
+    if let Err(err) = std::fs::rename(&tmp, &target).with_context(|| {
+        format!(
+            "moving snapshot dir {} to {}",
+            tmp.display(),
+            target.display()
+        )
+    }) {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err(AdminError::Internal(err));
+    }
+    Ok(Json(SnapshotResponse {
+        snapshot_dir: target.display().to_string(),
+    }))
+}
+
+fn tmp_snapshot_dir(target: &Path, ts: &str) -> PathBuf {
+    target.with_file_name(format!("{ts}.tmp-{}", std::process::id()))
+}
+
+async fn write_snapshot(state: &AppState, target: &Path) -> Result<()> {
     // Schema is just our DDL string verbatim; restore reads this with
     // `duckdb -init schema.sql` (or `.read schema.sql`) before
     // bulk-loading the per-table vortex files.
     std::fs::write(target.join("schema.sql"), schema::SCHEMA_DDL)
         .with_context(|| format!("writing schema.sql under {}", target.display()))?;
 
-    let target_for_db = target.clone();
+    let target_for_db = target.to_path_buf();
     db::run_blocking(&state.db, move |conn| {
-        // Idempotent — `INSTALL` is a no-op if the extension is already
-        // present, `LOAD` is cheap once the binary is on disk. The
-        // bundled libduckdb-sys has autoload enabled, so the very first
-        // call also auto-fetches the extension from the DuckDB
-        // community repo. Subsequent calls are entirely local.
-        conn.execute_batch("INSTALL vortex FROM community; LOAD vortex;")
-            .context("INSTALL/LOAD vortex extension")?;
-        for table in schema::TABLES {
-            // Single-quote escaping is a non-issue: `target_for_db`
-            // is composed from the operator-configured snapshot dir +
-            // a validated [A-Za-z0-9_-] timestamp, and table names
-            // come from the closed const list in schema.rs.
-            let path = target_for_db.join(format!("{table}.vortex"));
-            let path_str = path
-                .to_str()
-                .ok_or_else(|| anyhow::anyhow!("snapshot path is not UTF-8: {}", path.display()))?;
-            let sql = format!("COPY (SELECT * FROM {table}) TO '{path_str}' (FORMAT vortex)");
-            conn.execute_batch(&sql)
-                .with_context(|| format!("COPY {table} TO {path_str}"))?;
-        }
-        Ok(())
+        export_snapshot_tables(conn, &target_for_db)
     })
     .await
-    .map_err(AdminError::Internal)?;
-    Ok(Json(SnapshotResponse {
-        snapshot_dir: target.display().to_string(),
-    }))
+}
+
+fn export_snapshot_tables(conn: &mut Connection, target: &Path) -> Result<()> {
+    // Idempotent — `INSTALL` is a no-op if the extension is already
+    // present, `LOAD` is cheap once the binary is on disk. The
+    // bundled libduckdb-sys has autoload enabled, so the very first
+    // call also auto-fetches the extension from the DuckDB
+    // community repo. Subsequent calls are entirely local.
+    conn.execute_batch("INSTALL vortex FROM community; LOAD vortex;")
+        .context("INSTALL/LOAD vortex extension")?;
+    for table in schema::TABLES {
+        let path = target.join(format!("{table}.vortex"));
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("snapshot path is not UTF-8: {}", path.display()))?;
+        let sql = format!(
+            "COPY (SELECT * FROM {table}) TO {} (FORMAT vortex)",
+            sql_string_literal(path_str)
+        );
+        conn.execute_batch(&sql)
+            .with_context(|| format!("COPY {table} TO {path_str}"))?;
+    }
+    Ok(())
+}
+
+fn sql_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn validate_ts(ts: &str) -> Result<(), AdminError> {
@@ -275,6 +312,7 @@ pub async fn sql(
             "columns": result.columns,
             "rows": result.rows,
             "row_count": result.rows.len(),
+            "truncated": result.truncated,
         }))
         .into_response(),
         SqlFormat::Table => (
@@ -286,6 +324,7 @@ pub async fn sql(
 }
 
 fn validate_read_only(sql: &str) -> Result<(), AdminError> {
+    ensure_single_statement(sql)?;
     let trimmed = sql.trim_start_matches(|c: char| c.is_whitespace() || c == '(' || c == ';');
     let first_word: String = trimmed
         .chars()
@@ -301,12 +340,96 @@ fn validate_read_only(sql: &str) -> Result<(), AdminError> {
     Ok(())
 }
 
+fn ensure_single_statement(sql: &str) -> Result<(), AdminError> {
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum State {
+        Normal,
+        SingleQuote,
+        DoubleQuote,
+        LineComment,
+        BlockComment,
+    }
+
+    let mut state = State::Normal;
+    let mut chars = sql.char_indices().peekable();
+    while let Some((idx, ch)) = chars.next() {
+        match state {
+            State::Normal => match ch {
+                '\'' => state = State::SingleQuote,
+                '"' => state = State::DoubleQuote,
+                '-' if chars.peek().is_some_and(|(_, next)| *next == '-') => {
+                    chars.next();
+                    state = State::LineComment;
+                }
+                '/' if chars.peek().is_some_and(|(_, next)| *next == '*') => {
+                    chars.next();
+                    state = State::BlockComment;
+                }
+                ';' if !sql[idx + ch.len_utf8()..].trim().is_empty() => {
+                    return Err(AdminError::Forbidden(
+                        "admin SQL accepts a single statement only".into(),
+                    ));
+                }
+                _ => {}
+            },
+            State::SingleQuote => {
+                if ch == '\'' {
+                    if chars.peek().is_some_and(|(_, next)| *next == '\'') {
+                        chars.next();
+                    } else {
+                        state = State::Normal;
+                    }
+                }
+            }
+            State::DoubleQuote => {
+                if ch == '"' {
+                    if chars.peek().is_some_and(|(_, next)| *next == '"') {
+                        chars.next();
+                    } else {
+                        state = State::Normal;
+                    }
+                }
+            }
+            State::LineComment => {
+                if ch == '\n' {
+                    state = State::Normal;
+                }
+            }
+            State::BlockComment => {
+                if ch == '*' && chars.peek().is_some_and(|(_, next)| *next == '/') {
+                    chars.next();
+                    state = State::Normal;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 struct QueryResult {
     columns: Vec<String>,
     rows: Vec<Vec<Value>>,
+    truncated: bool,
 }
 
-fn run_select(conn: &Connection, sql: &str) -> Result<QueryResult> {
+fn run_select(conn: &mut Connection, sql: &str) -> Result<QueryResult> {
+    conn.execute_batch("BEGIN TRANSACTION READ ONLY")
+        .context("begin read-only admin SQL transaction")?;
+    let result = run_select_in_transaction(conn, sql);
+    match result {
+        Ok(value) => {
+            conn.execute_batch("COMMIT")
+                .context("commit read-only admin SQL transaction")?;
+            Ok(value)
+        }
+        Err(err) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(err)
+        }
+    }
+}
+
+fn run_select_in_transaction(conn: &Connection, sql: &str) -> Result<QueryResult> {
     let mut stmt = conn.prepare(sql).context("prepare SQL")?;
     let mut rows_iter = stmt.query([]).context("execute SQL")?;
     // duckdb-rs panics on Statement::column_names() if the statement has not
@@ -318,7 +441,12 @@ fn run_select(conn: &Connection, sql: &str) -> Result<QueryResult> {
         .unwrap_or_default();
     let column_count = columns.len();
     let mut rows: Vec<Vec<Value>> = Vec::new();
+    let mut truncated = false;
     while let Some(row) = rows_iter.next().context("row iter")? {
+        if rows.len() == ADMIN_SQL_ROW_LIMIT {
+            truncated = true;
+            break;
+        }
         let mut out = Vec::with_capacity(column_count);
         for i in 0..column_count {
             let v = row.get_ref(i).context("get col")?;
@@ -326,7 +454,11 @@ fn run_select(conn: &Connection, sql: &str) -> Result<QueryResult> {
         }
         rows.push(out);
     }
-    Ok(QueryResult { columns, rows })
+    Ok(QueryResult {
+        columns,
+        rows,
+        truncated,
+    })
 }
 
 fn value_ref_to_json(v: ValueRef<'_>) -> Value {
@@ -378,9 +510,10 @@ fn format_table(r: &QueryResult) -> String {
     write_separator(&mut out, &widths, '└', '┴', '┘');
     let _ = writeln!(
         out,
-        "({} row{})",
+        "({} row{}{})",
         r.rows.len(),
-        if r.rows.len() == 1 { "" } else { "s" }
+        if r.rows.len() == 1 { "" } else { "s" },
+        if r.truncated { "; truncated" } else { "" },
     );
     out
 }

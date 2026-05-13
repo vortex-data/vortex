@@ -163,11 +163,13 @@ fn accepts_encoding(raw: &str, expected: &str) -> bool {
         if !name.eq_ignore_ascii_case(expected) {
             return false;
         }
-        !pieces.any(|piece| {
+        pieces.all(|piece| {
             let piece = piece.trim();
-            piece
-                .strip_prefix("q=")
-                .is_some_and(|q| q.trim().starts_with('0'))
+            let Some((key, value)) = piece.split_once('=') else {
+                return true;
+            };
+            !key.trim().eq_ignore_ascii_case("q")
+                || value.trim().parse::<f32>().map_or(true, |q| q > 0.0)
         })
     })
 }
@@ -649,6 +651,44 @@ mod tests {
                 .get(header::CACHE_CONTROL)
                 .and_then(|v| v.to_str().ok())
                 .is_some_and(|v| v.contains("immutable"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn encoded_artifact_honors_nonzero_q_values() -> Result<()> {
+        let artifact = EncodedArtifact::new("abc123", br#"{"ok":true}"#.to_vec())?;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ACCEPT_ENCODING,
+            HeaderValue::from_static("br;q=0.8, gzip;q=0.5"),
+        );
+
+        let resp = artifact.response(&headers, ArtifactCachePolicy::Immutable);
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get(header::CONTENT_ENCODING)
+                .and_then(|v| v.to_str().ok()),
+            Some("br")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn encoded_artifact_rejects_zero_q_values() -> Result<()> {
+        let artifact = EncodedArtifact::new("abc123", br#"{"ok":true}"#.to_vec())?;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ACCEPT_ENCODING,
+            HeaderValue::from_static("br;q=0, gzip;q=0"),
+        );
+
+        let resp = artifact.response(&headers, ArtifactCachePolicy::Immutable);
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(
+            resp.headers().get(header::CONTENT_ENCODING).is_none(),
+            "q=0 encodings should fall back to identity"
         );
         Ok(())
     }
