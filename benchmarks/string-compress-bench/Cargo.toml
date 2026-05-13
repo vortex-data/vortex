@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+[package]
+name = "string-compress-bench"
+description = "Compares FSST (C++ FSST-8/FSST-12), fsst-rs, and OnPair on string-heavy workloads"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+fsst-rs = { workspace = true }
+rand = { workspace = true }
+# OnPair is not on crates.io yet; pull from the upstream project.
+onpair_rs = { git = "https://github.com/gargiulofrancesco/onpair_rs", rev = "ac663abe92ef3de26a65d9684e78f2aea28366ff" }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-fsst = { workspace = true }
+vortex-session = { workspace = true }
+
+[build-dependencies]
+cc = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+
+[features]
+# All optional backends are on by default. Turn off `fsst-cpp` if your toolchain
+# cannot build the vendored C++ FSST sources; turn off `onpair-cpp` if Boost
+# headers are unavailable (the vendored `onpair_cpp` library depends on
+# `boost::unordered_flat_map`).
+default = ["fsst-cpp", "onpair", "onpair-cpp"]
+fsst-cpp = []
+onpair = []
+onpair-cpp = []
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "string_compress"
+harness = false
+
+[[bin]]
+name = "string-compress-report"
+path = "src/main.rs"
