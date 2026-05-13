@@ -50,8 +50,11 @@ use std::sync::Arc;
 ///
 /// [`I32`]: PType::I32
 /// [`NonNullable`]: Nullability::NonNullable
+#[allow(
+    clippy::derived_hash_with_manual_eq,
+    reason = "manual PartialEq adds Arc::ptr_eq fast path only"
+)]
 #[derive(Debug, Clone, Eq, Hash)]
-#[allow(clippy::derived_hash_with_manual_eq)] // manual PartialEq adds Arc::ptr_eq fast path only
 pub enum DType {
     /// A logical null type.
     ///
