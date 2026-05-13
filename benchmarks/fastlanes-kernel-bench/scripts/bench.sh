@@ -3,25 +3,37 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Wrapper around `cargo bench -p fastlanes-kernel-bench` that compiles the
-# bitpacking kernels with the host's full SIMD feature set and a single codegen
-# unit. Default cargo builds the workspace at the `x86-64-v1` baseline (SSE2
-# only) which leaves a large speedup on the table -- e.g. on Sapphire Rapids
-# the AVX2 ymm path is ~15-30% faster than SSE2 for `BitPacking::unpack`, and
-# more for fused FoR variants.
+# bitpacking kernels using the *widest* SIMD width the host supports.
+#
+# By default we add `target-feature=-prefer-256-bit` on top of
+# `target-cpu=native`. On Skylake-X / Sapphire-Rapids / Emerald-Rapids and
+# similar AVX-512 cores LLVM ordinarily defaults to 256-bit `ymm` vectors
+# even though `zmm` is available -- a leftover guard against the AVX-512
+# downclock penalty on older Xeons. Disabling that hint pushes the codegen
+# to 512-bit `zmm`, which on Emerald Rapids is consistently faster across
+# every type and bit width measured (often 1.4-2.5x, see README.md).
 #
 # Usage:
 #   ./bench.sh                              # run all 360 cases
 #   ./bench.sh __u32__w10                   # filter
 #   ./bench.sh bare_unpack --sample-count 500
+#
+# To compare against the 256-bit (AVX2 only) build, set:
+#   PREFER=256 ./bench.sh
+# To pin a portable baseline (e.g. for cross-machine numbers):
+#   RUSTFLAGS_NATIVE='-C target-cpu=x86-64-v3' ./bench.sh
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
 
-# `target-cpu=native` enables every ISA extension the host supports
-# (AVX2/AVX-512/BMI2/...). Override RUSTFLAGS_NATIVE in the environment if you
-# need to publish reproducible numbers from a portable baseline, e.g.
-#   RUSTFLAGS_NATIVE='-C target-cpu=x86-64-v3' ./bench.sh
-export RUSTFLAGS="${RUSTFLAGS_NATIVE:--C target-cpu=native} ${RUSTFLAGS:-}"
+# Build the rustflags: host CPU + (optionally) force 512-bit vectors.
+RUSTFLAGS_BASE="${RUSTFLAGS_NATIVE:--C target-cpu=native}"
+case "${PREFER:-512}" in
+    512) EXTRA="-C target-feature=-prefer-256-bit" ;;
+    256) EXTRA="" ;;
+    *)   echo "PREFER must be 256 or 512" >&2; exit 1 ;;
+esac
+export RUSTFLAGS="${RUSTFLAGS_BASE} ${EXTRA} ${RUSTFLAGS:-}"
 
 # codegen-units=1 keeps every (T, W) monomorphisation in one TU so LLVM can
 # inline + lay out the unpack body contiguously, helping icache for the

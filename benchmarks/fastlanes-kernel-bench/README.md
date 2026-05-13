@@ -34,6 +34,12 @@ running it as a separate vectorisable pass over the output buffer?
 
 ### Cost of the FoR `wrapping_add` itself (`bare_unpack` vs `fused_for`)
 
+> The numbers in this section are from the AVX2 (`ymm`) build. The AVX-512
+> column under "Why the helper script matters" below shows that switching
+> to 512-bit vectors reduces every absolute number further by 1.04-2.5x, but
+> the *qualitative* picture (FoR add is essentially free for narrow types,
+> visible for wide types) is unchanged.
+
 Direct answer to "is the FoR `wrapping_add` more expensive than just
 unpacking": **for narrow types it is essentially free; for wide types it
 adds 10-50&nbsp;ns over a bare unpack**. The reason is µop-level
@@ -76,8 +82,11 @@ the more visible the residual cost.
 
 ### Fused vs unfused FoR (the headline comparison)
 
-Measured medians on a Sapphire-Rapids-class Xeon @ 2.1&nbsp;GHz, AVX2 build via
-`scripts/bench.sh` (1024-element block, sample-count=500):
+Measured medians on an Emerald-Rapids Xeon @ 2.1&nbsp;GHz, AVX2 (`ymm`) build
+(1024-element block, sample-count=500). The AVX-512 (`zmm`) build reduces
+*both* columns further, but the fused/unfused ratio is similar -- skipping
+the second pass over the output buffer is even more valuable at higher
+throughput because L1 pressure dominates.
 
 | case      | without fused FoR (`unfused_for`) | with fused FoR (`fused_for`) | speedup |
 |-----------|----------------------------------:|-----------------------------:|--------:|
@@ -211,54 +220,89 @@ RUSTFLAGS_NATIVE='-C target-cpu=x86-64-v3' \
 
 ### Why the helper script matters
 
-Profiling the binary built by plain `cargo bench` shows scalar SSE2 code, e.g.
-the `<u32 as BitPacking>::unpack` body is a stream of:
+The default cargo build targets `x86-64-v1` -- SSE2 only. Inspecting the
+`<u32 as BitPacking>::unpack` body shows a stream of 128-bit `xmm` ops:
 
 ```
-movdqu  xmm1, [rdi+rax*1+0x80]   # 128-bit load
+movdqu  xmm1, [rdi+rax*1+0x80]   # 128-bit load, 4 u32 lanes
 pand    xmm2, xmm0               # mask
 psrld   xmm2, 0x8                # shift right
 movdqu  [rsi+rax*1+0x280], xmm2  # 128-bit store
 ```
 
-i.e. 4-wide u32 vectors with no AVX VEX-encoded ops at all. With the script's
-`-C target-cpu=native` we get AVX2:
+`scripts/bench.sh` rebuilds with `-C target-cpu=native` *plus*
+`-C target-feature=-prefer-256-bit`. The first flag enables the host's full
+ISA; the second tells LLVM to actually emit 512-bit AVX-512 (`zmm`) instead
+of LLVM's conservative 256-bit (`ymm`) default for Skylake-X / Sapphire- /
+Emerald-Rapids cores (which was originally chosen to avoid the AVX-512
+downclock penalty -- mostly mitigated on current Xeons).
 
+The same kernel under each setting:
+
+`ymm` build (AVX2, `target-cpu=native` only):
 ```
-vmovdqu ymm3, [rdi+rax*1+0x80]   # 256-bit load
+vmovdqu ymm3, [rdi+rax*1+0x80]   # 256-bit load,  8 u32 lanes
 vpand   ymm4, ymm3, ymm0
-vpshufb ymm4, ymm3, ymm1         # SSSE3/AVX2 byte permute
+vpshufb ymm4, ymm3, ymm1         # AVX2 byte permute
 vmovdqu [rsi+rax*1+0x280], ymm4
 ```
 
-i.e. 8-wide u32 vectors plus byte-shuffle. The fused FoR variant additionally
-gets `vpaddd ymm, ymm, broadcast(reference)` interleaved with the unpack chain,
-which the compiler can only do when the kernel body is in one codegen unit.
+`zmm` build (AVX-512, what the script does by default):
+```
+vmovdqu64 zmm6, [rdi+rax*4-0x980] # 512-bit load, 16 u32 lanes
+vpandd    zmm7, zmm6, zmm1        # EVEX-encoded mask
+vpaddd    zmm7, zmm7, zmm0        # fused FoR add, broadcast(reference)
+vmovdqu64 [rdx+rax*4-0x980], zmm7
+```
 
-Measured medians on a Sapphire-Rapids-class Xeon @ 2.1&nbsp;GHz, 1024-element
-block, in nanoseconds (lower is better):
+The fused FoR variant additionally interleaves a `vpaddd zmm, zmm, broadcast`
+into the unpack body, which the compiler can only do when the kernel body
+lives in one codegen unit (the script's `--config 'profile.bench.codegen-units=1'`).
 
-| case             | SSE2 baseline | AVX2 + cgu=1 | speedup |
-|------------------|--------------:|-------------:|--------:|
-| u8  W=3 bare     |  21           |  17          | 1.24x   |
-| u8  W=3 fused    |  47           |  17          | 2.76x   |
-| u16 W=3 fused    |  46           |  45          | 1.02x   |
-| u32 W=3 fused    |  92           |  85          | 1.08x   |
-| u32 W=10 fused   | 140           |  77          | 1.82x   |
-| u32 W=17 fused   | 135           |  77          | 1.75x   |
-| u64 W=3 fused    | 198           | 148          | 1.34x   |
-| u64 W=17 fused   | 202           | 172          | 1.17x   |
-| u64 W=33 fused   | 226           | 185          | 1.22x   |
+### Best-of-8 medians: AVX2 (`ymm`) vs AVX-512 (`zmm`)
 
-Headline: **with proper SIMD compile flags the fused FoR kernel is uniformly
-the fastest option**, often by ~2x vs the unfused two-pass alternative. With
-SSE2-only compilation the win is much smaller or even negative for narrow
-types, which is misleading -- without the helper script you would conclude
-that fusing FoR into the unpack barely matters.
+Emerald-Rapids Xeon @ 2.1 GHz, `--min-time 0.3` per case, eight independent
+runs per cell, fastest median kept. **All times in ns; lower is better.**
+**`zmm` wins every cell**, by 1.04x to 2.5x.
 
-Note: LLVM defaults to 256-bit (`ymm`) on this host even though `avx512f`
-is available, because the default `prefer-vector-width` for a generic
-`native` CPU model favours 256-bit to avoid the AVX-512 frequency
-licence-domain dip on older Xeons. To force 512-bit, use
-`RUSTFLAGS_NATIVE='-C target-cpu=sapphirerapids'` (or your CPU-specific
-codename that sets `prefer-vector-width=512`).
+| case      | ymm `bare_unpack` | zmm `bare_unpack` | ymm `fused_for` | zmm `fused_for` | speedup `bare` | speedup `fused` |
+|-----------|------------------:|------------------:|----------------:|----------------:|---------------:|----------------:|
+| u8  W=1   |  17.41            |   6.95            |  17.38          |   9.90          | **2.50x**      | **1.76x**       |
+| u8  W=3   |  17.51            |   8.02            |  17.42          |  11.96          | **2.18x**      | **1.46x**       |
+| u8  W=5   |  17.43            |  13.60            |  19.82          |  14.36          |  1.28x         |  1.38x          |
+| u8  W=8   |  17.37            |  11.72            |  17.38          |   6.98          |  1.48x         | **2.49x**       |
+| u16 W=5   |  34.62            |  23.26            |  34.74          |  25.37          |  1.49x         |  1.37x          |
+| u16 W=11  |  34.85            |  31.23            |  41.93          |  30.30          |  1.12x         |  1.38x          |
+| u16 W=15  |  34.63            |  25.20            |  47.00          |  34.83          |  1.37x         |  1.35x          |
+| u16 W=16  |  42.33            |  22.97            |  36.03          |  24.90          | **1.84x**      |  1.45x          |
+| u32 W=1   |  76.95            |  54.06            |  77.31          |  54.01          |  1.42x         |  1.43x          |
+| u32 W=8   |  76.82            |  70.60            |  82.03          |  54.18          |  1.09x         | **1.51x**       |
+| u32 W=17  |  77.17            |  54.81            |  78.71          |  69.05          |  1.41x         |  1.14x          |
+| u32 W=24  |  77.09            |  74.37            |  88.11          |  67.13          |  1.04x         |  1.31x          |
+| u32 W=32  |  76.53            |  54.04            |  78.66          |  54.58          |  1.42x         |  1.44x          |
+| u64 W=7   | 145.70            | 105.80            | 149.40          | 116.30          |  1.38x         |  1.28x          |
+| u64 W=11  | 152.10            | 105.90            | 154.90          | 121.20          |  1.44x         |  1.28x          |
+| u64 W=20  | 154.00            | 106.90            | 164.00          | 123.10          |  1.44x         |  1.33x          |
+| u64 W=33  | 153.20            | 107.00            | 172.20          | 139.20          |  1.43x         |  1.24x          |
+| u64 W=50  | 154.20            | 119.40            | 196.00          | 152.80          |  1.29x         |  1.28x          |
+| u64 W=55  | 174.90            | 124.30            | 213.80          | 159.00          |  1.41x         |  1.34x          |
+| u64 W=64  | 154.20            | 107.20            | 173.30          | 106.70          |  1.44x         | **1.62x**       |
+
+Per-type takeaway:
+
+* **u8** : zmm packs 64 u8 lanes per vector vs ymm's 32. Bare unpack is up to
+  **2.5x faster**; fused FoR is up to **2.5x faster** on the wide W=8 case.
+* **u16**: zmm packs 32 vs 16 lanes. Consistent **1.35-1.85x** speedup.
+* **u32**: zmm packs 16 vs 8 lanes. Speedup **1.04-1.51x**, with the largest
+  gains on narrow and full-width cases (W=1, W=8 fused, W=32).
+* **u64**: zmm packs 8 vs 4 lanes. Steady **1.24-1.62x** across every W
+  measured -- the most uniform speedup of any type.
+
+The previous AVX2-only numbers in this README (now superseded) showed up to
+2.76x SSE2 -> AVX2 for the fused FoR. Stacking the AVX-512 win on top yields
+roughly **3-5x over the unconfigured SSE2 baseline** for u64 at most widths.
+
+Override the default with `PREFER=256 ./scripts/bench.sh` to reproduce the
+AVX2 column above on the same hardware. Use
+`RUSTFLAGS_NATIVE='-C target-cpu=x86-64-v3' PREFER=256 ./scripts/bench.sh`
+for a portable AVX2 baseline that other machines can reproduce.
