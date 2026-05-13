@@ -26,6 +26,11 @@ vortex-mask = { workspace = true }
 [dev-dependencies]
 pco = { workspace = true }
 rstest = { workspace = true }
+vortex = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-btrblocks = { workspace = true }
+vortex-session = { workspace = true }
+zstd = { workspace = true }
 
 [[example]]
 name = "hsz_vs_pco"

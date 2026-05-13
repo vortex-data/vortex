@@ -10829,9 +10829,14 @@ dependencies = [
  "num-traits",
  "pco",
  "rstest",
+ "vortex",
+ "vortex-array",
+ "vortex-btrblocks",
  "vortex-buffer",
  "vortex-error",
  "vortex-mask",
+ "vortex-session",
+ "zstd",
 ]
 
 [[package]]

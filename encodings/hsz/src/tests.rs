@@ -4,6 +4,7 @@
 use rstest::rstest;
 use vortex_error::VortexResult;
 
+use crate::CompareOp;
 use crate::HszConfig;
 use crate::stage::Hsz;
 
@@ -200,5 +201,105 @@ fn outliers_roundtrip_through_decompress() -> VortexResult<()> {
     for i in [0usize, 1, 50, 500, 1023] {
         assert!((decoded.as_slice()[i] - values[i]).abs() <= hsz.eps());
     }
+    Ok(())
+}
+
+#[rstest]
+#[case(CompareOp::Lt, 8.0)]
+#[case(CompareOp::Le, 8.0)]
+#[case(CompareOp::Gt, 8.0)]
+#[case(CompareOp::Ge, 8.0)]
+#[case(CompareOp::Eq, 8.0)]
+#[case(CompareOp::Ne, 8.0)]
+fn compare_mask_matches_naive(#[case] op: CompareOp, #[case] value: f64) -> VortexResult<()> {
+    let values = smooth_signal(4096);
+    let hsz = Hsz::compress(&values, HszConfig { eps: 1e-4 })?;
+    let (mask, _stats) = hsz.compare_mask(op, value);
+    let expected: usize = values
+        .iter()
+        .filter(|v| match op {
+            CompareOp::Lt => **v < value,
+            CompareOp::Le => **v <= value,
+            CompareOp::Gt => **v > value,
+            CompareOp::Ge => **v >= value,
+            CompareOp::Eq => **v == value,
+            CompareOp::Ne => **v != value,
+        })
+        .count();
+    // Strict equality on f64 is tight; with `eps = 1e-4` and a smooth signal
+    // we shouldn't hit a value exactly equal to 8.0 except by chance, so
+    // both Eq and Ne should agree with the naive computation.
+    let diff = mask.true_count().abs_diff(expected);
+    assert!(
+        diff <= 2,
+        "op={op:?} value={value}: mask={} naive={} diff={diff}",
+        mask.true_count(),
+        expected
+    );
+    Ok(())
+}
+
+#[test]
+fn compare_skips_blocks_for_smooth_signal() -> VortexResult<()> {
+    let values = smooth_signal(8 * 1024);
+    let hsz = Hsz::compress(&values, HszConfig { eps: 1e-4 })?;
+    let (_, stats) = hsz.compare_mask(CompareOp::Gt, 100.0);
+    assert!(stats.blocks_descended == 0);
+    assert!(stats.blocks_all_false > 0);
+    let (_, stats) = hsz.compare_mask(CompareOp::Lt, -100.0);
+    assert!(stats.blocks_descended == 0);
+    assert!(stats.blocks_all_false > 0);
+    let (_, stats) = hsz.compare_mask(CompareOp::Ge, -100.0);
+    assert!(stats.blocks_descended == 0);
+    assert!(stats.blocks_all_true > 0);
+    Ok(())
+}
+
+#[test]
+fn is_nan_finds_nan_outliers() -> VortexResult<()> {
+    let mut values: Vec<f64> = (0..1024).map(|i| i as f64).collect();
+    values[42] = f64::NAN;
+    values[500] = f64::INFINITY;
+    let hsz = Hsz::compress(&values, HszConfig { eps: 0.5 })?;
+    let nan_mask = hsz.is_nan_mask();
+    assert_eq!(nan_mask.true_count(), 1);
+    assert!(nan_mask.value(42));
+    assert!(!nan_mask.value(500));
+    let fin_mask = hsz.is_finite_mask();
+    assert_eq!(fin_mask.true_count(), values.len() - 2);
+    assert!(!fin_mask.value(42));
+    assert!(!fin_mask.value(500));
+    assert_eq!(hsz.nan_count(), 1);
+    assert_eq!(hsz.non_finite_count(), 2);
+    Ok(())
+}
+
+#[test]
+fn count_in_range_matches_naive() -> VortexResult<()> {
+    let values = smooth_signal(4096);
+    let hsz = Hsz::compress(&values, HszConfig { eps: 1e-4 })?;
+    let expected = values.iter().filter(|v| **v >= 7.0 && **v <= 12.0).count();
+    assert_eq!(hsz.count_in_range(7.0, 12.0), expected);
+    assert_eq!(
+        hsz.count_in_range(f64::NEG_INFINITY, f64::INFINITY),
+        values.len()
+    );
+    assert_eq!(hsz.count_in_range(1000.0, 2000.0), 0);
+    Ok(())
+}
+
+#[test]
+fn is_constant_detects_constant_column() -> VortexResult<()> {
+    let constant: Vec<f64> = vec![42.0; 2048];
+    let hsz = Hsz::compress(&constant, HszConfig { eps: 1e-3 })?;
+    assert!(hsz.is_constant());
+
+    let almost_constant: Vec<f64> = (0..2048).map(|i| 42.0 + (i as f64) * 1e-4).collect();
+    let hsz = Hsz::compress(&almost_constant, HszConfig { eps: 1e-3 })?;
+    assert!(!hsz.is_constant());
+
+    let empty: Vec<f64> = vec![];
+    let hsz = Hsz::compress(&empty, HszConfig { eps: 1e-3 })?;
+    assert!(!hsz.is_constant());
     Ok(())
 }

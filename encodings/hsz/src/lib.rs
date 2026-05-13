@@ -39,7 +39,10 @@ mod stage;
 
 pub use compress::HszConfig;
 pub use compute::BetweenStats;
+pub use compute::CompareOp;
+pub use compute::CompareStats;
 pub use stage::BlockSummary;
+pub use stage::HSZ_BLOCK_SIZE;
 pub use stage::Hsz;
 
 #[cfg(test)]
