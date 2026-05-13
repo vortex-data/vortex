@@ -1,0 +1,99 @@
+pub mod vortex_ordered_latent
+
+pub struct vortex_ordered_latent::OrderedLatent
+
+impl vortex_ordered_latent::OrderedLatent
+
+pub fn vortex_ordered_latent::OrderedLatent::encode(vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_ordered_latent::OrderedLatentArray>
+
+pub fn vortex_ordered_latent::OrderedLatent::try_new(vortex_array::array::erased::ArrayRef, vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_ordered_latent::OrderedLatentArray>
+
+impl core::clone::Clone for vortex_ordered_latent::OrderedLatent
+
+pub fn vortex_ordered_latent::OrderedLatent::clone(&self) -> vortex_ordered_latent::OrderedLatent
+
+impl core::fmt::Debug for vortex_ordered_latent::OrderedLatent
+
+pub fn vortex_ordered_latent::OrderedLatent::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::vtable::VTable for vortex_ordered_latent::OrderedLatent
+
+pub type vortex_ordered_latent::OrderedLatent::OperationsVTable = vortex_ordered_latent::OrderedLatent
+
+pub type vortex_ordered_latent::OrderedLatent::TypedArrayData = vortex_ordered_latent::OrderedLatentData
+
+pub type vortex_ordered_latent::OrderedLatent::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
+
+pub fn vortex_ordered_latent::OrderedLatent::buffer(vortex_array::array::view::ArrayView<'_, Self>, usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_ordered_latent::OrderedLatent::buffer_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> core::option::Option<alloc::string::String>
+
+pub fn vortex_ordered_latent::OrderedLatent::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &[vortex_array::buffer::BufferHandle], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
+
+pub fn vortex_ordered_latent::OrderedLatent::execute(vortex_array::array::typed::Array<Self>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+
+pub fn vortex_ordered_latent::OrderedLatent::id(&self) -> vortex_array::array::ArrayId
+
+pub fn vortex_ordered_latent::OrderedLatent::nbuffers(vortex_array::array::view::ArrayView<'_, Self>) -> usize
+
+pub fn vortex_ordered_latent::OrderedLatent::serialize(vortex_array::array::view::ArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_ordered_latent::OrderedLatent::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
+
+pub fn vortex_ordered_latent::OrderedLatent::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_ordered_latent::OrderedLatent> for vortex_ordered_latent::OrderedLatent
+
+pub fn vortex_ordered_latent::OrderedLatent::scalar_at(vortex_array::array::view::ArrayView<'_, vortex_ordered_latent::OrderedLatent>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::array::vtable::validity::ValidityChild<vortex_ordered_latent::OrderedLatent> for vortex_ordered_latent::OrderedLatent
+
+pub fn vortex_ordered_latent::OrderedLatent::validity_child(vortex_array::array::view::ArrayView<'_, vortex_ordered_latent::OrderedLatent>) -> vortex_array::array::erased::ArrayRef
+
+pub struct vortex_ordered_latent::OrderedLatentData
+
+impl vortex_ordered_latent::OrderedLatentData
+
+pub fn vortex_ordered_latent::OrderedLatentData::new() -> Self
+
+impl core::clone::Clone for vortex_ordered_latent::OrderedLatentData
+
+pub fn vortex_ordered_latent::OrderedLatentData::clone(&self) -> vortex_ordered_latent::OrderedLatentData
+
+impl core::default::Default for vortex_ordered_latent::OrderedLatentData
+
+pub fn vortex_ordered_latent::OrderedLatentData::default() -> vortex_ordered_latent::OrderedLatentData
+
+impl core::fmt::Debug for vortex_ordered_latent::OrderedLatentData
+
+pub fn vortex_ordered_latent::OrderedLatentData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_ordered_latent::OrderedLatentData
+
+pub fn vortex_ordered_latent::OrderedLatentData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_ordered_latent::OrderedLatentData
+
+pub fn vortex_ordered_latent::OrderedLatentData::array_eq(&self, &Self, vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_ordered_latent::OrderedLatentData
+
+pub fn vortex_ordered_latent::OrderedLatentData::array_hash<H: core::hash::Hasher>(&self, &mut H, vortex_array::hash::Precision)
+
+pub trait vortex_ordered_latent::OrderedLatentArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_ordered_latent::OrderedLatent>
+
+pub fn vortex_ordered_latent::OrderedLatentArrayExt::encoded(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_ordered_latent::OrderedLatentArrayExt::latent_ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub fn vortex_ordered_latent::OrderedLatentArrayExt::ptype(&self) -> vortex_array::dtype::ptype::PType
+
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_ordered_latent::OrderedLatent>> vortex_ordered_latent::OrderedLatentArrayExt for T
+
+pub fn T::encoded(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::latent_ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub fn T::ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub type vortex_ordered_latent::OrderedLatentArray = vortex_array::array::typed::Array<vortex_ordered_latent::OrderedLatent>

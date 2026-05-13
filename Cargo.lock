@@ -10964,6 +10964,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-ordered-latent"
+version = "0.1.0"
+dependencies = [
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-parquet-variant"
 version = "0.1.0"
 dependencies = [
