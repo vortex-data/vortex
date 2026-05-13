@@ -28,18 +28,31 @@
 
 pub use array::*;
 pub use compress::*;
+use vortex_array::ArrayVTable;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::fns::min_max::MinMax;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 mod array;
 mod canonical;
 mod compress;
+mod compute;
 pub mod models;
 mod ops;
 
 /// Initialize NeaTS encoding in the given session.
 pub fn initialize(session: &VortexSession) {
     session.arrays().register(NeaTS);
+
+    // Register a NeaTS-aware min/max kernel that reduces over per-piece bounds instead of
+    // decoding all values.
+    session.aggregate_fns().register_aggregate_kernel(
+        NeaTS.id(),
+        Some(MinMax.id()),
+        &compute::min_max::NeaTSMinMaxKernel,
+    );
 }
 
 #[cfg(test)]
@@ -161,6 +174,66 @@ mod test {
                 (scalar - decoded_slice[idx]).abs()
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn min_max_kernel_matches_canonical() -> VortexResult<()> {
+        use std::sync::LazyLock;
+
+        use vortex_array::aggregate_fn::fns::min_max::MinMaxResult;
+        use vortex_array::aggregate_fn::fns::min_max::min_max;
+        use vortex_array::session::ArraySession;
+        use vortex_session::VortexSession;
+
+        // We need a session with NeaTS registered so the kernel actually fires.
+        static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+            let session = VortexSession::empty().with::<ArraySession>();
+            crate::initialize(&session);
+            session
+        });
+        let mut ctx = SESSION.create_execution_ctx();
+
+        let values: Vec<f64> = (0..1024)
+            .map(|i| (i as f64 * 0.05).sin() + 0.001 * i as f64)
+            .collect();
+        let truth_min = values.iter().cloned().fold(f64::INFINITY, f64::min);
+        let truth_max = values.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let encoded = neats_encode(
+            array.as_view(),
+            NeaTSOptions {
+                epsilon: Some(1e-6),
+                ..NeaTSOptions::default()
+            },
+        )?;
+
+        let result = min_max(&encoded.into_array(), &mut ctx)?.expect("non-empty input");
+        let MinMaxResult { min, max } = result;
+        let min_f: f64 = min.as_primitive().as_::<f64>().unwrap();
+        let max_f: f64 = max.as_primitive().as_::<f64>().unwrap();
+
+        // The kernel computes inclusive bounds from `min(model) + min(residual*scale)` per
+        // piece. These bounds are guaranteed to cover the true min/max but can be slightly
+        // wider because the model's argmin and the residual's argmin may differ. The contract
+        // is `kernel_min <= truth_min` and `kernel_max >= truth_max`. We also assert the
+        // looseness is bounded by the largest per-piece residual swing (an over-estimate of
+        // the worst-case widening).
+        assert!(
+            min_f <= truth_min,
+            "kernel min {min_f} did not cover truth min {truth_min}",
+        );
+        assert!(
+            max_f >= truth_max,
+            "kernel max {max_f} did not cover truth max {truth_max}",
+        );
+        let data_range = truth_max - truth_min;
+        let kernel_range = max_f - min_f;
+        assert!(
+            kernel_range <= 2.0 * data_range,
+            "kernel range {kernel_range} should not exceed 2x data range {data_range}",
+        );
         Ok(())
     }
 

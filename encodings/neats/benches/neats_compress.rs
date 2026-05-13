@@ -100,6 +100,48 @@ fn bench_decompress<F: Fn(usize) -> Vec<f64>>(bencher: Bencher, n: usize, genera
         });
 }
 
+fn bench_min_max_pushdown<F: Fn(usize) -> Vec<f64>>(bencher: Bencher, n: usize, generator: F) {
+    use vortex_array::aggregate_fn::fns::min_max::min_max;
+    use vortex_array::session::ArraySession;
+    use vortex_session::VortexSession;
+    static SESSION: std::sync::LazyLock<VortexSession> = std::sync::LazyLock::new(|| {
+        let s = VortexSession::empty().with::<ArraySession>();
+        vortex_neats::initialize(&s);
+        s
+    });
+    let array = primitive(generator(n));
+    bencher
+        .with_inputs(|| {
+            (
+                neats_encode(array.as_view(), NeaTSOptions::default())
+                    .unwrap()
+                    .into_array(),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(a, mut ctx)| min_max(&a, &mut ctx).unwrap());
+}
+
+fn bench_min_max_canonicalised<F: Fn(usize) -> Vec<f64>>(bencher: Bencher, n: usize, generator: F) {
+    // End-to-end min/max via canonicalisation: decode all values, then reduce. This is what
+    // happens when no pushdown kernel exists.
+    use vortex_array::aggregate_fn::fns::min_max::min_max;
+    let array = primitive(generator(n));
+    bencher
+        .with_inputs(|| {
+            (
+                neats_encode(array.as_view(), NeaTSOptions::default())
+                    .unwrap()
+                    .into_array(),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(a, mut ctx)| {
+            let decoded = a.execute::<PrimitiveArray>(&mut ctx).unwrap();
+            min_max(&decoded.into_array(), &mut ctx).unwrap()
+        });
+}
+
 macro_rules! compress_benches {
     ($mod_name:ident, $gen:ident) => {
         mod $mod_name {
@@ -118,6 +160,16 @@ macro_rules! compress_benches {
             #[divan::bench(args = SIZES)]
             fn decompress_lossless(bencher: Bencher, n: usize) {
                 bench_decompress(bencher, n, $gen);
+            }
+
+            #[divan::bench(args = SIZES)]
+            fn min_max_pushdown(bencher: Bencher, n: usize) {
+                bench_min_max_pushdown(bencher, n, $gen);
+            }
+
+            #[divan::bench(args = SIZES)]
+            fn min_max_canonicalised(bencher: Bencher, n: usize) {
+                bench_min_max_canonicalised(bencher, n, $gen);
             }
         }
     };
