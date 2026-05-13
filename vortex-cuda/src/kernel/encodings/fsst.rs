@@ -151,9 +151,8 @@ where
         ctx.ensure_on_device(codes_offsets_buffer),
     )?;
 
-    // The aligned-output optimisations added in later commits assume an
-    // aligned base. cudaMalloc returns ≥256-aligned pointers so this should
-    // always hold; the assertion guards against allocator regressions.
+    // The kernel checks store alignment relative to the base via
+    // `out_pos % N`, so the base must satisfy the widest store (u128 → 16).
     let device_output = ctx.device_alloc::<u8>(total_size)?;
     let (output_base_ptr, _) = device_output.device_ptr(ctx.stream());
     assert_eq!(
