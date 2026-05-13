@@ -36,12 +36,13 @@ local DB file. Five fact tables (`query_measurements`, `compression_times`,
 `compression_sizes`, `random_access_times`, `vector_search_runs`) plus a
 `commits` dim table — see [`server/src/schema.rs`](server/src/schema.rs) for
 the column contracts. Three HTML routes (`/`, `/chart/{slug}`,
-`/group/{slug}`) and four JSON routes (`GET /api/groups`,
-`GET /api/chart/{slug}`, `GET /api/group/{slug}`, `GET /health`), plus a
-bearer-gated `POST /api/ingest`. Charts render inline on the landing page via
-SSR + lazy hydration; visual downsampling (LTTB at most
-`MAX_VISIBLE_POINTS = 500`) is client-side in
-[`server/static/chart-init.js`](server/static/chart-init.js).
+`/group/{slug}`) and four stable JSON routes (`GET /api/groups`,
+`GET /api/chart/{slug}`, `GET /api/group/{slug}`, `GET /health`), plus
+versioned group shard artifacts and bearer-gated `POST /api/ingest`. The hot
+website path serves precomputed, precompressed latest-100 artifacts from an
+in-memory read model; pages render chart shells and hydrate groups via shard
+artifacts, while full history warms in the background. See
+[`server/ARCHITECTURE.md`](server/ARCHITECTURE.md).
 
 For the per-module crate map and the request-flow walkthrough, see the
 `//!` doc on [`server/src/lib.rs`](server/src/lib.rs). The producer side of
