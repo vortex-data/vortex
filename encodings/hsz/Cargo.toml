@@ -1,0 +1,31 @@
+[package]
+name = "vortex-hsz"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Multi-stage homomorphic compression for scientific float columns"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+num-traits = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+
+[dev-dependencies]
+pco = { workspace = true }
+rstest = { workspace = true }
+
+[[example]]
+name = "hsz_vs_pco"
+path = "examples/hsz_vs_pco.rs"

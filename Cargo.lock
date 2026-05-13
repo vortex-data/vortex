@@ -10822,6 +10822,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-hsz"
+version = "0.1.0"
+dependencies = [
+ "num-traits",
+ "pco",
+ "rstest",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+]
+
+[[package]]
 name = "vortex-io"
 version = "0.1.0"
 dependencies = [
