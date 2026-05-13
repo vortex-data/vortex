@@ -52,46 +52,25 @@ impl Display for StatOptions {
     }
 }
 
-/// Scalar function that returns a statistic as a row-wise bound.
+/// Scalar function that broadcasts a stored aggregate statistic over the input rows.
 ///
-/// The result is always row-aligned with the input: each row carries the stat of whatever
-/// granularity the input provides it at. For example, a flat array could yield a single broadcast
-/// `ConstantArray`; a chunked array could yield a constant per chunk (a `ChunkedArray` of
-/// `ConstantArray`s); a zone-mapped array could yield a run-end-encoded array, one run per zone.
-/// If the requested stat is not available, the result is a null constant.
+/// The only current consumer is **row-wise pruning**: substituting `stat(col, agg)` into a
+/// predicate produces a cheap, row-aligned approximation whose constant runs let downstream
+/// filters drop entire stretches at once. For example, `value < 10` is prunable as
+/// `stat(value, max) < 10` (rows where the bound is false are guaranteed false) or
+/// `stat(value, min) >= 10` (rows where it is true are guaranteed true) — the zone-map /
+/// min-max-index pattern, expressed as an ordinary expression so the existing scalar
+/// machinery can rewrite, fold, and execute it.
 ///
-/// Because the output is row-aligned, `stat(col, agg)` slots directly into ordinary predicates
-/// to perform **row-wise pruning**: substituting it into a predicate produces a cheap,
-/// row-wise approximation whose constant runs let downstream filters drop entire stretches at
-/// once. For example, `value < 10` is prunable as `stat(value, max) < 10` (rows where the
-/// bound is false are guaranteed false) or `stat(value, min) >= 10` (rows where the bound is
-/// true are guaranteed true). This is the zone-map / min-max-index pattern, expressed as an
-/// ordinary expression so the existing scalar machinery can rewrite, fold, and execute it.
+/// The result is row-aligned with the input, at whatever granularity the input carries the
+/// stat at: e.g. a flat array yields a single broadcast `ConstantArray`; a chunked array
+/// yields a constant per chunk; a zone-mapped array would yield a run-end-encoded array,
+/// one run per zone. If the requested stat is not available, the result is a null constant.
 ///
-/// # Stats as a row-level bound
-///
-/// For some aggregates the broadcast value bounds every row in the chunk, which is what makes
-/// it useful for predicate pruning:
-///
-/// - `min`: `result[i] <= input[i]` (lower bound)
-/// - `max`: `result[i] >= input[i]` (upper bound)
-/// - `has_nulls`: `is_null(input[i]) <= result[i]` in the boolean lattice (`false <= true`)
-/// - bloom filters: `input[i]` is contained in the filter
-///
-/// The aggregates that admit such a bound are exactly the **semilattice aggregates**: there is
-/// a per-row function `g` and an idempotent, associative, commutative combiner `⊔` such that
-/// `f(chunk) = ⊔ g(x) for x in chunk`. Idempotence (`a ⊔ a = a`) is the load-bearing axiom —
-/// it both gives the per-row bound `g(x) ⊑ f(chunk)` and makes stats compose across chunks
-/// (`f(A ∪ B) = f(A) ⊔ f(B)`). This is the same family as MapReduce combiners that work over
-/// arbitrary re-partitionings, CRDT join-semilattices, and the abstract domain in a Galois
-/// connection.
-///
-/// Aggregates whose combiner is not idempotent — `sum`, `count`, `mean`, `null_count`,
-/// `nan_count`, ... — do **not** bound individual rows. `null_count` is the canonical example:
-/// it lives in `(ℕ, +)` rather than `(bool, ∨)`, and `1 + 1 ≠ 1`, so it carries strictly more
-/// information than `has_nulls` but does not bound any single row's nullness. The broadcast
-/// value is still meaningful as a per-chunk attribute (e.g., comparing a chunk's sum to a
-/// threshold), just not as a row-level bound.
+/// Pruning only makes sense for aggregates that bound individual rows — `min`, `max`,
+/// `has_nulls`, bloom filters, etc. Non-idempotent aggregates like `sum`, `count`, `mean`,
+/// `null_count`, and `nan_count` still produce a meaningful per-chunk value but do **not**
+/// bound any single row.
 #[derive(Clone)]
 pub struct StatFn;
 
@@ -137,7 +116,18 @@ impl ScalarFnVTable for StatFn {
         let input = args.get(0)?;
         let dtype = stat_dtype(options.aggregate_fn(), input.dtype())?;
 
+        // Recurse into each chunk so the output keeps per-chunk granularity (one constant
+        // per chunk) instead of collapsing to a single combined stat across the whole array.
+        // Per-chunk granularity is what makes the result useful for pruning: predicates can
+        // drop whole chunks at a time. Without this, we'd lose every chunk boundary as a
+        // pruning opportunity. Other encodings (zone maps, etc.) will need similar
+        // structure-preserving handling once they land.
         if let Some(chunked) = input.as_opt::<Chunked>() {
+            tracing::trace!(
+                "stat({}) descending into ChunkedArray with {} chunks",
+                options.aggregate_fn(),
+                chunked.nchunks()
+            );
             let chunks = chunked
                 .iter_chunks()
                 .map(|chunk| stat_array(chunk, options.aggregate_fn(), dtype.clone(), chunk.len()))
