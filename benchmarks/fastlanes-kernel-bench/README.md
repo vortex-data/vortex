@@ -32,6 +32,48 @@ three variants of decoding one 1024-element block are timed:
 real comparison: does fusing the wrapping-add into the unpack kernel beat
 running it as a separate vectorisable pass over the output buffer?
 
+### Cost of the FoR `wrapping_add` itself (`bare_unpack` vs `fused_for`)
+
+Direct answer to "is the FoR `wrapping_add` more expensive than just
+unpacking": **for narrow types it is essentially free; for wide types it
+adds 10-50&nbsp;ns over a bare unpack**. The reason is µop-level
+parallelism -- the broadcast-add fits in the unpack's existing
+load/shift/mask pipeline for narrow lanes, but as the per-vector lane count
+shrinks (32 for u8 &rarr; 16 for u16 &rarr; 8 for u32 &rarr; 4 for u64 at
+256-bit ymm), the kernel runs out of slack and the `vpaddd` becomes visible.
+
+Median best-of-3 runs (`--min-time 0.5`):
+
+| case      | `bare_unpack` (no add) | `fused_for` (unpack + add) | add overhead |
+|-----------|----------------------:|---------------------------:|-------------:|
+| u8  W=1   |  17.6 ns              |  17.5 ns                   |   -0.2 ns    |
+| u8  W=5   |  17.8 ns              |  20.0 ns                   |   +2.2 ns    |
+| u8  W=8   |  17.8 ns              |  17.7 ns                   |   -0.1 ns    |
+| u16 W=7   |  35.1 ns              |  43.2 ns                   |   +8.1 ns    |
+| u16 W=16  |  34.7 ns              |  34.7 ns                   |    0.0 ns    |
+| u32 W=8   |  76.8 ns              |  76.8 ns                   |    0.0 ns    |
+| u32 W=17  |  77.1 ns              |  78.3 ns                   |   +1.3 ns    |
+| u32 W=24  |  80.4 ns              |  89.5 ns                   |   +9.0 ns    |
+| u32 W=32  |  98.6 ns              | 108.6 ns                   |  +10.0 ns    |
+| u64 W=11  | 146.4 ns              | 159.6 ns                   |  +13.2 ns    |
+| u64 W=33  | 154.3 ns              | 173.2 ns                   |  +18.9 ns    |
+| u64 W=55  | 163.7 ns              | 210.7 ns                   |  +47.0 ns    |
+| u64 W=64  | 153.5 ns              | 171.4 ns                   |  +17.9 ns    |
+
+Compare with the cost of running the same `wrapping_add` as a *separate*
+loop after a bare unpack (the `unfused_for` column from the next table):
+
+* u32 W=17: separate add adds **+72&nbsp;ns**; fused add adds **+1.3&nbsp;ns**.
+  Fusing recovers ~55x of the cost.
+* u64 W=33: separate add adds **+166&nbsp;ns**; fused add adds **+19&nbsp;ns**.
+  Fusing recovers ~9x of the cost.
+
+So yes, the `wrapping_add` *is* extra work, but fusing it into the unpack
+kernel lets it overlap with the existing memory + shift + mask µop chain,
+turning a 30-170&nbsp;ns sequential dependency into a 0-50&nbsp;ns
+co-scheduled instruction. The wider the type and the higher the bit width,
+the more visible the residual cost.
+
 ### Fused vs unfused FoR (the headline comparison)
 
 Measured medians on a Sapphire-Rapids-class Xeon @ 2.1&nbsp;GHz, AVX2 build via
