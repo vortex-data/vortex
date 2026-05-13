@@ -9,8 +9,8 @@ use string_compress_bench::backends::Backend;
 use string_compress_bench::backends::Pushdown;
 use string_compress_bench::backends::fsst_rs_backend::FsstRsBackend;
 use string_compress_bench::datasets::{
-    Corpus, json_like, long_shared_prefix, natural_words, random_bytes, short_codes,
-    skewed_dictionary, url_like,
+    Corpus, adversarial_mix, json_like, long_shared_prefix, natural_words, random_bytes,
+    short_codes, skewed_dictionary, url_like,
 };
 
 #[cfg(feature = "onpair-cpp")]
@@ -40,6 +40,7 @@ fn corpora() -> Vec<Corpus> {
         natural_words(ROWS),
         json_like(ROWS),
         short_codes(ROWS),
+        adversarial_mix(ROWS),
     ]
 }
 

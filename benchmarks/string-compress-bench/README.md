@@ -98,6 +98,7 @@ identical on every supported platform).
 | `natural_words`  | bag-of-words English-ish                                           |
 | `json_like`      | small JSON snippets (punctuation-heavy)                             |
 | `short_codes`    | `US-12345`-shaped fixed-length identifiers                          |
+| `adversarial_mix`| four interleaved anti-patterns (high-entropy session IDs, 9-byte periodic motifs, hex blobs, random ASCII) crafted so no backend can converge on a useful dictionary |
 
 All seeds are pinned so the report is reproducible across runs.
 
@@ -202,6 +203,24 @@ means the backend decompressed each row first.
 | `onpair`       |  30 714 | 1.07×  |   0.86 ms |    0.12 ms |  0.039 ms     |   0.091 ms      |  0.060 ms      |
 | `onpair16`     |  30 767 | 1.07×  |   0.88 ms |    0.12 ms |  0.030 ms     |   0.091 ms      |  0.059 ms      |
 | `onpair-cpp`   |  44 329 | 0.74×  |   0.73 ms |    0.14 ms |  0.004 ms PD  |   0.034 ms PD   |  0.011 ms      |
+
+### `adversarial_mix` — 126 085 B raw, 4 096 rows (designed to defeat every backend)
+
+| backend        | payload | ratio  |  compress | decompress | eq (PD?)      | contains (PD?)  | starts_with    |
+| -------------- | ------: | -----: | --------: | ---------: | ------------: | --------------: | -------------: |
+| `fsst-rs`      | 112 645 | 1.12×  |   2.13 ms |    0.26 ms |  0.001 ms PD  |   0.347 ms      |  0.158 ms      |
+| `fsst-cpp-8`   | 108 990 | 1.16×  |   5.23 ms |    0.27 ms |  0.001 ms PD  |   0.544 ms      |  0.315 ms      |
+| `fsst-cpp-12`  |  93 717 | 1.35×  | 132.02 ms |    0.27 ms |  0.001 ms PD  |   0.564 ms      |  0.346 ms      |
+| `onpair`       | 157 925 | 0.80×  |   7.14 ms |    0.22 ms |  0.077 ms     |   0.305 ms      |  0.085 ms      |
+| `onpair16`     | 158 118 | 0.80×  |   7.20 ms |    0.21 ms |  0.074 ms     |   0.272 ms      |  0.081 ms      |
+| `onpair-cpp`   | 178 870 | 0.70×  |   5.50 ms |    0.19 ms |  0.004 ms PD  |   0.165 ms PD   |  0.009 ms      |
+
+Even the best FSST variant (`fsst-cpp-12`) only reaches 1.35×, and every
+OnPair backend produces output *larger than the input* (every 16-bit token
+costs 2 bytes for a payload of mostly-unique 1-byte symbols, plus the
+dictionary header). The point of this dataset is to show that none of the
+algorithms is magic — when the input is structured to defeat them, the
+ratio collapses regardless of which backend you pick.
 
 ### Reading the table
 

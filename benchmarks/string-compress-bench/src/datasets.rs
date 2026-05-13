@@ -58,6 +58,7 @@ pub fn all_datasets(scale: usize) -> Vec<Corpus> {
         natural_words(scale),
         json_like(scale),
         short_codes(scale),
+        adversarial_mix(scale),
     ]
 }
 
@@ -276,5 +277,111 @@ pub fn short_codes(scale: usize) -> Corpus {
         name: "short_codes",
         strings,
         needles: vec![b"US-".to_vec(), b"JP-".to_vec()],
+    }
+}
+
+/// Stress dataset: every row is drawn from one of four sub-patterns that
+/// individually defeat a *different* part of each algorithm. Even with all
+/// backends doing their best, the dictionary can not converge on any one
+/// pattern, so ratios collapse toward 1.0 (or worse, for backends that
+/// spend bytes on a dictionary header).
+///
+/// Sub-patterns (each ≈25 % of rows, interleaved deterministically):
+///
+/// 1. **`session`** — 22-character base64-shaped session IDs. High Shannon
+///    entropy, no recurrence across rows. FSST's symbol-table training
+///    finds nothing better than 1-byte symbols, paying full table overhead
+///    for ~0 % savings. OnPair's pair-frequency counter never hits the
+///    merge threshold, so it stays at 16 bits/token ≈ 2× input.
+/// 2. **`period9`** — a randomly chosen 9-byte motif repeated 3-7 times.
+///    FSST's symbol table caps individual symbols at 8 bytes, so it can
+///    capture *part* of the motif but always needs an escape or seam at
+///    byte 9. OnPair16 is similarly bounded by `MAX_TOKEN_SIZE = 16`, so
+///    it can swallow one motif but not stitch two together cheaply. The
+///    LPM trainer's randomness also means the "winning" alignment differs
+///    across runs.
+/// 3. **`hex`** — a 40-character random hex blob (think SHA-1). Distinct
+///    alphabet from the base64 rows. FSST learns 1-byte hex digits but no
+///    pair fires often enough to beat 1:1. OnPair often merges `[0-9a-f]`
+///    pairs and beats FSST, but never recovers training cost on the
+///    dictionary header.
+/// 4. **`ascii`** — random printable ASCII drawn uniformly from the
+///    95-character set, 8-24 chars long. The widest alphabet of the four;
+///    no two rows share any 3-byte substring with high probability.
+///
+/// Because the four sub-patterns share no symbols, the trained dictionary
+/// is forced to spend slots on each population, leaving none with high
+/// enough frequency to amortise its own cost.
+pub fn adversarial_mix(scale: usize) -> Corpus {
+    let mut rng = StdRng::seed_from_u64(0xADBADBAD);
+    let base64_alphabet: &[u8] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let hex_alphabet: &[u8] = b"0123456789abcdef";
+    // Printable ASCII: 0x20 (space) through 0x7E (~). The 95-char alphabet
+    // is wider than `random_alnum`'s 64-char one and includes `\\`, `"`,
+    // `{`, etc. — characters that often anchor multi-byte symbols on other
+    // corpora but never recur enough here.
+    let ascii_printable: Vec<u8> = (0x20u8..=0x7Eu8).collect();
+
+    let strings: Vec<Vec<u8>> = (0..scale)
+        .map(|i| match i & 0b11 {
+            0 => {
+                // session: 22-char base64-shaped id
+                (0..22)
+                    .map(|_| {
+                        *base64_alphabet
+                            .choose(&mut rng)
+                            .expect("alphabet is non-empty")
+                    })
+                    .collect()
+            }
+            1 => {
+                // period9: 9-byte random motif, repeated 3..=7 times
+                let motif: Vec<u8> = (0..9)
+                    .map(|_| {
+                        *base64_alphabet
+                            .choose(&mut rng)
+                            .expect("alphabet is non-empty")
+                    })
+                    .collect();
+                let reps = rng.random_range(3..=7);
+                let mut buf = Vec::with_capacity(motif.len() * reps);
+                for _ in 0..reps {
+                    buf.extend_from_slice(&motif);
+                }
+                buf
+            }
+            2 => {
+                // hex: 40-char lowercase-hex blob
+                (0..40)
+                    .map(|_| {
+                        *hex_alphabet
+                            .choose(&mut rng)
+                            .expect("alphabet is non-empty")
+                    })
+                    .collect()
+            }
+            _ => {
+                // ascii: variable-length printable
+                let len = rng.random_range(8..=24);
+                (0..len)
+                    .map(|_| {
+                        *ascii_printable
+                            .choose(&mut rng)
+                            .expect("alphabet is non-empty")
+                    })
+                    .collect()
+            }
+        })
+        .collect();
+
+    Corpus {
+        name: "adversarial_mix",
+        strings,
+        // The needles only ever match if a session/hex/printable row
+        // randomly happens to include the substring; that's roughly what we
+        // want — a low-selectivity predicate that forces the pushdown path
+        // to walk every row.
+        needles: vec![b"abc".to_vec(), b"xyz".to_vec(), b"123".to_vec()],
     }
 }
