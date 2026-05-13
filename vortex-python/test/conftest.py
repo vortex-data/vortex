@@ -3,13 +3,4 @@
 
 import logging
 
-import pytest
-
-import vortex as vx
-
 logging.basicConfig(level=logging.DEBUG)
-
-
-@pytest.fixture
-def session() -> vx.Session:
-    return vx.Session()

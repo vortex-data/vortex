@@ -10,9 +10,9 @@ use crate::arrays::py::PythonVTable;
 use crate::arrays::py::id_from_obj;
 use crate::error::PyVortexResult;
 use crate::install_module;
-use crate::session::PyVortexSession;
+use crate::session::session;
 
-/// Register serde functions and classes.
+/// Register registry functions.
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "registry")?;
     parent.add_submodule(&m)?;
@@ -27,9 +27,8 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///
 /// It's not currently possible to register a layout encoding from Python.
 #[pyfunction]
-#[pyo3(signature = (cls, *, session))]
-pub(crate) fn register(cls: &Bound<PyAny>, session: &Bound<PyVortexSession>) -> PyVortexResult<()> {
+pub(crate) fn register(cls: &Bound<PyAny>) -> PyVortexResult<()> {
     let id = id_from_obj(cls)?;
-    session.get().arrays().register(PythonVTable { id });
+    session().arrays().register(PythonVTable { id });
     Ok(())
 }

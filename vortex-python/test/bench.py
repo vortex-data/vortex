@@ -44,10 +44,9 @@ def arrow_array(request):  # pyright: ignore[reportUnknownParameterType, reportM
 def test_compress_vortex(
     benchmark: Callable[[Callable[[], None]], None],
     vortex_array: vx.Array,
-    session: vx.Session,
 ):
     def compress():
-        _ = vx.compress(vortex_array, session=session)
+        _ = vx.compress(vortex_array)
 
     benchmark(compress)
 

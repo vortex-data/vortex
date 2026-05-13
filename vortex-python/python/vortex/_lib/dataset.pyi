@@ -5,11 +5,8 @@ import pyarrow
 
 from .arrays import Array
 from .expr import Expr
-from .session import Session
 
 class VortexDataset:
-    @property
-    def session(self) -> Session: ...
     def to_array(
         self,
         columns: list[str] | list[int] | None = None,
@@ -34,4 +31,4 @@ class VortexDataset:
     def schema(self) -> pyarrow.Schema: ...
     def splits(self) -> list[tuple[int, int]]: ...
 
-def dataset_from_url(url: str, *, session: Session) -> VortexDataset: ...
+def dataset_from_url(url: str) -> VortexDataset: ...

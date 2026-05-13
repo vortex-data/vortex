@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 import pyarrow
@@ -11,8 +11,11 @@ from typing_extensions import override
 
 import vortex._lib.arrays as _arrays  # pyright: ignore[reportMissingModuleSource]
 from vortex._lib.dtype import DType  # pyright: ignore[reportMissingModuleSource]
-from vortex._lib.serde import ArrayContext, SerializedArray  # pyright: ignore[reportMissingModuleSource]
-from vortex._lib.session import Session  # pyright: ignore[reportMissingModuleSource]
+from vortex._lib.serde import (  # pyright: ignore[reportMissingModuleSource]
+    ArrayContext,
+    SerializedArray,
+    decode_ipc_array_buffers,
+)
 
 try:
     import pandas
@@ -56,7 +59,7 @@ def arrow_table_from_struct_array(
     return pyarrow.Table.from_struct_array(array)
 
 
-def _Array_to_arrow_table(self: _arrays.Array, *, session: Session) -> pyarrow.Table:
+def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
     """Construct an Arrow table from this Vortex array.
 
     .. seealso::
@@ -82,8 +85,7 @@ def _Array_to_arrow_table(self: _arrays.Array, *, session: Session) -> pyarrow.T
     ...     {'name': 'Angela', 'age': 33},
     ...     {'name': 'Mikhail', 'age': 57},
     ... ])
-    >>> session = vortex.Session()
-    >>> array.to_arrow_table(session=session)
+    >>> array.to_arrow_table()
     pyarrow.Table
     age: int64
     name: string
@@ -92,7 +94,7 @@ def _Array_to_arrow_table(self: _arrays.Array, *, session: Session) -> pyarrow.T
     name: [["Joseph","Narendra","Angela","Mikhail"]]
 
     """
-    array = self.to_arrow_array(session=session)
+    array = self.to_arrow_array()
     assert isinstance(array, pyarrow.StructArray | pyarrow.ChunkedArray)
     return arrow_table_from_struct_array(array)
 
@@ -100,7 +102,7 @@ def _Array_to_arrow_table(self: _arrays.Array, *, session: Session) -> pyarrow.T
 Array.to_arrow_table = _Array_to_arrow_table
 
 
-def _Array_to_pandas(self: _arrays.Array, *, session: Session) -> pandas.DataFrame:
+def _Array_to_pandas(self: _arrays.Array) -> pandas.DataFrame:
     """Construct a Pandas dataframe from this Vortex array.
 
     Warning
@@ -124,8 +126,7 @@ def _Array_to_pandas(self: _arrays.Array, *, session: Session) -> pandas.DataFra
     ...     {'name': 'Angela', 'age': 33},
     ...     {'name': 'Mikhail', 'age': 57},
     ... ])
-    >>> session = vortex.Session()
-    >>> array.to_pandas(session=session)
+    >>> array.to_pandas()
        age      name
     0   25    Joseph
     1   31  Narendra
@@ -135,7 +136,7 @@ def _Array_to_pandas(self: _arrays.Array, *, session: Session) -> pandas.DataFra
     """
     import pandas
 
-    return self.to_arrow_table(session=session).to_pandas(types_mapper=pandas.ArrowDtype)  # pyright: ignore[reportUnknownMemberType]
+    return self.to_arrow_table().to_pandas(types_mapper=pandas.ArrowDtype)  # pyright: ignore[reportUnknownMemberType]
 
 
 Array.to_pandas = _Array_to_pandas
@@ -143,8 +144,6 @@ Array.to_pandas = _Array_to_pandas
 
 def _Array_to_polars_dataframe(
     self: _arrays.Array,
-    *,
-    session: Session,
 ):  # -> 'polars.DataFrame':  # breaks docs due to Polars issue #7027
     """Construct a Polars dataframe from this Vortex array.
 
@@ -175,8 +174,7 @@ def _Array_to_polars_dataframe(
     ...     {'name': 'Mikhail', 'age': 57},
     ... ])
     >>> import vortex
-    >>> session = vortex.Session()
-    >>> array.to_polars_dataframe(session=session)
+    >>> array.to_polars_dataframe()
     shape: (4, 2)
     ┌─────┬──────────┐
     │ age ┆ name     │
@@ -192,7 +190,7 @@ def _Array_to_polars_dataframe(
     """
     import polars
 
-    return polars.from_arrow(self.to_arrow_table(session=session))  # pyright: ignore[reportUnknownMemberType]
+    return polars.from_arrow(self.to_arrow_table())  # pyright: ignore[reportUnknownMemberType]
 
 
 setattr(Array, "to_polars_dataframe", _Array_to_polars_dataframe)
@@ -200,8 +198,6 @@ setattr(Array, "to_polars_dataframe", _Array_to_polars_dataframe)
 
 def _Array_to_polars_series(
     self: _arrays.Array,
-    *,
-    session: Session,
 ):  # -> 'polars.Series':  # breaks docs due to Polars issue #7027
     """Construct a Polars series from this Vortex array.
 
@@ -222,8 +218,7 @@ def _Array_to_polars_series(
     Convert a numeric array with nulls to a Polars Series:
 
     >>> import vortex
-    >>> session = vortex.Session()
-    >>> vortex.array([1, None, 2, 3]).to_polars_series(session=session)  # doctest: +NORMALIZE_WHITESPACE
+    >>> vortex.array([1, None, 2, 3]).to_polars_series()  # doctest: +NORMALIZE_WHITESPACE
     shape: (4,)
     Series: '' [i64]
     [
@@ -235,8 +230,7 @@ def _Array_to_polars_series(
 
     Convert a UTF-8 string array to a Polars Series:
 
-    >>> session = vortex.Session()
-    >>> vortex.array(['hello, ', 'is', 'it', 'me?']).to_polars_series(session=session)  # doctest: +NORMALIZE_WHITESPACE
+    >>> vortex.array(['hello, ', 'is', 'it', 'me?']).to_polars_series()  # doctest: +NORMALIZE_WHITESPACE
     shape: (4,)
     Series: '' [str]
     [
@@ -254,8 +248,7 @@ def _Array_to_polars_series(
     ...     {'name': 'Angela', 'age': 33},
     ...     {'name': 'Mikhail', 'age': 57},
     ... ])
-    >>> session = vortex.Session()
-    >>> array.to_polars_series(session=session)  # doctest: +NORMALIZE_WHITESPACE
+    >>> array.to_polars_series()  # doctest: +NORMALIZE_WHITESPACE
     shape: (4,)
     Series: '' [struct[2]]
     [
@@ -268,7 +261,7 @@ def _Array_to_polars_series(
     """
     import polars
 
-    return polars.from_arrow(self.to_arrow_array(session=session))  # pyright: ignore[reportUnknownMemberType]
+    return polars.from_arrow(self.to_arrow_array())  # pyright: ignore[reportUnknownMemberType]
 
 
 setattr(Array, "to_polars_series", _Array_to_polars_series)
@@ -277,7 +270,6 @@ setattr(Array, "to_polars_series", _Array_to_polars_series)
 def _Array_to_numpy(
     self: _arrays.Array,
     *,
-    session: Session,
     zero_copy_only: bool = True,
 ) -> numpy.ndarray:
     """Construct a NumPy array from this Vortex array.
@@ -301,18 +293,17 @@ def _Array_to_numpy(
 
     >>> import vortex
     >>> array = vortex.array([1, 0, 0, 1])
-    >>> session = vortex.Session()
-    >>> array.to_numpy(session=session)
+    >>> array.to_numpy()
     array([1, 0, 0, 1])
 
     """
-    return self.to_arrow_array(session=session).to_numpy(zero_copy_only=zero_copy_only)
+    return self.to_arrow_array().to_numpy(zero_copy_only=zero_copy_only)
 
 
 Array.to_numpy = _Array_to_numpy
 
 
-def _Array_to_pylist(self: _arrays.Array, *, session: Session) -> list[Any]:  # pyright: ignore[reportExplicitAny]
+def _Array_to_pylist(self: _arrays.Array) -> list[Any]:  # pyright: ignore[reportExplicitAny]
     """Deeply copy an Array into a Python list.
 
     Returns
@@ -330,12 +321,11 @@ def _Array_to_pylist(self: _arrays.Array, *, session: Session) -> list[Any]:  # 
     ... ])
     >>> import pyarrow
     >>> import vortex
-    >>> session = vortex.Session()
-    >>> array.to_pylist(session=session)
+    >>> array.to_pylist()
     [{'age': 25, 'name': 'Joseph'}, {'age': 31, 'name': 'Narendra'}, {'age': 33, 'name': 'Angela'}]
 
     """
-    return self.to_arrow_table(session=session).to_pylist()
+    return self.to_arrow_table().to_pylist()
 
 
 Array.to_pylist = _Array_to_pylist
@@ -370,8 +360,7 @@ def array(
 
     >>> import pyarrow
     >>> import vortex
-    >>> session = vortex.Session()
-    >>> vortex.array([1, 2, 3]).to_arrow_array(session=session)
+    >>> vortex.array([1, 2, 3]).to_arrow_array()
     <pyarrow.lib.Int64Array object at ...>
     [
       1,
@@ -381,8 +370,7 @@ def array(
 
     The same Vortex array with a null value in the third position:
 
-    >>> session = vortex.Session()
-    >>> vortex.array([1, 2, None, 3]).to_arrow_array(session=session)
+    >>> vortex.array([1, 2, None, 3]).to_arrow_array()
     <pyarrow.lib.Int64Array object at ...>
     [
       1,
@@ -394,8 +382,7 @@ def array(
     Initialize a Vortex array from an Arrow array:
 
     >>> arrow = pyarrow.array(['Hello', 'it', 'is', 'me'], type=pyarrow.string_view())
-    >>> session = vortex.Session()
-    >>> vortex.array(arrow).to_arrow_array(session=session)
+    >>> vortex.array(arrow).to_arrow_array()
     <pyarrow.lib.StringViewArray object at ...>
     [
       "Hello",
@@ -411,8 +398,7 @@ def array(
     ...     "Name": ["Braund", "Allen", "Bonnell"],
     ...     "Age": [22, 35, 58],
     ... })
-    >>> session = vortex.Session()
-    >>> vortex.array(df).to_arrow_array(session=session)
+    >>> vortex.array(df).to_arrow_array()
     <pyarrow.lib.ChunkedArray object at ...>
     [
       -- is_valid: all not null
@@ -432,8 +418,7 @@ def array(
 
     Initialize a Vortex array from a range:
 
-    >>> session = vortex.Session()
-    >>> vortex.array(range(-3, 3)).to_arrow_array(session=session)
+    >>> vortex.array(range(-3, 3)).to_arrow_array()
     <pyarrow.lib.Int64Array object at ...>
     [
       -3,
@@ -446,8 +431,7 @@ def array(
 
     With a step:
 
-    >>> session = vortex.Session()
-    >>> vortex.array(range(-1_000_000, 10_000_000, 2_000_000)).to_arrow_array(session=session)
+    >>> vortex.array(range(-1_000_000, 10_000_000, 2_000_000)).to_arrow_array()
     <pyarrow.lib.Int64Array object at ...>
     [
       -1000000,
@@ -503,3 +487,11 @@ class PyArray(Array, metaclass=abc.ABCMeta):
         that represent the current array. Implementations of this function should validate this
         information, and then construct a new array.
         """
+
+
+def _unpickle_array(  # pyright: ignore[reportUnusedFunction]
+    array_buffers: Sequence[bytes | memoryview],
+    dtype_buffers: Sequence[bytes | memoryview],
+) -> Array:
+    """Unpickle a Vortex array from IPC-encoded buffer lists."""
+    return decode_ipc_array_buffers(array_buffers, dtype_buffers)

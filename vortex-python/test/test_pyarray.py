@@ -101,4 +101,4 @@ class PCodecArray(vx.PyArray):
 def test_pcodec():
     _ = PCodecArray.encode(pa.array([0, 1, 2, 3, 4]))  # pyright: ignore[reportUnknownMemberType]
 
-    vx.registry.register(PCodecArray, session=vx.Session())
+    vx.registry.register(PCodecArray)

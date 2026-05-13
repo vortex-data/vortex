@@ -2,6 +2,5 @@
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from .arrays import Array
-from .session import Session
 
-def register(cls: type[Array], *, session: Session) -> None: ...
+def register(cls: type[Array]) -> None: ...

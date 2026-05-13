@@ -2,6 +2,5 @@
 #  SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from .arrays import Array
-from .session import Session
 
-def compress(array: Array, *, session: Session) -> Array: ...
+def compress(array: Array) -> Array: ...

@@ -34,6 +34,8 @@ use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexResult;
+use vortex::ipc::messages::EncoderMessage;
+use vortex::ipc::messages::MessageEncoder;
 use vortex::scalar_fn::fns::operators::Operator;
 
 use crate::PyVortex;
@@ -50,7 +52,7 @@ use crate::install_module;
 use crate::python_repr::PythonRepr;
 use crate::scalar::PyScalar;
 use crate::serde::context::PyArrayContext;
-use crate::session::PyVortexSession;
+use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "arrays")?;
@@ -137,10 +139,9 @@ impl<'py> IntoPyObject<'py> for PyVortex<ArrayRef> {
 /// Arrays support all the standard comparison operations:
 ///
 /// >>> import vortex as vx
-/// >>> session = vx.Session()
 /// >>> a = vx.array(['dog', None, 'cat', 'mouse', 'fish'])
 /// >>> b = vx.array(['doug', 'jennifer', 'casper', 'mouse', 'faust'])
-/// >>> (a < b).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+/// >>> (a < b).to_arrow_array()  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
 /// <pyarrow.lib.BooleanArray object at ...>
 /// [
 ///    true,
@@ -149,7 +150,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<ArrayRef> {
 ///    false,
 ///    false
 /// ]
-/// >>> (a <= b).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+/// >>> (a <= b).to_arrow_array()  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
 /// <pyarrow.lib.BooleanArray object at ...>
 /// [
 ///    true,
@@ -158,7 +159,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<ArrayRef> {
 ///    true,
 ///    false
 /// ]
-/// >>> (a == b).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+/// >>> (a == b).to_arrow_array()  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
 /// <pyarrow.lib.BooleanArray object at ...>
 /// [
 ///    false,
@@ -167,7 +168,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<ArrayRef> {
 ///    true,
 ///    false
 /// ]
-/// >>> (a != b).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+/// >>> (a != b).to_arrow_array()  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
 /// <pyarrow.lib.BooleanArray object at ...>
 /// [
 ///    true,
@@ -176,7 +177,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<ArrayRef> {
 ///    false,
 ///    true
 /// ]
-/// >>> (a >= b).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+/// >>> (a >= b).to_arrow_array()  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
 /// <pyarrow.lib.BooleanArray object at ...>
 /// [
 ///    false,
@@ -185,7 +186,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<ArrayRef> {
 ///    true,
 ///    true
 /// ]
-/// >>> (a > b).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+/// >>> (a > b).to_arrow_array()  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
 /// <pyarrow.lib.BooleanArray object at ...>
 /// [
 ///    false,
@@ -239,11 +240,10 @@ impl PyArray {
     /// Examples
     /// --------
     ///
-    /// >>> session = vx.Session()
     /// >>> array = vx.Array.from_range(range(0, 10))
     /// >>> array
     /// <vortex.SequenceArray object at ...>
-    /// >>> array.to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+    /// >>> array.to_arrow_array()  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     /// <pyarrow.lib.Int64Array object at ...>
     /// [
     ///   0,
@@ -309,8 +309,7 @@ impl PyArray {
     /// Round-trip an Arrow array through a Vortex array:
     ///
     /// >>> import vortex as vx
-    /// >>> session = vx.Session()
-    /// >>> vx.array([1, 2, 3]).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+    /// >>> vx.array([1, 2, 3]).to_arrow_array()  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     /// <pyarrow.lib.Int64Array object at ...>
     /// [
     ///   1,
@@ -318,14 +317,10 @@ impl PyArray {
     ///   3
     /// ]
     ///
-    #[pyo3(signature = (*, session))]
-    fn to_arrow_array<'py>(
-        self_: &'py Bound<'py, Self>,
-        session: &Bound<PyVortexSession>,
-    ) -> PyVortexResult<Bound<'py, PyAny>> {
+    fn to_arrow_array<'py>(self_: &'py Bound<'py, Self>) -> PyVortexResult<Bound<'py, PyAny>> {
         // NOTE(ngates): for struct arrays, we could also return a RecordBatchStreamReader.
         let array_ref = PyArrayRef::extract(self_.as_any().as_borrowed())?;
-        let session = session.get().inner().clone();
+        let session = session();
         let array = array_ref.into_inner();
         let py = self_.py();
 
@@ -436,11 +431,10 @@ impl PyArray {
     ///
     /// >>> import vortex.expr as ve
     /// >>> import vortex as vx
-    /// >>> session = vx.Session()
     /// >>> array = vx.array([{"a": 0, "b": "hello"}, {"a": 1, "b": "goodbye"}])
     /// >>> expr = ve.column("a")
     /// >>> array = array.apply(expr)
-    /// >>> array.to_arrow_array(session=session).to_pylist()
+    /// >>> array.to_arrow_array().to_pylist()
     /// [0, 1]
     ///
     /// See also
@@ -536,25 +530,19 @@ impl PyArray {
     /// Keep only the single digit positive integers.
     ///
     /// >>> import vortex as vx
-    /// >>> session = vx.Session()
     /// >>> a = vx.array([0, 42, 1_000, -23, 10, 9, 5])
     /// >>> filter = vx.array([True, False, False, False, False, True, True])
-    /// >>> a.filter(filter, session=session).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+    /// >>> a.filter(filter).to_arrow_array()  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     /// <pyarrow.lib.Int64Array object at ...>
     /// [
     ///   0,
     ///   9,
     ///   5
     /// ]
-    #[pyo3(signature = (mask, *, session))]
-    fn filter(
-        slf: Bound<Self>,
-        mask: PyArrayRef,
-        session: &Bound<PyVortexSession>,
-    ) -> PyVortexResult<PyArrayRef> {
+    fn filter(slf: Bound<Self>, mask: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         let py = slf.py();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?;
-        let session = session.get().inner().clone();
+        let session = session();
         let slf = slf.into_inner();
         let mask = mask.into_inner();
         let inner = py.detach(move || -> VortexResult<ArrayRef> {
@@ -585,14 +573,13 @@ impl PyArray {
     /// Retrieve the last element from an array of integers:
     ///
     /// >>> import vortex as vx
-    /// >>> session = vx.Session()
-    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(3, session=session).as_py()
+    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(3).as_py()
     /// 1992
     ///
     /// Retrieve the third element from an array of strings:
     ///
     /// >>> array = vx.array(["hello", "goodbye", "it", "is"])
-    /// >>> array.scalar_at(2, session=session).as_py()
+    /// >>> array.scalar_at(2).as_py()
     /// 'it'
     ///
     /// Retrieve an element from an array of structures:
@@ -604,37 +591,32 @@ impl PyArray {
     /// ...     None,
     /// ...     {'name': 'Mikhail', 'age': 57},
     /// ... ])
-    /// >>> array.scalar_at(2, session=session).as_py()
+    /// >>> array.scalar_at(2).as_py()
     /// {'age': 33, 'name': 'Angela'}
     ///
     /// Retrieve a missing element from an array of structures:
     ///
-    /// >>> array.scalar_at(3, session=session).as_py() is None
+    /// >>> array.scalar_at(3).as_py() is None
     /// True
     ///
     /// Out of bounds accesses are prohibited:
     ///
-    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(10, session=session)
+    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(10)
     /// Traceback (most recent call last):
     /// ...
     /// IndexError: Index 10 out of bounds from 0 to 4
     ///
     /// Unlike Python, negative indices are not supported:
     ///
-    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(-2, session=session)
+    /// >>> vx.array([10, 42, 999, 1992]).scalar_at(-2)
     /// Traceback (most recent call last):
     /// ...
     /// OverflowError: can't convert negative int to unsigned
     // TODO(ngates): return a vortex.Scalar
-    #[pyo3(signature = (index, *, session))]
-    fn scalar_at<'py>(
-        slf: Bound<'py, Self>,
-        index: usize,
-        session: &Bound<PyVortexSession>,
-    ) -> PyVortexResult<Bound<'py, PyScalar>> {
+    fn scalar_at<'py>(slf: Bound<'py, Self>, index: usize) -> PyVortexResult<Bound<'py, PyScalar>> {
         let py = slf.py();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?;
-        let session = session.get().inner().clone();
+        let session = session();
         let slf = slf.into_inner();
         if index >= slf.len() {
             return Err(PyIndexError::new_err(format!(
@@ -665,10 +647,9 @@ impl PyArray {
     /// Keep only the first and third elements:
     ///
     /// >>> import vortex as vx
-    /// >>> session = vx.Session()
     /// >>> a = vx.array(['a', 'b', 'c', 'd'])
     /// >>> indices = vx.array([0, 2])
-    /// >>> a.take(indices).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+    /// >>> a.take(indices).to_arrow_array()  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     /// <pyarrow.lib.StringViewArray object at ...>
     /// [
     ///   "a",
@@ -679,7 +660,7 @@ impl PyArray {
     ///
     /// >>> a = vx.array(['a', 'b', 'c', 'd'])
     /// >>> indices = vx.array([0, 1, 1, 0])
-    /// >>> a.take(indices).to_arrow_array(session=session)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+    /// >>> a.take(indices).to_arrow_array()  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     /// <pyarrow.lib.StringViewArray object at ...>
     /// [
     ///   "a",
@@ -747,16 +728,11 @@ impl PyArray {
             .to_string())
     }
 
-    #[pyo3(signature = (ctx, *, session))]
-    fn serialize(
-        slf: &Bound<Self>,
-        ctx: &PyArrayContext,
-        session: &Bound<PyVortexSession>,
-    ) -> PyVortexResult<Vec<Vec<u8>>> {
+    fn serialize(slf: &Bound<Self>, ctx: &PyArrayContext) -> PyVortexResult<Vec<Vec<u8>>> {
         // FIXME(ngates): do not copy to vec, use buffer protocol
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?;
         Ok(array
-            .serialize(ctx, session.get().inner(), &Default::default())?
+            .serialize(ctx, session(), &Default::default())?
             .into_iter()
             .map(|buffer| buffer.to_vec())
             .collect())
@@ -767,9 +743,30 @@ impl PyArray {
     /// This method serializes the array using Vortex IPC format and returns
     /// the data needed for pickle to reconstruct the array.
     fn __reduce__<'py>(
-        _slf: &'py Bound<'py, Self>,
+        slf: &'py Bound<'py, Self>,
     ) -> PyVortexResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
-        Err(PyTypeError::new_err("pickling Vortex arrays requires an explicit session").into())
+        let py = slf.py();
+        let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        let session = session();
+        let (array_buffers, dtype_buffers): (Vec<Vec<u8>>, Vec<Vec<u8>>) =
+            py.detach(move || {
+                let mut encoder = MessageEncoder::new(session.clone());
+                let array_buffers = encoder
+                    .encode(EncoderMessage::Array(&array))?
+                    .iter()
+                    .map(|buffer| buffer.to_vec())
+                    .collect();
+                let dtype_buffers = encoder
+                    .encode(EncoderMessage::DType(array.dtype()))?
+                    .iter()
+                    .map(|buffer| buffer.to_vec())
+                    .collect();
+                VortexResult::Ok((array_buffers, dtype_buffers))
+            })?;
+
+        let unpickle_array = py.import("vortex")?.getattr("_unpickle_array")?;
+        let args = (array_buffers, dtype_buffers).into_pyobject(py)?.into_any();
+        Ok((unpickle_array, args))
     }
 
     /// Support for Python's pickle protocol for protocol >= 5

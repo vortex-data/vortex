@@ -82,21 +82,20 @@ Available types: {func}`~vortex.null`, {func}`~vortex.bool_`,
 ### Element Access
 
 ```{doctest} pycon
->>> session = vx.Session()
 >>> arr = vx.array([10, 20, 30, 40, 50])
->>> arr.scalar_at(0, session=session).as_py()
+>>> arr.scalar_at(0).as_py()
 10
->>> arr.to_arrow_array(session=session).to_pylist()
+>>> arr.to_arrow_array().to_pylist()
 [10, 20, 30, 40, 50]
 ```
 
 ### Slicing and Selection
 
 ```{doctest} pycon
->>> arr.slice(1, 3).to_arrow_array(session=session).to_pylist()
+>>> arr.slice(1, 3).to_arrow_array().to_pylist()
 [20, 30]
 >>> indices = vx.array([0, 2, 4])
->>> arr.take(indices).to_arrow_array(session=session).to_pylist()
+>>> arr.take(indices).to_arrow_array().to_pylist()
 [10, 30, 50]
 ```
 
@@ -104,7 +103,7 @@ Available types: {func}`~vortex.null`, {func}`~vortex.bool_`,
 
 ```{doctest} pycon
 >>> mask = vx.array([True, False, True, False, True])
->>> arr.filter(mask, session=session).to_arrow_array(session=session).to_pylist()
+>>> arr.filter(mask).to_arrow_array().to_pylist()
 [10, 30, 50]
 ```
 
@@ -112,7 +111,7 @@ Available types: {func}`~vortex.null`, {func}`~vortex.bool_`,
 
 ```{doctest} pycon
 >>> other = vx.array([10, 25, 25, 45, 50])
->>> (arr > other).to_arrow_array(session=session).to_pylist()
+>>> (arr > other).to_arrow_array().to_pylist()
 [False, False, True, False, False]
 ```
 
@@ -130,7 +129,7 @@ applied directly:
 ...     {'name': 'Carol', 'age': 35},
 ... ])
 >>> expr = ve.column('age') > 28
->>> arr.apply(expr).to_arrow_array(session=session).to_pylist()
+>>> arr.apply(expr).to_arrow_array().to_pylist()
 [True, False, True]
 ```
 
@@ -140,10 +139,8 @@ applied directly:
 
 ```{doctest} pycon
 >>> import pyarrow.parquet as pq
->>> session = vx.Session()
->>> vx.io.write(pq.read_table("_static/example.parquet"), 'example.vortex', session=session)
->>>
->>> f = vx.open('example.vortex', session=session)
+>>> vx.io.write(pq.read_table("_static/example.parquet"), 'example.vortex')
+>>> f = vx.open('example.vortex')
 >>> len(f)
 1000
 ```
@@ -152,7 +149,7 @@ Use {meth}`.VortexFile.scan` to read data with optional projection, filtering, a
 
 ```{doctest} pycon
 >>> result = f.scan(['tip_amount'], limit=3).read_all()
->>> result.to_arrow_array(session=session)
+>>> result.to_arrow_array()
 <pyarrow.lib.StructArray object at ...>
 -- is_valid: all not null
 -- child 0 type: double
@@ -186,6 +183,54 @@ tip_amount: double
 >>> table = reader.read_all()
 >>> len(table)
 1000
+```
+
+## Threading Model
+
+Vortex uses a shared runtime behind the Python API. When no background workers are configured, the
+Python thread that is reading from a scan also polls the Vortex work needed to produce each batch.
+This means multiple Python threads can make progress independently as long as each thread owns the
+reader it is consuming:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+import pyarrow.compute as pc
+import vortex as vx
+
+
+def sum_column(path: str, column: str) -> int | float:
+    reader = vx.open(path).to_arrow([column], batch_size=64_000)
+    total = 0
+
+    for batch in reader:
+        value = pc.sum(batch.column(column)).as_py()
+        if value is not None:
+            total += value
+
+    return total
+
+
+columns = ["tip_amount", "fare_amount", "total_amount"]
+with ThreadPoolExecutor(max_workers=len(columns)) as threads:
+    totals = list(threads.map(lambda column: sum_column("example.vortex", column), columns))
+```
+
+Applications that want Vortex work to continue on background threads can configure the shared
+runtime through `vortex.runtime`:
+
+```python
+import vortex as vx
+import vortex.runtime as vxrt
+
+previous_workers = vxrt.worker_count()
+vxrt.set_worker_threads_to_available_parallelism()
+
+try:
+    reader = vx.open("example.vortex").to_arrow(batch_size=64_000)
+    table = reader.read_all()
+finally:
+    vxrt.set_worker_threads(previous_workers)
 ```
 
 ## Conversion

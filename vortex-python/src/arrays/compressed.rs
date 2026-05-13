@@ -22,7 +22,7 @@ use crate::arrays::PyArrayRef;
 use crate::arrays::native::EncodingSubclass;
 use crate::arrays::native::PyNativeArray;
 use crate::error::PyVortexResult;
-use crate::session::PyVortexSession;
+use crate::session::session;
 
 /// Concrete class for arrays with `vortex.alp` encoding.
 #[pyclass(name = "AlpArray", module = "vortex", extends=PyNativeArray, frozen)]
@@ -91,13 +91,8 @@ impl EncodingSubclass for PyZigZagArray {
 #[pymethods]
 impl PyZigZagArray {
     #[staticmethod]
-    #[pyo3(signature = (array, *, session))]
-    pub fn encode(
-        py: Python,
-        array: PyArrayRef,
-        session: &Bound<PyVortexSession>,
-    ) -> PyVortexResult<PyArrayRef> {
-        let session = session.get().inner().clone();
+    pub fn encode(py: Python, array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
+        let session = session();
         let array = array.into_inner();
         let encoded = py.detach(move || -> VortexResult<ArrayRef> {
             let primitive = array.execute::<PrimitiveArray>(&mut session.create_execution_ctx())?;

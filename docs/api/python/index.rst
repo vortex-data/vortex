@@ -62,7 +62,7 @@ API Reference
    arrays
    expr
    compress
-   session
+   registry
    io
    store
    dataset

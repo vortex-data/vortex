@@ -15,7 +15,6 @@ from ._lib.expr import Expr  # pyright: ignore[reportMissingModuleSource]
 from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
 from .dataset import VortexDataset
 from .scan import RepeatedScan
-from .session import Session
 from .store import (
     AzureStore,
     GCSStore,
@@ -35,7 +34,6 @@ def open(
     *,
     store: AzureStore | GCSStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
     without_segment_cache: bool = False,
-    session: Session,
 ) -> VortexFile:
     """
     Lazily open a Vortex file located at the given path or URL.
@@ -55,14 +53,13 @@ def open(
     Open a Vortex file and perform a scan operation:
 
     >>> import vortex as vx
-    >>> session = vx.Session()
-    >>> vxf = vx.open("data.vortex", session=session) # doctest: +SKIP
+    >>> vxf = vx.open("data.vortex") # doctest: +SKIP
     >>> array_iterator = vxf.scan() # doctest: +SKIP
 
     See also: :class:`vortex.dataset.VortexDataset`
     """
 
-    return VortexFile(_file.open(path, store=store, without_segment_cache=without_segment_cache, session=session))
+    return VortexFile(_file.open(path, store=store, without_segment_cache=without_segment_cache))
 
 
 @final
@@ -77,11 +74,6 @@ class VortexFile:
     def dtype(self) -> DType:
         """The dtype of the file."""
         return self._file.dtype
-
-    @property
-    def session(self) -> Session:
-        """The Vortex session used by this file."""
-        return self._file.session
 
     def splits(self) -> list[tuple[int, int]]:
         return self._file.splits()
@@ -124,10 +116,9 @@ class VortexFile:
         ...     {'name': 'Mikhail', 'age': 57},
         ...     {'name': None, 'age': None},
         ... ])
-        >>> session = vx.Session()
-        >>> vx.io.write(a, "a.vortex", session=session)
-        >>> vxf = vx.open("a.vortex", session=session)
-        >>> vxf.scan().read_all().to_arrow_array(session=session)
+        >>> vx.io.write(a, "a.vortex")
+        >>> vxf = vx.open("a.vortex")
+        >>> vxf.scan().read_all().to_arrow_array()
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
         -- child 0 type: int64
@@ -149,7 +140,7 @@ class VortexFile:
 
         Read just the age column:
 
-        >>> vxf.scan(['age']).read_all().to_arrow_array(session=session)
+        >>> vxf.scan(['age']).read_all().to_arrow_array()
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
         -- child 0 type: int64
@@ -164,7 +155,7 @@ class VortexFile:
 
         Keep rows with an age above 35. This will read O(N_KEPT) rows, when the file format allows.
 
-        >>> vxf.scan(expr=ve.column("age") > 35).read_all().to_arrow_array(session=session)
+        >>> vxf.scan(expr=ve.column("age") > 35).read_all().to_arrow_array()
         <pyarrow.lib.StructArray object at ...>
         -- is_valid: all not null
         -- child 0 type: int64

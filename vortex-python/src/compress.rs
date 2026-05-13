@@ -8,7 +8,7 @@ use vortex::compressor::BtrBlocksCompressor;
 use crate::arrays::PyArrayRef;
 use crate::error::PyVortexResult;
 use crate::install_module;
-use crate::session::PyVortexSession;
+use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "compress")?;
@@ -33,15 +33,14 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// Compress a very sparse array of integers:
 ///
 ///    >>> import vortex as vx
-///    >>> session = vx.Session()
 ///    >>> a = vx.array([42 for _ in range(1000)])
-///    >>> str(vx.compress(a, session=session))
+///    >>> str(vx.compress(a))
 ///    'vortex.constant(i64, len=1000)'
 ///
 /// Compress an array of increasing integers:
 ///
 ///    >>> a = vx.array(list(range(1000)))
-///    >>> str(vx.compress(a, session=session))
+///    >>> str(vx.compress(a))
 ///    'vortex.sequence(i64, len=1000)'
 ///
 /// Compress an array of increasing floating-point numbers and a few nulls:
@@ -50,16 +49,11 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///    ...     float(x) if x % 20 != 0 else None
 ///    ...     for x in range(1000)
 ///    ... ])
-///    >>> str(vx.compress(a, session=session))
+///    >>> str(vx.compress(a))
 ///    'vortex.alp(f64?, len=1000)'
 #[pyfunction]
-#[pyo3(signature = (array, *, session))]
-pub fn compress(
-    py: Python,
-    array: PyArrayRef,
-    session: &Bound<PyVortexSession>,
-) -> PyVortexResult<PyArrayRef> {
-    let session = session.get().inner().clone();
+pub fn compress(py: Python, array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
+    let session = session();
     let array = array.into_inner();
     let compressed = py.detach(move || {
         BtrBlocksCompressor::default().compress(&array, &mut session.create_execution_ctx())

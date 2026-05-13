@@ -25,7 +25,7 @@ use crate::install_module;
 use crate::serde::context::PyArrayContext;
 use crate::serde::context::PyReadContext;
 use crate::serde::parts::PySerializedArray;
-use crate::session::PyVortexSession;
+use crate::session::session;
 
 type PyIpcArrayBuffers = (Vec<Vec<u8>>, Vec<Vec<u8>>);
 
@@ -47,16 +47,11 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 /// Encode a Vortex array into IPC array and dtype buffers.
 #[pyfunction]
-#[pyo3(signature = (array, *, session))]
-fn encode_ipc_array_buffers(
-    py: Python,
-    array: PyArrayRef,
-    session: &Bound<PyVortexSession>,
-) -> PyVortexResult<PyIpcArrayBuffers> {
-    let session = session.get().inner().clone();
+fn encode_ipc_array_buffers(py: Python, array: PyArrayRef) -> PyVortexResult<PyIpcArrayBuffers> {
+    let session = session();
     let array = array.into_inner();
     py.detach(move || {
-        let mut encoder = MessageEncoder::new(session);
+        let mut encoder = MessageEncoder::new(session.clone());
         let array_buffers = encoder
             .encode(EncoderMessage::Array(&array))?
             .iter()
@@ -88,14 +83,13 @@ fn encode_ipc_array_buffers(
 /// Array
 ///     The decoded Vortex array
 #[pyfunction]
-#[pyo3(signature = (array_bytes, dtype_bytes, *, session))]
+#[pyo3(signature = (array_bytes, dtype_bytes))]
 fn decode_ipc_array(
     py: Python,
     array_bytes: Vec<u8>,
     dtype_bytes: Vec<u8>,
-    session: &Bound<PyVortexSession>,
 ) -> PyVortexResult<PyArrayRef> {
-    let session = session.get().inner().clone();
+    let session = session();
     let array =
         py.detach(move || decode_ipc_array_from_bytes(array_bytes, dtype_bytes, session))?;
     Ok(PyArrayRef::from(array))
@@ -104,7 +98,7 @@ fn decode_ipc_array(
 fn decode_ipc_array_from_bytes(
     array_bytes: Vec<u8>,
     dtype_bytes: Vec<u8>,
-    session: VortexSession,
+    session: &VortexSession,
 ) -> PyVortexResult<ArrayRef> {
     let mut decoder = MessageDecoder::default();
 
@@ -118,12 +112,12 @@ fn decode_ipc_array_from_bytes(
             return Err(PyValueError::new_err("Incomplete DType message").into());
         }
     };
-    let dtype = DType::from_flatbuffer(dtype, &session)?;
+    let dtype = DType::from_flatbuffer(dtype, session)?;
 
     let mut array_buf = Bytes::from(array_bytes);
     let array = match decoder.read_next(&mut array_buf)? {
         PollRead::Some(DecoderMessage::Array((parts, ctx, row_count))) => {
-            parts.decode(&dtype, row_count, &ctx, &session)?
+            parts.decode(&dtype, row_count, &ctx, session)?
         }
         PollRead::Some(_) => {
             return Err(PyValueError::new_err("Expected Array message").into());
@@ -153,12 +147,11 @@ fn decode_ipc_array_from_bytes(
 /// Array
 ///     The decoded Vortex array
 #[pyfunction]
-#[pyo3(signature = (array_buffers, dtype_buffers, *, session))]
+#[pyo3(signature = (array_buffers, dtype_buffers))]
 fn decode_ipc_array_buffers<'py>(
     py: Python<'py>,
     array_buffers: Vec<Bound<'py, PyAny>>,
     dtype_buffers: Vec<Bound<'py, PyAny>>,
-    session: &Bound<PyVortexSession>,
 ) -> PyVortexResult<PyArrayRef> {
     // Concatenate dtype buffers
     // Note: PyBuffer returns &[ReadOnlyCell<u8>] which requires copying to get &[u8]
@@ -184,7 +177,7 @@ fn decode_ipc_array_buffers<'py>(
         }
     }
 
-    let session = session.get().inner().clone();
+    let session = session();
     let array =
         py.detach(move || decode_ipc_array_from_bytes(array_bytes_vec, dtype_bytes_vec, session))?;
     Ok(PyArrayRef::from(array))

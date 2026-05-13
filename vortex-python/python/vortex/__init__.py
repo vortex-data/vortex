@@ -3,7 +3,7 @@
 
 import importlib.metadata
 
-from . import _lib, arrays, dataset, expr, file, io, pickle, ray, registry, runtime, scan, session
+from . import _lib, arrays, dataset, expr, file, io, ray, registry, runtime, scan
 from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     AlpArray,
     AlpRdArray,
@@ -75,14 +75,13 @@ from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
     scalar,
 )
 from ._lib.serde import ArrayContext, SerializedArray  # pyright: ignore[reportMissingModuleSource]
-from ._lib.session import Session  # pyright: ignore[reportMissingModuleSource]
 from .arrays import (
     Array,
     PyArray,
+    _unpickle_array,  # pyright: ignore[reportPrivateUsage]
     array,
 )
 from .file import VortexFile, open
-from .pickle import Pickler, Unpickler, VortexPickler, VortexUnpickler, dump, dumps, load, loads
 from .scan import RepeatedScan
 
 assert _lib, "Ensure we eagerly import the Vortex native library"
@@ -105,15 +104,12 @@ __all__ = [
     "file",
     "scan",
     "io",
-    "pickle",
     "registry",
     "runtime",
-    "session",
     "ray",
     # --- Objects and Functions ---
     "array",
     "compress",
-    "Session",
     # Arrays
     "Array",
     "PyArray",
@@ -183,15 +179,8 @@ __all__ = [
     # Serde
     "ArrayContext",
     "SerializedArray",
-    # Pickle
-    "Pickler",
-    "Unpickler",
-    "VortexPickler",
-    "VortexUnpickler",
-    "dump",
-    "dumps",
-    "load",
-    "loads",
+    # Pickle support
+    "_unpickle_array",
     # File
     "VortexFile",
     "open",

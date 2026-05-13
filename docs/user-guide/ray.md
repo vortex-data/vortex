@@ -11,15 +11,12 @@ and then run `make -C docs doctest` -->
 >>> import os
 >>> os.makedirs("ray_data", exist_ok=True)
 >>> table = pq.read_table("_static/example.parquet")
->>> session = vx.Session()
->>> vx.io.write(table, 'ray_data/example-01.vortex', session=session)
->>> vx.io.write(table, 'ray_data/example-02.vortex', session=session)
->>> vx.io.write(table, 'ray_data/example-03.vortex', session=session)
->>>
+>>> vx.io.write(table, 'ray_data/example-01.vortex')
+>>> vx.io.write(table, 'ray_data/example-02.vortex')
+>>> vx.io.write(table, 'ray_data/example-03.vortex')
 >>> from vortex.ray.datasource import VortexDatasource
 >>> from ray.data import read_datasource
->>>
->>> ds = read_datasource(VortexDatasource(url='ray_data', session=session)) # doctest: +SKIP
+>>> ds = read_datasource(VortexDatasource(url='ray_data')) # doctest: +SKIP
 >>> ds.to_pandas() # doctest: +SKIP
       VendorID tpep_pickup_datetime  ... congestion_surcharge  Airport_fee
 0            1  2023-11-01 00:03:03  ...                  0.0         1.75

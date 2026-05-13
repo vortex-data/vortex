@@ -134,12 +134,8 @@ can be registered with the :attr:`~vortex.registry` so they are available to use
     :members:
 
 
-Registry and Serde
-------------------
-
-.. autodata:: vortex.registry
-
-.. autofunction:: vortex.registry.register
+Serde
+-----
 
 .. autoclass:: vortex.ArrayContext
     :members:

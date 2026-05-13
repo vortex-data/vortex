@@ -9,36 +9,32 @@ import pyarrow as pa
 import vortex as vx
 
 
-def _int64_pylist(array: vx.Array, session: vx.Session) -> list[int | None]:
-    return cast(pa.Int64Array, array.to_arrow_array(session=session)).to_pylist()
+def _int64_pylist(array: vx.Array) -> list[int | None]:
+    return cast(pa.Int64Array, array.to_arrow_array()).to_pylist()
 
 
-def test_session_exports_and_array_execution() -> None:
-    session = vx.Session()
+def test_global_session_array_execution() -> None:
 
     array = vx.array([1, 2, 3])
 
-    assert array.scalar_at(1, session=session).as_py() == 2
-    assert _int64_pylist(array, session) == [1, 2, 3]
-    assert _int64_pylist(vx.compress(array, session=session), session) == [
+    assert array.scalar_at(1).as_py() == 2
+    assert _int64_pylist(array) == [1, 2, 3]
+    assert _int64_pylist(vx.compress(array)) == [
         1,
         2,
         3,
     ]
 
 
-def test_file_dataset_and_scan_keep_session(tmp_path: Path) -> None:
-    session = vx.Session()
+def test_file_dataset_and_scan_use_global_session(tmp_path: Path) -> None:
     path = tmp_path / "data.vortex"
 
-    vx.io.write(vx.array([{"x": 1}, {"x": 2}]), str(path), session=session)
+    vx.io.write(vx.array([{"x": 1}, {"x": 2}]), str(path))
 
-    vxf = vx.open(str(path), session=session)
+    vxf = vx.open(str(path))
     dataset = vxf.to_dataset()
 
-    assert isinstance(vxf.session, vx.Session)
-    assert isinstance(dataset.session, vx.Session)
-    assert vxf.scan().read_all().to_arrow_table(session=session).to_pylist() == [
+    assert vxf.scan().read_all().to_arrow_table().to_pylist() == [
         {"x": 1},
         {"x": 2},
     ]

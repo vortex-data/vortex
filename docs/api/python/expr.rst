@@ -51,17 +51,14 @@ the following expression represents the set of rows for which the `age` column l
       >>> import vortex as vx
       >>> import vortex.expr as ve
       >>> import pyarrow as pa
-      >>>
       >>> array = pa.array([
       ...     {"x": 1, "y": {"yy": "a"}},
       ...     {"x": 2, "y": {"yy": "b"}},
       ... ])
-      >>>
-      >>> session = vx.Session()
-      >>> vx.io.write(vx.array(array), '/tmp/foo.vortex', session=session)
-      >>> (vx.file.open('/tmp/foo.vortex', session=session)
+      >>> vx.io.write(vx.array(array), '/tmp/foo.vortex')
+      >>> (vx.file.open('/tmp/foo.vortex')
       ...    .scan(expr=vx.expr.column("y")["yy"] == "a")
       ...    .read_all()
-      ...    .to_pylist(session=session)
+      ...    .to_pylist()
       ... )
       [{'x': 1, 'y': {'yy': 'a'}}]

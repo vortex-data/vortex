@@ -17,7 +17,6 @@ from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
 from .arrays import array
 from .arrow.expression import ensure_vortex_expression
 from .expr import Expr, and_
-from .session import Session
 
 
 def _warn_use_threads() -> None:
@@ -41,16 +40,12 @@ class VortexDataset(pyarrow.dataset.Dataset):
         self._filters: list[Expr] = filters or []
 
     @staticmethod
-    def from_url(url: str, *, session: Session):
-        return VortexDataset(_dataset.dataset_from_url(url, session=session))
+    def from_url(url: str):
+        return VortexDataset(_dataset.dataset_from_url(url))
 
     @staticmethod
-    def from_path(path: str, *, session: Session):
-        return VortexDataset(_file.open(path, session=session).to_dataset())
-
-    @property
-    def session(self) -> Session:
-        return self._dataset.session
+    def from_path(path: str):
+        return VortexDataset(_file.open(path).to_dataset())
 
     @property
     @override
@@ -177,7 +172,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
                 row_range=_row_range,
             )
             .slice(0, num_rows)
-            .to_arrow_table(session=self.session)
+            .to_arrow_table()
         )
 
     @override
@@ -333,7 +328,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
             row_filter=self._filter_expression(filter),
             indices=array(indices.cast(pa.uint64())),
             row_range=_row_range,
-        ).to_arrow_table(session=self.session)
+        ).to_arrow_table()
 
     def to_record_batch_reader(
         self,
@@ -517,11 +512,11 @@ class VortexDataset(pyarrow.dataset.Dataset):
 
         return self._dataset.to_array(
             columns=columns, row_filter=self._filter_expression(filter), row_range=_row_range
-        ).to_arrow_table(session=self.session)
+        ).to_arrow_table()
 
 
-def from_url(url: str, *, session: Session) -> VortexDataset:
-    return VortexDataset(_dataset.dataset_from_url(url, session=session))
+def from_url(url: str) -> VortexDataset:
+    return VortexDataset(_dataset.dataset_from_url(url))
 
 
 @final

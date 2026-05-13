@@ -7,39 +7,39 @@ import pytest
 import vortex
 
 
-def test_primitive_array_round_trip(session: vortex.Session):
+def test_primitive_array_round_trip():
     a = pa.array([0, 1, 2, 3])
     arr = vortex.array(a)
-    assert arr.to_arrow_array(session=session) == a
+    assert arr.to_arrow_array() == a
 
 
-def test_array_with_nulls(session: vortex.Session):
+def test_array_with_nulls():
     a = pa.array([b"123", None], type=pa.string_view())
     arr = vortex.array(a)
-    assert arr.to_arrow_array(session=session) == a
+    assert arr.to_arrow_array() == a
 
 
-def test_varbin_array_round_trip(session: vortex.Session):
+def test_varbin_array_round_trip():
     a = pa.array(["a", "b", "c"], type=pa.string_view())
     arr = vortex.array(a)
-    assert arr.to_arrow_array(session=session) == a
+    assert arr.to_arrow_array() == a
 
 
-def test_varbin_array_take(session: vortex.Session):
+def test_varbin_array_take():
     a = vortex.array(pa.array(["a", "b", "c", "d"], type=pa.string_view()))
-    assert a.take(vortex.array(pa.array([0, 2]))).to_arrow_array(session=session) == pa.array(
+    assert a.take(vortex.array(pa.array([0, 2]))).to_arrow_array() == pa.array(
         ["a", "c"],
         type=pa.string_view(),
     )
 
 
-def test_empty_array(session: vortex.Session):
+def test_empty_array():
     a = pa.array([], type=pa.uint8())
     primitive = vortex.array(a)
-    assert primitive.to_arrow_array(session=session).type == pa.uint8()
+    assert primitive.to_arrow_array().type == pa.uint8()
 
 
 @pytest.mark.xfail(raises=IndexError)
-def test_scalar_at_out_of_bounds(session: vortex.Session):
+def test_scalar_at_out_of_bounds():
     a = vortex.array([10, 42, 999, 1992])
-    _s = a.scalar_at(10, session=session)
+    _s = a.scalar_at(10)

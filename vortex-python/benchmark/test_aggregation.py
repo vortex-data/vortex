@@ -25,7 +25,7 @@ def test_arrow_table_aggregation(benchmark: BenchmarkFixture, vxf: vx.VortexFile
     ]
     benchmark(
         lambda: (
-            pa.concat_tables(x.to_arrow_table(session=vxf.session) for x in vxf.scan())
+            pa.concat_tables(x.to_arrow_table() for x in vxf.scan())
             .group_by([])
             .aggregate(aggregations)
         )

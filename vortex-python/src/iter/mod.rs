@@ -26,7 +26,6 @@ use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::DType;
-use vortex::session::VortexSession;
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
@@ -34,7 +33,7 @@ use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::iter::python::PythonArrayIterator;
-use crate::session::PyVortexSession;
+use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "iter")?;
@@ -50,25 +49,19 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 pub struct PyArrayIterator {
     iter: Mutex<Option<Box<dyn ArrayIterator + Send>>>,
     dtype: DType,
-    session: VortexSession,
 }
 
 impl PyArrayIterator {
-    pub fn new(iter: Box<dyn ArrayIterator + Send>, session: VortexSession) -> Self {
+    pub fn new(iter: Box<dyn ArrayIterator + Send>) -> Self {
         let dtype = iter.dtype().clone();
         Self {
             iter: Mutex::new(Some(iter)),
             dtype,
-            session,
         }
     }
 
     pub fn dtype(&self) -> &DType {
         &self.dtype
-    }
-
-    pub fn session(&self) -> &VortexSession {
-        &self.session
     }
 
     pub fn take(&self) -> Option<Box<dyn ArrayIterator + Send>> {
@@ -123,7 +116,6 @@ impl PyArrayIterator {
     fn to_arrow(slf: Bound<Self>) -> PyVortexResult<Py<PyAny>> {
         let schema = Arc::new(slf.get().dtype().to_arrow_schema()?);
         let data_type = DataType::Struct(schema.fields().clone());
-        let session = slf.get().session().clone();
 
         let iter = slf.get().take().unwrap_or_else(|| {
             Box::new(ArrayIteratorAdapter::new(
@@ -136,7 +128,7 @@ impl PyArrayIterator {
             Box::new(RecordBatchIterator::new(
                 iter.map(move |chunk| {
                     let data_type = data_type.clone();
-                    let session = session.clone();
+                    let session = session();
                     chunk?.execute_arrow(Some(&data_type), &mut session.create_execution_ctx())
                 })
                 .map(|chunk| chunk.map_err(|e| ArrowError::ExternalError(Box::new(e))))
@@ -149,15 +141,9 @@ impl PyArrayIterator {
 
     /// Create a :class:`vortex.ArrayIterator` from an iterator of :class:`vortex.Array`.
     #[staticmethod]
-    #[pyo3(signature = (dtype, iter, *, session))]
-    fn from_iter(
-        dtype: PyDType,
-        iter: Py<PyIterator>,
-        session: &Bound<PyVortexSession>,
-    ) -> PyResult<PyArrayIterator> {
-        Ok(PyArrayIterator::new(
-            Box::new(PythonArrayIterator::try_new(dtype.into_inner(), iter)?),
-            session.get().inner().clone(),
-        ))
+    fn from_iter(dtype: PyDType, iter: Py<PyIterator>) -> PyResult<PyArrayIterator> {
+        Ok(PyArrayIterator::new(Box::new(
+            PythonArrayIterator::try_new(dtype.into_inner(), iter)?,
+        )))
     }
 }

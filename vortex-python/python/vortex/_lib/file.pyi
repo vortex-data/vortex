@@ -14,7 +14,6 @@ from .dtype import DType
 from .expr import Expr
 from .iter import ArrayIterator
 from .scan import RepeatedScan
-from .session import Session
 from .store import ObjectStore
 
 @final
@@ -22,8 +21,6 @@ class VortexFile:
     def __len__(self) -> int: ...
     @property
     def dtype(self) -> DType: ...
-    @property
-    def session(self) -> Session: ...
     def scan(
         self,
         projection: IntoProjection = None,
@@ -59,5 +56,4 @@ def open(
     *,
     store: ObjectStore | None = None,
     without_segment_cache: bool = False,
-    session: Session,
 ) -> VortexFile: ...

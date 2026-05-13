@@ -10,13 +10,13 @@ use vortex::array::VortexSessionExecute;
 use vortex::error::VortexResult;
 use vortex::layout::scan::repeated_scan::RepeatedScan;
 use vortex::scalar::Scalar;
-use vortex::session::VortexSession;
 
 use crate::RUNTIME;
 use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
 use crate::scalar::PyScalar;
+use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "scan")?;
@@ -32,7 +32,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 pub struct PyRepeatedScan {
     pub scan: Arc<RepeatedScan<ArrayRef>>,
     pub row_count: u64,
-    pub session: VortexSession,
 }
 
 #[pymethods]
@@ -52,12 +51,10 @@ impl PyRepeatedScan {
         };
 
         let scan = Arc::clone(&slf.get().scan);
-        let session = slf.get().session.clone();
         slf.py().detach(move || {
-            Ok(PyArrayIterator::new(
-                Box::new(scan.execute_array_iter(row_range, &*RUNTIME)?),
-                session,
-            ))
+            Ok(PyArrayIterator::new(Box::new(
+                scan.execute_array_iter(row_range, &*RUNTIME)?,
+            )))
         })
     }
 
@@ -72,8 +69,8 @@ impl PyRepeatedScan {
         }
 
         let scan = Arc::clone(&slf.get().scan);
-        let session = slf.get().session.clone();
         let scalar = slf.py().detach(move || -> VortexResult<Option<Scalar>> {
+            let session = session();
             for batch in scan.execute_array_iter(Some(index..index + 1), &*RUNTIME)? {
                 let array = batch?;
                 if array.is_empty() {

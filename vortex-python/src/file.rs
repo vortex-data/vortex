@@ -27,7 +27,6 @@ use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::MokaSegmentCache;
-use vortex::session::VortexSession;
 
 use crate::RUNTIME;
 use crate::arrays::PyArrayRef;
@@ -41,7 +40,7 @@ use crate::iter::PyArrayIterator;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
 use crate::scan::PyRepeatedScan;
-use crate::session::PyVortexSession;
+use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "file")?;
@@ -59,19 +58,16 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// Callers can optionally configure an object store to build from using one of the definitions
 /// in the `vortex.store` crate.
 #[pyfunction]
-#[pyo3(signature = (path, *, store = None, without_segment_cache = false, session))]
+#[pyo3(signature = (path, *, store = None, without_segment_cache = false))]
 pub fn open(
     py: Python,
     path: &str,
     store: Option<PyObjectStore>,
     without_segment_cache: bool,
-    session: &Bound<PyVortexSession>,
 ) -> PyVortexResult<PyVortexFile> {
-    let session = session.get().inner().clone();
-    let open_session = session.clone();
     let vxf = py.detach(move || {
         RUNTIME.block_on(async move {
-            let mut options = open_session.open_options();
+            let mut options = session().open_options();
             if !without_segment_cache {
                 // TODO(ngates): use a globally shared segment cache for all files
                 options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
@@ -86,13 +82,12 @@ pub fn open(
         })
     })?;
 
-    Ok(PyVortexFile { vxf, session })
+    Ok(PyVortexFile { vxf })
 }
 
 #[pyclass(name = "VortexFile", module = "vortex", frozen)]
 pub struct PyVortexFile {
     vxf: VortexFile,
-    session: VortexSession,
 }
 
 #[pymethods]
@@ -106,11 +101,6 @@ impl PyVortexFile {
         PyDType::init(slf.py(), slf.get().vxf.dtype().clone())
     }
 
-    #[getter]
-    fn session(&self) -> PyVortexSession {
-        PyVortexSession::from(self.session.clone())
-    }
-
     #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None))]
     fn scan(
         slf: Bound<Self>,
@@ -121,20 +111,18 @@ impl PyVortexFile {
         batch_size: Option<usize>,
     ) -> PyVortexResult<PyArrayIterator> {
         let vxf = slf.get().vxf.clone();
-        let session = slf.get().session.clone();
         let projection = projection.map(|p| p.0);
         let expr = expr.map(|e| e.into_inner());
         let indices = indices.map(|i| i.into_inner());
 
-        let iter_session = session.clone();
         slf.py().detach(move || {
+            let session = session();
             let mut ctx = session.create_execution_ctx();
             let builder =
                 scan_builder(&vxf, projection, expr, limit, indices, batch_size, &mut ctx)?;
-            Ok(PyArrayIterator::new(
-                Box::new(builder.into_array_iter(&*RUNTIME)?),
-                iter_session,
-            ))
+            Ok(PyArrayIterator::new(Box::new(
+                builder.into_array_iter(&*RUNTIME)?,
+            )))
         })
     }
 
@@ -148,12 +136,12 @@ impl PyVortexFile {
         batch_size: Option<usize>,
     ) -> PyVortexResult<PyRepeatedScan> {
         let vxf = slf.get().vxf.clone();
-        let session = slf.get().session.clone();
         let projection = projection.map(|p| p.0);
         let expr = expr.map(|e| e.into_inner());
         let indices = indices.map(|i| i.into_inner());
 
         let scan = slf.py().detach(move || {
+            let session = session();
             let mut ctx = session.create_execution_ctx();
             scan_builder(&vxf, projection, expr, limit, indices, batch_size, &mut ctx)?.prepare()
         })?;
@@ -161,7 +149,6 @@ impl PyVortexFile {
         Ok(PyRepeatedScan {
             scan: Arc::new(scan),
             row_count: slf.get().vxf.row_count(),
-            session: slf.get().session.clone(),
         })
     }
 
@@ -198,10 +185,7 @@ impl PyVortexFile {
     }
 
     fn to_dataset(slf: Bound<Self>) -> PyVortexResult<PyVortexDataset> {
-        Ok(PyVortexDataset::try_new(
-            slf.get().vxf.clone(),
-            slf.get().session.clone(),
-        )?)
+        Ok(PyVortexDataset::try_new(slf.get().vxf.clone())?)
     }
 
     #[pyo3(signature = (*))]

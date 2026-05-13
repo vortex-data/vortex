@@ -25,7 +25,6 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::split_by::SplitBy;
-use vortex::session::VortexSession;
 
 use crate::RUNTIME;
 use crate::arrays::PyArrayRef;
@@ -36,7 +35,7 @@ use crate::expr::PyExpr;
 use crate::install_module;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
-use crate::session::PyVortexSession;
+use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;
@@ -108,24 +107,19 @@ fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<Expression> 
 pub struct PyVortexDataset {
     vxf: VortexFile,
     schema: SchemaRef,
-    session: VortexSession,
 }
 
 impl PyVortexDataset {
-    pub fn try_new(vxf: VortexFile, session: VortexSession) -> VortexResult<Self> {
+    pub fn try_new(vxf: VortexFile) -> VortexResult<Self> {
         let schema = Arc::new(vxf.dtype().to_arrow_schema()?);
-        Ok(Self {
-            vxf,
-            schema,
-            session,
-        })
+        Ok(Self { vxf, schema })
     }
 
     pub async fn from_url(
         url: &str,
         store: Option<Arc<dyn object_store::ObjectStore>>,
-        session: VortexSession,
     ) -> VortexResult<Self> {
+        let session = session();
         let vxf = match resolve_store(url, store)? {
             ResolvedStore::ObjectStore(store, path) => {
                 session
@@ -135,7 +129,7 @@ impl PyVortexDataset {
             }
             ResolvedStore::Path(path) => session.open_options().open_path(path).await?,
         };
-        PyVortexDataset::try_new(vxf, session)
+        PyVortexDataset::try_new(vxf)
     }
 
     pub(crate) fn to_array_inner<'py>(
@@ -147,12 +141,12 @@ impl PyVortexDataset {
         row_range: Option<(u64, u64)>,
     ) -> PyVortexResult<PyArrayRef> {
         let vxf = self.vxf.clone();
-        let session = self.session.clone();
         let projection = projection_from_python(columns)?;
         let filter = filter_from_python(row_filter);
         let indices = indices.map(|i| i.into_inner());
 
         let array = py.detach(move || {
+            let session = session();
             let mut ctx = session.create_execution_ctx();
             read_array_from_reader(&vxf, projection, filter, indices, row_range, &mut ctx)
         })?;
@@ -164,11 +158,6 @@ impl PyVortexDataset {
 impl PyVortexDataset {
     fn schema(self_: PyRef<Self>) -> PyResult<Py<PyAny>> {
         Arc::clone(&self_.schema).to_pyarrow(self_.py())
-    }
-
-    #[getter]
-    fn session(&self) -> PyVortexSession {
-        PyVortexSession::from(self.session.clone())
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None, row_range = None))]
@@ -264,12 +253,11 @@ impl PyVortexDataset {
 }
 
 #[pyfunction]
-#[pyo3(signature = (url, *, store = None, session))]
+#[pyo3(signature = (url, *, store = None))]
 pub fn dataset_from_url(
     py: Python,
     url: &str,
     store: Option<Bound<PyAny>>,
-    session: &Bound<PyVortexSession>,
 ) -> PyVortexResult<PyVortexDataset> {
     let store_arc = if let Some(store_obj) = store {
         let py_store: pyo3_object_store::PyObjectStore = store_obj.extract()?;
@@ -278,7 +266,5 @@ pub fn dataset_from_url(
         None
     };
 
-    let session = session.get().inner().clone();
-
-    Ok(py.detach(move || RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc, session)))?)
+    Ok(py.detach(move || RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?)
 }

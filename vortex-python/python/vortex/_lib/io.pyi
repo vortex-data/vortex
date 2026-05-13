@@ -4,7 +4,6 @@
 from ..type_aliases import IntoArrayIterator
 from .arrays import Array
 from .expr import Expr
-from .session import Session
 from .store import ObjectStore
 
 def read_url(
@@ -15,14 +14,12 @@ def read_url(
     row_filter: Expr | None = None,
     indices: Array | None = None,
     row_range: tuple[int, int] | None = None,
-    session: Session,
 ) -> Array: ...
 def write(
     iter: IntoArrayIterator,
     path: str,
     *,
     store: ObjectStore | None = None,
-    session: Session,
 ) -> None: ...
 
 class VortexWriteOptions:
@@ -36,5 +33,4 @@ class VortexWriteOptions:
         path: str,
         *,
         store: ObjectStore | None = None,
-        session: Session,
     ) -> VortexWriteOptions: ...
