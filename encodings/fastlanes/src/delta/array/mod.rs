@@ -43,6 +43,21 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["bases", "deltas"];
 /// let array = Delta::try_from_primitive_array(&primitive, &mut session.create_execution_ctx()).unwrap();
 /// ```
 ///
+/// Signed inputs are also supported; deltas across negative values are encoded by
+/// `wrapping_sub` and recovered by `wrapping_add` at decompress time:
+///
+/// ```
+/// use vortex_array::arrays::PrimitiveArray;
+/// use vortex_array::VortexSessionExecute;
+/// use vortex_array::session::ArraySession;
+/// use vortex_session::VortexSession;
+/// use vortex_fastlanes::Delta;
+///
+/// let session = VortexSession::empty().with::<ArraySession>();
+/// let primitive = PrimitiveArray::from_iter([-3_i32, -2, -1, 0, 1, 2]);
+/// let array = Delta::try_from_primitive_array(&primitive, &mut session.create_execution_ctx()).unwrap();
+/// ```
+///
 /// # Details
 ///
 /// To facilitate slicing, this array accepts an `offset` and `logical_len`. The offset must be

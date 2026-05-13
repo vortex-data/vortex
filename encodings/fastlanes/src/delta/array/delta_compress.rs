@@ -235,7 +235,7 @@ mod tests {
 
         println!();
         println!(
-            "{:<36} {:>10} {:>14} {:>5} {:>5} {:>5} {:>10} {:>7}  {:>10} {:>5} {:>10} {:>7}",
+            "{:<36} {:>10} {:>14} {:>5} {:>5} {:>5} {:>10} {:>9}  {:>10} {:>5} {:>10} {:>9}",
             "workload",
             "raw (B)",
             "Δ range",
@@ -243,16 +243,16 @@ mod tests {
             "Wffor",
             "Wzig",
             "FFoR (B)",
-            "ratio",
+            "FFoR x",
             "bases (B)",
             "Wb",
             "+bcomp (B)",
-            "ratio",
+            "+bcomp x",
         );
         println!("{}", "-".repeat(140));
 
         for (name, values) in workloads {
-            let raw_bytes = values.len() * size_of::<i32>();
+            let raw_bytes = size_of_val(values.as_slice());
             let array = PrimitiveArray::from_iter(values);
             let (bases, deltas) = delta_compress(&array, &mut ctx)?;
             let deltas_buf: &[i32] = deltas.as_slice();
@@ -264,18 +264,30 @@ mod tests {
             // Naive width = OR of raw u32 bit-patterns of every delta. Any negative delta
             // sets the high bits and forces W = 32.
             let or: u32 = deltas_buf.iter().fold(0u32, |a, &d| a | (d as u32));
-            let naive_w = if or == 0 { 0 } else { 32 - or.leading_zeros() as usize };
+            let naive_w = if or == 0 {
+                0
+            } else {
+                32 - or.leading_zeros() as usize
+            };
 
             // FFoR width = ceil(log2(span)) where span = (max - min + 1).
             let span = (max_d as i64 - min_d as i64) as u64 + 1;
-            let ffor_w = if span <= 1 { 0 } else { 64 - (span - 1).leading_zeros() as usize };
+            let ffor_w = if span <= 1 {
+                0
+            } else {
+                64 - (span - 1).leading_zeros() as usize
+            };
 
             // ZigZag width = 1 + ceil(log2(max(|min|, |max|))) for any nonzero delta.
             let zz_mag = (min_d.unsigned_abs()).max(max_d.unsigned_abs());
-            let zz_w = if zz_mag == 0 { 0 } else { 1 + (32 - zz_mag.leading_zeros() as usize) };
+            let zz_w = if zz_mag == 0 {
+                0
+            } else {
+                1 + (32 - zz_mag.leading_zeros() as usize)
+            };
 
             // FFoR encoded byte size: bases (already unpacked) + ref + ceil(packed bits / 8).
-            let bases_bytes = bases_buf.len() * size_of::<i32>();
+            let bases_bytes = size_of_val(bases_buf);
             let ref_bytes = size_of::<i32>();
             let packed_bits = deltas_buf.len() * ffor_w;
             let ffor_packed_bytes = packed_bits.div_ceil(8);
@@ -291,32 +303,48 @@ mod tests {
             let min_b = *bases_buf.iter().min().unwrap();
             let max_b = *bases_buf.iter().max().unwrap();
             let bspan = (max_b as i64 - min_b as i64) as u64 + 1;
-            let bases_w = if bspan <= 1 { 0 } else { 64 - (bspan - 1).leading_zeros() as usize };
+            let bases_w = if bspan <= 1 {
+                0
+            } else {
+                64 - (bspan - 1).leading_zeros() as usize
+            };
             let bases_compressed = (bases_buf.len() * bases_w).div_ceil(8) + ref_bytes;
             let total_with_bcomp = bases_compressed + ref_bytes + ffor_packed_bytes;
             let ratio_with_bcomp = raw_bytes as f64 / total_with_bcomp as f64;
 
             println!(
-                "{name:<36} {raw_bytes:>10} {:>14} {naive_w:>5} {ffor_w:>5} {zz_w:>5} {ffor_total:>10} {ratio:>6.2}x  {bases_bytes:>10} {bases_w:>5} {total_with_bcomp:>10} {ratio_with_bcomp:>6.2}x",
+                "{name:<36} {raw_bytes:>10} {:>14} {naive_w:>5} {ffor_w:>5} {zz_w:>5} {ffor_total:>10} {ratio:>8.2}x  {bases_bytes:>10} {bases_w:>5} {total_with_bcomp:>10} {ratio_with_bcomp:>8.2}x",
                 format!("[{min_d}, {max_d}]"),
             );
 
             // Sanity assertions. naive_w is 32 (or near it) for any delta sequence that
             // contains a negative value; FFoR/ZigZag width must be strictly smaller for these
             // workloads.
-            assert!(ffor_w <= naive_w.max(1), "FFoR must never exceed naive for {name}");
+            assert!(
+                ffor_w <= naive_w.max(1),
+                "FFoR must never exceed naive for {name}"
+            );
             if min_d < 0 {
-                assert_eq!(naive_w, 32, "any negative delta forces naive W to 32 for {name}");
+                assert_eq!(
+                    naive_w, 32,
+                    "any negative delta forces naive W to 32 for {name}"
+                );
                 assert!(ffor_w < 32, "FFoR must compress below T for {name}");
             }
             // On the asymmetric workloads (offset, near-monotone) FFoR must beat ZigZag.
             if min_d > 0 || max_d < 0 {
-                assert!(ffor_w < zz_w, "FFoR should beat ZigZag on asymmetric {name}");
+                assert!(
+                    ffor_w < zz_w,
+                    "FFoR should beat ZigZag on asymmetric {name}"
+                );
             }
             // Sorted inputs => the bases inherit smoothness => the bases bit-width should be
             // far smaller than `T` for sorted columns.
             if name.starts_with("monotone") || name.starts_with("offset") {
-                assert!(bases_w < 16, "sorted bases should pack below 16 bits for {name}");
+                assert!(
+                    bases_w < 16,
+                    "sorted bases should pack below 16 bits for {name}"
+                );
             }
         }
 

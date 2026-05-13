@@ -24,9 +24,13 @@ impl CastReduce for Delta {
         if target_ptype.is_signed_int() || source_ptype.bit_width() > target_ptype.bit_width() {
             return Ok(None);
         }
-        // Signed deltas widened by per-element value-preserving cast (e.g. -1i8 -> 4294967295u32)
-        // break the wrapping-add invariant: zero-extending the delta bytes would preserve it,
-        // sign-extending the deltas does not. Fall back to full decompress + re-encode.
+        // Signed sources need a different cast policy than the lossless widening cast
+        // used here. The delta bytes are stored as the result of `wrapping_sub`, so e.g.
+        // a delta of -1i8 has the bit pattern 0xFF. Widening *as a value* (the cast op's
+        // semantics) sign-extends that to 0xFFFFFFFF, which means `wrapping_add(base, delta)`
+        // at the wider type produces a different result than at the source type — round-trip
+        // breaks. Cross-signedness widening has the same hazard for the same reason. Fall
+        // back to decompress-and-re-encode for both cases.
         if source_ptype.is_signed_int() {
             return Ok(None);
         }
