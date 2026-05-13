@@ -1,0 +1,349 @@
+pub mod vortex_neats
+
+pub mod vortex_neats::models
+
+#[repr(u8)] pub enum vortex_neats::models::ModelKind
+
+pub vortex_neats::models::ModelKind::Constant = 0
+
+pub vortex_neats::models::ModelKind::Exponential = 3
+
+pub vortex_neats::models::ModelKind::Linear = 1
+
+pub vortex_neats::models::ModelKind::Quadratic = 2
+
+impl vortex_neats::models::ModelKind
+
+pub fn vortex_neats::models::ModelKind::from_u8(u8) -> core::option::Option<Self>
+
+impl core::clone::Clone for vortex_neats::models::ModelKind
+
+pub fn vortex_neats::models::ModelKind::clone(&self) -> vortex_neats::models::ModelKind
+
+impl core::cmp::Eq for vortex_neats::models::ModelKind
+
+impl core::cmp::PartialEq for vortex_neats::models::ModelKind
+
+pub fn vortex_neats::models::ModelKind::eq(&self, &vortex_neats::models::ModelKind) -> bool
+
+impl core::fmt::Debug for vortex_neats::models::ModelKind
+
+pub fn vortex_neats::models::ModelKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_neats::models::ModelKind
+
+impl core::marker::StructuralPartialEq for vortex_neats::models::ModelKind
+
+pub struct vortex_neats::models::ConstantModel
+
+impl vortex_neats::models::Model for vortex_neats::models::ConstantModel
+
+pub fn vortex_neats::models::ConstantModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
+pub struct vortex_neats::models::ExponentialModel
+
+impl vortex_neats::models::Model for vortex_neats::models::ExponentialModel
+
+pub fn vortex_neats::models::ExponentialModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
+pub struct vortex_neats::models::FitResult
+
+pub vortex_neats::models::FitResult::a: f64
+
+pub vortex_neats::models::FitResult::b: f64
+
+pub vortex_neats::models::FitResult::c: f64
+
+pub vortex_neats::models::FitResult::kind: vortex_neats::models::ModelKind
+
+pub vortex_neats::models::FitResult::max_abs_residual: f64
+
+impl core::clone::Clone for vortex_neats::models::FitResult
+
+pub fn vortex_neats::models::FitResult::clone(&self) -> vortex_neats::models::FitResult
+
+impl core::fmt::Debug for vortex_neats::models::FitResult
+
+pub fn vortex_neats::models::FitResult::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_neats::models::FitResult
+
+pub struct vortex_neats::models::LinearModel
+
+impl vortex_neats::models::Model for vortex_neats::models::LinearModel
+
+pub fn vortex_neats::models::LinearModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
+pub struct vortex_neats::models::QuadraticModel
+
+impl vortex_neats::models::Model for vortex_neats::models::QuadraticModel
+
+pub fn vortex_neats::models::QuadraticModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
+pub trait vortex_neats::models::Model
+
+pub fn vortex_neats::models::Model::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
+impl vortex_neats::models::Model for vortex_neats::models::ConstantModel
+
+pub fn vortex_neats::models::ConstantModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
+impl vortex_neats::models::Model for vortex_neats::models::ExponentialModel
+
+pub fn vortex_neats::models::ExponentialModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
+impl vortex_neats::models::Model for vortex_neats::models::LinearModel
+
+pub fn vortex_neats::models::LinearModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
+impl vortex_neats::models::Model for vortex_neats::models::QuadraticModel
+
+pub fn vortex_neats::models::QuadraticModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
+pub fn vortex_neats::models::eval(vortex_neats::models::ModelKind, f64, f64, f64, f64) -> f64
+
+pub fn vortex_neats::models::fit_best(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
+pub struct vortex_neats::NeaTS
+
+impl vortex_neats::NeaTS
+
+pub fn vortex_neats::NeaTS::try_new(vortex_array::dtype::DType, vortex_neats::NeaTSData, vortex_array::array::erased::ArrayRef, vortex_array::array::erased::ArrayRef, vortex_array::array::erased::ArrayRef, vortex_array::array::erased::ArrayRef, vortex_array::array::erased::ArrayRef, vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_neats::NeaTSArray>
+
+impl core::clone::Clone for vortex_neats::NeaTS
+
+pub fn vortex_neats::NeaTS::clone(&self) -> vortex_neats::NeaTS
+
+impl core::fmt::Debug for vortex_neats::NeaTS
+
+pub fn vortex_neats::NeaTS::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::vtable::VTable for vortex_neats::NeaTS
+
+pub type vortex_neats::NeaTS::OperationsVTable = vortex_neats::NeaTS
+
+pub type vortex_neats::NeaTS::TypedArrayData = vortex_neats::NeaTSData
+
+pub type vortex_neats::NeaTS::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
+
+pub fn vortex_neats::NeaTS::buffer(vortex_array::array::view::ArrayView<'_, Self>, usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_neats::NeaTS::buffer_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> core::option::Option<alloc::string::String>
+
+pub fn vortex_neats::NeaTS::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &[vortex_array::buffer::BufferHandle], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
+
+pub fn vortex_neats::NeaTS::execute(vortex_array::array::typed::Array<Self>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+
+pub fn vortex_neats::NeaTS::id(&self) -> vortex_array::array::ArrayId
+
+pub fn vortex_neats::NeaTS::nbuffers(vortex_array::array::view::ArrayView<'_, Self>) -> usize
+
+pub fn vortex_neats::NeaTS::serialize(vortex_array::array::view::ArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_neats::NeaTS::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
+
+pub fn vortex_neats::NeaTS::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_neats::NeaTS> for vortex_neats::NeaTS
+
+pub fn vortex_neats::NeaTS::scalar_at(vortex_array::array::view::ArrayView<'_, vortex_neats::NeaTS>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::array::vtable::validity::ValidityChild<vortex_neats::NeaTS> for vortex_neats::NeaTS
+
+pub fn vortex_neats::NeaTS::validity_child(vortex_array::array::view::ArrayView<'_, vortex_neats::NeaTS>) -> vortex_array::array::erased::ArrayRef
+
+pub struct vortex_neats::NeaTSData
+
+impl vortex_neats::NeaTSData
+
+pub fn vortex_neats::NeaTSData::epsilon(&self) -> f64
+
+pub fn vortex_neats::NeaTSData::new(f64, f64) -> Self
+
+pub fn vortex_neats::NeaTSData::scale(&self) -> f64
+
+impl core::clone::Clone for vortex_neats::NeaTSData
+
+pub fn vortex_neats::NeaTSData::clone(&self) -> vortex_neats::NeaTSData
+
+impl core::fmt::Debug for vortex_neats::NeaTSData
+
+pub fn vortex_neats::NeaTSData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_neats::NeaTSData
+
+pub fn vortex_neats::NeaTSData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_neats::NeaTSData
+
+pub fn vortex_neats::NeaTSData::array_eq(&self, &Self, vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_neats::NeaTSData
+
+pub fn vortex_neats::NeaTSData::array_hash<H: core::hash::Hasher>(&self, &mut H, vortex_array::hash::Precision)
+
+pub struct vortex_neats::NeaTSMetadata
+
+pub vortex_neats::NeaTSMetadata::epsilon_bits: u64
+
+pub vortex_neats::NeaTSMetadata::num_pieces: u64
+
+pub vortex_neats::NeaTSMetadata::residual_ptype: i32
+
+pub vortex_neats::NeaTSMetadata::scale_bits: u64
+
+pub vortex_neats::NeaTSMetadata::value_ptype: i32
+
+impl vortex_neats::NeaTSMetadata
+
+pub fn vortex_neats::NeaTSMetadata::residual_ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub fn vortex_neats::NeaTSMetadata::set_residual_ptype(&mut self, vortex_array::dtype::ptype::PType)
+
+pub fn vortex_neats::NeaTSMetadata::set_value_ptype(&mut self, vortex_array::dtype::ptype::PType)
+
+pub fn vortex_neats::NeaTSMetadata::value_ptype(&self) -> vortex_array::dtype::ptype::PType
+
+impl core::clone::Clone for vortex_neats::NeaTSMetadata
+
+pub fn vortex_neats::NeaTSMetadata::clone(&self) -> vortex_neats::NeaTSMetadata
+
+impl core::default::Default for vortex_neats::NeaTSMetadata
+
+pub fn vortex_neats::NeaTSMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_neats::NeaTSMetadata
+
+pub fn vortex_neats::NeaTSMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_neats::NeaTSMetadata
+
+pub fn vortex_neats::NeaTSMetadata::clear(&mut self)
+
+pub fn vortex_neats::NeaTSMetadata::encoded_len(&self) -> usize
+
+pub struct vortex_neats::NeaTSOptions
+
+pub vortex_neats::NeaTSOptions::epsilon: core::option::Option<f64>
+
+pub vortex_neats::NeaTSOptions::max_piece_len: usize
+
+pub vortex_neats::NeaTSOptions::min_piece_len: usize
+
+impl core::clone::Clone for vortex_neats::NeaTSOptions
+
+pub fn vortex_neats::NeaTSOptions::clone(&self) -> vortex_neats::NeaTSOptions
+
+impl core::default::Default for vortex_neats::NeaTSOptions
+
+pub fn vortex_neats::NeaTSOptions::default() -> Self
+
+impl core::fmt::Debug for vortex_neats::NeaTSOptions
+
+pub fn vortex_neats::NeaTSOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_neats::NeaTSOptions
+
+pub struct vortex_neats::NeaTSSlots
+
+pub vortex_neats::NeaTSSlots::coeff_a: vortex_array::array::erased::ArrayRef
+
+pub vortex_neats::NeaTSSlots::coeff_b: vortex_array::array::erased::ArrayRef
+
+pub vortex_neats::NeaTSSlots::coeff_c: vortex_array::array::erased::ArrayRef
+
+pub vortex_neats::NeaTSSlots::model_ids: vortex_array::array::erased::ArrayRef
+
+pub vortex_neats::NeaTSSlots::piece_starts: vortex_array::array::erased::ArrayRef
+
+pub vortex_neats::NeaTSSlots::residuals: vortex_array::array::erased::ArrayRef
+
+impl vortex_neats::NeaTSSlots
+
+pub const vortex_neats::NeaTSSlots::COEFF_A: usize
+
+pub const vortex_neats::NeaTSSlots::COEFF_B: usize
+
+pub const vortex_neats::NeaTSSlots::COEFF_C: usize
+
+pub const vortex_neats::NeaTSSlots::COUNT: usize
+
+pub const vortex_neats::NeaTSSlots::MODEL_IDS: usize
+
+pub const vortex_neats::NeaTSSlots::NAMES: [&'static str; 6]
+
+pub const vortex_neats::NeaTSSlots::PIECE_STARTS: usize
+
+pub const vortex_neats::NeaTSSlots::RESIDUALS: usize
+
+pub fn vortex_neats::NeaTSSlots::from_slots(vortex_array::array::ArraySlots) -> Self
+
+pub fn vortex_neats::NeaTSSlots::into_slots(self) -> vortex_array::array::ArraySlots
+
+pub struct vortex_neats::NeaTSSlotsView<'a>
+
+pub vortex_neats::NeaTSSlotsView::coeff_a: &'a vortex_array::array::erased::ArrayRef
+
+pub vortex_neats::NeaTSSlotsView::coeff_b: &'a vortex_array::array::erased::ArrayRef
+
+pub vortex_neats::NeaTSSlotsView::coeff_c: &'a vortex_array::array::erased::ArrayRef
+
+pub vortex_neats::NeaTSSlotsView::model_ids: &'a vortex_array::array::erased::ArrayRef
+
+pub vortex_neats::NeaTSSlotsView::piece_starts: &'a vortex_array::array::erased::ArrayRef
+
+pub vortex_neats::NeaTSSlotsView::residuals: &'a vortex_array::array::erased::ArrayRef
+
+impl<'a> vortex_neats::NeaTSSlotsView<'a>
+
+pub fn vortex_neats::NeaTSSlotsView<'a>::from_slots(&'a [core::option::Option<vortex_array::array::erased::ArrayRef>]) -> Self
+
+pub fn vortex_neats::NeaTSSlotsView<'a>::to_owned(&self) -> vortex_neats::NeaTSSlots
+
+impl<'a> core::clone::Clone for vortex_neats::NeaTSSlotsView<'a>
+
+pub fn vortex_neats::NeaTSSlotsView<'a>::clone(&self) -> vortex_neats::NeaTSSlotsView<'a>
+
+impl<'a> core::fmt::Debug for vortex_neats::NeaTSSlotsView<'a>
+
+pub fn vortex_neats::NeaTSSlotsView<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl<'a> core::marker::Copy for vortex_neats::NeaTSSlotsView<'a>
+
+pub trait vortex_neats::NeaTSArraySlotsExt: vortex_array::array::typed::TypedArrayRef<vortex_neats::NeaTS>
+
+pub fn vortex_neats::NeaTSArraySlotsExt::coeff_a(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_neats::NeaTSArraySlotsExt::coeff_b(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_neats::NeaTSArraySlotsExt::coeff_c(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_neats::NeaTSArraySlotsExt::model_ids(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_neats::NeaTSArraySlotsExt::piece_starts(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_neats::NeaTSArraySlotsExt::residuals(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_neats::NeaTSArraySlotsExt::slots_view(&self) -> vortex_neats::NeaTSSlotsView<'_>
+
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_neats::NeaTS>> vortex_neats::NeaTSArraySlotsExt for T
+
+pub fn T::coeff_a(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::coeff_b(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::coeff_c(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::model_ids(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::piece_starts(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::residuals(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::slots_view(&self) -> vortex_neats::NeaTSSlotsView<'_>
+
+pub fn vortex_neats::initialize(&vortex_session::VortexSession)
+
+pub fn vortex_neats::neats_encode(vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, vortex_neats::NeaTSOptions) -> vortex_error::VortexResult<vortex_neats::NeaTSArray>
+
+pub type vortex_neats::NeaTSArray = vortex_array::array::typed::Array<vortex_neats::NeaTS>

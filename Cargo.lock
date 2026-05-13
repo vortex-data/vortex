@@ -10188,6 +10188,7 @@ dependencies = [
  "vortex-layout",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-neats",
  "vortex-pco",
  "vortex-proto",
  "vortex-runend",
@@ -10338,6 +10339,7 @@ dependencies = [
  "url",
  "uuid",
  "vortex",
+ "vortex-neats",
  "vortex-tensor",
 ]
 
@@ -10757,6 +10759,7 @@ dependencies = [
  "vortex-layout",
  "vortex-mask",
  "vortex-metrics",
+ "vortex-neats",
  "vortex-pco",
  "vortex-runend",
  "vortex-scan",
@@ -10949,6 +10952,22 @@ version = "0.1.0"
 dependencies = [
  "parking_lot",
  "sketches-ddsketch 0.4.0",
+]
+
+[[package]]
+name = "vortex-neats"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "num-traits",
+ "prost 0.14.3",
+ "rand 0.10.1",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-session",
 ]
 
 [[package]]

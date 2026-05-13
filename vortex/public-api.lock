@@ -56,6 +56,10 @@ pub mod vortex::encodings::fsst
 
 pub use vortex::encodings::fsst::<<vortex_fsst::*>>
 
+pub mod vortex::encodings::neats
+
+pub use vortex::encodings::neats::<<vortex_neats::*>>
+
 pub mod vortex::encodings::pco
 
 pub use vortex::encodings::pco::<<vortex_pco::*>>

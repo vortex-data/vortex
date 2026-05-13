@@ -127,6 +127,10 @@ pub mod encodings {
         pub use vortex_fsst::*;
     }
 
+    pub mod neats {
+        pub use vortex_neats::*;
+    }
+
     pub mod pco {
         pub use vortex_pco::*;
     }
