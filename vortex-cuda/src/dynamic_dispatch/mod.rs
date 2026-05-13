@@ -2679,11 +2679,6 @@ mod tests {
         #[case] len: usize,
         #[case] slice_range: Option<Range<usize>>,
     ) -> VortexResult<()> {
-        // TODO(#7839): BitPacked SliceReduce returns None when patches are present,
-        // producing SliceArray instead of BitPacked. CUDA cannot handle this yet.
-        if true {
-            return Ok(());
-        }
         let bit_width: u8 = 4;
         let max_val = (1u32 << bit_width) - 1;
         let values: Vec<u32> = (0..len)
@@ -2765,12 +2760,6 @@ mod tests {
 
     #[crate::test]
     async fn test_for_bitpacked_with_patches_sliced() -> VortexResult<()> {
-        // TODO(#7839): BitPacked SliceReduce returns None when patches are present,
-        // producing SliceArray instead of BitPacked. CUDA cannot handle this yet.
-        if true {
-            return Ok(());
-        }
-
         let len = 5000;
         let bit_width: u8 = 6;
         let reference = 42u32;

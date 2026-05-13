@@ -16,6 +16,7 @@ mod zstd_buffers;
 
 pub(crate) use alp::ALPExecutor;
 pub(crate) use bitpacked::BitPackedExecutor;
+pub(crate) use bitpacked::bitpacked_slice_view;
 pub(crate) use date_time_parts::DateTimePartsExecutor;
 pub(crate) use decimal_byte_parts::DecimalBytePartsExecutor;
 pub(crate) use for_::FoRExecutor;

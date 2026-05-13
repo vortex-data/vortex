@@ -54,7 +54,7 @@ impl GPUPatches {
 }
 
 /// Convert a [`PType`] to the corresponding [`ChunkOffsetType`] for GPU patches.
-fn ptype_to_chunk_offset_type(ptype: PType) -> VortexResult<ChunkOffsetType> {
+pub(crate) fn ptype_to_chunk_offset_type(ptype: PType) -> VortexResult<ChunkOffsetType> {
     match ptype {
         PType::U8 => Ok(ChunkOffsetType_CO_U8),
         PType::U16 => Ok(ChunkOffsetType_CO_U16),
