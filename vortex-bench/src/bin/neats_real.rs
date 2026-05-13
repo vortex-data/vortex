@@ -71,14 +71,16 @@ async fn main() -> anyhow::Result<()> {
     }
 
     println!(
-        "{:<36} {:>10} {:>11} {:>12} {:>12} {:>13} {:>10} {:>11} {:>12} {:>14}",
+        "{:<36} {:>10} {:>11} {:>12} {:>12} {:>13} {:>13} {:>8} {:>9} {:>11} {:>12} {:>14}",
         "input/mode",
         "rows",
         "raw_bytes",
         "neats_bytes",
-        "btr_bytes",
+        "btr_raw_bytes",
+        "btr_neats_bytes",
         "per_slot_bytes",
-        "ratio",
+        "btr_x",
+        "neats_x",
         "compress_us",
         "decomp_us",
         "max_abs_err",
@@ -87,6 +89,14 @@ async fn main() -> anyhow::Result<()> {
     for (name, values) in inputs {
         let array = PrimitiveArray::from_iter(values.iter().copied());
         let raw_bytes = (values.len() * size_of::<f64>()) as f64;
+
+        // BtrBlocks baseline: compress the raw f64 array directly. Same compressor that runs on
+        // top of NeaTS in `btr_neats_bytes`, but without NeaTS first. This is "what Vortex's own
+        // sampling compressor picks for this column today".
+        let mut ctx_raw = SESSION.create_execution_ctx();
+        let btr_raw =
+            BtrBlocksCompressor::default().compress(&array.clone().into_array(), &mut ctx_raw)?;
+        let btr_raw_bytes = btr_raw.nbytes() as f64;
 
         for (label, epsilon) in [
             ("lossless", None),
@@ -144,13 +154,15 @@ async fn main() -> anyhow::Result<()> {
                 .fold(0.0_f64, f64::max);
 
             println!(
-                "{:<36} {:>10} {:>11.0} {:>12.0} {:>12.0} {:>13.0} {:>9.3}x {:>11} {:>12} {:>14.3e}",
+                "{:<36} {:>10} {:>11.0} {:>12.0} {:>13.0} {:>13.0} {:>13.0} {:>7.2}x {:>8.2}x {:>11} {:>12} {:>14.3e}",
                 format!("{name}/{label}"),
                 values.len(),
                 raw_bytes,
                 neats_bytes,
+                btr_raw_bytes,
                 btr_bytes,
                 per_slot_bytes,
+                raw_bytes / btr_raw_bytes.max(1.0),
                 raw_bytes / per_slot_bytes.max(1.0),
                 compress_time.as_micros(),
                 decomp_time.as_micros(),
