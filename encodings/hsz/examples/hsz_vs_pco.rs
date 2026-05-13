@@ -94,7 +94,12 @@ struct Codec<'a> {
     sum_ms: f64,
     range_count: usize,
     range_ms: f64,
+    sum_in_range: f64,
+    sum_in_range_ms: f64,
 }
+
+const RANGE_LO: f64 = 290.0;
+const RANGE_HI: f64 = 310.0;
 
 fn time<Func: FnOnce() -> Out, Out>(func: Func) -> (Out, Duration) {
     let start = Instant::now();
@@ -109,8 +114,45 @@ fn run_hsz(name: &'static str, data: &[f64], eps: f64) -> Codec<'static> {
     let (_, t_decompress) = time(|| hsz.decompress());
     let (sum, t_sum) = time(|| hsz.sum());
     let (range_count, t_range) = time(|| {
-        let (mask, _) = hsz.between_mask(290.0, 310.0);
+        let (mask, _) = hsz.between_mask(RANGE_LO, RANGE_HI);
         mask.true_count()
+    });
+    let (sum_in_range, t_sir) = time(|| hsz.sum_in_range(RANGE_LO, RANGE_HI));
+    Codec {
+        name,
+        bytes,
+        compress_ms: t_compress.as_secs_f64() * 1e3,
+        decompress_ms: t_decompress.as_secs_f64() * 1e3,
+        sum,
+        sum_ms: t_sum.as_secs_f64() * 1e3,
+        range_count,
+        range_ms: t_range.as_secs_f64() * 1e3,
+        sum_in_range,
+        sum_in_range_ms: t_sir.as_secs_f64() * 1e3,
+    }
+}
+
+fn run_hsz_naive_sum_in_range(name: &'static str, data: &[f64], eps: f64) -> Codec<'static> {
+    // Same shape as `run_hsz` but the sum_in_range column is computed by
+    // composing between_mask + decompress + masked sum, i.e. the "manual"
+    // way without the fused homomorphic operator.
+    let cfg = HszConfig { eps };
+    let (hsz, t_compress) = time(|| Hsz::compress(data, cfg).unwrap());
+    let bytes = hsz.encoded_bytes();
+    let (_, t_decompress) = time(|| hsz.decompress());
+    let (sum, t_sum) = time(|| hsz.sum());
+    let (range_count, t_range) = time(|| {
+        let (mask, _) = hsz.between_mask(RANGE_LO, RANGE_HI);
+        mask.true_count()
+    });
+    let (sum_in_range, t_sir) = time(|| {
+        let decoded = hsz.decompress();
+        decoded
+            .as_slice()
+            .iter()
+            .copied()
+            .filter(|v| *v >= RANGE_LO && *v <= RANGE_HI)
+            .sum::<f64>()
     });
     Codec {
         name,
@@ -121,6 +163,8 @@ fn run_hsz(name: &'static str, data: &[f64], eps: f64) -> Codec<'static> {
         sum_ms: t_sum.as_secs_f64() * 1e3,
         range_count,
         range_ms: t_range.as_secs_f64() * 1e3,
+        sum_in_range,
+        sum_in_range_ms: t_sir.as_secs_f64() * 1e3,
     }
 }
 
@@ -134,8 +178,15 @@ fn run_pco(name: &'static str, data: &[f64], level: usize) -> Codec<'static> {
         decoded
             .iter()
             .copied()
-            .filter(|v| *v >= 290.0 && *v <= 310.0)
+            .filter(|v| *v >= RANGE_LO && *v <= RANGE_HI)
             .count()
+    });
+    let (sum_in_range, t_sir) = time(|| {
+        decoded
+            .iter()
+            .copied()
+            .filter(|v| *v >= RANGE_LO && *v <= RANGE_HI)
+            .sum::<f64>()
     });
     Codec {
         name,
@@ -146,6 +197,8 @@ fn run_pco(name: &'static str, data: &[f64], level: usize) -> Codec<'static> {
         sum_ms: t_sum.as_secs_f64() * 1e3,
         range_count,
         range_ms: t_range.as_secs_f64() * 1e3,
+        sum_in_range,
+        sum_in_range_ms: t_sir.as_secs_f64() * 1e3,
     }
 }
 
@@ -174,8 +227,16 @@ fn run_btrblocks(
             .as_slice()
             .iter()
             .copied()
-            .filter(|v| *v >= 290.0 && *v <= 310.0)
+            .filter(|v| *v >= RANGE_LO && *v <= RANGE_HI)
             .count()
+    });
+    let (sum_in_range, t_sir) = time(|| {
+        decoded_slice
+            .as_slice()
+            .iter()
+            .copied()
+            .filter(|v| *v >= RANGE_LO && *v <= RANGE_HI)
+            .sum::<f64>()
     });
     Codec {
         name,
@@ -186,6 +247,8 @@ fn run_btrblocks(
         sum_ms: t_sum.as_secs_f64() * 1e3,
         range_count,
         range_ms: t_range.as_secs_f64() * 1e3,
+        sum_in_range,
+        sum_in_range_ms: t_sir.as_secs_f64() * 1e3,
     }
 }
 
@@ -206,8 +269,15 @@ fn run_zstd(name: &'static str, data: &[f64], level: i32) -> Codec<'static> {
         decoded
             .iter()
             .copied()
-            .filter(|v| *v >= 290.0 && *v <= 310.0)
+            .filter(|v| *v >= RANGE_LO && *v <= RANGE_HI)
             .count()
+    });
+    let (sum_in_range, t_sir) = time(|| {
+        decoded
+            .iter()
+            .copied()
+            .filter(|v| *v >= RANGE_LO && *v <= RANGE_HI)
+            .sum::<f64>()
     });
     Codec {
         name,
@@ -218,6 +288,8 @@ fn run_zstd(name: &'static str, data: &[f64], level: i32) -> Codec<'static> {
         sum_ms: t_sum.as_secs_f64() * 1e3,
         range_count,
         range_ms: t_range.as_secs_f64() * 1e3,
+        sum_in_range,
+        sum_in_range_ms: t_sir.as_secs_f64() * 1e3,
     }
 }
 
@@ -225,30 +297,32 @@ fn report(dataset: &str, raw_bytes: usize, codecs: &[Codec<'_>]) {
     println!();
     println!("=== {dataset} ({} rows, {} raw bytes) ===", N, raw_bytes);
     println!(
-        "{:<10} {:>12} {:>8} {:>11} {:>13} {:>16} {:>15} {:>9}",
+        "{:<14} {:>10} {:>7} {:>9} {:>11} {:>9} {:>11} {:>9} {:>11}",
         "codec",
         "bytes",
         "ratio",
         "compress",
         "decompress",
-        "sum (ms / val)",
+        "sum (ms)",
         "range (ms)",
-        "range#"
+        "range#",
+        "sumRng(ms)",
     );
     for c in codecs {
         let ratio = raw_bytes as f64 / c.bytes as f64;
         println!(
-            "{:<10} {:>12} {:>7.2}x {:>9.2}ms {:>11.2}ms {:>9.2}ms / {:>10.3e} {:>13.2}ms {:>9}",
+            "{:<14} {:>10} {:>6.2}x {:>7.2}ms {:>9.2}ms {:>7.3}ms {:>9.2}ms {:>9} {:>9.3}ms",
             c.name,
             c.bytes,
             ratio,
             c.compress_ms,
             c.decompress_ms,
             c.sum_ms,
-            c.sum,
             c.range_ms,
             c.range_count,
+            c.sum_in_range_ms,
         );
+        let _ = (c.sum, c.sum_in_range);
     }
 }
 
@@ -266,6 +340,7 @@ fn main() {
         ("outliers", smooth_with_outliers(N), 1e-3),
     ] {
         let hsz = run_hsz("hsz", &data, eps);
+        let hsz_naive = run_hsz_naive_sum_in_range("hsz/naive", &data, eps);
         let pco_lo = run_pco("pco/l4", &data, 4);
         let pco_hi = run_pco("pco/l8", &data, 8);
         let btr = run_btrblocks("btr", &btr_default, &data);
@@ -275,7 +350,7 @@ fn main() {
         report(
             name,
             raw_bytes,
-            &[hsz, pco_lo, pco_hi, btr, btr_c, zstd_lo, zstd_hi],
+            &[hsz, hsz_naive, pco_lo, pco_hi, btr, btr_c, zstd_lo, zstd_hi],
         );
     }
 
