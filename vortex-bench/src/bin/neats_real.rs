@@ -126,15 +126,28 @@ async fn main() -> anyhow::Result<()> {
             let btr_bytes = btr.nbytes() as f64;
 
             let mut per_slot_bytes = 0u64;
-            for slot in [
+            let mut slot_sizes = [0u64; 6];
+            let slot_names = [
+                "piece_starts",
+                "model_ids",
+                "coeff_a",
+                "coeff_b",
+                "coeff_c",
+                "residuals",
+            ];
+            for (i, slot) in [
                 encoded.piece_starts(),
                 encoded.model_ids(),
                 encoded.coeff_a(),
                 encoded.coeff_b(),
                 encoded.coeff_c(),
                 encoded.residuals(),
-            ] {
+            ]
+            .into_iter()
+            .enumerate()
+            {
                 let compressed = BtrBlocksCompressor::default().compress(slot, &mut ctx2)?;
+                slot_sizes[i] = compressed.nbytes();
                 per_slot_bytes += compressed.nbytes();
             }
             let per_slot_bytes = per_slot_bytes as f64;
@@ -168,6 +181,14 @@ async fn main() -> anyhow::Result<()> {
                 decomp_time.as_micros(),
                 max_abs_err,
             );
+            // Per-slot breakdown so we can see which child is dominating bytes.
+            let slot_breakdown = slot_names
+                .iter()
+                .zip(slot_sizes.iter())
+                .map(|(n, b)| format!("{n}={b}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            println!("    slots: {slot_breakdown}");
         }
     }
 
