@@ -1,0 +1,14 @@
+[package]
+name = "stencil-jit"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Research prototype: copy-and-patch JIT for fused SIMD eq/neq."
+
+[workspace]
+
+[dependencies]
+libc = "0.2"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

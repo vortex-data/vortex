@@ -65,7 +65,7 @@ members = [
     "benchmarks-website/server",
     "benchmarks-website/migrate",
 ]
-exclude = ["java/testfiles", "wasm-test"]
+exclude = ["java/testfiles", "wasm-test", "experiments/stencil-jit"]
 resolver = "2"
 
 [workspace.package]
