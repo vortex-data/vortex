@@ -113,7 +113,7 @@ pub fn neats_encode(
     let coeff_b = PrimitiveArray::new(coeff_b.freeze(), Validity::NonNullable).into_array();
     let coeff_c = PrimitiveArray::new(coeff_c.freeze(), Validity::NonNullable).into_array();
     // Carry validity on residuals so downstream sees the same mask as input.
-    let residuals: ArrayRef = PrimitiveArray::new(residuals.freeze(), validity).into_array();
+    let residuals: ArrayRef = narrow_residuals(residuals.freeze(), validity);
 
     NeaTS::try_new(
         logical_dtype,
@@ -125,6 +125,41 @@ pub fn neats_encode(
         coeff_c,
         residuals,
     )
+}
+
+/// Downcast the `i64` residual buffer to the narrowest signed integer ptype that fits every
+/// residual. This shrinks the residuals slot by 2-8x in the common case (when the chosen scale
+/// keeps residuals inside `i8`/`i16`/`i32`), with no precision loss — only the storage width
+/// changes; the logical value is unchanged.
+fn narrow_residuals(residuals: vortex_buffer::Buffer<i64>, validity: Validity) -> ArrayRef {
+    let max_abs = residuals
+        .as_slice()
+        .iter()
+        .map(|r| r.unsigned_abs())
+        .max()
+        .unwrap_or(0);
+
+    if max_abs <= i8::MAX as u64 {
+        let mut buf = BufferMut::<i8>::with_capacity(residuals.len());
+        for &r in residuals.as_slice() {
+            buf.push(r as i8);
+        }
+        PrimitiveArray::new(buf.freeze(), validity).into_array()
+    } else if max_abs <= i16::MAX as u64 {
+        let mut buf = BufferMut::<i16>::with_capacity(residuals.len());
+        for &r in residuals.as_slice() {
+            buf.push(r as i16);
+        }
+        PrimitiveArray::new(buf.freeze(), validity).into_array()
+    } else if max_abs <= i32::MAX as u64 {
+        let mut buf = BufferMut::<i32>::with_capacity(residuals.len());
+        for &r in residuals.as_slice() {
+            buf.push(r as i32);
+        }
+        PrimitiveArray::new(buf.freeze(), validity).into_array()
+    } else {
+        PrimitiveArray::new(residuals, validity).into_array()
+    }
 }
 
 /// Grow a piece starting at `start` while the best-fitting model keeps the max residual within

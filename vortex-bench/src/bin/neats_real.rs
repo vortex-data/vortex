@@ -240,6 +240,14 @@ fn synthetic_inputs() -> Vec<(String, Vec<f64>)> {
         ));
         out.push((format!("sine_drift[{n}]"), sine_drift(n)));
         out.push((format!("stock_walk[{n}]"), stock_walk(n)));
+        // Harder shapes: smooth-but-not-repetitive signals where every value is distinct, so
+        // RLE / dictionary / constant schemes (BtrBlocks's natural toolkit) can't help. NeaTS
+        // should pull ahead here.
+        out.push((format!("hf_sensor[{n}]"), hf_sensor(n)));
+        out.push((format!("gps_trace[{n}]"), gps_trace(n)));
+        out.push((format!("brownian_bridge[{n}]"), brownian_bridge(n)));
+        out.push((format!("ecg_like[{n}]"), ecg_like(n)));
+        out.push((format!("temperature_diurnal[{n}]"), temperature_diurnal(n)));
     }
     out
 }
@@ -282,6 +290,82 @@ fn stock_walk(n: usize) -> Vec<f64> {
     for _ in 0..n {
         v *= 1.0 + rng.random_range(-0.005..0.005);
         out.push(v);
+    }
+    out
+}
+
+/// High-frequency mean-reverting sensor: a stationary AR(1) process with small step noise.
+/// Every value is distinct; no RLE / dictionary structure to exploit.
+fn hf_sensor(n: usize) -> Vec<f64> {
+    let mut rng = StdRng::seed_from_u64(0xC0FFEE);
+    let mut v = 0.0_f64;
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        // AR(1) with phi=0.95 and gaussian-ish noise.
+        v = 0.95 * v + rng.random_range(-0.1..0.1);
+        out.push(v);
+    }
+    out
+}
+
+/// GPS-like monotonic latitude trace: cumulative sum of small steps. Smooth, every value
+/// distinct, slowly drifting — a textbook NeaTS target.
+fn gps_trace(n: usize) -> Vec<f64> {
+    let mut rng = StdRng::seed_from_u64(0xC0FFEE);
+    let mut lat = 37.42_f64;
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        lat += rng.random_range(-1e-5..1e-5);
+        out.push(lat);
+    }
+    out
+}
+
+/// Brownian bridge: standard random walk pinned at start and end. Smooth, no repeats.
+fn brownian_bridge(n: usize) -> Vec<f64> {
+    let mut rng = StdRng::seed_from_u64(0xC0FFEE);
+    let mut steps = Vec::with_capacity(n);
+    let mut acc = 0.0_f64;
+    for _ in 0..n {
+        acc += rng.random_range(-1.0..1.0);
+        steps.push(acc);
+    }
+    // Pin to zero at the end.
+    let end = steps[n - 1];
+    for (i, v) in steps.iter_mut().enumerate() {
+        *v -= end * (i as f64) / (n as f64);
+    }
+    steps
+}
+
+/// ECG-like: low baseline plus periodic Gaussian spikes. Smooth between spikes; sharp transitions
+/// at spike crests. Pieces should split tightly around each spike.
+fn ecg_like(n: usize) -> Vec<f64> {
+    let mut rng = StdRng::seed_from_u64(0xC0FFEE);
+    let mut out = Vec::with_capacity(n);
+    let period = 200.0_f64;
+    for i in 0..n {
+        let t = i as f64;
+        let phase = (t / period).fract();
+        let base = 0.05 * (t * 0.02).sin();
+        // Spike: narrow Gaussian centered at phase ~0.5.
+        let dx = (phase - 0.5) * 16.0;
+        let spike = (-(dx * dx)).exp();
+        out.push(base + spike + rng.random_range(-0.005..0.005));
+    }
+    out
+}
+
+/// Temperature with a diurnal cycle plus drifting baseline plus noise — every value distinct.
+fn temperature_diurnal(n: usize) -> Vec<f64> {
+    let mut rng = StdRng::seed_from_u64(0xC0FFEE);
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        let t = i as f64;
+        let diurnal = 5.0 * (t * 2.0 * std::f64::consts::PI / 1440.0).sin();
+        let drift = 0.0001 * t;
+        let noise = rng.random_range(-0.05..0.05);
+        out.push(15.0 + drift + diurnal + noise);
     }
     out
 }
