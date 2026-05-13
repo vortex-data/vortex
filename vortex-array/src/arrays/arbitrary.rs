@@ -155,6 +155,10 @@ fn random_array_chunk(
         }
         DType::Utf8(n) => random_string(u, *n, chunk_len),
         DType::Binary(n) => random_bytes(u, *n, chunk_len),
+        DType::List(elem_dtype, null) => random_list(u, elem_dtype, *null, chunk_len),
+        DType::FixedSizeList(elem_dtype, list_size, null) => {
+            random_fixed_size_list(u, elem_dtype, *list_size, *null, chunk_len)
+        }
         DType::Struct(sdt, n) => {
             let first_array = sdt
                 .fields()
@@ -186,10 +190,6 @@ fn random_array_chunk(
             .into_array())
         }
         DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-        DType::List(elem_dtype, null) => random_list(u, elem_dtype, *null, chunk_len),
-        DType::FixedSizeList(elem_dtype, list_size, null) => {
-            random_fixed_size_list(u, elem_dtype, *list_size, *null, chunk_len)
-        }
         DType::Extension(..) => {
             unimplemented!("Extension arrays are not implemented")
         }

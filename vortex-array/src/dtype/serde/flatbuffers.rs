@@ -133,15 +133,15 @@ impl TryFrom<ViewedDType> for DType {
                     fb_decimal.nullable().into(),
                 ))
             }
-            fb::Type::Binary => Ok(Self::Binary(
-                fb.type__as_binary()
-                    .ok_or_else(|| vortex_err!("failed to parse binary from flatbuffer"))?
-                    .nullable()
-                    .into(),
-            )),
             fb::Type::Utf8 => Ok(Self::Utf8(
                 fb.type__as_utf_8()
                     .ok_or_else(|| vortex_err!("failed to parse utf-8 from flatbuffer"))?
+                    .nullable()
+                    .into(),
+            )),
+            fb::Type::Binary => Ok(Self::Binary(
+                fb.type__as_binary()
+                    .ok_or_else(|| vortex_err!("failed to parse binary from flatbuffer"))?
                     .nullable()
                     .into(),
             )),
@@ -293,6 +293,29 @@ impl WriteFlatBuffer for DType {
                 },
             )
             .as_union_value(),
+            Self::List(edt, n) => {
+                let element_type = Some(edt.as_ref().write_flatbuffer(fbb)?);
+                fb::List::create(
+                    fbb,
+                    &fb::ListArgs {
+                        element_type,
+                        nullable: (*n).into(),
+                    },
+                )
+                .as_union_value()
+            }
+            Self::FixedSizeList(edt, size, n) => {
+                let element_type = Some(edt.as_ref().write_flatbuffer(fbb)?);
+                fb::FixedSizeList::create(
+                    fbb,
+                    &fb::FixedSizeListArgs {
+                        element_type,
+                        size: *size,
+                        nullable: (*n).into(),
+                    },
+                )
+                .as_union_value()
+            }
             Self::Struct(st, n) => {
                 let names = st
                     .names()
@@ -324,29 +347,6 @@ impl WriteFlatBuffer for DType {
                 },
             )
             .as_union_value(),
-            Self::List(edt, n) => {
-                let element_type = Some(edt.as_ref().write_flatbuffer(fbb)?);
-                fb::List::create(
-                    fbb,
-                    &fb::ListArgs {
-                        element_type,
-                        nullable: (*n).into(),
-                    },
-                )
-                .as_union_value()
-            }
-            Self::FixedSizeList(edt, size, n) => {
-                let element_type = Some(edt.as_ref().write_flatbuffer(fbb)?);
-                fb::FixedSizeList::create(
-                    fbb,
-                    &fb::FixedSizeListArgs {
-                        element_type,
-                        size: *size,
-                        nullable: (*n).into(),
-                    },
-                )
-                .as_union_value()
-            }
             Self::Extension(ext) => {
                 let id = Some(fbb.create_string(ext.id().as_ref()));
                 let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb)?);
@@ -377,10 +377,10 @@ impl WriteFlatBuffer for DType {
             Self::Decimal(..) => fb::Type::Decimal,
             Self::Utf8(_) => fb::Type::Utf8,
             Self::Binary(_) => fb::Type::Binary,
-            Self::Struct(..) => fb::Type::Struct_,
-            Self::Union(..) => fb::Type::Union,
             Self::List(..) => fb::Type::List,
             Self::FixedSizeList(..) => fb::Type::FixedSizeList,
+            Self::Struct(..) => fb::Type::Struct_,
+            Self::Union(..) => fb::Type::Union,
             Self::Extension { .. } => fb::Type::Extension,
             Self::Variant(_) => fb::Type::Variant,
         };

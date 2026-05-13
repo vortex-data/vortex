@@ -161,7 +161,7 @@ pub fn compare_canonical_array(
                 )
             })
         }
-        DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
+        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) => {
             let scalar_vals: Vec<Scalar> = (0..array.len())
                 .map(|i| array.execute_scalar(i, ctx).vortex_expect("scalar_at"))
                 .collect();

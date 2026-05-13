@@ -586,36 +586,14 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                 PType::F32 => Scalar::primitive(i as f32 * 1.5, *n),
                 PType::F64 => Scalar::primitive(i as f64 * 1.5, *n),
             },
-            DType::Utf8(n) => Scalar::utf8(format!("test_string_{}", i), *n),
-            DType::Binary(n) => Scalar::binary(format!("bytes_{}", i).into_bytes(), *n),
             DType::Decimal(dec_dtype, n) => {
                 // Create decimal scalars based on the decimal dtype.
                 use crate::scalar::DecimalValue;
                 let value = DecimalValue::I128((i as i128 + 1) * 100); // Simple decimal values.
                 Scalar::decimal(value, *dec_dtype, *n)
             }
-            DType::Struct(fields, n) => {
-                // Create struct scalars with field values.
-                let field_values: Vec<Scalar> = fields
-                    .fields()
-                    .enumerate()
-                    .map(|(j, field_dtype)| {
-                        // Create simple values for each field.
-                        match &field_dtype {
-                            DType::Primitive(PType::I32, n) => {
-                                Scalar::primitive((i as i32).saturating_add(j as i32), *n)
-                            }
-                            DType::Primitive(PType::F64, n) => {
-                                Scalar::primitive((i + j) as f64, *n)
-                            }
-                            DType::Utf8(n) => Scalar::utf8(format!("field_{}", i + j), *n),
-                            _ => Scalar::default_value(&field_dtype),
-                        }
-                    })
-                    .collect();
-                Scalar::struct_(DType::Struct(fields.clone(), *n), field_values)
-            }
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Utf8(n) => Scalar::utf8(format!("test_string_{}", i), *n),
+            DType::Binary(n) => Scalar::binary(format!("bytes_{}", i).into_bytes(), *n),
             DType::List(element_dtype, n) => {
                 // Create list scalars with a few elements.
                 let elements: Vec<Scalar> = (0..=i)
@@ -640,6 +618,28 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                     .collect();
                 Scalar::fixed_size_list(Arc::clone(element_dtype), elements, *n)
             }
+            DType::Struct(fields, n) => {
+                // Create struct scalars with field values.
+                let field_values: Vec<Scalar> = fields
+                    .fields()
+                    .enumerate()
+                    .map(|(j, field_dtype)| {
+                        // Create simple values for each field.
+                        match &field_dtype {
+                            DType::Primitive(PType::I32, n) => {
+                                Scalar::primitive((i as i32).saturating_add(j as i32), *n)
+                            }
+                            DType::Primitive(PType::F64, n) => {
+                                Scalar::primitive((i + j) as f64, *n)
+                            }
+                            DType::Utf8(n) => Scalar::utf8(format!("field_{}", i + j), *n),
+                            _ => Scalar::default_value(&field_dtype),
+                        }
+                    })
+                    .collect();
+                Scalar::struct_(DType::Struct(fields.clone(), *n), field_values)
+            }
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Extension(ext_dtype) => {
                 // Create extension scalars with storage values.
                 let storage_scalar = match ext_dtype.storage_dtype() {

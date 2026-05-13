@@ -54,6 +54,19 @@ pub fn slice_canonical_array(
                 .into_array())
             })
         }
+        DType::Decimal(decimal_dtype, _) => {
+            let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
+            Ok(
+                match_each_decimal_value_type!(decimal_array.values_type(), |D| {
+                    DecimalArray::new(
+                        decimal_array.buffer::<D>().slice(start..stop),
+                        *decimal_dtype,
+                        validity,
+                    )
+                })
+                .into_array(),
+            )
+        }
         DType::Utf8(_) | DType::Binary(_) => {
             let utf8 = array.clone().execute::<VarBinViewArray>(ctx)?;
             let values =
@@ -63,20 +76,6 @@ pub fn slice_canonical_array(
                 array.dtype().clone(),
             )
             .into_array())
-        }
-        DType::Struct(..) => {
-            let struct_array = array.clone().execute::<StructArray>(ctx)?;
-            let sliced_children = struct_array
-                .iter_unmasked_fields()
-                .map(|c| slice_canonical_array(c, start, stop, ctx))
-                .collect::<VortexResult<Vec<_>>>()?;
-            StructArray::try_new_with_dtype(
-                sliced_children,
-                struct_array.struct_fields().clone(),
-                stop - start,
-                validity,
-            )
-            .map(|a| a.into_array())
         }
         DType::List(..) => {
             let list_array = array.clone().execute::<ListViewArray>(ctx)?;
@@ -110,18 +109,19 @@ pub fn slice_canonical_array(
             FixedSizeListArray::try_new(elements, fsl_array.list_size(), validity, new_len)
                 .map(|a| a.into_array())
         }
-        DType::Decimal(decimal_dtype, _) => {
-            let decimal_array = array.clone().execute::<DecimalArray>(ctx)?;
-            Ok(
-                match_each_decimal_value_type!(decimal_array.values_type(), |D| {
-                    DecimalArray::new(
-                        decimal_array.buffer::<D>().slice(start..stop),
-                        *decimal_dtype,
-                        validity,
-                    )
-                })
-                .into_array(),
+        DType::Struct(..) => {
+            let struct_array = array.clone().execute::<StructArray>(ctx)?;
+            let sliced_children = struct_array
+                .iter_unmasked_fields()
+                .map(|c| slice_canonical_array(c, start, stop, ctx))
+                .collect::<VortexResult<Vec<_>>>()?;
+            StructArray::try_new_with_dtype(
+                sliced_children,
+                struct_array.struct_fields().clone(),
+                stop - start,
+                validity,
             )
+            .map(|a| a.into_array())
         }
         d @ (DType::Null | DType::Union(..) | DType::Extension(_) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")

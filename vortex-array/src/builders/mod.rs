@@ -269,12 +269,6 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             DType::Binary(*n),
             capacity,
         )),
-        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
-            struct_dtype.clone(),
-            *n,
-            capacity,
-        )),
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity(
             Arc::clone(dtype),
             *n,
@@ -289,6 +283,12 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
                 capacity,
             ))
         }
+        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
+            struct_dtype.clone(),
+            *n,
+            capacity,
+        )),
+        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::Extension(ext_dtype) => {
             Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
         }

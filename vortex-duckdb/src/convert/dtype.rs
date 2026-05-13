@@ -218,18 +218,14 @@ impl TryFrom<&DType> for LogicalType {
             DType::Null => DUCKDB_TYPE::DUCKDB_TYPE_SQLNULL,
             DType::Bool(_) => DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN,
             DType::Primitive(ptype, _) => return LogicalType::try_from(*ptype),
-            DType::Utf8(_) => DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR,
-            DType::Binary(_) => DUCKDB_TYPE::DUCKDB_TYPE_BLOB,
-            DType::Struct(struct_type, _) => {
-                return LogicalType::try_from(struct_type);
-            }
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Decimal(decimal_dtype, _) => {
                 return LogicalType::decimal_type(
                     decimal_dtype.precision(),
                     decimal_dtype.scale().try_into()?,
                 );
             }
+            DType::Utf8(_) => DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR,
+            DType::Binary(_) => DUCKDB_TYPE::DUCKDB_TYPE_BLOB,
             DType::List(element_dtype, _) => {
                 let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
                 return LogicalType::list_type(element_logical_type);
@@ -238,9 +234,10 @@ impl TryFrom<&DType> for LogicalType {
                 let element_logical_type = LogicalType::try_from(element_dtype.as_ref())?;
                 return LogicalType::array_type(element_logical_type, *list_size);
             }
-            DType::Variant(_) => {
-                vortex_bail!("Vortex Variant array aren't supported in DuckDB")
+            DType::Struct(struct_type, _) => {
+                return LogicalType::try_from(struct_type);
             }
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Extension(ext_dtype) => {
                 let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() else {
                     vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());
@@ -276,6 +273,9 @@ impl TryFrom<&DType> for LogicalType {
                         _ => vortex_bail!("Invalid TimeUnit {} for time", unit),
                     },
                 }
+            }
+            DType::Variant(_) => {
+                vortex_bail!("Vortex Variant array aren't supported in DuckDB")
             }
         };
 

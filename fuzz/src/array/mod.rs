@@ -464,21 +464,25 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
     use ActionType::*;
 
     match dtype {
-        DType::Struct(sdt, _) => {
-            // Struct supports: Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt
-            // Does NOT support: SearchSorted (requires scalar comparison), Compare, Cast, Sum, FillNull
-            let struct_actions = [Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt];
-            sdt.fields()
-                .map(|child| actions_for_dtype(&child))
-                .fold(struct_actions.into(), |acc, actions| {
-                    acc.intersection(&actions).copied().collect()
-                })
+        DType::Null => {
+            // Null arrays support most operations but not Sum or MinMax (return None for dtype)
+            [
+                Compress,
+                Slice,
+                Take,
+                SearchSorted,
+                Filter,
+                Compare,
+                Cast,
+                FillNull,
+                Mask,
+                ScalarAt,
+            ]
+            .into()
         }
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-        DType::List(..) | DType::FixedSizeList(..) => {
-            // List supports: Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt
-            // Does NOT support: SearchSorted, Compare, Cast, Sum, FillNull
-            [Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt].into()
+        DType::Bool(_) | DType::Primitive(..) | DType::Decimal(..) => {
+            // These support all actions
+            ActionType::iter().collect()
         }
         DType::Utf8(_) | DType::Binary(_) => {
             // Utf8/Binary supports everything except Sum and FillNull
@@ -497,26 +501,22 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
             ]
             .into()
         }
-        DType::Bool(_) | DType::Primitive(..) | DType::Decimal(..) => {
-            // These support all actions
-            ActionType::iter().collect()
+        DType::List(..) | DType::FixedSizeList(..) => {
+            // List supports: Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt
+            // Does NOT support: SearchSorted, Compare, Cast, Sum, FillNull
+            [Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt].into()
         }
-        DType::Null => {
-            // Null arrays support most operations but not Sum or MinMax (return None for dtype)
-            [
-                Compress,
-                Slice,
-                Take,
-                SearchSorted,
-                Filter,
-                Compare,
-                Cast,
-                FillNull,
-                Mask,
-                ScalarAt,
-            ]
-            .into()
+        DType::Struct(sdt, _) => {
+            // Struct supports: Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt
+            // Does NOT support: SearchSorted (requires scalar comparison), Compare, Cast, Sum, FillNull
+            let struct_actions = [Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt];
+            sdt.fields()
+                .map(|child| actions_for_dtype(&child))
+                .fold(struct_actions.into(), |acc, actions| {
+                    acc.intersection(&actions).copied().collect()
+                })
         }
+        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::Extension(_) => {
             // Extension types delegate to storage dtype, support most operations
             ActionType::iter().collect()

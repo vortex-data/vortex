@@ -55,17 +55,17 @@ impl DType {
     pub fn is_nullable(&self) -> bool {
         match self {
             Null => true,
-            Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
             Bool(null)
             | Primitive(_, null)
             | Decimal(_, null)
             | Utf8(null)
             | Binary(null)
-            | Struct(_, null)
-            | Union(null)
             | List(_, null)
             | FixedSizeList(_, _, null)
-            | Variant(null) => matches!(null, Nullability::Nullable),
+            | Struct(_, null)
+            | Union(null) => matches!(null, Nullability::Nullable),
+            Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
+            Variant(null) => matches!(null, Nullability::Nullable),
         }
     }
 
@@ -88,10 +88,10 @@ impl DType {
             Decimal(ddt, _) => Decimal(*ddt, nullability),
             Utf8(_) => Utf8(nullability),
             Binary(_) => Binary(nullability),
-            Struct(sf, _) => Struct(sf.clone(), nullability),
-            Union(_) => Union(nullability),
             List(edt, _) => List(Arc::clone(edt), nullability),
             FixedSizeList(edt, size, _) => FixedSizeList(Arc::clone(edt), *size, nullability),
+            Struct(sf, _) => Struct(sf.clone(), nullability),
+            Union(_) => Union(nullability),
             Extension(ext) => Extension(ext.with_nullability(nullability)),
             Variant(_) => Variant(nullability),
         }
@@ -266,8 +266,9 @@ impl DType {
     /// recursive type.
     pub fn is_nested(&self) -> bool {
         match self {
-            List(..) | FixedSizeList(..) | Struct(..) | Union(..) | Variant(..) => true,
+            List(..) | FixedSizeList(..) | Struct(..) | Union(..) => true,
             Extension(ext) => ext.storage_dtype().is_nested(),
+            Variant(..) => true,
             _ => false,
         }
     }
@@ -465,6 +466,8 @@ impl Display for DType {
             Decimal(ddt, null) => write!(f, "{ddt}{null}"),
             Utf8(null) => write!(f, "utf8{null}"),
             Binary(null) => write!(f, "binary{null}"),
+            List(edt, null) => write!(f, "list({edt}){null}"),
+            FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
             Struct(sf, null) => write!(
                 f,
                 "{{{}}}{null}",
@@ -475,8 +478,6 @@ impl Display for DType {
                     .join(", "),
             ),
             Union(null) => write!(f, "union(){null}"),
-            List(edt, null) => write!(f, "list({edt}){null}"),
-            FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
             Extension(ext) => write!(f, "{}", ext),
             Variant(null) => write!(f, "variant{null}"),
         }

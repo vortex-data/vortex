@@ -98,6 +98,15 @@ pub fn filter_canonical_array(
             });
             Ok(VarBinViewArray::from_iter(values, array.dtype().clone()).into_array())
         }
+        DType::List(..) | DType::FixedSizeList(..) => {
+            let mut indices = Vec::new();
+            for (idx, bool) in filter.iter().enumerate() {
+                if *bool {
+                    indices.push(idx);
+                }
+            }
+            take_canonical_array_non_nullable_indices(array, indices.as_slice(), ctx)
+        }
         DType::Struct(..) => {
             let struct_array = array.clone().execute::<StructArray>(ctx)?;
             let filtered_children = struct_array
@@ -112,15 +121,6 @@ pub fn filter_canonical_array(
                 validity,
             )
             .map(|a| a.into_array())
-        }
-        DType::List(..) | DType::FixedSizeList(..) => {
-            let mut indices = Vec::new();
-            for (idx, bool) in filter.iter().enumerate() {
-                if *bool {
-                    indices.push(idx);
-                }
-            }
-            take_canonical_array_non_nullable_indices(array, indices.as_slice(), ctx)
         }
         d @ (DType::Null | DType::Union(..) | DType::Extension(_) | DType::Variant(_)) => {
             unreachable!("DType {d} not supported for fuzzing")

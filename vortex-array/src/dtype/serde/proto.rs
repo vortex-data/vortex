@@ -45,17 +45,6 @@ impl DType {
             )),
             DtypeType::Utf8(u) => Ok(Self::Utf8(u.nullable.into())),
             DtypeType::Binary(b) => Ok(Self::Binary(b.nullable.into())),
-            DtypeType::Struct(s) => Ok(Self::Struct(
-                StructFields::new(
-                    s.names.iter().map(|s| s.as_str()).collect(),
-                    s.dtypes
-                        .iter()
-                        .map(|dt| DType::from_proto(dt, session))
-                        .collect::<VortexResult<Vec<_>>>()?,
-                ),
-                s.nullable.into(),
-            )),
-            DtypeType::Union(u) => Ok(Self::Union(u.nullable.into())),
             DtypeType::List(l) => {
                 let nullable = l.nullable.into();
                 Ok(Self::List(
@@ -87,6 +76,17 @@ impl DType {
                     nullable,
                 ))
             }
+            DtypeType::Struct(s) => Ok(Self::Struct(
+                StructFields::new(
+                    s.names.iter().map(|s| s.as_str()).collect(),
+                    s.dtypes
+                        .iter()
+                        .map(|dt| DType::from_proto(dt, session))
+                        .collect::<VortexResult<Vec<_>>>()?,
+                ),
+                s.nullable.into(),
+            )),
+            DtypeType::Union(u) => Ok(Self::Union(u.nullable.into())),
             DtypeType::Extension(e) => {
                 let id = ExtId::new(e.id.as_str());
                 let storage_dtype = DType::from_proto(
@@ -134,17 +134,6 @@ impl TryFrom<&DType> for pb::DType {
                 DType::Binary(null) => DtypeType::Binary(pb::Binary {
                     nullable: (*null).into(),
                 }),
-                DType::Struct(s, null) => DtypeType::Struct(pb::Struct {
-                    names: s.names().iter().map(|s| s.as_ref().to_string()).collect(),
-                    dtypes: s
-                        .fields()
-                        .map(|d| Self::try_from(&d))
-                        .collect::<VortexResult<Vec<_>>>()?,
-                    nullable: (*null).into(),
-                }),
-                DType::Union(null) => DtypeType::Union(pb::Union {
-                    nullable: (*null).into(),
-                }),
                 DType::List(edt, null) => DtypeType::List(Box::new(pb::List {
                     element_type: Some(Box::new(edt.as_ref().try_into()?)),
                     nullable: (*null).into(),
@@ -156,6 +145,17 @@ impl TryFrom<&DType> for pb::DType {
                         nullable: (*null).into(),
                     }))
                 }
+                DType::Struct(s, null) => DtypeType::Struct(pb::Struct {
+                    names: s.names().iter().map(|s| s.as_ref().to_string()).collect(),
+                    dtypes: s
+                        .fields()
+                        .map(|d| Self::try_from(&d))
+                        .collect::<VortexResult<Vec<_>>>()?,
+                    nullable: (*null).into(),
+                }),
+                DType::Union(null) => DtypeType::Union(pb::Union {
+                    nullable: (*null).into(),
+                }),
                 DType::Extension(e) => DtypeType::Extension(Box::new(pb::Extension {
                     id: e.id().as_ref().into(),
                     storage_dtype: Some(Box::new(e.storage_dtype().try_into()?)),

@@ -91,7 +91,7 @@ pub fn sort_canonical_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexR
             opt_values.sort();
             Ok(VarBinViewArray::from_iter(opt_values, array.dtype().clone()).into_array())
         }
-        DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
+        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) => {
             let mut sort_indices = (0..array.len()).collect::<Vec<_>>();
             sort_indices.sort_by(|a, b| {
                 let lhs = array.execute_scalar(*a, ctx).vortex_expect("scalar_at");
