@@ -90,7 +90,7 @@ pub fn vortex_file::v2::FileStatsLayoutReader::projection_evaluation(&self, &cor
 
 pub fn vortex_file::v2::FileStatsLayoutReader::pruning_evaluation(&self, &core::ops::range::Range<u64>, &vortex_array::expr::expression::Expression, vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
 
-pub fn vortex_file::v2::FileStatsLayoutReader::register_splits(&self, &[vortex_array::dtype::field_mask::FieldMask], &core::ops::range::Range<u64>, &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
+pub fn vortex_file::v2::FileStatsLayoutReader::register_splits(&self, &[vortex_array::dtype::field_mask::FieldMask], &vortex_layout::reader::SplitRange, &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
 
 pub fn vortex_file::v2::FileStatsLayoutReader::row_count(&self) -> u64
 
