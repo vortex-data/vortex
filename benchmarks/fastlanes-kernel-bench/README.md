@@ -32,6 +32,37 @@ three variants of decoding one 1024-element block are timed:
 real comparison: does fusing the wrapping-add into the unpack kernel beat
 running it as a separate vectorisable pass over the output buffer?
 
+### Fused vs unfused FoR (the headline comparison)
+
+Measured medians on a Sapphire-Rapids-class Xeon @ 2.1&nbsp;GHz, AVX2 build via
+`scripts/bench.sh` (1024-element block, sample-count=500):
+
+| case      | without fused FoR (`unfused_for`) | with fused FoR (`fused_for`) | speedup |
+|-----------|----------------------------------:|-----------------------------:|--------:|
+| u8  W=3   |  33.6 ns                          |  17.0 ns                     | **1.97x** |
+| u8  W=5   |  49.3 ns                          |  25.0 ns                     | **1.97x** |
+| u16 W=11  |  66.9 ns                          |  39.3 ns                     | **1.70x** |
+| u32 W=8   | 144.6 ns                          |  79.7 ns                     | **1.81x** |
+| u32 W=17  | 149.0 ns                          |  75.9 ns                     | **1.96x** |
+| u32 W=25  | 181.6 ns                          | 114.6 ns                     | **1.58x** |
+| u64 W=11  | 340.6 ns                          | 178.6 ns                     | **1.91x** |
+| u64 W=33  | 319.6 ns                          | 198.6 ns                     | **1.61x** |
+| u64 W=55  | 346.6 ns                          | 227.6 ns                     | **1.52x** |
+
+Fusing the wrapping-add into the unpack kernel is **1.5x–2x faster** than the
+unfused two-pass version across every type and width tested. The win comes
+from:
+
+* one pass over the output buffer instead of two (better L1 reuse);
+* the wrapping-add merges into the unpack's load-shift-mask µop chain rather
+  than emitting an independent `vpaddd` loop after the kernel returns;
+* the unpack kernel is `#[inline(never)]`, so without fusion the add loop has
+  to start cold after a function-call boundary that drains register state.
+
+These conclusions only hold with proper SIMD flags. At the SSE2 default the
+fused-vs-unfused difference shrinks to near zero or even inverts for narrow
+types -- see "Why the helper script matters" below.
+
 ### Why this is "runtime only"
 
 - Every benchmark allocates `input`, `packed`, and `output` on the stack
@@ -45,27 +76,60 @@ running it as a separate vectorisable pass over the output buffer?
 The kernels themselves are data-independent (no value-dependent branches), so
 the choice of input pattern does not bias timings.
 
-## Signed vs unsigned: one kernel + transmute is enough
+## Signed vs unsigned FoR: one unsigned kernel covers both directions
 
-Upstream `BitPacking` and `FoR` are only implemented for `u8`/`u16`/`u32`/`u64`.
-The signed variants (`i8`/`i16`/`i32`/`i64`) deliberately reuse the same code:
+Short answer: **no, you do not need a separate signed kernel** to support FoR
+in either "direction" (values above the reference or values below). One
+unsigned kernel handles signed types and bidirectional deltas via bit-level
+transmute. This is proven by the round-trip tests in
+`tests/signed_for_via_transmute.rs` (run with
+`cargo test -p fastlanes-kernel-bench --release`).
 
-1. Bit-packing is purely shift-and-mask; the bit pattern produced is
-   identical regardless of whether the operands are interpreted as signed or
-   unsigned.
-2. `wrapping_add` / `wrapping_sub` on two's-complement integers produce the
-   same bit pattern whether the inputs are `i32` or `u32`. So FoR with a
-   negative reference works correctly under reinterpretation.
+Why this works:
 
-That is why the existing Vortex integration (see
-`encodings/fastlanes/src/bitpacking/array/bitpack_compress.rs` &mdash;
-`reinterpret_cast(parray.ptype().to_unsigned())`) just bit-casts the slice and
-runs the unsigned kernel. The upstream `FastLanesComparable` trait in
-`fastlanes/src/lib.rs` does the same with `core::mem::transmute`.
+1. **Bit-packing is shift-and-mask.** The bit pattern produced is invariant
+   under signed-vs-unsigned reinterpretation; nothing in `pack` / `unpack`
+   ever asks "is this number negative".
+2. **`wrapping_add` and `wrapping_sub` on a `T`-bit integer produce identical
+   bit patterns regardless of whether the operands are `iT` or `uT`.** Both
+   are just modular arithmetic on the underlying bits, and two's-complement
+   makes the modular ring the same in both signed and unsigned views.
+
+So FoR encode (`packed = value - reference`) and FoR decode
+(`value = packed + reference`) round-trip the bit pattern losslessly through
+the unsigned kernel, even for `iT` inputs reinterpreted as `uT`.
+
+### The "both directions" caveat
+
+There are two distinct "directions" to be careful about. The kernel handles
+the first cleanly; the second requires picking the reference correctly.
+
+* **Direction 1 - encode / decode.** Encode runs `wrapping_sub`, decode runs
+  `wrapping_add`. Same kernel covers both. Nothing to do.
+* **Direction 2 - deltas above and below the reference.** `BitPacking::unpack`
+  *zero-extends* the W-bit packed value before adding the reference. If you
+  pick `reference = min(values)`, every delta is non-negative as a signed
+  number, every delta fits in `W = ceil(log2(max - min + 1))` bits as an
+  unsigned number, and the round-trip works directly. This is the
+  conventional FoR rule and what Vortex's bitpacking path enforces.
+  If you instead pick a non-min reference so deltas straddle zero, the W-bit
+  zero-extended unpack will not reconstruct negative deltas correctly unless
+  `W == T` (full width, i.e. zero compression). The fix is *not* a new
+  kernel; it is to set `reference = min(values)`. The round-trip test
+  `i32_round_trip_through_unsigned_kernel` demonstrates the canonical case;
+  `i32_with_arbitrary_reference_round_trips_when_w_is_full_width`
+  demonstrates the corner case where `W == T` lets a non-min reference work.
+
+This matches what Vortex already does -- see
+`encodings/fastlanes/src/bitpacking/array/bitpack_compress.rs`:
+`reinterpret_cast(parray.ptype().to_unsigned())` and the upstream
+`FastLanesComparable` trait in `fastlanes/src/lib.rs`, both of which run the
+unsigned kernel after a `transmute`.
 
 **Conclusion: do not duplicate kernels for signed types.** The unsigned
-benchmark numbers below apply directly to the corresponding signed widths.
-The signed types are therefore intentionally not benchmarked in this crate.
+benchmark numbers in this crate apply directly to the corresponding signed
+widths. Signed types are therefore intentionally not benchmarked here; they
+would produce identical timings.
 
 ## Running
 
