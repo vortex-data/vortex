@@ -1,3 +1,6 @@
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- SPDX-FileCopyrightText: Copyright the Vortex contributors -->
+
 # Fused Delta + FFoR + BitUnpack decoding — design note
 
 Status: design only. No production kernel in this branch.
