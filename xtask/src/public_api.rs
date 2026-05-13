@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::env;
 use std::fs;
 use std::path::PathBuf;
 
@@ -45,10 +46,14 @@ pub fn public_api() -> anyhow::Result<()> {
         .iter()
         .flat_map(|c| ["-p".to_string(), c.name.to_string()])
         .collect();
+    let toolchain_version = env::var("NIGHTLY_TOOLCHAIN").unwrap_or_else(|_| "nightly-2026-02-05".to_string());
     println!("Generating rustdoc JSON...");
-    cmd!(sh, "cargo +nightly doc {pkg_flags...} --no-deps")
-        .env("RUSTDOCFLAGS", "-Z unstable-options --output-format json")
-        .run()?;
+    cmd!(
+        sh,
+        "cargo +{toolchain_version} doc {pkg_flags...} --no-deps"
+    )
+    .env("RUSTDOCFLAGS", "-Z unstable-options --output-format json")
+    .run()?;
 
     // 3. For each published crate, build the public API from JSON and write the lock file.
     let doc_dir = repo_root.join("target/doc");
