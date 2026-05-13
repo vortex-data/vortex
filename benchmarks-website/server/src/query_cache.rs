@@ -371,6 +371,12 @@ mod tests {
             ChartResponse {
                 display_name,
                 unit_kind: crate::api::UnitKind::TimeNs,
+                history: crate::api::ChartHistory {
+                    total_commits: 0,
+                    start_index: 0,
+                    loaded_commits: 0,
+                    complete: true,
+                },
                 commits: Vec::new(),
                 series: serde_json::Map::new(),
                 series_meta: std::collections::BTreeMap::new(),

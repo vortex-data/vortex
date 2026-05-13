@@ -17,7 +17,7 @@
 //                                        external tooltip handler.
 //  10. Payload + datasets              — readInlinePayload, buildDatasets,
 //                                        rebuildVisibleAndUpdate.
-//  11. Full-history refetch            — maybeRefetchFullPayload,
+//  11. Full-history warmup             — ensureFullHistory,
 //                                        replaceChartPayload, plus the
 //                                        slider + downsample-badge sync
 //                                        helpers.
@@ -36,8 +36,8 @@
 //   - Each `.chart-card` carries `data-chart-slug`. The card *owns* its own
 //     toolbar (`.toolbar--card`) — there is no page-level toolbar.
 //   - Landing groups fetch materialized latest-100 group shards, with bounded
-//     concurrency. A chart fetches `?n=all` only after the user expands beyond
-//     that loaded range.
+//     concurrency. Opening a group then queues `?n=all` for that group's charts
+//     so the first paint is fast but full history is already warming.
 //   - `rebuildVisibleAndUpdate` is the single source of truth for the
 //     rendered point count. The cap is one constant: at most
 //     `MAX_VISIBLE_POINTS` *unique commit indices* (x-positions) are
@@ -76,17 +76,19 @@
 //                                     wrapper; called from pan/zoom/wheel.
 //   canvas.__bench_wheel_attached     true once attachWheelPan has wired
 //                                     a wheel listener (idempotency).
-//   canvas.__bench_inline_trimmed     true if the latest-100 payload reached
-//                                     LANDING_INLINE_N commits, so it might
-//                                     have been trimmed server-side.
+//   canvas.__bench_inline_trimmed     true if the current payload is a
+//                                     virtual latest-100 view over a longer
+//                                     full-history x-axis.
 //   canvas.__bench_full_loaded        true once a `?n=all` refetch has
 //                                     replaced the payload.
 //   canvas.__bench_full_fetch_pending true while a `?n=all` refetch is in
-//                                     flight; dedupes the pan-frame retry.
+//                                     flight; dedupes queue/pan promotion.
+//   canvas.__bench_full_fetch_entry   Full-history queue entry, if the fetch
+//                                     is queued but not yet complete.
 //   canvas.__bench_payload_window     The server-side commit window used for
 //                                     the current payload (`"100"` for
-//                                     lazy chart hydration, absent for
-//                                     inline/full).
+//                                     shard hydration, `"all"` for warmed
+//                                     full history).
 //   canvas.__bench_display_unit       The picked display unit (`format`,
 //                                     `axisLabel`, `multiplier`) used by the
 //                                     tooltip and y-axis label. Recomputed
@@ -135,20 +137,19 @@
   var DEFAULT_VISIBLE = 100;     // initial visible window (last 100 of fetched)
   var CHART_FETCH_N = String(DEFAULT_VISIBLE); // materialized shard window
   var HYDRATION_CONCURRENCY = 4; // per-tab cap for latest-100 shard requests
+  var FULL_HISTORY_CONCURRENCY = 2; // per-tab cap for background `?n=all`
+  var GROUP_OPEN_PRIORITY_STEP = 100;
+  var INTERACTION_FULL_PRIORITY = 1000000;
 
   // Resolve the default scope for a chart card. Group-open hydration always
-  // starts with the latest-100 window; fetching full history is opt-in via a
-  // user-driven scope/range/zoom action.
+  // starts with the latest-100 visible window, even when the x-axis is virtual
+  // and spans the full chart history.
   function defaultScopeForCard(_card) {
     return DEFAULT_VISIBLE;
   }
-  // Mirror of `LANDING_INLINE_N` in `server/src/html/mod.rs`. The first
-  // group's inline JSON is capped at this many commits to keep the cold
-  // landing page small. When the user zooms wider than what's inlined we
-  // lazy-fetch `?n=all` and replace the payload in place. If you change
-  // this, update the server too — the comparison
-  // `commits.length >= LANDING_INLINE_N` is what tells us the inline
-  // payload was potentially trimmed.
+  // Mirror of the server's default latest-window size. Latest-100 payloads now
+  // include `history` metadata, so this constant is only a fallback for older
+  // payloads and comments/tests that reason about the default window.
   var LANDING_INLINE_N = 100;
   // Hard cap on how many points a single series can render at once. When
   // the visible commit range has more raw non-null points than this, we
@@ -735,6 +736,81 @@
     try { return JSON.parse(s.textContent); } catch (e) { return null; }
   }
 
+  function labelForCommit(commit) {
+    return commit && commit.sha ? shortSha(commit.sha) : "";
+  }
+
+  function canonicalHistory(payload) {
+    var commits = Array.isArray(payload && payload.commits) ? payload.commits : [];
+    var history = payload && payload.history ? payload.history : {};
+    var loaded = Number.isFinite(history.loaded_commits)
+      ? history.loaded_commits
+      : commits.length;
+    var total = Number.isFinite(history.total_commits)
+      ? history.total_commits
+      : commits.length;
+    var start = Number.isFinite(history.start_index) ? history.start_index : 0;
+    loaded = Math.max(0, Math.floor(loaded));
+    total = Math.max(loaded, Math.floor(total));
+    start = Math.max(0, Math.min(Math.floor(start), Math.max(0, total - loaded)));
+    return {
+      total_commits: total,
+      start_index: start,
+      loaded_commits: loaded,
+      complete: history.complete === true || (start === 0 && loaded === total),
+    };
+  }
+
+  function normalizeChartPayload(payload) {
+    if (!payload) return payload;
+    if (payload.__bench_normalized) return payload;
+    var commits = Array.isArray(payload.commits) ? payload.commits : [];
+    var history = canonicalHistory(payload);
+    if (history.complete && history.start_index === 0 && history.total_commits === commits.length) {
+      payload.history = history;
+      payload.__bench_normalized = true;
+      return payload;
+    }
+
+    var total = history.total_commits;
+    var start = history.start_index;
+    var normalizedCommits = new Array(total);
+    for (var i = 0; i < total; i++) normalizedCommits[i] = null;
+    for (var ci = 0; ci < commits.length && start + ci < total; ci++) {
+      normalizedCommits[start + ci] = commits[ci];
+    }
+
+    var rawSeries = payload.series || {};
+    var normalizedSeries = {};
+    Object.keys(rawSeries).forEach(function (name) {
+      var values = Array.isArray(rawSeries[name]) ? rawSeries[name] : [];
+      var out = new Array(total);
+      for (var zi = 0; zi < total; zi++) out[zi] = null;
+      for (var vi = 0; vi < values.length && start + vi < total; vi++) {
+        out[start + vi] = values[vi];
+      }
+      normalizedSeries[name] = out;
+    });
+
+    var clone = {};
+    Object.keys(payload).forEach(function (key) {
+      if (key !== "commits" && key !== "series") clone[key] = payload[key];
+    });
+    clone.history = history;
+    clone.commits = normalizedCommits;
+    clone.series = normalizedSeries;
+    clone.__bench_normalized = true;
+    return clone;
+  }
+
+  function rangeTouchesUnloadedHistory(payload, min, max) {
+    var history = payload && payload.history;
+    if (!history || history.complete) return false;
+    var start = history.start_index || 0;
+    var end = start + (history.loaded_commits || 0) - 1;
+    return Math.floor(min) < start || Math.ceil(max) > end;
+  }
+
   // Build the per-series dataset shells. `data` starts as a full-length
   // null-padded array; `rebuildVisibleAndUpdate` fills it in based on the
   // current visible range. `rawData` holds a reference to the original
@@ -908,78 +984,83 @@
     chart.update("none");
     syncSliderFromRange(card, visibleCommits);
     syncDownsampleBadge(card, keptCommits, visibleCommits, anyDownsampled);
-    // If the user has zoomed out to cover everything we have inlined and the
-    // server might have more commits, fetch the full history in the
-    // background. The `__bench_full_loaded` / `__bench_full_fetch_pending`
-    // flags dedupe so this fires once per chart even when called every
-    // pan frame.
-    if (allowFullFetch) maybeRefetchFullPayload(card, min, max, n);
+    // If the user moves into the virtual, not-yet-loaded part of the x-axis,
+    // promote this chart's queued full-history fetch. Group-open warmup should
+    // usually have it in flight already; this just puts direct interaction
+    // ahead of background work that has not started.
+    if (allowFullFetch && rangeTouchesUnloadedHistory(payload, min, max)) {
+      ensureFullHistory(card, INTERACTION_FULL_PRIORITY);
+    }
   }
 
   // -----------------------------------------------------------------------
-  // Lazy-upgrade an inline-trimmed payload to the full history.
-  //
-  // The landing page inlines at most `LANDING_INLINE_N` commits per chart
-  // (server: `html/mod.rs::LANDING_INLINE_N`) so the cold HTML body stays small.
-  // The first time the user zooms wide enough to ask for everything we have
-  // loaded we replace the payload with the unbounded view from
-  // `/api/chart/{slug}?n=all`. The chart's pan/zoom limits and the toolbar
-  // slider's max grow to match, so subsequent zoom-out passes can scroll
-  // back through the older commits the inline payload didn't include.
+  // Full-history warmup. Opening a group queues `?n=all` for every chart in
+  // that group. Direct interaction with an unloaded virtual range promotes the
+  // same queued entry instead of issuing a duplicate request.
   // -----------------------------------------------------------------------
-  function maybeRefetchFullPayload(card, min, max, loadedCount) {
+  function ensureFullHistory(card, priority) {
     var canvas = card.querySelector("canvas");
-    if (!canvas) return;
-    if (!canvas.__bench_inline_trimmed) return;
-    if (canvas.__bench_full_loaded || canvas.__bench_full_fetch_pending) return;
-    // Trigger only when the visible range covers (effectively) every loaded
-    // commit. Anything narrower means the user hasn't asked for "more"
-    // yet — there's no reason to spend bandwidth on a refetch they don't
-    // need.
-    if (loadedCount <= 0) return;
-    var coversAll = (max - min + 1) >= loadedCount;
-    if (!coversAll) return;
-    canvas.__bench_full_fetch_pending = true;
-    var slug = card.getAttribute("data-chart-slug");
-    if (!slug) {
-      canvas.__bench_full_fetch_pending = false;
-      return;
+    if (!canvas) return Promise.resolve();
+    if (canvas.__bench_full_loaded) return Promise.resolve();
+    if (canvas.__bench_full_fetch_entry) {
+      if (priority) {
+        canvas.__bench_full_fetch_entry.priority = Math.max(
+          canvas.__bench_full_fetch_entry.priority,
+          priority
+        );
+        drainFullHistoryQueue();
+      }
+      return canvas.__bench_full_fetch_pending || Promise.resolve();
     }
-    var url = "/api/chart/" + encodeURIComponent(slug)
-      + "?n=" + encodeURIComponent(FETCH_N);
-    fetch(url, { headers: { "accept": "application/json" } })
-      .then(function (r) {
-        if (r.status === 404) return null;
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        return r.json();
-      })
-      .then(function (full) {
-        if (!full) return;
-        replaceChartPayload(card, full);
-        canvas.__bench_full_loaded = true;
-        canvas.__bench_inline_trimmed = false;
-      })
-      .catch(function (err) {
-        // Quiet — the inline payload is still rendered, the user just
-        // can't zoom past it. Surface to the console for debugging.
-        if (window && window.console) {
-          window.console.warn("bench: full history refetch failed", err);
-        }
-      })
-      .then(function () {
-        canvas.__bench_full_fetch_pending = false;
-      });
+    var slug = card.getAttribute("data-chart-slug");
+    if (!slug) return Promise.resolve();
+    var entry = scheduleFullHistory(function () {
+      var url = "/api/chart/" + encodeURIComponent(slug)
+        + "?n=" + encodeURIComponent(FETCH_N);
+      return fetch(url, { headers: { "accept": "application/json" } })
+        .then(function (r) {
+          if (r.status === 404) return null;
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.json();
+        })
+        .then(function (full) {
+          if (!full) return;
+          replaceChartPayload(card, full);
+          canvas.__bench_full_loaded = true;
+          canvas.__bench_inline_trimmed = false;
+          showCardLoading(card, false);
+          var group = card.closest(".group-details");
+          if (!canvas.__bench_chart && (!group || groupIsOpen(group))) {
+            fetchAndConstruct(card);
+          }
+        });
+    }, priority || 0);
+    canvas.__bench_full_fetch_entry = entry;
+    canvas.__bench_full_fetch_pending = entry.promise.catch(function (err) {
+      // Quiet — the latest-100 virtual payload is still usable. Surface to the
+      // console for debugging.
+      if (window && window.console) {
+        window.console.warn("bench: full history fetch failed", err);
+      }
+    }).then(function () {
+      canvas.__bench_full_fetch_entry = null;
+      canvas.__bench_full_fetch_pending = null;
+    });
+    return canvas.__bench_full_fetch_pending;
   }
 
   // Swap the chart's labels + datasets to a freshly fetched, unbounded
-  // payload while keeping the user's currently visible commit window
-  // anchored on the *newest* commit. The pan/zoom limits and toolbar
-  // slider bounds are extended to the new total commit count.
+  // payload while preserving the current x-range. The virtual latest-100
+  // payload and the full payload share a full-history x-axis, so the chart
+  // should not jump when the real older values arrive.
   function replaceChartPayload(card, payload) {
     var canvas = card.querySelector("canvas");
     var chart = canvas && canvas.__bench_chart;
-    if (!chart || !payload) return;
+    if (!canvas || !payload) return;
+    payload = normalizeChartPayload(payload);
     canvas.__bench_payload = payload;
+    canvas.__bench_payload_window = FETCH_N;
+    if (!chart) return;
     // Re-pick the display unit against the now-wider window. The first
     // payload was the inlined slice (`LANDING_INLINE_N` commits); the
     // refetch may surface older commits with a different magnitude, and
@@ -993,9 +1074,7 @@
       yAxis.title.display = !!canvas.__bench_display_unit.axisLabel;
       yAxis.title.text = canvas.__bench_display_unit.axisLabel;
     }
-    var newLabels = (payload.commits || []).map(function (c) {
-      return shortSha(c.sha);
-    });
+    var newLabels = (payload.commits || []).map(labelForCommit);
     var newDatasets = buildDatasets(payload);
     // Re-apply per-card legend overrides + global filter to the new datasets,
     // matching the visibility state the user had before the refetch.
@@ -1027,18 +1106,17 @@
       zoomLimits.max = newMaxIdx;
     }
     syncSliderBounds(card, newLabels.length);
-    // Keep the user's "scope" (number of visible commits) but anchor the
-    // window on the newest commit so they don't drift backwards in time
-    // unexpectedly. Without this anchoring, the visible range would still
-    // be `[0, oldN-1]` — i.e., the *oldest* `oldN` commits of the new
-    // payload — which is the opposite of what the user wanted when they
-    // zoomed out.
     var sx = chart.options.scales.x;
     var prevMin = Number.isFinite(sx.min) ? sx.min : 0;
     var prevMax = Number.isFinite(sx.max) ? sx.max : 0;
-    var prevVisible = Math.max(1, prevMax - prevMin + 1);
-    sx.max = newMaxIdx;
-    sx.min = Math.max(0, newMaxIdx - (prevVisible - 1));
+    if (Number.isFinite(prevMin) && Number.isFinite(prevMax)) {
+      sx.min = Math.max(0, Math.min(newMaxIdx, prevMin));
+      sx.max = Math.max(sx.min, Math.min(newMaxIdx, prevMax));
+    } else {
+      var prevVisible = Math.max(1, prevMax - prevMin + 1);
+      sx.max = newMaxIdx;
+      sx.min = Math.max(0, newMaxIdx - (prevVisible - 1));
+    }
     rebuildVisibleAndUpdate(card, chart, sx.min, sx.max);
     if (canvas.__bench_strip_render) canvas.__bench_strip_render();
   }
@@ -1097,21 +1175,15 @@
     if (!canvas || typeof Chart === "undefined") return null;
     if (canvas.__bench_chart) return canvas.__bench_chart;
 
-    var payload = canvas.__bench_payload || readInlinePayload(idx);
+    var payload = normalizeChartPayload(canvas.__bench_payload || readInlinePayload(idx));
     if (!payload) return null;
     canvas.__bench_payload = payload;
-    // Server caps inline payloads at LANDING_INLINE_N commits. Reaching that
-    // count means there might be more on the server; if we got fewer, we
-    // have the whole history already and never need to refetch.
+    // Latest-100 payloads are normalized onto the full x-axis. `history`
+    // tells us whether old indices are virtual placeholders or real data.
     if (canvas.__bench_full_loaded === undefined) {
-      var inlineN = (payload.commits || []).length;
-      var payloadWindow = canvas.__bench_payload_window
-        || card.getAttribute("data-payload-window")
-        || null;
-      canvas.__bench_inline_trimmed =
-        inlineN >= LANDING_INLINE_N
-        && payloadWindow === CHART_FETCH_N;
-      canvas.__bench_full_loaded = !canvas.__bench_inline_trimmed;
+      var history = canonicalHistory(payload);
+      canvas.__bench_full_loaded = !!history.complete;
+      canvas.__bench_inline_trimmed = !canvas.__bench_full_loaded;
     }
 
     var state = canvas.__bench_state
@@ -1129,7 +1201,7 @@
       payload.unit_kind, collectAllValues(payload),
     );
 
-    var labels = (payload.commits || []).map(function (c) { return shortSha(c.sha); });
+    var labels = (payload.commits || []).map(labelForCommit);
     var datasets = buildDatasets(payload);
     var host = card.querySelector(".chart-tooltip-host");
     var range = visibleRange(labels.length, state.scope);
@@ -1439,9 +1511,10 @@
     render();
   }
 
-  // Cap the toolbar slider's `max` to the loaded commit count. Without this,
-  // a chart with (say) 50 points would still let the user drag the slider to
-  // some larger value, with no visible effect past 50.
+  // Cap the toolbar slider's `max` to the chart's full x-axis length. For a
+  // latest-100 virtual payload this is intentionally larger than the loaded
+  // point count, so "Show all" can expose the unloaded older range while the
+  // full-history fetch is warming.
   function syncSliderBounds(card, commitCount) {
     var slider = card.querySelector('[data-role="scope-slider"]');
     if (!slider) return;
@@ -1602,6 +1675,9 @@
   // -----------------------------------------------------------------------
   var hydrationActive = 0;
   var hydrationQueue = [];
+  var fullHistoryActive = 0;
+  var fullHistoryQueue = [];
+  var groupOpenPriority = 0;
 
   function scheduleHydration(task, priority) {
     var entry = {
@@ -1640,6 +1716,51 @@
           }
         );
     }
+  }
+
+  function scheduleFullHistory(task, priority) {
+    var entry = {
+      task: task,
+      priority: priority || 0,
+      promise: null,
+      resolve: null,
+      reject: null,
+    };
+    entry.promise = new Promise(function (resolve, reject) {
+      entry.resolve = resolve;
+      entry.reject = reject;
+    });
+    fullHistoryQueue.push(entry);
+    drainFullHistoryQueue();
+    return entry;
+  }
+
+  function drainFullHistoryQueue() {
+    while (fullHistoryActive < FULL_HISTORY_CONCURRENCY && fullHistoryQueue.length) {
+      fullHistoryQueue.sort(function (a, b) { return b.priority - a.priority; });
+      var item = fullHistoryQueue.shift();
+      fullHistoryActive++;
+      Promise.resolve()
+        .then(item.task)
+        .then(
+          function (value) {
+            fullHistoryActive--;
+            item.resolve(value);
+            drainFullHistoryQueue();
+          },
+          function (err) {
+            fullHistoryActive--;
+            item.reject(err);
+            drainFullHistoryQueue();
+          }
+        );
+    }
+  }
+
+  function priorityForGroupOpen(group) {
+    groupOpenPriority += GROUP_OPEN_PRIORITY_STEP;
+    group.__bench_group_priority = groupOpenPriority;
+    return groupOpenPriority;
   }
 
   function fetchAndConstruct(card) {
@@ -1730,8 +1851,10 @@
       var card = cardBySlug(group, payload.slug);
       var canvas = card && card.querySelector("canvas");
       if (!canvas) return;
-      canvas.__bench_payload = payload;
-      canvas.__bench_payload_window = CHART_FETCH_N;
+      if (!canvas.__bench_full_loaded) {
+        canvas.__bench_payload = normalizeChartPayload(payload);
+        canvas.__bench_payload_window = CHART_FETCH_N;
+      }
       showCardLoading(card, false);
       if (groupIsOpen(group)) fetchAndConstruct(card);
     });
@@ -1785,18 +1908,24 @@
     return !details || details.open;
   }
 
-  function queueRemainingGroupShards(group) {
+  function queueRemainingGroupShards(group, priority) {
     var count = groupShardCount(group);
-    for (var i = 1; i < count; i++) fetchGroupShard(group, i, 0);
+    for (var i = 1; i < count; i++) fetchGroupShard(group, i, priority || 0);
   }
 
-  function hydrateGroupShardZero(group, showLoading) {
+  function queueGroupFullHistory(group, priority) {
+    groupCards(group).forEach(function (card) {
+      ensureFullHistory(card, priority || 0);
+    });
+  }
+
+  function hydrateGroupShardZero(group, showLoading, priority) {
     if (showLoading) {
       groupCards(group).forEach(function (card) {
         if (!cardHasPayloadAvailable(card)) showCardLoading(card, true);
       });
     }
-    return fetchGroupShard(group, 0, showLoading ? 1 : 0).then(function () {
+    return fetchGroupShard(group, 0, priority || (showLoading ? 1 : 0)).then(function () {
       if (showLoading) {
         groupCards(group).forEach(function (card) {
           if (cardHasPayloadAvailable(card)) showCardLoading(card, false);
@@ -1809,8 +1938,10 @@
     if (!disclosure || !disclosure.open) return;
     var group = disclosure.closest(".group-details");
     if (!group) return;
-    hydrateGroupShardZero(group, true).then(function () {
-      queueRemainingGroupShards(group);
+    var priority = priorityForGroupOpen(group);
+    hydrateGroupShardZero(group, true, priority + 20).then(function () {
+      queueRemainingGroupShards(group, priority + 10);
+      queueGroupFullHistory(group, priority);
     });
   }
 

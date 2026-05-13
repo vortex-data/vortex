@@ -65,7 +65,7 @@ impl CommitWindow {
             Self::All => "",
             Self::Last(_) => {
                 " AND c.commit_sha IN \
-                 (SELECT commit_sha FROM commits ORDER BY timestamp DESC LIMIT ?)"
+                 (SELECT commit_sha FROM commits ORDER BY timestamp DESC, commit_sha DESC LIMIT ?)"
             }
         }
     }

@@ -167,6 +167,44 @@ async fn default_chart_api_serves_materialized_encoded_artifact() -> Result<()> 
 }
 
 #[tokio::test]
+async fn chart_api_reports_virtual_history_for_bounded_and_full_windows() -> Result<()> {
+    let server = Server::start().await?;
+    seed_long_history(&server, 125).await?;
+
+    let slug = pick_chart_slug(&server, |s| s == "Random Access").await?;
+    let client = reqwest::Client::new();
+
+    let bounded: Value = client
+        .get(server.url(&format!("/api/chart/{slug}")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(
+        bounded["commits"].as_array().map(Vec::len),
+        Some(100),
+        "default materialized chart payload should stay latest-100"
+    );
+    assert_eq!(bounded["history"]["total_commits"].as_u64(), Some(125));
+    assert_eq!(bounded["history"]["start_index"].as_u64(), Some(25));
+    assert_eq!(bounded["history"]["loaded_commits"].as_u64(), Some(100));
+    assert_eq!(bounded["history"]["complete"].as_bool(), Some(false));
+
+    let all: Value = client
+        .get(server.url(&format!("/api/chart/{slug}?n=all")))
+        .send()
+        .await?
+        .json()
+        .await?;
+    assert_eq!(all["commits"].as_array().map(Vec::len), Some(125));
+    assert_eq!(all["history"]["total_commits"].as_u64(), Some(125));
+    assert_eq!(all["history"]["start_index"].as_u64(), Some(0));
+    assert_eq!(all["history"]["loaded_commits"].as_u64(), Some(125));
+    assert_eq!(all["history"]["complete"].as_bool(), Some(true));
+    Ok(())
+}
+
+#[tokio::test]
 async fn chart_page_window_caps_commits() -> Result<()> {
     let server = Server::start().await?;
     seed(&server).await?;

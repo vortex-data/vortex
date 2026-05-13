@@ -17,6 +17,7 @@ use self::common::group_by_name;
 use self::common::insta_settings;
 use self::common::pick_group_slug;
 use self::common::seed;
+use self::common::seed_long_history;
 
 #[tokio::test]
 async fn group_page_snapshot() -> Result<()> {
@@ -169,6 +170,41 @@ async fn group_shard_artifact_returns_bounded_chart_payloads() -> Result<()> {
         );
         assert!(chart["series"].as_object().is_some(), "series is present");
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn group_shard_artifact_carries_chart_history_metadata() -> Result<()> {
+    let server = Server::start().await?;
+    seed_long_history(&server, 125).await?;
+
+    let client = reqwest::Client::new();
+    let landing = client.get(server.url("/")).send().await?.text().await?;
+    let generation = attr_value(&landing, "data-artifact-generation")
+        .context("landing exposes artifact generation")?;
+    let group_slug =
+        attr_value(&landing, "data-group-slug").context("landing exposes group slug")?;
+
+    let body: Value = client
+        .get(server.url(&format!(
+            "/api/artifacts/{generation}/groups/{group_slug}/shards/0"
+        )))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let first_chart = body["charts"][0]
+        .as_object()
+        .context("first chart in shard")?;
+    assert_eq!(
+        first_chart["commits"].as_array().map(Vec::len),
+        Some(100),
+        "group shard remains a latest-100 payload"
+    );
+    assert_eq!(first_chart["history"]["total_commits"].as_u64(), Some(125));
+    assert_eq!(first_chart["history"]["start_index"].as_u64(), Some(25));
+    assert_eq!(first_chart["history"]["loaded_commits"].as_u64(), Some(100));
+    assert_eq!(first_chart["history"]["complete"].as_bool(), Some(false));
     Ok(())
 }
 

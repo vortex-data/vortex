@@ -228,7 +228,9 @@ pub struct ChartResponse {
     /// time values around 1e6 ns) so the rendered axis stays readable. The
     /// taxonomy is small on purpose — see [`UnitKind`].
     pub unit_kind: UnitKind,
-    /// Every commit that has at least one rendered data point, oldest first.
+    /// Full-history placement of this payload's bounded `commits` window.
+    pub history: ChartHistory,
+    /// Every loaded commit in this payload, oldest first.
     pub commits: Vec<CommitPoint>,
     /// Per-series value arrays, indexed in lockstep with `commits`.
     pub series: serde_json::Map<String, JsonValue>,
@@ -239,6 +241,20 @@ pub struct ChartResponse {
     /// vector-search flavors) are simply absent from this map.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub series_meta: BTreeMap<String, SeriesTag>,
+}
+
+/// Placement metadata for a possibly bounded chart payload.
+#[derive(Debug, Clone, Serialize)]
+pub struct ChartHistory {
+    /// Number of commits in this chart's full x-axis after the benchmark's
+    /// first data point.
+    pub total_commits: usize,
+    /// Index in the full x-axis where `commits[0]` belongs.
+    pub start_index: usize,
+    /// Number of commits loaded into this payload.
+    pub loaded_commits: usize,
+    /// True when this payload covers the full x-axis.
+    pub complete: bool,
 }
 
 /// Structured y-axis unit taxonomy carried on every [`ChartResponse`]. The

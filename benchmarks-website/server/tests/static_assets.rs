@@ -79,20 +79,28 @@ async fn chart_init_uses_bounded_group_hydration() -> Result<()> {
         "landing hydration should not put whole-group payloads on the hot path"
     );
     assert!(
-        js.contains(r#""/api/chart/""#) && js.contains("maybeRefetchFullPayload"),
-        "chart-init should keep /api/chart only for the explicit full-history upgrade path"
+        js.contains(r#""/api/chart/""#) && js.contains("ensureFullHistory"),
+        "chart-init should use /api/chart for queued full-history warmup"
     );
     assert!(
-        js.contains("HYDRATION_CONCURRENCY"),
-        "landing hydration should bound per-tab shard request fanout"
+        js.contains("HYDRATION_CONCURRENCY") && js.contains("FULL_HISTORY_CONCURRENCY"),
+        "landing hydration and full-history warmup should bound per-tab fanout"
     );
     assert!(
         !js.contains("startBackgroundPrefetch();"),
         "chart-init must not fan out full-history chart fetches on page load"
     );
     assert!(
-        js.contains("if (allowFullFetch) maybeRefetchFullPayload"),
-        "full-history chart fetches should be gated behind user-driven range changes"
+        js.contains("normalizeChartPayload"),
+        "chart-init should normalize latest-100 payloads onto a virtual full-history x-axis"
+    );
+    assert!(
+        js.contains("queueGroupFullHistory"),
+        "opening a group should queue full-history fetches for that group"
+    );
+    assert!(
+        !js.contains("function maybeRefetchFullPayload"),
+        "full-history fetches should not depend on the old covers-all interaction gate"
     );
     assert!(
         !js.contains("WIDE_DEFAULT_GROUPS"),

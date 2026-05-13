@@ -322,7 +322,7 @@ pub(crate) async fn seed_long_history(server: &Server, n: usize) -> Result<()> {
             resp.status()
         );
     }
-    wait_for_materialized_first_chart_commits(server, n.min(100)).await?;
+    wait_for_materialized_first_chart_commits(server, n).await?;
     Ok(())
 }
 
@@ -377,9 +377,11 @@ pub(crate) async fn wait_for_materialized_group_chart_commits(
             .await?;
         if resp.status().is_success() {
             let body: Value = resp.json().await?;
-            last_count = body["charts"][0]["commits"]
-                .as_array()
-                .map(Vec::len)
+            let chart = &body["charts"][0];
+            last_count = chart["history"]["total_commits"]
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .or_else(|| chart["commits"].as_array().map(Vec::len))
                 .unwrap_or_default();
             if last_count >= min_commits {
                 return Ok(());
