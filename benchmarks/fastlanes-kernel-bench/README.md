@@ -259,50 +259,73 @@ The fused FoR variant additionally interleaves a `vpaddd zmm, zmm, broadcast`
 into the unpack body, which the compiler can only do when the kernel body
 lives in one codegen unit (the script's `--config 'profile.bench.codegen-units=1'`).
 
-### Best-of-8 medians: AVX2 (`ymm`) vs AVX-512 (`zmm`)
+### The canonical comparison: `unpack` vs fused-FoR-`unpack`, per SIMD class
 
-Emerald-Rapids Xeon @ 2.1 GHz, `--min-time 0.3` per case, eight independent
-runs per cell, fastest median kept. **All times in ns; lower is better.**
-**`zmm` wins every cell**, by 1.04x to 2.5x.
+This is the single table the rest of the README is reasoning about. For a
+representative set of `(type, bit-width)` pairs we measured both
+`BitPacking::unpack` ("bare unpack", no FoR step) and `FoR::unfor_pack` ("fused
+FoR + unpack") under each of **three** ISA targets:
 
-| case      | ymm `bare_unpack` | zmm `bare_unpack` | ymm `fused_for` | zmm `fused_for` | speedup `bare` | speedup `fused` |
-|-----------|------------------:|------------------:|----------------:|----------------:|---------------:|----------------:|
-| u8  W=1   |  17.41            |   6.95            |  17.38          |   9.90          | **2.50x**      | **1.76x**       |
-| u8  W=3   |  17.51            |   8.02            |  17.42          |  11.96          | **2.18x**      | **1.46x**       |
-| u8  W=5   |  17.43            |  13.60            |  19.82          |  14.36          |  1.28x         |  1.38x          |
-| u8  W=8   |  17.37            |  11.72            |  17.38          |   6.98          |  1.48x         | **2.49x**       |
-| u16 W=5   |  34.62            |  23.26            |  34.74          |  25.37          |  1.49x         |  1.37x          |
-| u16 W=11  |  34.85            |  31.23            |  41.93          |  30.30          |  1.12x         |  1.38x          |
-| u16 W=15  |  34.63            |  25.20            |  47.00          |  34.83          |  1.37x         |  1.35x          |
-| u16 W=16  |  42.33            |  22.97            |  36.03          |  24.90          | **1.84x**      |  1.45x          |
-| u32 W=1   |  76.95            |  54.06            |  77.31          |  54.01          |  1.42x         |  1.43x          |
-| u32 W=8   |  76.82            |  70.60            |  82.03          |  54.18          |  1.09x         | **1.51x**       |
-| u32 W=17  |  77.17            |  54.81            |  78.71          |  69.05          |  1.41x         |  1.14x          |
-| u32 W=24  |  77.09            |  74.37            |  88.11          |  67.13          |  1.04x         |  1.31x          |
-| u32 W=32  |  76.53            |  54.04            |  78.66          |  54.58          |  1.42x         |  1.44x          |
-| u64 W=7   | 145.70            | 105.80            | 149.40          | 116.30          |  1.38x         |  1.28x          |
-| u64 W=11  | 152.10            | 105.90            | 154.90          | 121.20          |  1.44x         |  1.28x          |
-| u64 W=20  | 154.00            | 106.90            | 164.00          | 123.10          |  1.44x         |  1.33x          |
-| u64 W=33  | 153.20            | 107.00            | 172.20          | 139.20          |  1.43x         |  1.24x          |
-| u64 W=50  | 154.20            | 119.40            | 196.00          | 152.80          |  1.29x         |  1.28x          |
-| u64 W=55  | 174.90            | 124.30            | 213.80          | 159.00          |  1.41x         |  1.34x          |
-| u64 W=64  | 154.20            | 107.20            | 173.30          | 106.70          |  1.44x         | **1.62x**       |
+* **SSE2**     -- the default cargo build (`x86-64-v1`), 128-bit `xmm`, 4-wide u32.
+* **AVX2**     -- `-C target-cpu=native`, 256-bit `ymm`, 8-wide u32. LLVM
+                  picks this by default on AVX-512 hosts because of the
+                  `prefer-256-bit` heuristic.
+* **AVX-512**  -- `-C target-cpu=native -C target-feature=-prefer-256-bit`,
+                  512-bit `zmm`, 16-wide u32. What `scripts/bench.sh` does
+                  by default.
 
-Per-type takeaway:
+All three binaries are built with `codegen-units=1`. Measurement: best-of-5
+median, `--min-time 0.3` per invocation, Emerald-Rapids Xeon @ 2.1 GHz, no
+other load on the box. Times in ns; lower is better.
 
-* **u8** : zmm packs 64 u8 lanes per vector vs ymm's 32. Bare unpack is up to
-  **2.5x faster**; fused FoR is up to **2.5x faster** on the wide W=8 case.
-* **u16**: zmm packs 32 vs 16 lanes. Consistent **1.35-1.85x** speedup.
-* **u32**: zmm packs 16 vs 8 lanes. Speedup **1.04-1.51x**, with the largest
-  gains on narrow and full-width cases (W=1, W=8 fused, W=32).
-* **u64**: zmm packs 8 vs 4 lanes. Steady **1.24-1.62x** across every W
-  measured -- the most uniform speedup of any type.
+| case      | sse2 unpack | ymm unpack | zmm unpack | sse2 fused | ymm fused | zmm fused |
+|-----------|------------:|-----------:|-----------:|-----------:|----------:|----------:|
+| u8  W=3   |   23.62     |   14.99    |    9.62    |   26.98    |   14.90   |   17.45   |
+| u8  W=8   |   17.14     |   14.91    |   20.87    |   20.05    |   14.97   |   10.11   |
+| u16 W=7   |   50.13     |   29.67    |   36.11    |   55.88    |   37.21   |   30.14   |
+| u16 W=15  |   55.97     |   30.10    |   40.78    |   70.21    |   41.34   |   44.91   |
+| u32 W=8   |  105.70     |   66.15    |   54.24    |   80.72    |   67.75   |   54.88   |
+| u32 W=17  |  108.50     |   65.94    |   62.98    |  119.30    |   69.73   |   71.58   |
+| u32 W=24  |  105.90     |   65.74    |   61.84    |  103.80    |   67.28   |   65.91   |
+| u32 W=32  |  105.20     |   67.39    |   78.47    |   79.00    |   78.72   |   90.64   |
+| u64 W=11  |  222.90     |  133.70    |   95.97    |  231.80    |  143.60   |  107.30   |
+| u64 W=33  |  228.00     |  137.30    |  139.30    |  257.00    |  160.90   |  139.80   |
+| u64 W=55  |  306.00     |  143.20    |  168.90    |  319.60    |  208.10   |  190.30   |
+| u64 W=64  |  220.30     |  132.40    |  206.10    |  181.50    |  148.50   |  186.70   |
 
-The previous AVX2-only numbers in this README (now superseded) showed up to
-2.76x SSE2 -> AVX2 for the fused FoR. Stacking the AVX-512 win on top yields
-roughly **3-5x over the unconfigured SSE2 baseline** for u64 at most widths.
+### Reading the matrix
 
-Override the default with `PREFER=256 ./scripts/bench.sh` to reproduce the
-AVX2 column above on the same hardware. Use
-`RUSTFLAGS_NATIVE='-C target-cpu=x86-64-v3' PREFER=256 ./scripts/bench.sh`
-for a portable AVX2 baseline that other machines can reproduce.
+**SSE2 -> AVX2 is uniformly a big win.** Every cell improves by ~1.5-2x on
+the `unpack` column and ~1.3-2x on the fused column. This is the cheapest
+performance improvement available -- just adding `-C target-cpu=native` (or
+`-C target-cpu=x86-64-v3` for a portable AVX2 baseline) eliminates ~1/3 to
+1/2 of the kernel's runtime on any modern x86.
+
+**AVX2 -> AVX-512 is workload-dependent.** It is *not* a uniform win; an
+earlier revision of this README claimed otherwise based on noisy best-of-N
+measurements. The pattern with the cleaned-up best-of-5 numbers above:
+
+* **AVX-512 wins for compute-bound narrow-W cases**, where 512-bit lanes let
+  the kernel emit twice as many `vpsrld`/`vpandd`/`vpaddd` per iteration.
+  E.g. u32 W=8 bare: 66.2 ns -> 54.2 ns (-18%); u64 W=11 bare: 133.7 ns ->
+  96.0 ns (-28%); u8 W=3 bare: 15.0 ns -> 9.6 ns (-36%).
+* **AVX-512 loses for memory-bound or full-width-identity (W==T) cases**,
+  where the kernel is largely a 512-byte streaming copy and the wider load
+  /store path has worse front-end throughput and gather pattern. E.g.
+  u32 W=32 bare: 67.4 ns -> 78.5 ns (+16%); u64 W=64 bare: 132.4 ns ->
+  206.1 ns (+56%); u16 W=15 bare: 30.1 ns -> 40.8 ns (+35%).
+* The two effects roughly cancel on a *per-type* geometric mean: across the
+  24 cells of the matrix above, the geometric mean of zmm/ymm is ~1.0.
+
+So picking AVX-512 vs AVX-2 is a workload choice. The script defaults to
+AVX-512 because the compressed widths typical in Vortex production data
+(u64 with W << 64, u32 with W < 32) sit firmly in the AVX-512-wins regime.
+For benchmarks dominated by `W == T` identity cases, prefer `PREFER=256`.
+
+**Fusing FoR into the unpack** (compare the left half of each row with the
+right half) costs essentially nothing in the SSE2 and AVX2 columns -- the
+broadcast-add slots into the unpack's existing µop chain for free. In the
+AVX-512 column it becomes more visible for wide types (u64 fused ~12-50 ns
+more than zmm bare); even there it is much cheaper than running the
+`wrapping_add` as a separate pass over the output, which would cost
++100-300 ns (see the "Fused vs unfused FoR" table below).

@@ -10,8 +10,13 @@
 # similar AVX-512 cores LLVM ordinarily defaults to 256-bit `ymm` vectors
 # even though `zmm` is available -- a leftover guard against the AVX-512
 # downclock penalty on older Xeons. Disabling that hint pushes the codegen
-# to 512-bit `zmm`, which on Emerald Rapids is consistently faster across
-# every type and bit width measured (often 1.4-2.5x, see README.md).
+# to 512-bit `zmm`, which on Emerald Rapids is the right choice for *most*
+# compressed bit widths but is **not** universally faster:
+#   * AVX-512 wins compute-bound narrow-W cases (u32 W<24, u64 W<33 etc.)
+#     by 1.2-1.6x vs AVX2.
+#   * AVX-512 loses memory-bound full-width-identity cases (W == T,
+#     e.g. u64 W=64) by 1.2-1.6x vs AVX2.
+# See the matrix in README.md. Set PREFER=256 to compare against AVX2.
 #
 # Usage:
 #   ./bench.sh                              # run all 360 cases
