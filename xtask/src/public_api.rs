@@ -46,7 +46,8 @@ pub fn public_api() -> anyhow::Result<()> {
         .iter()
         .flat_map(|c| ["-p".to_string(), c.name.to_string()])
         .collect();
-    let toolchain_version = env::var("NIGHTLY_TOOLCHAIN").unwrap_or_else(|_| "nightly-2026-02-05".to_string());
+    let toolchain_version =
+        env::var("NIGHTLY_TOOLCHAIN").unwrap_or_else(|_| "nightly-2026-02-05".to_string());
     println!("Generating rustdoc JSON...");
     cmd!(
         sh,
