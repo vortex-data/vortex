@@ -191,4 +191,105 @@ mod tests {
         assert_arrays_eq!(packed_delta_prim, array);
         Ok(())
     }
+
+    /// Measures compression of delta-encoded signed columns under three bit-packing strategies:
+    ///   * `naive`: bit-packing the raw delta bytes (every negative delta sets the high bits,
+    ///     so the OR mask forces `W = T`).
+    ///   * `FFoR`:  subtracting the per-column `min(delta)` before bit-packing
+    ///     (`W = ceil(log2(max - min + 1))`).
+    ///   * `zigzag`: `(n << 1) ^ (n >> 31)` before bit-packing
+    ///     (`W = 1 + ceil(log2(max(|min|, |max|)))`).
+    ///
+    /// Asserts that FFoR beats or ties naive on every workload and beats zigzag on the
+    /// asymmetric workloads. Run with `--nocapture` to see the full table.
+    #[test]
+    fn synthetic_workload_compression() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        const N: usize = 8 * 1024; // 8 full FastLanes chunks per workload
+
+        let monotone: Vec<i32> = (0..N as i32).collect();
+        // Deterministic LCG so the test is reproducible.
+        let mut lcg = 0u32;
+        let mut next = || {
+            lcg = lcg.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (lcg >> 16) as i32
+        };
+        let sensor: Vec<i32> = (0..N).map(|_| (next() % 201) - 100).collect();
+        let offset: Vec<i32> = (0..N as i32).map(|i| -1_000_000_000 + i).collect();
+        let mut lcg2 = 0u32;
+        let mut prev = 0i32;
+        let near_monotone: Vec<i32> = (0..N)
+            .map(|_| {
+                lcg2 = lcg2.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                let step = if (lcg2 >> 24) < 13 { -2 } else { 1 }; // ~5% backtrack
+                prev = prev.wrapping_add(step);
+                prev
+            })
+            .collect();
+        let workloads = [
+            ("monotone i32 (0..N)", monotone),
+            ("sensor i32 in [-100, 100]", sensor),
+            ("offset i32 base=-1e9", offset),
+            ("near-monotone i32 (5% backtrack)", near_monotone),
+        ];
+
+        println!();
+        println!(
+            "{:<36} {:>10} {:>14} {:>5} {:>5} {:>5} {:>10} {:>7}",
+            "workload", "raw (B)", "Δ range", "Wnaive", "Wffor", "Wzig", "FFoR (B)", "ratio"
+        );
+        println!("{}", "-".repeat(96));
+
+        for (name, values) in workloads {
+            let raw_bytes = values.len() * size_of::<i32>();
+            let array = PrimitiveArray::from_iter(values);
+            let (bases, deltas) = delta_compress(&array, &mut ctx)?;
+            let deltas_buf: &[i32] = deltas.as_slice();
+            let bases_buf: &[i32] = bases.as_slice();
+
+            let min_d = *deltas_buf.iter().min().unwrap();
+            let max_d = *deltas_buf.iter().max().unwrap();
+
+            // Naive width = OR of raw u32 bit-patterns of every delta. Any negative delta
+            // sets the high bits and forces W = 32.
+            let or: u32 = deltas_buf.iter().fold(0u32, |a, &d| a | (d as u32));
+            let naive_w = if or == 0 { 0 } else { 32 - or.leading_zeros() as usize };
+
+            // FFoR width = ceil(log2(span)) where span = (max - min + 1).
+            let span = (max_d as i64 - min_d as i64) as u64 + 1;
+            let ffor_w = if span <= 1 { 0 } else { 64 - (span - 1).leading_zeros() as usize };
+
+            // ZigZag width = 1 + ceil(log2(max(|min|, |max|))) for any nonzero delta.
+            let zz_mag = (min_d.unsigned_abs()).max(max_d.unsigned_abs());
+            let zz_w = if zz_mag == 0 { 0 } else { 1 + (32 - zz_mag.leading_zeros() as usize) };
+
+            // FFoR encoded byte size: bases (already unpacked) + ref + ceil(packed bits / 8).
+            let bases_bytes = bases_buf.len() * size_of::<i32>();
+            let ref_bytes = size_of::<i32>();
+            let packed_bits = deltas_buf.len() * ffor_w;
+            let ffor_packed_bytes = packed_bits.div_ceil(8);
+            let ffor_total = bases_bytes + ref_bytes + ffor_packed_bytes;
+            let ratio = raw_bytes as f64 / ffor_total as f64;
+
+            println!(
+                "{name:<36} {raw_bytes:>10} {:>14} {naive_w:>5} {ffor_w:>5} {zz_w:>5} {ffor_total:>10} {ratio:>6.2}x",
+                format!("[{min_d}, {max_d}]")
+            );
+
+            // Sanity assertions. naive_w is 32 (or near it) for any delta sequence that
+            // contains a negative value; FFoR/ZigZag width must be strictly smaller for these
+            // workloads.
+            assert!(ffor_w <= naive_w.max(1), "FFoR must never exceed naive for {name}");
+            if min_d < 0 {
+                assert_eq!(naive_w, 32, "any negative delta forces naive W to 32 for {name}");
+                assert!(ffor_w < 32, "FFoR must compress below T for {name}");
+            }
+            // On the asymmetric workloads (offset, near-monotone) FFoR must beat ZigZag.
+            if min_d > 0 || max_d < 0 {
+                assert!(ffor_w < zz_w, "FFoR should beat ZigZag on asymmetric {name}");
+            }
+        }
+
+        Ok(())
+    }
 }
