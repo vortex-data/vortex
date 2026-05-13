@@ -106,11 +106,18 @@ async fn main() -> anyhow::Result<()> {
         )?
         .filter(col("t1ab1.a").eq(lit(2i32)))?
         .project(vec![
-            col("t1ab1.a"),
-            col("t1ab1.b"),
-            col("t1ac.c"),
-            col("t2xy.y"),
-            col("t2xz.z"),
+            // expression on a JOIN-KEY column (t1ab1.a is the key for two
+            // separate joins downstream)
+            (col("t1ab1.a") + lit(100i32)).alias("a_shifted"),
+            // expression on a NON-KEY column from the same table
+            (col("t1ab1.b") * lit(2i32)).alias("b_doubled"),
+            // mix: t2xy.x is a join key, t2xy.y isn't
+            (col("t2xy.x") + col("t2xy.y")).alias("xy_sum"),
+            // both operands NON-KEY, drawn from different tables
+            (col("t1ac.c") - col("t2xz.z")).alias("c_minus_z"),
+            // bare KEY column
+            col("t3a.m"),
+            // bare NON-KEY column
             col("t3a.n"),
         ])?
         .build()?;
