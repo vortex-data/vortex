@@ -114,15 +114,6 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
                 execute_sparse_primitives::<P>(&patches, &fill_value, ctx)?
             })
         }
-        DType::Struct(struct_fields, ..) => execute_sparse_struct(
-            struct_fields,
-            fill_value.as_struct(),
-            dtype.nullability(),
-            &patches,
-            len,
-            ctx,
-        )?,
-        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::Decimal(decimal_dtype, nullability) => {
             let canonical_decimal_value_type =
                 DecimalType::smallest_decimal_value_type(decimal_dtype);
@@ -158,8 +149,17 @@ pub(super) fn execute_sparse(parts: SparseParts, ctx: &mut ExecutionCtx) -> Vort
         DType::FixedSizeList(.., nullability) => {
             execute_sparse_fixed_size_list(&patches, &fill_value, len, *nullability, ctx)?
         }
-        DType::Extension(_ext_dtype) => todo!(),
+        DType::Struct(struct_fields, ..) => execute_sparse_struct(
+            struct_fields,
+            fill_value.as_struct(),
+            dtype.nullability(),
+            &patches,
+            len,
+            ctx,
+        )?,
+        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::Variant(_) => vortex_bail!("Sparse canonicalization does not support Variant"),
+        DType::Extension(_ext_dtype) => todo!(),
     })
 }
 

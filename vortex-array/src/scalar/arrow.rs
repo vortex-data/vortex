@@ -61,12 +61,12 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
             DType::Decimal(..) => decimal_to_arrow(value.as_decimal()),
             DType::Utf8(_) => utf8_to_arrow(value.as_utf8()),
             DType::Binary(_) => binary_to_arrow(value.as_binary()),
-            DType::Struct(..) => unimplemented!("struct scalar conversion"),
-            DType::Union(..) => unimplemented!("union scalar conversion"),
             DType::List(..) => unimplemented!("list scalar conversion"),
             DType::FixedSizeList(..) => unimplemented!("fixed-size list scalar conversion"),
-            DType::Extension(..) => extension_to_arrow(value.as_extension()),
+            DType::Struct(..) => unimplemented!("struct scalar conversion"),
+            DType::Union(..) => unimplemented!("union scalar conversion"),
             DType::Variant(_) => unimplemented!("Variant scalar conversion"),
+            DType::Extension(..) => extension_to_arrow(value.as_extension()),
         }
     }
 }

@@ -194,18 +194,6 @@ impl Canonical {
                     Validity::from(n),
                 )
             }),
-            DType::Struct(struct_dtype, n) => Canonical::Struct(unsafe {
-                StructArray::new_unchecked(
-                    struct_dtype
-                        .fields()
-                        .map(|f| Canonical::empty(&f).into_array())
-                        .collect::<Arc<[_]>>(),
-                    struct_dtype.clone(),
-                    0,
-                    Validity::from(n),
-                )
-            }),
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::List(dtype, n) => Canonical::List(unsafe {
                 ListViewArray::new_unchecked(
                     Canonical::empty(dtype).into_array(),
@@ -226,13 +214,25 @@ impl Canonical {
                     0,
                 )
             }),
+            DType::Struct(struct_dtype, n) => Canonical::Struct(unsafe {
+                StructArray::new_unchecked(
+                    struct_dtype
+                        .fields()
+                        .map(|f| Canonical::empty(&f).into_array())
+                        .collect::<Arc<[_]>>(),
+                    struct_dtype.clone(),
+                    0,
+                    Validity::from(n),
+                )
+            }),
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Variant(_) => {
+                vortex_panic!(InvalidArgument: "Canonical empty is not supported for Variant")
+            }
             DType::Extension(ext_dtype) => Canonical::Extension(ExtensionArray::new(
                 ext_dtype.clone(),
                 Canonical::empty(ext_dtype.storage_dtype()).into_array(),
             )),
-            DType::Variant(_) => {
-                vortex_panic!(InvalidArgument: "Canonical empty is not supported for Variant")
-            }
         }
     }
 

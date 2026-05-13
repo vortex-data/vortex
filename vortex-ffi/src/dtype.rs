@@ -69,12 +69,12 @@ impl From<&DType> for vx_dtype_variant {
             DType::Decimal(..) => vx_dtype_variant::DTYPE_DECIMAL,
             DType::Utf8(_) => vx_dtype_variant::DTYPE_UTF8,
             DType::Binary(_) => vx_dtype_variant::DTYPE_BINARY,
-            DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
-            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::List(..) => vx_dtype_variant::DTYPE_LIST,
             DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
-            DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
+            DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Variant(_) => vortex_panic!("Variant DType is not supported in FFI yet"),
+            DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
         }
     }
 }

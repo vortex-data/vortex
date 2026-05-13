@@ -231,14 +231,14 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
             array.len(),
             array.scalar().as_binary().value().map(|value| value.len()),
         )?,
-        DType::Variant(_) => {
-            vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")
-        }
-        DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) | DType::Extension(_) => {
+        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) | DType::Extension(_) => {
             let canonical = array.array().clone().execute::<Canonical>(ctx)?;
             return canonical_uncompressed_size_in_bytes(&canonical, ctx);
         }
         DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Variant(_) => {
+            vortex_bail!("UncompressedSizeInBytes is not supported for Variant arrays")
+        }
     };
 
     value_size
@@ -279,6 +279,12 @@ fn checked_len_mul(len: usize, width: usize, name: &str) -> VortexResult<u64> {
 
 fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
     match dtype {
+        DType::Null
+        | DType::Bool(_)
+        | DType::Primitive(..)
+        | DType::Decimal(..)
+        | DType::Utf8(_)
+        | DType::Binary(_) => true,
         DType::List(element_dtype, _) | DType::FixedSizeList(element_dtype, ..) => {
             supports_uncompressed_size_in_bytes(element_dtype)
         }
@@ -286,16 +292,10 @@ fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
             .fields()
             .all(|field| supports_uncompressed_size_in_bytes(&field)),
         DType::Union(_) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Variant(_) => false,
         DType::Extension(ext_dtype) => {
             supports_uncompressed_size_in_bytes(ext_dtype.storage_dtype())
         }
-        DType::Variant(_) => false,
-        DType::Null
-        | DType::Bool(_)
-        | DType::Primitive(..)
-        | DType::Decimal(..)
-        | DType::Utf8(_)
-        | DType::Binary(_) => true,
     }
 }
 
