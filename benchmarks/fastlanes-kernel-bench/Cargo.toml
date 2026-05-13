@@ -34,3 +34,11 @@ divan = { workspace = true }
 [[bench]]
 name = "unpack_vs_fused"
 harness = false
+
+[[bench]]
+name = "memcpy_baseline"
+harness = false
+
+[[bench]]
+name = "multi_block"
+harness = false

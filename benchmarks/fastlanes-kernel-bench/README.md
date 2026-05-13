@@ -11,6 +11,30 @@ The crate **vendors** the relevant kernel files from the upstream
 want to be able to modify the kernel locally for experiments without affecting
 the Vortex production path that still depends on the published crate.
 
+## Authoritative results
+
+The full 720-cell `(T, W, SIMD, variant)` matrix and the supporting
+hardware/throughput experiments live in
+[`measurements/summary.md`](measurements/summary.md). That document is the
+single source of truth for "is fusing the FoR `wrapping_add` free?" and
+"is the kernel memory-bound?". The summary references:
+
+- `measurements/matrix_run1.csv` / `matrix_run2.csv` -- two independent full
+  720-cell runs (used for noise filtering).
+- `measurements/variance.md` -- run-to-run variance distribution and the
+  list of noisy cells (>15% var) excluded from conclusions.
+- `measurements/llvm_mca.md` -- static port-pressure analysis on the
+  extracted inner-loop disassembly.
+- `measurements/memcpy_baseline.md` -- per-cell `bare_unpack / memcpy`
+  multiplier (ALU tax above the memory floor).
+- `measurements/multi_block.md` -- 8-block multi-call throughput vs the
+  single-block matrix numbers.
+- `measurements/asm_diff.md` -- inner-loop disassembly diffs for the
+  outlier cells.
+
+The conceptual material below explains what each variant measures; for the
+numbers themselves, read the summary.
+
 ## What is measured
 
 For every `(unsigned type, bit width W)` in:
@@ -48,23 +72,11 @@ load/shift/mask pipeline for narrow lanes, but as the per-vector lane count
 shrinks (32 for u8 &rarr; 16 for u16 &rarr; 8 for u32 &rarr; 4 for u64 at
 256-bit ymm), the kernel runs out of slack and the `vpaddd` becomes visible.
 
-Median best-of-3 runs (`--min-time 0.5`):
-
-| case      | `bare_unpack` (no add) | `fused_for` (unpack + add) | add overhead |
-|-----------|----------------------:|---------------------------:|-------------:|
-| u8  W=1   |  17.6 ns              |  17.5 ns                   |   -0.2 ns    |
-| u8  W=5   |  17.8 ns              |  20.0 ns                   |   +2.2 ns    |
-| u8  W=8   |  17.8 ns              |  17.7 ns                   |   -0.1 ns    |
-| u16 W=7   |  35.1 ns              |  43.2 ns                   |   +8.1 ns    |
-| u16 W=16  |  34.7 ns              |  34.7 ns                   |    0.0 ns    |
-| u32 W=8   |  76.8 ns              |  76.8 ns                   |    0.0 ns    |
-| u32 W=17  |  77.1 ns              |  78.3 ns                   |   +1.3 ns    |
-| u32 W=24  |  80.4 ns              |  89.5 ns                   |   +9.0 ns    |
-| u32 W=32  |  98.6 ns              | 108.6 ns                   |  +10.0 ns    |
-| u64 W=11  | 146.4 ns              | 159.6 ns                   |  +13.2 ns    |
-| u64 W=33  | 154.3 ns              | 173.2 ns                   |  +18.9 ns    |
-| u64 W=55  | 163.7 ns              | 210.7 ns                   |  +47.0 ns    |
-| u64 W=64  | 153.5 ns              | 171.4 ns                   |  +17.9 ns    |
+For the per-cell `bare_unpack` vs `fused_for` numbers across the full
+720-cell matrix, see `measurements/summary.md`. The short version (AVX2
+ymm column): fusing adds 0-2 ns for narrow u8/u16, 0-10 ns for u32, and
+10-50 ns for u64 wide-W. The detailed per-cell overhead percentages are
+in the summary's matrix tables.
 
 Compare with the cost of running the same `wrapping_add` as a *separate*
 loop after a bare unpack (the `unfused_for` column from the next table):
@@ -88,21 +100,9 @@ Measured medians on an Emerald-Rapids Xeon @ 2.1&nbsp;GHz, AVX2 (`ymm`) build
 the second pass over the output buffer is even more valuable at higher
 throughput because L1 pressure dominates.
 
-| case      | without fused FoR (`unfused_for`) | with fused FoR (`fused_for`) | speedup |
-|-----------|----------------------------------:|-----------------------------:|--------:|
-| u8  W=3   |  33.6 ns                          |  17.0 ns                     | **1.97x** |
-| u8  W=5   |  49.3 ns                          |  25.0 ns                     | **1.97x** |
-| u16 W=11  |  66.9 ns                          |  39.3 ns                     | **1.70x** |
-| u32 W=8   | 144.6 ns                          |  79.7 ns                     | **1.81x** |
-| u32 W=17  | 149.0 ns                          |  75.9 ns                     | **1.96x** |
-| u32 W=25  | 181.6 ns                          | 114.6 ns                     | **1.58x** |
-| u64 W=11  | 340.6 ns                          | 178.6 ns                     | **1.91x** |
-| u64 W=33  | 319.6 ns                          | 198.6 ns                     | **1.61x** |
-| u64 W=55  | 346.6 ns                          | 227.6 ns                     | **1.52x** |
-
-Fusing the wrapping-add into the unpack kernel is **1.5x–2x faster** than the
-unfused two-pass version across every type and width tested. The win comes
-from:
+Headline: fusing is **1.5x-2x faster** than the unfused two-pass version
+across every type and width tested. See `measurements/summary.md` for the
+full per-cell comparison. The win comes from:
 
 * one pass over the output buffer instead of two (better L1 reuse);
 * the wrapping-add merges into the unpack's load-shift-mask µop chain rather
@@ -274,49 +274,18 @@ FoR + unpack") under each of **three** ISA targets:
                   512-bit `zmm`, 16-wide u32. What `scripts/bench.sh` does
                   by default.
 
-All three binaries are built with `codegen-units=1`. Measurement: best-of-5
-median, `--min-time 0.3` per invocation, Emerald-Rapids Xeon @ 2.1 GHz, no
-other load on the box. Times in ns; lower is better.
+All three binaries are built with `codegen-units=1`. Measurement: best-of-3
+median, `--min-time 0.5` per invocation, Emerald-Rapids Xeon @ 2.1 GHz, no
+other load on the box.
 
-| case      | sse2 unpack | ymm unpack | zmm unpack | sse2 fused | ymm fused | zmm fused |
-|-----------|------------:|-----------:|-----------:|-----------:|----------:|----------:|
-| u8  W=3   |   23.62     |   14.99    |    9.62    |   26.98    |   14.90   |   17.45   |
-| u8  W=8   |   17.14     |   14.91    |   20.87    |   20.05    |   14.97   |   10.11   |
-| u16 W=7   |   50.13     |   29.67    |   36.11    |   55.88    |   37.21   |   30.14   |
-| u16 W=15  |   55.97     |   30.10    |   40.78    |   70.21    |   41.34   |   44.91   |
-| u32 W=8   |  105.70     |   66.15    |   54.24    |   80.72    |   67.75   |   54.88   |
-| u32 W=17  |  108.50     |   65.94    |   62.98    |  119.30    |   69.73   |   71.58   |
-| u32 W=24  |  105.90     |   65.74    |   61.84    |  103.80    |   67.28   |   65.91   |
-| u32 W=32  |  105.20     |   67.39    |   78.47    |   79.00    |   78.72   |   90.64   |
-| u64 W=11  |  222.90     |  133.70    |   95.97    |  231.80    |  143.60   |  107.30   |
-| u64 W=33  |  228.00     |  137.30    |  139.30    |  257.00    |  160.90   |  139.80   |
-| u64 W=55  |  306.00     |  143.20    |  168.90    |  319.60    |  208.10   |  190.30   |
-| u64 W=64  |  220.30     |  132.40    |  206.10    |  181.50    |  148.50   |  186.70   |
+The full per-cell `(T, W, SIMD, variant)` numbers are in
+`measurements/matrix_run1.csv` and reproduced as four markdown tables (one
+per type) in `measurements/summary.md`.
 
 ### Is the FoR `wrapping_add` free in `unpack`? (And: is the kernel memory-bound?)
 
-These two questions are tied. Computing the per-cell fusing overhead and the
-per-cell effective L1 bandwidth side-by-side gives a clear "no, but" answer.
-
-| case      | overhead sse2 | overhead ymm | overhead zmm | ymm bandwidth (read+write) |
-|-----------|--------------:|-------------:|-------------:|---------------------------:|
-| u8  W=3   |  +14.2%       |   -0.6%      |  **+81.4%**  |  93.9 GB/s                 |
-| u8  W=8   |  +17.0%       |   +0.4%      |  -51.6%      | 137.4 GB/s                 |
-| u16 W=7   |  +11.5%       |  +25.4%      |  -16.5%      |  99.2 GB/s                 |
-| u16 W=15  |  +25.4%       |  **+37.3%**  |  +10.1%      | 131.8 GB/s                 |
-| u32 W=8   |  -23.6%       |   +2.4%      |   +1.2%      |  77.4 GB/s                 |
-| u32 W=17  |  +10.0%       |   +5.7%      |  +13.7%      |  95.1 GB/s                 |
-| u32 W=24  |   -2.0%       |   +2.3%      |   +6.6%      | 109.0 GB/s                 |
-| u32 W=32  |  -24.9%       |  +16.8%      |  +15.5%      | 121.6 GB/s                 |
-| u64 W=11  |   +4.0%       |   +7.4%      |  +11.8%      |  71.8 GB/s                 |
-| u64 W=33  |  +12.7%       |  +17.2%      |   +0.4%      |  90.4 GB/s                 |
-| u64 W=55  |   +4.4%       |  **+45.3%**  |  +12.7%      | 106.4 GB/s                 |
-| u64 W=64  |  -17.6%       |  +12.2%      |   -9.4%      | 123.7 GB/s                 |
-
-Bandwidth = `(1024 * W / 8) + (1024 * T / 8)` bytes per call, divided by the
-AVX2 `bare_unpack` time. The negative-overhead cells are real but mostly
-codegen variance (the fused version's slightly different IR sometimes
-schedules better than the bare version).
+These two questions are tied. The definitive answer with hardware-grade
+evidence is in `measurements/summary.md`; the short version is below.
 
 **The kernel is not memory-bandwidth-bound.** Emerald-Rapids L1 sustains
 ~250 GB/s on benchmarks like STREAM. Our kernel peaks at ~138 GB/s for the
