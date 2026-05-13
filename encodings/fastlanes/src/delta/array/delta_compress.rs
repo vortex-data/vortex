@@ -235,10 +235,21 @@ mod tests {
 
         println!();
         println!(
-            "{:<36} {:>10} {:>14} {:>5} {:>5} {:>5} {:>10} {:>7}",
-            "workload", "raw (B)", "Δ range", "Wnaive", "Wffor", "Wzig", "FFoR (B)", "ratio"
+            "{:<36} {:>10} {:>14} {:>5} {:>5} {:>5} {:>10} {:>7}  {:>10} {:>5} {:>10} {:>7}",
+            "workload",
+            "raw (B)",
+            "Δ range",
+            "Wnaive",
+            "Wffor",
+            "Wzig",
+            "FFoR (B)",
+            "ratio",
+            "bases (B)",
+            "Wb",
+            "+bcomp (B)",
+            "ratio",
         );
-        println!("{}", "-".repeat(96));
+        println!("{}", "-".repeat(140));
 
         for (name, values) in workloads {
             let raw_bytes = values.len() * size_of::<i32>();
@@ -271,9 +282,23 @@ mod tests {
             let ffor_total = bases_bytes + ref_bytes + ffor_packed_bytes;
             let ratio = raw_bytes as f64 / ffor_total as f64;
 
+            // Bases compressibility: what we save if the bases child is recursively
+            // delta-encoded or FoR-encoded. The bases are the "first row of the transposed
+            // chunk" per lane, so they form a sub-sequence that inherits the smoothness of
+            // the input. We approximate with FFoR over the bases alone (no recursive Delta,
+            // which would force padding to 1024 elements per FastLanes chunk and could lose
+            // for short base sequences).
+            let min_b = *bases_buf.iter().min().unwrap();
+            let max_b = *bases_buf.iter().max().unwrap();
+            let bspan = (max_b as i64 - min_b as i64) as u64 + 1;
+            let bases_w = if bspan <= 1 { 0 } else { 64 - (bspan - 1).leading_zeros() as usize };
+            let bases_compressed = (bases_buf.len() * bases_w).div_ceil(8) + ref_bytes;
+            let total_with_bcomp = bases_compressed + ref_bytes + ffor_packed_bytes;
+            let ratio_with_bcomp = raw_bytes as f64 / total_with_bcomp as f64;
+
             println!(
-                "{name:<36} {raw_bytes:>10} {:>14} {naive_w:>5} {ffor_w:>5} {zz_w:>5} {ffor_total:>10} {ratio:>6.2}x",
-                format!("[{min_d}, {max_d}]")
+                "{name:<36} {raw_bytes:>10} {:>14} {naive_w:>5} {ffor_w:>5} {zz_w:>5} {ffor_total:>10} {ratio:>6.2}x  {bases_bytes:>10} {bases_w:>5} {total_with_bcomp:>10} {ratio_with_bcomp:>6.2}x",
+                format!("[{min_d}, {max_d}]"),
             );
 
             // Sanity assertions. naive_w is 32 (or near it) for any delta sequence that
@@ -287,6 +312,11 @@ mod tests {
             // On the asymmetric workloads (offset, near-monotone) FFoR must beat ZigZag.
             if min_d > 0 || max_d < 0 {
                 assert!(ffor_w < zz_w, "FFoR should beat ZigZag on asymmetric {name}");
+            }
+            // Sorted inputs => the bases inherit smoothness => the bases bit-width should be
+            // far smaller than `T` for sorted columns.
+            if name.starts_with("monotone") || name.starts_with("offset") {
+                assert!(bases_w < 16, "sorted bases should pack below 16 bits for {name}");
             }
         }
 
