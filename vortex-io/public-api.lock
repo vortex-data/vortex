@@ -866,13 +866,13 @@ pub async fn vortex_io::object_store::ObjectStoreWrite::shutdown(&mut self) -> s
 
 pub async fn vortex_io::object_store::ObjectStoreWrite::write_all<B: vortex_io::IoBuf>(&mut self, B) -> std::io::error::Result<B>
 
-impl<T> vortex_io::VortexWrite for core::io::cursor::Cursor<T> where core::io::cursor::Cursor<T>: std::io::Write
+impl<T> vortex_io::VortexWrite for std::io::cursor::Cursor<T> where std::io::cursor::Cursor<T>: std::io::Write
 
-pub fn core::io::cursor::Cursor<T>::flush(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+pub fn std::io::cursor::Cursor<T>::flush(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
 
-pub fn core::io::cursor::Cursor<T>::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
+pub fn std::io::cursor::Cursor<T>::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
 
-pub fn core::io::cursor::Cursor<T>::write_all<B: vortex_io::IoBuf>(&mut self, B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>
+pub fn std::io::cursor::Cursor<T>::write_all<B: vortex_io::IoBuf>(&mut self, B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>
 
 impl<W: futures_io::if_std::AsyncWrite + core::marker::Unpin> vortex_io::VortexWrite for vortex_io::AsyncWriteAdapter<W>
 
