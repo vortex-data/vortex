@@ -77,16 +77,19 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Run the analyzer + optimizer manually, logging the plan after every rule
-/// that actually changes it. Replicates what `SessionState::optimize` does
-/// internally, but with an observer hook on each pass.
+/// Run the analyzer + optimizer manually, logging the input and output plans
+/// for every rule that actually changes the plan. Replicates what
+/// `SessionState::optimize` does internally, but with an observer hook on
+/// each pass.
 fn optimize_with_logging(plan: &LogicalPlan, ctx: &SessionContext) -> anyhow::Result<LogicalPlan> {
     let state = ctx.state();
     let options = state.config_options();
 
     println!("\n=== Analyzer rules ===");
+    let mut last = plan.clone();
     let analyzed = Analyzer::new().execute_and_check(plan.clone(), options, |after, rule| {
-        log_rule("analyzer", rule.name(), after);
+        log_rule("analyzer", rule.name(), &last, after);
+        last = after.clone();
     })?;
 
     println!("\n=== Optimizer rules ===");
@@ -95,21 +98,30 @@ fn optimize_with_logging(plan: &LogicalPlan, ctx: &SessionContext) -> anyhow::Re
         analyzed,
         &OptimizerContext::new().with_max_passes(options.optimizer.max_passes as u8),
         |after, rule| {
-            if format!("{}", after.display_indent()) != format!("{}", last.display_indent()) {
-                log_rule("optimizer", rule.name(), after);
-                last = after.clone();
-            } else {
-                println!("(no-op) {}", rule.name());
-            }
+            log_rule("optimizer", rule.name(), &last, after);
+            last = after.clone();
         },
     )?;
 
     Ok(optimized)
 }
 
-fn log_rule(stage: &str, rule: &str, plan: &LogicalPlan) {
+fn log_rule(stage: &str, rule: &str, before: &LogicalPlan, after: &LogicalPlan) {
+    let before_s = format!("{}", before.display_indent());
+    let after_s = format!("{}", after.display_indent());
+    if before_s == after_s {
+        println!("(no-op) [{stage}] {rule}");
+        return;
+    }
     println!("\n--- [{stage}] {rule} ---");
-    println!("{}", plan.display_indent());
+    println!("input:");
+    for line in before_s.lines() {
+        println!("  {line}");
+    }
+    println!("output:");
+    for line in after_s.lines() {
+        println!("  {line}");
+    }
 }
 
 async fn register_tables(ctx: &SessionContext) -> anyhow::Result<()> {
