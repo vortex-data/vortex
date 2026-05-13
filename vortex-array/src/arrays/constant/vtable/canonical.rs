@@ -151,6 +151,7 @@ pub(crate) fn constant_canonicalize(
                 StructArray::new_unchecked(fields, struct_dtype.clone(), array.len(), validity)
             })
         }
+        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::List(..) => Canonical::List(constant_canonical_list_array(scalar, array.len())),
         DType::FixedSizeList(element_dtype, list_size, _) => {
             let value = scalar.as_list();

@@ -103,9 +103,8 @@ mavenPublishing {
     }
 }
 
-// shade guava and protobuf dependencies
+// shade guava and arrow dependencies
 tasks.withType<ShadowJar> {
-    relocate("com.google.protobuf", "dev.vortex.relocated.com.google.protobuf")
     relocate("com.google.common", "dev.vortex.relocated.com.google.common")
     relocate("org.apache.arrow", "dev.vortex.relocated.org.apache.arrow") {
         // exclude C Data Interface since JNI cannot be relocated

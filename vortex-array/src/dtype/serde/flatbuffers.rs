@@ -191,6 +191,12 @@ impl TryFrom<ViewedDType> for DType {
 
                 Ok(Self::Struct(struct_dtype, fb_struct.nullable().into()))
             }
+            fb::Type::Union => {
+                let fb_union = fb
+                    .type__as_union()
+                    .ok_or_else(|| vortex_err!("failed to parse union from flatbuffer"))?;
+                Ok(Self::Union(fb_union.nullable().into()))
+            }
             fb::Type::Extension => {
                 let fb_ext = fb
                     .type__as_extension()
@@ -311,6 +317,13 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
+            Self::Union(n) => fb::Union::create(
+                fbb,
+                &fb::UnionArgs {
+                    nullable: (*n).into(),
+                },
+            )
+            .as_union_value(),
             Self::List(edt, n) => {
                 let element_type = Some(edt.as_ref().write_flatbuffer(fbb)?);
                 fb::List::create(
@@ -365,6 +378,7 @@ impl WriteFlatBuffer for DType {
             Self::Utf8(_) => fb::Type::Utf8,
             Self::Binary(_) => fb::Type::Binary,
             Self::Struct(..) => fb::Type::Struct_,
+            Self::Union(..) => fb::Type::Union,
             Self::List(..) => fb::Type::List,
             Self::FixedSizeList(..) => fb::Type::FixedSizeList,
             Self::Extension { .. } => fb::Type::Extension,

@@ -9,6 +9,7 @@ use std::task::Poll;
 
 use futures::Stream;
 use pin_project_lite::pin_project;
+use tracing::trace;
 use vortex_buffer::Alignment;
 use vortex_error::VortexExpect;
 use vortex_io::CoalesceConfig;
@@ -133,11 +134,11 @@ impl State {
 
     #[allow(clippy::cognitive_complexity)]
     fn on_event(&mut self, event: ReadEvent) {
-        tracing::debug!(?event, "Received ReadEvent");
+        trace!(?event, "Received ReadEvent");
         match event {
             ReadEvent::Request(req) => {
                 if req.callback.is_closed() {
-                    tracing::debug!(?req, "ReadRequest dropped before registration");
+                    trace!(?req, "ReadRequest dropped before registration");
                     return;
                 }
                 self.requests_by_offset.insert((req.offset, req.id));
@@ -147,7 +148,7 @@ impl State {
                 if let Some(req) = self.requests.remove(&req_id) {
                     if req.callback.is_closed() {
                         self.requests_by_offset.remove(&(req.offset, req_id));
-                        tracing::debug!(?req, "ReadRequest dropped before poll");
+                        trace!(?req, "ReadRequest dropped before poll");
                     } else {
                         self.polled_requests.insert(req_id, req);
                     }
@@ -156,11 +157,11 @@ impl State {
             ReadEvent::Dropped(req_id) => {
                 if let Some(req) = self.requests.remove(&req_id) {
                     self.requests_by_offset.remove(&(req.offset, req_id));
-                    tracing::debug!(?req, "ReadRequest dropped before poll");
+                    trace!(?req, "ReadRequest dropped before poll");
                 }
                 if let Some(req) = self.polled_requests.remove(&req_id) {
                     self.requests_by_offset.remove(&(req.offset, req_id));
-                    tracing::debug!(?req, "ReadRequest dropped after poll");
+                    trace!(?req, "ReadRequest dropped after poll");
                 }
             }
         }
@@ -193,7 +194,7 @@ impl State {
         while let Some((req_id, req)) = self.polled_requests.pop_first() {
             self.requests_by_offset.remove(&(req.offset, req_id));
             if req.callback.is_closed() {
-                tracing::debug!("Dropping canceled request");
+                trace!("Dropping canceled request");
                 continue;
             }
             return Some(req);
@@ -303,7 +304,7 @@ impl State {
 
         let aligned_start = current_start - (current_start % align);
 
-        tracing::debug!(
+        trace!(
             "Coalesced {} requests into range {}..{} (len={})",
             requests.len(),
             aligned_start,

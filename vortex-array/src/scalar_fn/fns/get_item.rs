@@ -258,7 +258,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic = "Cannot create null scalar with non-nullable dtype i32"]
     fn get_nullable_field() {
         let st = StructArray::try_new(
             FieldNames::from(["a"]),

@@ -204,7 +204,7 @@ async fn open_file(
     session: &VortexSession,
     open_options_fn: &(dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync),
 ) -> VortexResult<crate::VortexFile> {
-    debug!(path = %file.path, "opening vortex file");
+    tracing::trace!(path = %file.path, "opening vortex file");
 
     // Open the reader first so we can use its URI as the cache key.
     // The URI includes the full path (with any filesystem prefix), making it unique

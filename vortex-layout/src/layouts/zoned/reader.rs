@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use itertools::Itertools;
+use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
@@ -119,20 +120,18 @@ impl LayoutReader for ZonedReader {
         expr: &Expression,
         mask: Mask,
     ) -> VortexResult<MaskFuture> {
-        tracing::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
+        trace!("Stats pruning evaluation: {} - {}", &self.name, expr);
         let data_eval = self
             .data_child()?
             .pruning_evaluation(row_range, expr, mask.clone())?;
 
         if self.layout.zone_len == 0 {
-            tracing::debug!(
-                "Stats pruning evaluation: skipping zoned pruning for legacy zero-length zones"
-            );
+            trace!("Stats pruning evaluation: skipping zoned pruning for legacy zero-length zones");
             return Ok(data_eval);
         }
 
         let Some(pruning_mask_future) = self.pruning.pruning_mask_future(expr.clone()) else {
-            tracing::debug!("Stats pruning evaluation: not prune-able {expr}");
+            trace!("Stats pruning evaluation: not prune-able {expr}");
             return Ok(data_eval);
         };
 
@@ -159,7 +158,7 @@ impl LayoutReader for ZonedReader {
         let expr = expr.clone();
 
         Ok(MaskFuture::new(mask.len(), async move {
-            tracing::debug!("Invoking stats pruning evaluation {}: {}", name, expr);
+            trace!("Invoking stats pruning evaluation {}: {}", name, expr);
 
             let pruning_mask = pruning_mask_future.await?.mask()?;
 
@@ -180,7 +179,7 @@ impl LayoutReader for ZonedReader {
                 stats_mask = stats_mask.bitand(&data_mask);
             }
 
-            tracing::debug!(
+            trace!(
                 "Stats evaluation approx {} - {} (mask = {}) => {}",
                 name,
                 expr,

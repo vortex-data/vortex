@@ -77,6 +77,7 @@ impl Display for DTypePythonRepr<'_> {
                     .join(", "),
                 n.python_repr()
             ),
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::List(edt, n) => write!(
                 f,
                 "list({}, nullable={})",

@@ -55,6 +55,7 @@ impl DType {
                 ),
                 s.nullable.into(),
             )),
+            DtypeType::Union(u) => Ok(Self::Union(u.nullable.into())),
             DtypeType::List(l) => {
                 let nullable = l.nullable.into();
                 Ok(Self::List(
@@ -139,6 +140,9 @@ impl TryFrom<&DType> for pb::DType {
                         .fields()
                         .map(|d| Self::try_from(&d))
                         .collect::<VortexResult<Vec<_>>>()?,
+                    nullable: (*null).into(),
+                }),
+                DType::Union(null) => DtypeType::Union(pb::Union {
                     nullable: (*null).into(),
                 }),
                 DType::List(edt, null) => DtypeType::List(Box::new(pb::List {

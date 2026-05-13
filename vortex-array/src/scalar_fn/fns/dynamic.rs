@@ -67,10 +67,10 @@ impl ScalarFnVTable for DynamicComparison {
         f: &mut Formatter<'_>,
     ) -> std::fmt::Result {
         expr.child(0).fmt_sql(f)?;
-        write!(f, " {} dynamic(", dynamic)?;
+        write!(f, " {} dynamic(", dynamic.operator)?;
         match dynamic.scalar() {
-            None => write!(f, "<none>")?,
-            Some(scalar) => write!(f, "{}", scalar)?,
+            None => write!(f, "scalar=<none>")?,
+            Some(scalar) => write!(f, "scalar={scalar}")?,
         }
         write!(f, ")")
     }

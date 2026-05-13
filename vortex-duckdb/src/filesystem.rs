@@ -94,10 +94,12 @@ fn object_store_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
         );
     };
 
-    Ok(Arc::new(Compat::new(ObjectStoreFileSystem::new(
+    let object_store = Arc::new(Compat::new(object_store)) as Arc<dyn ObjectStore>;
+
+    Ok(Arc::new(ObjectStoreFileSystem::new(
         object_store,
         RUNTIME.handle(),
-    ))))
+    )))
 }
 
 struct DuckDbFileSystem {

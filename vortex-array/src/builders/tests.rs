@@ -615,6 +615,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                     .collect();
                 Scalar::struct_(DType::Struct(fields.clone(), *n), field_values)
             }
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::List(element_dtype, n) => {
                 // Create list scalars with a few elements.
                 let elements: Vec<Scalar> = (0..=i)

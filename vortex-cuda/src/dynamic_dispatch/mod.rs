@@ -509,6 +509,7 @@ mod tests {
     use cudarc::driver::LaunchConfig;
     use cudarc::driver::PushKernelArg;
     use rstest::rstest;
+    use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -516,7 +517,7 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
-    use vortex::dtype::PType;
+    use vortex::dtype::NativePType;
     use vortex::encodings::alp::ALP;
     use vortex::encodings::alp::ALPArrayExt;
     use vortex::encodings::alp::ALPArraySlotsExt;
@@ -535,6 +536,7 @@ mod tests {
     use vortex::session::VortexSession;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
+    use vortex_array::patches::Patches;
 
     use super::*;
     use crate::CanonicalCudaExt;
@@ -561,7 +563,7 @@ mod tests {
     }
 
     async fn dispatch_plan(
-        array: &vortex::array::ArrayRef,
+        array: &ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<MaterializedPlan> {
         match DispatchPlan::new(array, CudaDispatchMode::DynDispatchOnly)? {
@@ -1976,6 +1978,68 @@ mod tests {
     }
 
     #[crate::test]
+    async fn alp_slice_device_patches() -> VortexResult<()> {
+        // Regression test for https://github.com/vortex-data/vortex/issues/7838.
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let len = 4096;
+        let exponents = Exponents { e: 0, f: 0 };
+
+        async fn device_primitive<T: NativePType>(
+            cuda_ctx: &mut CudaExecutionCtx,
+            values: Vec<T>,
+        ) -> VortexResult<ArrayRef> {
+            let array = PrimitiveArray::new(Buffer::from(values), NonNullable);
+            Ok(PrimitiveArray::from_buffer_handle(
+                cuda_ctx
+                    .ensure_on_device(array.buffer_handle().clone())
+                    .await?,
+                T::PTYPE,
+                NonNullable,
+            )
+            .into_array())
+        }
+
+        let encoded = PrimitiveArray::new(Buffer::from(vec![0i64; len]), NonNullable).into_array();
+        let device_indices = device_primitive(&mut cuda_ctx, vec![500u32, 1024, 2048]).await?;
+        let device_values = device_primitive(
+            &mut cuda_ctx,
+            vec![
+                std::f64::consts::PI,
+                std::f64::consts::E,
+                std::f64::consts::LN_2,
+            ],
+        )
+        .await?;
+        let device_chunk_offsets = device_primitive(&mut cuda_ctx, vec![0u32, 1, 2, 3]).await?;
+
+        let patches = unsafe {
+            Patches::new_unchecked(
+                len,
+                0,
+                device_indices,
+                device_values,
+                Some(device_chunk_offsets),
+                Some(0),
+            )
+        };
+        let alp = ALP::try_new(encoded, exponents, Some(patches))?.into_array();
+        let sliced = alp.slice(100..3000)?;
+
+        let canonical = try_gpu_dispatch(&sliced, &mut cuda_ctx).await?;
+        let gpu = CanonicalCudaExt::into_host(canonical).await?.into_array();
+
+        let mut expected = vec![0.0f64; sliced.len()];
+        expected[500 - 100] = std::f64::consts::PI;
+        expected[1024 - 100] = std::f64::consts::E;
+        expected[2048 - 100] = std::f64::consts::LN_2;
+        let expected = PrimitiveArray::new(Buffer::from(expected), NonNullable).into_array();
+
+        vortex::array::assert_arrays_eq!(expected, gpu);
+
+        Ok(())
+    }
+
+    #[crate::test]
     async fn test_runend_u32_ends_u16_values() -> VortexResult<()> {
         // RunEnd with u32 ends, u16 values. Output type = u16.
         // Ends (u32) differ from output (u16) → pending subtree.
@@ -2065,7 +2129,7 @@ mod tests {
     #[case::bp_u8_codes_u32_values(2u8, 3000usize, vec![100_000u32, 200_000, 300_000, 400_000])]
     #[case::bp_u16_codes_u32_values(4u8, 2048usize, vec![1_000_000u32, 2_000_000, 3_000_000, 4_000_000, 5_000_000, 6_000_000, 7_000_000, 8_000_000])]
     #[crate::test]
-    async fn test_dict_mixed_width_bitpacked_codes<V: vortex::dtype::NativePType>(
+    async fn test_dict_mixed_width_bitpacked_codes<V: NativePType>(
         #[case] bit_width: u8,
         #[case] len: usize,
         #[case] dict_values: Vec<V>,
@@ -2108,7 +2172,7 @@ mod tests {
     #[case::for_bp_u8_codes_u32_values(3u8, 3000usize, vec![100u32, 200, 300, 400, 500, 600, 700, 800])]
     #[case::for_bp_u16_codes_u32_values(4u8, 2048usize, vec![10_000u32, 20_000, 30_000, 40_000, 50_000, 60_000, 70_000, 80_000])]
     #[crate::test]
-    async fn test_dict_mixed_width_for_bp_codes<V: vortex::dtype::NativePType>(
+    async fn test_dict_mixed_width_for_bp_codes<V: NativePType>(
         #[case] bit_width: u8,
         #[case] len: usize,
         #[case] dict_values: Vec<V>,
@@ -2162,10 +2226,7 @@ mod tests {
         vec![100_000u32, 200_000, 300_000, 400_000],
     )]
     #[crate::test]
-    async fn test_runend_mixed_width_bitpacked_ends<
-        E: vortex::dtype::NativePType + Into<u64>,
-        V: vortex::dtype::NativePType,
-    >(
+    async fn test_runend_mixed_width_bitpacked_ends<E: NativePType + Into<u64>, V: NativePType>(
         #[case] ends: Vec<E>,
         #[case] values: Vec<V>,
     ) -> VortexResult<()> {

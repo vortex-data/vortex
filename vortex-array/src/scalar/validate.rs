@@ -118,6 +118,7 @@ impl Scalar {
                     Self::validate(&field, field_value.as_ref())?;
                 }
             }
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Extension(ext_dtype) => ext_dtype.validate_storage_value(value)?,
             DType::Variant(_) => {
                 let ScalarValue::Variant(inner) = value else {

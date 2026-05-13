@@ -130,6 +130,7 @@ impl PyDType {
             DType::Utf8(..) => Self::with_subclass(py, dtype, PyUtf8DType),
             DType::Binary(..) => Self::with_subclass(py, dtype, PyBinaryDType),
             DType::Struct(..) => Self::with_subclass(py, dtype, PyStructDType),
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::List(..) => Self::with_subclass(py, dtype, PyListDType),
             DType::FixedSizeList(..) => Self::with_subclass(py, dtype, PyFixedSizeListDType),
             DType::Extension(..) => Self::with_subclass(py, dtype, PyExtensionDType),

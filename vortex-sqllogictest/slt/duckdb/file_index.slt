@@ -27,7 +27,7 @@ SELECT file_index, str FROM '$__TEST_DIR__/file_index_2.vortex';
 0 3
 
 query TB
-SELECT *, file_index < 2 FROM '$__TEST_DIR__/*.vortex'
+SELECT *, file_index < 2 FROM '$__TEST_DIR__/file_index_*.vortex'
 ORDER BY str;
 ----
 1 true
@@ -36,14 +36,24 @@ ORDER BY str;
 Hello true
 Hi true
 
+query BT
+SELECT file_index < 2, * FROM '$__TEST_DIR__/file_index_*.vortex'
+ORDER BY str;
+----
+true 1
+true 2
+true 3
+true Hello
+true Hi
+
 query IB
-SELECT count(*) AS cnt, sum(file_index) <= 3 FROM '$__TEST_DIR__/*.vortex'
+SELECT count(*) AS cnt, sum(file_index) <= 3 FROM '$__TEST_DIR__/file_index_*.vortex'
 ORDER BY cnt;
 ----
 5 true
 
 query B
-SELECT file_index < 2 FROM '$__TEST_DIR__/*.vortex'
+SELECT file_index < 2 FROM '$__TEST_DIR__/file_index_*.vortex'
 WHERE len(str) > 1;
 ----
 true

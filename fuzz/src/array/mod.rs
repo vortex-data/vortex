@@ -474,6 +474,7 @@ fn actions_for_dtype(dtype: &DType) -> HashSet<ActionType> {
                     acc.intersection(&actions).copied().collect()
                 })
         }
+        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::List(..) | DType::FixedSizeList(..) => {
             // List supports: Compress, Slice, Take, Filter, MinMax, Mask, ScalarAt
             // Does NOT support: SearchSorted, Compare, Cast, Sum, FillNull

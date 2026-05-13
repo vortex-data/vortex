@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
@@ -164,7 +165,7 @@ impl LayoutReader for FlatReader {
                 mask.bitand(&array_mask)
             };
 
-            tracing::debug!(
+            trace!(
                 "Flat mask evaluation {} - {} (mask = {}) => {}",
                 name,
                 expr,
@@ -191,7 +192,7 @@ impl LayoutReader for FlatReader {
         let expr = expr.clone();
 
         Ok(async move {
-            tracing::debug!("Flat array evaluation {} - {}", name, expr);
+            trace!("Flat array evaluation {} - {}", name, expr);
 
             let mut array = array.clone().await?;
             let mask = mask.await?;

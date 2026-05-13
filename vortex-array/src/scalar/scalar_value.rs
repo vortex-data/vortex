@@ -62,6 +62,7 @@ impl ScalarValue {
                     .collect();
                 Self::Tuple(field_values)
             }
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Extension(ext_dtype) => {
                 // Since we have no way to define a "zero" extension value (since we have no idea
                 // what the semantics of the extension is), a best effort attempt is to just use the
@@ -99,6 +100,7 @@ impl ScalarValue {
                 let field_values = fields.fields().map(|f| Self::default_value(&f)).collect();
                 Self::Tuple(field_values)
             }
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Extension(ext_dtype) => {
                 // Since we have no way to define a "default" extension value (since we have no idea
                 // what the semantics of the extension is), a best effort attempt is to just use the

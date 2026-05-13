@@ -205,6 +205,7 @@ impl Canonical {
                     Validity::from(n),
                 )
             }),
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::List(dtype, n) => Canonical::List(unsafe {
                 ListViewArray::new_unchecked(
                     Canonical::empty(dtype).into_array(),

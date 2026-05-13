@@ -6,6 +6,8 @@
 //! subtrees and computing shared memory requirements upfront — before any
 //! device allocation or kernel work.
 
+use std::ops::Range;
+
 use itertools::zip_eq;
 use tracing::trace;
 use vortex::array::ArrayRef;
@@ -150,18 +152,28 @@ pub fn has_standalone_kernel(array: &ArrayRef) -> bool {
     false
 }
 
+/// Patch payload attached to the op that consumes it.
+///
+/// `slice` is a logical output range to apply when materializing the patch descriptor on the GPU.
+/// This lets the planner avoid calling `Patches::slice` when patch metadata may already be device-resident.
+#[derive(Clone)]
+struct PlanPatches {
+    patches: Patches,
+    slice: Option<Range<usize>>,
+}
+
 /// An unmaterialized stage: a source op, scalar ops, and optional source buffer reference.
 ///
-/// Patches are tied to their owning ops, mirroring the CUDA side where
-/// `patches_ptr` lives on `BitunpackParams` / `AlpParams`:
-/// - `source_patches` for the source op (BitPacked exceptions)
-/// - Each scalar op carries its own `Option<Patches>` (ALP exceptions)
+/// Patch descriptors are tied to the op that consumes them, matching the CUDA parameter layout:
+/// source patches live on `BitunpackParams`, while scalar-op patches live on `AlpParams`.
+/// Patches may also carry a logical slice range when planning has sliced the values but patch
+/// metadata must remain device-resident until materialization.
 struct Stage {
     source: SourceOp,
     /// Patches from the source op (e.g. BitPacked overflow exceptions).
-    source_patches: Option<Patches>,
+    source_patches: Option<PlanPatches>,
     /// Scalar ops with optional per-op patches (e.g. ALP float exceptions).
-    scalar_ops: Vec<(ScalarOp, Option<Patches>)>,
+    scalar_ops: Vec<(ScalarOp, Option<PlanPatches>)>,
     /// Index into `FusedPlan::source_buffers`, or `None`
     /// for sources that don't read from a device buffer.
     source_buffer_index: Option<usize>,
@@ -396,7 +408,8 @@ impl FusedPlan {
 
             // Upload source patches (e.g. BitPacked exceptions).
             if let Some(patches) = &stage.source_patches {
-                let (ptr, bufs) = load_patches_to_gpu(patches, ctx).await?;
+                let (ptr, bufs) =
+                    load_patches_to_gpu(&patches.patches, patches.slice.clone(), ctx).await?;
                 source.params.bitunpack.patches_ptr = ptr;
                 device_buffers.extend(bufs);
             }
@@ -405,7 +418,8 @@ impl FusedPlan {
             let mut scalar_ops: Vec<ScalarOp> = Vec::with_capacity(stage.scalar_ops.len());
             for (mut op, patches) in stage.scalar_ops.clone() {
                 if let Some(patches) = &patches {
-                    let (ptr, bufs) = load_patches_to_gpu(patches, ctx).await?;
+                    let (ptr, bufs) =
+                        load_patches_to_gpu(&patches.patches, patches.slice.clone(), ctx).await?;
                     op.params.alp.patches_ptr = ptr;
                     device_buffers.extend(bufs);
                 }
@@ -504,21 +518,20 @@ impl FusedPlan {
             return self.walk(reduced, pending_subtrees);
         }
 
-        // ALP doesn't implement reduce_parent — slice encoded child and
-        // patches manually (Patches::slice adjusts offsets for the range).
+        // ALP doesn't implement reduce_parent. Slice the encoded child here,
+        // and defer patch slicing to CUDA materialization so device-resident
+        // patch buffers stay on device.
         if child.encoding_id() == ALP.id() {
             let alp = child.as_::<ALP>();
             let offset = slice_arr.data().slice_range().start;
             let len = array.len();
             let sliced_encoded = alp.encoded().clone().slice(offset..offset + len)?;
-            let sliced_patches = alp
-                .patches()
-                .map(|p| p.slice(offset..offset + len))
-                .transpose()?
-                .flatten();
             return self.walk_alp_inner(
                 sliced_encoded,
-                sliced_patches,
+                alp.patches().map(|patches| PlanPatches {
+                    patches,
+                    slice: Some(offset..offset + len),
+                }),
                 alp.exponents(),
                 pending_subtrees,
             );
@@ -554,7 +567,10 @@ impl FusedPlan {
             Some(buf_index),
             source_ptype,
         );
-        stage.source_patches = bp.patches();
+        stage.source_patches = bp.patches().map(|patches| PlanPatches {
+            patches,
+            slice: None,
+        });
         Ok(stage)
     }
 
@@ -611,7 +627,10 @@ impl FusedPlan {
         let alp = array.as_::<ALP>();
         self.walk_alp_inner(
             alp.encoded().clone(),
-            alp.patches(),
+            alp.patches().map(|patches| PlanPatches {
+                patches,
+                slice: None,
+            }),
             alp.exponents(),
             pending_subtrees,
         )
@@ -621,7 +640,7 @@ impl FusedPlan {
     fn walk_alp_inner(
         &mut self,
         encoded: ArrayRef,
-        patches: Option<Patches>,
+        patches: Option<PlanPatches>,
         exponents: Exponents,
         pending_subtrees: &mut Vec<ArrayRef>,
     ) -> VortexResult<Stage> {

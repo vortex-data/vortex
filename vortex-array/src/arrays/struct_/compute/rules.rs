@@ -109,7 +109,7 @@ impl ArrayParentReduceRule<Struct> for StructGetItemRule {
             Validity::AllInvalid => {
                 // If everything is invalid, the field is also all invalid
                 Ok(Some(
-                    ConstantArray::new(Scalar::null(field.dtype().clone()), field.len())
+                    ConstantArray::new(Scalar::null(field.dtype().as_nullable()), field.len())
                         .into_array(),
                 ))
             }

@@ -81,6 +81,7 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
                 .map(PyVortex)
                 .into_pyobject(py),
             DType::Struct(..) => PyVortex(self.0.as_struct()).into_pyobject(py),
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::List(..) | DType::FixedSizeList(..) => {
                 PyVortex(self.0.as_list()).into_pyobject(py)
             }

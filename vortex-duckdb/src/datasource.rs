@@ -29,13 +29,11 @@ use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
-use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
-use vortex::expr::cast;
 use vortex::expr::col;
 use vortex::expr::merge;
 use vortex::expr::pack;
@@ -281,7 +279,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
     }
 
     fn init_global(init_input: &TableInitInput<Self>) -> VortexResult<Self::GlobalState> {
-        debug!("table init input: {init_input:?}");
+        debug!(input=?init_input, "table function global input");
 
         let bind_data = init_input.bind_data();
         let column_ids = init_input.column_ids();
@@ -307,13 +305,16 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             bind_data.data_source.dtype(),
         )?;
 
-        let filter_expr_str = filter
-            .as_ref()
-            .map_or_else(|| "true".to_string(), |f| f.to_string());
         debug!(
-            "Global init Vortex scan SELECT {projection} WHERE {filter_expr_str}\n
-                 row selection: {row_selection:?}, row range: {row_range:?},
-                 file selection: {file_selection:?}, file range: {file_range:?}"
+            %projection,
+            filter = filter
+                .as_ref()
+                .map_or_else(|| "true".to_string(), |f| f.to_string()),
+            ?row_selection,
+            ?row_range,
+            ?file_selection,
+            ?file_range,
+            "table function scan input"
         );
 
         let request = ScanRequest {
@@ -500,10 +501,12 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         bind_data: &mut Self::BindData,
         expr: &ExpressionRef,
     ) -> VortexResult<bool> {
-        tracing::debug!("Attempting to push down filter expression: {expr}");
+        debug!(%expr, "pushing down expression");
         let Some(expr) = try_from_bound_expression(expr)? else {
+            debug!(%expr, "failed to push down expression");
             return Ok(false);
         };
+        debug!(%expr, "pushed down expression");
         bind_data.filter_exprs.push(expr);
 
         // NOTE(ngates): Vortex does indeed run exact filters, so in theory we should return `true`
@@ -594,8 +597,6 @@ struct ProjectionWithVirtualColumns {
     file_row_number_column_pos: Option<usize>,
 }
 
-/// Creates a projection expression from raw projection/column ID slices and
-/// column names.
 fn extract_projection_expr(
     projection_ids: Option<&[u64]>,
     column_ids: &[u64],
@@ -610,38 +611,64 @@ fn extract_projection_expr(
 
     let mut file_index_column_pos = None;
     let mut file_row_number_column_pos = None;
+    let mut is_star = true;
+    let mut real_column_count = 0;
 
-    #[expect(clippy::cast_possible_truncation)]
-    let names = ids
-        .iter()
-        .enumerate()
-        .map(|(column_pos, &column_id)| {
-            let column_id = if has_projection_ids {
-                column_ids[column_id as usize]
-            } else {
-                column_id
-            };
-
-            if column_id == FILE_INDEX_COLUMN_IDX {
-                file_index_column_pos = Some(column_pos);
-            }
-            if column_id == FILE_ROW_NUMBER_COLUMN_IDX {
-                file_row_number_column_pos = Some(column_pos);
-            }
-
+    // DuckDB uses u64 as column indices but Rust uses usize
+    for (column_pos, &column_id) in ids.iter().enumerate() {
+        let column_id = if has_projection_ids {
+            let column_id: usize = column_id.as_();
+            column_ids[column_id]
+        } else {
             column_id
-        })
-        .filter(|&col_id| !is_virtual_column(col_id))
-        .map(|col_id| Arc::from(column_fields[col_id as usize].name.as_str()))
-        .collect::<FieldNames>();
+        };
+
+        if column_id == FILE_INDEX_COLUMN_IDX {
+            file_index_column_pos = Some(column_pos);
+            continue;
+        }
+        if column_id == FILE_ROW_NUMBER_COLUMN_IDX {
+            file_row_number_column_pos = Some(column_pos);
+            continue;
+        }
+
+        // In SELECT * DuckDB requests all columns from 0 to column_fields in
+        // increasing order. After removing virtual columns, compare column_id
+        // with (0..column_fields.len()) range.
+        is_star &= column_id == real_column_count;
+        real_column_count += 1;
+    }
+    // Duckdb can request less columns than there are in table i.e. [0, 1] with
+    // 5 columns total.
+    is_star &= real_column_count == column_fields.len() as u64;
+
+    let select = if is_star {
+        root()
+    } else {
+        let names = ids
+            .iter()
+            .map(|&column_id| {
+                if has_projection_ids {
+                    let column_id: usize = column_id.as_();
+                    column_ids[column_id]
+                } else {
+                    column_id
+                }
+            })
+            .filter(|&col_id| !is_virtual_column(col_id))
+            .map(|column_id| {
+                let column_id: usize = column_id.as_();
+                Arc::from(column_fields[column_id].name.as_str())
+            })
+            .collect::<FieldNames>();
+
+        select(names, root())
+    };
 
     // file_index column will be filled later when exporting the chunk.
-    let select = select(names, root());
     let projection = if file_row_number_column_pos.is_some() {
-        // row_idx will be rearranged to correct position in scan(), prepend
-        // here
-        let row_idx = cast(row_idx(), DType::Primitive(PType::I64, false.into()));
-        let row_idx_struct = pack([("file_row_number", row_idx)], false.into());
+        // row_idx will be moved to correct position in scan(), prepend here
+        let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
         merge([row_idx_struct, select])
     } else {
         select
@@ -723,7 +750,18 @@ mod tests {
     use std::sync::atomic::AtomicU64;
     use std::sync::atomic::Ordering::Relaxed;
 
+    use vortex::dtype::DType;
+    use vortex::expr::merge;
+    use vortex::expr::pack;
+    use vortex::expr::root;
+    use vortex::layout::layouts::row_idx::row_idx;
+
     use super::progress;
+    use crate::datasource::DuckdbField;
+    use crate::datasource::FILE_INDEX_COLUMN_IDX;
+    use crate::datasource::FILE_ROW_NUMBER_COLUMN_IDX;
+    use crate::datasource::extract_projection_expr;
+    use crate::duckdb::LogicalType;
 
     #[test]
     fn test_table_scan_progress() {
@@ -737,5 +775,65 @@ mod tests {
 
         bytes_total.fetch_add(100, Relaxed);
         assert!((progress(&bytes_read, &bytes_total) - 50.).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_select_star() {
+        let ids = [0, 1, 2];
+        let fields = [
+            DuckdbField {
+                name: "".to_owned(),
+                logical_type: LogicalType::null(),
+                dtype: DType::Null,
+            },
+            DuckdbField {
+                name: "".to_owned(),
+                logical_type: LogicalType::null(),
+                dtype: DType::Null,
+            },
+            DuckdbField {
+                name: "".to_owned(),
+                logical_type: LogicalType::null(),
+                dtype: DType::Null,
+            },
+        ];
+
+        assert_eq!(
+            extract_projection_expr(None, &ids, &fields).projection,
+            root()
+        );
+
+        let ids = [FILE_ROW_NUMBER_COLUMN_IDX, 0, 1, FILE_INDEX_COLUMN_IDX, 2];
+        let exprs = extract_projection_expr(None, &ids, &fields);
+        let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
+        let root_with_virtual_cols = merge([row_idx_struct, root()]);
+
+        assert_eq!(exprs.projection, root_with_virtual_cols);
+        assert_eq!(exprs.file_index_column_pos, Some(3));
+        assert_eq!(exprs.file_row_number_column_pos, Some(0));
+
+        // projections can't be set in SELECT *.
+        assert_ne!(
+            extract_projection_expr(Some(&[0, 1]), &ids, &fields).projection,
+            root()
+        );
+
+        let ids = [0, 1];
+        assert_ne!(
+            extract_projection_expr(None, &ids, &fields).projection,
+            root()
+        );
+
+        let ids = [0, 2, 2];
+        assert_ne!(
+            extract_projection_expr(None, &ids, &fields).projection,
+            root()
+        );
+
+        let ids = [2, 1, 0];
+        assert_ne!(
+            extract_projection_expr(None, &ids, &fields).projection,
+            root()
+        );
     }
 }

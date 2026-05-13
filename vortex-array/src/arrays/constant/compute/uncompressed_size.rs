@@ -1,42 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexResult;
-
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::constant_uncompressed_size_in_bytes;
-use crate::aggregate_fn::kernels::DynAggregateKernel;
-use crate::arrays::Constant;
-use crate::dtype::Nullability;
-use crate::scalar::Scalar;
-
-#[derive(Debug)]
-pub(crate) struct ConstantUncompressedSizeKernel;
-
-impl DynAggregateKernel for ConstantUncompressedSizeKernel {
-    fn aggregate(
-        &self,
-        aggregate_fn: &AggregateFnRef,
-        batch: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Scalar>> {
-        if !aggregate_fn.is::<UncompressedSizeInBytes>() {
-            return Ok(None);
-        }
-
-        let Some(array) = batch.as_opt::<Constant>() else {
-            return Ok(None);
-        };
-
-        let size = constant_uncompressed_size_in_bytes(array, ctx)?;
-
-        Ok(Some(Scalar::primitive(size, Nullability::NonNullable)))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::Buffer;

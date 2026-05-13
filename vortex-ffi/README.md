@@ -1,4 +1,13 @@
 # Vortex C interface
+
+## Updating Headers
+
+If you're developing FFI and want to rebuild `cinclude/vortex.h`, run:
+
+```sh
+cargo +nightly build -p vortex-ffi
+```
+
 ## Usage from a CMake project
 
 ```
@@ -21,11 +30,6 @@ cmake --build build
 ./build/examples/scan_to_arrow
 ./build/examples/write_sample
 ```
-
-## Updating Headers
-
-If you're developing FFI and want to rebuild `cinclude/vortex.h`, run
-`cargo +nightly build -p vortex-ffi`.
 
 ## Testing C part
 
@@ -75,14 +79,11 @@ cargo +nightly test -Zbuild-std \
     -- --no-capture
 ```
 
-- `-Zbuild-std` is needed as memory and thread sanitizers report std errors
-  otherwise.
-- `--no-default-features` is needed as we use Mimalloc otherwise which interferes
-with sanitizers.
-- `allow-abi-mismatch` is safe because in our dependency graph only crates like
-  `compiler_builtins` unset sanitization, and they do it on purpose.
-- Make sure to use `cargo test` and not `cargo nextest` as nextest reports less
-  leaks.
+- `-Zbuild-std` is needed as memory and thread sanitizers report std errors otherwise.
+- `--no-default-features` is needed as we use Mimalloc otherwise which interferes with sanitizers.
+- `allow-abi-mismatch` is safe because in our dependency graph only crates like `compiler_builtins`
+  unset sanitization, and they do it on purpose.
+- Make sure to use `cargo test` and not `cargo nextest` as nextest reports less leaks.
 - If you want stack trace symbolization, install `llvm-symbolizer`.
 
 ## Testing Rust and C with sanitizers
