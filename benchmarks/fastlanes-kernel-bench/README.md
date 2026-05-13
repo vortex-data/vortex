@@ -293,6 +293,72 @@ other load on the box. Times in ns; lower is better.
 | u64 W=55  |  306.00     |  143.20    |  168.90    |  319.60    |  208.10   |  190.30   |
 | u64 W=64  |  220.30     |  132.40    |  206.10    |  181.50    |  148.50   |  186.70   |
 
+### Is the FoR `wrapping_add` free in `unpack`? (And: is the kernel memory-bound?)
+
+These two questions are tied. Computing the per-cell fusing overhead and the
+per-cell effective L1 bandwidth side-by-side gives a clear "no, but" answer.
+
+| case      | overhead sse2 | overhead ymm | overhead zmm | ymm bandwidth (read+write) |
+|-----------|--------------:|-------------:|-------------:|---------------------------:|
+| u8  W=3   |  +14.2%       |   -0.6%      |  **+81.4%**  |  93.9 GB/s                 |
+| u8  W=8   |  +17.0%       |   +0.4%      |  -51.6%      | 137.4 GB/s                 |
+| u16 W=7   |  +11.5%       |  +25.4%      |  -16.5%      |  99.2 GB/s                 |
+| u16 W=15  |  +25.4%       |  **+37.3%**  |  +10.1%      | 131.8 GB/s                 |
+| u32 W=8   |  -23.6%       |   +2.4%      |   +1.2%      |  77.4 GB/s                 |
+| u32 W=17  |  +10.0%       |   +5.7%      |  +13.7%      |  95.1 GB/s                 |
+| u32 W=24  |   -2.0%       |   +2.3%      |   +6.6%      | 109.0 GB/s                 |
+| u32 W=32  |  -24.9%       |  +16.8%      |  +15.5%      | 121.6 GB/s                 |
+| u64 W=11  |   +4.0%       |   +7.4%      |  +11.8%      |  71.8 GB/s                 |
+| u64 W=33  |  +12.7%       |  +17.2%      |   +0.4%      |  90.4 GB/s                 |
+| u64 W=55  |   +4.4%       |  **+45.3%**  |  +12.7%      | 106.4 GB/s                 |
+| u64 W=64  |  -17.6%       |  +12.2%      |   -9.4%      | 123.7 GB/s                 |
+
+Bandwidth = `(1024 * W / 8) + (1024 * T / 8)` bytes per call, divided by the
+AVX2 `bare_unpack` time. The negative-overhead cells are real but mostly
+codegen variance (the fused version's slightly different IR sometimes
+schedules better than the bare version).
+
+**The kernel is not memory-bandwidth-bound.** Emerald-Rapids L1 sustains
+~250 GB/s on benchmarks like STREAM. Our kernel peaks at ~138 GB/s for the
+identity case (u8 W=8) and sits in the 70-130 GB/s band for compressed
+widths -- roughly 30-55% of L1 peak. There is plenty of memory headroom; the
+loop is gated on the front-end and the shift/mask µop chain on ports 0/1/5,
+not on memory.
+
+**Fusing `wrapping_add` is mostly free anyway, but for a different reason
+than memory boundedness.** It is free because the broadcast-add executes as
+a single `vpaddd ymm, ymm, ymm` (the broadcast happens *once*, outside the
+loop, and lives in a register for the whole 1024-element block) which can
+co-issue on a port that the unpack's shifts and ANDs are not using that
+cycle. On Sapphire/Emerald Rapids `vpaddd` runs on ports 0/1/5, `vpsrld`
+on 0/1, `vpandd` on 0/1/5 -- so as long as some `vpaddd` µop can find a
+slot on port 5 (or wherever the shift/mask µops aren't queued), the add
+adds zero cycles to the dependency height.
+
+* On AVX2 (`ymm`), 8 of the 12 measured cells fuse for **<10% overhead**,
+  and 4 of them for **<3% (essentially free)**. The two outliers
+  (u16 W=15: +37%, u64 W=55: +45%) are exactly the cases where the unpack
+  has the densest shift/mask µop pattern -- W is near T-1 and the kernel
+  emits a long chain of `vpsrld`/`vpslld`/`vpor` per output element. Here
+  the add can't find a free port and adds real time.
+
+* On AVX-512 (`zmm`) the overhead is much more variable; the EVEX-encoded
+  forms run on a narrower set of execution units on Emerald Rapids and the
+  add starts competing with the unpack chain more often. A few cells show
+  significant overhead (u8 W=3: +81%), driven by very small absolute base
+  times where even a single extra cycle is a large fraction.
+
+* On SSE2 the kernel issues so many 128-bit ops per output that there is
+  always slack -- fusing is uniformly cheap (most cells within ±15%, several
+  negative because the fused codegen happens to be tighter).
+
+**Practical conclusion.** Fusing FoR into the unpack is the right
+implementation strategy: it pays nothing on average and avoids the much
+larger second-pass cost (see the `unfused_for` table below, where running
+`wrapping_add` as a separate loop costs +30 to +170 ns per block). But the
+underlying reason is *port-level instruction parallelism* in the unpack
+loop, not memory saturation.
+
 ### Reading the matrix
 
 **SSE2 -> AVX2 is uniformly a big win.** Every cell improves by ~1.5-2x on
