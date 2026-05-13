@@ -37,14 +37,17 @@
 
 use fsst::Symbol;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use super::ESCAPE_CODE;
 use super::anchor_scan;
+use super::build_escape_only_encoded_pattern;
 use super::build_symbol_transitions;
 use super::kmp_byte_transitions;
+use super::needle_bytes_absent_from_all_symbols;
 #[cfg(any(test, feature = "_test-harness"))]
 use super::scan_to_bitbuf_with as scan_to_bitbuf_with_for_bench;
 use super::scan_to_bitbuf_with;
@@ -111,6 +114,16 @@ pub struct FoldedContainsDfa {
     /// anchor on), and the 1-byte path is already fast on those data
     /// shapes.
     single_step_accept_codes: Option<Vec<u8>>,
+    /// Compressed `[ESCAPE, needle[0], ESCAPE, needle[1], …]` pattern,
+    /// populated when no symbol's expansion contains any byte of the
+    /// needle. In that regime, the only way the DFA can reach `accept`
+    /// from state 0 is by consuming exactly this 2L-byte pattern, so the
+    /// scan can prefilter with a single `memmem` whose pattern length
+    /// equals the encoded needle — far more selective than the 2-byte
+    /// `(ESCAPE, needle[0])` anchor the bucketed Teddy pair scan uses.
+    /// Only set for needles of length `>= 2`, where the longer pattern
+    /// strictly improves on the existing `escape_pair` 2-byte path.
+    escape_only_pattern: Option<Vec<u8>>,
 }
 
 #[inline]
@@ -282,6 +295,16 @@ impl FoldedContainsDfa {
             if v.is_empty() { None } else { Some(v) }
         });
 
+        // Escape-only fast path: when no symbol's expansion contains any
+        // needle byte, the only DFA-accepting compressed sequence is the
+        // 2L-byte pattern `[ESCAPE, needle[0], …, ESCAPE, needle[L-1]]`.
+        // Only enable for L >= 2 — at L = 1 the encoded pattern is
+        // identical to the existing escape_pair 2-byte memmem, so taking
+        // a separate path would just add a redundant branch.
+        let escape_only_pattern = (needle.len() >= 2
+            && needle_bytes_absent_from_all_symbols(symbols, symbol_lengths, needle))
+        .then(|| build_escape_only_encoded_pattern(needle));
+
         Ok(Self {
             transitions,
             accept_state,
@@ -291,6 +314,7 @@ impl FoldedContainsDfa {
             bucketed_triple_codes,
             bucketed_pair_fallback_codes,
             single_step_accept_codes,
+            escape_only_pattern,
         })
     }
 
@@ -337,6 +361,9 @@ impl FoldedContainsDfa {
 
     #[inline]
     pub(crate) fn scan_plan_name(&self) -> &'static str {
+        if self.escape_only_pattern.is_some() {
+            return "escape_only_memmem";
+        }
         if self.single_step_accept_codes.is_none() {
             if self.bucketed_triple_codes.is_some() {
                 return triple_streaming_plan_name();
@@ -393,6 +420,18 @@ impl FoldedContainsDfa {
     where
         T: vortex_array::dtype::IntegerPType,
     {
+        // Escape-only fast path: when no symbol's expansion contains any
+        // needle byte, the only DFA-accepting compressed sequence is the
+        // precomputed 2L-byte pattern. A single `memmem` over `all_bytes`
+        // gives us a per-row "could match" set with O(|pattern|) skip
+        // distance; each candidate row is then verified by the standard
+        // `matches` DFA, which correctly handles the rare case where the
+        // memmem hit is at a literal-byte position (compressed[p-1] =
+        // ESCAPE AND compressed[p] = 255) rather than a code position.
+        if let Some(pattern) = self.escape_only_pattern.as_deref() {
+            return self.scan_via_escape_only_memmem(n, offsets, all_bytes, pattern, negated);
+        }
+
         // Prefer the bucketed 2-byte pair anchor when buckets exist AND
         // there are no single-step-accept codes. This is the most
         // selective prefilter the folded DFA can run — eliminates
@@ -545,6 +584,85 @@ impl FoldedContainsDfa {
         }
 
         scan_to_bitbuf_with(n, offsets, all_bytes, negated, |codes| self.matches(codes))
+    }
+
+    /// Scan via a single `memmem` pass for the precomputed escape-only
+    /// encoded needle. Each `memmem` hit identifies the first row that
+    /// covers the hit position; we verify the row once with the standard
+    /// `matches` DFA (which is exact, including for the rare hits that
+    /// land at a literal-byte position rather than a code position) and
+    /// then skip remaining hits inside the same row.
+    fn scan_via_escape_only_memmem<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        pattern: &[u8],
+        negated: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        let mut bits = if negated {
+            BitBufferMut::new_set(n)
+        } else {
+            BitBufferMut::new_unset(n)
+        };
+        if n == 0 || pattern.len() > all_bytes.len() {
+            return bits.freeze();
+        }
+        debug_assert!(offsets.len() > n);
+
+        // SAFETY: caller guarantees `offsets.len() > n`, i.e. at least
+        // `n + 1` entries.
+        let mut string_idx: usize = 0;
+        let mut string_start: usize = unsafe { *offsets.get_unchecked(0) }.as_();
+        let mut string_end: usize = unsafe { *offsets.get_unchecked(1) }.as_();
+        let mut last_processed_row: Option<usize> = None;
+
+        for hit in memchr::memmem::find_iter(all_bytes, pattern) {
+            // A hit at position `hit` is only meaningful if the full
+            // pattern fits inside a single row. Advance to the row that
+            // would contain the start of the hit.
+            while hit >= string_end {
+                string_idx += 1;
+                if string_idx >= n {
+                    return bits.freeze();
+                }
+                // SAFETY: `string_idx < n` and `offsets.len() >= n + 1`.
+                string_start = string_end;
+                string_end = unsafe { *offsets.get_unchecked(string_idx + 1) }.as_();
+            }
+
+            if last_processed_row == Some(string_idx) {
+                continue;
+            }
+            // The pattern must lie entirely within this row.
+            if hit + pattern.len() > string_end {
+                last_processed_row = Some(string_idx);
+                continue;
+            }
+
+            // Verify with the full DFA on the row to handle the rare
+            // literal-position false positive (where the candidate's
+            // first byte is the literal `255` after an ESCAPE, not an
+            // ESCAPE code at a code position).
+            // SAFETY: `string_start <= string_end <= all_bytes.len()`.
+            let row = unsafe { all_bytes.get_unchecked(string_start..string_end) };
+            if self.matches(row) {
+                // SAFETY: `string_idx < n`.
+                unsafe {
+                    if negated {
+                        bits.unset_unchecked(string_idx);
+                    } else {
+                        bits.set_unchecked(string_idx);
+                    }
+                }
+            }
+            last_processed_row = Some(string_idx);
+        }
+
+        bits.freeze()
     }
 
     /// Drive `BitBuffer::collect_bool` over `n` strings using a precomputed

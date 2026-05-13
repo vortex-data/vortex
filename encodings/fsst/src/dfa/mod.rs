@@ -413,6 +413,50 @@ where
 // DFA construction helpers
 // ---------------------------------------------------------------------------
 
+/// Returns `true` iff no byte of `needle` appears in any symbol's expansion.
+///
+/// When this holds, every needle byte in the decompressed stream must come
+/// from an `ESCAPE` pair, so the only compressed sequence that reaches the
+/// contains DFA's accept state from state 0 is exactly
+/// `[ESCAPE, needle[0], ESCAPE, needle[1], …, ESCAPE, needle[L-1]]`. The
+/// contains scan can then prefilter with a single `memmem` for that 2L-byte
+/// pattern, which is dramatically more selective than the 2-byte
+/// `(ESCAPE, needle[0])` anchor that the bucketed Teddy pair scan would
+/// otherwise use.
+pub(super) fn needle_bytes_absent_from_all_symbols(
+    symbols: &[Symbol],
+    symbol_lengths: &[u8],
+    needle: &[u8],
+) -> bool {
+    let mut needle_byte_present = [false; 256];
+    for &b in needle {
+        needle_byte_present[usize::from(b)] = true;
+    }
+    debug_assert!(symbol_lengths.len() >= symbols.len());
+    for (sym, &len) in symbols.iter().zip(symbol_lengths.iter()) {
+        let bytes = sym.to_u64().to_le_bytes();
+        let len = usize::from(len).min(8);
+        for &b in &bytes[..len] {
+            if needle_byte_present[usize::from(b)] {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Build the compressed pattern `[ESCAPE, needle[0], ESCAPE, needle[1], …,
+/// ESCAPE, needle[L-1]]`. Only meaningful when
+/// [`needle_bytes_absent_from_all_symbols`] is true.
+pub(super) fn build_escape_only_encoded_pattern(needle: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(needle.len() * 2);
+    for &b in needle {
+        out.push(ESCAPE_CODE);
+        out.push(b);
+    }
+    out
+}
+
 /// Builds the per-symbol transition table for FSST symbols.
 ///
 /// For each `(state, symbol_code)` pair, simulates feeding the symbol's bytes

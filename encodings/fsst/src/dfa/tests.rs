@@ -392,6 +392,164 @@ fn test_folded_contains_scan_handles_escape_only_pair_anchor() -> VortexResult<(
     Ok(())
 }
 
+/// Escape-only fast path: a multi-byte needle whose bytes don't appear in
+/// any symbol's expansion. The scan should rely on a single `memmem` for
+/// the encoded 2L-byte pattern and produce exact results across rows.
+#[test]
+fn test_folded_contains_escape_only_path() -> VortexResult<()> {
+    // Symbols contain only the letters "abcdefgh" — none of the needle
+    // bytes appear in any symbol.
+    let symbols = [sym(b"ab"), sym(b"cd"), sym(b"ef"), sym(b"gh")];
+    let lengths = [2u8, 2, 2, 2];
+    let needle = b"XYZ";
+    let dfa = FoldedContainsDfa::new(&symbols, &lengths, needle)?;
+    assert_eq!(dfa.scan_plan_name(), "escape_only_memmem");
+
+    // Row 0: matches via `XYZ` escaped at the start.
+    // Row 1: matches via `XYZ` escaped after some symbol bytes.
+    // Row 2: no match — has X and Z but no `XYZ` substring.
+    // Row 3: empty.
+    // Row 4: matches via `XYZ` straddling escapes interleaved with symbols
+    //   that decompress to non-needle bytes — these symbols reset the
+    //   DFA back to state 0 between escapes, so they MUST be absent
+    //   between the three escape pairs for a real match.
+    let mut row0 = escaped(b"XYZ");
+    row0.extend_from_slice(&[0u8, 1, 2]);
+    let mut row1 = vec![0u8, 1];
+    row1.extend_from_slice(&escaped(b"XYZ"));
+    let mut row2 = escaped(b"XaZ");
+    row2.extend_from_slice(&[3u8]);
+    let row3: Vec<u8> = Vec::new();
+    // Row 4 has the three escape pairs separated by a symbol — should NOT match.
+    let mut row4 = escaped(b"X");
+    row4.extend_from_slice(&[0u8]);
+    row4.extend_from_slice(&escaped(b"YZ"));
+
+    let rows = [row0, row1, row2, row3, row4];
+    let mut all_bytes = Vec::new();
+    let mut offsets = Vec::with_capacity(rows.len() + 1);
+    offsets.push(0u32);
+    for row in rows {
+        all_bytes.extend_from_slice(&row);
+        offsets.push(u32::try_from(all_bytes.len()).expect("test data fits in u32"));
+    }
+
+    let bits = dfa.scan_to_bitbuf(5, &offsets, &all_bytes, false);
+    assert!(bits.value(0));
+    assert!(bits.value(1));
+    assert!(!bits.value(2));
+    assert!(!bits.value(3));
+    assert!(!bits.value(4));
+
+    let negated = dfa.scan_to_bitbuf(5, &offsets, &all_bytes, true);
+    assert!(!negated.value(0));
+    assert!(!negated.value(1));
+    assert!(negated.value(2));
+    assert!(negated.value(3));
+    assert!(negated.value(4));
+
+    Ok(())
+}
+
+/// Escape-only fast path stays disabled (and the normal Teddy / 1-byte
+/// paths kick in) as soon as any symbol contains a needle byte.
+#[test]
+fn test_folded_contains_escape_only_disabled_when_symbol_overlap() -> VortexResult<()> {
+    // Symbol "Xy" contains 'X', a needle byte, so the escape-only path
+    // must be skipped — the regular Teddy / 1-byte routing handles it.
+    let symbols = [sym(b"Xy"), sym(b"cd")];
+    let lengths = [2u8, 2];
+    let needle = b"XYZ";
+    let dfa = FoldedContainsDfa::new(&symbols, &lengths, needle)?;
+    assert_ne!(dfa.scan_plan_name(), "escape_only_memmem");
+
+    // Matches across the symbol boundary: code 0 ("Xy") then escaped "YZ"
+    // → decompressed "XyYZ", which does NOT contain "XYZ". Make sure the
+    // fallback DFA agrees.
+    let row_no_match = vec![0u8, ESCAPE_CODE, b'Y', ESCAPE_CODE, b'Z'];
+    assert!(!dfa.matches(&row_no_match));
+
+    // Matches via full escape sequence.
+    let row_match = escaped(b"XYZ");
+    assert!(dfa.matches(&row_match));
+
+    Ok(())
+}
+
+/// Escape-only fast path on an empty symbol table — every byte is
+/// escaped, so the encoded pattern path applies trivially.
+#[test]
+fn test_folded_contains_escape_only_no_symbols() -> VortexResult<()> {
+    let dfa = FoldedContainsDfa::new(&[], &[], b"hi")?;
+    assert_eq!(dfa.scan_plan_name(), "escape_only_memmem");
+
+    let rows = [
+        escaped(b"say hi there"),
+        escaped(b"no match"),
+        escaped(b"hi"),
+        Vec::new(),
+    ];
+    let mut all_bytes = Vec::new();
+    let mut offsets = Vec::with_capacity(rows.len() + 1);
+    offsets.push(0u32);
+    for row in rows {
+        all_bytes.extend_from_slice(&row);
+        offsets.push(u32::try_from(all_bytes.len()).expect("test data fits in u32"));
+    }
+
+    let bits = dfa.scan_to_bitbuf(4, &offsets, &all_bytes, false);
+    assert!(bits.value(0));
+    assert!(!bits.value(1));
+    assert!(bits.value(2));
+    assert!(!bits.value(3));
+    Ok(())
+}
+
+/// Cross-row safety: a memmem hit that straddles two row boundaries must
+/// NOT be reported as a match for either row. The encoded pattern is
+/// `[ESCAPE, 'a', ESCAPE, 'b']`; place the first half at the end of row 0
+/// and the second half at the start of row 1.
+#[test]
+fn test_folded_contains_escape_only_no_cross_row_match() -> VortexResult<()> {
+    let dfa = FoldedContainsDfa::new(&[], &[], b"ab")?;
+    assert_eq!(dfa.scan_plan_name(), "escape_only_memmem");
+
+    // Row 0: ends with [ESCAPE, 'a'] (matches needle byte 0 then ends).
+    // Row 1: starts with [ESCAPE, 'b'] (escaped 'b' on its own).
+    // Concatenated in `all_bytes`, memmem will find `[ESCAPE, 'a',
+    // ESCAPE, 'b']` straddling the row boundary; we must not promote it
+    // to a match for either row.
+    let row0 = vec![ESCAPE_CODE, b'a'];
+    let row1 = vec![ESCAPE_CODE, b'b'];
+    let mut all_bytes = Vec::new();
+    let mut offsets = Vec::with_capacity(3);
+    offsets.push(0u32);
+    all_bytes.extend_from_slice(&row0);
+    offsets.push(u32::try_from(all_bytes.len()).expect("fits in u32"));
+    all_bytes.extend_from_slice(&row1);
+    offsets.push(u32::try_from(all_bytes.len()).expect("fits in u32"));
+
+    let bits = dfa.scan_to_bitbuf(2, &offsets, &all_bytes, false);
+    assert!(!bits.value(0));
+    assert!(!bits.value(1));
+    Ok(())
+}
+
+/// FsstMatcher end-to-end: the user-visible LIKE pipeline must produce
+/// identical results regardless of which DFA path the scan chooses.
+#[test]
+fn test_folded_contains_escape_only_matcher_routing() -> VortexResult<()> {
+    let symbols = [sym(b"ab"), sym(b"cd"), sym(b"ef")];
+    let lengths = [2u8, 2, 2];
+    let matcher = FsstMatcher::try_new(&symbols, &lengths, b"%XYZ%")?
+        .expect("contains pattern must produce a matcher");
+
+    assert!(matcher.matches(&escaped(b"the XYZ string")));
+    assert!(!matcher.matches(&escaped(b"the xyz string")));
+    assert!(!matcher.matches(&escaped(b"XY")));
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // MultiContainsDfa unit tests
 // ---------------------------------------------------------------------------
