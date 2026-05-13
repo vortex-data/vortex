@@ -1,0 +1,121 @@
+pub mod vortex_int_mult
+
+pub struct vortex_int_mult::IntMult
+
+impl vortex_int_mult::IntMult
+
+pub fn vortex_int_mult::IntMult::encode(vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, u64, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_int_mult::IntMultArray>
+
+pub fn vortex_int_mult::IntMult::try_new(vortex_array::array::erased::ArrayRef, vortex_array::array::erased::ArrayRef, u64) -> vortex_error::VortexResult<vortex_int_mult::IntMultArray>
+
+impl core::clone::Clone for vortex_int_mult::IntMult
+
+pub fn vortex_int_mult::IntMult::clone(&self) -> vortex_int_mult::IntMult
+
+impl core::fmt::Debug for vortex_int_mult::IntMult
+
+pub fn vortex_int_mult::IntMult::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::vtable::VTable for vortex_int_mult::IntMult
+
+pub type vortex_int_mult::IntMult::OperationsVTable = vortex_int_mult::IntMult
+
+pub type vortex_int_mult::IntMult::TypedArrayData = vortex_int_mult::IntMultData
+
+pub type vortex_int_mult::IntMult::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
+
+pub fn vortex_int_mult::IntMult::buffer(vortex_array::array::view::ArrayView<'_, Self>, usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_int_mult::IntMult::buffer_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> core::option::Option<alloc::string::String>
+
+pub fn vortex_int_mult::IntMult::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &[vortex_array::buffer::BufferHandle], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
+
+pub fn vortex_int_mult::IntMult::execute(vortex_array::array::typed::Array<Self>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+
+pub fn vortex_int_mult::IntMult::id(&self) -> vortex_array::array::ArrayId
+
+pub fn vortex_int_mult::IntMult::nbuffers(vortex_array::array::view::ArrayView<'_, Self>) -> usize
+
+pub fn vortex_int_mult::IntMult::serialize(vortex_array::array::view::ArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_int_mult::IntMult::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
+
+pub fn vortex_int_mult::IntMult::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_int_mult::IntMult> for vortex_int_mult::IntMult
+
+pub fn vortex_int_mult::IntMult::scalar_at(vortex_array::array::view::ArrayView<'_, vortex_int_mult::IntMult>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::array::vtable::validity::ValidityChild<vortex_int_mult::IntMult> for vortex_int_mult::IntMult
+
+pub fn vortex_int_mult::IntMult::validity_child(vortex_array::array::view::ArrayView<'_, vortex_int_mult::IntMult>) -> vortex_array::array::erased::ArrayRef
+
+pub struct vortex_int_mult::IntMultData
+
+impl vortex_int_mult::IntMultData
+
+pub fn vortex_int_mult::IntMultData::base(&self) -> u64
+
+impl core::clone::Clone for vortex_int_mult::IntMultData
+
+pub fn vortex_int_mult::IntMultData::clone(&self) -> vortex_int_mult::IntMultData
+
+impl core::fmt::Debug for vortex_int_mult::IntMultData
+
+pub fn vortex_int_mult::IntMultData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_int_mult::IntMultData
+
+pub fn vortex_int_mult::IntMultData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_int_mult::IntMultData
+
+pub fn vortex_int_mult::IntMultData::array_eq(&self, &Self, vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_int_mult::IntMultData
+
+pub fn vortex_int_mult::IntMultData::array_hash<H: core::hash::Hasher>(&self, &mut H, vortex_array::hash::Precision)
+
+pub struct vortex_int_mult::IntMultMetadata
+
+pub vortex_int_mult::IntMultMetadata::base: u64
+
+impl core::clone::Clone for vortex_int_mult::IntMultMetadata
+
+pub fn vortex_int_mult::IntMultMetadata::clone(&self) -> vortex_int_mult::IntMultMetadata
+
+impl core::default::Default for vortex_int_mult::IntMultMetadata
+
+pub fn vortex_int_mult::IntMultMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_int_mult::IntMultMetadata
+
+pub fn vortex_int_mult::IntMultMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_int_mult::IntMultMetadata
+
+pub fn vortex_int_mult::IntMultMetadata::clear(&mut self)
+
+pub fn vortex_int_mult::IntMultMetadata::encoded_len(&self) -> usize
+
+pub trait vortex_int_mult::IntMultArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_int_mult::IntMult>
+
+pub fn vortex_int_mult::IntMultArrayExt::base(&self) -> u64
+
+pub fn vortex_int_mult::IntMultArrayExt::primary(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_int_mult::IntMultArrayExt::ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub fn vortex_int_mult::IntMultArrayExt::secondary(&self) -> &vortex_array::array::erased::ArrayRef
+
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_int_mult::IntMult>> vortex_int_mult::IntMultArrayExt for T
+
+pub fn T::base(&self) -> u64
+
+pub fn T::primary(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub fn T::secondary(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub type vortex_int_mult::IntMultArray = vortex_array::array::typed::Array<vortex_int_mult::IntMult>

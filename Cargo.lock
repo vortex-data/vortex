@@ -10822,6 +10822,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-int-mult"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "prost 0.14.3",
+ "rand 0.10.1",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-pco",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-io"
 version = "0.1.0"
 dependencies = [
