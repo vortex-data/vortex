@@ -20,8 +20,15 @@ vortex-error = { workspace = true }
 vortex-session = { workspace = true }
 
 [dev-dependencies]
+divan = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-pco = { workspace = true }
+
+[[bench]]
+name = "recast"
+harness = false
 
 [lints]
 workspace = true

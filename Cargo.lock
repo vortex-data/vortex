@@ -10967,10 +10967,13 @@ dependencies = [
 name = "vortex-ordered-latent"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
+ "rand 0.10.1",
  "rstest",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-pco",
  "vortex-session",
 ]
 
