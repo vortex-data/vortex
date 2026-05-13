@@ -63,9 +63,9 @@ impl DType {
             | List(_, null)
             | FixedSizeList(_, _, null)
             | Struct(_, null)
-            | Union(null) => matches!(null, Nullability::Nullable),
+            | Union(null)
+            | Variant(null) => matches!(null, Nullability::Nullable),
             Extension(ext_dtype) => ext_dtype.storage_dtype().is_nullable(),
-            Variant(null) => matches!(null, Nullability::Nullable),
         }
     }
 
@@ -92,8 +92,8 @@ impl DType {
             FixedSizeList(edt, size, _) => FixedSizeList(Arc::clone(edt), *size, nullability),
             Struct(sf, _) => Struct(sf.clone(), nullability),
             Union(_) => Union(nullability),
-            Extension(ext) => Extension(ext.with_nullability(nullability)),
             Variant(_) => Variant(nullability),
+            Extension(ext) => Extension(ext.with_nullability(nullability)),
         }
     }
 
@@ -124,10 +124,10 @@ impl DType {
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
             }
             (Union(_), Union(_)) => true,
+            (Variant(_), Variant(_)) => true,
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
                 lhs_extdtype.eq_ignore_nullability(rhs_extdtype)
             }
-            (Variant(_), Variant(_)) => true,
             _ => false,
         }
     }
@@ -252,23 +252,22 @@ impl DType {
         matches!(self, Union(..))
     }
 
-    /// Check if `self` is a [`DType::Extension`] type
-    pub fn is_extension(&self) -> bool {
-        matches!(self, Extension(_))
-    }
-
     /// Check if `self` is a [`DType::Variant`] type
     pub fn is_variant(&self) -> bool {
         matches!(self, Variant(_))
+    }
+
+    /// Check if `self` is a [`DType::Extension`] type
+    pub fn is_extension(&self) -> bool {
+        matches!(self, Extension(_))
     }
 
     /// Check if `self` is a nested type, i.e. list, fixed size list, struct, or extension of a
     /// recursive type.
     pub fn is_nested(&self) -> bool {
         match self {
-            List(..) | FixedSizeList(..) | Struct(..) | Union(..) => true,
+            List(..) | FixedSizeList(..) | Struct(..) | Union(..) | Variant(..) => true,
             Extension(ext) => ext.storage_dtype().is_nested(),
-            Variant(..) => true,
             _ => false,
         }
     }
@@ -301,8 +300,8 @@ impl DType {
                 Some(sum)
             }
             Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            Extension(ext) => ext.storage_dtype().element_size(),
             Variant(_) => None,
+            Extension(ext) => ext.storage_dtype().element_size(),
         }
     }
 
@@ -478,8 +477,8 @@ impl Display for DType {
                     .join(", "),
             ),
             Union(null) => write!(f, "union(){null}"),
-            Extension(ext) => write!(f, "{}", ext),
             Variant(null) => write!(f, "variant{null}"),
+            Extension(ext) => write!(f, "{}", ext),
         }
     }
 }

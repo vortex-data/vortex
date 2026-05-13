@@ -640,6 +640,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                 Scalar::struct_(DType::Struct(fields.clone(), *n), field_values)
             }
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Variant(_) => continue,
             DType::Extension(ext_dtype) => {
                 // Create extension scalars with storage values.
                 let storage_scalar = match ext_dtype.storage_dtype() {
@@ -648,7 +649,6 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                 };
                 Scalar::extension_ref(ext_dtype.clone(), storage_scalar)
             }
-            DType::Variant(_) => continue,
         };
         scalars.push(scalar);
     }

@@ -238,6 +238,9 @@ impl TryFrom<&DType> for LogicalType {
                 return LogicalType::try_from(struct_type);
             }
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Variant(_) => {
+                vortex_bail!("Vortex Variant array aren't supported in DuckDB")
+            }
             DType::Extension(ext_dtype) => {
                 let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() else {
                     vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());
@@ -273,9 +276,6 @@ impl TryFrom<&DType> for LogicalType {
                         _ => vortex_bail!("Invalid TimeUnit {} for time", unit),
                     },
                 }
-            }
-            DType::Variant(_) => {
-                vortex_bail!("Vortex Variant array aren't supported in DuckDB")
             }
         };
 

@@ -87,6 +87,7 @@ impl DType {
                 s.nullable.into(),
             )),
             DtypeType::Union(u) => Ok(Self::Union(u.nullable.into())),
+            DtypeType::Variant(v) => Ok(Self::Variant(v.nullable.into())),
             DtypeType::Extension(e) => {
                 let id = ExtId::new(e.id.as_str());
                 let storage_dtype = DType::from_proto(
@@ -104,7 +105,6 @@ impl DType {
                 };
                 Ok(Self::Extension(ext_dtype))
             }
-            DtypeType::Variant(v) => Ok(Self::Variant(v.nullable.into())),
         }
     }
 }
@@ -156,14 +156,14 @@ impl TryFrom<&DType> for pb::DType {
                 DType::Union(null) => DtypeType::Union(pb::Union {
                     nullable: (*null).into(),
                 }),
+                DType::Variant(null) => DtypeType::Variant(pb::Variant {
+                    nullable: (*null).into(),
+                }),
                 DType::Extension(e) => DtypeType::Extension(Box::new(pb::Extension {
                     id: e.id().as_ref().into(),
                     storage_dtype: Some(Box::new(e.storage_dtype().try_into()?)),
                     metadata: Some(e.serialize_metadata()?),
                 })),
-                DType::Variant(null) => DtypeType::Variant(pb::Variant {
-                    nullable: (*null).into(),
-                }),
             }),
         })
     }

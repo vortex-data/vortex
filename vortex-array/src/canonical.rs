@@ -226,13 +226,13 @@ impl Canonical {
                 )
             }),
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Variant(_) => {
+                vortex_panic!(InvalidArgument: "Canonical empty is not supported for Variant")
+            }
             DType::Extension(ext_dtype) => Canonical::Extension(ExtensionArray::new(
                 ext_dtype.clone(),
                 Canonical::empty(ext_dtype.storage_dtype()).into_array(),
             )),
-            DType::Variant(_) => {
-                vortex_panic!(InvalidArgument: "Canonical empty is not supported for Variant")
-            }
         }
     }
 

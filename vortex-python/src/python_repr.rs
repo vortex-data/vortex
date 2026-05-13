@@ -91,6 +91,7 @@ impl Display for DTypePythonRepr<'_> {
                 n.python_repr()
             ),
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Variant(_) => write!(f, "variant()"),
             DType::Extension(ext) => {
                 write!(
                     f,
@@ -104,7 +105,6 @@ impl Display for DTypePythonRepr<'_> {
                 }
                 write!(f, ")")
             }
-            DType::Variant(_) => write!(f, "variant()"),
         }
     }
 }

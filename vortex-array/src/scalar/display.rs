@@ -21,8 +21,8 @@ impl Display for Scalar {
             DType::List(..) | DType::FixedSizeList(..) => write!(f, "{}", self.as_list()),
             DType::Struct(..) => write!(f, "{}", self.as_struct()),
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            DType::Extension(_) => write!(f, "{}", self.as_extension()),
             DType::Variant(_) => write!(f, "{}", self.as_variant()),
+            DType::Extension(_) => write!(f, "{}", self.as_extension()),
         }
     }
 }

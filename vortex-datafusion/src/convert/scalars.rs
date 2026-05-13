@@ -115,6 +115,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
             DType::FixedSizeList(..) => todo!("fixed-size list scalar conversion"),
             DType::Struct(..) => todo!("struct scalar conversion"),
             DType::Union(..) => todo!("union scalar conversion"),
+            DType::Variant(_) => vortex_bail!("Variant scalars aren't supported with DF"),
             DType::Extension(ext) => {
                 let storage_scalar = self.as_extension().to_storage_scalar();
 
@@ -161,7 +162,6 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                     },
                 }
             }
-            DType::Variant(_) => vortex_bail!("Variant scalars aren't supported with DF"),
         })
     }
 }

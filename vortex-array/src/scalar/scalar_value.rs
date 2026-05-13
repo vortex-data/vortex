@@ -63,13 +63,13 @@ impl ScalarValue {
                 Self::Tuple(field_values)
             }
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Variant(_) => Self::Variant(Box::new(Scalar::null(DType::Null))),
             DType::Extension(ext_dtype) => {
                 // Since we have no way to define a "zero" extension value (since we have no idea
                 // what the semantics of the extension is), a best effort attempt is to just use the
                 // zero storage value and try to make an extension scalar from that.
                 Self::zero_value(ext_dtype.storage_dtype())
             }
-            DType::Variant(_) => Self::Variant(Box::new(Scalar::null(DType::Null))),
         }
     }
 
@@ -101,13 +101,13 @@ impl ScalarValue {
                 Self::Tuple(field_values)
             }
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+            DType::Variant(_) => Self::Variant(Box::new(Scalar::null(DType::Null))),
             DType::Extension(ext_dtype) => {
                 // Since we have no way to define a "default" extension value (since we have no idea
                 // what the semantics of the extension is), a best effort attempt is to just use the
                 // default storage value and try to make an extension scalar from that.
                 Self::default_value(ext_dtype.storage_dtype())?
             }
-            DType::Variant(_) => Self::Variant(Box::new(Scalar::null(DType::Null))),
         })
     }
 }

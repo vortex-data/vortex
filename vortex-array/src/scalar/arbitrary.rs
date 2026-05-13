@@ -96,10 +96,10 @@ pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
         )
         .vortex_expect("unable to construct random `Scalar`_"),
         DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Variant(_) => todo!(),
         DType::Extension(..) => {
             unreachable!("Can't yet generate arbitrary scalars for ext dtype")
         }
-        DType::Variant(_) => todo!(),
     })
 }
 

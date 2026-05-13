@@ -190,11 +190,11 @@ fn random_array_chunk(
             .into_array())
         }
         DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-        DType::Extension(..) => {
-            unimplemented!("Extension arrays are not implemented")
-        }
         DType::Variant(_) => {
             unimplemented!("Variant arrays are not implemented")
+        }
+        DType::Extension(..) => {
+            unimplemented!("Extension arrays are not implemented")
         }
     }
 }

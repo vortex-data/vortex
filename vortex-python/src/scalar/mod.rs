@@ -118,10 +118,10 @@ impl PyScalar {
             }
             DType::Struct(..) => Self::with_subclass(py, scalar, PyStructScalar),
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            DType::Extension(..) => Self::with_subclass(py, scalar, PyExtensionScalar),
             DType::Variant(_) => Err(PyValueError::new_err(
                 "Variant scalars are not supported in Python yet",
             )),
+            DType::Extension(..) => Self::with_subclass(py, scalar, PyExtensionScalar),
         }
     }
 

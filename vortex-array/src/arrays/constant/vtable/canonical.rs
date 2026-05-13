@@ -164,6 +164,11 @@ pub(crate) fn constant_canonicalize(
             })
         }
         DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Variant(_) => {
+            unimplemented!(
+                "TODO(variant): canonicalization will use the child-array design in a follow-up"
+            )
+        }
         DType::Extension(ext_dtype) => {
             let s = scalar.as_extension();
 
@@ -179,11 +184,6 @@ pub(crate) fn constant_canonicalize(
                 .into_array();
 
             Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
-        }
-        DType::Variant(_) => {
-            unimplemented!(
-                "TODO(variant): canonicalization will use the child-array design in a follow-up"
-            )
         }
     })
 }

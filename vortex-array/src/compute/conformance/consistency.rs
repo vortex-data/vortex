@@ -1253,8 +1253,8 @@ fn test_cast_slice_consistency(array: &ArrayRef) {
             vec![DType::Struct(fields.clone(), opposite)]
         }
         DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-        DType::Extension(_) => vec![], // Extension types typically only cast to themselves
         DType::Variant(_) => unimplemented!(),
+        DType::Extension(_) => vec![], // Extension types typically only cast to themselves
     };
 
     // Test each target dtype

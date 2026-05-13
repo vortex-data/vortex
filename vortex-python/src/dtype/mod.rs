@@ -133,10 +133,10 @@ impl PyDType {
             DType::FixedSizeList(..) => Self::with_subclass(py, dtype, PyFixedSizeListDType),
             DType::Struct(..) => Self::with_subclass(py, dtype, PyStructDType),
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            DType::Extension(..) => Self::with_subclass(py, dtype, PyExtensionDType),
             DType::Variant(_) => Err(PyValueError::new_err(
                 "Variant DType is not supported in Python yet",
             )),
+            DType::Extension(..) => Self::with_subclass(py, dtype, PyExtensionDType),
         }
     }
 

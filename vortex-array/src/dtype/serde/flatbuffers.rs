@@ -197,6 +197,12 @@ impl TryFrom<ViewedDType> for DType {
                     .ok_or_else(|| vortex_err!("failed to parse union from flatbuffer"))?;
                 Ok(Self::Union(fb_union.nullable().into()))
             }
+            fb::Type::Variant => {
+                let fb_variant = fb
+                    .type__as_variant()
+                    .ok_or_else(|| vortex_err!("failed to parse variant from flatbuffer"))?;
+                Ok(Self::Variant(fb_variant.nullable().into()))
+            }
             fb::Type::Extension => {
                 let fb_ext = fb
                     .type__as_extension()
@@ -232,12 +238,6 @@ impl TryFrom<ViewedDType> for DType {
                 };
 
                 Ok(Self::Extension(ext_dtype))
-            }
-            fb::Type::Variant => {
-                let fb_variant = fb
-                    .type__as_variant()
-                    .ok_or_else(|| vortex_err!("failed to parse variant from flatbuffer"))?;
-                Ok(Self::Variant(fb_variant.nullable().into()))
             }
             _ => Err(vortex_err!("Unknown DType variant")),
         }
@@ -347,6 +347,13 @@ impl WriteFlatBuffer for DType {
                 },
             )
             .as_union_value(),
+            Self::Variant(n) => fb::Variant::create(
+                fbb,
+                &fb::VariantArgs {
+                    nullable: (*n).into(),
+                },
+            )
+            .as_union_value(),
             Self::Extension(ext) => {
                 let id = Some(fbb.create_string(ext.id().as_ref()));
                 let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb)?);
@@ -361,13 +368,6 @@ impl WriteFlatBuffer for DType {
                 )
                 .as_union_value()
             }
-            Self::Variant(n) => fb::Variant::create(
-                fbb,
-                &fb::VariantArgs {
-                    nullable: (*n).into(),
-                },
-            )
-            .as_union_value(),
         };
 
         let dtype_type = match self {
@@ -381,8 +381,8 @@ impl WriteFlatBuffer for DType {
             Self::FixedSizeList(..) => fb::Type::FixedSizeList,
             Self::Struct(..) => fb::Type::Struct_,
             Self::Union(..) => fb::Type::Union,
-            Self::Extension { .. } => fb::Type::Extension,
             Self::Variant(_) => fb::Type::Variant,
+            Self::Extension { .. } => fb::Type::Extension,
         };
 
         Ok(fb::DType::create(

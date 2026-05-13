@@ -79,10 +79,10 @@ impl ToDuckDBScalar for Scalar {
             DType::Binary(_) => self.as_binary().try_to_duckdb_scalar(),
             DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) => todo!(),
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            DType::Extension(..) => self.as_extension().try_to_duckdb_scalar(),
             DType::Variant(_) => {
                 vortex_bail!("Vortex Variant scalars aren't supported in DuckDB")
             }
+            DType::Extension(..) => self.as_extension().try_to_duckdb_scalar(),
         }
     }
 }

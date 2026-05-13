@@ -73,8 +73,8 @@ impl From<&DType> for vx_dtype_variant {
             DType::FixedSizeList(..) => vx_dtype_variant::DTYPE_FIXED_SIZE_LIST,
             DType::Struct(..) => vx_dtype_variant::DTYPE_STRUCT,
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
             DType::Variant(_) => vortex_panic!("Variant DType is not supported in FFI yet"),
+            DType::Extension(_) => vx_dtype_variant::DTYPE_EXTENSION,
         }
     }
 }

@@ -193,8 +193,8 @@ impl Scalar {
             // TODO(connor): This also seems wrong...
             DType::Struct(struct_fields, _) => value.as_list().len() == struct_fields.nfields(),
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            DType::Extension(_) => self.as_extension().to_storage_scalar().is_zero()?,
             DType::Variant(_) => self.as_variant().is_zero()?,
+            DType::Extension(_) => self.as_extension().to_storage_scalar().is_zero()?,
         };
 
         Some(is_zero)
@@ -262,8 +262,8 @@ impl Scalar {
                 .map(|fields| fields.into_iter().map(|f| f.approx_nbytes()).sum::<usize>())
                 .unwrap_or_default(),
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            DType::Extension(_) => self.as_extension().to_storage_scalar().approx_nbytes(),
             DType::Variant(_) => self.as_variant().value().map_or(0, Scalar::approx_nbytes),
+            DType::Extension(_) => self.as_extension().to_storage_scalar().approx_nbytes(),
         }
     }
 }

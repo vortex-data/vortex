@@ -292,10 +292,10 @@ fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
             .fields()
             .all(|field| supports_uncompressed_size_in_bytes(&field)),
         DType::Union(_) => todo!("TODO(connor)[Union]: unimplemented"),
+        DType::Variant(_) => false,
         DType::Extension(ext_dtype) => {
             supports_uncompressed_size_in_bytes(ext_dtype.storage_dtype())
         }
-        DType::Variant(_) => false,
     }
 }
 
