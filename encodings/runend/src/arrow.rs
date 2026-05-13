@@ -85,7 +85,8 @@ mod tests {
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
-    use vortex_array::arrow::{ArrowSessionExt, FromArrowArray};
+    use vortex_array::arrow::ArrowSessionExt;
+    use vortex_array::arrow::FromArrowArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::NativePType;
