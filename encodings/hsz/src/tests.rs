@@ -303,3 +303,119 @@ fn is_constant_detects_constant_column() -> VortexResult<()> {
     assert!(!hsz.is_constant());
     Ok(())
 }
+
+#[test]
+fn sum_in_range_matches_naive() -> VortexResult<()> {
+    let values = smooth_signal(8 * 1024);
+    let eps = 1e-6;
+    let hsz = Hsz::compress(&values, HszConfig { eps })?;
+    let lo = 7.0;
+    let hi = 12.0;
+    let expected: f64 = values
+        .iter()
+        .copied()
+        .filter(|v| *v >= lo && *v <= hi)
+        .sum();
+    let got = hsz.sum_in_range(lo, hi);
+    // Drift is bounded by eps * len in the worst case; in practice the
+    // boundary blocks are a fraction of total rows.
+    let tolerance = eps * values.len() as f64;
+    assert!(
+        (got - expected).abs() <= tolerance,
+        "sum_in_range got {got}, expected {expected}, diff {} > tolerance {tolerance}",
+        (got - expected).abs()
+    );
+    Ok(())
+}
+
+#[test]
+fn sum_in_range_full_matches_sum() -> VortexResult<()> {
+    let values = smooth_signal(4096);
+    let hsz = Hsz::compress(&values, HszConfig::default())?;
+    let full = hsz.sum_in_range(f64::NEG_INFINITY, f64::INFINITY);
+    let total = hsz.sum();
+    assert!((full - total).abs() < 1e-9, "full={full} total={total}");
+    Ok(())
+}
+
+#[test]
+fn sum_in_range_disjoint_is_zero() -> VortexResult<()> {
+    let values = smooth_signal(1024);
+    let hsz = Hsz::compress(&values, HszConfig::default())?;
+    assert_eq!(hsz.sum_in_range(1000.0, 2000.0), 0.0);
+    Ok(())
+}
+
+#[test]
+fn sum_in_range_empty_returns_zero() -> VortexResult<()> {
+    let hsz = Hsz::compress(&[], HszConfig::default())?;
+    assert_eq!(hsz.sum_in_range(0.0, 100.0), 0.0);
+    Ok(())
+}
+
+#[test]
+fn sum_in_range_excludes_outliers_outside_predicate() -> VortexResult<()> {
+    // A monotone ramp with a large outlier; predicate excludes the outlier.
+    let mut values: Vec<f64> = (0..1024).map(|i| i as f64).collect();
+    values[42] = 1e10;
+    let hsz = Hsz::compress(&values, HszConfig { eps: 0.5 })?;
+    let expected: f64 = values
+        .iter()
+        .copied()
+        .filter(|v| *v >= 100.0 && *v <= 200.0)
+        .sum();
+    let got = hsz.sum_in_range(100.0, 200.0);
+    assert!(
+        (got - expected).abs() < 1.0,
+        "got {got} expected {expected}"
+    );
+    Ok(())
+}
+
+#[test]
+fn sum_in_range_includes_outliers_inside_predicate() -> VortexResult<()> {
+    let mut values: Vec<f64> = (0..1024).map(|i| i as f64).collect();
+    values[42] = 5_000.0;
+    let hsz = Hsz::compress(&values, HszConfig { eps: 0.5 })?;
+    let lo = 4_000.0;
+    let hi = 6_000.0;
+    let expected: f64 = values
+        .iter()
+        .copied()
+        .filter(|v| *v >= lo && *v <= hi)
+        .sum();
+    let got = hsz.sum_in_range(lo, hi);
+    assert!(
+        (got - expected).abs() < 1.0,
+        "got {got} expected {expected}"
+    );
+    Ok(())
+}
+
+#[test]
+fn mean_in_range_returns_nan_on_empty_match() -> VortexResult<()> {
+    let values = smooth_signal(1024);
+    let hsz = Hsz::compress(&values, HszConfig::default())?;
+    assert!(hsz.mean_in_range(1000.0, 2000.0).is_nan());
+    Ok(())
+}
+
+#[test]
+fn mean_in_range_matches_naive() -> VortexResult<()> {
+    let values = smooth_signal(4096);
+    let hsz = Hsz::compress(&values, HszConfig { eps: 1e-6 })?;
+    let lo = 7.0;
+    let hi = 12.0;
+    let matching: Vec<f64> = values
+        .iter()
+        .copied()
+        .filter(|v| *v >= lo && *v <= hi)
+        .collect();
+    let expected = matching.iter().sum::<f64>() / matching.len() as f64;
+    let got = hsz.mean_in_range(lo, hi);
+    assert!(
+        (got - expected).abs() < 1e-3,
+        "got {got} expected {expected}"
+    );
+    Ok(())
+}
