@@ -123,6 +123,7 @@ applied directly:
 
 ```{doctest} pycon
 >>> import vortex.expr as ve
+>>>
 >>> arr = vx.array([
 ...     {'name': 'Alice', 'age': 30},
 ...     {'name': 'Bob', 'age': 25},
@@ -139,7 +140,9 @@ applied directly:
 
 ```{doctest} pycon
 >>> import pyarrow.parquet as pq
+>>>
 >>> vx.io.write(pq.read_table("_static/example.parquet"), 'example.vortex')
+>>>
 >>> f = vx.open('example.vortex')
 >>> len(f)
 1000

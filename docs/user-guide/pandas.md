@@ -10,7 +10,9 @@ convert:
 ```{doctest} pycon
 >>> import vortex as vx
 >>> import pyarrow.parquet as pq
+>>>
 >>> vx.io.write(pq.read_table("_static/example.parquet"), 'example.vortex')
+>>>
 >>> f = vx.open('example.vortex')
 >>> df = f.scan().read_all().to_pandas()
 >>> df[['tip_amount', 'fare_amount']].head(3)
@@ -47,6 +49,7 @@ convert:
 
 ```{doctest} pycon
 >>> import pandas as pd
+>>>
 >>> df = pd.DataFrame({'age': [25, 31, 33, 57], 'name': ['Joseph', 'Narendra', 'Angela', 'Mikhail']})
 >>> vx.array(df).to_arrow_table()
 pyarrow.Table

@@ -9,8 +9,10 @@ and then run `make -C docs doctest` -->
 >>> import vortex as vx
 >>> import pyarrow.parquet as pq
 >>> import os
+>>>
 >>> os.makedirs("ray_data", exist_ok=True)
 >>> table = pq.read_table("_static/example.parquet")
+>>>
 >>> vx.io.write(table, 'ray_data/example-01.vortex')
 >>> vx.io.write(table, 'ray_data/example-02.vortex')
 >>> vx.io.write(table, 'ray_data/example-03.vortex')

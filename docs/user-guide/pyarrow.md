@@ -12,6 +12,7 @@ anything that implements `IntoArrayIterator`, including {class}`pyarrow.Table` a
 ```{doctest} pycon
 >>> import pyarrow.parquet as pq
 >>> import vortex as vx
+>>>
 >>> table = pq.read_table("_static/example.parquet")
 >>> vx.io.write(table, 'example.vortex')
 ```
@@ -65,6 +66,7 @@ The {func}`~vortex.array` function constructs a Vortex array from an Arrow array
 
 ```{doctest} pycon
 >>> import pyarrow as pa
+>>>
 >>> arrow = pa.array([1, 2, None, 3])
 >>> arr = vx.array(arrow)
 >>> arr.dtype
