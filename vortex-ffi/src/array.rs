@@ -7,6 +7,10 @@ use std::ffi::c_void;
 use std::ptr;
 use std::sync::Arc;
 
+use arrow_array::array::make_array;
+use arrow_array::ffi::FFI_ArrowArray;
+use arrow_array::ffi::FFI_ArrowSchema;
+use arrow_array::ffi::from_ffi;
 use paste::paste;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
@@ -16,6 +20,7 @@ use vortex::array::arrays::NullArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
+use vortex::array::arrow::FromArrowArray;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
@@ -324,6 +329,49 @@ pub extern "C-unwind" fn vx_array_new_primitive(
         vx_ptype::PTYPE_F32 => unsafe { primitive_from_raw(ptr as *const f32, len, validity) },
         vx_ptype::PTYPE_F64 => unsafe { primitive_from_raw(ptr as *const f64, len, validity) },
     }
+}
+
+/// Create a Vortex array by importing an Arrow array via the Arrow C Data Interface.
+///
+/// `array` and `schema` together describe a single Arrow array (the standard Arrow C Data
+/// Interface pair, e.g. as produced by exporting a record batch). Both are *consumed*: their
+/// `release` callbacks are invoked by this function and the caller must not use or release them
+/// afterwards.
+///
+/// `nullable` controls the top-level nullability of the resulting array's dtype. For an Arrow
+/// record batch (which has no top-level validity) pass `false`.
+///
+/// The imported buffers are referenced zero-copy where possible; the returned array keeps the
+/// Arrow data alive until it is freed with [`vx_array_free`].
+///
+/// On error, returns NULL and sets `error_out`.
+///
+/// Example:
+///
+/// // export an Arrow record batch into (array, schema), then:
+/// vx_error* error = NULL;
+/// const vx_array* vx = vx_array_from_arrow(&array, &schema, false, &error);
+/// // ... push it to a sink or write it ...
+/// vx_array_free(vx);
+///
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_from_arrow(
+    array: *mut FFI_ArrowArray,
+    schema: *mut FFI_ArrowSchema,
+    nullable: bool,
+    error_out: *mut *mut vx_error,
+) -> *const vx_array {
+    try_or_default(error_out, || {
+        vortex_ensure!(!array.is_null(), "null arrow array");
+        vortex_ensure!(!schema.is_null(), "null arrow schema");
+        let ffi_array = unsafe { ptr::replace(array, FFI_ArrowArray::empty()) };
+        let ffi_schema = unsafe { ptr::replace(schema, FFI_ArrowSchema::empty()) };
+        let array_data = unsafe { from_ffi(ffi_array, &ffi_schema) }?;
+        drop(ffi_schema);
+        let arrow_array = make_array(array_data);
+        let vortex_array = ArrayRef::from_arrow(arrow_array.as_ref(), nullable)?;
+        Ok(vx_array::new(Arc::new(vortex_array)))
+    })
 }
 
 macro_rules! ffiarray_get_ptype {
@@ -808,5 +856,68 @@ mod tests {
 
         // Note: dtype_ptr is now invalid - this test documents the lifetime pattern
         // In real usage, don't access dtype_ptr after freeing the array
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_from_arrow_roundtrip() {
+        use arrow_array::Array as ArrowArrayTrait;
+        use arrow_array::Int32Array;
+        use arrow_array::RecordBatch;
+        use arrow_array::StringArray;
+        use arrow_array::ffi::to_ffi;
+        use arrow_schema::DataType;
+        use arrow_schema::Field;
+        use arrow_schema::Schema as ArrowSchema;
+
+        let schema = Arc::new(ArrowSchema::new(vec![
+            Field::new("a", DataType::Int32, false),
+            Field::new("b", DataType::Utf8, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int32Array::from(vec![1, 2, 3])),
+                Arc::new(StringArray::from(vec![Some("x"), None, Some("z")])),
+            ],
+        )
+        .unwrap();
+
+        let data = ArrowArrayTrait::into_data(arrow_array::StructArray::from(batch));
+        let (mut ffi_array, mut ffi_schema) = to_ffi(&data).unwrap();
+
+        let mut error = ptr::null_mut();
+        let vx = unsafe {
+            vx_array_from_arrow(
+                &raw mut ffi_array,
+                &raw mut ffi_schema,
+                false,
+                &raw mut error,
+            )
+        };
+        assert_no_error(error);
+        assert!(!vx.is_null());
+
+        unsafe {
+            assert!(vx_array_has_dtype(vx, vx_dtype_variant::DTYPE_STRUCT));
+            assert_eq!(vx_array_len(vx), 3);
+            assert!(!vx_array_is_nullable(vx));
+
+            let a = vx_array_get_field(vx, 0, &raw mut error);
+            assert_no_error(error);
+            assert!(vx_array_is_primitive(a, vx_ptype::PTYPE_I32));
+            assert_eq!(vx_array_get_i32(a, 0), 1);
+            assert_eq!(vx_array_get_i32(a, 2), 3);
+            vx_array_free(a);
+
+            let b = vx_array_get_field(vx, 1, &raw mut error);
+            assert_no_error(error);
+            assert!(vx_array_has_dtype(b, vx_dtype_variant::DTYPE_UTF8));
+            assert!(vx_array_element_is_invalid(b, 1, &raw mut error));
+            assert_no_error(error);
+            vx_array_free(b);
+
+            vx_array_free(vx);
+        }
     }
 }

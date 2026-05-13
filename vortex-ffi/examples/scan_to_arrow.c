@@ -5,6 +5,7 @@
 
 #define USE_OWN_ARROW
 typedef struct ArrowSchema FFI_ArrowSchema;
+typedef struct ArrowArray FFI_ArrowArray;
 typedef struct ArrowArrayStream FFI_ArrowArrayStream;
 #include "vortex.h"
 
