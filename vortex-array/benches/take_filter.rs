@@ -30,9 +30,6 @@ use vortex_array::RecursiveCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrays::StructArray;
-use vortex_array::arrays::VarBinViewArray;
-use vortex_array::dtype::FieldNames;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
@@ -67,20 +64,6 @@ fn primitive_array() -> ArrayRef {
     PrimitiveArray::from_iter(0..ARRAY_LEN as u32).into_array()
 }
 
-fn struct_array(len: usize) -> ArrayRef {
-    StructArray::try_new(
-        FieldNames::from(["id", "value"]),
-        vec![
-            PrimitiveArray::from_iter(0..len as u32).into_array(),
-            PrimitiveArray::from_iter((0..len).map(|idx| (idx as u64) * 3)).into_array(),
-        ],
-        len,
-        Validity::NonNullable,
-    )
-    .unwrap()
-    .into_array()
-}
-
 fn list_array(len: usize) -> ArrayRef {
     let elements = PrimitiveArray::from_iter(0..(len * LIST_SIZE) as u32).into_array();
     let offsets = Buffer::from_iter((0..=len).map(|idx| (idx * LIST_SIZE) as u32)).into_array();
@@ -88,20 +71,6 @@ fn list_array(len: usize) -> ArrayRef {
     ListArray::try_new(elements, offsets, Validity::NonNullable)
         .unwrap()
         .into_array()
-}
-
-fn string_array() -> ArrayRef {
-    let strings: Vec<String> = (0..ARRAY_LEN)
-        .map(|idx| {
-            if idx % 4 == 0 {
-                format!("long-string-value-{idx:06}")
-            } else {
-                format!("s{idx}")
-            }
-        })
-        .collect();
-
-    VarBinViewArray::from_iter_str(strings.iter().map(String::as_str)).into_array()
 }
 
 fn slice_mask(array_len: usize, filtered_len: usize) -> Mask {
@@ -203,50 +172,6 @@ fn take_filter_primitive_random_mask_random_indices<const FILTERED_LEN: usize>(
 }
 
 #[divan::bench(args = NESTED_NUM_INDICES, consts = NESTED_FILTERED_LENS)]
-fn take_filter_struct_slice_mask_sequential_indices<const FILTERED_LEN: usize>(
-    bencher: Bencher,
-    num_indices: usize,
-) {
-    let array = struct_array(NESTED_ARRAY_LEN)
-        .filter(slice_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
-    bench_take_filter(bencher, array, sequential_indices(num_indices));
-}
-
-#[divan::bench(args = NESTED_NUM_INDICES, consts = NESTED_FILTERED_LENS)]
-fn take_filter_struct_slice_mask_random_indices<const FILTERED_LEN: usize>(
-    bencher: Bencher,
-    num_indices: usize,
-) {
-    let array = struct_array(NESTED_ARRAY_LEN)
-        .filter(slice_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
-    bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
-}
-
-#[divan::bench(args = NESTED_NUM_INDICES, consts = NESTED_FILTERED_LENS)]
-fn take_filter_struct_random_mask_sequential_indices<const FILTERED_LEN: usize>(
-    bencher: Bencher,
-    num_indices: usize,
-) {
-    let array = struct_array(NESTED_ARRAY_LEN)
-        .filter(random_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
-    bench_take_filter(bencher, array, sequential_indices(num_indices));
-}
-
-#[divan::bench(args = NESTED_NUM_INDICES, consts = NESTED_FILTERED_LENS)]
-fn take_filter_struct_random_mask_random_indices<const FILTERED_LEN: usize>(
-    bencher: Bencher,
-    num_indices: usize,
-) {
-    let array = struct_array(NESTED_ARRAY_LEN)
-        .filter(random_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
-    bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
-}
-
-#[divan::bench(args = NESTED_NUM_INDICES, consts = NESTED_FILTERED_LENS)]
 fn take_filter_list_slice_mask_sequential_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
@@ -291,50 +216,6 @@ fn take_filter_list_random_mask_random_indices<const FILTERED_LEN: usize>(
 }
 
 #[divan::bench(args = NUM_INDICES, consts = FILTERED_LENS)]
-fn take_filter_string_slice_mask_sequential_indices<const FILTERED_LEN: usize>(
-    bencher: Bencher,
-    num_indices: usize,
-) {
-    let array = string_array()
-        .filter(slice_mask(ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
-    bench_take_filter(bencher, array, sequential_indices(num_indices));
-}
-
-#[divan::bench(args = NUM_INDICES, consts = FILTERED_LENS)]
-fn take_filter_string_slice_mask_random_indices<const FILTERED_LEN: usize>(
-    bencher: Bencher,
-    num_indices: usize,
-) {
-    let array = string_array()
-        .filter(slice_mask(ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
-    bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
-}
-
-#[divan::bench(args = NUM_INDICES, consts = FILTERED_LENS)]
-fn take_filter_string_random_mask_sequential_indices<const FILTERED_LEN: usize>(
-    bencher: Bencher,
-    num_indices: usize,
-) {
-    let array = string_array()
-        .filter(random_mask(ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
-    bench_take_filter(bencher, array, sequential_indices(num_indices));
-}
-
-#[divan::bench(args = NUM_INDICES, consts = FILTERED_LENS)]
-fn take_filter_string_random_mask_random_indices<const FILTERED_LEN: usize>(
-    bencher: Bencher,
-    num_indices: usize,
-) {
-    let array = string_array()
-        .filter(random_mask(ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
-    bench_take_filter(bencher, array, random_indices(num_indices, FILTERED_LEN));
-}
-
-#[divan::bench(args = NUM_INDICES, consts = FILTERED_LENS)]
 fn take_filter_primitive_nullable_slice_mask_random_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
@@ -365,42 +246,12 @@ fn take_filter_primitive_nullable_random_mask_random_indices<const FILTERED_LEN:
 }
 
 #[divan::bench(args = NESTED_NUM_INDICES, consts = NESTED_FILTERED_LENS)]
-fn take_filter_struct_nullable_random_mask_random_indices<const FILTERED_LEN: usize>(
-    bencher: Bencher,
-    num_indices: usize,
-) {
-    let array = struct_array(NESTED_ARRAY_LEN)
-        .filter(random_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
-    bench_take_filter(
-        bencher,
-        array,
-        nullable_random_indices(num_indices, FILTERED_LEN),
-    );
-}
-
-#[divan::bench(args = NESTED_NUM_INDICES, consts = NESTED_FILTERED_LENS)]
 fn take_filter_list_nullable_random_mask_random_indices<const FILTERED_LEN: usize>(
     bencher: Bencher,
     num_indices: usize,
 ) {
     let array = list_array(NESTED_ARRAY_LEN)
         .filter(random_mask(NESTED_ARRAY_LEN, FILTERED_LEN))
-        .unwrap();
-    bench_take_filter(
-        bencher,
-        array,
-        nullable_random_indices(num_indices, FILTERED_LEN),
-    );
-}
-
-#[divan::bench(args = NUM_INDICES, consts = FILTERED_LENS)]
-fn take_filter_string_nullable_random_mask_random_indices<const FILTERED_LEN: usize>(
-    bencher: Bencher,
-    num_indices: usize,
-) {
-    let array = string_array()
-        .filter(random_mask(ARRAY_LEN, FILTERED_LEN))
         .unwrap();
     bench_take_filter(
         bencher,
