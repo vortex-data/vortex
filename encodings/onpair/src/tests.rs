@@ -23,6 +23,7 @@ use vortex_array::test_harness::check_metadata;
 use vortex_session::VortexSession;
 
 use crate::OnPair;
+use crate::OnPairArrayExt;
 use crate::OnPairMetadata;
 use crate::compress::DEFAULT_DICT12_CONFIG;
 use crate::compress::onpair_compress;
@@ -237,13 +238,79 @@ fn test_onpair_unroll_tail_boundaries(#[case] n: usize) {
 #[cfg_attr(miri, ignore)]
 #[test]
 fn test_onpair_empty() {
-    let input =
-        VarBinArray::from_iter(std::iter::empty::<Option<&str>>(), DType::Utf8(Nullability::NonNullable));
+    let input = VarBinArray::from_iter(
+        std::iter::empty::<Option<&str>>(),
+        DType::Utf8(Nullability::NonNullable),
+    );
     let len = input.len();
     let dtype = input.dtype().clone();
     let arr = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG).unwrap();
     assert_eq!(arr.len(), 0);
     let mut ctx = SESSION.create_execution_ctx();
-    let canonical = arr.into_array().execute::<VarBinViewArray>(&mut ctx).unwrap();
+    let canonical = arr
+        .into_array()
+        .execute::<VarBinViewArray>(&mut ctx)
+        .unwrap();
     assert_eq!(canonical.len(), 0);
+}
+
+/// Filter must share the dictionary — never recompress (this is the
+/// regression cause on TPC-H Q22 SF=10). Exercise both selectivities
+/// and check that the result is bit-exact and still an OnPairArray.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_onpair_filter_shares_dict() {
+    let n = 5_000usize;
+    let strings: Vec<String> = (0..n)
+        .map(|i| format!("https://www.example.com/items/{i:08}"))
+        .collect();
+    let varbin = VarBinArray::from_iter(
+        strings.iter().map(|s| Some(s.as_bytes())),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let arr =
+        onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG).unwrap();
+    let dict_bytes_before = arr.dict_bytes().clone();
+    let dict_offsets_len_before = arr.dict_offsets().len();
+
+    // Keep every 7th row.
+    let keep: Vec<bool> = (0..n).map(|i| i % 7 == 0).collect();
+    let mask = vortex_mask::Mask::from_iter(keep.iter().copied());
+    let expected: Vec<&str> = strings
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| keep[i].then_some(s.as_str()))
+        .collect();
+
+    use vortex_array::arrays::filter::FilterKernel;
+    let mut filter_ctx = SESSION.create_execution_ctx();
+    let filtered = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut filter_ctx)
+        .unwrap()
+        .expect("OnPair filter must return Some");
+    assert!(
+        filtered.is::<OnPair>(),
+        "filter dropped OnPair encoding: got {}",
+        filtered.encoding_id()
+    );
+    let typed = filtered.try_downcast::<OnPair>().expect("OnPair");
+    // Dict must be byte-identical with the input — no retrain, no copy.
+    assert_eq!(typed.dict_bytes().as_slice(), dict_bytes_before.as_slice());
+    assert_eq!(typed.dict_offsets().len(), dict_offsets_len_before);
+    assert_eq!(typed.len(), expected.len());
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let canonical = typed
+        .into_array()
+        .execute::<VarBinViewArray>(&mut ctx)
+        .unwrap();
+    canonical
+        .with_iterator(|iter| {
+            let got: Vec<Option<Vec<u8>>> = iter.map(|b| b.map(|s| s.to_vec())).collect();
+            assert_eq!(got.len(), expected.len());
+            for (i, want) in expected.iter().enumerate() {
+                assert_eq!(got[i].as_deref(), Some(want.as_bytes()), "row {i}");
+            }
+            Ok::<_, vortex_error::VortexError>(())
+        })
+        .unwrap();
 }

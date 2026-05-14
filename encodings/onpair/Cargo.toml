@@ -17,6 +17,7 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+memchr = { version = "2.8.0" }
 parking_lot = { workspace = true }
 prost = { workspace = true }
 vortex-array = { workspace = true }

@@ -20,7 +20,9 @@
     clippy::panic,
     clippy::tests_outside_test_module,
     clippy::redundant_clone,
-    clippy::missing_safety_doc
+    clippy::missing_safety_doc,
+    clippy::unwrap_used,
+    clippy::expect_used
 )]
 
 use std::sync::LazyLock;
@@ -28,13 +30,21 @@ use std::sync::LazyLock;
 use divan::Bencher;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::filter::FilterKernel;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::scalar_fn::fns::binary::CompareKernel;
+use vortex_array::scalar_fn::fns::like::LikeKernel;
+use vortex_array::scalar_fn::fns::like::LikeOptions;
+use vortex_array::scalar_fn::fns::operators::CompareOperator;
 use vortex_array::session::ArraySession;
+use vortex_mask::Mask;
 use vortex_onpair::DEFAULT_DICT12_CONFIG;
 use vortex_onpair::MAX_TOKEN_SIZE;
+use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArray;
 use vortex_onpair::decode::OwnedDecodeInputs;
 use vortex_onpair::onpair_compress;
@@ -83,8 +93,7 @@ fn corpus(n: usize, shape: Shape) -> Vec<String> {
             }
         }
         Shape::Short => {
-            let templates: &[&str] =
-                &["alpha", "beta", "gamma", "delta", "eps", "zeta", "eta"];
+            let templates: &[&str] = &["alpha", "beta", "gamma", "delta", "eps", "zeta", "eta"];
             for _ in 0..n {
                 let s = next();
                 out.push(templates[(s as usize) % templates.len()].to_string());
@@ -177,6 +186,82 @@ fn canonicalize_to_varbinview(bencher: Bencher, case: (Shape, usize)) {
                     .unwrap_or_else(|e| panic!("canonicalize failed: {e}")),
             )
         });
+}
+
+// ─── Compute kernels ─────────────────────────────────────────────────────
+
+const COMPUTE_CASES: &[(Shape, usize)] = &[(Shape::UrlLog, 100_000), (Shape::UrlLog, 1_000_000)];
+
+/// `Eq` against a literal (token-aware fast path: no row decode, just
+/// `&[u16]` comparison).
+#[divan::bench(args = COMPUTE_CASES)]
+fn eq_constant(bencher: Bencher, case: (Shape, usize)) {
+    let (shape, n) = case;
+    let arr = compress(n, shape);
+    let strings = corpus(n, shape);
+    // Pick the very first row's value as the needle so we always hit at
+    // least one match.
+    let needle = strings[0].clone();
+    bencher.bench_local(|| {
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = <OnPair as CompareKernel>::compare(
+            arr.as_view(),
+            &ConstantArray::new(needle.as_str(), n).into_array(),
+            CompareOperator::Eq,
+            &mut ctx,
+        )
+        .unwrap()
+        .unwrap();
+        divan::black_box(result);
+    });
+}
+
+/// `LIKE 'prefix%'` — byte-streaming row prefix check.
+#[divan::bench(args = COMPUTE_CASES)]
+fn like_prefix(bencher: Bencher, case: (Shape, usize)) {
+    let (shape, n) = case;
+    let arr = compress(n, shape);
+    bencher.bench_local(|| {
+        let mut ctx = SESSION.create_execution_ctx();
+        let pattern = ConstantArray::new("https://www.%", n).into_array();
+        let result =
+            <OnPair as LikeKernel>::like(arr.as_view(), &pattern, LikeOptions::default(), &mut ctx)
+                .unwrap()
+                .unwrap();
+        divan::black_box(result);
+    });
+}
+
+/// `LIKE '%substring%'` — `memchr::memmem::Finder` over decoded rows.
+#[divan::bench(args = COMPUTE_CASES)]
+fn like_contains(bencher: Bencher, case: (Shape, usize)) {
+    let (shape, n) = case;
+    let arr = compress(n, shape);
+    bencher.bench_local(|| {
+        let mut ctx = SESSION.create_execution_ctx();
+        let pattern = ConstantArray::new("%example.com%", n).into_array();
+        let result =
+            <OnPair as LikeKernel>::like(arr.as_view(), &pattern, LikeOptions::default(), &mut ctx)
+                .unwrap()
+                .unwrap();
+        divan::black_box(result);
+    });
+}
+
+/// Filter — share-dict path. Builds a 1-in-7 mask so we keep ~14 % of
+/// rows; the cost is dominated by the `codes` segment copy + offsets.
+#[divan::bench(args = COMPUTE_CASES)]
+fn filter_share_dict(bencher: Bencher, case: (Shape, usize)) {
+    let (shape, n) = case;
+    let arr = compress(n, shape);
+    let mask = Mask::from_iter((0..n).map(|i| i % 7 == 0));
+    bencher.bench_local(|| {
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut ctx)
+            .unwrap()
+            .unwrap();
+        divan::black_box(result);
+    });
 }
 
 fn main() {

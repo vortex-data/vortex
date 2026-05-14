@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 //
-//! `Eq` / `NotEq` against a constant. Each row's decoded bytes are streamed
-//! through `DecodeView::for_each_dict_slice`, comparing prefix-wise against
-//! the needle, so most non-matches short-circuit before any decode work.
+//! `Eq` / `NotEq` against a constant via **token-aware** comparison.
+//!
+//! OnPair's compressor encodes every byte string deterministically via
+//! greedy LPM against the same dictionary, so two byte strings are
+//! equal **iff** their LPM token sequences are equal. We tokenise the
+//! needle once and then compare the row's `codes[lo..hi]` slice
+//! directly against the tokenised needle as `&[u16]` — no row decode.
+//!
+//! Edge case: if the needle contains a byte that has no dict entry at
+//! all (degenerate dict; OnPair training normally guarantees every
+//! single-byte token), no row can possibly equal the needle, since
+//! every row was compressed against the same dict. We return an
+//! all-zeros bitmap (or all-ones for `NotEq`).
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -19,8 +29,9 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
 use crate::OnPair;
-use crate::decode::DecodeView;
 use crate::decode::OwnedDecodeInputs;
+use crate::lpm::DictIndex;
+use crate::lpm::tokenize_needle;
 
 impl CompareKernel for OnPair {
     fn compare(
@@ -43,11 +54,26 @@ impl CompareKernel for OnPair {
         let dv = inputs.view();
         let n = lhs.array().len();
         let mut bytes = vec![0u8; n.div_ceil(8)];
-        for row in 0..n {
-            if row_equals_needle(&dv, row, &needle) {
-                bytes[row / 8] |= 1u8 << (row % 8);
+
+        let index = DictIndex::build(&dv);
+        if let Some(needle_toks) = tokenize_needle(&dv, &index, &needle) {
+            let codes = dv.codes;
+            let codes_offsets = dv.codes_offsets;
+            for r in 0..n {
+                let lo = codes_offsets[r] as usize;
+                let hi = codes_offsets[r + 1] as usize;
+                // SAFETY: codes_offsets validated at construction time.
+                let row_toks = unsafe { codes.get_unchecked(lo..hi) };
+                if row_toks == needle_toks.as_slice() {
+                    bytes[r / 8] |= 1u8 << (r % 8);
+                }
             }
         }
+        // If `tokenize_needle` returned None, no row can equal the
+        // needle (every row was compressed against the same dict, so
+        // any byte not in the dict can't appear in any row either).
+        // Leave the bitmap zeroed.
+
         let mut bool_buf = BitBuffer::new(ByteBuffer::from(bytes), n);
         if operator == CompareOperator::NotEq {
             bool_buf = !bool_buf;
@@ -66,32 +92,4 @@ fn needle_bytes(scalar: &Scalar) -> Option<Vec<u8>> {
         DType::Binary(_) => scalar.as_binary().value().map(|b| b.to_vec()),
         _ => None,
     }
-}
-
-/// True iff row `r` decodes to exactly `needle`.
-fn row_equals_needle(dv: &DecodeView<'_>, r: usize, needle: &[u8]) -> bool {
-    let mut pos = 0usize;
-    let n = needle.len();
-    let needle_ptr = needle.as_ptr();
-    let ok = dv.for_each_dict_slice(r, |slice| {
-        let take = slice.len();
-        // Fast-path: bail on length overflow first so we never compare a
-        // partial slice that would walk past `needle`.
-        if pos + take > n {
-            return false;
-        }
-        // SAFETY: `pos + take <= n`, `take == slice.len()`. Compares
-        // `needle[pos..pos+take]` with `slice` via raw `memcmp`-style
-        // pointer math. The branch on length above is the only check.
-        let eq = unsafe {
-            let lhs = needle_ptr.add(pos);
-            std::slice::from_raw_parts(lhs, take) == slice
-        };
-        if !eq {
-            return false;
-        }
-        pos += take;
-        true
-    });
-    ok && pos == n
 }

@@ -16,6 +16,7 @@ mod compress;
 mod compute;
 pub mod decode;
 mod kernel;
+mod lpm;
 mod ops;
 mod rules;
 mod slice;
