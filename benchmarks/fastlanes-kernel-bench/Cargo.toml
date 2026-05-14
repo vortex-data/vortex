@@ -42,3 +42,7 @@ harness = false
 [[bench]]
 name = "multi_block"
 harness = false
+
+[[bench]]
+name = "funnel_shift_fix"
+harness = false
