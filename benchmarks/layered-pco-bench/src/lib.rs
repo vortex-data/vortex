@@ -16,6 +16,8 @@
 //! still exercising the architecture we want to evaluate: pco's structural
 //! decorrelations on top, a cascading scheme picker on the bottom.
 
+pub mod datasets;
+
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;

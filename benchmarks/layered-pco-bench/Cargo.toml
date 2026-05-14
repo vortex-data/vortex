@@ -23,7 +23,10 @@ name = "layered-pco-bench"
 path = "src/main.rs"
 
 [dependencies]
+arrow-array = { workspace = true }
 rand = { workspace = true }
+tpchgen = { workspace = true }
+tpchgen-arrow = { workspace = true }
 vortex-array = { workspace = true }
 vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
