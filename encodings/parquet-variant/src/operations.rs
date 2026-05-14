@@ -24,6 +24,7 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ParquetVariantArrayExt;
@@ -221,7 +222,9 @@ fn scalar_from_shredded_object_scalar(
     {
         let unshredded = scalar_from_unshredded_value(metadata, &value)?;
         if !unshredded.is_null() {
-            let unshredded = unshredded.as_struct();
+            let Some(unshredded) = unshredded.as_struct_opt() else {
+                vortex_bail!("Variant typed_value must be object if typed_value is a struct");
+            };
             for name in unshredded.names().iter() {
                 if names
                     .iter()
