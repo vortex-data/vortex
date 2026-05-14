@@ -25,6 +25,7 @@ use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::struct_::StructArrayExt;
 use crate::arrays::variant::VariantArrayExt;
+use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 
@@ -178,10 +179,9 @@ fn mask_validity_variant(
             core_storage
         }
         Validity::Array(_) => {
-            // Core storage has an array-backed validity stored as its first child.
-            // Combine with the mask and replace that child via with_children.
-            let combined = Validity::and(core_validity, validity)?;
-            core_storage.with_slot(0, combined.to_array(len))?
+            // Core storage already has nulls, but its physical validity layout depends on the
+            // actual encoding. Use the mask operation instead of rewriting a presumed slot.
+            core_storage.mask(validity.to_array(len))?
         }
     };
     let masked_shredded = if let Some(shredded) = array.shredded() {

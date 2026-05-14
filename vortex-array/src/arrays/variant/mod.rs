@@ -142,8 +142,33 @@ mod tests {
         expected_core: &[Option<i32>],
         expected_shredded: &[Option<i32>],
     ) -> VortexResult<()> {
-        assert_eq!(array.len(), expected_core.len());
+        assert_variant_core_rows(array, expected_core)?;
         assert_eq!(array.len(), expected_shredded.len());
+
+        let shredded = array
+            .shredded()
+            .ok_or_else(|| vortex_err!("expected shredded child"))?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let shredded = shredded.clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let expected_shredded_array = if let Some(values) = expected_shredded
+            .iter()
+            .copied()
+            .collect::<Option<Vec<_>>>()
+        {
+            PrimitiveArray::from_iter(values)
+        } else {
+            PrimitiveArray::from_option_iter(expected_shredded.iter().copied())
+        };
+        assert_arrays_eq!(shredded, expected_shredded_array);
+
+        Ok(())
+    }
+
+    fn assert_variant_core_rows(
+        array: &VariantArray,
+        expected_core: &[Option<i32>],
+    ) -> VortexResult<()> {
+        assert_eq!(array.len(), expected_core.len());
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         for (idx, expected) in expected_core.iter().enumerate() {
@@ -159,21 +184,6 @@ mod tests {
                 None => assert!(variant.is_null()),
             }
         }
-
-        let shredded = array
-            .shredded()
-            .ok_or_else(|| vortex_err!("expected shredded child"))?;
-        let shredded = shredded.clone().execute::<PrimitiveArray>(&mut ctx)?;
-        let expected_shredded_array = if let Some(values) = expected_shredded
-            .iter()
-            .copied()
-            .collect::<Option<Vec<_>>>()
-        {
-            PrimitiveArray::from_iter(values)
-        } else {
-            PrimitiveArray::from_option_iter(expected_shredded.iter().copied())
-        };
-        assert_arrays_eq!(shredded, expected_shredded_array);
 
         Ok(())
     }
@@ -329,6 +339,31 @@ mod tests {
             &[Some(0), None, Some(2), None, Some(4)],
             &[Some(10), None, Some(12), None, Some(14)],
         )
+    }
+
+    #[test]
+    fn mask_preserves_chunked_core_storage_validity() -> VortexResult<()> {
+        let dtype = DType::Variant(Nullability::Nullable);
+        let core_chunks = [Some(1i32), None, Some(3), Some(4)]
+            .into_iter()
+            .map(|value| {
+                let scalar = match value {
+                    Some(value) => {
+                        Scalar::variant(Scalar::primitive(value, Nullability::NonNullable))
+                            .cast(&dtype)?
+                    }
+                    None => Scalar::null(dtype.clone()),
+                };
+                Ok(ConstantArray::new(scalar, 1).into_array())
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+        let core_storage = ChunkedArray::try_new(core_chunks, dtype)?.into_array();
+        let variant = VariantArray::try_new(core_storage, None)?;
+        let mask = BoolArray::from_iter([true, true, false, true]).into_array();
+
+        let masked = execute_variant(variant.into_array().mask(mask)?)?;
+
+        assert_variant_core_rows(&masked, &[Some(1), None, None, Some(4)])
     }
 
     #[test]
