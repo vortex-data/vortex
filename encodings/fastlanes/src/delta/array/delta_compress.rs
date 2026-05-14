@@ -18,7 +18,6 @@ use vortex_error::VortexResult;
 
 use crate::FL_CHUNK_SIZE;
 use crate::bit_transpose::transpose_validity;
-use crate::delta::array::unsigned_counterpart;
 use crate::fill_forward_nulls;
 pub fn delta_compress(
     array: &PrimitiveArray,
@@ -26,7 +25,7 @@ pub fn delta_compress(
 ) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
     let validity = array.validity()?;
     let original_ptype = array.ptype();
-    let unsigned_ptype = unsigned_counterpart(original_ptype);
+    let unsigned_ptype = original_ptype.to_unsigned();
     // Signed integers are processed through their unsigned counterpart: `wrapping_sub`
     // is bit-identical for signed and unsigned operands, so the encoded bytes are the
     // same regardless of how the buffer's elements are interpreted.

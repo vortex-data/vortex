@@ -20,7 +20,6 @@ use vortex_error::VortexResult;
 use crate::DeltaArray;
 use crate::bit_transpose::untranspose_validity;
 use crate::delta::array::DeltaArrayExt;
-use crate::delta::array::unsigned_counterpart;
 
 pub fn delta_decompress(
     array: &DeltaArray,
@@ -36,7 +35,7 @@ pub fn delta_decompress(
     let validity = validity.slice(start..end)?;
 
     let original_ptype = deltas.ptype();
-    let unsigned_ptype = unsigned_counterpart(original_ptype);
+    let unsigned_ptype = original_ptype.to_unsigned();
     // Signed inputs are processed through their unsigned counterpart; `wrapping_add` on the
     // raw bytes inverts the `wrapping_sub` done at compress time regardless of signedness.
     let (bases, deltas) = if original_ptype == unsigned_ptype {

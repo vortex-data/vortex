@@ -116,22 +116,6 @@ impl DeltaData {
 }
 
 pub(crate) fn lane_count(ptype: PType) -> usize {
-    match_each_unsigned_integer_ptype!(unsigned_counterpart(ptype), |T| { T::LANES })
+    match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| { T::LANES })
 }
 
-/// Map a signed integer [`PType`] to its same-width unsigned counterpart; other [`PType`]s
-/// pass through unchanged.
-///
-/// The FastLanes kernels (`Delta::delta`, `Transpose::transpose`, ...) are only implemented
-/// for unsigned integer types. Signed inputs are processed by viewing the same bytes through
-/// the unsigned counterpart; `wrapping_sub` / `wrapping_add` are bit-identical for signed and
-/// unsigned operands under two's-complement, so the round-trip is exact.
-pub(crate) fn unsigned_counterpart(ptype: PType) -> PType {
-    match ptype {
-        PType::I8 => PType::U8,
-        PType::I16 => PType::U16,
-        PType::I32 => PType::U32,
-        PType::I64 => PType::U64,
-        other => other,
-    }
-}
