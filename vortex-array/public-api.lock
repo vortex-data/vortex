@@ -21038,7 +21038,7 @@ pub struct vortex_array::stats::session::StatsSession
 
 impl core::default::Default for vortex_array::stats::StatsSession
 
-pub fn vortex_array::stats::StatsSession::default() -> vortex_array::stats::StatsSession
+pub fn vortex_array::stats::StatsSession::default() -> Self
 
 impl core::fmt::Debug for vortex_array::stats::StatsSession
 
@@ -21114,7 +21114,7 @@ pub struct vortex_array::stats::StatsSession
 
 impl core::default::Default for vortex_array::stats::StatsSession
 
-pub fn vortex_array::stats::StatsSession::default() -> vortex_array::stats::StatsSession
+pub fn vortex_array::stats::StatsSession::default() -> Self
 
 impl core::fmt::Debug for vortex_array::stats::StatsSession
 

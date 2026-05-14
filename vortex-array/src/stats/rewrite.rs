@@ -16,6 +16,10 @@ use crate::expr::or_collect;
 use crate::scalar_fn::ScalarFnId;
 use crate::stats::session::StatsSessionExt;
 
+mod builtins;
+
+pub(crate) use builtins::register_builtins;
+
 /// Shared reference to a stats rewrite rule.
 pub(crate) type StatsRewriteRuleRef = Arc<dyn StatsRewriteRule>;
 
