@@ -1,1 +1,117 @@
 pub mod vortex_float_quant
+
+pub struct vortex_float_quant::FloatQuant
+
+impl vortex_float_quant::FloatQuant
+
+pub fn vortex_float_quant::FloatQuant::encode(vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, u32, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_float_quant::FloatQuantArray>
+
+pub fn vortex_float_quant::FloatQuant::try_new(vortex_array::array::erased::ArrayRef, vortex_array::array::erased::ArrayRef, u32) -> vortex_error::VortexResult<vortex_float_quant::FloatQuantArray>
+
+impl core::clone::Clone for vortex_float_quant::FloatQuant
+
+pub fn vortex_float_quant::FloatQuant::clone(&self) -> vortex_float_quant::FloatQuant
+
+impl core::fmt::Debug for vortex_float_quant::FloatQuant
+
+pub fn vortex_float_quant::FloatQuant::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::vtable::VTable for vortex_float_quant::FloatQuant
+
+pub type vortex_float_quant::FloatQuant::OperationsVTable = vortex_float_quant::FloatQuant
+
+pub type vortex_float_quant::FloatQuant::TypedArrayData = vortex_float_quant::FloatQuantData
+
+pub type vortex_float_quant::FloatQuant::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
+
+pub fn vortex_float_quant::FloatQuant::buffer(vortex_array::array::view::ArrayView<'_, Self>, usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_float_quant::FloatQuant::buffer_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> core::option::Option<alloc::string::String>
+
+pub fn vortex_float_quant::FloatQuant::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &[vortex_array::buffer::BufferHandle], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
+
+pub fn vortex_float_quant::FloatQuant::execute(vortex_array::array::typed::Array<Self>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+
+pub fn vortex_float_quant::FloatQuant::id(&self) -> vortex_array::array::ArrayId
+
+pub fn vortex_float_quant::FloatQuant::nbuffers(vortex_array::array::view::ArrayView<'_, Self>) -> usize
+
+pub fn vortex_float_quant::FloatQuant::serialize(vortex_array::array::view::ArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_float_quant::FloatQuant::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
+
+pub fn vortex_float_quant::FloatQuant::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_float_quant::FloatQuant> for vortex_float_quant::FloatQuant
+
+pub fn vortex_float_quant::FloatQuant::scalar_at(vortex_array::array::view::ArrayView<'_, vortex_float_quant::FloatQuant>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::array::vtable::validity::ValidityChild<vortex_float_quant::FloatQuant> for vortex_float_quant::FloatQuant
+
+pub fn vortex_float_quant::FloatQuant::validity_child(vortex_array::array::view::ArrayView<'_, vortex_float_quant::FloatQuant>) -> vortex_array::array::erased::ArrayRef
+
+pub struct vortex_float_quant::FloatQuantData
+
+impl vortex_float_quant::FloatQuantData
+
+pub fn vortex_float_quant::FloatQuantData::k(&self) -> u32
+
+impl core::clone::Clone for vortex_float_quant::FloatQuantData
+
+pub fn vortex_float_quant::FloatQuantData::clone(&self) -> vortex_float_quant::FloatQuantData
+
+impl core::fmt::Debug for vortex_float_quant::FloatQuantData
+
+pub fn vortex_float_quant::FloatQuantData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_float_quant::FloatQuantData
+
+pub fn vortex_float_quant::FloatQuantData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_float_quant::FloatQuantData
+
+pub fn vortex_float_quant::FloatQuantData::array_eq(&self, &Self, vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_float_quant::FloatQuantData
+
+pub fn vortex_float_quant::FloatQuantData::array_hash<H: core::hash::Hasher>(&self, &mut H, vortex_array::hash::Precision)
+
+pub struct vortex_float_quant::FloatQuantMetadata
+
+pub vortex_float_quant::FloatQuantMetadata::k: u32
+
+impl core::clone::Clone for vortex_float_quant::FloatQuantMetadata
+
+pub fn vortex_float_quant::FloatQuantMetadata::clone(&self) -> vortex_float_quant::FloatQuantMetadata
+
+impl core::default::Default for vortex_float_quant::FloatQuantMetadata
+
+pub fn vortex_float_quant::FloatQuantMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_float_quant::FloatQuantMetadata
+
+pub fn vortex_float_quant::FloatQuantMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_float_quant::FloatQuantMetadata
+
+pub fn vortex_float_quant::FloatQuantMetadata::clear(&mut self)
+
+pub fn vortex_float_quant::FloatQuantMetadata::encoded_len(&self) -> usize
+
+pub trait vortex_float_quant::FloatQuantArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_float_quant::FloatQuant>
+
+pub fn vortex_float_quant::FloatQuantArrayExt::k(&self) -> u32
+
+pub fn vortex_float_quant::FloatQuantArrayExt::primary(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_float_quant::FloatQuantArrayExt::secondary(&self) -> &vortex_array::array::erased::ArrayRef
+
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_float_quant::FloatQuant>> vortex_float_quant::FloatQuantArrayExt for T
+
+pub fn T::k(&self) -> u32
+
+pub fn T::primary(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::secondary(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub type vortex_float_quant::FloatQuantArray = vortex_array::array::typed::Array<vortex_float_quant::FloatQuant>
