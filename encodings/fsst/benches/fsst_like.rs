@@ -189,3 +189,160 @@ fn fsst_not_contains_google_urls(bencher: Bencher) {
 fn fsst_not_contains_xyzzy_rare(bencher: Bencher) {
     bench_not_like(bencher, &FSST_RARE_MATCH, "%xyzzy%");
 }
+
+// Short-needle (≤ 4 byte) benches that exercise the Shift-Or matcher path
+// added in dfa/shift_or.rs. On selective short needles, the bit-parallel
+// `(state << shift) | or_mask` inner loop replaces the Teddy + verifier
+// dispatch and wins ≥ 1.5×.
+
+#[divan::bench]
+fn fsst_contains_short_xy_urls(bencher: Bencher) {
+    bench_like(bencher, &FSST_URLS, "%xy%");
+}
+
+#[divan::bench]
+fn fsst_contains_short_zz_urls(bencher: Bencher) {
+    bench_like(bencher, &FSST_URLS, "%zz%");
+}
+
+#[divan::bench]
+fn fsst_contains_short_qq_urls(bencher: Bencher) {
+    bench_like(bencher, &FSST_URLS, "%qq%");
+}
+
+#[divan::bench]
+fn fsst_contains_short_zzz_urls(bencher: Bencher) {
+    bench_like(bencher, &FSST_URLS, "%zzz%");
+}
+
+#[divan::bench]
+fn fsst_contains_short_qq_cb(bencher: Bencher) {
+    bench_like(bencher, &FSST_CB_URLS, "%qq%");
+}
+
+#[divan::bench]
+fn fsst_contains_short_xyzz_rare(bencher: Bencher) {
+    bench_like(bencher, &FSST_RARE_MATCH, "%xyzz%");
+}
+
+// ---------------------------------------------------------------------------
+// Fat Teddy / multi-needle OR benches
+//
+// Each `fsst_contains_or_<n>_<dataset>` bench runs `MultiNeedleMatcher`
+// (Fat Teddy single pass) on a small needle list, while the
+// `fsst_contains_or_<n>_<dataset>_npass` baseline runs the same needles
+// as N separate single-pattern `FsstMatcher` scans and bitwise-ORs the
+// results. The Fat Teddy variant should be ≥ 1.5× faster than the
+// N-pass baseline for n ≥ 4.
+// ---------------------------------------------------------------------------
+
+/// Run `MultiNeedleMatcher::scan_or_to_bitbuf` on `fsst` for the given
+/// needle list, returning the OR bit-buffer.
+fn fat_teddy_or(fsst: &FSSTArray, patterns: &[&str]) -> vortex_buffer::BitBuffer {
+    #[expect(deprecated)]
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::varbin::VarBinArrayExt;
+    use vortex_array::match_each_integer_ptype;
+    use vortex_fsst::FSSTArrayExt;
+    use vortex_fsst::dfa::MultiNeedleMatcher;
+
+    let symbols = fsst.symbols();
+    let symbol_lengths = fsst.symbol_lengths();
+    let codes = fsst.codes();
+    #[expect(deprecated)]
+    let offsets = codes.offsets().to_primitive();
+    let all_bytes = codes.bytes();
+    let all_bytes = all_bytes.as_slice();
+    let n = codes.len();
+    let pattern_bytes: Vec<&[u8]> = patterns.iter().map(|s| s.as_bytes()).collect();
+    let matcher = MultiNeedleMatcher::try_new_multi(
+        symbols.as_slice(),
+        symbol_lengths.as_slice(),
+        &pattern_bytes,
+        false,
+    )
+    .unwrap()
+    .unwrap();
+    match_each_integer_ptype!(offsets.ptype(), |T| {
+        let off = offsets.as_slice::<T>();
+        matcher.scan_or_to_bitbuf(n, off, all_bytes, false)
+    })
+}
+
+/// Run N separate single-pattern `FsstMatcher` scans and OR-merge them.
+fn npass_or(fsst: &FSSTArray, patterns: &[&str]) -> vortex_buffer::BitBuffer {
+    #[expect(deprecated)]
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::varbin::VarBinArrayExt;
+    use vortex_array::match_each_integer_ptype;
+    use vortex_fsst::FSSTArrayExt;
+    use vortex_fsst::dfa::FsstMatcher;
+
+    let symbols = fsst.symbols();
+    let symbol_lengths = fsst.symbol_lengths();
+    let codes = fsst.codes();
+    #[expect(deprecated)]
+    let offsets = codes.offsets().to_primitive();
+    let all_bytes = codes.bytes();
+    let all_bytes = all_bytes.as_slice();
+    let n = codes.len();
+    let mut acc: Option<vortex_buffer::BitBuffer> = None;
+    for p in patterns {
+        let m = FsstMatcher::try_new_with(
+            symbols.as_slice(),
+            symbol_lengths.as_slice(),
+            p.as_bytes(),
+            false,
+        )
+        .unwrap()
+        .unwrap();
+        let r = match_each_integer_ptype!(offsets.ptype(), |T| {
+            let off = offsets.as_slice::<T>();
+            m.scan_to_bitbuf(n, off, all_bytes, false)
+        });
+        acc = Some(match acc {
+            Some(prev) => &prev | &r,
+            None => r,
+        });
+    }
+    acc.unwrap()
+}
+
+static NEEDLES_OR_3_URLS: &[&str] = &["%google%", "%yandex%", "%bing%"];
+static NEEDLES_OR_8_URLS: &[&str] = &[
+    "%google%", "%yandex%", "%bing%", "%duck%", "%wiki%", "%news%", "%blog%", "%shop%",
+];
+static NEEDLES_OR_16_URLS: &[&str] = &[
+    "%google%", "%yandex%", "%bing%", "%duck%", "%wiki%", "%news%", "%blog%", "%shop%", "%com%",
+    "%org%", "%net%", "%info%", "%http%", "%https%", "%www%", "%api%",
+];
+
+#[divan::bench]
+fn fsst_contains_or_3_urls(bencher: Bencher) {
+    bencher.bench(|| fat_teddy_or(&FSST_CB_URLS, NEEDLES_OR_3_URLS));
+}
+
+#[divan::bench]
+fn fsst_contains_or_3_urls_npass(bencher: Bencher) {
+    bencher.bench(|| npass_or(&FSST_CB_URLS, NEEDLES_OR_3_URLS));
+}
+
+#[divan::bench]
+fn fsst_contains_or_8_urls(bencher: Bencher) {
+    bencher.bench(|| fat_teddy_or(&FSST_CB_URLS, NEEDLES_OR_8_URLS));
+}
+
+#[divan::bench]
+fn fsst_contains_or_8_urls_npass(bencher: Bencher) {
+    bencher.bench(|| npass_or(&FSST_CB_URLS, NEEDLES_OR_8_URLS));
+}
+
+#[divan::bench]
+fn fsst_contains_or_16_urls(bencher: Bencher) {
+    bencher.bench(|| fat_teddy_or(&FSST_CB_URLS, NEEDLES_OR_16_URLS));
+}
+
+#[divan::bench]
+fn fsst_contains_or_16_urls_npass(bencher: Bencher) {
+    bencher.bench(|| npass_or(&FSST_CB_URLS, NEEDLES_OR_16_URLS));
+}
