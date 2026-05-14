@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use arrow_schema::DataType;
@@ -41,7 +42,6 @@ use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::convert::FromDataFusion;
 
@@ -121,12 +121,17 @@ pub trait ExpressionConvertor: Send + Sync {
 pub struct DefaultExpressionConvertor {}
 
 impl DefaultExpressionConvertor {
-    fn scan_projection_for_leftover_expr(
+    /// Builds scan inputs for a decimal arithmetic expression that stays in DataFusion.
+    ///
+    /// Decimal arithmetic itself is not pushed down, but schema evolution can leave
+    /// decimal-to-decimal `CastColumnExpr`s inside the leftover expression. Preserve
+    /// those casts in the scan projection so the leftover expression is rebound
+    /// against the logical decimal type DataFusion planned for.
+    fn scan_projection_for_decimal_arithmetic_leftover(
         &self,
         expr: &Arc<dyn PhysicalExpr>,
     ) -> DFResult<Vec<(String, Expression)>> {
-        let mut projected_names = HashSet::new();
-        let mut scan_projection = Vec::new();
+        let mut scan_projection = BTreeMap::new();
 
         expr.apply(|node| {
             if let Some(cast_col_expr) = node.as_any().downcast_ref::<df_expr::CastColumnExpr>()
@@ -138,24 +143,21 @@ impl DefaultExpressionConvertor {
                     .downcast_ref::<df_expr::Column>()
             {
                 let name = column.name().to_string();
-                if projected_names.insert(name.clone()) {
-                    scan_projection.push((name, self.convert(node.as_ref())?));
-                }
+                scan_projection.insert(column.index(), (name, self.convert(node.as_ref())?));
                 return Ok(TreeNodeRecursion::Stop);
+            }
+
+            if let Some(column) = node.as_any().downcast_ref::<df_expr::Column>() {
+                scan_projection.entry(column.index()).or_insert_with(|| {
+                    let name = column.name().to_string();
+                    (name.clone(), get_item(name, root()))
+                });
             }
 
             Ok(TreeNodeRecursion::Continue)
         })?;
 
-        scan_projection.extend(
-            collect_columns(expr)
-                .into_iter()
-                .filter(|c| !projected_names.contains(c.name()))
-                .sorted_by_key(|c| c.index())
-                .map(|c| (c.name().to_string(), get_item(c.name(), root()))),
-        );
-
-        Ok(scan_projection)
+        Ok(scan_projection.into_values().collect())
     }
 
     /// Attempts to convert a DataFusion ScalarFunctionExpr to a Vortex expression.
@@ -362,7 +364,8 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                     && (is_decimal(&binary_expr.left().data_type(input_schema)?)
                         && is_decimal(&binary_expr.right().data_type(input_schema)?))
                 {
-                    scan_projection.extend(self.scan_projection_for_leftover_expr(node)?);
+                    scan_projection
+                        .extend(self.scan_projection_for_decimal_arithmetic_leftover(node)?);
                     leftover_projection.push(projection_expr.clone());
                     return Ok(TreeNodeRecursion::Stop);
                 }
