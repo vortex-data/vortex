@@ -419,7 +419,9 @@ fn compute_escape_only_anchor(
         return None;
     }
     let longest = segments.iter().max_by_key(|s| s.len())?;
-    if longest.len() < 2 {
+    if longest.len() < 2 || !super::needle_is_literal(longest) {
+        // The encoded pattern is only well-defined when the longest
+        // (anchor) segment is wildcard-free.
         return None;
     }
     // Union of every segment's bytes is what must be absent from symbols.

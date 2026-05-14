@@ -328,12 +328,13 @@ impl FoldedContainsDfa {
         });
 
         // Escape-only fast path: when no symbol's expansion contains any
-        // needle byte, the only DFA-accepting compressed sequence is the
-        // 2L-byte pattern `[ESCAPE, needle[0], …, ESCAPE, needle[L-1]]`.
-        // Only enable for L >= 2 — at L = 1 the encoded pattern is
-        // identical to the existing escape_pair 2-byte memmem, so taking
-        // a separate path would just add a redundant branch.
+        // needle byte AND the needle has no `_` wildcards, the only
+        // DFA-accepting compressed sequence is the 2L-byte pattern
+        // `[ESCAPE, needle[0], …, ESCAPE, needle[L-1]]`. With wildcards
+        // present the encoded pattern is no longer unique and the
+        // memmem prefilter is disabled.
         let escape_only_pattern = (needle.len() >= 2
+            && super::needle_is_literal(needle)
             && needle_bytes_absent_from_all_symbols(symbols, symbol_lengths, needle))
         .then(|| build_escape_only_encoded_pattern(needle));
 

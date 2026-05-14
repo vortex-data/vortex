@@ -209,14 +209,21 @@ fn build_suffix_byte_table(suffix: &[u8], accept_state: u8, fail_state: u8) -> V
             }
         } else if state != fail_state {
             // State s: confirmed s bytes from the right. Next byte must be
-            // suffix[suf_len - 1 - s] to advance.
+            // suffix[suf_len - 1 - s] to advance — or any byte if that
+            // pattern position is the `_` wildcard.
             let expected = suffix[suf_len - 1 - s];
             let next_state = if s + 1 >= suf_len {
                 accept_state
             } else {
                 state + 1
             };
-            table[s * 256 + usize::from(expected)] = next_state;
+            if expected == super::WILDCARD {
+                for byte in 0..256 {
+                    table[s * 256 + byte] = next_state;
+                }
+            } else {
+                table[s * 256 + usize::from(expected)] = next_state;
+            }
         }
         // fail_state stays fail for all bytes (default)
     }

@@ -237,14 +237,20 @@ fn build_prefix_byte_table(prefix: &[u8], accept_state: u8, fail_state: u8) -> V
                 table[s * 256 + byte] = accept_state;
             }
         } else if state != fail_state {
-            // Only the correct next byte advances; everything else fails.
-            let next_byte = prefix[s];
             let next_state = if s + 1 >= prefix.len() {
                 accept_state
             } else {
                 state + 1
             };
-            table[s * 256 + usize::from(next_byte)] = next_state;
+            if prefix[s] == super::WILDCARD {
+                // Wildcard: every byte advances.
+                for byte in 0..256 {
+                    table[s * 256 + byte] = next_state;
+                }
+            } else {
+                // Only the literal byte advances; everything else fails.
+                table[s * 256 + usize::from(prefix[s])] = next_state;
+            }
         }
     }
     table

@@ -82,8 +82,22 @@ fn test_like_kind_parse() {
         Some(LikeKind::MultiContains(_))
     ));
     // Underscore in any segment rejects
+    // `_` is now accepted in anchored shapes (prefix, suffix), where
+    // there's no KMP failure ambiguity.
+    assert!(matches!(
+        LikeKind::parse(b"a_c%"),
+        Some(LikeKind::Prefix(b"a_c"))
+    ));
+    assert!(matches!(
+        LikeKind::parse(b"%a_c"),
+        Some(LikeKind::Suffix(b"a_c"))
+    ));
+    // `_` in an unanchored contains is rejected pending a proper
+    // wildcard automaton (KMP failure with wildcards is unsound).
+    assert!(LikeKind::parse(b"%a_c%").is_none());
     assert!(LikeKind::parse(b"%abc%d_f%").is_none());
-    // Underscore patterns are not supported.
+    // Anchored patterns without a bookend `%` are still unsupported
+    // (mixed-anchor work is a separate item).
     assert!(LikeKind::parse(b"a_c").is_none());
 }
 
@@ -729,6 +743,80 @@ fn test_multi_contains_matcher_handles() {
     assert!(matcher.matches(&escaped(b"xxabcxxdefxx")));
     assert!(!matcher.matches(&escaped(b"defabc")));
     assert!(!matcher.matches(&escaped(b"abc")));
+}
+
+// ---------------------------------------------------------------------------
+// `_` single-byte wildcard (anchored shapes only)
+// ---------------------------------------------------------------------------
+
+/// `_` in a prefix pattern: anchored from the row start; the wildcard
+/// position accepts any single byte.
+#[test]
+fn test_wildcard_prefix() {
+    let matcher = FsstMatcher::try_new(&[], &[], b"a_c%").unwrap().unwrap();
+    assert!(matcher.matches(&escaped(b"abc")));
+    assert!(matcher.matches(&escaped(b"aZcdef")));
+    assert!(!matcher.matches(&escaped(b"ac")));
+    assert!(!matcher.matches(&escaped(b"xabc")));
+}
+
+/// Multiple `_` in a prefix pattern.
+#[test]
+fn test_wildcard_prefix_multiple() {
+    let matcher = FsstMatcher::try_new(&[], &[], b"a__c%").unwrap().unwrap();
+    assert!(matcher.matches(&escaped(b"abXc")));
+    assert!(matcher.matches(&escaped(b"a12cdef")));
+    assert!(!matcher.matches(&escaped(b"abc")));
+    assert!(!matcher.matches(&escaped(b"abbbc")));
+}
+
+/// `_` at the start of a prefix.
+#[test]
+fn test_wildcard_prefix_leading() {
+    let matcher = FsstMatcher::try_new(&[], &[], b"_bc%").unwrap().unwrap();
+    assert!(matcher.matches(&escaped(b"abc")));
+    assert!(matcher.matches(&escaped(b"Xbcdef")));
+    assert!(!matcher.matches(&escaped(b"bc"))); // no byte before "bc"
+    assert!(!matcher.matches(&escaped(b"axc")));
+}
+
+/// `_` in a suffix pattern: anchored from the row end.
+#[test]
+fn test_wildcard_suffix() {
+    let matcher = FsstMatcher::try_new(&[], &[], b"%a_c").unwrap().unwrap();
+    assert!(matcher.matches(&escaped(b"abc")));
+    assert!(matcher.matches(&escaped(b"helloaZc")));
+    assert!(!matcher.matches(&escaped(b"abc!"))); // doesn't end with a_c
+    assert!(!matcher.matches(&escaped(b"ac")));
+}
+
+/// `_` interacting with multi-byte FSST symbols on a prefix pattern.
+#[test]
+fn test_wildcard_prefix_with_symbols() -> VortexResult<()> {
+    // code 0 = "ab", code 1 = "Xc"
+    let symbols = [sym(b"ab"), sym(b"Xc")];
+    let lengths = [2u8, 2];
+    let matcher = FsstMatcher::try_new(&symbols, &lengths, b"a_c%")?.unwrap();
+
+    // "ab" (code 0) + "c" (escape) = "abc" — matches "a_c" via 'b'.
+    assert!(matcher.matches(&[0u8, ESCAPE_CODE, b'c']));
+    // "a" (escape) + "Xc" (code 1) = "aXc" — matches with 'X'.
+    assert!(matcher.matches(&[ESCAPE_CODE, b'a', 1u8]));
+    // First byte not 'a' → no match.
+    assert!(!matcher.matches(&[1u8])); // "Xc" alone
+    Ok(())
+}
+
+/// `_` in unanchored contains is currently rejected (unsound KMP-fallback
+/// with wildcards). Verify the matcher correctly falls through.
+#[test]
+fn test_wildcard_contains_unsupported() {
+    assert!(FsstMatcher::try_new(&[], &[], b"%a_c%").unwrap().is_none());
+    assert!(
+        FsstMatcher::try_new(&[], &[], b"%a_c%xyz%")
+            .unwrap()
+            .is_none()
+    );
 }
 
 /// MultiContainsDfa escape-only prefilter: with no segment byte present

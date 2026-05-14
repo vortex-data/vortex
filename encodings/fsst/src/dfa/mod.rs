@@ -327,29 +327,37 @@ enum LikeKind<'a> {
 
 impl<'a> LikeKind<'a> {
     fn parse(pattern: &'a [u8]) -> Option<Self> {
-        // `prefix%` (including just `%` where prefix is empty)
+        // `prefix%` (including just `%` where prefix is empty).
+        // `_` in the prefix is the single-byte wildcard (anchored from
+        // the row start, no KMP fallback ambiguity).
         if let Some(prefix) = pattern.strip_suffix(b"%")
             && !prefix.contains(&b'%')
-            && !prefix.contains(&b'_')
         {
             return Some(LikeKind::Prefix(prefix));
         }
 
-        // `%suffix` (no trailing %)
+        // `%suffix` (no trailing %); `_` allowed in suffix (anchored
+        // from the row end, scanned right-to-left, also wildcard-safe).
         if let Some(suffix) = pattern.strip_prefix(b"%")
             && !suffix.contains(&b'%')
-            && !suffix.contains(&b'_')
         {
             return Some(LikeKind::Suffix(suffix));
         }
 
-        // `%needle%`
+        // `%needle%`. We reject `_` in unanchored contains for now —
+        // the symmetric KMP failure function over-approximates when
+        // wildcards appear in the matched portion, producing false
+        // positives. A correct unanchored wildcard matcher needs NFA
+        // subset construction (or per-position sliding-window match);
+        // tracked as a follow-up.
         let inner = pattern.strip_prefix(b"%")?.strip_suffix(b"%")?;
         if !inner.contains(&b'%') && !inner.contains(&b'_') {
             return Some(LikeKind::Contains(inner));
         }
 
-        // `%seg1%seg2%...%segN%`
+        // `%seg1%seg2%...%segN%`. Same wildcard limitation: any
+        // segment containing `_` falls through to the
+        // decompression-based fallback.
         let segments: Vec<&[u8]> = inner
             .split(|&b| b == b'%')
             .filter(|s| !s.is_empty())
@@ -413,16 +421,20 @@ where
 // DFA construction helpers
 // ---------------------------------------------------------------------------
 
-/// Returns `true` iff no byte of `needle` appears in any symbol's expansion.
+/// Returns `true` iff no literal byte of `needle` appears in any symbol's
+/// expansion. Wildcard (`_`) positions are skipped — they're allowed to
+/// match symbol bytes and don't constrain the prefilter.
 ///
-/// When this holds, every needle byte in the decompressed stream must come
-/// from an `ESCAPE` pair, so the only compressed sequence that reaches the
-/// contains DFA's accept state from state 0 is exactly
+/// When this holds AND the needle has no wildcards, every needle byte in
+/// the decompressed stream must come from an `ESCAPE` pair, so the only
+/// compressed sequence that reaches the contains DFA's accept state
+/// from state 0 is exactly
 /// `[ESCAPE, needle[0], ESCAPE, needle[1], …, ESCAPE, needle[L-1]]`. The
 /// contains scan can then prefilter with a single `memmem` for that 2L-byte
-/// pattern, which is dramatically more selective than the 2-byte
-/// `(ESCAPE, needle[0])` anchor that the bucketed Teddy pair scan would
-/// otherwise use.
+/// pattern. For needles WITH wildcards, the same condition implies each
+/// literal byte must come from an escape pair, but wildcard bytes can
+/// come from anywhere — the encoded pattern is no longer unique, so
+/// the memmem prefilter is disabled.
 pub(super) fn needle_bytes_absent_from_all_symbols(
     symbols: &[Symbol],
     symbol_lengths: &[u8],
@@ -430,6 +442,9 @@ pub(super) fn needle_bytes_absent_from_all_symbols(
 ) -> bool {
     let mut needle_byte_present = [false; 256];
     for &b in needle {
+        if b == WILDCARD {
+            continue;
+        }
         needle_byte_present[usize::from(b)] = true;
     }
     debug_assert!(symbol_lengths.len() >= symbols.len());
@@ -447,7 +462,8 @@ pub(super) fn needle_bytes_absent_from_all_symbols(
 
 /// Build the compressed pattern `[ESCAPE, needle[0], ESCAPE, needle[1], …,
 /// ESCAPE, needle[L-1]]`. Only meaningful when
-/// [`needle_bytes_absent_from_all_symbols`] is true.
+/// [`needle_bytes_absent_from_all_symbols`] is true AND the needle is
+/// wildcard-free.
 pub(super) fn build_escape_only_encoded_pattern(needle: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(needle.len() * 2);
     for &b in needle {
@@ -455,6 +471,12 @@ pub(super) fn build_escape_only_encoded_pattern(needle: &[u8]) -> Vec<u8> {
         out.push(b);
     }
     out
+}
+
+/// `true` iff the needle has no `_` wildcard bytes.
+#[inline]
+pub(super) fn needle_is_literal(needle: &[u8]) -> bool {
+    !needle.contains(&WILDCARD)
 }
 
 /// Builds the per-symbol transition table for FSST symbols.
@@ -581,20 +603,44 @@ fn build_fused_table(
 // KMP helpers
 // ---------------------------------------------------------------------------
 
+/// The wildcard byte in a LIKE needle. SQL `_` (`0x5F`) is interpreted
+/// as "match any single byte" by [`kmp_byte_transitions`] and
+/// [`kmp_failure_table`]. Without SQL `ESCAPE` support, every `_`
+/// in the parsed needle is a wildcard; a literal `_` cannot be
+/// expressed.
+pub(super) const WILDCARD: u8 = b'_';
+
+/// Pattern-position byte equality with wildcard semantics. Returns
+/// `true` if `a` or `b` is the [`WILDCARD`] byte, or both bytes are
+/// equal.
+#[inline]
+fn pattern_eq(a: u8, b: u8) -> bool {
+    a == WILDCARD || b == WILDCARD || a == b
+}
+
+/// Concrete-input byte match against a needle position. The pattern
+/// position `p` is one of the needle bytes (possibly the wildcard);
+/// the input byte `b` is always concrete (never a wildcard).
+#[inline]
+fn pattern_matches_byte(p: u8, b: u8) -> bool {
+    p == WILDCARD || p == b
+}
+
 /// Build the `(state × byte) → state` KMP transition table.
 ///
 /// ## Construction
 ///
 /// Uses the standard recurrence — for each non-accept state `s`:
-///   - On byte == `needle[s]`: transition to `s + 1`.
+///   - On byte == `needle[s]` (or `needle[s]` is the wildcard): transition to `s + 1`.
 ///   - On any other byte: transition to whatever the *failure* row
 ///     would give for the same byte, i.e. `table[failure[s-1] * 256 + b]`
 ///     for `s > 0`, and `0` for `s = 0`.
 ///
+/// When `needle[s]` is the [`WILDCARD`] byte (`_`), every input byte
+/// advances to `s + 1` regardless of the failure row's content.
+///
 /// This is one 256-byte memcpy + a single override per state, instead
-/// of running the KMP fallback loop at every cell. For an N=6 needle
-/// that's 6 × 256 = 1536 bytes copied + 6 overrides vs ~3500 iterative
-/// fallback steps previously — about 3× faster.
+/// of running the KMP fallback loop at every cell.
 fn kmp_byte_transitions(needle: &[u8]) -> Vec<u8> {
     let n_states = u8::try_from(needle.len() + 1)
         .vortex_expect("kmp_byte_transitions: must have needle.len() ≤ 255");
@@ -603,12 +649,16 @@ fn kmp_byte_transitions(needle: &[u8]) -> Vec<u8> {
 
     let mut table = vec![0u8; usize::from(n_states) * 256];
 
-    // State 0: only `needle[0]` advances.
-    if !needle.is_empty() {
-        table[usize::from(needle[0])] = 1;
+    // State 0: either `needle[0]` (literal) or every byte (wildcard) advances.
+    if let Some(&first) = needle.first() {
+        if first == WILDCARD {
+            table[0..256].fill(1);
+        } else {
+            table[usize::from(first)] = 1;
+        }
     }
 
-    // States 1..accept: each row is the failure-row plus one advance entry.
+    // States 1..accept: each row is the failure-row plus the advance entry.
     for state in 1..accept {
         let s = usize::from(state);
         let fail_row = usize::from(failure[s - 1]) * 256;
@@ -617,14 +667,18 @@ fn kmp_byte_transitions(needle: &[u8]) -> Vec<u8> {
         // the KMP fallback eventually lands at the same place the
         // failure-state would land on that byte.
         table.copy_within(fail_row..fail_row + 256, state_row);
-        // Override the one entry that advances.
-        table[state_row + usize::from(needle[s])] = state + 1;
+        // Override the advancing entries.
+        if needle[s] == WILDCARD {
+            // Wildcard at position s: every byte advances.
+            table[state_row..state_row + 256].fill(state + 1);
+        } else {
+            table[state_row + usize::from(needle[s])] = state + 1;
+        }
     }
 
     // Accept state: sticky — every byte stays at accept.
     if usize::from(accept) < usize::from(n_states) {
         let accept_row = usize::from(accept) * 256;
-        // SAFETY-ish: in-bounds writes to a pre-zeroed Vec.
         table[accept_row..accept_row + 256].fill(accept);
     }
 
@@ -635,10 +689,10 @@ fn kmp_failure_table(needle: &[u8]) -> Vec<u8> {
     let mut failure = vec![0u8; needle.len()];
     let mut k = 0u8;
     for i in 1..needle.len() {
-        while k > 0 && needle[usize::from(k)] != needle[i] {
+        while k > 0 && !pattern_eq(needle[usize::from(k)], needle[i]) {
             k = failure[usize::from(k) - 1];
         }
-        if needle[usize::from(k)] == needle[i] {
+        if pattern_eq(needle[usize::from(k)], needle[i]) {
             k += 1;
         }
         failure[i] = k;

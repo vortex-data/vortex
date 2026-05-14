@@ -104,6 +104,7 @@ impl FlatContainsDfa {
         // `all_bytes` whose length matches the encoded needle. Disabled
         // for L < 2 (no possible win over the existing scan path).
         let escape_only_pattern = (needle.len() >= 2
+            && super::needle_is_literal(needle)
             && needle_bytes_absent_from_all_symbols(symbols, symbol_lengths, needle))
         .then(|| build_escape_only_encoded_pattern(needle));
 
