@@ -52,6 +52,8 @@ Companion crate `experiments/aot-size` measures the AOT cost of every
 | AOT, 6 ops, u8/u16/u32/u64, all widths   | 1.9 MB     |
 | `vx` (vortex-tui) `.text` for context    | 70 MB      |
 | `vx` fastlanes kernels today             | 525 KB     |
+| `compress-bench` `.text` for context     | 35 MB      |
+| `compress-bench` fastlanes kernels today | 524 KB     |
 
 A copy-and-patch JIT that keeps **one stencil per (T, W)** and splices in
 the op collapses the 6-way op fan-out to ~316 KB across all types (≈6×

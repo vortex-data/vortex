@@ -45,17 +45,20 @@ Per-type breakdown of `cmp_all_ops_all_types`:
 
 (`46 = 7 widths × 6 ops + dispatchers/etc`, and similarly upward.)
 
-## Context: a real Vortex binary
+## Context: real Vortex binaries
 
-| Binary                | .text       | fastlanes kernels                  | kernels / .text |
-|-----------------------|-------------|-------------------------------------|-----------------|
-| `vx` (vortex-tui)     | 70,125,002 B (≈ 70 MB) | 525,027 B (188 unpack + 121 pack + 12 dispatch, **0 `unpack_cmp`**) | 0.75 %           |
-| `aot-size cmp_all_ops_all_types` | 2,189,552 B | 1,895,816 B                  | 86.6 %           |
+| Binary                            | .text                   | fastlanes kernels                       | kernels / .text |
+|-----------------------------------|-------------------------|-----------------------------------------|-----------------|
+| `vx` (vortex-tui)                 | 70,125,002 B (≈ 70 MB)  | 525,027 B (188 unpack + 121 pack + 12 dispatch, **0 `unpack_cmp`**) | 0.75 %          |
+| `compress-bench` (benchmarks/)    | 34,745,744 B (≈ 35 MB)  | 524,292 B (188 unpack + 120 pack + 12 dispatch, **0 `unpack_cmp`**) | 1.51 %          |
+| `aot-size cmp_all_ops_all_types`  | 2,189,552 B             | 1,895,816 B                             | 86.6 %          |
 
-Note `vx` has **zero `unpack_cmp` monomorphizations** — confirming that
-Vortex doesn't wire `BitPackingCompare` into its compute layer today. Any
-"all 6 compare ops" figures we cite here are *hypothetical incremental cost*
-if that wiring landed.
+Both real binaries land at ~525 KB of fastlanes code — they instantiate
+the same `unpack`/`pack` widths via `vortex-fastlanes`, regardless of
+overall binary mass. Neither has **any** `unpack_cmp` monomorphizations,
+confirming that Vortex doesn't wire `BitPackingCompare` into its compute
+layer today. Any "all 6 compare ops" figures we cite here are *hypothetical
+incremental cost* if that wiring landed.
 
 ## What the JIT saves
 
