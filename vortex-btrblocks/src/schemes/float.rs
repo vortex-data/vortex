@@ -319,7 +319,7 @@ impl Scheme for PcoScheme {
         Ok(vortex_pco::Pco::from_primitive(
             data.array_as_primitive(),
             pco::DEFAULT_COMPRESSION_LEVEL,
-            8192,
+            1024,
             exec_ctx,
         )?
         .into_array())
