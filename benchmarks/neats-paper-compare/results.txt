@@ -1,0 +1,74 @@
+dataset/column                               rows | paper_bits  paper_ratio |   ours_pco  ours_ratio |   ours_ppb   ratio
+------------------------------------------------------------------------------------------------------------------------
+beijing-pollution/No                        43824 |      14436      194.29x |        162    2164.15x |      44076   7.95x
+beijing-pollution/year                      43824 |      14836      189.05x |        237    1479.29x |     305788   1.15x
+beijing-pollution/month                     43824 |      21616      129.75x |      10510      33.36x |     276141   1.27x
+beijing-pollution/day                       43824 |     110060       25.48x |       2036     172.20x |     286381   1.22x
+beijing-pollution/hour                      43824 |     233574       12.01x |       4450      78.78x |     291885   1.20x
+beijing-pollution/pm2.5                     41757 |     381022        7.01x |      68995       4.84x |     271996   1.23x
+beijing-pollution/DEWP                      43824 |     224518       12.49x |     102504       3.42x |     288547   1.22x
+beijing-pollution/TEMP                      43824 |     232028       12.09x |      77932       4.50x |     286627   1.22x
+beijing-pollution/PRES                      43824 |     215344       13.02x |      40578       8.64x |     262166   1.34x
+beijing-pollution/Iws                       43824 |     482847        5.81x |      62199       5.64x |     285436   1.23x
+beijing-pollution/Is                        43824 |      28220       99.39x |       1890     185.50x |     314246   1.12x
+beijing-pollution/Ir                        43824 |      86846       32.30x |       4933      71.07x |     284924   1.23x
+btc-coinmetrics/AdrActCnt                    6339 |     188616        2.15x |      39072       1.30x |      46678   1.09x
+btc-coinmetrics/AdrBalCnt                    6339 |     129112        3.14x |      33930       1.49x |      45014   1.13x
+btc-coinmetrics/AssetCompletionTime          6339 |      58229        6.97x |      12013       4.22x |      31574   1.61x
+btc-coinmetrics/AssetEODCompletionTime       6339 |      58229        6.97x |      12013       4.22x |      31574   1.61x
+btc-coinmetrics/BlkCnt                       6339 |      60390        6.72x |       8465       5.99x |      46408   1.09x
+btc-coinmetrics/CapMVRVCur                   5778 |      38898        9.51x |       2431      19.01x |      38472   1.20x
+btc-coinmetrics/CapMrktCurUSD                5778 |     254276        1.45x |      32163       1.44x |      39503   1.17x
+btc-coinmetrics/FeeTotNtv                    6339 |     177616        2.28x |      35632       1.42x |      47176   1.07x
+btc-coinmetrics/FlowInExNtv                  5498 |     143763        2.45x |      35053       1.25x |      40008   1.10x
+btc-coinmetrics/FlowInExUSD                  5498 |     204320        1.72x |      33685       1.31x |      40008   1.10x
+btc-coinmetrics/FlowOutExNtv                 5498 |     142427        2.47x |      34716       1.27x |      40008   1.10x
+btc-coinmetrics/FlowOutExUSD                 5498 |     204704        1.72x |      33809       1.30x |      40008   1.10x
+btc-coinmetrics/HashRate                     6333 |     276640        1.47x |      32930       1.54x |      45142   1.12x
+btc-coinmetrics/IssTotNtv                    6333 |      86956        4.66x |      20663       2.45x |      45135   1.12x
+btc-coinmetrics/IssTotUSD                    5778 |     163736        2.26x |      34905       1.32x |      40008   1.16x
+btc-coinmetrics/PriceBTC                     6339 |      14436       28.10x |         47    1078.98x |       6404   7.92x
+btc-coinmetrics/PriceUSD                     5778 |     116080        3.19x |      31100       1.49x |      40015   1.16x
+btc-coinmetrics/ROI1yr                       5413 |      96400        3.59x |      29756       1.46x |      38998   1.11x
+btc-coinmetrics/ROI30d                       5748 |     136552        2.69x |      34070       1.35x |      40008   1.15x
+btc-coinmetrics/SplyCur                      6339 |      97024        4.18x |      26713       1.90x |      42454   1.19x
+btc-coinmetrics/SplyExNtv                    5498 |     145568        2.42x |      31210       1.41x |      38991   1.13x
+btc-coinmetrics/SplyExUSD                    5498 |     245140        1.44x |      31018       1.42x |      39766   1.11x
+btc-coinmetrics/SplyExpFut10yr               6333 |      81579        4.97x |      25977       1.95x |      40662   1.25x
+btc-coinmetrics/TxCnt                        6339 |     177256        2.29x |      40154       1.26x |      46678   1.09x
+btc-coinmetrics/TxTfrCnt                     6339 |     192496        2.11x |      38310       1.32x |      47176   1.07x
+btc-coinmetrics/volume_reported_spot_us      5778 |     224846        1.64x |      34417       1.34x |      40520   1.14x
+co2-ppm-daily/value                         18304 |      79851       14.67x |      20304       7.21x |     108722   1.35x
+daily-min-temperatures/Temp                  3650 |      43434        5.38x |       5620       5.20x |      27185   1.07x
+exchange-rates-daily/Exchange rate         260255 |     904944       18.41x |     288767       7.21x |    1078773   1.93x
+exchange_rate_multivariate/0.785500          7587 |      27608       17.59x |        441     137.63x |      52296   1.16x
+exchange_rate_multivariate/1.611000          7587 |      22283       21.79x |        182     333.49x |      53313   1.14x
+exchange_rate_multivariate/0.861698          7587 |      26728       18.17x |       4301      14.11x |      52305   1.16x
+exchange_rate_multivariate/0.634196          7587 |      26412       18.38x |       2973      20.42x |      52310   1.16x
+exchange_rate_multivariate/0.211242          7587 |      16161       30.05x |        125     485.57x |      53313   1.14x
+exchange_rate_multivariate/0.006838          7587 |      29260       16.59x |        503     120.67x |      52296   1.16x
+exchange_rate_multivariate/0.593000          7587 |      26771       18.14x |       5749      10.56x |      52310   1.16x
+exchange_rate_multivariate/0.525486          7587 |      21351       22.74x |        182     333.49x |      52296   1.16x
+global-temp-monthly/Mean                     3823 |     116701        2.10x |      24331       1.26x |      26673   1.15x
+nab-ambient-temperature/value                7267 |      42956       10.83x |       7032       8.27x |      51286   1.13x
+solar_AL_8cols/station_0                    52560 |     708893        4.75x |     145242       2.90x |     346916   1.21x
+solar_AL_8cols/station_1                    52560 |     545572        6.17x |      87536       4.80x |     346916   1.21x
+solar_AL_8cols/station_2                    52560 |     527802        6.37x |      77759       5.41x |     346916   1.21x
+solar_AL_8cols/station_3                    52560 |     531596        6.33x |      48712       8.63x |     346916   1.21x
+solar_AL_8cols/station_4                    52560 |     673234        5.00x |      56025       7.51x |     346916   1.21x
+solar_AL_8cols/station_5                    52560 |     573038        5.87x |     145102       2.90x |     346916   1.21x
+solar_AL_8cols/station_6                    52560 |     518837        6.48x |      53312       7.89x |     346916   1.21x
+solar_AL_8cols/station_7                    52560 |     527294        6.38x |      86967       4.83x |     346916   1.21x
+sp500/SP500                                  1865 |      25769        4.63x |       2361       6.32x |      13361   1.12x
+sp500/Dividend                               1865 |      21120        5.65x |       1549       9.63x |      13617   1.10x
+sp500/Earnings                               1865 |      24777        4.82x |       1623       9.19x |      13617   1.10x
+sp500/Consumer Price Index                   1865 |      21146        5.64x |        464      32.16x |      13617   1.10x
+sp500/Long Interest Rate                     1865 |      23124        5.16x |       1228      12.15x |      13617   1.10x
+sp500/Real Price                             1865 |      31056        3.84x |       4782       3.12x |      13617   1.10x
+sp500/Real Dividend                          1865 |      21106        5.66x |        790      18.89x |      13617   1.10x
+sp500/Real Earnings                          1865 |      23936        4.99x |       1128      13.23x |      13617   1.10x
+sp500/PE10                                   1865 |      22178        5.38x |        723      20.64x |      13617   1.10x
+vix-daily/OPEN                               9183 |      58792       10.00x |       4930      14.90x |      59996   1.22x
+vix-daily/HIGH                               9183 |      59920        9.81x |       4590      16.01x |      59484   1.24x
+vix-daily/LOW                                9183 |      56736       10.36x |       4322      17.00x |      59868   1.23x
+vix-daily/CLOSE                              9183 |      58408       10.06x |       4708      15.60x |      59356   1.24x
