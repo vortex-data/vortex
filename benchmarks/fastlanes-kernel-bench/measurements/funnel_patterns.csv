@@ -1,0 +1,7 @@
+variant,fastest_us,slowest_us,median_us,mean_us,samples,iters
+pat_branchless_funnel__u64__w51,2.145,114.3,2.227,2.317,383278,383278
+pat_chunked_aligned__u64__w51,2.294,163.3,2.344,2.436,367651,367651
+pat_combine_then_mask__u64__w51,1.053,56.79,1.144,1.22,366072,732144
+pat_macro_shape__u64__w51,1.381,69.5,1.49,1.582,288908,577816
+pat_u128_cat__u64__w51,3.365,1492.0,3.423,3.584,257966,257966
+pat_u128_cat_unrolled4__u64__w51,3.271,112.3,3.329,3.465,267380,267380
