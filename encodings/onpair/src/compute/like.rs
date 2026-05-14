@@ -5,22 +5,20 @@
 //! everything else returns `None` so the caller decompresses + runs the
 //! scalar `LIKE` on the canonical bytes.
 //!
-//! * `'literal'` — token-aware equality. LPM-tokenise the literal once
+//! * `'literal'` — token-aware equality (LPM-tokenise the literal once
 //!   and compare the row's `codes[lo..hi]` against the tokenised needle
-//!   as `&[u16]`. Full byte equality is exactly equivalent to full LPM
-//!   token-sequence equality, so this is sound and skips row decode
-//!   entirely.
-//! * `'prefix%'` — byte-streaming via `DecodeView::for_each_dict_slice`
-//!   with a single length check up front. The naive "tokenise the
-//!   prefix and compare token prefix" trick is **wrong** because the
-//!   LPM of the row's leading bytes may extend its last token past the
-//!   literal prefix's tokenisation boundary. Streaming dict slices and
-//!   comparing prefix-wise is the correct minimum-work option.
-//! * `'%substring%'` — decode each row into a small reusable scratch
-//!   buffer and run `memchr::memmem::Finder::find`, which is SIMD-
-//!   accelerated (SSE2/AVX2 on x86_64, NEON on aarch64) and Two-Way
-//!   underneath. The `Finder` is built once per kernel call and reused
-//!   across every row.
+//!   as `&[u16]`). No row decode.
+//! * `'prefix%'` — OnPair-style [`PrefixAutomaton`][crate::dfa::PrefixAutomaton]:
+//!   tokenise the prefix and precompute valid-divergence intervals for
+//!   each query position. Per-row scan is `≤ q + 1` `u16` comparisons
+//!   plus one interval check; no decode at all in the hot path.
+//! * `'%substring%'` — dict-bloom skip + `memchr::memmem` over the
+//!   decoded row only when needed.
+//!   [`ContainsBloom`][crate::dfa::ContainsBloom] precomputes "this
+//!   dict entry contains the substring" and "some suffix of this entry
+//!   could start a cross-token match". Most rows resolve via the bloom
+//!   without touching `dict_bytes`; the rest fall through to a
+//!   scratch-buffer decode + memmem.
 //!
 //! Escapes (`\\`), single-character wildcards (`_`), mid-pattern
 //! wildcards, and `case_insensitive: true` all bail out with `None`.
@@ -40,6 +38,8 @@ use vortex_error::VortexResult;
 use crate::OnPair;
 use crate::decode::DecodeView;
 use crate::decode::OwnedDecodeInputs;
+use crate::dfa::ContainsBloom;
+use crate::dfa::PrefixAutomaton;
 use crate::lpm::DictIndex;
 use crate::lpm::tokenize_needle;
 
@@ -110,28 +110,36 @@ impl LikeKernel for OnPair {
                 if let Some(needle_toks) = tokenize_needle(&dv, &index, needle) {
                     let codes = dv.codes;
                     let codes_offsets = dv.codes_offsets;
+                    let needle_slice = needle_toks.as_slice();
                     for r in 0..n {
                         let lo = codes_offsets[r] as usize;
                         let hi = codes_offsets[r + 1] as usize;
                         // SAFETY: codes_offsets validated at construction.
                         let row_toks = unsafe { codes.get_unchecked(lo..hi) };
-                        if row_toks == needle_toks.as_slice() {
+                        if row_toks == needle_slice {
                             bytes[r / 8] |= 1u8 << (r % 8);
                         }
                     }
                 }
-                // Else: needle has a byte not in the dict, no row matches.
+                // Else: needle has a byte not in the dict ⇒ no row matches.
             }
             PatternShape::StartsWith(prefix) => {
                 if prefix.is_empty() {
                     fill_all(&mut bytes, n);
-                } else {
+                } else if let Some(automaton) = PrefixAutomaton::build(&dv, prefix) {
+                    let codes = dv.codes;
+                    let codes_offsets = dv.codes_offsets;
                     for r in 0..n {
-                        if row_starts_with(&dv, r, prefix) {
+                        let lo = codes_offsets[r] as usize;
+                        let hi = codes_offsets[r + 1] as usize;
+                        // SAFETY: codes_offsets validated at construction.
+                        let row_toks = unsafe { codes.get_unchecked(lo..hi) };
+                        if automaton.matches(row_toks) {
                             bytes[r / 8] |= 1u8 << (r % 8);
                         }
                     }
                 }
+                // Else: prefix has a byte not in the dict ⇒ no row matches.
             }
             PatternShape::Contains(sub) => {
                 if sub.is_empty() {
@@ -154,48 +162,27 @@ impl LikeKernel for OnPair {
     }
 }
 
-/// `LIKE 'prefix%'` — byte-stream the row's dict slices, comparing
-/// against `prefix` and short-circuiting on the first mismatch or once
-/// the prefix is satisfied.
-fn row_starts_with(dv: &DecodeView<'_>, r: usize, prefix: &[u8]) -> bool {
-    let mut pos = 0usize;
-    let mut matched = false;
-    let plen = prefix.len();
-    let prefix_ptr = prefix.as_ptr();
-    dv.for_each_dict_slice(r, |slice| {
-        let remaining = plen - pos;
-        let take = slice.len().min(remaining);
-        // SAFETY: `pos + take <= plen` because `take <= remaining`,
-        //         and `take <= slice.len()` by construction.
-        let eq = unsafe {
-            let lhs = std::slice::from_raw_parts(prefix_ptr.add(pos), take);
-            let rhs = slice.get_unchecked(..take);
-            lhs == rhs
-        };
-        if !eq {
-            return false;
-        }
-        pos += take;
-        if pos == plen {
-            matched = true;
-            return false; // short-circuit, prefix satisfied
-        }
-        true
-    });
-    matched
-}
-
-/// `%substring%` pushdown via SIMD-accelerated `memmem`. The `Finder`
-/// is built once and reused across every row's decoded bytes; the
-/// scratch buffer is reused too so each row decode reuses the same
-/// allocation.
+/// `%substring%` pushdown: dict-bloom skip + per-row decode + memmem.
 fn contains_into_bitmap(dv: &DecodeView<'_>, sub: &[u8], n: usize, out: &mut [u8]) {
+    let bloom = ContainsBloom::build(dv, sub);
     let finder = memmem::Finder::new(sub);
     let mut scratch: Vec<u8> = Vec::with_capacity(64);
+    let codes = dv.codes;
+    let codes_offsets = dv.codes_offsets;
     for r in 0..n {
-        scratch.clear();
-        dv.decode_row_into(r, &mut scratch);
-        if finder.find(&scratch).is_some() {
+        let lo = codes_offsets[r] as usize;
+        let hi = codes_offsets[r + 1] as usize;
+        // SAFETY: codes_offsets validated at construction.
+        let row_toks = unsafe { codes.get_unchecked(lo..hi) };
+        let hit = match bloom.classify(row_toks) {
+            Some(b) => b,
+            None => {
+                scratch.clear();
+                dv.decode_row_into(r, &mut scratch);
+                finder.find(&scratch).is_some()
+            }
+        };
+        if hit {
             out[r / 8] |= 1u8 << (r % 8);
         }
     }

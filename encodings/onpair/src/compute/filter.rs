@@ -46,41 +46,49 @@ impl FilterKernel for OnPair {
             .clone()
             .execute::<PrimitiveArray>(ctx)?;
         let codes_arr = array.codes().clone().execute::<PrimitiveArray>(ctx)?;
-        let codes_offsets = codes_offsets_arr.as_slice::<u32>();
-
-        // First pass: sum the surviving token count so we reserve once.
-        let mut new_codes_len: usize = 0;
-        for r in 0..n_in {
-            if mask.value(r) {
-                new_codes_len += (codes_offsets[r + 1] - codes_offsets[r]) as usize;
-            }
-        }
 
         let mut new_codes_offsets = BufferMut::<u32>::with_capacity(n_out + 1);
-        // SAFETY: capacity reserved.
-        unsafe { new_codes_offsets.push_unchecked(0u32) };
 
-        let new_codes: ArrayRef = match_each_integer_ptype!(codes_arr.ptype(), |P| {
-            let codes = codes_arr.as_slice::<P>();
-            let mut out = BufferMut::<P>::with_capacity(new_codes_len);
-            let mut cursor: u32 = 0;
+        // The cascading compressor may have narrowed `codes_offsets`
+        // (e.g. u32 → u16 if every row's token count is small). Read
+        // through whatever ptype it lives at — the values still fit in
+        // `usize` when widened. Likewise for `codes`.
+        let new_codes: ArrayRef = match_each_integer_ptype!(codes_offsets_arr.ptype(), |OP| {
+            let codes_offsets = codes_offsets_arr.as_slice::<OP>();
+
+            // First pass: sum the surviving token count so we reserve once.
+            let mut new_codes_len: usize = 0;
             for r in 0..n_in {
                 if mask.value(r) {
-                    let lo = codes_offsets[r] as usize;
-                    let hi = codes_offsets[r + 1] as usize;
-                    // SAFETY: codes_offsets validated at construction.
-                    let segment = unsafe { codes.get_unchecked(lo..hi) };
-                    out.extend_from_slice(segment);
-                    let segment_len = u32::try_from(hi - lo)
-                        .map_err(|_| vortex_err!("token segment overflows u32"))?;
-                    cursor = cursor
-                        .checked_add(segment_len)
-                        .ok_or_else(|| vortex_err!("codes_offsets overflow u32"))?;
-                    // SAFETY: capacity reserved (n_out + 1 entries).
-                    unsafe { new_codes_offsets.push_unchecked(cursor) };
+                    new_codes_len += (codes_offsets[r + 1] as usize) - (codes_offsets[r] as usize);
                 }
             }
-            out.freeze().into_array()
+
+            // SAFETY: capacity reserved.
+            unsafe { new_codes_offsets.push_unchecked(0u32) };
+
+            match_each_integer_ptype!(codes_arr.ptype(), |P| {
+                let codes = codes_arr.as_slice::<P>();
+                let mut out = BufferMut::<P>::with_capacity(new_codes_len);
+                let mut cursor: u32 = 0;
+                for r in 0..n_in {
+                    if mask.value(r) {
+                        let lo = codes_offsets[r] as usize;
+                        let hi = codes_offsets[r + 1] as usize;
+                        // SAFETY: codes_offsets validated at construction.
+                        let segment = unsafe { codes.get_unchecked(lo..hi) };
+                        out.extend_from_slice(segment);
+                        let segment_len = u32::try_from(hi - lo)
+                            .map_err(|_| vortex_err!("token segment overflows u32"))?;
+                        cursor = cursor
+                            .checked_add(segment_len)
+                            .ok_or_else(|| vortex_err!("codes_offsets overflow u32"))?;
+                        // SAFETY: capacity reserved (n_out + 1 entries).
+                        unsafe { new_codes_offsets.push_unchecked(cursor) };
+                    }
+                }
+                out.freeze().into_array()
+            })
         });
 
         // uncompressed_lengths + validity flow through the standard
