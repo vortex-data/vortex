@@ -13,10 +13,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::arrays::Chunked;
-use crate::arrays::ChunkedArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::chunked::ChunkedArrayExt;
 use crate::dtype::DType;
 use crate::expr::Expression;
 use crate::expr::stats::StatsProvider;
@@ -115,26 +112,6 @@ impl ScalarFnVTable for StatFn {
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
         let dtype = stat_dtype(options.aggregate_fn(), input.dtype())?;
-
-        // Recurse into each chunk so the output keeps per-chunk granularity (one constant
-        // per chunk) instead of collapsing to a single combined stat across the whole array.
-        // Per-chunk granularity is what makes the result useful for pruning: predicates can
-        // drop whole chunks at a time. Without this, we'd lose every chunk boundary as a
-        // pruning opportunity. Other encodings (zone maps, etc.) will need similar
-        // structure-preserving handling once they land.
-        if let Some(chunked) = input.as_opt::<Chunked>() {
-            tracing::trace!(
-                "stat({}) descending into ChunkedArray with {} chunks",
-                options.aggregate_fn(),
-                chunked.nchunks()
-            );
-            let chunks = chunked
-                .iter_chunks()
-                .map(|chunk| stat_array(chunk, options.aggregate_fn(), dtype.clone(), chunk.len()))
-                .collect::<VortexResult<Vec<_>>>()?;
-            return Ok(ChunkedArray::try_new(chunks, dtype)?.into_array());
-        }
-
         stat_array(&input, options.aggregate_fn(), dtype, args.row_count())
     }
 }
