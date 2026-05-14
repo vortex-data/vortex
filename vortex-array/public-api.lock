@@ -7368,8 +7368,6 @@ pub fn vortex_array::arrow::ArrowSession::register_exporter(&self, vortex_array:
 
 pub fn vortex_array::arrow::ArrowSession::register_importer(&self, vortex_array::arrow::ArrowImportVTableRef)
 
-pub fn vortex_array::arrow::ArrowSession::to_arrow_data_type(&self, &vortex_array::dtype::DType) -> vortex_error::VortexResult<arrow_schema::datatype::DataType>
-
 pub fn vortex_array::arrow::ArrowSession::to_arrow_field(&self, &str, &vortex_array::dtype::DType) -> vortex_error::VortexResult<arrow_schema::field::Field>
 
 pub fn vortex_array::arrow::ArrowSession::to_arrow_schema(&self, &vortex_array::dtype::DType) -> vortex_error::VortexResult<arrow_schema::schema::Schema>

@@ -249,12 +249,8 @@ impl ArrowSession {
 
     /// Build the Arrow [`Field`] for a Vortex [`DType`].
     ///
-    /// For [`DType::Extension`]s, plugins registered against the extension's Vortex Id
+    /// For [`DType::Extension`]s, plugins registered against the extension's `Id`
     /// are tried in registration order; the first plugin to return `Some(field)` wins.
-    /// If every registered plugin returns `None` (or none are registered) the field is
-    /// built from [`Self::to_arrow_data_type`]. Container types ([`DType::List`],
-    /// [`DType::FixedSizeList`], [`DType::Struct`]) recurse through this method so
-    /// extension metadata on nested fields is preserved.
     pub fn to_arrow_field(&self, name: &str, dtype: &DType) -> VortexResult<Field> {
         // Handle the structural encodings, which may have recursive types
         match dtype {
@@ -302,44 +298,6 @@ impl ArrowSession {
                 dtype.is_nullable(),
             )),
         }
-    }
-
-    /// Build the Arrow [`DataType`] for a Vortex [`DType`].
-    ///
-    /// Recurses into container types so nested extension fields go through registered
-    /// plugins; non-recursive, non-extension dtypes delegate to
-    /// [`DType::to_arrow_dtype`]. Note that a bare [`DataType`] cannot carry Arrow
-    /// extension metadata — for inference that needs `ARROW:extension:name` on the
-    /// outermost node, use [`Self::to_arrow_field`] instead.
-    pub fn to_arrow_data_type(&self, dtype: &DType) -> VortexResult<DataType> {
-        Ok(match dtype {
-            DType::Extension(ext) => {
-                let mut data_type = None;
-                for plugin in self.exporters_by_vortex(&ext.id()).iter() {
-                    if let Some(field) = plugin.to_arrow_field("", ext, self)? {
-                        data_type = Some(field.data_type().clone());
-                        break;
-                    }
-                }
-                match data_type {
-                    Some(dt) => dt,
-                    None => to_data_type_naive(dtype)?,
-                }
-            }
-            DType::List(elem, _) => DataType::List(Arc::new(self.to_arrow_field("item", elem)?)),
-            DType::FixedSizeList(elem, size, _) => {
-                DataType::FixedSizeList(Arc::new(self.to_arrow_field("item", elem)?), *size as i32)
-            }
-            DType::Struct(struct_dtype, _) => {
-                let mut fields = Vec::with_capacity(struct_dtype.names().len());
-                for (name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
-                    fields.push(self.to_arrow_field(name.as_ref(), &field_dtype)?);
-                }
-                DataType::Struct(fields.into())
-            }
-            // Fallback,
-            _ => to_data_type_naive(dtype)?,
-        })
     }
 
     /// Build the Arrow [`Schema`] for a Vortex top-level [`DType::Struct`], dispatching
