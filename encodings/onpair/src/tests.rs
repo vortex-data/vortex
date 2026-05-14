@@ -8,8 +8,13 @@ use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::filter::FilterKernel;
+use vortex_array::match_each_integer_ptype;
+use vortex_array::validity::Validity;
+use vortex_buffer::BufferMut;
 use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -282,7 +287,6 @@ fn test_onpair_filter_shares_dict() {
         .filter_map(|(i, s)| keep[i].then_some(s.as_str()))
         .collect();
 
-    use vortex_array::arrays::filter::FilterKernel;
     let mut filter_ctx = SESSION.create_execution_ctx();
     let filtered = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut filter_ctx)
         .unwrap()
@@ -313,4 +317,134 @@ fn test_onpair_filter_shares_dict() {
             Ok::<_, vortex_error::VortexError>(())
         })
         .unwrap();
+}
+
+/// Rebuild an OnPair array, swapping `codes_offsets` for a narrowed
+/// (smaller-ptype) primitive copy. Used by the narrowed-child
+/// regression tests below.
+fn narrow_codes_offsets(
+    arr: &crate::OnPairArray,
+    target: PType,
+) -> crate::OnPairArray {
+    let view = arr.as_view();
+    let mut ctx = SESSION.create_execution_ctx();
+    let original = view
+        .codes_offsets()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)
+        .unwrap();
+
+    let narrowed_array = match_each_integer_ptype!(original.ptype(), |SRC| {
+        let src = original.as_slice::<SRC>();
+        match_each_integer_ptype!(target, |DST| {
+            let mut buf = BufferMut::<DST>::with_capacity(src.len());
+            for &v in src {
+                buf.push(DST::try_from(v as u64).expect("value must fit in target ptype"));
+            }
+            PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array()
+        })
+    });
+
+    unsafe {
+        OnPair::new_unchecked(
+            view.dtype().clone(),
+            view.dict_bytes_handle().clone(),
+            view.dict_offsets().clone(),
+            view.codes().clone(),
+            narrowed_array,
+            view.uncompressed_lengths().clone(),
+            view.array_validity(),
+            view.bits(),
+        )
+    }
+}
+
+/// Regression: the cascading compressor can narrow `codes_offsets`
+/// from u32 → u16 when every row's token count is small. The previous
+/// `filter` impl read the child as `as_slice::<u32>()` and panicked
+/// with `Other error: Attempted to get slice of type u32 from array
+/// of type u16`. The fix dispatches via `match_each_integer_ptype!`.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_onpair_filter_with_narrowed_codes_offsets_u16() {
+    let n = 200usize;
+    // Short rows so per-row token counts stay small and codes_offsets
+    // values fit in u16. (We narrow manually below regardless — this
+    // matches the shape the cascading compressor produces in the
+    // wild.)
+    let strings: Vec<String> = (0..n).map(|i| format!("r{:03}", i)).collect();
+    let varbin = VarBinArray::from_iter(
+        strings.iter().map(|s| Some(s.as_bytes())),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let arr =
+        onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG).unwrap();
+
+    // Force `codes_offsets` to u16 so the panicking pre-fix
+    // `as_slice::<u32>()` would fire.
+    let arr = narrow_codes_offsets(&arr, PType::U16);
+    assert_eq!(
+        arr.as_view().codes_offsets().dtype().as_ptype(),
+        PType::U16,
+        "codes_offsets must be u16 to exercise the regression path"
+    );
+
+    let keep: Vec<bool> = (0..n).map(|i| i % 3 == 0).collect();
+    let mask = vortex_mask::Mask::from_iter(keep.iter().copied());
+    let expected: Vec<&str> = strings
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| keep[i].then_some(s.as_str()))
+        .collect();
+
+    let mut filter_ctx = SESSION.create_execution_ctx();
+    // Pre-fix: this call panics with "Attempted to get slice of type
+    // u32 from array of type u16". Post-fix: succeeds.
+    let filtered = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut filter_ctx)
+        .unwrap()
+        .expect("OnPair filter must return Some");
+    let typed = filtered.try_downcast::<OnPair>().expect("OnPair");
+    assert_eq!(typed.len(), expected.len());
+
+    let mut ctx = SESSION.create_execution_ctx();
+    let canonical = typed
+        .into_array()
+        .execute::<VarBinViewArray>(&mut ctx)
+        .unwrap();
+    canonical
+        .with_iterator(|iter| {
+            let got: Vec<Option<Vec<u8>>> = iter.map(|b| b.map(|s| s.to_vec())).collect();
+            assert_eq!(got.len(), expected.len());
+            for (i, want) in expected.iter().enumerate() {
+                assert_eq!(got[i].as_deref(), Some(want.as_bytes()), "row {i}");
+            }
+            Ok::<_, vortex_error::VortexError>(())
+        })
+        .unwrap();
+}
+
+/// Same regression, narrowed to u8 (smallest possible ptype) — extra
+/// coverage that the macro dispatch handles every integer ptype the
+/// cascading compressor might pick.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_onpair_filter_with_narrowed_codes_offsets_u8() {
+    let n = 100usize;
+    let strings: Vec<String> = (0..n).map(|i| format!("{i}")).collect();
+    let varbin = VarBinArray::from_iter(
+        strings.iter().map(|s| Some(s.as_bytes())),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let arr =
+        onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG).unwrap();
+    let arr = narrow_codes_offsets(&arr, PType::U8);
+    assert_eq!(arr.as_view().codes_offsets().dtype().as_ptype(), PType::U8);
+
+    let mask = vortex_mask::Mask::from_iter((0..n).map(|i| i % 2 == 0));
+
+    let mut filter_ctx = SESSION.create_execution_ctx();
+    let filtered = <OnPair as FilterKernel>::filter(arr.as_view(), &mask, &mut filter_ctx)
+        .unwrap()
+        .expect("OnPair filter must return Some");
+    assert_eq!(filtered.len(), n / 2);
 }
