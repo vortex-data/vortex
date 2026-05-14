@@ -48,6 +48,11 @@ use super::build_escape_only_encoded_pattern;
 use super::build_symbol_transitions;
 use super::kmp_byte_transitions;
 use super::needle_bytes_absent_from_all_symbols;
+use super::planner::ArchProfile;
+use super::planner::ScanContext;
+use super::planner::ScanPlan;
+use super::planner::ScanPlanner;
+use super::planner::escape_pair_targets;
 #[cfg(any(test, feature = "_test-harness"))]
 use super::scan_to_bitbuf_with as scan_to_bitbuf_with_for_bench;
 use super::scan_to_bitbuf_with;
@@ -124,88 +129,65 @@ pub struct FoldedContainsDfa {
     /// Only set for needles of length `>= 2`, where the longer pattern
     /// strictly improves on the existing `escape_pair` 2-byte path.
     escape_only_pattern: Option<Vec<u8>>,
+    /// Routing engine. Picks one of the `run_*` paths below per scan call.
+    /// Architecture detection happens once at DFA construction time so
+    /// hot-path calls do no CPUID work.
+    planner: ScanPlanner,
 }
 
-/// Estimated total-candidate count above which fused-Teddy+SSA loses to
-/// the 1-byte path. Calibrated empirically: on the bench corpora
-/// `%ear%` (~10k candidates) and `%google%` (~14k) the fused path wins;
-/// `%htt%` and `%https%` (~70k–80k candidates) regress. Threshold
-/// chosen at 32k as the midpoint with comfortable margin.
-const SSA_CANDIDATE_BUDGET: usize = 32 * 1024;
-
-/// Cheap scalar sample of a prefix of `all_bytes` for SSA bytes, then
-/// extrapolate to a full-buffer candidate estimate. Returns `true` when
-/// fused-Teddy+SSA's per-candidate dispatch is likely to lose to the
-/// 1-byte path's per-row `matches_with_bitset` short-circuit.
-fn ssa_saturated(all_bytes: &[u8], ssa_codes: &[u8]) -> bool {
-    // 8 KiB sample covers a few hundred typical rows on URL-shaped data
-    // and is cheap enough to keep in the overhead budget even when the
-    // pattern turns out to be selective.
-    const SAMPLE: usize = 8 * 1024;
-    let sample = SAMPLE.min(all_bytes.len());
-    if sample == 0 || ssa_codes.is_empty() {
-        return false;
-    }
-    let mut is_ssa = [false; 256];
-    for &c in ssa_codes {
-        is_ssa[usize::from(c)] = true;
-    }
-    // SAFETY: sample <= all_bytes.len().
-    let head = unsafe { all_bytes.get_unchecked(..sample) };
-    let hits = head.iter().filter(|&&b| is_ssa[usize::from(b)]).count();
-    // Extrapolate to the full buffer: estimated_candidates = hits * (all_bytes.len() / sample).
-    let estimated = hits.saturating_mul(all_bytes.len()) / sample;
-    estimated >= SSA_CANDIDATE_BUDGET
-}
-
+/// Per-architecture suffix for the legacy `pair_streaming` / `triple_streaming`
+/// plan names. Kept for trace/debug parity with the pre-planner output.
 #[inline]
-fn escape_pair_targets(buckets: &[(u8, Vec<u8>)]) -> Option<&[u8]> {
-    match buckets {
-        [(c1, c2_set)] if *c1 == ESCAPE_CODE && c2_set.len() <= 3 => Some(c2_set.as_slice()),
-        _ => None,
+fn pair_streaming_suffix(arch: ArchProfile) -> &'static str {
+    match arch {
+        ArchProfile::Avx512 | ArchProfile::Avx2 => "pair_streaming_avx2",
+        ArchProfile::Neon => "pair_streaming_neon",
+        ArchProfile::Scalar => "pair_streaming_scalar",
     }
 }
 
 #[inline]
-fn pair_streaming_plan_name() -> &'static str {
-    #[cfg(target_arch = "aarch64")]
-    {
-        "pair_streaming_neon"
-    }
-    #[cfg(target_arch = "x86_64")]
-    {
-        if std::is_x86_feature_detected!("avx2") {
-            "pair_streaming_avx2"
-        } else {
-            "pair_streaming_scalar"
-        }
-    }
-    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
-    {
-        "pair_streaming_scalar"
+fn triple_streaming_suffix(arch: ArchProfile) -> &'static str {
+    match arch {
+        ArchProfile::Avx512 => "triple_streaming_avx512",
+        ArchProfile::Avx2 => "triple_streaming_avx2",
+        ArchProfile::Neon => "triple_streaming_neon",
+        ArchProfile::Scalar => "triple_streaming_scalar",
     }
 }
 
 #[inline]
-fn triple_streaming_plan_name() -> &'static str {
-    #[cfg(target_arch = "aarch64")]
-    {
-        "triple_streaming_neon"
+fn teddy_trace_enabled() -> bool {
+    std::env::var_os("VORTEX_FSST_TEDDY_TRACE")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+}
+
+/// Emit a planner-level trace under `VORTEX_FSST_PLAN_TRACE=1`: chosen
+/// plan, inputs, estimated cost. Used to validate that the planner picks
+/// the same path as the legacy cascade on every bench needle.
+fn plan_trace(dfa: &FoldedContainsDfa, ctx: &ScanContext<'_>, plan: ScanPlan) {
+    let on = std::env::var_os("VORTEX_FSST_PLAN_TRACE")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    if !on {
+        return;
     }
-    #[cfg(target_arch = "x86_64")]
-    {
-        if std::is_x86_feature_detected!("avx512bw") {
-            "triple_streaming_avx512"
-        } else if std::is_x86_feature_detected!("avx2") {
-            "triple_streaming_avx2"
-        } else {
-            "triple_streaming_scalar"
-        }
-    }
-    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
-    {
-        "triple_streaming_scalar"
-    }
+    eprintln!(
+        "[fsst::planner] plan={} accept_state={} n={} bytes={} progressing={} triple={} pair={} pair_count={} ssa={} escape_only={} arch={} cost_ns={}",
+        plan,
+        dfa.accept_state,
+        ctx.n,
+        ctx.all_bytes.len(),
+        ctx.has_progressing_codes,
+        ctx.has_triple_buckets,
+        ctx.has_pair_buckets,
+        ctx.pair_bucket_count,
+        ctx.ssa_codes.map(|s| s.len()).unwrap_or(0),
+        ctx.has_escape_only_pattern,
+        dfa.planner.arch(),
+        dfa.planner.estimated_cost_ns(plan, ctx),
+    );
 }
 
 impl FoldedContainsDfa {
@@ -346,6 +328,7 @@ impl FoldedContainsDfa {
             bucketed_pair_fallback_codes,
             single_step_accept_codes,
             escape_only_pattern,
+            planner: ScanPlanner::new(),
         })
     }
 
@@ -391,7 +374,7 @@ impl FoldedContainsDfa {
     }
 
     /// The bucketed (c1, c2_set) pair buckets for this needle, if any.
-    /// Exposed to the multi-needle Fat Teddy planner so it can union the
+    /// Exposed to the multi-needle Fat Teddy matcher so it can union
     /// per-needle c2 sets per bucketed c1 across needles.
     #[inline]
     pub(super) fn bucketed_pair_codes_slice(&self) -> Option<&[(u8, Vec<u8>)]> {
@@ -399,7 +382,7 @@ impl FoldedContainsDfa {
     }
 
     /// The single-step-accept c1 codes for this needle, if any. Exposed
-    /// to the Fat Teddy planner so it can fold SSA c1's into the
+    /// to the Fat Teddy matcher so it can fold SSA c1's into the
     /// bucket's c1 set (with the bucket's c2 union acting as a wildcard
     /// for SSA candidates).
     #[inline]
@@ -407,34 +390,116 @@ impl FoldedContainsDfa {
         self.single_step_accept_codes.as_deref()
     }
 
+    /// Static (data-independent) routing name. Returns the same plan
+    /// label the legacy cascade produced ignoring runtime data — used
+    /// by tests and for tracing in places where `all_bytes` isn't on hand.
     #[inline]
     pub(crate) fn scan_plan_name(&self) -> &'static str {
-        if self.escape_only_pattern.is_some() {
-            return "escape_only_memmem";
-        }
         let has_ssa = self.single_step_accept_codes.is_some();
-        if self.bucketed_triple_codes.is_some() {
-            return if has_ssa {
-                "triple_streaming+ssa_fused"
-            } else {
-                triple_streaming_plan_name()
-            };
-        }
-        if let Some(buckets) = self.bucketed_pair_codes.as_ref() {
-            if !has_ssa && escape_pair_targets(buckets).is_some() {
-                return "escape_pair_streaming";
+        let plan = self.static_plan();
+        match plan {
+            ScanPlan::EscapeOnly => "escape_only_memmem",
+            ScanPlan::OneByteSaturated => "ssa_saturated_one_byte",
+            ScanPlan::TripleTeddy => {
+                if has_ssa {
+                    "triple_streaming+ssa_fused"
+                } else {
+                    triple_streaming_suffix(self.planner.arch())
+                }
             }
-            return if has_ssa {
-                "pair_streaming+ssa_fused"
-            } else {
-                pair_streaming_plan_name()
+            ScanPlan::PairTeddy => {
+                if has_ssa {
+                    "pair_streaming+ssa_fused"
+                } else {
+                    pair_streaming_suffix(self.planner.arch())
+                }
+            }
+            ScanPlan::EscapePair => "escape_pair_streaming",
+            ScanPlan::OneByteBitset => "one_byte_bitset",
+            ScanPlan::RowLoop => "row_loop",
+            // Reserved for Task A; not reachable from today's planner.
+            ScanPlan::ShiftOr => "shift_or",
+        }
+    }
+
+    /// Build a planner context using static metadata only (no
+    /// `all_bytes`-dependent decisions). Used by `scan_plan_name`.
+    fn build_static_context(&self) -> ScanContext<'_> {
+        // Empty buffer: `ssa_saturated` returns false on it, so
+        // `OneByteSaturated` is never picked from a static context —
+        // matching `scan_plan_name`'s pre-planner semantics.
+        static EMPTY: [u8; 0] = [];
+        self.build_context(0, &EMPTY)
+    }
+
+    /// Compute the planner-selected scan plan from the DFA's static
+    /// metadata. Exposed for tests and tracing.
+    #[inline]
+    pub(crate) fn static_plan(&self) -> ScanPlan {
+        let ctx = self.build_static_context();
+        self.planner.plan_folded(&ctx)
+    }
+
+    /// Build a [`ScanContext`] for `(n, all_bytes)`. The data-dependent
+    /// branch (`ssa_saturated`) consults `all_bytes` inside the planner.
+    #[inline]
+    fn build_context<'a>(&'a self, n: usize, all_bytes: &'a [u8]) -> ScanContext<'a> {
+        let ssa_codes = self.single_step_accept_codes.as_deref();
+        let has_progressing_codes = self.progressing_codes.is_some();
+        let has_escape_only_pattern = self.escape_only_pattern.is_some();
+        let has_triple_buckets = self.bucketed_triple_codes.is_some();
+        let pair_buckets_summary = self.bucketed_pair_codes.as_deref().map(|b| {
+            let single = match b {
+                [(c1, c2_set)] => Some((*c1, c2_set.len())),
+                _ => None,
             };
-        }
-        if self.progressing_codes.is_some() {
-            "one_byte_bitset"
-        } else {
-            "row_loop"
-        }
+            (b.len(), single)
+        });
+        ScanContext::new(
+            n,
+            all_bytes,
+            ssa_codes,
+            has_progressing_codes,
+            has_escape_only_pattern,
+            has_triple_buckets,
+            pair_buckets_summary,
+        )
+    }
+
+    /// Pick the scan plan for `(n, all_bytes)`. Exposed for the bench
+    /// parity regression test.
+    #[inline]
+    #[cfg(any(test, feature = "_test-harness"))]
+    pub fn plan_for(&self, n: usize, all_bytes: &[u8]) -> ScanPlan {
+        self.planner.plan_folded(&self.build_context(n, all_bytes))
+    }
+
+    /// Test-only accessors. Used by the bench-parity regression test
+    /// that replicates the legacy cascade independently from the
+    /// planner to assert plan equality.
+    #[cfg(any(test, feature = "_test-harness"))]
+    pub fn escape_only_pattern_for_test(&self) -> Option<&[u8]> {
+        self.escape_only_pattern.as_deref()
+    }
+
+    #[cfg(any(test, feature = "_test-harness"))]
+    pub fn progressing_codes_for_test(&self) -> Option<&[u8]> {
+        self.progressing_codes.as_deref()
+    }
+
+    #[cfg(any(test, feature = "_test-harness"))]
+    pub fn single_step_accept_codes_for_test(&self) -> Option<&[u8]> {
+        self.single_step_accept_codes.as_deref()
+    }
+
+    #[cfg(any(test, feature = "_test-harness"))]
+    pub fn bucketed_pair_codes_for_test(&self) -> Option<&[(u8, Vec<u8>)]> {
+        self.bucketed_pair_codes.as_deref()
+    }
+
+    #[cfg(any(test, feature = "_test-harness"))]
+    pub fn bucketed_triple_codes_for_test(&self) -> bool {
+        self.bucketed_triple_codes.is_some()
     }
 
     /// Specialized scan over `n` strings, returning a `BitBuffer` of accept
@@ -472,205 +537,311 @@ impl FoldedContainsDfa {
     where
         T: vortex_array::dtype::IntegerPType,
     {
-        // Escape-only fast path: when no symbol's expansion contains any
-        // needle byte, the only DFA-accepting compressed sequence is the
-        // precomputed 2L-byte pattern. A single `memmem` over `all_bytes`
-        // gives us a per-row "could match" set with O(|pattern|) skip
-        // distance; each candidate row is then verified by the standard
-        // `matches` DFA, which correctly handles the rare case where the
-        // memmem hit is at a literal-byte position (compressed[p-1] =
-        // ESCAPE AND compressed[p] = 255) rather than a code position.
-        if let Some(pattern) = self.escape_only_pattern.as_deref() {
-            return self.scan_via_escape_only_memmem(n, offsets, all_bytes, pattern, negated);
+        let ctx = self.build_context(n, all_bytes);
+        let plan = self.planner.plan_folded(&ctx);
+        plan_trace(self, &ctx, plan);
+        let teddy_trace = teddy_trace_enabled();
+        match plan {
+            ScanPlan::EscapeOnly => {
+                let pattern = self
+                    .escape_only_pattern
+                    .as_deref()
+                    .vortex_expect("EscapeOnly plan requires escape_only_pattern");
+                self.run_escape_only(n, offsets, all_bytes, pattern, negated)
+            }
+            ScanPlan::OneByteSaturated => {
+                self.run_one_byte_saturated(n, offsets, all_bytes, negated, teddy_trace)
+            }
+            ScanPlan::TripleTeddy => {
+                self.run_triple_teddy(n, offsets, all_bytes, negated, teddy_trace)
+            }
+            ScanPlan::EscapePair => {
+                self.run_escape_pair(n, offsets, all_bytes, negated, teddy_trace)
+            }
+            ScanPlan::PairTeddy => self.run_pair_teddy(n, offsets, all_bytes, negated, teddy_trace),
+            ScanPlan::OneByteBitset => {
+                self.run_one_byte_bitset(n, offsets, all_bytes, negated, teddy_trace)
+            }
+            ScanPlan::RowLoop => self.run_row_loop(n, offsets, all_bytes, negated),
+            // TODO Task A: dispatch to the Shift-Or matcher once Task A
+            // wires it in. The planner reserves this variant but never
+            // emits it today.
+            ScanPlan::ShiftOr => {
+                debug_assert!(false, "planner emitted ShiftOr before Task A landed");
+                self.run_row_loop(n, offsets, all_bytes, negated)
+            }
         }
+    }
 
-        // Prefer the bucketed 2-byte pair anchor when buckets exist AND
-        // there are no single-step-accept codes. This is the most
-        // selective prefilter the folded DFA can run — eliminates
-        // cross-bucket false-positive pairs that the legacy Cartesian
-        // path admits, at the same single-pass SIMD cost when there
-        // are ≤ MAX_SET_BYTES distinct c1's (multi-pass OR-merge for
-        // more). On real ClickBench URL data on `%google%` with
-        // single-byte 'g'/'o' anchors this is identical to Cartesian
-        // (one bucket); on multi-anchor needles where several c1's
-        // each have their own preferred c2 the bucketed path is
-        // 3–10× sparser.
-        //
-        // Dense-pattern short-circuit. When SSA codes saturate the
-        // compressed bytes (e.g. `%htt%` on URL data, where every row
-        // carries an `http`/`https` SSA symbol), the fused-Teddy+SSA
-        // path emits a candidate per SSA byte, and the per-candidate
-        // `verify_at` dispatch dominates. The 1-byte path's
-        // `matches_with_bitset` short-circuits per row at the first
-        // accept — `O(1)` per row regardless of candidate density —
-        // and wins outright in that regime. A cheap scalar sample
-        // estimates the density; above the threshold we route to
-        // the 1-byte path directly.
+    /// `EscapeOnly`: prefilter rows with a single `memmem` for the
+    /// precomputed escape-only encoded needle. The only DFA-accepting
+    /// compressed sequence is the 2L-byte encoded pattern, so memmem is
+    /// exact up to the rare literal-byte false positive — verified
+    /// per-row by [`Self::matches`].
+    #[inline]
+    fn run_escape_only<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        pattern: &[u8],
+        negated: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        self.scan_via_escape_only_memmem(n, offsets, all_bytes, pattern, negated)
+    }
+
+    /// `OneByteSaturated`: per-row `matches_with_bitset` short-circuit
+    /// driven by a precomputed 1-byte progressing-code bitset. Selected
+    /// when SSA codes saturate `all_bytes` (estimated candidate count
+    /// above [`super::planner::SSA_CANDIDATE_BUDGET`]) so the
+    /// fused-Teddy+SSA per-candidate verify dispatch would lose to the
+    /// per-row short-circuit.
+    #[inline]
+    fn run_one_byte_saturated<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+        trace: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        let progressing = self
+            .progressing_codes
+            .as_deref()
+            .vortex_expect("OneByteSaturated plan requires progressing_codes");
+        let t = trace.then(std::time::Instant::now);
+        let bitset = anchor_scan::build_progressing_bitset_unbounded(all_bytes, progressing);
+        let result = self.scan_with_anchor_bitset(n, offsets, all_bytes, &bitset, negated);
+        if trace {
+            let total_us = t
+                .map(|t| t.elapsed().as_secs_f64() * 1e6)
+                .unwrap_or_default();
+            eprintln!(
+                "[fsst::teddy] path=ssa_saturated_one_byte progressing_codes={} bytes={} total_us={:.3}",
+                progressing.len(),
+                all_bytes.len(),
+                total_us,
+            );
+        }
+        result
+    }
+
+    /// `TripleTeddy`: streaming Teddy-3 fingerprint with inline DFA
+    /// verify and optional fused SSA. When the triple set doesn't cover
+    /// every pair bucket, run a second Teddy-2 pass over the leftover
+    /// buckets and OR/AND-merge (depending on `negated`).
+    #[inline]
+    fn run_triple_teddy<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+        trace: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        let triples = self
+            .bucketed_triple_codes
+            .as_ref()
+            .vortex_expect("TripleTeddy plan requires triple buckets");
         let ssa_codes = self.single_step_accept_codes.as_deref();
-        if let Some(codes) = ssa_codes
-            && ssa_saturated(all_bytes, codes)
-            && let Some(progressing) = self.progressing_codes.as_deref()
-        {
-            let trace = std::env::var_os("VORTEX_FSST_TEDDY_TRACE")
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-            let t = trace.then(std::time::Instant::now);
-            let bitset = anchor_scan::build_progressing_bitset_unbounded(all_bytes, progressing);
-            let result = self.scan_with_anchor_bitset(n, offsets, all_bytes, &bitset, negated);
-            if trace {
-                let total_us = t
-                    .map(|t| t.elapsed().as_secs_f64() * 1e6)
-                    .unwrap_or_default();
-                eprintln!(
-                    "[fsst::teddy] path=ssa_saturated_one_byte progressing_codes={} bytes={} total_us={:.3}",
-                    progressing.len(),
-                    all_bytes.len(),
-                    total_us,
-                );
-            }
-            return result;
-        }
-        let trace = std::env::var_os("VORTEX_FSST_TEDDY_TRACE")
-            .map(|v| !v.is_empty())
-            .unwrap_or(false);
-        if let Some(triples) = self.bucketed_triple_codes.as_ref() {
-            let t = trace.then(std::time::Instant::now);
-            let triple = anchor_scan::fused_teddy_triple_scan(
+        let t = trace.then(std::time::Instant::now);
+        let triple = anchor_scan::fused_teddy_triple_scan(
+            n,
+            offsets,
+            all_bytes,
+            triples,
+            ssa_codes,
+            negated,
+            |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
+        );
+        let pair_fallback_buckets = self.bucketed_pair_fallback_codes.as_ref();
+        let result = if let Some(pairs) = pair_fallback_buckets {
+            // SSA already folded into the triple pass; don't re-emit
+            // the same candidates in the pair-fallback pass.
+            let pair = anchor_scan::fused_teddy_pair_scan(
                 n,
                 offsets,
                 all_bytes,
-                triples,
-                ssa_codes,
+                pairs,
+                None,
                 negated,
                 |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
             );
-            let pair_fallback_buckets = self.bucketed_pair_fallback_codes.as_ref();
-            let result = if let Some(pairs) = pair_fallback_buckets {
-                // SSA already folded into the triple pass; don't re-emit
-                // the same candidates in the pair-fallback pass.
-                let pair = anchor_scan::fused_teddy_pair_scan(
-                    n,
-                    offsets,
-                    all_bytes,
-                    pairs,
-                    None,
-                    negated,
-                    |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
-                );
-                if negated {
-                    &triple & &pair
-                } else {
-                    &triple | &pair
-                }
+            if negated {
+                &triple & &pair
             } else {
-                triple
-            };
+                &triple | &pair
+            }
+        } else {
+            triple
+        };
+        if trace {
             let total_us = t
                 .map(|t| t.elapsed().as_secs_f64() * 1e6)
                 .unwrap_or_default();
-            if trace {
-                eprintln!(
-                    "[fsst::teddy] path=triple_streaming{}{} triple_buckets={} pair_fallback_buckets={} ssa_codes={} bytes={} total_us={:.3}",
-                    if pair_fallback_buckets.is_some() {
-                        "+pair_fallback"
-                    } else {
-                        ""
-                    },
-                    if ssa_codes.is_some() { "+ssa" } else { "" },
-                    triples.len(),
-                    pair_fallback_buckets.map_or(0, |pairs| pairs.len()),
-                    ssa_codes.map_or(0, |c| c.len()),
-                    all_bytes.len(),
-                    total_us,
-                );
-            }
-            return result;
-        }
-        if let Some(buckets) = self.bucketed_pair_codes.as_ref() {
-            // The escape_pair specialization (one bucket, c1 = ESCAPE,
-            // small c2 set) doesn't fuse SSA today; skip it when SSA
-            // codes are present and let the generic pair scan handle
-            // both. Otherwise prefer the specialized memmem path.
-            if let Some(c2_codes) = escape_pair_targets(buckets).filter(|_| ssa_codes.is_none()) {
-                let t = trace.then(std::time::Instant::now);
-                let result = anchor_scan::fused_escape_pair_scan(
-                    n,
-                    offsets,
-                    all_bytes,
-                    c2_codes,
-                    negated,
-                    |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
-                );
-                let total_us = t
-                    .map(|t| t.elapsed().as_secs_f64() * 1e6)
-                    .unwrap_or_default();
-                if trace {
-                    eprintln!(
-                        "[fsst::teddy] path=escape_pair_streaming c2_codes={} bytes={} total_us={:.3}",
-                        c2_codes.len(),
-                        all_bytes.len(),
-                        total_us,
-                    );
-                }
-                return result;
-            }
-            let t = trace.then(std::time::Instant::now);
-            let result = anchor_scan::fused_teddy_pair_scan(
-                n,
-                offsets,
-                all_bytes,
-                buckets,
-                ssa_codes,
-                negated,
-                |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
+            eprintln!(
+                "[fsst::teddy] path=triple_streaming{}{} triple_buckets={} pair_fallback_buckets={} ssa_codes={} bytes={} total_us={:.3}",
+                if pair_fallback_buckets.is_some() {
+                    "+pair_fallback"
+                } else {
+                    ""
+                },
+                if ssa_codes.is_some() { "+ssa" } else { "" },
+                triples.len(),
+                pair_fallback_buckets.map_or(0, |pairs| pairs.len()),
+                ssa_codes.map_or(0, |c| c.len()),
+                all_bytes.len(),
+                total_us,
             );
+        }
+        result
+    }
+
+    /// `EscapePair`: specialized memmem-style pass for the single-bucket
+    /// (c1 = ESCAPE, ≤ 3 c2's, no SSA) shape.
+    #[inline]
+    fn run_escape_pair<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+        trace: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        let buckets = self
+            .bucketed_pair_codes
+            .as_ref()
+            .vortex_expect("EscapePair plan requires pair buckets");
+        let c2_codes = escape_pair_targets(buckets)
+            .vortex_expect("EscapePair plan requires escape-pair targets");
+        let t = trace.then(std::time::Instant::now);
+        let result = anchor_scan::fused_escape_pair_scan(
+            n,
+            offsets,
+            all_bytes,
+            c2_codes,
+            negated,
+            |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
+        );
+        if trace {
             let total_us = t
                 .map(|t| t.elapsed().as_secs_f64() * 1e6)
                 .unwrap_or_default();
-            if trace {
-                eprintln!(
-                    "[fsst::teddy] path=pair_streaming{} buckets={} ssa_codes={} bytes={} total_us={:.3}",
-                    if ssa_codes.is_some() { "+ssa" } else { "" },
-                    buckets.len(),
-                    ssa_codes.map_or(0, |c| c.len()),
-                    all_bytes.len(),
-                    total_us,
-                );
-            }
-            return result;
+            eprintln!(
+                "[fsst::teddy] path=escape_pair_streaming c2_codes={} bytes={} total_us={:.3}",
+                c2_codes.len(),
+                all_bytes.len(),
+                total_us,
+            );
         }
+        result
+    }
 
-        // Pair path unavailable (or sets too large). Fall back to the
-        // 1-byte unbounded path: still wins over per-string memchr on
-        // large corpora.
-        if let Some(codes) = self.progressing_codes.as_deref() {
-            let trace = std::env::var_os("VORTEX_FSST_TEDDY_TRACE")
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-            let t = trace.then(std::time::Instant::now);
-            let bitset = anchor_scan::build_progressing_bitset_unbounded(all_bytes, codes);
-            let build_us = t
+    /// `PairTeddy`: streaming Teddy-2 with inline DFA verify and
+    /// (optionally) fused SSA.
+    #[inline]
+    fn run_pair_teddy<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+        trace: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        let buckets = self
+            .bucketed_pair_codes
+            .as_ref()
+            .vortex_expect("PairTeddy plan requires pair buckets");
+        let ssa_codes = self.single_step_accept_codes.as_deref();
+        let t = trace.then(std::time::Instant::now);
+        let result = anchor_scan::fused_teddy_pair_scan(
+            n,
+            offsets,
+            all_bytes,
+            buckets,
+            ssa_codes,
+            negated,
+            |cand, end| self.verify_from_candidate(all_bytes, cand, end).0,
+        );
+        if trace {
+            let total_us = t
                 .map(|t| t.elapsed().as_secs_f64() * 1e6)
                 .unwrap_or_default();
-            let t = trace.then(std::time::Instant::now);
-            let result = self.scan_with_anchor_bitset(n, offsets, all_bytes, &bitset, negated);
+            eprintln!(
+                "[fsst::teddy] path=pair_streaming{} buckets={} ssa_codes={} bytes={} total_us={:.3}",
+                if ssa_codes.is_some() { "+ssa" } else { "" },
+                buckets.len(),
+                ssa_codes.map_or(0, |c| c.len()),
+                all_bytes.len(),
+                total_us,
+            );
+        }
+        result
+    }
+
+    /// `OneByteBitset`: streaming 1-byte progressing-code bitset over
+    /// `all_bytes` with per-row `matches_with_bitset`.
+    #[inline]
+    fn run_one_byte_bitset<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+        trace: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        let codes = self
+            .progressing_codes
+            .as_deref()
+            .vortex_expect("OneByteBitset plan requires progressing_codes");
+        let t = trace.then(std::time::Instant::now);
+        let bitset = anchor_scan::build_progressing_bitset_unbounded(all_bytes, codes);
+        let build_us = t
+            .map(|t| t.elapsed().as_secs_f64() * 1e6)
+            .unwrap_or_default();
+        let t = trace.then(std::time::Instant::now);
+        let result = self.scan_with_anchor_bitset(n, offsets, all_bytes, &bitset, negated);
+        if trace {
             let scan_us = t
                 .map(|t| t.elapsed().as_secs_f64() * 1e6)
                 .unwrap_or_default();
-            if trace {
-                let bits = bitset.iter().map(|w| w.count_ones() as u64).sum::<u64>();
-                eprintln!(
-                    "[fsst::teddy] path=one_byte codes={} bytes={} bitset_bits={} build_us={:.3} scan_us={:.3}",
-                    codes.len(),
-                    all_bytes.len(),
-                    bits,
-                    build_us,
-                    scan_us,
-                );
-            }
-            return result;
+            let bits = bitset.iter().map(|w| w.count_ones() as u64).sum::<u64>();
+            eprintln!(
+                "[fsst::teddy] path=one_byte codes={} bytes={} bitset_bits={} build_us={:.3} scan_us={:.3}",
+                codes.len(),
+                all_bytes.len(),
+                bits,
+                build_us,
+                scan_us,
+            );
         }
+        result
+    }
 
+    /// `RowLoop`: per-row enum-free DFA dispatch. Final fallback.
+    #[inline]
+    fn run_row_loop<T>(&self, n: usize, offsets: &[T], all_bytes: &[u8], negated: bool) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
         scan_to_bitbuf_with(n, offsets, all_bytes, negated, |codes| self.matches(codes))
     }
 

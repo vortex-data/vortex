@@ -128,6 +128,7 @@ mod fat_teddy;
 mod flat_contains;
 mod folded_contains;
 mod multi_contains;
+mod planner;
 mod prefix;
 mod shift_or;
 mod skip;
