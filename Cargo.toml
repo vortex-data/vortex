@@ -48,6 +48,8 @@ members = [
     "encodings/alp",
     "encodings/datetime-parts",
     "encodings/fsst",
+    "encodings/onpair",
+    "encodings/onpair-sys",
     "encodings/pco",
     "encodings/sparse",
     "encodings/zigzag",
@@ -284,6 +286,8 @@ vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
 vortex-flatbuffers = { version = "0.1.0", path = "./vortex-flatbuffers", default-features = false }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
+vortex-onpair = { version = "0.1.0", path = "./encodings/onpair", default-features = false }
+vortex-onpair-sys = { version = "0.1.0", path = "./encodings/onpair-sys", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }

@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Vortex string array backed by the [OnPair][onpair] short-string
+//! compression library, with compressed-domain predicate pushdown.
+//!
+//! The default training preset is `dict-12` (12 bits per token, dictionary
+//! capped at 4 096 entries). See [`OnPair::compress`] for the entry point and
+//! [`OnPairArray`] for the resulting array type.
+//!
+//! [onpair]: https://arxiv.org/abs/2508.02280
+
+mod array;
+mod canonical;
+mod compress;
+mod compute;
+mod kernel;
+mod ops;
+mod rules;
+mod slice;
+
+#[cfg(test)]
+mod tests;
+
+pub use array::*;
+pub use compress::*;

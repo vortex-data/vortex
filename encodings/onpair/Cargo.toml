@@ -1,0 +1,34 @@
+[package]
+name = "vortex-onpair"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex OnPair string array encoding (dict-12, pushdown predicates)"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+parking_lot = { workspace = true }
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-onpair-sys = { workspace = true }
+vortex-session = { workspace = true }
+
+[features]
+_test-harness = ["vortex-array/_test-harness"]
+
+[dev-dependencies]
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
