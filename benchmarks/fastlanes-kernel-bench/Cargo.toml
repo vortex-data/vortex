@@ -46,3 +46,7 @@ harness = false
 [[bench]]
 name = "funnel_shift_fix"
 harness = false
+
+[[bench]]
+name = "funnel_patterns"
+harness = false
