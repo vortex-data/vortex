@@ -115,10 +115,11 @@ impl Serialize for DType {
                 state.serialize_field(n)?;
                 state.end()
             }
+            DType::Union(n) => serializer.serialize_newtype_variant("DType", 11, "Union", n),
+            DType::Variant(n) => serializer.serialize_newtype_variant("DType", 10, "Variant", n),
             DType::Extension(ext) => {
                 serializer.serialize_newtype_variant("DType", 9, "Extension", ext)
             }
-            DType::Variant(n) => serializer.serialize_newtype_variant("DType", 10, "Variant", n),
         }
     }
 }
@@ -157,8 +158,9 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
             "List",
             "FixedSizeList",
             "Struct",
-            "Extension",
+            "Union",
             "Variant",
+            "Extension",
         ];
 
         struct DTypeVisitor<'a> {
@@ -215,14 +217,18 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
                     "Struct" => access.newtype_variant_seed(StructFieldsSeed {
                         session: self.session,
                     }),
-                    "Extension" => {
-                        let ext = access
-                            .newtype_variant_seed(DTypeSerde::<ExtDTypeRef>::new(self.session))?;
-                        Ok(DType::Extension(ext))
+                    "Union" => {
+                        let n = access.newtype_variant()?;
+                        Ok(DType::Union(n))
                     }
                     "Variant" => {
                         let n = access.newtype_variant()?;
                         Ok(DType::Variant(n))
+                    }
+                    "Extension" => {
+                        let ext = access
+                            .newtype_variant_seed(DTypeSerde::<ExtDTypeRef>::new(self.session))?;
+                        Ok(DType::Extension(ext))
                     }
                     _ => Err(de::Error::unknown_variant(&variant, VARIANTS)),
                 }
@@ -571,7 +577,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, ExtDTypeRef> {
                 }
 
                 let id = id.ok_or_else(|| de::Error::missing_field("id"))?;
-                let id = ExtId::new_arc(id);
+                let id = ExtId::new(&id);
                 let storage_dtype =
                     storage_dtype.ok_or_else(|| de::Error::missing_field("storage_dtype"))?;
                 let metadata = metadata.ok_or_else(|| de::Error::missing_field("metadata"))?;

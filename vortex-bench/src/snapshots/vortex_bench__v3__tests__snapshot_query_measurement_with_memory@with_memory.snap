@@ -1,0 +1,25 @@
+---
+source: vortex-bench/src/v3.rs
+expression: render(&record)
+---
+{
+  "kind": "query_measurement",
+  "commit_sha": "<commit-sha>",
+  "dataset": "tpch",
+  "scale_factor": "10",
+  "query_idx": 3,
+  "storage": "nvme",
+  "engine": "datafusion",
+  "format": "vortex-file-compressed",
+  "value_ns": 1000000,
+  "all_runtimes_ns": [
+    1000000,
+    1200000,
+    900000
+  ],
+  "peak_physical": 8192,
+  "peak_virtual": 16384,
+  "physical_delta": 1024,
+  "virtual_delta": 4096,
+  "env_triple": "<env-triple>"
+}

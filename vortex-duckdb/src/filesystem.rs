@@ -94,10 +94,12 @@ fn object_store_fs(base_url: &Url) -> VortexResult<FileSystemRef> {
         );
     };
 
-    Ok(Arc::new(Compat::new(ObjectStoreFileSystem::new(
+    let object_store = Arc::new(Compat::new(object_store)) as Arc<dyn ObjectStore>;
+
+    Ok(Arc::new(ObjectStoreFileSystem::new(
         object_store,
         RUNTIME.handle(),
-    ))))
+    )))
 }
 
 struct DuckDbFileSystem {
@@ -148,6 +150,27 @@ impl FileSystem for DuckDbFileSystem {
         url.set_path(path);
         let reader = unsafe { DuckDbFsReader::open_url(self.ctx.as_ptr(), &url)? };
         Ok(Arc::new(reader))
+    }
+
+    async fn delete(&self, path: &str) -> VortexResult<()> {
+        let mut url = self.base_url.clone();
+        url.set_path(path);
+        let c_path = CString::new(url.as_str()).map_err(|e| vortex_err!("Invalid URL: {e}"))?;
+        let ctx = self.ctx;
+
+        RUNTIME
+            .handle()
+            .spawn_blocking(move || {
+                let mut err: cpp::duckdb_vx_error = ptr::null_mut();
+                let status = unsafe {
+                    cpp::duckdb_vx_fs_remove(ctx.as_ptr(), c_path.as_ptr(), &raw mut err)
+                };
+                if status != cpp::duckdb_state::DuckDBSuccess {
+                    return Err(fs_error(err));
+                }
+                Ok::<_, VortexError>(())
+            })
+            .await
     }
 }
 

@@ -45,16 +45,16 @@ use crate::validity::Validity;
 /// The logic is split across several "VTable" traits to enable easier code organization than
 /// simply lumping everything into a single trait.
 ///
-/// From this [`VTable`] trait, we derive implementations for the sealed `DynArray` trait and the
+/// From this [`VTable`] trait, we derive implementations for the sealed `DynArrayData` trait and the
 /// public [`ArrayPlugin`] registry trait.
 ///
 /// The functions defined in these vtable traits will typically document their pre- and
-/// post-conditions. The pre-conditions are validated inside the `DynArray` and [`ArrayRef`]
+/// post-conditions. The pre-conditions are validated inside the `DynArrayData` and [`ArrayRef`]
 /// implementations so do not need to be checked in the vtable implementations (for example, index
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
 pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
-    type ArrayData: 'static + Send + Sync + Clone + Debug + Display + ArrayHash + ArrayEq;
+    type TypedArrayData: 'static + Send + Sync + Clone + Debug + Display + ArrayHash + ArrayEq;
 
     type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
@@ -65,7 +65,7 @@ pub trait VTable: 'static + Clone + Sized + Send + Sync + Debug {
     /// Validates that externally supplied logical metadata matches the array data.
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
@@ -254,7 +254,7 @@ pub fn validity_to_child(validity: &Validity, len: usize) -> Option<ArrayRef> {
 ///
 /// This is the inverse of [`validity_to_child`].
 #[inline]
-pub fn child_to_validity(child: &Option<ArrayRef>, nullability: Nullability) -> Validity {
+pub fn child_to_validity(child: Option<&ArrayRef>, nullability: Nullability) -> Validity {
     match child {
         Some(arr) => {
             // Detect constant bool arrays created by validity_to_child.

@@ -7,10 +7,10 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::extension::ExtDTypeRef;
 use vortex_array::dtype::extension::Matcher;
 
-use crate::fixed_shape::AnyFixedShapeTensor;
-use crate::fixed_shape::FixedShapeTensorMatcherMetadata;
-use crate::vector::AnyVector;
-use crate::vector::VectorMatcherMetadata;
+use crate::types::fixed_shape_tensor::AnyFixedShapeTensor;
+use crate::types::fixed_shape_tensor::FixedShapeTensorMatcherMetadata;
+use crate::types::vector::AnyVector;
+use crate::types::vector::VectorMatcherMetadata;
 
 /// Matcher for any tensor-like extension type.
 ///
@@ -23,7 +23,7 @@ pub struct AnyTensor;
 /// The matched variant of a tensor-like extension type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TensorMatch<'a> {
-    /// A [`FixedShapeTensor`](crate::fixed_shape::FixedShapeTensor) extension type.
+    /// A [`FixedShapeTensor`](crate::fixed_shape_tensor::FixedShapeTensor) extension type.
     FixedShapeTensor(FixedShapeTensorMatcherMetadata<'a>),
 
     /// A [`Vector`](crate::vector::Vector) extension type.
@@ -42,10 +42,10 @@ impl TensorMatch<'_> {
     }
 
     /// Returns the flattened element count for each logical tensor row.
-    pub fn list_size(self) -> usize {
+    pub fn list_size(self) -> u32 {
         match self {
-            Self::FixedShapeTensor(metadata) => metadata.list_size(),
-            Self::Vector(metadata) => metadata.dimensions() as usize,
+            Self::FixedShapeTensor(metadata) => metadata.flat_list_size(),
+            Self::Vector(metadata) => metadata.dimensions(),
         }
     }
 }

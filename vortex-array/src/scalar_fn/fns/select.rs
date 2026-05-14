@@ -94,7 +94,7 @@ impl ScalarFnVTable for Select {
 
     fn child_name(&self, _instance: &FieldSelection, child_idx: usize) -> ChildName {
         match child_idx {
-            0 => ChildName::new_ref("child"),
+            0 => ChildName::from("child"),
             _ => unreachable!(),
         }
     }
@@ -307,7 +307,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::arrays::struct_::StructArrayExt;
     use crate::dtype::DType;
     use crate::dtype::FieldName;
@@ -335,6 +336,7 @@ mod tests {
     pub fn include_columns() {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], root());
+        #[expect(deprecated)]
         let selected = st.into_array().apply(&select).unwrap().to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a"]);
@@ -344,6 +346,7 @@ mod tests {
     pub fn exclude_columns() {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], root());
+        #[expect(deprecated)]
         let selected = st.into_array().apply(&select).unwrap().to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b"]);

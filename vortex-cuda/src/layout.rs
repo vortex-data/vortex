@@ -3,6 +3,7 @@
 
 //! A CUDA-optimized flat layout that inlines small constant array buffers into layout metadata.
 
+use std::any::Any;
 use std::collections::BTreeSet;
 use std::ops::BitAnd;
 use std::ops::Range;
@@ -16,6 +17,7 @@ use futures::future::BoxFuture;
 use vortex::array::ArrayContext;
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::DeserializeMetadata;
 use vortex::array::MaskFuture;
 use vortex::array::ProstMetadata;
@@ -47,6 +49,7 @@ use vortex::layout::LayoutReader;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::LayoutRef;
 use vortex::layout::LayoutStrategy;
+use vortex::layout::SplitRange;
 use vortex::layout::VTable;
 use vortex::layout::layouts::SharedArrayFuture;
 use vortex::layout::segments::SegmentId;
@@ -127,7 +130,7 @@ impl VTable for CudaFlat {
     type Metadata = ProstMetadata<CudaFlatLayoutMetadata>;
 
     fn id(_encoding: &Self::Encoding) -> LayoutId {
-        LayoutId::new_ref("vortex.cuda_flat")
+        LayoutId::new("vortex.cuda_flat")
     }
 
     fn encoding(_layout: &Self::Layout) -> LayoutEncodingRef {
@@ -282,10 +285,11 @@ impl LayoutReader for CudaFlatReader {
     fn register_splits(
         &self,
         _field_mask: &[FieldMask],
-        row_range: &Range<u64>,
+        split_range: &SplitRange,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        splits.insert(row_range.start + self.layout.row_count);
+        split_range.check_bounds(self.layout.row_count)?;
+        splits.insert(split_range.root_row_range().end);
         Ok(())
     }
 
@@ -379,6 +383,10 @@ impl LayoutReader for CudaFlatReader {
             Ok(array)
         }
         .boxed())
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -551,7 +559,7 @@ fn extract_constant_buffers(chunk: &ArrayRef) -> Vec<InlinedBuffer> {
     let mut buffer_idx = 0u32;
     for array in chunk.depth_first_traversal() {
         let n = array.nbuffers();
-        if array.encoding_id() == Constant::ID {
+        if array.encoding_id() == Constant.id() {
             for buf in array.buffers() {
                 result.push(InlinedBuffer {
                     buffer_index: buffer_idx,

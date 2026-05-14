@@ -10,7 +10,7 @@ use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::listview::ListViewDataParts;
 use vortex::array::match_each_integer_ptype;
-use vortex::dtype::DType;
+use vortex::array::validity::Validity;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -19,6 +19,7 @@ use vortex::mask::Mask;
 use super::ConversionCache;
 use super::all_invalid;
 use super::new_array_exporter_with_flatten;
+use super::validity;
 use crate::cpp;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Vector;
@@ -26,7 +27,6 @@ use crate::duckdb::VectorRef;
 use crate::exporter::ColumnExporter;
 
 struct ListViewExporter<O, S> {
-    validity: Mask,
     /// We cache the child elements of our list array so that we don't have to export it every time,
     /// and we also share it across any other exporters who want to export this array.
     ///
@@ -56,13 +56,11 @@ pub(crate) fn new_exporter(
     } = array.into_data_parts();
     // Cache an `elements` vector up front so that future exports can reference it.
     let num_elements = elements.len();
-    let nullability = validity.nullability();
-    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
-    if validity.all_false() {
-        let ltype = LogicalType::try_from(DType::List(elements_dtype, nullability))?;
-        return Ok(all_invalid::new_exporter(len, &ltype));
+    if matches!(validity, Validity::AllInvalid) {
+        return Ok(all_invalid::new_exporter());
     }
+    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
     let values_key = elements.addr();
     // Check if we have a cached vector and extract it if we do.
@@ -99,7 +97,6 @@ pub(crate) fn new_exporter(
     let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
         match_each_integer_ptype!(sizes.ptype(), |S| {
             Box::new(ListViewExporter {
-                validity,
                 duckdb_elements: shared_elements,
                 offsets,
                 sizes,
@@ -110,7 +107,7 @@ pub(crate) fn new_exporter(
         })
     });
 
-    Ok(boxed)
+    Ok(validity::new_exporter(validity, boxed))
 }
 
 impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListViewExporter<O, S> {
@@ -121,21 +118,6 @@ impl<O: IntegerPType, S: IntegerPType> ColumnExporter for ListViewExporter<O, S>
         vector: &mut VectorRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        // Verify that offset + len doesn't exceed the validity mask length.
-        assert!(
-            offset + len <= self.validity.len(),
-            "Export range [{}, {}) exceeds validity mask length {}",
-            offset,
-            offset + len,
-            self.validity.len()
-        );
-
-        // Set validity if necessary.
-        if unsafe { vector.set_validity(&self.validity, offset, len) } {
-            // All values are null, so no point copying the data.
-            return Ok(());
-        }
-
         let offsets = &self.offsets.as_slice::<O>()[offset..offset + len];
         let sizes = &self.sizes.as_slice::<S>()[offset..offset + len];
         debug_assert_eq!(offsets.len(), len);
@@ -185,7 +167,6 @@ mod tests {
     use crate::exporter::new_array_exporter;
 
     #[test]
-    #[ignore = "TODO(connor)[4809]: Exporters do not correctly handle empty vectors"]
     fn test_export_empty_list() {
         let list = unsafe {
             ListViewArray::new_unchecked(
@@ -198,7 +179,7 @@ mod tests {
         }
         .into_array();
 
-        let list_type = LogicalType::list_type(LogicalType::varchar())
+        let list_type = LogicalType::list_type(LogicalType::uint32())
             .vortex_expect("LogicalTypeRef creation should succeed for test data");
         let mut chunk = DataChunk::new([list_type]);
 
@@ -212,7 +193,7 @@ mod tests {
         assert_eq!(
             format!("{}", String::try_from(&*chunk).unwrap()),
             r#"Chunk - [1 Columns]
-- FLAT INTEGER[]: 0 = [ ]
+- FLAT UINTEGER[]: 0 = [ ]
 "#
         );
     }

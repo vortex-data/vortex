@@ -9,26 +9,35 @@ use std::hash::Hasher;
 
 use kernel::PARENT_KERNELS;
 use prost::Message as _;
+use vortex_array::AnyCanonical;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::ToCanonical;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
+use vortex_array::patches::PatchesData;
 use vortex_array::patches::PatchesMetadata;
+use vortex_array::require_child;
+use vortex_array::require_opt_child;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::operators::Operator;
@@ -47,6 +56,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::canonical::execute_sparse;
 use crate::rules::RULES;
@@ -61,6 +71,47 @@ mod slice;
 /// A [`Sparse`]-encoded Vortex array.
 pub type SparseArray = Array<Sparse>;
 
+#[vortex_array::array_slots(Sparse)]
+pub struct SparseSlots {
+    pub patch_indices: ArrayRef,
+    pub patch_values: ArrayRef,
+    pub patch_chunk_offsets: Option<ArrayRef>,
+}
+
+/// Concrete parts of a [`SparseArray`] after iterative execution.
+pub(crate) struct SparseParts {
+    pub patches: Patches,
+    pub fill_value: Scalar,
+    pub dtype: DType,
+    pub len: usize,
+}
+
+pub(crate) trait SparseOwnedExt {
+    fn into_parts(self) -> VortexResult<SparseParts>;
+}
+
+impl SparseOwnedExt for Array<Sparse> {
+    fn into_parts(self) -> VortexResult<SparseParts> {
+        let patches = Patches::new(
+            self.len(),
+            self.patches().offset(),
+            self.as_ref().slots()[SparseSlots::PATCH_INDICES]
+                .clone()
+                .vortex_expect("indices"),
+            self.as_ref().slots()[SparseSlots::PATCH_VALUES]
+                .clone()
+                .vortex_expect("values"),
+            self.as_ref().slots()[SparseSlots::PATCH_CHUNK_OFFSETS].clone(),
+        )?;
+        Ok(SparseParts {
+            patches,
+            fill_value: self.fill_scalar().clone(),
+            dtype: self.dtype().clone(),
+            len: self.len(),
+        })
+    }
+}
+
 #[derive(Clone, prost::Message)]
 #[repr(C)]
 pub struct SparseMetadata {
@@ -69,36 +120,41 @@ pub struct SparseMetadata {
 }
 
 impl ArrayHash for SparseData {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
-        self.patches.array_hash(state, precision);
+    fn array_hash<H: Hasher>(&self, state: &mut H, _precision: Precision) {
+        self.array_len.hash(state);
+        self.patches_data.hash(state);
         self.fill_value.hash(state);
     }
 }
 
 impl ArrayEq for SparseData {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
-        self.patches.array_eq(&other.patches, precision) && self.fill_value == other.fill_value
+    fn array_eq(&self, other: &Self, _precision: Precision) -> bool {
+        self.array_len == other.array_len
+            && self.patches_data == other.patches_data
+            && self.fill_value == other.fill_value
     }
 }
 
 impl VTable for Sparse {
-    type ArrayData = SparseData;
+    type TypedArrayData = SparseData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.sparse");
+        *ID
     }
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
-        _slots: &[Option<ArrayRef>],
+        slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        SparseData::validate(data.patches(), data.fill_scalar(), dtype, len)
+        let patches = SparseData::patches_from_slots(data, len, slots);
+        SparseData::validate(&patches, data.fill_scalar(), dtype, len)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -177,12 +233,12 @@ impl VTable for Sparse {
             None,
         )?;
         let slots = SparseData::make_slots(&patches);
-        let data = SparseData::try_new_from_patches(patches, fill_value)?;
+        let data = SparseData::from_patches(&patches, fill_value)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        SLOT_NAMES[idx].to_string()
+        SparseSlots::NAMES[idx].to_string()
     }
 
     fn reduce_parent(
@@ -203,17 +259,68 @@ impl VTable for Sparse {
     }
 
     fn execute(array: Array<Self>, ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
-        execute_sparse(&array, ctx).map(ExecutionResult::done)
+        // Resolve offset first: wrap indices in Binary(indices, offset, Sub) and
+        // reassemble with offset=0. Uses slot children (not data) since the executor
+        // may have updated slots via reduce_parent/execute_parent.
+        let array = if array.patches().offset() != 0 {
+            let offset = array.patches().offset();
+            let indices = array.patch_indices();
+            let values = array.patch_values().clone();
+            let len = array.len();
+            let offset_scalar = Scalar::from(offset).cast(indices.dtype())?;
+            let resolved_indices = indices.binary(
+                ConstantArray::new(offset_scalar, indices.len()).into_array(),
+                Operator::Sub,
+            )?;
+            let patches = Patches::new(len, 0, resolved_indices.clone(), values, None)?;
+            // Decompose, update in place, and reassemble without re-validation.
+            match array.try_into_parts() {
+                Ok(mut parts) => {
+                    parts.data.patches_data = PatchesData::from_patches(&patches);
+                    parts.slots[SparseSlots::PATCH_INDICES] = Some(resolved_indices);
+                    parts.slots[SparseSlots::PATCH_CHUNK_OFFSETS] = None;
+                    unsafe { Array::from_parts_unchecked(parts) }
+                }
+                Err(array) => unsafe {
+                    Sparse::new_unchecked(patches, array.fill_scalar().clone())
+                },
+            }
+        } else {
+            array
+        };
+
+        // Require children to be executed through the scheduler,
+        // enabling cross-step optimization via reduce_parent rules.
+        let array = require_child!(
+            array, array.patch_indices(), SparseSlots::PATCH_INDICES => Primitive
+        );
+        let array = require_child!(
+            array, array.patch_values(), SparseSlots::PATCH_VALUES => AnyCanonical
+        );
+        require_opt_child!(
+            array,
+            array.patch_chunk_offsets(),
+            SparseSlots::PATCH_CHUNK_OFFSETS => Primitive
+        );
+
+        let parts = array.into_parts()?;
+        // TODO(joe): remove ctx from execute_sparse since all slots should be canonical.
+        execute_sparse(parts, ctx).map(ExecutionResult::done)
     }
 }
 
-pub(crate) const NUM_SLOTS: usize = 3;
-pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] =
-    ["patch_indices", "patch_values", "patch_chunk_offsets"];
+const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
+    indices: SparseSlots::PATCH_INDICES,
+    values: SparseSlots::PATCH_VALUES,
+    chunk_offsets: SparseSlots::PATCH_CHUNK_OFFSETS,
+};
 
 #[derive(Clone, Debug)]
 pub struct SparseData {
-    patches: Patches,
+    /// The total length of the sparse array.
+    array_len: usize,
+    /// Patch metadata (offset, offset_within_chunk) for reconstructing Patches from slots.
+    patches_data: PatchesData,
     fill_value: Scalar,
 }
 
@@ -227,8 +334,6 @@ impl Display for SparseData {
 pub struct Sparse;
 
 impl Sparse {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.sparse");
-
     /// Construct a new [`SparseArray`] from indices, values, length, and fill value.
     pub fn try_new(
         indices: ArrayRef,
@@ -239,7 +344,7 @@ impl Sparse {
         let dtype = fill_value.dtype().clone();
         let patches = Patches::new(len, 0, indices, values, None)?;
         let slots = SparseData::make_slots(&patches);
-        let data = SparseData::try_new_from_patches(patches, fill_value)?;
+        let data = SparseData::from_patches(&patches, fill_value)?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data).with_slots(slots))
         })
@@ -249,7 +354,7 @@ impl Sparse {
         let dtype = fill_value.dtype().clone();
         let len = patches.array_len();
         let slots = SparseData::make_slots(&patches);
-        let data = SparseData::try_new_from_patches(patches, fill_value)?;
+        let data = SparseData::from_patches(&patches, fill_value)?;
         Ok(unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data).with_slots(slots))
         })
@@ -259,15 +364,19 @@ impl Sparse {
         let dtype = fill_value.dtype().clone();
         let len = patches.array_len();
         let slots = SparseData::make_slots(&patches);
-        let data = unsafe { SparseData::new_unchecked(patches, fill_value) };
+        let data = SparseData::from_patches_unchecked(&patches, fill_value);
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(Sparse, dtype, len, data).with_slots(slots))
         }
     }
 
     /// Encode the given array as a [`SparseArray`].
-    pub fn encode(array: &ArrayRef, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
-        SparseData::encode(array, fill_value)
+    pub fn encode(
+        array: &ArrayRef,
+        fill_value: Option<Scalar>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        SparseData::encode(array, fill_value, ctx)
     }
 }
 
@@ -318,26 +427,35 @@ impl SparseData {
         Ok(())
     }
 
-    fn make_slots(patches: &Patches) -> Vec<Option<ArrayRef>> {
-        vec![
-            Some(patches.indices().clone()),
-            Some(patches.values().clone()),
-            patches.chunk_offsets().clone(),
-        ]
+    fn make_slots(patches: &Patches) -> ArraySlots {
+        let mut slots = ArraySlots::with_capacity(SparseSlots::COUNT);
+        PatchesData::push_slots(&mut slots, Some(patches));
+        slots
     }
 
-    /// Build a new SparseArray from an existing set of patches.
+    /// Reconstruct a [`Patches`] from the stored metadata and the array's slots.
+    fn patches_from_slots(data: &SparseData, len: usize, slots: &[Option<ArrayRef>]) -> Patches {
+        PatchesData::patches_from_slots(Some(&data.patches_data), len, slots, PATCH_SLOTS)
+            .vortex_expect("SparseArray patch slots must be present")
+    }
+
+    /// Build a new SparseData from an existing set of patches, normalizing dtypes.
     pub fn try_new_from_patches(patches: Patches, fill_value: Scalar) -> VortexResult<Self> {
         let patches = Self::normalize_patches_dtype(patches, &fill_value)?;
-        Ok(Self {
-            patches,
-            fill_value,
-        })
+        Ok(Self::from_patches_unchecked(&patches, fill_value))
     }
 
-    pub(crate) unsafe fn new_unchecked(patches: Patches, fill_value: Scalar) -> Self {
+    /// Extract metadata from patches to create SparseData, with dtype normalization.
+    fn from_patches(patches: &Patches, fill_value: Scalar) -> VortexResult<Self> {
+        let patches = Self::normalize_patches_dtype(patches.clone(), &fill_value)?;
+        Ok(Self::from_patches_unchecked(&patches, fill_value))
+    }
+
+    /// Extract metadata from patches to create SparseData, without validation.
+    fn from_patches_unchecked(patches: &Patches, fill_value: Scalar) -> Self {
         Self {
-            patches,
+            array_len: patches.array_len(),
+            patches_data: PatchesData::from_patches(patches),
             fill_value,
         }
     }
@@ -345,13 +463,13 @@ impl SparseData {
     /// Returns the length of the array.
     #[inline]
     pub fn len(&self) -> usize {
-        self.patches.array_len()
+        self.array_len
     }
 
     /// Returns whether the array is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
-        self.patches.array_len() == 0
+        self.array_len == 0
     }
 
     /// Returns the logical data type of the array.
@@ -360,28 +478,10 @@ impl SparseData {
         self.fill_scalar().dtype()
     }
 
+    /// Returns the offset of the patches within the parent array.
     #[inline]
-    pub fn patches(&self) -> &Patches {
-        &self.patches
-    }
-
-    #[inline]
-    pub fn resolved_patches(&self) -> VortexResult<Patches> {
-        let patches = self.patches();
-        let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
-        let indices = patches.indices().binary(
-            ConstantArray::new(indices_offset, patches.indices().len()).into_array(),
-            Operator::Sub,
-        )?;
-
-        Patches::new(
-            patches.array_len(),
-            0,
-            indices,
-            patches.values().clone(),
-            // TODO(0ax1): handle chunk offsets
-            None,
-        )
+    pub fn offset(&self) -> usize {
+        self.patches_data.offset()
     }
 
     #[inline]
@@ -392,7 +492,11 @@ impl SparseData {
     /// Encode given array as a SparseArray.
     ///
     /// Optionally provided fill value will be respected if the array is less than 90% null.
-    pub fn encode(array: &ArrayRef, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
+    pub fn encode(
+        array: &ArrayRef,
+        fill_value: Option<Scalar>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         if let Some(fill_value) = fill_value.as_ref()
             && !array.dtype().eq_ignore_nullability(fill_value.dtype())
         {
@@ -402,7 +506,7 @@ impl SparseData {
                 fill_value.dtype()
             )
         }
-        let mask = array.validity_mask()?;
+        let mask = array.validity()?.execute_mask(array.len(), ctx)?;
 
         if mask.all_false() {
             // Array is constant NULL
@@ -411,8 +515,10 @@ impl SparseData {
             );
         } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
             // Array is dominated by NULL but has non-NULL values
-            // TODO(joe): use exe ctx?
-            let non_null_values = array.filter(mask.clone())?.to_canonical()?.into_array();
+            let non_null_values = array
+                .filter(mask.clone())?
+                .execute::<Canonical>(ctx)?
+                .into_array();
             let non_null_indices = match mask.indices() {
                 AllOr::All => {
                     // We already know that the mask is 90%+ false
@@ -445,8 +551,8 @@ impl SparseData {
             fill.cast(array.dtype())?
         } else {
             // TODO(robert): Support other dtypes, only thing missing is getting most common value out of the array
-            let (top_pvalue, _) = array
-                .to_primitive()
+            let primitive = array.clone().execute::<PrimitiveArray>(ctx)?;
+            let (top_pvalue, _) = primitive
                 .top_value()?
                 .vortex_expect("Non empty or all null array");
 
@@ -454,17 +560,15 @@ impl SparseData {
         };
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
-        let non_top_mask = Mask::from_buffer(
-            array
-                .binary(fill_array.clone(), Operator::NotEq)?
-                .fill_null(Scalar::bool(true, Nullability::NonNullable))?
-                .to_bool()
-                .to_bit_buffer(),
-        );
+        let non_top_bool = array
+            .binary(fill_array.clone(), Operator::NotEq)?
+            .fill_null(Scalar::bool(true, Nullability::NonNullable))?
+            .execute::<BoolArray>(ctx)?;
+        let non_top_mask = Mask::from_buffer(non_top_bool.to_bit_buffer());
 
         let non_top_values = array
             .filter(non_top_mask.clone())?
-            .to_canonical()?
+            .execute::<Canonical>(ctx)?
             .into_array();
 
         let indices: Buffer<u64> = match non_top_mask {
@@ -484,25 +588,64 @@ impl SparseData {
     }
 }
 
+/// Extension trait for accessing patches on [`SparseArray`] and [`ArrayView<'_, Sparse>`].
+///
+/// Patches are reconstructed from the array's slots and stored metadata on each call.
+pub trait SparseExt {
+    /// Reconstruct patches from the array's slots and metadata.
+    fn patches(&self) -> Patches;
+
+    /// Return patches with offset-resolved indices (offset subtracted from each index).
+    fn resolved_patches(&self) -> VortexResult<Patches> {
+        let patches = self.patches();
+        let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
+        let indices = patches.indices().binary(
+            ConstantArray::new(indices_offset, patches.indices().len()).into_array(),
+            Operator::Sub,
+        )?;
+
+        Patches::new(
+            patches.array_len(),
+            0,
+            indices,
+            patches.values().clone(),
+            // TODO(0ax1): handle chunk offsets
+            None,
+        )
+    }
+}
+
+impl SparseExt for ArrayView<'_, Sparse> {
+    fn patches(&self) -> Patches {
+        SparseData::patches_from_slots(self.data(), self.len(), self.slots())
+    }
+}
+
+impl SparseExt for Array<Sparse> {
+    fn patches(&self) -> Patches {
+        SparseData::patches_from_slots(self.data(), self.as_array().len(), self.slots())
+    }
+}
+
 impl ValidityVTable<Sparse> for Sparse {
     fn validity(array: ArrayView<'_, Sparse>) -> VortexResult<Validity> {
-        let patches = unsafe {
+        let orig_patches = array.patches();
+        let validity_patches = unsafe {
             Patches::new_unchecked(
-                array.patches.array_len(),
-                array.patches.offset(),
-                array.patches.indices().clone(),
-                array
-                    .patches
+                orig_patches.array_len(),
+                orig_patches.offset(),
+                orig_patches.indices().clone(),
+                orig_patches
                     .values()
                     .validity()?
-                    .to_array(array.patches.values().len()),
-                array.patches.chunk_offsets().clone(),
-                array.patches.offset_within_chunk(),
+                    .to_array(orig_patches.values().len()),
+                orig_patches.chunk_offsets().clone(),
+                orig_patches.offset_within_chunk(),
             )
         };
 
         Ok(Validity::Array(
-            unsafe { Sparse::new_unchecked(patches, array.fill_value.is_valid().into()) }
+            unsafe { Sparse::new_unchecked(validity_patches, array.fill_value.is_valid().into()) }
                 .into_array(),
         ))
     }
@@ -512,6 +655,8 @@ impl ValidityVTable<Sparse> for Sparse {
 mod test {
     use itertools::Itertools;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -549,16 +694,33 @@ mod test {
     pub fn test_scalar_at() {
         let array = sparse_array(nullable_fill());
 
-        assert_eq!(array.scalar_at(0).unwrap(), nullable_fill());
-        assert_eq!(array.scalar_at(2).unwrap(), Scalar::from(Some(100_i32)));
-        assert_eq!(array.scalar_at(5).unwrap(), Scalar::from(Some(200_i32)));
+        assert_eq!(
+            array
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            nullable_fill()
+        );
+        assert_eq!(
+            array
+                .execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            Scalar::from(Some(100_i32))
+        );
+        assert_eq!(
+            array
+                .execute_scalar(5, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
+            Scalar::from(Some(200_i32))
+        );
     }
 
     #[test]
     #[should_panic(expected = "out of bounds")]
     fn test_scalar_at_oob() {
         let array = sparse_array(nullable_fill());
-        array.scalar_at(10).unwrap();
+        array
+            .execute_scalar(10, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
     }
 
     #[test]
@@ -572,27 +734,47 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            arr.scalar_at(10)
+            arr.execute_scalar(10, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .as_primitive()
                 .typed_value::<u32>(),
             Some(1234)
         );
-        assert!(arr.scalar_at(0).unwrap().is_null());
-        assert!(arr.scalar_at(99).unwrap().is_null());
+        assert!(
+            arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_null()
+        );
+        assert!(
+            arr.execute_scalar(99, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_null()
+        );
     }
 
     #[test]
     pub fn scalar_at_sliced() {
         let sliced = sparse_array(nullable_fill()).slice(2..7).unwrap();
-        assert_eq!(usize::try_from(&sliced.scalar_at(0).unwrap()).unwrap(), 100);
+        assert_eq!(
+            usize::try_from(
+                &sliced
+                    .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+            )
+            .unwrap(),
+            100
+        );
     }
 
     #[test]
     pub fn validity_mask_sliced_null_fill() {
         let sliced = sparse_array(nullable_fill()).slice(2..7).unwrap();
         assert_eq!(
-            sliced.validity_mask().unwrap(),
+            sliced
+                .validity()
+                .unwrap()
+                .execute_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Mask::from_iter(vec![true, false, false, true, false])
         );
     }
@@ -614,7 +796,11 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            sliced.validity_mask().unwrap(),
+            sliced
+                .validity()
+                .unwrap()
+                .execute_mask(sliced.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             Mask::from_iter(vec![false, true, true, false, true])
         );
     }
@@ -623,13 +809,23 @@ mod test {
     pub fn scalar_at_sliced_twice() {
         let sliced_once = sparse_array(nullable_fill()).slice(1..8).unwrap();
         assert_eq!(
-            usize::try_from(&sliced_once.scalar_at(1).unwrap()).unwrap(),
+            usize::try_from(
+                &sliced_once
+                    .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+            )
+            .unwrap(),
             100
         );
 
         let sliced_twice = sliced_once.slice(1..6).unwrap();
         assert_eq!(
-            usize::try_from(&sliced_twice.scalar_at(3).unwrap()).unwrap(),
+            usize::try_from(
+                &sliced_twice
+                    .execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap()
+            )
+            .unwrap(),
             200
         );
     }
@@ -639,7 +835,9 @@ mod test {
         let array = sparse_array(nullable_fill());
         assert_eq!(
             array
-                .validity_mask()
+                .validity()
+                .unwrap()
+                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .to_bit_buffer()
                 .iter()
@@ -653,7 +851,14 @@ mod test {
     #[test]
     fn sparse_validity_mask_non_null_fill() {
         let array = sparse_array(non_nullable_fill());
-        assert!(array.validity_mask().unwrap().all_true());
+        assert!(
+            array
+                .validity()
+                .unwrap()
+                .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .all_true()
+        );
     }
 
     #[test]
@@ -675,21 +880,27 @@ mod test {
 
     #[test]
     fn encode_with_nulls() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let original = PrimitiveArray::new(
             buffer![0i32, 1, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4],
             Validity::from_iter(vec![
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ]),
         );
-        let sparse = Sparse::encode(&original.clone().into_array(), None)
+        let sparse = Sparse::encode(&original.clone().into_array(), None, &mut ctx)
             .vortex_expect("Sparse::encode should succeed for test data");
         assert_eq!(
-            sparse.validity_mask().unwrap(),
+            sparse
+                .validity()
+                .unwrap()
+                .execute_mask(sparse.len(), &mut ctx)
+                .unwrap(),
             Mask::from_iter(vec![
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ])
         );
-        assert_arrays_eq!(sparse.to_primitive(), original);
+        let sparse_primitive = sparse.execute::<PrimitiveArray>(&mut ctx).unwrap();
+        assert_arrays_eq!(sparse_primitive, original);
     }
 
     #[test]
@@ -698,7 +909,11 @@ mod test {
         let values = PrimitiveArray::from_option_iter([Some(0i16), Some(1), None, None, Some(4)])
             .into_array();
         let array = Sparse::try_new(indices, values, 10, Scalar::null_native::<i16>()).unwrap();
-        let actual = array.validity_mask().unwrap();
+        let actual = array
+            .validity()
+            .unwrap()
+            .execute_mask(array.len(), &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         let expected = Mask::from_iter([
             true, false, true, false, false, false, false, false, true, false,
         ]);

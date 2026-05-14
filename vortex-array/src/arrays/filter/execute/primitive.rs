@@ -35,7 +35,8 @@ mod test {
 
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
-    use crate::canonical::ToCanonical;
+    #[expect(deprecated)]
+    use crate::canonical::ToCanonical as _;
     use crate::compute::conformance::filter::LARGE_SIZE;
     use crate::compute::conformance::filter::MEDIUM_SIZE;
     use crate::compute::conformance::filter::test_filter_conformance;
@@ -45,6 +46,7 @@ mod test {
         let mask = [true, true, false, true, true, true, false, true];
         let arr = PrimitiveArray::from_iter([1u32, 24, 54, 2, 3, 2, 3, 2]);
 
+        #[expect(deprecated)]
         let filtered = arr.filter(Mask::from_iter(mask)).unwrap().to_primitive();
         assert_eq!(
             filtered.len(),

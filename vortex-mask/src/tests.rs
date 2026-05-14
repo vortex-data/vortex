@@ -445,6 +445,12 @@ fn test_mask_from_indices_unsorted() {
 
 #[test]
 #[should_panic]
+fn test_mask_from_indices_duplicate() {
+    Mask::from_indices(5, vec![0, 2, 2]); // Not unique
+}
+
+#[test]
+#[should_panic]
 fn test_mask_from_indices_out_of_bounds() {
     Mask::from_indices(5, vec![0, 2, 5]); // 5 is out of bounds
 }

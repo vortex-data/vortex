@@ -14,7 +14,8 @@ use crate::Pco;
 
 impl SliceReduce for Pco {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let unsliced_validity = child_to_validity(&array.slots()[0], array.dtype().nullability());
+        let unsliced_validity =
+            child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
         Ok(Some(
             Pco::try_new(
                 array.dtype().clone(),

@@ -11,7 +11,7 @@ use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
 
 use crate::DateTimeParts;
-use crate::array::DateTimePartsArrayExt;
+use crate::array::DateTimePartsArraySlotsExt;
 
 /// DateTimeParts-specific is_constant kernel.
 ///
@@ -37,6 +37,6 @@ impl DynAggregateKernel for DateTimePartsIsConstantKernel {
         let result = is_constant(array.days(), ctx)?
             && is_constant(array.seconds(), ctx)?
             && is_constant(array.subseconds(), ctx)?;
-        Ok(Some(IsConstant::make_partial(batch, result)?))
+        Ok(Some(IsConstant::make_partial(batch, result, ctx)?))
     }
 }

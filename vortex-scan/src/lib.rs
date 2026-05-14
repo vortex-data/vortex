@@ -76,6 +76,14 @@ pub type DataSourceRef = Arc<dyn DataSource>;
 ///
 /// The DataSource may be used multiple times to create multiple scans, whereas each scan and each
 /// partition of a scan can only be consumed once.
+///
+/// Partitions have indices. Partition index is stable throughout DataSource's
+/// lifetime. For every scan requested on the DataSource, the index will stay
+/// the same.
+/// However, this means you should create another instance of a DataSource if
+/// your environment changes e.g. you have a glob and another file is added to
+/// the filesystem this glob references.
+/// See MultiFileDataSource in vortex-file/src/multi/mod.rs
 #[async_trait]
 pub trait DataSource: 'static + Send + Sync {
     /// Returns the dtype of the source.
@@ -120,11 +128,16 @@ pub struct ScanRequest {
     pub projection: Expression,
     /// Filter expression, `None` implies no filter.
     pub filter: Option<Expression>,
-    /// The row range to read.
+    /// The per-partition row range to read. Row range will be applied
+    /// over every partition you scan.
     pub row_range: Option<Range<u64>>,
-    /// A row selection to apply to the scan. The selection identifies rows within the specified
-    /// row range.
+    /// The per-partition row selection to read. Row selection will be applied
+    /// over every partition you scan.
     pub selection: Selection,
+    /// Partition selection to scan, which allows readers to skip unwanted partitions.
+    pub partition_selection: Selection,
+    /// Partition range to scan, which allows readers to skip unwanted partitions.
+    pub partition_range: Option<Range<u64>>,
     /// Whether the scan should preserve row order. If false, the scan may produce rows in any
     /// order, for example to enable parallel execution across partitions.
     pub ordered: bool,
@@ -140,8 +153,10 @@ impl Default for ScanRequest {
             filter: None,
             row_range: None,
             selection: Selection::default(),
+            partition_selection: Selection::default(),
             ordered: false,
             limit: None,
+            partition_range: None,
         }
     }
 }
@@ -168,6 +183,11 @@ pub type PartitionRef = Box<dyn Partition>;
 pub trait Partition: 'static + Send {
     /// Downcast the partition to a concrete type.
     fn as_any(&self) -> &dyn Any;
+
+    /// Some unique identifier for partition.
+    /// If you have an instance of a DataSource, the indices of emitted
+    /// partitions will stay stable for every scan in this DataSource.
+    fn index(&self) -> usize;
 
     /// Returns an estimate of the row count for this partition.
     fn row_count(&self) -> Option<Precision<u64>>;

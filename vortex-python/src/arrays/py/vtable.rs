@@ -48,13 +48,13 @@ impl ArrayEq for PythonArray {
 }
 
 impl VTable for PythonVTable {
-    type ArrayData = PythonArray;
+    type TypedArrayData = PythonArray;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        self.id.clone()
+        self.id
     }
 
     fn validate(

@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde::Serialize;
 use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 
 use crate::clickbench::Flavor;
 
@@ -21,11 +22,33 @@ pub mod tpch_l_comment;
 
 use std::path::PathBuf;
 
+pub(crate) const DEFAULT_BENCHMARK_RUNNER_ID: &str = "unknown";
+
+pub(crate) fn normalize_benchmark_runner_id(benchmark_runner: &str) -> String {
+    let benchmark_runner = benchmark_runner.trim().replace('/', "_");
+    if benchmark_runner.is_empty() {
+        DEFAULT_BENCHMARK_RUNNER_ID.to_string()
+    } else {
+        benchmark_runner
+    }
+}
+
 #[async_trait]
 pub trait Dataset {
     fn name(&self) -> &str;
 
-    async fn to_vortex_array(&self) -> Result<ArrayRef>;
+    /// Map this dataset to the v3 `(dataset, dataset_variant)` pair emitted
+    /// in `compression_*` records.
+    ///
+    /// Default: `(name(), None)`. Override only when a suite needs a
+    /// different dataset name on the wire than its `name()` returns. The
+    /// query-side equivalent is documented on
+    /// [`crate::v3::benchmark_dataset_dims`].
+    fn v3_dataset_dims(&self) -> (&str, Option<&str>) {
+        (self.name(), None)
+    }
+
+    async fn to_vortex_array(&self, ctx: &mut ExecutionCtx) -> Result<ArrayRef>;
 
     /// Get the path to the parquet file for this dataset.
     ///

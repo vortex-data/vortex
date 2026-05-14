@@ -46,7 +46,7 @@ impl ScalarFnVTable for Zip {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.zip")
+        ScalarFnId::new("vortex.zip")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -118,7 +118,7 @@ impl ScalarFnVTable for Zip {
 
         let mask = mask_array
             .execute::<BoolArray>(ctx)?
-            .to_mask_fill_null_false();
+            .to_mask_fill_null_false(ctx);
 
         let return_dtype = if_true
             .dtype()
@@ -238,7 +238,7 @@ mod tests {
     use crate::arrays::Struct;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinView;
-    use crate::arrow::IntoArrowArray;
+    use crate::arrow::ArrowArrayExecutor;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::BufferGrowthStrategy;
@@ -432,7 +432,7 @@ mod tests {
             builder.finish()
         };
 
-        let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0).collect());
+        let mask = Mask::from_indices(200, (0..100).filter(|i| i % 3 != 0));
         let mask_array = mask.clone().into_array();
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
@@ -444,17 +444,22 @@ mod tests {
         let zipped = zipped.as_opt::<VarBinView>().unwrap();
         assert_eq!(zipped.data_buffers().len(), 2);
 
+        let mut arrow_ctx = LEGACY_SESSION.create_execution_ctx();
         let expected = arrow_zip(
             mask.into_array()
-                .into_arrow_preferred()
+                .execute_arrow(None, &mut arrow_ctx)
                 .unwrap()
                 .as_boolean(),
-            &if_true.into_arrow_preferred().unwrap(),
-            &if_false.into_arrow_preferred().unwrap(),
+            &if_true.execute_arrow(None, &mut arrow_ctx).unwrap(),
+            &if_false.execute_arrow(None, &mut arrow_ctx).unwrap(),
         )
         .unwrap();
 
-        let actual = zipped.array().clone().into_arrow_preferred().unwrap();
+        let actual = zipped
+            .array()
+            .clone()
+            .execute_arrow(None, &mut arrow_ctx)
+            .unwrap();
         assert_eq!(actual.as_ref(), expected.as_ref());
     }
 }

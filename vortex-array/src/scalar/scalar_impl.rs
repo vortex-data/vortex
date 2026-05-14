@@ -14,6 +14,7 @@ use vortex_error::vortex_panic;
 use crate::dtype::DType;
 use crate::dtype::NativeDType;
 use crate::dtype::PType;
+use crate::dtype::StructFields;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
 
@@ -187,10 +188,13 @@ impl Scalar {
             DType::Utf8(_) => value.as_utf8().is_empty(),
             DType::Binary(_) => value.as_binary().is_empty(),
             DType::List(..) => value.as_list().is_empty(),
+            // TODO(connor): This seems wrong...
             DType::FixedSizeList(_, list_size, _) => value.as_list().len() == *list_size as usize,
+            // TODO(connor): This also seems wrong...
             DType::Struct(struct_fields, _) => value.as_list().len() == struct_fields.nfields(),
-            DType::Extension(_) => self.as_extension().to_storage_scalar().is_zero()?,
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Variant(_) => self.as_variant().is_zero()?,
+            DType::Extension(_) => self.as_extension().to_storage_scalar().is_zero()?,
         };
 
         Some(is_zero)
@@ -247,19 +251,30 @@ impl Scalar {
             DType::Binary(_) => self
                 .value()
                 .map_or_else(|| 0, |value| value.as_binary().len()),
-            DType::Struct(..) => self
-                .as_struct()
-                .fields_iter()
-                .map(|fields| fields.into_iter().map(|f| f.approx_nbytes()).sum::<usize>())
-                .unwrap_or_default(),
             DType::List(..) | DType::FixedSizeList(..) => self
                 .as_list()
                 .elements()
                 .map(|fields| fields.into_iter().map(|f| f.approx_nbytes()).sum::<usize>())
                 .unwrap_or_default(),
-            DType::Extension(_) => self.as_extension().to_storage_scalar().approx_nbytes(),
+            DType::Struct(..) => self
+                .as_struct()
+                .fields_iter()
+                .map(|fields| fields.into_iter().map(|f| f.approx_nbytes()).sum::<usize>())
+                .unwrap_or_default(),
+            DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Variant(_) => self.as_variant().value().map_or(0, Scalar::approx_nbytes),
+            DType::Extension(_) => self.as_extension().to_storage_scalar().approx_nbytes(),
         }
+    }
+}
+
+/// We implement `Hash` manually to be consistent with `PartialEq`. Since we ignore nullability in
+/// equality comparisons, we must also ignore it when hashing to maintain the invariant that equal
+/// values have equal hashes.
+impl Hash for Scalar {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.dtype.as_nonnullable().hash(state);
+        self.value.hash(state);
     }
 }
 
@@ -288,7 +303,14 @@ impl PartialOrd for Scalar {
     /// - Non-null values are compared according to their natural ordering
     ///
     /// # Examples
-    /// ```ignore
+    ///
+    /// ```
+    /// use std::cmp::Ordering;
+    /// use vortex_array::dtype::DType;
+    /// use vortex_array::dtype::Nullability;
+    /// use vortex_array::dtype::PType;
+    /// use vortex_array::scalar::Scalar;
+    ///
     /// // Same types compare successfully
     /// let a = Scalar::primitive(10i32, Nullability::NonNullable);
     /// let b = Scalar::primitive(20i32, Nullability::NonNullable);
@@ -308,16 +330,101 @@ impl PartialOrd for Scalar {
         if !self.dtype().eq_ignore_nullability(other.dtype()) {
             return None;
         }
-        self.value().partial_cmp(&other.value())
+
+        partial_cmp_scalar_values(self.dtype(), self.value(), other.value())
     }
 }
 
-/// We implement `Hash` manually to be consistent with `PartialEq`. Since we ignore nullability
-/// in equality comparisons, we must also ignore it when hashing to maintain the invariant that
-/// equal values have equal hashes.
-impl Hash for Scalar {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.dtype.as_nonnullable().hash(state);
-        self.value.hash(state);
+/// Compare two optional scalar values using `dtype` for nested tuple interpretation.
+fn partial_cmp_scalar_values(
+    dtype: &DType,
+    lhs: Option<&ScalarValue>,
+    rhs: Option<&ScalarValue>,
+) -> Option<Ordering> {
+    match (lhs, rhs) {
+        (None, None) => Some(Ordering::Equal),
+        (None, Some(_)) => Some(Ordering::Less),
+        (Some(_), None) => Some(Ordering::Greater),
+        (Some(lhs), Some(rhs)) => partial_cmp_non_null_scalar_values(dtype, lhs, rhs),
     }
+}
+
+/// Compare two non-null scalar values, consulting `dtype` only for tuple-backed values.
+fn partial_cmp_non_null_scalar_values(
+    dtype: &DType,
+    lhs: &ScalarValue,
+    rhs: &ScalarValue,
+) -> Option<Ordering> {
+    // `Scalar::validate` guarantees that a scalar's value matches its dtype. Most of the scalar
+    // value variants have only 1 method of comparison, regardless of the dtype.
+    match (lhs, rhs) {
+        (ScalarValue::Bool(lhs), ScalarValue::Bool(rhs)) => lhs.partial_cmp(rhs),
+        (ScalarValue::Primitive(lhs), ScalarValue::Primitive(rhs)) => lhs.partial_cmp(rhs),
+        (ScalarValue::Decimal(lhs), ScalarValue::Decimal(rhs)) => lhs.partial_cmp(rhs),
+        (ScalarValue::Utf8(lhs), ScalarValue::Utf8(rhs)) => lhs.partial_cmp(rhs),
+        (ScalarValue::Binary(lhs), ScalarValue::Binary(rhs)) => lhs.partial_cmp(rhs),
+        // `Tuple` is the exception here. Since it backs lists, fixed-size lists, and structs, we
+        // need the dtype to know whether children share one element dtype or use per-field dtypes.
+        (ScalarValue::Tuple(lhs), ScalarValue::Tuple(rhs)) => {
+            partial_cmp_tuple_values(dtype, lhs, rhs)
+        }
+        // Variant values can have a different dtype in each row, so it doesn't make sense to
+        // compare them.
+        (ScalarValue::Variant(_), ScalarValue::Variant(_)) => None,
+        _ => None,
+    }
+}
+
+/// Compare tuple values according to the list, fixed-size list, or struct dtype layout.
+fn partial_cmp_tuple_values(
+    dtype: &DType,
+    lhs: &[Option<ScalarValue>],
+    rhs: &[Option<ScalarValue>],
+) -> Option<Ordering> {
+    match dtype {
+        DType::List(element_dtype, _) | DType::FixedSizeList(element_dtype, ..) => {
+            partial_cmp_list_values(element_dtype, lhs, rhs)
+        }
+        DType::Struct(fields, _) => partial_cmp_struct_values(fields, lhs, rhs),
+        DType::Extension(ext_dtype) => {
+            partial_cmp_tuple_values(ext_dtype.storage_dtype(), lhs, rhs)
+        }
+        _ => None,
+    }
+}
+
+/// Compare list tuple values using the shared element dtype for each element.
+fn partial_cmp_list_values(
+    element_dtype: &DType,
+    lhs: &[Option<ScalarValue>],
+    rhs: &[Option<ScalarValue>],
+) -> Option<Ordering> {
+    for (lhs, rhs) in lhs.iter().zip(rhs.iter()) {
+        match partial_cmp_scalar_values(element_dtype, lhs.as_ref(), rhs.as_ref())? {
+            Ordering::Equal => continue,
+            ordering => return Some(ordering),
+        }
+    }
+
+    Some(lhs.len().cmp(&rhs.len()))
+}
+
+/// Compare struct tuple values using each field's dtype in field order.
+fn partial_cmp_struct_values(
+    fields: &StructFields,
+    lhs: &[Option<ScalarValue>],
+    rhs: &[Option<ScalarValue>],
+) -> Option<Ordering> {
+    if lhs.len() != fields.nfields() || rhs.len() != fields.nfields() {
+        return None;
+    }
+
+    for ((field_dtype, lhs), rhs) in fields.fields().zip(lhs.iter()).zip(rhs.iter()) {
+        match partial_cmp_scalar_values(&field_dtype, lhs.as_ref(), rhs.as_ref())? {
+            Ordering::Equal => continue,
+            ordering => return Some(ordering),
+        }
+    }
+
+    Some(Ordering::Equal)
 }

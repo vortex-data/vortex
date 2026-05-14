@@ -5,6 +5,8 @@
 
 #[cfg(not(codspeed))]
 mod benchmarks {
+    use std::sync::LazyLock;
+
     use divan::Bencher;
     use divan::counter::BytesCount;
     use divan::counter::ItemsCount;
@@ -13,10 +15,16 @@ mod benchmarks {
     use rand::prelude::StdRng;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::session::ArraySession;
     use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_buffer::buffer_mut;
+    use vortex_session::VortexSession;
     use vortex_utils::aliases::hash_set::HashSet;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     fn make_clickbench_window_name() -> ArrayRef {
         // A test that's meant to mirror the WindowName column from ClickBench.
@@ -39,13 +47,20 @@ mod benchmarks {
 
     #[divan::bench]
     fn btrblocks(bencher: Bencher) {
-        let array = make_clickbench_window_name().to_primitive();
+        let mut ctx = SESSION.create_execution_ctx();
+        let array = make_clickbench_window_name()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         let compressor = BtrBlocksCompressor::default();
         bencher
-            .with_inputs(|| &array)
-            .input_counter(|array| ItemsCount::new(array.len()))
-            .input_counter(|array| BytesCount::of_many::<i32>(array.len()))
-            .bench_refs(|array| compressor.compress(&array.clone().into_array()).unwrap());
+            .with_inputs(|| (&array, SESSION.create_execution_ctx()))
+            .input_counter(|(array, _)| ItemsCount::new(array.len()))
+            .input_counter(|(array, _)| BytesCount::of_many::<i32>(array.len()))
+            .bench_refs(|(array, ctx)| {
+                compressor
+                    .compress(&array.clone().into_array(), ctx)
+                    .unwrap()
+            });
     }
 }
 

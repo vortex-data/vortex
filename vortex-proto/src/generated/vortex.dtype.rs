@@ -71,9 +71,14 @@ pub struct Variant {
     #[prost(bool, tag = "1")]
     pub nullable: bool,
 }
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Union {
+    #[prost(bool, tag = "4")]
+    pub nullable: bool,
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DType {
-    #[prost(oneof = "d_type::DtypeType", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11")]
+    #[prost(oneof = "d_type::DtypeType", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12")]
     pub dtype_type: ::core::option::Option<d_type::DtypeType>,
 }
 /// Nested message and enum types in `DType`.
@@ -103,6 +108,8 @@ pub mod d_type {
         FixedSizeList(::prost::alloc::boxed::Box<super::FixedSizeList>),
         #[prost(message, tag = "11")]
         Variant(super::Variant),
+        #[prost(message, tag = "12")]
+        Union(super::Union),
     }
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

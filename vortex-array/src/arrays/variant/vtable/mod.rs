@@ -4,11 +4,13 @@
 mod operations;
 mod validity;
 
+use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -29,24 +31,21 @@ pub type VariantArray = Array<Variant>;
 #[derive(Clone, Debug)]
 pub struct Variant;
 
-impl Variant {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.variant");
-}
-
 impl VTable for Variant {
-    type ArrayData = EmptyArrayData;
+    type TypedArrayData = EmptyArrayData;
 
     type OperationsVTable = Self;
 
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.variant");
+        *ID
     }
 
     fn validate(
         &self,
-        _data: &Self::ArrayData,
+        _data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
@@ -121,7 +120,7 @@ impl VTable for Variant {
         let child = children.get(0, dtype, len)?;
         Ok(
             crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
-                .with_slots(vec![Some(child)]),
+                .with_slots(smallvec![Some(child)]),
         )
     }
 

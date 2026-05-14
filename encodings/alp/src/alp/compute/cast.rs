@@ -6,7 +6,6 @@ use vortex_array::ArrayView;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
-use vortex_array::patches::Patches;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_error::VortexResult;
 
@@ -17,41 +16,29 @@ use crate::alp::ALP;
 impl CastReduce for ALP {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Check if this is just a nullability change
-        if array.dtype().eq_ignore_nullability(dtype) {
-            // For nullability-only changes, we can avoid decoding
-            // Cast the encoded array (integers) to handle nullability
-            let new_encoded = array.encoded().cast(
-                array
-                    .encoded()
-                    .dtype()
-                    .with_nullability(dtype.nullability()),
-            )?;
+        if !array.dtype().eq_ignore_nullability(dtype) {
+            return Ok(None);
+        }
 
-            let new_patches = array
-                .patches()
-                .map(|p| {
-                    if p.values().dtype() == dtype {
-                        Ok(p)
-                    } else {
-                        Patches::new(
-                            p.array_len(),
-                            p.offset(),
-                            p.indices().clone(),
-                            p.values().cast(dtype.clone())?,
-                            p.chunk_offsets().clone(),
-                        )
-                    }
-                })
-                .transpose()?;
+        // For nullability-only changes, we can avoid decoding
+        // Cast the encoded array (integers) to handle nullability
+        let new_encoded = array.encoded().cast(
+            array
+                .encoded()
+                .dtype()
+                .with_nullability(dtype.nullability()),
+        )?;
 
-            // SAFETY: casting nullability doesn't alter the invariants
-            unsafe {
-                Ok(Some(
-                    ALP::new_unchecked(new_encoded, array.exponents(), new_patches).into_array(),
-                ))
-            }
-        } else {
-            Ok(None)
+        let new_patches = array
+            .patches()
+            .map(|p| p.map_values(|v| v.cast(dtype.clone())))
+            .transpose()?;
+
+        // SAFETY: casting nullability doesn't alter the invariants
+        unsafe {
+            Ok(Some(
+                ALP::new_unchecked(new_encoded, array.exponents(), new_patches).into_array(),
+            ))
         }
     }
 }
@@ -60,7 +47,8 @@ impl CastReduce for ALP {
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builtins::ArrayBuiltins;
@@ -77,8 +65,10 @@ mod tests {
 
     #[test]
     fn issue_5766_test_cast_alp_with_patches_to_nullable() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = buffer![1.234f32, f32::NAN, 2.345, f32::INFINITY, 3.456].into_array();
-        let alp = alp_encode(values.to_primitive().as_view(), None)?;
+        let values_primitive = values.clone().execute::<PrimitiveArray>(&mut ctx)?;
+        let alp = alp_encode(values_primitive.as_view(), None, &mut ctx)?;
 
         assert!(
             alp.patches().is_some(),
@@ -90,15 +80,18 @@ mod tests {
 
         let expected = values.cast(nullable_dtype)?;
 
-        assert_arrays_eq!(casted.to_canonical()?.into_primitive(), expected);
+        let casted_prim = casted.execute::<PrimitiveArray>(&mut ctx)?;
+        assert_arrays_eq!(casted_prim, expected);
 
         Ok(())
     }
 
     #[test]
     fn test_cast_alp_f32_to_f64() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = buffer![1.5f32, 2.5, 3.5, 4.5].into_array();
-        let alp = alp_encode(values.to_primitive().as_view(), None)?;
+        let values_primitive = values.execute::<PrimitiveArray>(&mut ctx)?;
+        let alp = alp_encode(values_primitive.as_view(), None, &mut ctx)?;
 
         let casted = alp
             .into_array()
@@ -108,7 +101,7 @@ mod tests {
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_canonical()?.into_primitive();
+        let decoded = casted.execute::<PrimitiveArray>(&mut ctx)?;
         let values = decoded.as_slice::<f64>();
         assert_eq!(values.len(), 4);
         assert!((values[0] - 1.5).abs() < f64::EPSILON);
@@ -119,8 +112,10 @@ mod tests {
 
     #[test]
     fn test_cast_alp_to_int() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let values = buffer![1.0f32, 2.0, 3.0, 4.0].into_array();
-        let alp = alp_encode(values.to_primitive().as_view(), None)?;
+        let values_primitive = values.execute::<PrimitiveArray>(&mut ctx)?;
+        let alp = alp_encode(values_primitive.as_view(), None, &mut ctx)?;
 
         let casted = alp
             .into_array()
@@ -130,7 +125,7 @@ mod tests {
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_canonical()?.into_primitive();
+        let decoded = casted.execute::<PrimitiveArray>(&mut ctx)?;
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i32, 2, 3, 4]));
 
         Ok(())
@@ -143,7 +138,10 @@ mod tests {
     #[case(buffer![42.42f64].into_array())]
     #[case(buffer![0.0f32, -1.5, 2.5, -3.5, 4.5].into_array())]
     fn test_cast_alp_conformance(#[case] array: vortex_array::ArrayRef) -> VortexResult<()> {
-        let alp = alp_encode(array.to_primitive().as_view(), None).vortex_expect("cannot fail");
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let array_primitive = array.execute::<PrimitiveArray>(&mut ctx)?;
+        let alp =
+            alp_encode(array_primitive.as_view(), None, &mut ctx).vortex_expect("cannot fail");
         test_cast_conformance(&alp.into_array());
 
         Ok(())

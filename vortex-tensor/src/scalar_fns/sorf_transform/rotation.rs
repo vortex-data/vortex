@@ -76,15 +76,31 @@ impl SorfMatrix {
     /// The seed is expanded using Vortex's frozen local SplitMix64 stream. Signs are generated in
     /// round-major, block-major order, with each `u64` contributing 64 sign bits in
     /// least-significant-bit-first order.
-    pub fn try_new(seed: u64, dimension: usize, num_rounds: usize) -> VortexResult<Self> {
-        vortex_ensure!(num_rounds >= 1, "num_rounds must be >= 1, got {num_rounds}");
+    pub fn try_new(seed: u64, dimensions: usize, num_rounds: usize) -> VortexResult<Self> {
+        Self::try_new_padded(dimensions.next_power_of_two(), num_rounds, seed)
+    }
 
-        let padded_dim = dimension.next_power_of_two();
+    /// Create a new structured Walsh-Hadamard-based orthogonal transform for a padded dimension.
+    ///
+    /// `padded_dimensions` must already be a power of two. Callers that start from an unpadded
+    /// logical dimension should call [`Self::try_new`] instead.
+    pub(crate) fn try_new_padded(
+        padded_dimensions: usize,
+        num_rounds: usize,
+        seed: u64,
+    ) -> VortexResult<Self> {
+        vortex_ensure!(num_rounds >= 1, "num_rounds must be >= 1, got {num_rounds}");
+        vortex_ensure!(
+            padded_dimensions.is_power_of_two(),
+            "padded_dimensions must be a power of two, got {padded_dimensions}"
+        );
+
+        let padded_dim = padded_dimensions;
         let sign_masks = gen_sign_masks_from_seed(seed, padded_dim, num_rounds);
 
         // Compute in f64 for precision, then store as f32 since the WHT operates on f32 buffers.
         // The result is always in (0, 1] for any valid padded_dim >= 2 and num_rounds >= 1, so
-        // the f64 -> f32 cast is a precision loss only -- it cannot overflow to infinity.
+        // the f64 -> f32 cast is a precision loss only (it cannot overflow to infinity).
         #[expect(
             clippy::cast_possible_truncation,
             reason = "the norm factor is in (0, 1] so the f64 -> f32 cast cannot overflow"
@@ -132,8 +148,7 @@ impl SorfMatrix {
     /// Apply the forward structured transform: `norm · H · D_k · ... · H · D₁ · x`.
     fn apply_srht(&self, buf: &mut [f32]) {
         for round in 0..self.num_rounds {
-            let offset = round * self.padded_dim;
-            apply_signs_xor(buf, &self.sign_masks[offset..offset + self.padded_dim]);
+            self.apply_signs_xor(buf, round);
             walsh_hadamard_transform(buf);
         }
 
@@ -148,12 +163,22 @@ impl SorfMatrix {
     fn apply_inverse_srht(&self, buf: &mut [f32]) {
         for round in (0..self.num_rounds).rev() {
             walsh_hadamard_transform(buf);
-            let offset = round * self.padded_dim;
-            apply_signs_xor(buf, &self.sign_masks[offset..offset + self.padded_dim]);
+            self.apply_signs_xor(buf, round);
         }
 
         let norm = self.norm_factor;
         buf.iter_mut().for_each(|val| *val *= norm);
+    }
+
+    /// Apply one round's sign masks via XOR on the IEEE 754 sign bit.
+    ///
+    /// This is branchless and auto-vectorizes into `vpxor` (x86) / `veor` (ARM). Equivalent to
+    /// multiplying each element by +/-1.0, but avoids FP dependency chains.
+    fn apply_signs_xor(&self, buf: &mut [f32], round: usize) {
+        let masks = &self.sign_masks[round * self.padded_dim..][..self.padded_dim];
+        for (val, &mask) in buf.iter_mut().zip(masks.iter()) {
+            *val = f32::from_bits(val.to_bits() ^ mask);
+        }
     }
 
     /// Export the sign vectors as a flat `Vec<u8>` of 0/1 values in inverse application order
@@ -263,16 +288,6 @@ fn sign_mask_from_word(word: u64, bit_idx: usize) -> u32 {
     }
 }
 
-/// Apply sign masks via XOR on the IEEE 754 sign bit.
-///
-/// This is branchless and auto-vectorizes into `vpxor` (x86) / `veor` (ARM). Equivalent to
-/// multiplying each element by +/-1.0, but avoids FP dependency chains.
-fn apply_signs_xor(buf: &mut [f32], masks: &[u32]) {
-    for (val, &mask) in buf.iter_mut().zip(masks.iter()) {
-        *val = f32::from_bits(val.to_bits() ^ mask);
-    }
-}
-
 /// In-place Fast Walsh-Hadamard Transform (FWHT), unnormalized and iterative.
 ///
 /// Input length must be a power of 2. Runs in O(n log n) via `log2(n)` stages of `n / 2`
@@ -327,14 +342,24 @@ mod tests {
             .collect()
     }
 
+    fn dim_to_usize(dim: u32) -> usize {
+        usize::try_from(dim).unwrap()
+    }
+
+    fn rounds_to_usize(num_rounds: u8) -> usize {
+        usize::from(num_rounds)
+    }
+
     #[test]
     fn deterministic_from_seed() -> VortexResult<()> {
-        let r1 = SorfMatrix::try_new(42, 64, 3)?;
-        let r2 = SorfMatrix::try_new(42, 64, 3)?;
+        let dim = dim_to_usize(64u32);
+        let num_rounds = rounds_to_usize(3u8);
+        let r1 = SorfMatrix::try_new(42u64, dim, num_rounds)?;
+        let r2 = SorfMatrix::try_new(42u64, dim, num_rounds)?;
         let pd = r1.padded_dim();
 
         let mut input = vec![0.0f32; pd];
-        for i in 0..64 {
+        for i in 0..dim {
             input[i] = i as f32;
         }
         let mut out1 = vec![0.0f32; pd];
@@ -349,15 +374,19 @@ mod tests {
 
     #[test]
     fn export_inverse_signs_matches_golden_words() -> VortexResult<()> {
-        let rot = SorfMatrix::try_new(42, 64, 2)?;
+        let dim = dim_to_usize(64u32);
+        let num_rounds = rounds_to_usize(2u8);
+        let seed = 42u64;
+        let rot = SorfMatrix::try_new(seed, dim, num_rounds)?;
+        let padded_dim = rot.padded_dim();
         let actual = rot.export_inverse_signs_u8();
-        let mut rng = SplitMix64::new(42);
+        let mut rng = SplitMix64::new(seed);
         let round0_word = rng.next_u64();
         let round1_word = rng.next_u64();
 
-        let mut expected = Vec::with_capacity(128);
-        expected.extend(unpack_sign_bits(round1_word, 64));
-        expected.extend(unpack_sign_bits(round0_word, 64));
+        let mut expected = Vec::with_capacity(num_rounds * padded_dim);
+        expected.extend(unpack_sign_bits(round1_word, padded_dim));
+        expected.extend(unpack_sign_bits(round0_word, padded_dim));
 
         assert_eq!(actual, expected);
         Ok(())
@@ -365,25 +394,38 @@ mod tests {
 
     #[test]
     fn one_word_generates_64_signs_lsb_first() {
-        let masks = gen_sign_masks_from_seed(42, 64, 1);
-        assert_eq!(masks.len(), 64);
+        let seed = 42u64;
+        let padded_dim = dim_to_usize(64u32);
+        let num_rounds = rounds_to_usize(1u8);
+        let masks = gen_sign_masks_from_seed(seed, padded_dim, num_rounds);
+        assert_eq!(masks.len(), padded_dim);
 
-        let mut rng = SplitMix64::new(42);
+        let mut rng = SplitMix64::new(seed);
         let word = rng.next_u64();
-        let expected: Vec<_> = (0..64)
+        let expected: Vec<_> = (0..padded_dim)
             .map(|bit_idx| sign_mask_from_word(word, bit_idx))
             .collect();
         assert_eq!(masks, expected);
     }
 
     #[test]
-    fn tail_block_uses_only_required_bits() {
-        let masks = gen_sign_masks_from_seed(42, 32, 1);
-        assert_eq!(masks.len(), 32);
+    fn accepts_non_power_of_two_dimensions() -> VortexResult<()> {
+        let rot = SorfMatrix::try_new(42u64, dim_to_usize(100u32), rounds_to_usize(3u8))?;
+        assert_eq!(rot.padded_dim(), 128);
+        Ok(())
+    }
 
-        let mut rng = SplitMix64::new(42);
+    #[test]
+    fn tail_block_uses_only_required_bits() {
+        let seed = 42u64;
+        let padded_dim = dim_to_usize(32u32);
+        let num_rounds = rounds_to_usize(1u8);
+        let masks = gen_sign_masks_from_seed(seed, padded_dim, num_rounds);
+        assert_eq!(masks.len(), padded_dim);
+
+        let mut rng = SplitMix64::new(seed);
         let word = rng.next_u64();
-        let expected: Vec<_> = (0..32)
+        let expected: Vec<_> = (0..padded_dim)
             .map(|bit_idx| sign_mask_from_word(word, bit_idx))
             .collect();
         assert_eq!(masks, expected);
@@ -392,19 +434,21 @@ mod tests {
     /// Verify roundtrip is exact to f32 precision across many dimensions and round counts,
     /// including non-power-of-two dimensions that require padding.
     #[rstest]
-    #[case(32, 3)]
-    #[case(64, 3)]
-    #[case(100, 3)]
-    #[case(128, 1)]
-    #[case(128, 2)]
-    #[case(128, 3)]
-    #[case(128, 5)]
-    #[case(256, 3)]
-    #[case(512, 3)]
-    #[case(768, 3)]
-    #[case(1024, 3)]
-    fn roundtrip_exact(#[case] dim: usize, #[case] num_rounds: usize) -> VortexResult<()> {
-        let rot = SorfMatrix::try_new(42, dim, num_rounds)?;
+    #[case(32u32, 3u8)]
+    #[case(64u32, 3u8)]
+    #[case(100u32, 3u8)]
+    #[case(128u32, 1u8)]
+    #[case(128u32, 2u8)]
+    #[case(128u32, 3u8)]
+    #[case(128u32, 5u8)]
+    #[case(256u32, 3u8)]
+    #[case(512u32, 3u8)]
+    #[case(768u32, 3u8)]
+    #[case(1024u32, 3u8)]
+    fn roundtrip_exact(#[case] dim: u32, #[case] num_rounds: u8) -> VortexResult<()> {
+        let dim = dim_to_usize(dim);
+        let num_rounds = rounds_to_usize(num_rounds);
+        let rot = SorfMatrix::try_new(42u64, dim, num_rounds)?;
         let padded_dim = rot.padded_dim();
 
         let mut input = vec![0.0f32; padded_dim];
@@ -435,12 +479,14 @@ mod tests {
 
     /// Verify norm preservation across dimensions and round counts.
     #[rstest]
-    #[case(128, 1)]
-    #[case(128, 3)]
-    #[case(128, 5)]
-    #[case(768, 3)]
-    fn preserves_norm(#[case] dim: usize, #[case] num_rounds: usize) -> VortexResult<()> {
-        let rot = SorfMatrix::try_new(7, dim, num_rounds)?;
+    #[case(128u32, 1u8)]
+    #[case(128u32, 3u8)]
+    #[case(128u32, 5u8)]
+    #[case(768u32, 3u8)]
+    fn preserves_norm(#[case] dim: u32, #[case] num_rounds: u8) -> VortexResult<()> {
+        let dim = dim_to_usize(dim);
+        let num_rounds = rounds_to_usize(num_rounds);
+        let rot = SorfMatrix::try_new(42u64, dim, num_rounds)?;
         let padded_dim = rot.padded_dim();
 
         let mut input = vec![0.0f32; padded_dim];
@@ -465,16 +511,15 @@ mod tests {
 
     /// Verify that export -> [`from_u8_slice`] produces identical transform output.
     #[rstest]
-    #[case(64, 3)]
-    #[case(128, 1)]
-    #[case(128, 3)]
-    #[case(128, 5)]
-    #[case(768, 3)]
-    fn sign_export_import_roundtrip(
-        #[case] dim: usize,
-        #[case] num_rounds: usize,
-    ) -> VortexResult<()> {
-        let rot = SorfMatrix::try_new(42, dim, num_rounds)?;
+    #[case(64u32, 3u8)]
+    #[case(128u32, 1u8)]
+    #[case(128u32, 3u8)]
+    #[case(128u32, 5u8)]
+    #[case(768u32, 3u8)]
+    fn sign_export_import_roundtrip(#[case] dim: u32, #[case] num_rounds: u8) -> VortexResult<()> {
+        let dim = dim_to_usize(dim);
+        let num_rounds = rounds_to_usize(num_rounds);
+        let rot = SorfMatrix::try_new(42u64, dim, num_rounds)?;
         let padded_dim = rot.padded_dim();
 
         let signs_u8 = rot.export_inverse_signs_u8();

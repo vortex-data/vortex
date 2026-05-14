@@ -80,7 +80,7 @@ impl ExtVTable for Time {
     type NativeValue<'a> = TimeValue;
 
     fn id(&self) -> ExtId {
-        ExtId::new_ref("vortex.time")
+        ExtId::new("vortex.time")
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -88,6 +88,7 @@ impl ExtVTable for Time {
     }
 
     fn deserialize_metadata(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
+        vortex_ensure!(!data.is_empty(), "Time metadata must not be empty");
         let tag = data[0];
         TimeUnit::try_from(tag)
     }
@@ -218,5 +219,22 @@ mod tests {
         let expected = DType::Extension(Time::new(TimeUnit::Nanoseconds, NonNullable).erased());
         assert_eq!(secs.least_supertype(&ns).unwrap(), expected);
         assert_eq!(ns.least_supertype(&secs).unwrap(), expected);
+    }
+
+    #[test]
+    fn deserialize_empty_metadata_returns_error() {
+        use crate::dtype::extension::ExtVTable;
+
+        let vtable = Time;
+        assert!(vtable.deserialize_metadata(&[]).is_err());
+    }
+
+    #[test]
+    fn deserialize_invalid_tag_returns_error() {
+        use crate::dtype::extension::ExtVTable;
+
+        let vtable = Time;
+        // 0xFF is not a valid TimeUnit tag.
+        assert!(vtable.deserialize_metadata(&[0xFF]).is_err());
     }
 }

@@ -109,6 +109,8 @@ mod tests {
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::dtype::DType;
@@ -157,7 +159,9 @@ mod tests {
 
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }
@@ -173,7 +177,9 @@ mod tests {
         // All values should be false (non-nullable input)
         for i in 0..result.len() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
                 Scalar::bool(false, Nullability::NonNullable)
             );
         }
@@ -191,7 +197,9 @@ mod tests {
         // All values should be true (all nulls)
         for i in 0..result.len() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
                 Scalar::bool(true, Nullability::NonNullable)
             );
         }
@@ -218,7 +226,9 @@ mod tests {
 
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
-                result.scalar_at(i).unwrap(),
+                result
+                    .execute_scalar(i, &mut LEGACY_SESSION.create_execution_ctx())
+                    .unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }

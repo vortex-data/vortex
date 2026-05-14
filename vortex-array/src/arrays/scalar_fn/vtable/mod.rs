@@ -19,6 +19,7 @@ use vortex_session::VortexSession;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::IntoArray;
 use crate::Precision;
 use crate::array::Array;
@@ -41,17 +42,16 @@ use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::ScalarFnRef;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::VecExecutionArgs;
 use crate::serde::ArrayChildren;
 
-/// A [`ScalarFnVTable`]-encoded Vortex array.
-pub type ScalarFnArray = Array<ScalarFnVTable>;
+/// A [`ScalarFn`]-encoded Vortex array.
+pub type ScalarFnArray = Array<ScalarFn>;
 
 #[derive(Clone, Debug)]
-pub struct ScalarFnVTable {
-    pub(super) scalar_fn: ScalarFnRef,
+pub struct ScalarFn {
+    pub(super) id: ScalarFnId,
 }
 
 impl ArrayHash for ScalarFnData {
@@ -66,13 +66,13 @@ impl ArrayEq for ScalarFnData {
     }
 }
 
-impl VTable for ScalarFnVTable {
-    type ArrayData = ScalarFnData;
+impl VTable for ScalarFn {
+    type TypedArrayData = ScalarFnData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        self.scalar_fn.id()
+        self.id
     }
 
     fn validate(
@@ -83,7 +83,7 @@ impl VTable for ScalarFnVTable {
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         vortex_ensure!(
-            data.scalar_fn == self.scalar_fn,
+            data.scalar_fn.id() == self.id,
             "ScalarFnArray data scalar_fn does not match vtable"
         );
         vortex_ensure!(
@@ -97,7 +97,7 @@ impl VTable for ScalarFnVTable {
             .map(|c| c.dtype().clone())
             .collect_vec();
         vortex_ensure!(
-            self.scalar_fn.return_dtype(&child_dtypes)? == *dtype,
+            data.scalar_fn.return_dtype(&child_dtypes)? == *dtype,
             "ScalarFnArray dtype does not match scalar function return dtype"
         );
         Ok(())
@@ -128,7 +128,6 @@ impl VTable for ScalarFnVTable {
         _dtype: &DType,
         _len: usize,
         _metadata: &[u8],
-
         _buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
         _session: &VortexSession,
@@ -175,7 +174,7 @@ pub trait ScalarFnFactoryExt: scalar_fn::ScalarFnVTable {
         options: Self::Options,
         children: impl Into<Vec<ArrayRef>>,
     ) -> VortexResult<ArrayRef> {
-        let scalar_fn = scalar_fn::ScalarFn::new(self.clone(), options).erased();
+        let scalar_fn = scalar_fn::TypedScalarFnInstance::new(self.clone(), options).erased();
 
         let children = children.into();
         vortex_ensure!(
@@ -189,11 +188,11 @@ pub trait ScalarFnFactoryExt: scalar_fn::ScalarFnVTable {
         let data = ScalarFnData {
             scalar_fn: scalar_fn.clone(),
         };
-        let vtable = ScalarFnVTable { scalar_fn };
+        let vtable = ScalarFn { id: scalar_fn.id() };
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(vtable, dtype, len, data)
-                    .with_slots(children.into_iter().map(Some).collect()),
+                    .with_slots(children.into_iter().map(Some).collect::<ArraySlots>()),
             )
         }
         .into_array())
@@ -205,14 +204,14 @@ impl<V: scalar_fn::ScalarFnVTable> ScalarFnFactoryExt for V {}
 #[derive(Debug)]
 pub struct AnyScalarFn;
 impl Matcher for AnyScalarFn {
-    type Match<'a> = ArrayView<'a, ScalarFnVTable>;
+    type Match<'a> = ArrayView<'a, ScalarFn>;
 
     fn matches(array: &ArrayRef) -> bool {
-        array.is::<ScalarFnVTable>()
+        array.is::<ScalarFn>()
     }
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        array.as_opt::<ScalarFnVTable>()
+        array.as_opt::<ScalarFn>()
     }
 }
 
@@ -224,7 +223,7 @@ impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
     type Match<'a> = ScalarFnArrayView<'a, F>;
 
     fn matches(array: &ArrayRef) -> bool {
-        if let Some(scalar_fn_array) = array.as_opt::<ScalarFnVTable>() {
+        if let Some(scalar_fn_array) = array.as_opt::<ScalarFn>() {
             scalar_fn_array.data().scalar_fn().is::<F>()
         } else {
             false
@@ -232,7 +231,7 @@ impl<F: scalar_fn::ScalarFnVTable> Matcher for ExactScalarFn<F> {
     }
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {
-        let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
+        let scalar_fn_array = array.as_opt::<ScalarFn>()?;
         let scalar_fn_data = scalar_fn_array.data();
         let scalar_fn = scalar_fn_data.scalar_fn().downcast_ref::<F>()?;
         Some(ScalarFnArrayView {
@@ -286,7 +285,7 @@ impl scalar_fn::ScalarFnVTable for ArrayExpr {
     type Options = FakeEq<ArrayRef>;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.array")
+        ScalarFnId::new("vortex.array")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

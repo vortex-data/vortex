@@ -16,6 +16,7 @@ pub use array::SequenceArray;
 pub use array::SequenceData;
 pub use array::SequenceDataParts;
 pub use compress::sequence_encode;
+use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::fns::min_max::MinMax;
@@ -29,12 +30,12 @@ pub fn initialize(session: &VortexSession) {
 
     // Register the Sequence-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
-        Sequence::ID,
+        Sequence.id(),
         Some(MinMax.id()),
         &compute::min_max::SequenceMinMaxKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        Sequence::ID,
+        Sequence.id(),
         Some(IsSorted.id()),
         &compute::is_sorted::SequenceIsSortedKernel,
     );

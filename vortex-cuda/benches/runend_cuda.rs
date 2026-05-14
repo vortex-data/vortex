@@ -6,7 +6,8 @@
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
 
-mod common;
+mod bench_config;
+mod timed_launch_strategy;
 
 use std::mem::size_of;
 use std::sync::Arc;
@@ -18,6 +19,7 @@ use criterion::Criterion;
 use criterion::Throughput;
 use cudarc::driver::DeviceRepr;
 use futures::executor::block_on;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::validity::Validity;
@@ -31,10 +33,14 @@ use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-use crate::common::TimedLaunchStrategy;
+use crate::timed_launch_strategy::TimedLaunchStrategy;
 
 /// Creates a run-end encoded array with the specified output length and average run length.
-fn make_runend_array_typed<T>(output_len: usize, avg_run_len: usize) -> RunEndArray
+fn make_runend_array_typed<T>(
+    output_len: usize,
+    avg_run_len: usize,
+    ctx: &mut ExecutionCtx,
+) -> RunEndArray
 where
     T: NativePType + From<u8>,
 {
@@ -55,7 +61,7 @@ where
     let ends_array = PrimitiveArray::new(Buffer::from(ends), Validity::NonNullable).into_array();
     let values_array =
         PrimitiveArray::new(Buffer::from(values), Validity::NonNullable).into_array();
-    RunEnd::new(ends_array, values_array)
+    RunEnd::new(ends_array, values_array, ctx)
 }
 
 /// Benchmark run-end decoding for a specific type with varying run lengths
@@ -63,26 +69,22 @@ fn benchmark_runend_typed<T>(c: &mut Criterion, type_name: &str)
 where
     T: NativePType + DeviceRepr + From<u8>,
 {
-    let mut group = c.benchmark_group("runend_cuda");
-    group.sample_size(10);
+    let mut group = c.benchmark_group("cuda");
 
-    for (len, len_str) in [
-        (1_000_000usize, "1M"),
-        (10_000_000usize, "10M"),
-        (100_000_000usize, "100M"),
-    ] {
+    for &(len, len_str) in bench_config::BENCH_SIZES {
         group.throughput(Throughput::Bytes((len * size_of::<T>()) as u64));
 
-        for run_len in [10, 100, 1000, 10000, 100000] {
-            let runend_array = make_runend_array_typed::<T>(len, run_len);
+        for run_len in [10, 1000, 100000] {
+            let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
+            let runend_array = make_runend_array_typed::<T>(len, run_len, cuda_ctx.execution_ctx());
 
             group.bench_with_input(
-                BenchmarkId::new("runend", format!("{len_str}_{type_name}_runlen_{run_len}")),
+                BenchmarkId::new(format!("cuda/runend/{type_name}_runlen_{run_len}"), len_str),
                 &runend_array,
                 |b, runend_array| {
                     b.iter_custom(|iters| {
                         let timed = TimedLaunchStrategy::default();
-                        let timer = Arc::clone(&timed.total_time_ns);
+                        let timer = timed.timer();
 
                         let mut cuda_ctx =
                             CudaSession::create_execution_ctx(&VortexSession::empty())
@@ -114,7 +116,11 @@ fn benchmark_runend(c: &mut Criterion) {
     benchmark_runend_typed::<i32>(c, "i32");
 }
 
-criterion::criterion_group!(benches, benchmark_runend);
+criterion::criterion_group! {
+    name = benches;
+    config = bench_config::cuda_bench_config();
+    targets = benchmark_runend
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

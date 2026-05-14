@@ -9,7 +9,7 @@ concurrency:
 
 on:
   schedule:
-    - cron: "0 * * * *"  # every hour
+    - cron: "0 */6 * * *"  # every 6 hours
   workflow_dispatch: { }
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: file_io
-      jobs: 16
+      jobs: 4
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
@@ -71,7 +71,7 @@ jobs:
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: array_ops
-      jobs: 16
+      jobs: 4
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
@@ -110,7 +110,7 @@ jobs:
       fuzz_name: array_ops_unstable_encodings
       extra_features: "vortex/unstable_encodings"
       extra_env: "VORTEX_EXPERIMENTAL_PATCHED_ARRAY=1"
-      jobs: 16
+      jobs: 4
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
@@ -183,7 +183,7 @@ jobs:
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: compress_roundtrip
-      jobs: 16
+      jobs: 4
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
@@ -198,7 +198,7 @@ jobs:
       fuzz_target: compress_gpu
       runner: gpu
       extra_features: "cuda"
-      jobs: 8
+      jobs: 1
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}

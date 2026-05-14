@@ -24,6 +24,7 @@ use vortex_bench::runner::BenchmarkMode;
 use vortex_bench::runner::SqlBenchmarkRunner;
 use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
+use vortex_bench::v3;
 
 /// Common arguments shared across benchmarks
 #[derive(Parser)]
@@ -58,11 +59,19 @@ struct Args {
     #[arg(short)]
     output_path: Option<PathBuf>,
 
+    /// Additionally write v3 JSONL records to this path. See
+    /// `benchmarks-website/planning/02-contracts.md`.
+    #[arg(long)]
+    gh_json_v3: Option<PathBuf>,
+
     #[arg(long, default_value_t = false)]
     track_memory: bool,
 
     #[arg(long, default_value_t = false)]
     hide_progress_bar: bool,
+
+    #[arg(long, default_value = "unknown")]
+    runner: String,
 
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
@@ -142,6 +151,7 @@ fn main() -> anyhow::Result<()> {
     let mut runner = SqlBenchmarkRunner::new(
         &*benchmark,
         Engine::DuckDB,
+        args.runner.clone(),
         args.formats.clone(),
         args.track_memory,
         args.hide_progress_bar,
@@ -186,6 +196,10 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     if !args.explain {
+        if let Some(path) = args.gh_json_v3.as_ref() {
+            v3::write_jsonl_to_path(path, &runner.v3_records())?;
+        }
+
         let benchmark_id = format!("duckdb-{}", benchmark.dataset_name());
         let writer = create_output_writer(&args.display_format, args.output_path, &benchmark_id)?;
         runner.export_to(&args.display_format, writer)?;

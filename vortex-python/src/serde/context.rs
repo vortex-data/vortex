@@ -74,9 +74,7 @@ impl PyReadContext {
     #[new]
     fn new(ids: Vec<String>) -> Self {
         Self(ReadContext::new(
-            ids.into_iter()
-                .map(|i| Id::new_arc(Arc::from(i)))
-                .collect::<Arc<_>>(),
+            ids.into_iter().map(|i| Id::new(&i)).collect::<Arc<_>>(),
         ))
     }
 

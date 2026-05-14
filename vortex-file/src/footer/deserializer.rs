@@ -81,7 +81,7 @@ impl FooterDeserializer {
     }
 
     pub fn deserialize(&mut self) -> VortexResult<DeserializeStep> {
-        let postscript = if let Some(ref postscript) = self.postscript {
+        let postscript = if let Some(postscript) = &self.postscript {
             postscript
         } else {
             self.postscript = Some(self.parse_postscript(&self.buffer)?);
@@ -124,7 +124,7 @@ impl FooterDeserializer {
 
         // Read more bytes if necessary.
         if read_more_offset < initial_offset {
-            tracing::debug!(
+            tracing::trace!(
                 "Initial read from {initial_offset} did not cover all footer segments, reading from {read_more_offset}"
             );
             return Ok(DeserializeStep::NeedMoreData {

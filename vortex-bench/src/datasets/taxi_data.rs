@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use tokio::fs::File as TokioFile;
 use tokio::io::AsyncWriteExt;
 use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::file::OpenOptionsSessionExt;
@@ -37,7 +38,7 @@ impl Dataset for TaxiData {
         "taxi"
     }
 
-    async fn to_vortex_array(&self) -> Result<ArrayRef> {
+    async fn to_vortex_array(&self, _ctx: &mut ExecutionCtx) -> Result<ArrayRef> {
         fetch_taxi_data().await
     }
 

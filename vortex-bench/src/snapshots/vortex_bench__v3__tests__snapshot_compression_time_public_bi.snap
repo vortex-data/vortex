@@ -1,0 +1,18 @@
+---
+source: vortex-bench/src/v3.rs
+expression: render(&record)?
+---
+{
+  "kind": "compression_time",
+  "commit_sha": "<commit-sha>",
+  "dataset": "cmsprovider",
+  "format": "vortex-file-compressed",
+  "op": "encode",
+  "value_ns": 5000000,
+  "all_runtimes_ns": [
+    5500000,
+    5000000,
+    5200000
+  ],
+  "env_triple": "<env-triple>"
+}

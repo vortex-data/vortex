@@ -4,25 +4,14 @@
 use std::sync::Arc;
 
 use vortex_error::VortexExpect;
+use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
 use crate::arrays::ListViewArray;
 use crate::arrays::filter::execute::filter_validity;
-use crate::arrays::filter::execute::values_to_mask;
+use crate::arrays::listview;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewRebuildMode;
-
-// TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
-/// The threshold for triggering a rebuild of the [`ListViewArray`].
-///
-/// By default, we will not touch the underlying `elements` array of the [`ListViewArray`] since it
-/// can be potentially expensive to reorganize the array based on what views we have into it.
-///
-/// However, we also do not want to carry around a large amount of garbage data. Below this
-/// threshold of the density of the selection mask, we will rebuild the [`ListViewArray`], removing
-/// any garbage data.
-#[expect(unused)]
-const REBUILD_DENSITY_THRESHOLD: f64 = 0.1;
 
 /// [`ListViewArray`] filter implementation.
 ///
@@ -54,7 +43,7 @@ pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) 
     );
 
     // Simply filter the offsets and sizes arrays.
-    let mask_for_filter = values_to_mask(selection_mask);
+    let mask_for_filter = Mask::Values(Arc::clone(selection_mask));
     let new_offsets = offsets
         .filter(mask_for_filter.clone())
         .vortex_expect("ListViewArray offsets are guaranteed to support filter");
@@ -70,29 +59,38 @@ pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) 
         ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
     };
 
-    // TODO(connor)[ListView]: Ideally, we would only rebuild after all `take`s and `filter`
-    // compute functions have run, at the "top" of the operator tree. However, we cannot do this
-    // right now, so we will just rebuild every time (similar to `ListArray`).
-
-    new_array
-        .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
-        .vortex_expect("ListViewArray rebuild to zero-copy List should always succeed")
+    let kept_row_fraction = selection_mask.true_count() as f32 / array.sizes().len() as f32;
+    if kept_row_fraction < listview::compute::REBUILD_DENSITY_THRESHOLD {
+        new_array
+            .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
+            .vortex_expect("ListViewArray rebuild to zero-copy List should always succeed")
+    } else {
+        new_array
+    }
 }
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
+    use vortex_session::VortexSession;
 
     use crate::IntoArray;
-    use crate::ToCanonical;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::filter::execute::ConstantArray;
     use crate::arrays::listview::ListViewArrayExt;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
+    use crate::session::ArraySession;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_filter_listview_conformance() {
@@ -177,7 +175,6 @@ mod test {
         assert_arrays_eq!(filtered, expected);
     }
 
-    #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
     #[test]
     fn test_filter_preserves_unreferenced_elements() {
         // ListView-specific: Test that filter preserves the entire elements array.
@@ -194,7 +191,9 @@ mod test {
         // Filter to keep only 2 lists.
         let mask = Mask::from_iter([true, false, false, true, false]);
         let result = listview.filter(mask).unwrap();
-        let result_list = result.to_listview();
+        let result_list = result
+            .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         assert_eq!(result_list.len(), 2, "Wrong number of filtered lists");
 
@@ -209,7 +208,6 @@ mod test {
         assert_eq!(result_list.offset_at(1), 0, "Wrong offset at index 3");
     }
 
-    #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
     #[test]
     fn test_filter_with_gaps() {
         // ListView-specific: Test filtering with gaps in elements array.
@@ -226,7 +224,9 @@ mod test {
         // Filter to keep lists with gaps and overlaps.
         let mask = Mask::from_iter([false, true, true, true, false]);
         let result = listview.filter(mask).unwrap();
-        let result_list = result.to_listview();
+        let result_list = result
+            .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         assert_eq!(result_list.len(), 3, "Wrong filter result length");
 
@@ -248,7 +248,6 @@ mod test {
         );
     }
 
-    #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
     #[test]
     fn test_filter_constant_arrays() {
         // ListView-specific: Test filter with ConstantArray for offsets/sizes.
@@ -269,7 +268,9 @@ mod test {
 
         let mask1 = Mask::from_iter([true, false, true, false]);
         let result1 = const_offset_list.filter(mask1).unwrap();
-        let result1_list = result1.to_listview();
+        let result1_list = result1
+            .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         assert_eq!(result1_list.len(), 2);
         assert_eq!(result1_list.offset_at(0), 2); // Both offsets are 2
@@ -292,7 +293,9 @@ mod test {
 
         let mask2 = Mask::from_iter([true, false, true]);
         let result2 = both_const_list.filter(mask2).unwrap();
-        let result2_list = result2.to_listview();
+        let result2_list = result2
+            .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         assert_eq!(result2_list.len(), 2);
         assert_eq!(result2_list.offset_at(0), 1);
@@ -301,7 +304,6 @@ mod test {
         assert_eq!(result2_list.size_at(1), 3);
     }
 
-    #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
     #[test]
     fn test_filter_extreme_offsets() {
         // ListView-specific: Test with very large offsets.
@@ -318,7 +320,9 @@ mod test {
         // Filter to keep only 2 lists, demonstrating we keep all 10000 elements.
         let mask = Mask::from_iter([false, true, false, false, true]);
         let result = listview.filter(mask).unwrap();
-        let result_list = result.to_listview();
+        let result_list = result
+            .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         assert_eq!(result_list.len(), 2);
 
@@ -333,7 +337,7 @@ mod test {
         let list0 = result_list.list_elements_at(0).unwrap();
         assert_eq!(
             list0
-                .scalar_at(0)
+                .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .as_primitive()
                 .as_::<i32>()
@@ -342,7 +346,7 @@ mod test {
         );
         assert_eq!(
             list0
-                .scalar_at(1)
+                .execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())
                 .unwrap()
                 .as_primitive()
                 .as_::<i32>()
@@ -353,7 +357,9 @@ mod test {
         // Test sparse selection from large dataset.
         let sparse_mask = Mask::from_iter((0..5).map(|i| i == 0 || i == 4));
         let sparse_result = listview.filter(sparse_mask).unwrap();
-        let sparse_list = sparse_result.to_listview();
+        let sparse_list = sparse_result
+            .execute::<ListViewArray>(&mut SESSION.create_execution_ctx())
+            .unwrap();
 
         assert_eq!(sparse_list.len(), 2);
         assert_eq!(sparse_list.offset_at(0), 0); // First list

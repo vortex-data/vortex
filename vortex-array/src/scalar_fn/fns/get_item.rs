@@ -44,7 +44,7 @@ impl ScalarFnVTable for GetItem {
     type Options = FieldName;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.get_item")
+        ScalarFnId::new("vortex.get_item")
     }
 
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -258,7 +258,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "apply() has a bug with null propagation from struct validity to non-nullable child fields"]
     fn get_nullable_field() {
         let st = StructArray::try_new(
             FieldNames::from(["a"]),

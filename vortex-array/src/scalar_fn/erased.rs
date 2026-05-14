@@ -31,20 +31,19 @@ use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::SimplifyCtx;
-use crate::scalar_fn::fns::is_null::IsNull;
-use crate::scalar_fn::fns::not::Not;
+use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::options::ScalarFnOptions;
 use crate::scalar_fn::signature::ScalarFnSignature;
 use crate::scalar_fn::typed::DynScalarFn;
-use crate::scalar_fn::typed::ScalarFn;
+use crate::scalar_fn::typed::TypedScalarFnInstance;
 
 /// A type-erased scalar function, pairing a vtable with bound options behind a trait object.
 ///
 /// This stores a [`ScalarFnVTable`] and its options behind an `Arc<dyn DynScalarFn>`, allowing
 /// heterogeneous storage inside [`Expression`] and [`crate::arrays::ScalarFnArray`].
 ///
-/// Use [`super::ScalarFn::new()`] to construct, and [`super::ScalarFn::erased()`] to obtain a
-/// [`ScalarFnRef`].
+/// Use [`super::TypedScalarFnInstance::new()`] to construct, and [`super::TypedScalarFnInstance::erased()`] to
+/// obtain a [`ScalarFnRef`].
 #[derive(Clone)]
 pub struct ScalarFnRef(pub(super) Arc<dyn DynScalarFn>);
 
@@ -56,14 +55,14 @@ impl ScalarFnRef {
 
     /// Returns whether the scalar function is of the given vtable type.
     pub fn is<V: ScalarFnVTable>(&self) -> bool {
-        self.0.as_any().is::<ScalarFn<V>>()
+        self.0.as_any().is::<TypedScalarFnInstance<V>>()
     }
 
     /// Returns the typed options for this scalar function if it matches the given vtable type.
     pub fn as_opt<V: ScalarFnVTable>(&self) -> Option<&V::Options> {
         self.0
             .as_any()
-            .downcast_ref::<ScalarFn<V>>()
+            .downcast_ref::<TypedScalarFnInstance<V>>()
             .map(|sf| sf.options())
     }
 
@@ -77,24 +76,26 @@ impl ScalarFnRef {
             .vortex_expect("Expression options type mismatch")
     }
 
-    /// Downcast to the concrete [`ScalarFn`].
+    /// Downcast to the concrete [`TypedScalarFnInstance`].
     ///
     /// Returns `Err(self)` if the downcast fails.
-    pub fn try_downcast<V: ScalarFnVTable>(self) -> Result<Arc<ScalarFn<V>>, ScalarFnRef> {
-        if self.0.as_any().is::<ScalarFn<V>>() {
-            let ptr = Arc::into_raw(self.0) as *const ScalarFn<V>;
+    pub fn try_downcast<V: ScalarFnVTable>(
+        self,
+    ) -> Result<Arc<TypedScalarFnInstance<V>>, ScalarFnRef> {
+        if self.0.as_any().is::<TypedScalarFnInstance<V>>() {
+            let ptr = Arc::into_raw(self.0) as *const TypedScalarFnInstance<V>;
             Ok(unsafe { Arc::from_raw(ptr) })
         } else {
             Err(self)
         }
     }
 
-    /// Downcast to the concrete [`ScalarFn`].
+    /// Downcast to the concrete [`TypedScalarFnInstance`].
     ///
     /// # Panics
     ///
     /// Panics if the downcast fails.
-    pub fn downcast<V: ScalarFnVTable>(self) -> Arc<ScalarFn<V>> {
+    pub fn downcast<V: ScalarFnVTable>(self) -> Arc<TypedScalarFnInstance<V>> {
         self.try_downcast::<V>()
             .map_err(|this| {
                 vortex_err!(
@@ -106,9 +107,9 @@ impl ScalarFnRef {
             .vortex_expect("Failed to downcast ScalarFnRef")
     }
 
-    /// Try to downcast into a typed [`ScalarFn`].
-    pub fn downcast_ref<V: ScalarFnVTable>(&self) -> Option<&ScalarFn<V>> {
-        self.0.as_any().downcast_ref::<ScalarFn<V>>()
+    /// Try to downcast into a typed [`TypedScalarFnInstance`].
+    pub fn downcast_ref<V: ScalarFnVTable>(&self) -> Option<&TypedScalarFnInstance<V>> {
+        self.0.as_any().downcast_ref::<TypedScalarFnInstance<V>>()
     }
 
     /// The type-erased options for this scalar function.
@@ -135,11 +136,7 @@ impl ScalarFnRef {
     pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
         Ok(self.0.validity(expr)?.unwrap_or_else(|| {
             // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
-            // TODO(ngates): add an IsNotNull expression.
-            Not.new_expr(
-                EmptyOptions,
-                [IsNull.new_expr(EmptyOptions, [expr.clone()])],
-            )
+            IsNotNull.new_expr(EmptyOptions, [expr.clone()])
         }))
     }
 

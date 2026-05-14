@@ -4,6 +4,7 @@
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::List;
@@ -11,6 +12,7 @@ use crate::arrays::ListArray;
 use crate::arrays::list::ListArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
+use crate::scalar_fn::fns::cast::CastKernel;
 use crate::scalar_fn::fns::cast::CastReduce;
 
 impl CastReduce for List {
@@ -19,24 +21,56 @@ impl CastReduce for List {
             return Ok(None);
         };
 
-        let validity = array
+        let Some(validity) = array
             .validity()?
-            .cast_nullability(dtype.nullability(), array.len())?;
+            .trivially_cast_nullability(dtype.nullability(), array.len())?
+        else {
+            return Ok(None);
+        };
 
         let new_elements = array.elements().cast((**target_element_type).clone())?;
 
-        ListArray::try_new(new_elements, array.offsets().clone(), validity)
-            .map(|a| Some(a.into_array()))
+        Ok(Some(
+            unsafe { ListArray::new_unchecked(new_elements, array.offsets().clone(), validity) }
+                .into_array(),
+        ))
+    }
+}
+
+impl CastKernel for List {
+    fn cast(
+        array: ArrayView<'_, List>,
+        dtype: &DType,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let Some(target_element_type) = dtype.as_list_element_opt() else {
+            return Ok(None);
+        };
+
+        let validity = array
+            .validity()?
+            .cast_nullability(dtype.nullability(), array.len(), ctx)?;
+
+        let new_elements = array.elements().cast((**target_element_type).clone())?;
+
+        Ok(Some(
+            unsafe { ListArray::new_unchecked(new_elements, array.offsets().clone(), validity) }
+                .into_array(),
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
+    use vortex_session::VortexSession;
 
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::RecursiveCanonical;
@@ -51,6 +85,9 @@ mod tests {
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_cast_list_success() {
@@ -90,7 +127,8 @@ mod tests {
         let result = list
             .into_array()
             .cast(target_dtype)
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .and_then(|a| a.execute::<Canonical>(&mut SESSION.create_execution_ctx()))
+            .map(|c| c.into_array());
         assert!(result.is_err());
     }
 
@@ -114,7 +152,8 @@ mod tests {
         let result = list
             .into_array()
             .cast(target_dtype)
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .and_then(|a| a.execute::<Canonical>(&mut SESSION.create_execution_ctx()))
+            .map(|c| c.into_array());
         assert!(result.is_err());
 
         // Nulls in list element array — the inner cast error is deferred until

@@ -18,13 +18,16 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayId;
 use vortex_array::ArrayParts;
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::ArrayView;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::TypedArrayRef;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::varbin::VarBinArrayExt;
@@ -35,6 +38,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -49,6 +53,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::canonical::canonicalize_fsst;
 use crate::canonical::fsst_decode_views;
@@ -96,22 +101,25 @@ impl ArrayEq for FSSTData {
 }
 
 impl VTable for FSST {
-    type ArrayData = FSSTData;
+    type TypedArrayData = FSSTData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.fsst");
+        *ID
     }
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
-        data.validate(dtype, len, slots)
+        // TODO(ctx): trait fixes - VTable::validate has a fixed signature.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        data.validate(dtype, len, slots, &mut ctx)
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -183,12 +191,13 @@ impl VTable for FSST {
         metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
-        _session: &VortexSession,
+        session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         let metadata = FSSTMetadata::decode(metadata)?;
         let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
         let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
 
+        let mut ctx = session.create_execution_ctx();
         if buffers.len() == 2 {
             return Self::deserialize_legacy(
                 self,
@@ -198,6 +207,7 @@ impl VTable for FSST {
                 &symbols,
                 &symbol_lengths,
                 children,
+                &mut ctx,
             );
         }
 
@@ -240,8 +250,9 @@ impl VTable for FSST {
                 &uncompressed_lengths,
                 dtype,
                 len,
+                &mut ctx,
             )?;
-            let slots = vec![
+            let slots = smallvec![
                 Some(uncompressed_lengths),
                 Some(codes_offsets),
                 validity_to_child(&codes_validity, len),
@@ -286,7 +297,14 @@ impl VTable for FSST {
         let next_buffer_index = builder.completed_block_count() + u32::from(builder.in_progress());
         let (buffers, views) = fsst_decode_views(array, next_buffer_index, ctx)?;
 
-        builder.push_buffer_and_adjusted_views(&buffers, &views, array.array().validity_mask()?);
+        builder.push_buffer_and_adjusted_views(
+            &buffers,
+            &views,
+            array
+                .array()
+                .validity()?
+                .execute_mask(array.array().len(), ctx)?,
+        );
         Ok(())
     }
 
@@ -363,8 +381,6 @@ impl Debug for FSSTData {
 pub struct FSST;
 
 impl FSST {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.fsst");
-
     /// Build an FSST array from a set of `symbols` and `codes`.
     ///
     /// The `codes` VarBinArray is decomposed: its bytes are stored in [`FSSTData`], while
@@ -376,6 +392,7 @@ impl FSST {
         symbol_lengths: Buffer<u8>,
         codes: VarBinArray,
         uncompressed_lengths: ArrayRef,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<FSSTArray> {
         let len = codes.len();
         FSSTData::validate_parts_from_codes(
@@ -385,6 +402,7 @@ impl FSST {
             &uncompressed_lengths,
             &dtype,
             len,
+            ctx,
         )?;
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();
@@ -397,6 +415,7 @@ impl FSST {
     /// Legacy deserialization path (2 buffers): the codes were stored as a full
     /// `VarBinArray` child. We decompose the VarBinArray into its bytes (stored in
     /// FSSTData) and offsets/validity (stored in slots).
+    #[allow(clippy::too_many_arguments)]
     fn deserialize_legacy(
         &self,
         dtype: &DType,
@@ -405,6 +424,7 @@ impl FSST {
         symbols: &Buffer<Symbol>,
         symbol_lengths: &Buffer<u8>,
         children: &dyn ArrayChildren,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayParts<Self>> {
         if children.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
@@ -435,6 +455,7 @@ impl FSST {
             &uncompressed_lengths,
             dtype,
             len,
+            ctx,
         )?;
         let slots = FSSTData::make_slots(&codes, &uncompressed_lengths);
         let codes_bytes = codes.bytes_handle().clone();
@@ -460,8 +481,8 @@ impl FSST {
 }
 
 impl FSSTData {
-    fn make_slots(codes: &VarBinArray, uncompressed_lengths: &ArrayRef) -> Vec<Option<ArrayRef>> {
-        vec![
+    fn make_slots(codes: &VarBinArray, uncompressed_lengths: &ArrayRef) -> ArraySlots {
+        smallvec![
             Some(uncompressed_lengths.clone()),
             Some(codes.offsets().clone()),
             validity_to_child(
@@ -507,6 +528,7 @@ impl FSSTData {
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         let codes_offsets = slots[CODES_OFFSETS_SLOT]
             .as_ref()
@@ -520,6 +542,7 @@ impl FSSTData {
             uncompressed_lengths_from_slots(slots),
             dtype,
             len,
+            ctx,
         )
     }
 
@@ -534,6 +557,7 @@ impl FSSTData {
         uncompressed_lengths: &ArrayRef,
         dtype: &DType,
         len: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         vortex_ensure!(
             matches!(dtype, DType::Binary(_) | DType::Utf8(_)),
@@ -573,7 +597,7 @@ impl FSSTData {
         // Validate that last offset doesn't exceed bytes length (when host-resident).
         if codes_bytes.is_on_host() && codes_offsets.is_host() && !codes_offsets.is_empty() {
             let last_offset: usize = (&codes_offsets
-                .scalar_at(codes_offsets.len() - 1)
+                .execute_scalar(codes_offsets.len() - 1, ctx)
                 .vortex_expect("offsets must support scalar_at"))
                 .try_into()
                 .vortex_expect("Failed to convert offset to usize");
@@ -596,6 +620,7 @@ impl FSSTData {
         uncompressed_lengths: &ArrayRef,
         dtype: &DType,
         len: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         Self::validate_parts(
             symbols,
@@ -606,6 +631,7 @@ impl FSSTData {
             uncompressed_lengths,
             dtype,
             len,
+            ctx,
         )
     }
 
@@ -695,7 +721,7 @@ pub trait FSSTArrayExt: TypedArrayRef<FSST> {
             .vortex_expect("FSSTArray codes_offsets slot")
             .clone();
         let validity = child_to_validity(
-            &self.as_ref().slots()[CODES_VALIDITY_SLOT],
+            self.as_ref().slots()[CODES_VALIDITY_SLOT].as_ref(),
             self.as_ref().dtype().nullability(),
         );
         let codes_bytes = self.codes_bytes_handle().clone();
@@ -721,7 +747,7 @@ impl<T: TypedArrayRef<FSST>> FSSTArrayExt for T {}
 impl ValidityVTable<FSST> for FSST {
     fn validity(array: ArrayView<'_, FSST>) -> VortexResult<Validity> {
         Ok(child_to_validity(
-            &array.slots()[CODES_VALIDITY_SLOT],
+            array.slots()[CODES_VALIDITY_SLOT].as_ref(),
             array.dtype().nullability(),
         ))
     }
@@ -780,11 +806,13 @@ mod test {
         let symbol_lengths = Buffer::<u8>::copy_from([3, 8]);
 
         let compressor = Compressor::rebuild_from(symbols.as_slice(), symbol_lengths.as_slice());
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let fsst_array = fsst_compress_iter(
             [Some(b"abcabcab".as_ref()), Some(b"defghijk".as_ref())].into_iter(),
             2,
             DType::Utf8(Nullability::NonNullable),
             &compressor,
+            &mut ctx,
         );
 
         let compressed_codes = fsst_array.codes();

@@ -173,7 +173,10 @@ impl Stat {
             Self::Min if matches!(data_type, DType::Null) => return None,
             Self::Min => data_type.clone(),
             Self::NullCount => DType::Primitive(PType::U64, NonNullable),
-            Self::UncompressedSizeInBytes => DType::Primitive(PType::U64, NonNullable),
+            Self::UncompressedSizeInBytes => {
+                return aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+                    .return_dtype(&EmptyOptions, data_type);
+            }
             Self::NaNCount => {
                 return aggregate_fn::fns::nan_count::NanCount
                     .return_dtype(&EmptyOptions, data_type);
@@ -213,6 +216,8 @@ impl Display for Stat {
 mod test {
     use enum_iterator::all;
 
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
     use crate::expr::stats::Stat;
 
@@ -220,7 +225,7 @@ mod test {
     fn min_of_nulls_is_not_panic() {
         let min = PrimitiveArray::from_option_iter::<i32, _>([None, None, None, None])
             .statistics()
-            .compute_as::<i64>(Stat::Min);
+            .compute_as::<i64>(Stat::Min, &mut LEGACY_SESSION.create_execution_ctx());
 
         assert_eq!(min, None);
     }

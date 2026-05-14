@@ -1,6 +1,0 @@
-version = 1
-
-[[annotations]]
-path = "**/*.proto"
-SPDX-FileCopyrightText = "Copyright 2008 Google Inc."
-SPDX-License-Identifier = "MIT"

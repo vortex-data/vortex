@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
+use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnPluginRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::fns::all_non_distinct::AllNonDistinct;
 use crate::aggregate_fn::fns::first::First;
 use crate::aggregate_fn::fns::is_constant::IsConstant;
 use crate::aggregate_fn::fns::is_sorted::IsSorted;
@@ -19,9 +22,11 @@ use crate::aggregate_fn::fns::last::Last;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::sum::Sum;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
 use crate::array::ArrayId;
+use crate::array::VTable;
 use crate::arrays::Chunked;
 use crate::arrays::Dict;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
@@ -41,6 +46,16 @@ pub struct AggregateFnSession {
     pub(super) grouped_kernels: RwLock<HashMap<KernelKey, &'static dyn DynGroupedAggregateKernel>>,
 }
 
+impl SessionVar for AggregateFnSession {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
 type KernelKey = (ArrayId, Option<AggregateFnId>);
 
 impl Default for AggregateFnSession {
@@ -52,6 +67,7 @@ impl Default for AggregateFnSession {
         };
 
         // Register the built-in aggregate functions
+        this.register(AllNonDistinct);
         this.register(First);
         this.register(IsConstant);
         this.register(IsSorted);
@@ -59,12 +75,13 @@ impl Default for AggregateFnSession {
         this.register(MinMax);
         this.register(NanCount);
         this.register(Sum);
+        this.register(UncompressedSizeInBytes);
 
         // Register the built-in aggregate kernels.
-        this.register_aggregate_kernel(Chunked::ID, None, &ChunkedArrayAggregate);
-        this.register_aggregate_kernel(Dict::ID, Some(MinMax.id()), &DictMinMaxKernel);
-        this.register_aggregate_kernel(Dict::ID, Some(IsConstant.id()), &DictIsConstantKernel);
-        this.register_aggregate_kernel(Dict::ID, Some(IsSorted.id()), &DictIsSortedKernel);
+        this.register_aggregate_kernel(Chunked.id(), None::<AggregateFnId>, &ChunkedArrayAggregate);
+        this.register_aggregate_kernel(Dict.id(), Some(MinMax.id()), &DictMinMaxKernel);
+        this.register_aggregate_kernel(Dict.id(), Some(IsConstant.id()), &DictIsConstantKernel);
+        this.register_aggregate_kernel(Dict.id(), Some(IsSorted.id()), &DictIsSortedKernel);
 
         this
     }
@@ -86,11 +103,13 @@ impl AggregateFnSession {
     /// Register an aggregate function kernel for a specific aggregate function and array type.
     pub fn register_aggregate_kernel(
         &self,
-        array_id: ArrayId,
-        agg_fn_id: Option<AggregateFnId>,
+        array_id: impl Into<ArrayId>,
+        agg_fn_id: Option<impl Into<AggregateFnId>>,
         kernel: &'static dyn DynAggregateKernel,
     ) {
-        self.kernels.write().insert((array_id, agg_fn_id), kernel);
+        self.kernels
+            .write()
+            .insert((array_id.into(), agg_fn_id.map(|id| id.into())), kernel);
     }
 }
 

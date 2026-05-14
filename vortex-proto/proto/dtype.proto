@@ -74,6 +74,10 @@ message Variant {
   bool nullable = 1;
 }
 
+message Union {
+  bool nullable = 4;
+}
+
 message DType {
   oneof dtype_type {
     Null null = 1;
@@ -87,6 +91,7 @@ message DType {
     Extension extension = 9;
     FixedSizeList fixed_size_list = 10; // This is after `Extension` for backwards compatibility.
     Variant variant = 11;
+    Union union = 12;
   }
 }
 

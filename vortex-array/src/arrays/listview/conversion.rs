@@ -8,7 +8,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListArray;
@@ -149,6 +150,7 @@ unsafe fn build_list_offsets_from_list_view<O: IntegerPType>(
     // Create uninit range for direct memory access.
     let mut offsets_range = offsets_builder.uninit_range(len + 1);
 
+    #[expect(deprecated)]
     let offsets = list_view.offsets().to_primitive();
     let offsets_slice = offsets.as_slice::<O>();
     debug_assert!(offsets_slice.is_sorted());
@@ -187,6 +189,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
         return Ok(array);
     }
 
+    #[expect(deprecated)]
     let canonical = array.to_canonical()?;
 
     Ok(match canonical {

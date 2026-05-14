@@ -11,6 +11,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::AnyCanonical;
 use crate::ArrayEq;
@@ -48,10 +49,6 @@ pub type FilterArray = Array<Filter>;
 #[derive(Clone, Debug)]
 pub struct Filter;
 
-impl Filter {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.filter");
-}
-
 impl ArrayHash for FilterData {
     fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
         self.mask.array_hash(state, precision);
@@ -65,17 +62,17 @@ impl ArrayEq for FilterData {
 }
 
 impl VTable for Filter {
-    type ArrayData = FilterData;
+    type TypedArrayData = FilterData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.filter");
+        *ID
     }
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
@@ -181,10 +178,10 @@ impl OperationsVTable<Filter> for Filter {
     fn scalar_at(
         array: ArrayView<'_, Filter>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let rank_idx = array.mask.rank(index);
-        array.child().scalar_at(rank_idx)
+        array.child().execute_scalar(rank_idx, ctx)
     }
 }
 

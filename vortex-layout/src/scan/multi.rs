@@ -51,7 +51,9 @@ use vortex_scan::Partition;
 use vortex_scan::PartitionRef;
 use vortex_scan::PartitionStream;
 use vortex_scan::ScanRequest;
+use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
+use vortex_utils::parallelism::get_available_parallelism;
 
 use crate::LayoutReaderRef;
 use crate::scan::scan_builder::ScanBuilder;
@@ -84,7 +86,7 @@ pub struct MultiLayoutDataSource {
     concurrency: usize,
 }
 
-enum MultiLayoutChild {
+pub enum MultiLayoutChild {
     Opened(LayoutReaderRef),
     Deferred(Arc<dyn LayoutReaderFactory>),
 }
@@ -100,9 +102,7 @@ impl MultiLayoutDataSource {
         session: &VortexSession,
     ) -> Self {
         let dtype = first.dtype().clone();
-        let concurrency = std::thread::available_parallelism()
-            .map(|v| v.get())
-            .unwrap_or(DEFAULT_CONCURRENCY);
+        let concurrency = get_available_parallelism().unwrap_or(DEFAULT_CONCURRENCY);
 
         let mut children = Vec::with_capacity(1 + remaining.len());
         children.push(MultiLayoutChild::Opened(first));
@@ -126,9 +126,7 @@ impl MultiLayoutDataSource {
         factories: Vec<Arc<dyn LayoutReaderFactory>>,
         session: &VortexSession,
     ) -> Self {
-        let concurrency = std::thread::available_parallelism()
-            .map(|v| v.get())
-            .unwrap_or(DEFAULT_CONCURRENCY);
+        let concurrency = get_available_parallelism().unwrap_or(DEFAULT_CONCURRENCY);
 
         Self {
             dtype,
@@ -139,6 +137,10 @@ impl MultiLayoutDataSource {
                 .collect(),
             concurrency,
         }
+    }
+
+    pub fn children(&self) -> &Vec<MultiLayoutChild> {
+        &self.children
     }
 
     /// Sets the concurrency for opening deferred readers.
@@ -308,8 +310,9 @@ impl DataSourceScan for MultiLayoutScan {
         // `flat_map` is appropriate here. The real I/O work happens when `execute()` is called.
         ready_stream
             .chain(deferred_stream)
-            .flat_map(move |reader_result| match reader_result {
-                Ok(reader) => reader_partition(reader, session.clone(), request.clone()),
+            .enumerate()
+            .flat_map(move |(i, reader_result)| match reader_result {
+                Ok(reader) => reader_partition(i, reader, session.clone(), request.clone()),
                 Err(e) => stream::once(async move { Err(e) }).boxed(),
             })
             .boxed()
@@ -322,6 +325,7 @@ impl DataSourceScan for MultiLayoutScan {
 /// can match, returns an empty stream. Otherwise, yields a single partition covering the
 /// reader's full row range.
 fn reader_partition(
+    partition_idx: usize,
     reader: LayoutReaderRef,
     session: VortexSession,
     request: ScanRequest,
@@ -329,9 +333,29 @@ fn reader_partition(
     let row_count = reader.row_count();
     let row_range = request.row_range.clone().unwrap_or(0..row_count);
 
+    let partition_idx_u64: u64 = partition_idx as u64;
+    if let Some(range) = &request.partition_range
+        && !range.contains(&partition_idx_u64)
+    {
+        return stream::empty().boxed();
+    };
+    match &request.partition_selection {
+        Selection::IncludeByIndex(buffer) => {
+            if buffer.as_slice().binary_search(&partition_idx_u64).is_err() {
+                return stream::empty().boxed();
+            }
+        }
+        Selection::ExcludeByIndex(buffer) => {
+            if buffer.as_slice().binary_search(&partition_idx_u64).is_ok() {
+                return stream::empty().boxed();
+            }
+        }
+        _ => {}
+    };
+
     // Check file-level pruning: if the filter can be proven false for the entire row range
     // using file-level statistics, skip this reader entirely.
-    if let Some(ref filter) = request.filter {
+    if let Some(filter) = &request.filter {
         let mask_len = usize::try_from(row_range.end - row_range.start).unwrap_or(usize::MAX);
         let mask = Mask::new_true(mask_len);
         if let Ok(pruning_future) = reader.pruning_evaluation(&row_range, filter, mask)
@@ -350,6 +374,7 @@ fn reader_partition(
                 row_range: Some(row_range),
                 ..request
             },
+            index: partition_idx,
         }) as PartitionRef)
     })
     .boxed()
@@ -363,11 +388,16 @@ struct MultiLayoutPartition {
     reader: LayoutReaderRef,
     session: VortexSession,
     request: ScanRequest,
+    index: usize,
 }
 
 impl Partition for MultiLayoutPartition {
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn index(&self) -> usize {
+        self.index
     }
 
     fn row_count(&self) -> Option<Precision<u64>> {

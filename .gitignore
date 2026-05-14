@@ -223,7 +223,8 @@ compile_commands.json
 /justfile
 
 # AI Agents
-.claude
+.agents/settings.local.json
+.claude/settings.local.json
 .opencode
 
 # cargo sweep output
@@ -241,3 +242,6 @@ trace*.pb
 
 # pytest-benchmark output
 vortex-python/.benchmarks/
+# For local benchmarks website server and things like the WAL
+**.duckdb*
+.bench-env

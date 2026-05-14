@@ -18,6 +18,7 @@ use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::encodings::zstd::ZstdBuffers;
 use vortex::encodings::zstd::ZstdBuffersArray;
+use vortex::encodings::zstd::ZstdBuffersDecodePlan;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex_nvcomp::sys;
@@ -175,7 +176,7 @@ async fn move_frames_to_device(
 
 // This performs D2H to retrieve the lengths and status arrays.
 async fn validate_decompress_results(
-    plan: &vortex::encodings::zstd::ZstdBuffersDecodePlan,
+    plan: &ZstdBuffersDecodePlan,
     device_actual_sizes: CudaSlice<usize>,
     device_statuses: CudaSlice<nvcompStatus_t>,
 ) -> VortexResult<()> {
@@ -239,7 +240,7 @@ mod tests {
         let input = PrimitiveArray::from_iter(0i64..1024).into_array();
         let compressed = ZstdBuffers::compress(&input, 3, &VortexSession::empty())?;
 
-        let cpu_result = compressed.clone().into_array().to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(compressed.clone())?;
         let gpu_result = ZstdBuffersExecutor
             .execute(compressed.into_array(), &mut cuda_ctx)
             .await?
@@ -266,7 +267,7 @@ mod tests {
         .into_array();
         let compressed = ZstdBuffers::compress(&input, 3, &VortexSession::empty())?;
 
-        let cpu_result = compressed.clone().into_array().to_canonical()?;
+        let cpu_result = crate::canonicalize_cpu(compressed.clone())?;
         let gpu_result = ZstdBuffersExecutor
             .execute(compressed.into_array(), &mut cuda_ctx)
             .await?

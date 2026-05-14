@@ -21,6 +21,7 @@ workspace = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
+arc-swap = { workspace = true }
 arcref = { workspace = true }
 arrow-arith = { workspace = true }
 arrow-array = { workspace = true, features = ["ffi"] }
@@ -38,7 +39,6 @@ cudarc = { workspace = true, optional = true }
 enum-iterator = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await", "std"] }
-getrandom_v03 = { workspace = true }
 goldenfile = { workspace = true, optional = true }
 half = { workspace = true, features = ["num-traits"] }
 humansize = { workspace = true }
@@ -61,6 +61,7 @@ rstest_reuse = { workspace = true, optional = true }
 rustc-hash = { workspace = true }
 serde = { workspace = true, optional = true, features = ["derive", "rc"] }
 simdutf8 = { workspace = true }
+smallvec = { workspace = true }
 static_assertions = { workspace = true }
 tabled = { workspace = true, optional = true, default-features = false, features = [
     "std",
@@ -97,6 +98,10 @@ serde_test = { workspace = true }
 vortex-array = { path = ".", features = ["_test-harness", "table-display"] }
 
 [[bench]]
+name = "cast_primitive"
+harness = false
+
+[[bench]]
 name = "search_sorted"
 harness = false
 
@@ -118,6 +123,10 @@ harness = false
 
 [[bench]]
 name = "scalar_at_struct"
+harness = false
+
+[[bench]]
+name = "patches_lookup"
 harness = false
 
 [[bench]]
@@ -174,6 +183,10 @@ name = "take_fsl"
 harness = false
 
 [[bench]]
+name = "take_filter"
+harness = false
+
+[[bench]]
 name = "filter_bool"
 harness = false
 
@@ -181,5 +194,10 @@ harness = false
 name = "listview_rebuild"
 harness = false
 
-[package.metadata.cargo-machete]
-ignored = ["getrandom_v03"]
+[[bench]]
+name = "listview_builder_extend"
+harness = false
+
+[[bench]]
+name = "slice_dict_primitive"
+harness = false

@@ -4,14 +4,18 @@
 use rstest::rstest;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::Extension;
 use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use super::*;
+use crate::encodings::turboquant::turboquant_encode_unchecked;
+use crate::scalar_fns::l2_denorm::normalize_as_l2_denorm;
 
 #[rstest]
 #[case(128, 1)]
@@ -25,7 +29,7 @@ fn roundtrip(#[case] dim: usize, #[case] bit_width: u8) -> VortexResult<()> {
     let fsl = make_fsl(10, dim, 42);
     let config = TurboQuantConfig {
         bit_width,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let (original, decoded) = encode_decode(&fsl, &config)?;
@@ -45,7 +49,7 @@ fn mse_within_theoretical_bound(#[case] dim: usize, #[case] bit_width: u8) -> Vo
     let fsl = make_fsl(num_rows, dim, 42);
     let config = TurboQuantConfig {
         bit_width,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let (original, decoded) = encode_decode(&fsl, &config)?;
@@ -72,7 +76,7 @@ fn high_bitwidth_mse_is_small(#[case] dim: usize, #[case] bit_width: u8) -> Vort
 
     let config_4bit = TurboQuantConfig {
         bit_width: 4,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let (original_4, decoded_4) = encode_decode(&fsl, &config_4bit)?;
@@ -80,7 +84,7 @@ fn high_bitwidth_mse_is_small(#[case] dim: usize, #[case] bit_width: u8) -> Vort
 
     let config = TurboQuantConfig {
         bit_width,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let (original, decoded) = encode_decode(&fsl, &config)?;
@@ -104,7 +108,7 @@ fn mse_decreases_with_bits() -> VortexResult<()> {
     for bit_width in 1..=8u8 {
         let config = TurboQuantConfig {
             bit_width,
-            seed: Some(123),
+            seed: 123,
             num_rounds: 3,
         };
         let (original, decoded) = encode_decode(&fsl, &config)?;
@@ -126,11 +130,11 @@ fn roundtrip_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 2,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
     let decoded = encoded.execute::<ExtensionArray>(&mut ctx)?;
     assert_eq!(decoded.len(), num_rows);
     Ok(())
@@ -141,17 +145,25 @@ fn roundtrip_edge_cases(#[case] num_rows: usize) -> VortexResult<()> {
 #[case(64)]
 #[case(127)]
 fn rejects_dimension_below_128(#[case] dim: usize) {
-    let fsl = make_fsl_small(dim);
+    let elements = PrimitiveArray::new::<f32>(
+        BufferMut::from_iter((0..dim).map(|i| i as f32 + 1.0)).freeze(),
+        Validity::NonNullable,
+    );
+    let fsl = FixedSizeListArray::try_new(
+        elements.into_array(),
+        dim.try_into().expect("dim fits u32"),
+        Validity::NonNullable,
+        1,
+    )
+    .unwrap();
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 2,
-        seed: Some(0),
+        seed: 0,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    assert!(
-        crate::encodings::turboquant::turboquant_encode(ext.as_view(), &config, &mut ctx).is_err()
-    );
+    assert!(turboquant_encode(ext, &config, &mut ctx).is_err());
 }
 
 #[rstest]
@@ -162,11 +174,11 @@ fn rejects_invalid_bit_width(#[case] bit_width: u8) {
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width,
-        seed: Some(0),
+        seed: 0,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let normalized = normalize_as_l2_denorm(ext.as_ref().clone(), &mut ctx)
+    let normalized = normalize_as_l2_denorm(ext, &mut ctx)
         .unwrap()
         .child_at(0)
         .clone();
@@ -184,15 +196,14 @@ fn all_zero_vectors_roundtrip() -> VortexResult<()> {
     let elements = PrimitiveArray::new::<f32>(buf.freeze(), Validity::NonNullable);
     let fsl = FixedSizeListArray::try_new(
         elements.into_array(),
-        dim.try_into()
-            .expect("somehow got dimension greater than u32::MAX"),
+        dim.try_into().map_err(|e| vortex_err!("{e}"))?,
         Validity::NonNullable,
         num_rows,
     )?;
 
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(42),
+        seed: 42,
         num_rounds: 3,
     };
     let (original, decoded) = encode_decode(&fsl, &config)?;
@@ -212,7 +223,7 @@ fn large_dimension_roundtrip(#[case] dim: usize, #[case] bit_width: u8) -> Vorte
     let fsl = make_fsl(num_rows, dim, 42);
     let config = TurboQuantConfig {
         bit_width,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let (original, decoded) = encode_decode(&fsl, &config)?;
@@ -234,7 +245,7 @@ fn f64_input_encodes_successfully() -> VortexResult<()> {
     let num_rows = 10;
     let dim = 128;
     let mut rng = StdRng::seed_from_u64(99);
-    let normal = Normal::new(0.0f64, 1.0).unwrap();
+    let normal = Normal::new(0.0f64, 1.0).map_err(|e| vortex_err!("{e}"))?;
 
     let mut buf = BufferMut::<f64>::with_capacity(num_rows * dim);
     for _ in 0..(num_rows * dim) {
@@ -243,7 +254,7 @@ fn f64_input_encodes_successfully() -> VortexResult<()> {
     let elements = PrimitiveArray::new::<f64>(buf.freeze(), Validity::NonNullable);
     let fsl = FixedSizeListArray::try_new(
         elements.into_array(),
-        dim.try_into().unwrap(),
+        dim.try_into().map_err(|e| vortex_err!("{e}"))?,
         Validity::NonNullable,
         num_rows,
     )?;
@@ -251,11 +262,11 @@ fn f64_input_encodes_successfully() -> VortexResult<()> {
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(42),
+        seed: 42,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
     let (_sorf_child, norms_child) = unwrap_l2denorm(&encoded);
     assert_eq!(norms_child.len(), num_rows);
     Ok(())
@@ -267,7 +278,7 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
     let num_rows = 10;
     let dim = 128;
     let mut rng = StdRng::seed_from_u64(99);
-    let normal = Normal::new(0.0f32, 1.0).unwrap();
+    let normal = Normal::new(0.0f32, 1.0).map_err(|e| vortex_err!("{e}"))?;
 
     let mut buf = BufferMut::<half::f16>::with_capacity(num_rows * dim);
     for _ in 0..(num_rows * dim) {
@@ -276,7 +287,7 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
     let elements = PrimitiveArray::new::<half::f16>(buf.freeze(), Validity::NonNullable);
     let fsl = FixedSizeListArray::try_new(
         elements.into_array(),
-        dim.try_into().unwrap(),
+        dim.try_into().map_err(|e| vortex_err!("{e}"))?,
         Validity::NonNullable,
         num_rows,
     )?;
@@ -284,11 +295,11 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
     let ext = make_vector_ext(&fsl);
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(42),
+        seed: 42,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
     let (_sorf_child, norms_child) = unwrap_l2denorm(&encoded);
     assert_eq!(norms_child.len(), num_rows);
 
@@ -298,46 +309,5 @@ fn f16_input_encodes_successfully() -> VortexResult<()> {
         .clone()
         .execute::<FixedSizeListArray>(&mut ctx)?;
     assert_eq!(decoded_fsl.len(), num_rows);
-    Ok(())
-}
-
-/// Verify that the checked encode accepts normalized f16 input.
-#[test]
-fn checked_encode_accepts_normalized_f16_input() -> VortexResult<()> {
-    let num_rows = 10;
-    let dim = 128;
-    let mut rng = StdRng::seed_from_u64(99);
-    let normal = Normal::new(0.0f32, 1.0).unwrap();
-
-    let mut buf = BufferMut::<half::f16>::with_capacity(num_rows * dim);
-    for _ in 0..(num_rows * dim) {
-        buf.push(half::f16::from_f32(normal.sample(&mut rng)));
-    }
-    let elements = PrimitiveArray::new::<half::f16>(buf.freeze(), Validity::NonNullable);
-    let fsl = FixedSizeListArray::try_new(
-        elements.into_array(),
-        dim.try_into().unwrap(),
-        Validity::NonNullable,
-        num_rows,
-    )?;
-
-    let ext = make_vector_ext(&fsl);
-    let config = TurboQuantConfig {
-        bit_width: 3,
-        seed: Some(42),
-        num_rounds: 3,
-    };
-
-    let mut ctx = SESSION.create_execution_ctx();
-    let normalized = normalize_as_l2_denorm(ext.as_ref().clone(), &mut ctx)?
-        .child_at(0)
-        .clone();
-    let normalized_ext = normalized
-        .as_opt::<Extension>()
-        .vortex_expect("normalized child should be an Extension array");
-
-    let encoded =
-        crate::encodings::turboquant::turboquant_encode(normalized_ext, &config, &mut ctx)?;
-    assert_eq!(encoded.len(), num_rows);
     Ok(())
 }

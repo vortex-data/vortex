@@ -11,6 +11,7 @@
 //! ```
 //! use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
 //! use vortex_array::dtype::{DType, Nullability};
+//! use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
 //!
 //! // Create a new builder for string data.
 //! let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
@@ -21,11 +22,12 @@
 //! builder.append_scalar(&"d".into()).unwrap();
 //!
 //! let strings = builder.finish();
+//! let mut ctx = LEGACY_SESSION.create_execution_ctx();
 //!
-//! assert_eq!(strings.scalar_at(0).unwrap(), "a".into());
-//! assert_eq!(strings.scalar_at(1).unwrap(), "b".into());
-//! assert_eq!(strings.scalar_at(2).unwrap(), "c".into());
-//! assert_eq!(strings.scalar_at(3).unwrap(), "d".into());
+//! assert_eq!(strings.execute_scalar(0, &mut ctx).unwrap(), "a".into());
+//! assert_eq!(strings.execute_scalar(1, &mut ctx).unwrap(), "b".into());
+//! assert_eq!(strings.execute_scalar(2, &mut ctx).unwrap(), "c".into());
+//! assert_eq!(strings.execute_scalar(3, &mut ctx).unwrap(), "d".into());
 //! ```
 
 use std::any::Any;
@@ -223,6 +225,7 @@ pub trait ArrayBuilder: Send {
 /// ```
 /// use vortex_array::builders::{builder_with_capacity, ArrayBuilder};
 /// use vortex_array::dtype::{DType, Nullability};
+/// use vortex_array::{LEGACY_SESSION, VortexSessionExecute};
 ///
 /// // Create a new builder for string data.
 /// let mut builder = builder_with_capacity(&DType::Utf8(Nullability::NonNullable), 4);
@@ -233,11 +236,12 @@ pub trait ArrayBuilder: Send {
 /// builder.append_scalar(&"d".into()).unwrap();
 ///
 /// let strings = builder.finish();
+/// let mut ctx = LEGACY_SESSION.create_execution_ctx();
 ///
-/// assert_eq!(strings.scalar_at(0).unwrap(), "a".into());
-/// assert_eq!(strings.scalar_at(1).unwrap(), "b".into());
-/// assert_eq!(strings.scalar_at(2).unwrap(), "c".into());
-/// assert_eq!(strings.scalar_at(3).unwrap(), "d".into());
+/// assert_eq!(strings.execute_scalar(0, &mut ctx).unwrap(), "a".into());
+/// assert_eq!(strings.execute_scalar(1, &mut ctx).unwrap(), "b".into());
+/// assert_eq!(strings.execute_scalar(2, &mut ctx).unwrap(), "c".into());
+/// assert_eq!(strings.execute_scalar(3, &mut ctx).unwrap(), "d".into());
 /// ```
 pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBuilder> {
     match dtype {
@@ -265,11 +269,6 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
             DType::Binary(*n),
             capacity,
         )),
-        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
-            struct_dtype.clone(),
-            *n,
-            capacity,
-        )),
         DType::List(dtype, n) => Box::new(ListViewBuilder::<u64, u64>::with_capacity(
             Arc::clone(dtype),
             *n,
@@ -284,11 +283,17 @@ pub fn builder_with_capacity(dtype: &DType, capacity: usize) -> Box<dyn ArrayBui
                 capacity,
             ))
         }
-        DType::Extension(ext_dtype) => {
-            Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
-        }
+        DType::Struct(struct_dtype, n) => Box::new(StructBuilder::with_capacity(
+            struct_dtype.clone(),
+            *n,
+            capacity,
+        )),
+        DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
         DType::Variant(_) => {
             unimplemented!()
+        }
+        DType::Extension(ext_dtype) => {
+            Box::new(ExtensionBuilder::with_capacity(ext_dtype.clone(), capacity))
         }
     }
 }

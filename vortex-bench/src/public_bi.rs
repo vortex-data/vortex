@@ -26,6 +26,7 @@ use tracing::info;
 use tracing::trace;
 use url::Url;
 use vortex::array::ArrayRef;
+use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::error::VortexResult;
@@ -43,7 +44,7 @@ use crate::TableSpec;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::decompress_bz2;
-use crate::datasets::data_downloads::download_data;
+use crate::datasets::data_downloads::download_many;
 use crate::idempotent_async;
 use crate::workspace_root;
 
@@ -289,16 +290,13 @@ pub struct PBIData {
 
 impl PBIData {
     async fn download_bzips(&self) -> anyhow::Result<()> {
-        let download_futures = self.tables.iter().map(|table| {
-            download_data(
+        let downloads = self.tables.iter().map(|table| {
+            (
                 self.get_file_path(&table.name, FileType::CsvBzip2),
-                table.data_url.as_str(),
+                table.data_url.as_str().to_owned(),
             )
         });
-        let results = join_all(download_futures).await;
-        for result in results {
-            result?;
-        }
+        download_many(downloads).await?;
         Ok(())
     }
 
@@ -455,7 +453,16 @@ impl Dataset for PBIBenchmark {
         &self.name
     }
 
-    async fn to_vortex_array(&self) -> anyhow::Result<ArrayRef> {
+    fn v3_dataset_dims(&self) -> (&str, Option<&str>) {
+        // Match the v2 → v3 migrate classifier, which emits PBI compression
+        // records as `dataset = <lowercased pbi name>, dataset_variant = NULL`.
+        // The case-folding is applied by `compression_time_record` /
+        // `compression_size_record`; this method just surfaces the raw PBI
+        // name as the dataset.
+        (&self.name, None)
+    }
+
+    async fn to_vortex_array(&self, _ctx: &mut ExecutionCtx) -> anyhow::Result<ArrayRef> {
         let dataset = self.dataset()?;
         dataset.write_as_vortex().await?;
         // reading only the first table, each table in a PBI benchmark
@@ -569,5 +576,33 @@ impl Benchmark for PublicBiBenchmark {
         // Each table is a single file named {table_name}.{ext}
         let pattern_str = format!("{}.{}", table_name, format.ext());
         glob::Pattern::new(&pattern_str).ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pbi_v3_dataset_dims_uses_pbi_name_as_dataset_with_no_variant() {
+        // The v2 → v3 migrate classifier emits PBI compression records as
+        // `dataset = <lowercased pbi name>, dataset_variant = NULL` (it never
+        // carried a `public-bi` parent in v2 chart names). The live emitter
+        // must mirror that shape so live ingests merge with migrated history
+        // into a single per-PBI-dataset chart group instead of forking off a
+        // sibling group keyed on `public-bi/<name>`. Lowercasing happens in
+        // `compression_time_record`/`compression_size_record`, so this trait
+        // method just needs to surface the raw PBI name as the dataset.
+        let bench = PBIBenchmark {
+            name: "Arade".to_string(),
+            base_path: PathBuf::new(),
+        };
+        assert_eq!(bench.v3_dataset_dims(), ("Arade", None));
+
+        let bench = PBIBenchmark {
+            name: "CMSprovider".to_string(),
+            base_path: PathBuf::new(),
+        };
+        assert_eq!(bench.v3_dataset_dims(), ("CMSprovider", None));
     }
 }

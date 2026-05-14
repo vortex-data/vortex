@@ -21,6 +21,7 @@ use vortex_array::arrow::FromArrowArray;
 use vortex_array::arrow::to_arrow_null_buffer;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
 use vortex_array::vtable::validity_to_child;
@@ -95,7 +96,7 @@ impl ParquetVariant {
             &dtype,
             len,
         )?;
-        let slots = vec![
+        let slots = smallvec![
             validity_to_child(&validity, len),
             Some(metadata),
             value,
@@ -221,7 +222,7 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
 
     fn validity(&self) -> Validity {
         child_to_validity(
-            &self.as_ref().slots()[VALIDITY_SLOT],
+            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
             self.as_ref().dtype().nullability(),
         )
     }
@@ -304,17 +305,22 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
 
     use crate::ParquetVariant;
     use crate::ParquetVariantData;
     use crate::array::ParquetVariantArrayExt;
 
     fn assert_arrow_variant_storage_roundtrip(struct_array: StructArray) -> VortexResult<()> {
-        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
-        let variant_view = vortex_arr.as_opt::<Variant>().unwrap();
+        let variant_view = vortex_arr
+            .as_opt::<Variant>()
+            .ok_or_else(|| vortex_err!("expected variant array"))?;
         let child = variant_view.child();
-        let inner = child.as_opt::<ParquetVariant>().unwrap();
+        let inner = child
+            .as_opt::<ParquetVariant>()
+            .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let roundtripped = inner.to_arrow(&mut ctx)?;
@@ -390,10 +396,9 @@ mod tests {
         ]
         .into();
         let struct_array =
-            StructArray::try_new(struct_fields, vec![Arc::new(metadata), typed_value], None)
-                .unwrap();
+            StructArray::try_new(struct_fields, vec![Arc::new(metadata), typed_value], None)?;
 
-        let arrow_variant = ArrowVariantArray::try_new(&struct_array).unwrap();
+        let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
 
         let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
         assert_eq!(vortex_arr.len(), 3);
@@ -402,8 +407,13 @@ mod tests {
             &DType::Variant(Nullability::NonNullable)
         );
 
-        let variant_arr = vortex_arr.as_opt::<Variant>().unwrap();
-        let inner = variant_arr.child().as_opt::<ParquetVariant>().unwrap();
+        let variant_arr = vortex_arr
+            .as_opt::<Variant>()
+            .ok_or_else(|| vortex_err!("expected variant array"))?;
+        let inner = variant_arr
+            .child()
+            .as_opt::<ParquetVariant>()
+            .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
         assert!(inner.typed_value_array().is_some());
 
         Ok(())
@@ -473,8 +483,7 @@ mod tests {
             .into(),
             vec![metadata, typed_value],
             None,
-        )
-        .unwrap();
+        )?;
 
         assert_arrow_variant_storage_roundtrip(struct_array)
     }
@@ -494,8 +503,7 @@ mod tests {
             .into(),
             vec![metadata, value, typed_value],
             None,
-        )
-        .unwrap();
+        )?;
 
         assert_arrow_variant_storage_roundtrip(struct_array)
     }
@@ -512,8 +520,7 @@ mod tests {
             .into(),
             vec![metadata, value],
             Some(NullBuffer::from(vec![true, false, true])),
-        )
-        .unwrap();
+        )?;
 
         assert_arrow_variant_storage_roundtrip(struct_array)
     }

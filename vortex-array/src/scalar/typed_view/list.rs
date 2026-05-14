@@ -29,7 +29,7 @@ use crate::scalar::ScalarValue;
 /// number of `elements` is equal to the `size` field of the [`FixedSizeList`].
 ///
 /// [`FixedSizeList`]: DType::FixedSizeList
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ListScalar<'a> {
     /// The data type of this scalar.
     dtype: &'a DType,
@@ -207,7 +207,7 @@ impl<'a> ListScalar<'a> {
 
         Scalar::try_new(
             dtype.clone(),
-            Some(ScalarValue::List(
+            Some(ScalarValue::Tuple(
                 self.elements
                     .ok_or_else(|| vortex_err!("nullness should be handled in Scalar::cast"))?
                     .iter()

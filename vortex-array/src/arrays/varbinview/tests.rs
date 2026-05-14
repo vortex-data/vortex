@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::ToCanonical;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::assert_arrays_eq;
@@ -31,6 +32,7 @@ pub fn slice_array() {
 #[test]
 pub fn flatten_array() {
     let binary_arr = VarBinViewArray::from_iter_str(["string1", "string2"]);
+    #[expect(deprecated)]
     let var_bin = binary_arr.as_array().to_varbinview();
     assert_arrays_eq!(
         var_bin,

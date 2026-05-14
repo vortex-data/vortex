@@ -19,9 +19,11 @@ impl OperationsVTable<RunEnd> for RunEnd {
     fn scalar_at(
         array: ArrayView<'_, RunEnd>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        array.values().scalar_at(array.find_physical_index(index)?)
+        array
+            .values()
+            .execute_scalar(array.find_physical_index(index)?, ctx)
     }
 }
 
@@ -63,9 +65,11 @@ mod tests {
 
     #[test]
     fn slice_array() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = RunEnd::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
+            &mut ctx,
         )
         .unwrap()
         .slice(3..8)
@@ -82,9 +86,11 @@ mod tests {
 
     #[test]
     fn double_slice() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = RunEnd::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
+            &mut ctx,
         )
         .unwrap()
         .slice(3..8)
@@ -99,9 +105,11 @@ mod tests {
 
     #[test]
     fn slice_end_inclusive() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arr = RunEnd::try_new(
             buffer![2u32, 5, 10].into_array(),
             buffer![1i32, 2, 3].into_array(),
+            &mut ctx,
         )
         .unwrap()
         .slice(4..10)
@@ -118,9 +126,11 @@ mod tests {
 
     #[test]
     fn slice_at_end() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let re_array = RunEnd::try_new(
             buffer![7_u64, 10].into_array(),
             buffer![2_u64, 3].into_array(),
+            &mut ctx,
         )
         .unwrap();
 
@@ -132,9 +142,11 @@ mod tests {
 
     #[test]
     fn slice_single_end() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let re_array = RunEnd::try_new(
             buffer![7_u64, 10].into_array(),
             buffer![2_u64, 3].into_array(),
+            &mut ctx,
         )
         .unwrap();
 
@@ -142,26 +154,31 @@ mod tests {
 
         let sliced_array = re_array.slice(2..5).unwrap();
 
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         assert!(is_constant(&sliced_array, &mut ctx).unwrap())
     }
 
     #[test]
     fn ree_scalar_at_end() {
-        let scalar = RunEnd::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array())
-            .unwrap()
-            .scalar_at(11)
-            .unwrap();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let scalar = RunEnd::encode(
+            buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array(),
+            &mut ctx,
+        )
+        .unwrap()
+        .execute_scalar(11, &mut ctx)
+        .unwrap();
         assert_eq!(scalar, 5.into());
     }
 
     #[test]
     fn slice_along_run_boundaries() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Create a runend array with runs: [1, 1, 1] [4, 4, 4] [2, 2] [5, 5, 5, 5]
         // Run ends at indices: 3, 6, 8, 12
         let arr = RunEnd::try_new(
             buffer![3u32, 6, 8, 12].into_array(),
             buffer![1i32, 4, 2, 5].into_array(),
+            &mut ctx,
         )
         .unwrap();
 

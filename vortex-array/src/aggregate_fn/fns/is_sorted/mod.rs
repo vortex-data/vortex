@@ -108,13 +108,13 @@ fn is_sorted_impl(array: &ArrayRef, strict: bool, ctx: &mut ExecutionCtx) -> Vor
 
     // Enforce strictness before we even try to check if the array is sorted.
     if strict {
-        let invalid_count = array.invalid_count()?;
+        let invalid_count = array.invalid_count(ctx)?;
         match invalid_count {
             // We can keep going
             0 => {}
             // If we have a potential null value - it has to be the first one.
             1 => {
-                if !array.is_invalid(0)? {
+                if !array.is_invalid(0, ctx)? {
                     cache_is_sorted(array, strict, false);
                     return Ok(false);
                 }
@@ -171,13 +171,18 @@ impl IsSorted {
     /// Kernels that compute `is_sorted` by delegating to child arrays can call this
     /// to package the boolean result into the partial struct format expected by the
     /// accumulator, avoiding duplicated boilerplate.
-    pub fn make_partial(batch: &ArrayRef, is_sorted: bool, strict: bool) -> VortexResult<Scalar> {
+    pub fn make_partial(
+        batch: &ArrayRef,
+        is_sorted: bool,
+        strict: bool,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Scalar> {
         let partial_dtype = make_is_sorted_partial_dtype(batch.dtype());
         if batch.is_empty() {
             return Ok(Scalar::null(partial_dtype));
         }
-        let first_value = batch.scalar_at(0)?.into_nullable();
-        let last_value = batch.scalar_at(batch.len() - 1)?.into_nullable();
+        let first_value = batch.execute_scalar(0, ctx)?.into_nullable();
+        let last_value = batch.execute_scalar(batch.len() - 1, ctx)?.into_nullable();
         // SAFETY: We constructed partial_dtype and the children match its field dtypes exactly.
         Ok(unsafe {
             Scalar::struct_unchecked(
@@ -227,7 +232,7 @@ impl AggregateFnVTable for IsSorted {
     type Partial = IsSortedPartial;
 
     fn id(&self) -> AggregateFnId {
-        AggregateFnId::new_ref("vortex.is_sorted")
+        AggregateFnId::new("vortex.is_sorted")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -237,22 +242,34 @@ impl AggregateFnVTable for IsSorted {
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
             DType::Null
-            | DType::Struct(..)
             | DType::List(..)
             | DType::FixedSizeList(..)
-            | DType::Variant(..) => None,
-            _ => Some(DType::Bool(Nullability::NonNullable)),
+            | DType::Struct(..)
+            | DType::Union(_)
+            | DType::Variant(..)
+            | DType::Extension(_) => None,
+            DType::Bool(_)
+            | DType::Primitive(..)
+            | DType::Decimal(..)
+            | DType::Utf8(_)
+            | DType::Binary(_) => Some(DType::Bool(Nullability::NonNullable)),
         }
     }
 
     fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
             DType::Null
-            | DType::Struct(..)
             | DType::List(..)
             | DType::FixedSizeList(..)
-            | DType::Variant(..) => None,
-            _ => Some(make_is_sorted_partial_dtype(input_dtype)),
+            | DType::Struct(..)
+            | DType::Union(_)
+            | DType::Variant(..)
+            | DType::Extension(_) => None,
+            DType::Bool(_)
+            | DType::Primitive(..)
+            | DType::Decimal(..)
+            | DType::Utf8(_)
+            | DType::Binary(_) => Some(make_is_sorted_partial_dtype(input_dtype)),
         }
     }
 
@@ -299,8 +316,8 @@ impl AggregateFnVTable for IsSorted {
         }
 
         // Check boundary: self.last_value vs other.first_value
-        if let Some(ref self_last) = partial.last_value
-            && let Some(ref other_first_val) = other_first
+        if let Some(self_last) = &partial.last_value
+            && let Some(other_first_val) = &other_first
         {
             if !self_last.is_null() && !other_first_val.is_null() {
                 let boundary_ok = if partial.strict {
@@ -399,7 +416,7 @@ impl AggregateFnVTable for IsSorted {
                 }
 
                 // Check boundary with previous chunk.
-                if let Some(ref self_last) = partial.last_value {
+                if let Some(self_last) = &partial.last_value {
                     if !self_last.is_null() && !value.is_null() {
                         let boundary_ok = if partial.strict {
                             *self_last < value
@@ -430,8 +447,8 @@ impl AggregateFnVTable for IsSorted {
                 let array_ref = c.clone().into_array();
 
                 // Check boundary with previous chunk.
-                let first_value = array_ref.scalar_at(0)?.into_nullable();
-                if let Some(ref self_last) = partial.last_value {
+                let first_value = array_ref.execute_scalar(0, ctx)?.into_nullable();
+                if let Some(self_last) = &partial.last_value {
                     if !self_last.is_null() && !first_value.is_null() {
                         let boundary_ok = if partial.strict {
                             *self_last < first_value
@@ -440,8 +457,11 @@ impl AggregateFnVTable for IsSorted {
                         };
                         if !boundary_ok {
                             partial.is_sorted = false;
-                            partial.last_value =
-                                Some(array_ref.scalar_at(array_ref.len() - 1)?.into_nullable());
+                            partial.last_value = Some(
+                                array_ref
+                                    .execute_scalar(array_ref.len() - 1, ctx)?
+                                    .into_nullable(),
+                            );
                             if partial.first_value.is_none() {
                                 partial.first_value = Some(first_value);
                             }
@@ -451,8 +471,11 @@ impl AggregateFnVTable for IsSorted {
                         || (self_last.is_null() && first_value.is_null() && partial.strict)
                     {
                         partial.is_sorted = false;
-                        partial.last_value =
-                            Some(array_ref.scalar_at(array_ref.len() - 1)?.into_nullable());
+                        partial.last_value = Some(
+                            array_ref
+                                .execute_scalar(array_ref.len() - 1, ctx)?
+                                .into_nullable(),
+                        );
                         if partial.first_value.is_none() {
                             partial.first_value = Some(first_value);
                         }
@@ -462,10 +485,10 @@ impl AggregateFnVTable for IsSorted {
 
                 // Check within-batch sortedness.
                 let batch_is_sorted = match c {
-                    Canonical::Primitive(p) => check_primitive_sorted(p, partial.strict)?,
-                    Canonical::Bool(b) => check_bool_sorted(b, partial.strict)?,
+                    Canonical::Primitive(p) => check_primitive_sorted(p, partial.strict, ctx)?,
+                    Canonical::Bool(b) => check_bool_sorted(b, partial.strict, ctx)?,
                     Canonical::VarBinView(v) => check_varbinview_sorted(v, partial.strict)?,
-                    Canonical::Decimal(d) => check_decimal_sorted(d, partial.strict)?,
+                    Canonical::Decimal(d) => check_decimal_sorted(d, partial.strict, ctx)?,
                     Canonical::Extension(e) => check_extension_sorted(e, partial.strict, ctx)?,
                     Canonical::Null(_) => !partial.strict,
                     // Struct, List, FixedSizeList should have been filtered out by return_dtype
@@ -479,8 +502,11 @@ impl AggregateFnVTable for IsSorted {
                 if partial.first_value.is_none() {
                     partial.first_value = Some(first_value);
                 }
-                partial.last_value =
-                    Some(array_ref.scalar_at(array_ref.len() - 1)?.into_nullable());
+                partial.last_value = Some(
+                    array_ref
+                        .execute_scalar(array_ref.len() - 1, ctx)?
+                        .into_nullable(),
+                );
                 Ok(())
             }
         }
@@ -648,10 +674,8 @@ mod tests {
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(19, 2);
-        let i100 =
-            parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale()).unwrap();
-        let i200 =
-            parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale()).unwrap();
+        let i100 = parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale())?;
+        let i200 = parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale())?;
 
         let sorted = buffer![i100, i200, i200];
         let unsorted = buffer![i200, i100, i200];
@@ -675,12 +699,9 @@ mod tests {
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let dtype = DecimalDType::new(19, 2);
-        let i100 =
-            parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale()).unwrap();
-        let i200 =
-            parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale()).unwrap();
-        let i300 =
-            parse_decimal::<Decimal128Type>("300.00", dtype.precision(), dtype.scale()).unwrap();
+        let i100 = parse_decimal::<Decimal128Type>("100.00", dtype.precision(), dtype.scale())?;
+        let i200 = parse_decimal::<Decimal128Type>("200.00", dtype.precision(), dtype.scale())?;
+        let i300 = parse_decimal::<Decimal128Type>("300.00", dtype.precision(), dtype.scale())?;
 
         let strict_sorted = buffer![i100, i200, i300];
         let sorted = buffer![i100, i200, i200];

@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem;
+use std::ptr;
+
 use async_trait::async_trait;
 use futures::future::BoxFuture;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::array::ToCanonical;
+use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::bool::BoolDataParts;
 use vortex::array::arrays::decimal::DecimalDataParts;
@@ -116,7 +119,10 @@ fn export_canonical(
                     vortex_bail!("only support temporal extension types currently");
                 }
 
-                let values = extension.storage_array().to_primitive();
+                let values = extension
+                    .storage_array()
+                    .clone()
+                    .execute::<PrimitiveArray>(ctx.execution_ctx())?;
                 let len = extension.len();
 
                 let PrimitiveDataParts {
@@ -161,9 +167,9 @@ fn export_canonical(
                     n_buffers: 2,
                     buffers: private_data.buffer_ptrs.as_mut_ptr(),
                     n_children: 0,
-                    children: std::ptr::null_mut(),
+                    children: ptr::null_mut(),
                     release: Some(release_array),
-                    dictionary: std::ptr::null_mut(),
+                    dictionary: ptr::null_mut(),
                     private_data: Box::into_raw(private_data).cast(),
                 };
 
@@ -241,9 +247,9 @@ fn export_fixed_size(
         n_buffers: 2,
         buffers: private_data.buffer_ptrs.as_mut_ptr(),
         n_children: 0,
-        children: std::ptr::null_mut(),
+        children: ptr::null_mut(),
         release: Some(release_array),
-        dictionary: std::ptr::null_mut(),
+        dictionary: ptr::null_mut(),
         private_data: Box::into_raw(private_data).cast(),
     };
 
@@ -255,12 +261,11 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
     //  code. This is necessary to ensure that the fields inside the CudaPrivateData
     //  get dropped to free native/GPU memory.
     unsafe {
-        let private_data_ptr =
-            std::ptr::replace(&raw mut (*array).private_data, std::ptr::null_mut());
+        let private_data_ptr = ptr::replace(&raw mut (*array).private_data, ptr::null_mut());
 
         if !private_data_ptr.is_null() {
             let mut private_data = Box::from_raw(private_data_ptr.cast::<PrivateData>());
-            let children = std::mem::take(&mut private_data.children);
+            let children = mem::take(&mut private_data.children);
             for child in children {
                 release_array(child);
             }
@@ -274,6 +279,7 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
     use vortex::array::arrays::DecimalArray;
     use vortex::array::arrays::NullArray;
@@ -305,7 +311,7 @@ mod tests {
     #[case::f64(PrimitiveArray::from_iter([1.0f64, 2.0, 3.0]).into_array(), 3)]
     #[crate::test]
     async fn test_export_primitive(
-        #[case] array: vortex::array::ArrayRef,
+        #[case] array: ArrayRef,
         #[case] expected_len: i64,
     ) -> VortexResult<()> {
         let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())

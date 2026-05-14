@@ -18,10 +18,10 @@ permissions:
 jobs:
   remove-bench-label:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 10
     if: github.event.label.name == 'action/benchmark'
     steps:
-      - uses: actions-ecosystem/action-remove-labels@v1
+      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
         with:
           labels: action/benchmark
@@ -34,10 +34,10 @@ jobs:
 
   remove-sql-label:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 10
     if: github.event.label.name == 'action/benchmark-sql'
     steps:
-      - uses: actions-ecosystem/action-remove-labels@v1
+      - uses: actions-ecosystem/action-remove-labels@2ce5d41b4b6aa8503e285553f75ed56e0a40bae0  # v1
         if: github.event.pull_request.head.repo.full_name == 'vortex-data/vortex'
         with:
           labels: action/benchmark-sql

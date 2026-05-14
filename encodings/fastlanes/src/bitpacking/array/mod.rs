@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 
 use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::TypedArrayRef;
 use vortex_array::array_slots;
 use vortex_array::arrays::Primitive;
@@ -14,10 +15,11 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::PType;
+use vortex_array::patches::PatchSlotIndices;
 use vortex_array::patches::Patches;
+use vortex_array::patches::PatchesData;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::child_to_validity;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -43,6 +45,12 @@ pub struct BitPackedSlots {
     pub validity_child: Option<ArrayRef>,
 }
 
+pub(crate) const PATCH_SLOTS: PatchSlotIndices = PatchSlotIndices {
+    indices: BitPackedSlots::PATCH_INDICES,
+    values: BitPackedSlots::PATCH_VALUES,
+    chunk_offsets: BitPackedSlots::PATCH_CHUNK_OFFSETS,
+};
+
 pub struct BitPackedDataParts {
     pub offset: u16,
     pub bit_width: u8,
@@ -59,10 +67,8 @@ pub struct BitPackedData {
     pub(super) offset: u16,
     pub(super) bit_width: u8,
     pub(super) packed: BufferHandle,
-    /// The offset metadata from patches, needed to reconstruct Patches from slots.
-    pub(super) patch_offset: Option<usize>,
-    /// The offset_within_chunk metadata from patches.
-    pub(super) patch_offset_within_chunk: Option<usize>,
+    /// Patch metadata for reconstructing Patches from slots.
+    pub(super) patches_data: Option<PatchesData>,
 }
 
 impl Display for BitPackedData {
@@ -125,17 +131,11 @@ impl BitPackedData {
             "Offset must be less than the full block i.e., 1024, got {offset}"
         );
 
-        let (patch_offset, patch_offset_within_chunk) = match &patches {
-            Some(p) => (Some(p.offset()), p.offset_within_chunk()),
-            None => (None, None),
-        };
-
         Ok(Self {
             offset,
             bit_width,
             packed,
-            patch_offset,
-            patch_offset_within_chunk,
+            patches_data: patches.as_ref().map(PatchesData::from_patches),
         })
     }
 
@@ -254,12 +254,16 @@ impl BitPackedData {
     ///
     /// If the requested bit-width for packing is larger than the array's native width, an
     /// error will be returned.
-    pub fn encode(array: &ArrayRef, bit_width: u8) -> VortexResult<BitPackedArray> {
+    pub fn encode(
+        array: &ArrayRef,
+        bit_width: u8,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<BitPackedArray> {
         let parray: PrimitiveArray = array
             .clone()
             .try_downcast::<Primitive>()
             .map_err(|a| vortex_err!(InvalidArgument: "Bitpacking can only encode primitive arrays, got {}", a.encoding_id()))?;
-        bitpack_encode(&parray, bit_width, None)
+        bitpack_encode(&parray, bit_width, None, ctx)
     }
 
     /// Calculate the maximum value that **can** be contained by this array, given its bit-width.
@@ -289,37 +293,17 @@ pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
 
     #[inline]
     fn patches(&self) -> Option<Patches> {
-        match (self.patch_indices(), self.patch_values()) {
-            (Some(indices), Some(values)) => {
-                let patch_offset = self
-                    .patch_offset
-                    .vortex_expect("has patch slots but no patch_offset");
-                Some(unsafe {
-                    Patches::new_unchecked(
-                        self.as_ref().len(),
-                        patch_offset,
-                        indices.clone(),
-                        values.clone(),
-                        self.patch_chunk_offsets().cloned(),
-                        self.patch_offset_within_chunk,
-                    )
-                })
-            }
-            _ => None,
-        }
-    }
-
-    #[inline]
-    fn validity(&self) -> Validity {
-        child_to_validity(
-            &self.validity_child().cloned(),
-            self.as_ref().dtype().nullability(),
+        PatchesData::patches_from_slots(
+            self.patches_data.as_ref(),
+            self.as_ref().len(),
+            self.as_ref().slots(),
+            PATCH_SLOTS,
         )
     }
 
     #[inline]
-    fn validity_mask(&self) -> vortex_mask::Mask {
-        self.validity().to_mask(self.as_ref().len())
+    fn validity(&self) -> Validity {
+        child_to_validity(self.validity_child(), self.as_ref().dtype().nullability())
     }
 
     #[inline]
@@ -337,17 +321,25 @@ impl<T: TypedArrayRef<crate::BitPacked>> BitPackedArrayExt for T {}
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
+    use vortex_session::VortexSession;
 
     use crate::BitPackedData;
     use crate::bitpacking::array::BitPackedArrayExt;
 
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
     #[test]
     fn test_encode() {
+        let mut ctx = SESSION.create_execution_ctx();
         let values = [
             Some(1u64),
             None,
@@ -358,30 +350,42 @@ mod test {
             Some(u64::MAX),
         ];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let packed = BitPackedData::encode(&uncompressed.into_array(), 1).unwrap();
+        let packed = BitPackedData::encode(&uncompressed.into_array(), 1, &mut ctx).unwrap();
         let expected = PrimitiveArray::from_option_iter(values);
-        assert_arrays_eq!(packed.as_array().to_primitive(), expected);
+        let packed_primitive = packed
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
+        assert_arrays_eq!(packed_primitive, expected);
     }
 
     #[test]
     fn test_encode_too_wide() {
+        let mut ctx = SESSION.create_execution_ctx();
         let values = [Some(1u8), None, Some(1), None, Some(1), None];
         let uncompressed = PrimitiveArray::from_option_iter(values);
-        let _packed = BitPackedData::encode(&uncompressed.clone().into_array(), 8)
+        let _packed = BitPackedData::encode(&uncompressed.clone().into_array(), 8, &mut ctx)
             .expect_err("Cannot pack value into the same width");
-        let _packed = BitPackedData::encode(&uncompressed.into_array(), 9)
+        let _packed = BitPackedData::encode(&uncompressed.into_array(), 9, &mut ctx)
             .expect_err("Cannot pack value into larger width");
     }
 
     #[test]
     fn signed_with_patches() {
+        let mut ctx = SESSION.create_execution_ctx();
         let values: Buffer<i32> = (0i32..=512).collect();
         let parray = values.clone().into_array();
 
-        let packed_with_patches = BitPackedData::encode(&parray, 9).unwrap();
+        let packed_with_patches = BitPackedData::encode(&parray, 9, &mut ctx).unwrap();
         assert!(packed_with_patches.patches().is_some());
+        let packed_primitive = packed_with_patches
+            .as_array()
+            .clone()
+            .execute::<PrimitiveArray>(&mut ctx)
+            .unwrap();
         assert_arrays_eq!(
-            packed_with_patches.as_array().to_primitive(),
+            packed_primitive,
             PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable)
         );
     }

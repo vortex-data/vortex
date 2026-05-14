@@ -12,6 +12,8 @@ use vortex_alp::ALPRDFloat;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
 use vortex_alp::decompress_into_array;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
@@ -66,9 +68,14 @@ fn compress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64, 
     let values = values.freeze();
     let array = PrimitiveArray::new(values, validity);
 
-    bencher
-        .with_inputs(|| &array)
-        .bench_values(|array| alp_encode(array.as_view(), None).unwrap())
+    bencher.with_inputs(|| &array).bench_values(|array| {
+        alp_encode(
+            array.as_view(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+    })
 }
 
 #[divan::bench(types = [f32, f64], args = BENCH_ARGS)]
@@ -95,6 +102,7 @@ fn decompress_alp<T: ALPFloat + NativePType>(bencher: Bencher, args: (usize, f64
                 alp_encode(
                     PrimitiveArray::new(Buffer::copy_from(&values), validity.clone()).as_view(),
                     None,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
                 )
                 .unwrap(),
                 LEGACY_SESSION.create_execution_ctx(),
@@ -135,8 +143,8 @@ fn compress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f64)
     let encoder = RDEncoder::new(primitive.as_slice::<T>());
 
     bencher
-        .with_inputs(|| (&primitive, &encoder))
-        .bench_refs(|(primitive, encoder)| encoder.encode(primitive.as_view()))
+        .with_inputs(|| (&primitive, &encoder, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(primitive, encoder, ctx)| encoder.encode(primitive.as_view(), ctx))
 }
 
 #[divan::bench(types = [f32, f64], args = RD_BENCH_ARGS)]
@@ -144,9 +152,12 @@ fn decompress_rd<T: ALPRDFloat + NativePType>(bencher: Bencher, args: (usize, f6
     let (n, fraction_patch) = args;
     let primitive = make_rd_array::<T>(n, fraction_patch);
     let encoder = RDEncoder::new(primitive.as_slice::<T>());
-    let encoded = encoder.encode(primitive.as_view());
+    let encoded = encoder.encode(
+        primitive.as_view(),
+        &mut LEGACY_SESSION.create_execution_ctx(),
+    );
 
     bencher
-        .with_inputs(|| &encoded)
-        .bench_refs(|encoded| encoded.to_canonical());
+        .with_inputs(|| (&encoded, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(encoded, ctx)| (**encoded).clone().into_array().execute::<Canonical>(ctx));
 }

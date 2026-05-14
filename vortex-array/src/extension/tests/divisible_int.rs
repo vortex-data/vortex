@@ -35,7 +35,7 @@ impl ExtVTable for DivisibleInt {
     type NativeValue<'a> = u64;
 
     fn id(&self) -> ExtId {
-        ExtId::new_ref("test.divisible_int")
+        ExtId::new("test.divisible_int")
     }
 
     fn serialize_metadata(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

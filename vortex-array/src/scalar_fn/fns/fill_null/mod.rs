@@ -37,7 +37,7 @@ impl ScalarFnVTable for FillNull {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.fill_null")
+        ScalarFnId::new("vortex.fill_null")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {

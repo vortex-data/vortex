@@ -23,11 +23,11 @@ fn nullable_vectors_roundtrip() -> VortexResult<()> {
 
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 4,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
 
     assert_eq!(encoded.len(), 10);
     assert!(encoded.dtype().is_nullable());
@@ -84,11 +84,11 @@ fn nullable_norms_match_validity() -> VortexResult<()> {
 
     let config = TurboQuantConfig {
         bit_width: 2,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
     let (_sorf_child, norms_child) = unwrap_l2denorm(&encoded);
 
     let norms_validity = norms_child.validity()?;
@@ -114,11 +114,11 @@ fn nullable_l2_norm_readthrough() -> VortexResult<()> {
 
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 3,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
 
     let norm_sfn = L2Norm::try_new_array(encoded, 5)?;
     let norms: PrimitiveArray = norm_sfn.into_array().execute(&mut ctx)?;
@@ -127,7 +127,7 @@ fn nullable_l2_norm_readthrough() -> VortexResult<()> {
     let orig_f32 = orig_prim.as_slice::<f32>();
     for row in 0..5 {
         if row % 2 == 0 {
-            assert!(norms.is_valid(row)?, "row {row} should be valid");
+            assert!(norms.is_valid(row, &mut ctx)?, "row {row} should be valid");
             let expected: f32 = orig_f32[row * 128..(row + 1) * 128]
                 .iter()
                 .map(|&v| v * v)
@@ -139,7 +139,7 @@ fn nullable_l2_norm_readthrough() -> VortexResult<()> {
                 "norm mismatch at valid row {row}: actual={actual}, expected={expected}"
             );
         } else {
-            assert!(!norms.is_valid(row)?, "row {row} should be null");
+            assert!(!norms.is_valid(row, &mut ctx)?, "row {row} should be null");
         }
     }
     Ok(())
@@ -156,11 +156,11 @@ fn nullable_slice_preserves_validity() -> VortexResult<()> {
 
     let config = TurboQuantConfig {
         bit_width: 3,
-        seed: Some(123),
+        seed: 123,
         num_rounds: 2,
     };
     let mut ctx = SESSION.create_execution_ctx();
-    let encoded = normalize_and_encode(&ext, &config, &mut ctx)?;
+    let encoded = turboquant_encode(ext, &config, &mut ctx)?;
 
     let sliced = encoded.slice(1..6)?;
     assert_eq!(sliced.len(), 5);

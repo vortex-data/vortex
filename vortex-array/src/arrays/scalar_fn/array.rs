@@ -9,10 +9,11 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
-use crate::arrays::ScalarFnVTable;
+use crate::arrays::ScalarFn;
 use crate::scalar_fn::ScalarFnRef;
 
 // ScalarFnArray has a variable number of slots (one per child)
@@ -49,7 +50,7 @@ impl ScalarFnData {
     }
 }
 
-pub trait ScalarFnArrayExt: TypedArrayRef<ScalarFnVTable> {
+pub trait ScalarFnArrayExt: TypedArrayRef<ScalarFn> {
     fn scalar_fn(&self) -> &ScalarFnRef {
         &self.scalar_fn
     }
@@ -80,9 +81,9 @@ pub trait ScalarFnArrayExt: TypedArrayRef<ScalarFnVTable> {
         self.iter_children().cloned().collect()
     }
 }
-impl<T: TypedArrayRef<ScalarFnVTable>> ScalarFnArrayExt for T {}
+impl<T: TypedArrayRef<ScalarFn>> ScalarFnArrayExt for T {}
 
-impl Array<ScalarFnVTable> {
+impl Array<ScalarFn> {
     /// Create a new ScalarFnArray from a scalar function and its children.
     pub fn try_new(
         scalar_fn: ScalarFnRef,
@@ -92,11 +93,11 @@ impl Array<ScalarFnVTable> {
         let arg_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
         let dtype = scalar_fn.return_dtype(&arg_dtypes)?;
         let data = ScalarFnData::build(scalar_fn.clone(), children.clone(), len)?;
-        let vtable = ScalarFnVTable { scalar_fn };
+        let vtable = ScalarFn { id: scalar_fn.id() };
         Ok(unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(vtable, dtype, len, data)
-                    .with_slots(children.into_iter().map(Some).collect()),
+                    .with_slots(children.into_iter().map(Some).collect::<ArraySlots>()),
             )
         })
     }

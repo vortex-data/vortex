@@ -30,8 +30,12 @@ fn execute_to_canonical(array: ArrayRef, ctx: &mut ExecutionCtx) -> ArrayRef {
 #[expect(clippy::unwrap_used)]
 fn find_mismatched_indices(left: &ArrayRef, right: &ArrayRef) -> Vec<usize> {
     assert_eq!(left.len(), right.len());
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
     (0..left.len())
-        .filter(|i| left.scalar_at(*i).unwrap() != right.scalar_at(*i).unwrap())
+        .filter(|i| {
+            left.execute_scalar(*i, &mut ctx).unwrap()
+                != right.execute_scalar(*i, &mut ctx).unwrap()
+        })
         .collect()
 }
 
@@ -49,9 +53,13 @@ fn find_mismatched_indices(left: &ArrayRef, right: &ArrayRef) -> Vec<usize> {
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {{
         use $crate::IntoArray as _;
+        use $crate::LEGACY_SESSION;
+        use $crate::VortexSessionExecute as _;
         let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
         assert_eq!(
-            arr_ref.scalar_at($n).unwrap(),
+            arr_ref
+                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap(),
             $expected.try_into().unwrap()
         );
     }};
@@ -68,12 +76,19 @@ macro_rules! assert_nth_scalar {
 #[macro_export]
 macro_rules! assert_nth_scalar_is_null {
     ($arr:expr, $n:expr) => {{
+        use $crate::LEGACY_SESSION;
+        use $crate::VortexSessionExecute as _;
         let arr_ref: $crate::ArrayRef = $crate::IntoArray::into_array($arr.clone());
         assert!(
-            arr_ref.scalar_at($n).unwrap().is_null(),
+            arr_ref
+                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+                .is_null(),
             "expected scalar at index {} to be null, but was {:?}",
             $n,
-            arr_ref.scalar_at($n).unwrap()
+            arr_ref
+                .execute_scalar($n, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
         );
     }};
 }

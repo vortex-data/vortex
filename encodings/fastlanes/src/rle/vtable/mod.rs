@@ -22,12 +22,14 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::RLEData;
 use crate::rle::array::INDICES_SLOT;
@@ -74,18 +76,19 @@ impl ArrayEq for RLEData {
 }
 
 impl VTable for RLE {
-    type ArrayData = RLEData;
+    type TypedArrayData = RLEData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("fastlanes.rle");
+        *ID
     }
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
@@ -184,7 +187,7 @@ impl VTable for RLE {
             usize::try_from(metadata.values_idx_offsets_len)?,
         )?;
 
-        let slots = vec![Some(values), Some(indices), Some(values_idx_offsets)];
+        let slots = smallvec![Some(values), Some(indices), Some(values_idx_offsets)];
         let data = RLEData::try_new(metadata.offset as usize)?;
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, data).with_slots(slots))
     }
@@ -209,8 +212,6 @@ impl VTable for RLE {
 pub struct RLE;
 
 impl RLE {
-    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.rle");
-
     pub fn try_new(
         values: ArrayRef,
         indices: ArrayRef,
@@ -219,7 +220,7 @@ impl RLE {
         length: usize,
     ) -> VortexResult<RLEArray> {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-        let slots = vec![Some(values), Some(indices), Some(values_idx_offsets)];
+        let slots = smallvec![Some(values), Some(indices), Some(values_idx_offsets)];
         let data = RLEData::try_new(offset)?;
         Array::try_from_parts(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
     }
@@ -236,7 +237,7 @@ impl RLE {
         length: usize,
     ) -> RLEArray {
         let dtype = DType::Primitive(values.dtype().as_ptype(), indices.dtype().nullability());
-        let slots = vec![Some(values), Some(indices), Some(values_idx_offsets)];
+        let slots = smallvec![Some(values), Some(indices), Some(values_idx_offsets)];
         let data = unsafe { RLEData::new_unchecked(offset) };
         unsafe {
             Array::from_parts_unchecked(ArrayParts::new(RLE, dtype, length, data).with_slots(slots))
@@ -244,8 +245,11 @@ impl RLE {
     }
 
     /// Encode a primitive array using FastLanes RLE.
-    pub fn encode(array: ArrayView<'_, Primitive>) -> VortexResult<RLEArray> {
-        RLEData::encode(array)
+    pub fn encode(
+        array: ArrayView<'_, Primitive>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<RLEArray> {
+        RLEData::encode(array, ctx)
     }
 }
 

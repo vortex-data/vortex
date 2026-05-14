@@ -12,7 +12,7 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::ScalarFnVTable;
+use crate::arrays::ScalarFn;
 use crate::arrays::scalar_fn::ExactScalarFn;
 use crate::arrays::scalar_fn::ScalarFnArrayExt;
 use crate::arrays::scalar_fn::ScalarFnArrayView;
@@ -21,6 +21,7 @@ use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::fill_null::FillNull as FillNullExpr;
+use crate::validity::Validity;
 
 /// Fill nulls in an array with a scalar value without reading buffers.
 ///
@@ -68,12 +69,17 @@ pub(super) fn precondition(
     );
 
     // If the array has no nulls, fill_null is a no-op (just cast for nullability).
-    if !array.dtype().is_nullable() || array.all_valid()? {
+    if !array.dtype().is_nullable()
+        || matches!(
+            array.validity()?,
+            Validity::NonNullable | Validity::AllValid
+        )
+    {
         return array.clone().cast(fill_value.dtype().clone()).map(Some);
     }
 
     // If all values are null, replace the entire array with the fill value.
-    if array.all_invalid()? {
+    if matches!(array.validity()?, Validity::AllInvalid) {
         return Ok(Some(
             ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         ));
@@ -117,7 +123,7 @@ where
             return Ok(None);
         }
         let scalar_fn_array = parent
-            .as_opt::<ScalarFnVTable>()
+            .as_opt::<ScalarFn>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let fill_value = scalar_fn_array
             .get_child(1)
@@ -153,7 +159,7 @@ where
             return Ok(None);
         }
         let scalar_fn_array = parent
-            .as_opt::<ScalarFnVTable>()
+            .as_opt::<ScalarFn>()
             .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
         let fill_value = scalar_fn_array
             .get_child(1)

@@ -51,11 +51,9 @@ macro_rules! lifetime_wrapper {
                 }
             }
 
-            // --- Owned handle (calls destructor on drop) ---
-
             $(#[$meta])*
             #[allow(dead_code)]
-            pub struct $Name($ffi_type);
+            pub struct $Name(std::ptr::NonNull<std::ffi::c_void>);
 
             #[allow(dead_code)]
             impl $Name {
@@ -71,7 +69,7 @@ macro_rules! lifetime_wrapper {
                             "Attempted to create an owned wrapper from a null pointer"
                         );
                     }
-                    Self(ptr)
+                    Self(unsafe { std::ptr::NonNull::new_unchecked(ptr.cast()) })
                 }
 
                 /// Borrows the pointer as an immutable reference with explicit lifetime.
@@ -107,7 +105,7 @@ macro_rules! lifetime_wrapper {
                 /// calling the destructor.
                 pub fn into_ptr(self) -> $ffi_type {
                     let this = std::mem::ManuallyDrop::new(self);
-                    this.0
+                    (*this).0.as_ptr().cast()
                 }
             }
 
@@ -117,7 +115,7 @@ macro_rules! lifetime_wrapper {
                 fn deref(&self) -> &Self::Target {
                     // SAFETY: The opaque [<$Name Ref>] is a ZST and the pointer is valid
                     // for the lifetime of the owned handle.
-                    unsafe { &*(self.0 as *const [<$Name Ref>]) }
+                    unsafe { &*(self.0.as_ptr() as *const [<$Name Ref>]) }
                 }
             }
 
@@ -126,16 +124,17 @@ macro_rules! lifetime_wrapper {
                     // SAFETY: The opaque [<$Name Ref>] is a ZST and the pointer is valid
                     // for the lifetime of the owned handle. We have &mut self so
                     // exclusive access is guaranteed.
-                    unsafe { &mut *(self.0 as *mut [<$Name Ref>]) }
+                    unsafe { &mut *(self.0.as_ptr() as *mut [<$Name Ref>]) }
                 }
             }
 
             impl Drop for $Name {
                 fn drop(&mut self) {
                     let destructor = $destructor;
+                    let mut ptr: $ffi_type = self.0.as_ptr().cast();
                     #[allow(unused_unsafe)]
                     unsafe {
-                        destructor(&mut self.0)
+                        destructor(&mut ptr)
                     }
                 }
             }

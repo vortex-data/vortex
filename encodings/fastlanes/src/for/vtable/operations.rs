@@ -15,9 +15,9 @@ impl OperationsVTable<FoR> for FoR {
     fn scalar_at(
         array: ArrayView<'_, FoR>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let encoded_pvalue = array.encoded().scalar_at(index)?;
+        let encoded_pvalue = array.encoded().execute_scalar(index, ctx)?;
         let encoded_pvalue = encoded_pvalue.as_primitive();
         let reference = array.reference_scalar();
         let reference = reference.as_primitive();

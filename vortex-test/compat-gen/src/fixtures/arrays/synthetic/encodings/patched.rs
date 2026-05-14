@@ -14,6 +14,10 @@ use vortex_session::VortexSession;
 
 use crate::fixtures::FlatLayoutFixture;
 
+#[expect(
+    dead_code,
+    reason = "This will be unused until we stabilize Patched array"
+)]
 pub struct PatchedFixture;
 
 impl FlatLayoutFixture for PatchedFixture {

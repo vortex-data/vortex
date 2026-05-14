@@ -12,9 +12,12 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -111,12 +114,14 @@ pub trait PatchedArrayExt: PatchedArraySlotsExt {
         assert!(chunk * 1024 <= self.as_ref().len() + self.offset());
         assert!(lane < self.n_lanes());
 
-        let start = self
-            .lane_offsets()
-            .scalar_at(chunk * self.n_lanes() + lane)?;
-        let stop = self
-            .lane_offsets()
-            .scalar_at(chunk * self.n_lanes() + lane + 1)?;
+        let start = self.lane_offsets().execute_scalar(
+            chunk * self.n_lanes() + lane,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
+        let stop = self.lane_offsets().execute_scalar(
+            chunk * self.n_lanes() + lane + 1,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
 
         let start = start
             .as_primitive()
@@ -186,7 +191,7 @@ impl Patched {
         );
 
         vortex_ensure!(
-            patches.values().all_valid()?,
+            patches.values().all_valid(ctx)?,
             "PatchedArray cannot be built from Patches with nulls"
         );
 
@@ -233,7 +238,7 @@ impl Patched {
     pub(crate) unsafe fn new_unchecked(
         dtype: DType,
         len: usize,
-        slots: Vec<Option<ArrayRef>>,
+        slots: ArraySlots,
         n_lanes: usize,
         offset: usize,
     ) -> Array<Patched> {
@@ -383,16 +388,19 @@ mod tests {
         assert_eq!(view.required.len(), 3);
         assert_eq!(view.maybe.expect("optional slot").len(), 3);
 
-        let cloned = OptionalPatchedSlots::from_slots(slot_vec);
+        let cloned = OptionalPatchedSlots::from_slots(slot_vec.into());
         assert_eq!(cloned.required.len(), required.len());
         assert_eq!(cloned.maybe.expect("optional clone").len(), optional.len());
 
-        let rebuilt = PatchedSlots::from_slots(vec![
-            Some(required.clone()),
-            Some(optional.clone()),
-            Some(required.clone()),
-            Some(optional.clone()),
-        ]);
+        let rebuilt = PatchedSlots::from_slots(
+            vec![
+                Some(required.clone()),
+                Some(optional.clone()),
+                Some(required.clone()),
+                Some(optional.clone()),
+            ]
+            .into(),
+        );
         assert_eq!(rebuilt.inner.len(), required.len());
         assert_eq!(rebuilt.patch_values.len(), optional.len());
     }

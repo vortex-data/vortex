@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use vortex_array::ExecutionCtx;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -15,8 +16,6 @@ use super::StatsSet;
 use super::StatsSetIntoIter;
 use super::TypedStatsSetRef;
 use crate::ArrayRef;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::aggregate_fn::fns::is_constant::is_constant;
 use crate::aggregate_fn::fns::is_sorted::is_sorted;
 use crate::aggregate_fn::fns::is_sorted::is_strict_sorted;
@@ -24,7 +23,7 @@ use crate::aggregate_fn::fns::min_max::MinMaxResult;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::fns::nan_count::nan_count;
 use crate::aggregate_fn::fns::sum::sum;
-use crate::builders::builder_with_capacity;
+use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -154,58 +153,48 @@ impl StatsSetRef<'_> {
         f(&mut lock.iter())
     }
 
-    pub fn compute_stat(&self, stat: Stat) -> VortexResult<Option<Scalar>> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-
+    pub fn compute_stat(&self, stat: Stat, ctx: &mut ExecutionCtx) -> VortexResult<Option<Scalar>> {
         // If it's already computed and exact, we can return it.
         if let Some(Precision::Exact(s)) = self.get(stat) {
             return Ok(Some(s));
         }
 
         Ok(match stat {
-            Stat::Min => {
-                min_max(self.dyn_array_ref, &mut ctx)?.map(|MinMaxResult { min, max: _ }| min)
-            }
-            Stat::Max => {
-                min_max(self.dyn_array_ref, &mut ctx)?.map(|MinMaxResult { min: _, max }| max)
-            }
+            Stat::Min => min_max(self.dyn_array_ref, ctx)?.map(|MinMaxResult { min, max: _ }| min),
+            Stat::Max => min_max(self.dyn_array_ref, ctx)?.map(|MinMaxResult { min: _, max }| max),
             Stat::Sum => {
                 Stat::Sum
                     .dtype(self.dyn_array_ref.dtype())
                     .is_some()
                     .then(|| {
                         // Sum is supported for this dtype.
-                        sum(self.dyn_array_ref, &mut ctx)
+                        sum(self.dyn_array_ref, ctx)
                     })
                     .transpose()?
             }
-            Stat::NullCount => self.dyn_array_ref.invalid_count().ok().map(Into::into),
+            Stat::NullCount => self.dyn_array_ref.invalid_count(ctx).ok().map(Into::into),
             Stat::IsConstant => {
                 if self.dyn_array_ref.is_empty() {
                     None
                 } else {
-                    Some(is_constant(self.dyn_array_ref, &mut ctx)?.into())
+                    Some(is_constant(self.dyn_array_ref, ctx)?.into())
                 }
             }
-            Stat::IsSorted => Some(is_sorted(self.dyn_array_ref, &mut ctx)?.into()),
-            Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref, &mut ctx)?.into()),
-            Stat::UncompressedSizeInBytes => {
-                let mut builder =
-                    builder_with_capacity(self.dyn_array_ref.dtype(), self.dyn_array_ref.len());
-                unsafe {
-                    builder.extend_from_array_unchecked(self.dyn_array_ref);
-                }
-                let nbytes = builder.finish().nbytes();
-                self.set(stat, Precision::exact(nbytes));
-                Some(nbytes.into())
-            }
+            Stat::IsSorted => Some(is_sorted(self.dyn_array_ref, ctx)?.into()),
+            Stat::IsStrictSorted => Some(is_strict_sorted(self.dyn_array_ref, ctx)?.into()),
+            Stat::UncompressedSizeInBytes => Stat::UncompressedSizeInBytes
+                .dtype(self.dyn_array_ref.dtype())
+                .is_some()
+                .then(|| uncompressed_size_in_bytes(self.dyn_array_ref, ctx))
+                .transpose()?
+                .map(|s| s.into()),
             Stat::NaNCount => {
                 Stat::NaNCount
                     .dtype(self.dyn_array_ref.dtype())
                     .is_some()
                     .then(|| {
                         // NaNCount is supported for this dtype.
-                        nan_count(self.dyn_array_ref, &mut ctx)
+                        nan_count(self.dyn_array_ref, ctx)
                     })
                     .transpose()?
                     .map(|s| s.into())
@@ -213,10 +202,10 @@ impl StatsSetRef<'_> {
         })
     }
 
-    pub fn compute_all(&self, stats: &[Stat]) -> VortexResult<StatsSet> {
+    pub fn compute_all(&self, stats: &[Stat], ctx: &mut ExecutionCtx) -> VortexResult<StatsSet> {
         let mut stats_set = StatsSet::default();
         for &stat in stats {
-            if let Some(s) = self.compute_stat(stat)?
+            if let Some(s) = self.compute_stat(stat, ctx)?
                 && let Some(value) = s.into_value()
             {
                 stats_set.set(stat, Precision::exact(value));
@@ -230,8 +219,9 @@ impl StatsSetRef<'_> {
     pub fn compute_as<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
         &self,
         stat: Stat,
+        ctx: &mut ExecutionCtx,
     ) -> Option<U> {
-        self.compute_stat(stat)
+        self.compute_stat(stat, ctx)
             .inspect_err(|e| tracing::warn!("Failed to compute stat {stat}: {e}"))
             .ok()
             .flatten()
@@ -255,32 +245,38 @@ impl StatsSetRef<'_> {
         self.array_stats.clear(stat);
     }
 
-    pub fn compute_min<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self) -> Option<U> {
-        self.compute_as(Stat::Min)
+    pub fn compute_min<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
+        &self,
+        ctx: &mut ExecutionCtx,
+    ) -> Option<U> {
+        self.compute_as(Stat::Min, ctx)
     }
 
-    pub fn compute_max<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(&self) -> Option<U> {
-        self.compute_as(Stat::Max)
+    pub fn compute_max<U: for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
+        &self,
+        ctx: &mut ExecutionCtx,
+    ) -> Option<U> {
+        self.compute_as(Stat::Max, ctx)
     }
 
-    pub fn compute_is_sorted(&self) -> Option<bool> {
-        self.compute_as(Stat::IsSorted)
+    pub fn compute_is_sorted(&self, ctx: &mut ExecutionCtx) -> Option<bool> {
+        self.compute_as(Stat::IsSorted, ctx)
     }
 
-    pub fn compute_is_strict_sorted(&self) -> Option<bool> {
-        self.compute_as(Stat::IsStrictSorted)
+    pub fn compute_is_strict_sorted(&self, ctx: &mut ExecutionCtx) -> Option<bool> {
+        self.compute_as(Stat::IsStrictSorted, ctx)
     }
 
-    pub fn compute_is_constant(&self) -> Option<bool> {
-        self.compute_as(Stat::IsConstant)
+    pub fn compute_is_constant(&self, ctx: &mut ExecutionCtx) -> Option<bool> {
+        self.compute_as(Stat::IsConstant, ctx)
     }
 
-    pub fn compute_null_count(&self) -> Option<usize> {
-        self.compute_as(Stat::NullCount)
+    pub fn compute_null_count(&self, ctx: &mut ExecutionCtx) -> Option<usize> {
+        self.compute_as(Stat::NullCount, ctx)
     }
 
-    pub fn compute_uncompressed_size_in_bytes(&self) -> Option<usize> {
-        self.compute_as(Stat::UncompressedSizeInBytes)
+    pub fn compute_uncompressed_size_in_bytes(&self, ctx: &mut ExecutionCtx) -> Option<usize> {
+        self.compute_as(Stat::UncompressedSizeInBytes, ctx)
     }
 }
 

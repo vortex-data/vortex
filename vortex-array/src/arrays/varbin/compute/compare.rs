@@ -2,8 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::BinaryArray;
+use arrow_array::LargeBinaryArray;
+use arrow_array::LargeStringArray;
 use arrow_array::StringArray;
 use arrow_ord::cmp;
+use arrow_schema::DataType;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
@@ -80,17 +83,28 @@ impl CompareKernel for VarBin {
                 ));
             }
 
-            let lhs = Datum::try_new(lhs.array())?;
+            let lhs = Datum::try_new(lhs.array(), ctx)?;
 
-            // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
-            // produced by Datum::try_new (which uses into_arrow_preferred())
-            let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {
-                DType::Utf8(_) => &rhs_const
+            // The RHS scalar must match the LHS Arrow data type. VarBin with i64 offsets is
+            // converted to LargeBinary/LargeUtf8 (see `preferred_arrow_type`), and Arrow refuses to
+            // compare LargeBinary with Binary (or LargeUtf8 with Utf8).
+            let arrow_rhs: &dyn arrow_array::Datum = match (rhs_const.dtype(), lhs.data_type()) {
+                (DType::Utf8(_), DataType::LargeUtf8) => &rhs_const
+                    .as_utf8()
+                    .value()
+                    .map(LargeStringArray::new_scalar)
+                    .unwrap_or_else(|| arrow_array::Scalar::new(LargeStringArray::new_null(1))),
+                (DType::Utf8(_), _) => &rhs_const
                     .as_utf8()
                     .value()
                     .map(StringArray::new_scalar)
                     .unwrap_or_else(|| arrow_array::Scalar::new(StringArray::new_null(1))),
-                DType::Binary(_) => &rhs_const
+                (DType::Binary(_), DataType::LargeBinary) => &rhs_const
+                    .as_binary()
+                    .value()
+                    .map(LargeBinaryArray::new_scalar)
+                    .unwrap_or_else(|| arrow_array::Scalar::new(LargeBinaryArray::new_null(1))),
+                (DType::Binary(_), _) => &rhs_const
                     .as_binary()
                     .value()
                     .map(BinaryArray::new_scalar)
@@ -145,7 +159,10 @@ mod test {
     use vortex_buffer::ByteBuffer;
 
     use crate::IntoArray;
-    use crate::ToCanonical;
+    use crate::LEGACY_SESSION;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
+    use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
@@ -162,6 +179,7 @@ mod test {
             [Some(b"abc".to_vec()), None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .binary(
@@ -176,7 +194,16 @@ mod test {
             .to_bool();
 
         assert_eq!(
-            &result.validity_mask().unwrap().to_bit_buffer(),
+            &result
+                .as_ref()
+                .validity()
+                .unwrap()
+                .execute_mask(
+                    result.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap()
+                .to_bit_buffer(),
             &BitBuffer::from_iter([true, false, true])
         );
         assert_eq!(
@@ -195,6 +222,7 @@ mod test {
             [None, None, Some(b"def".to_vec())],
             DType::Binary(Nullability::Nullable),
         );
+        #[expect(deprecated)]
         let result = array
             .into_array()
             .binary(vbv.into_array(), Operator::Eq)
@@ -202,7 +230,16 @@ mod test {
             .to_bool();
 
         assert_eq!(
-            result.validity_mask().unwrap().to_bit_buffer(),
+            result
+                .as_ref()
+                .validity()
+                .unwrap()
+                .execute_mask(
+                    result.as_ref().len(),
+                    &mut LEGACY_SESSION.create_execution_ctx()
+                )
+                .unwrap()
+                .to_bit_buffer(),
             BitBuffer::from_iter([false, false, true])
         );
         assert_eq!(
@@ -214,9 +251,14 @@ mod test {
 
 #[cfg(test)]
 mod tests {
+    use vortex_buffer::ByteBuffer;
+
     use crate::IntoArray;
+    use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::VarBinArray;
+    use crate::arrays::varbin::builder::VarBinBuilder;
+    use crate::assert_arrays_eq;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -236,5 +278,56 @@ mod tests {
                 .dtype(),
             &DType::Bool(Nullability::Nullable)
         );
+    }
+
+    /// Regression: a [`VarBinArray`] built with `i64` offsets is canonicalised to
+    /// Arrow `LargeUtf8` / `LargeBinary` by `preferred_arrow_type`. Without an explicit
+    /// branch in [`CompareKernel`], the constant RHS is wrapped in a `StringArray` /
+    /// `BinaryArray` and Arrow rejects the `LargeUtf8 == Utf8` mismatch. Triggering
+    /// this only requires `i64` offsets, not large data.
+    ///
+    /// [`CompareKernel`]: super::CompareKernel
+    #[test]
+    fn varbin_i64_offsets_compare_constant() {
+        let mut builder = VarBinBuilder::<i64>::with_capacity(3);
+        builder.append_value(b"abc");
+        builder.append_value(b"xyz");
+        builder.append_value(b"abc");
+        let array = builder.finish(DType::Utf8(Nullability::NonNullable));
+
+        let result = array
+            .into_array()
+            .binary(
+                ConstantArray::new(Scalar::utf8("abc", Nullability::NonNullable), 3).into_array(),
+                Operator::Eq,
+            )
+            .unwrap();
+
+        let expected = BoolArray::from_iter([true, false, true]);
+        assert_arrays_eq!(result, expected);
+    }
+
+    #[test]
+    fn varbin_i64_offsets_compare_constant_binary() {
+        let mut builder = VarBinBuilder::<i64>::with_capacity(3);
+        builder.append_value(b"abc");
+        builder.append_value(b"xyz");
+        builder.append_value(b"abc");
+        let array = builder.finish(DType::Binary(Nullability::NonNullable));
+
+        let result = array
+            .into_array()
+            .binary(
+                ConstantArray::new(
+                    Scalar::binary(ByteBuffer::copy_from(b"abc"), Nullability::NonNullable),
+                    3,
+                )
+                .into_array(),
+                Operator::Eq,
+            )
+            .unwrap();
+
+        let expected = BoolArray::from_iter([true, false, true]);
+        assert_arrays_eq!(result, expected);
     }
 }

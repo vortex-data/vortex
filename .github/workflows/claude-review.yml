@@ -1,0 +1,258 @@
+name: Claude Code (Review)
+
+# Setup
+# - This workflow does not need the GitHub App private key.
+# - Do not attach the `claude-automation` environment here.
+# - Store `CLAUDE_CODE_OAUTH_TOKEN` as a repository or organization Actions secret.
+# - Create a repository or organization Actions variable:
+#   - CLAUDE_APP_LOGIN
+#     Set this to the bot login for the GitHub App, usually `<app-slug>[bot]`.
+# - It may use the default GITHUB_TOKEN to read repository data and post review
+#   comments, but it must never be able to push commits or open branches.
+#
+# Why this workflow exists separately
+# - PR review traffic is a different trust boundary from issue automation.
+# - This workflow is intentionally read-only with respect to repository contents.
+# - Fork PRs are refused outright. We do not "promote" or manually bless fork
+#   content into Claude. If a contributor wants Claude to implement something,
+#   a maintainer should restate the task on an issue and use claude-write.yml.
+# - PR conversation comments on PRs already opened by the Claude App are handled by
+#   claude-write.yml so maintainers can ask Claude to make follow-up changes there.
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  gate:
+    name: Gate PR Trigger
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      should_run: ${{ steps.gate.outputs.should_run }}
+      reason: ${{ steps.gate.outputs.reason }}
+      pull_number: ${{ steps.gate.outputs.pull_number }}
+      checkout_ref: ${{ steps.gate.outputs.checkout_ref }}
+      actor_has_write: ${{ steps.gate.outputs.actor_has_write }}
+    steps:
+      - name: Check whether this PR event is allowed to reach Claude
+        id: gate
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const sender = context.payload.sender?.login ?? '';
+            const senderType = context.payload.sender?.type ?? '';
+            const trustedClaudeLogin = process.env.CLAUDE_APP_LOGIN ?? '';
+
+            async function getPermission(username) {
+              try {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username,
+                });
+                return data.permission;
+              } catch (error) {
+                if (error.status === 404) {
+                  return 'none';
+                }
+                throw error;
+              }
+            }
+
+            let mentioned = false;
+            let pullNumber = null;
+
+            if (context.eventName === 'issue_comment') {
+              mentioned = (context.payload.comment?.body ?? '').includes('@claude');
+              if (context.payload.issue?.pull_request) {
+                pullNumber = context.payload.issue.number;
+              }
+            } else if (context.eventName === 'pull_request_review_comment') {
+              mentioned = (context.payload.comment?.body ?? '').includes('@claude');
+              pullNumber = context.payload.pull_request?.number ?? null;
+            } else if (context.eventName === 'pull_request_review') {
+              mentioned = (context.payload.review?.body ?? '').includes('@claude');
+              pullNumber = context.payload.pull_request?.number ?? null;
+            }
+
+            if (pullNumber) {
+              core.setOutput('pull_number', String(pullNumber));
+            }
+
+            let reason = '';
+
+            if (!mentioned) {
+              reason = 'not_mentioned';
+            } else if (!pullNumber) {
+              reason = 'not_a_pr_event';
+            } else if (senderType === 'Bot') {
+              reason = 'bot_sender_refused';
+            }
+
+            let actorHasWrite = 'false';
+            if (!reason) {
+              const permission = await getPermission(sender);
+              core.setOutput('actor_permission', permission);
+              actorHasWrite = ['admin', 'maintain', 'write'].includes(permission) ? 'true' : 'false';
+              if (actorHasWrite !== 'true') {
+                reason = 'actor_lacks_write';
+              }
+            }
+
+            if (!reason && context.eventName === 'issue_comment' && !trustedClaudeLogin) {
+              reason = 'missing_claude_app_login';
+            }
+
+            if (!reason) {
+              let pr = null;
+              const response = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pullNumber,
+              });
+              pr = response.data;
+
+              const headRepo = pr.head.repo;
+              const isFork = !headRepo || headRepo.fork || headRepo.full_name !== `${context.repo.owner}/${context.repo.repo}`;
+              core.setOutput('checkout_ref', pr.head.sha);
+
+              if (isFork) {
+                reason = 'fork_pr_refused';
+              } else if (
+                context.eventName === 'issue_comment' &&
+                trustedClaudeLogin &&
+                (pr.user?.login ?? '') === trustedClaudeLogin
+              ) {
+                reason = 'claude_pr_uses_write_workflow';
+              }
+
+              if (!reason) {
+                const files = await github.paginate(github.rest.pulls.listFiles, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pullNumber,
+                  per_page: 100,
+                });
+                // Refuse PRs that modify `.github/` because workflow files define the
+                // automation policy this review job is enforcing.
+                if (files.some(f => f.filename.startsWith('.github/'))) {
+                  reason = 'modifies_github_dir';
+                }
+              }
+            }
+
+            core.setOutput('actor_has_write', actorHasWrite);
+            core.setOutput('should_run', !reason ? 'true' : 'false');
+            core.setOutput('reason', reason || 'allowed');
+        env:
+          CLAUDE_APP_LOGIN: ${{ vars.CLAUDE_APP_LOGIN }}
+
+  explain-refusal:
+    name: Explain Refusal
+    needs: gate
+    if: |
+      needs.gate.outputs.actor_has_write == 'true' &&
+      (
+        needs.gate.outputs.reason == 'fork_pr_refused' ||
+        needs.gate.outputs.reason == 'modifies_github_dir' ||
+        needs.gate.outputs.reason == 'missing_claude_app_login'
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Comment with the refusal reason
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            const reason = ${{ toJSON(needs.gate.outputs.reason) }};
+            const messages = {
+              fork_pr_refused: [
+                "Claude review automation is disabled for fork pull requests.",
+                "",
+                "Why:",
+                "- fork content is untrusted input",
+                "- this repository does not allow Claude to run against fork content",
+                "- there is no promotion path for forks",
+                "",
+                "If maintainers want Claude to implement a change, restate the task on an issue and use the issue-driven Claude workflow instead."
+              ].join("\n"),
+              modifies_github_dir: [
+                "Claude review automation is disabled for pull requests that modify `.github/` files.",
+                "",
+                "Why:",
+                "- workflow and action files are part of the automation policy",
+                "- this review workflow refuses to evaluate automation changes from the same PR",
+                "",
+                "Ask a human reviewer to inspect workflow changes directly."
+              ].join("\n"),
+              missing_claude_app_login: [
+                "Claude review automation is misconfigured for issue-comment triggers.",
+                "",
+                "Why:",
+                "- `CLAUDE_APP_LOGIN` is not set",
+                "- without that bot login, the review workflow cannot safely route comments on Claude-owned PRs to the write workflow",
+                "",
+                "Set the `CLAUDE_APP_LOGIN` Actions variable, then retry the command."
+              ].join("\n"),
+            };
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: Number(${{ needs.gate.outputs.pull_number }}),
+              body: messages[reason],
+            });
+
+  claude:
+    name: Run Claude PR Review
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      # `issue_comment` events on PRs expose the PR number via `github.event.issue.number`,
+      # so this falls back there when `github.event.pull_request.number` is unset.
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Checkout same-repo PR contents
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          ref: ${{ needs.gate.outputs.checkout_ref }}
+          fetch-depth: 1
+          # Keep git credentials out of the workspace. This workflow is review-only
+          # and should never push changes.
+          persist-credentials: false
+
+      - name: Run Claude Code in review-only mode
+        id: claude
+        uses: anthropics/claude-code-action@6cad158a175744eb2e76f7f5fd108ec63145598c
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # This workflow deliberately uses the built-in token because it only needs
+          # to read repository state and post review comments. It cannot write repo
+          # contents, and it has no access to the GitHub App private key.
+          github_token: ${{ github.token }}
+
+          additional_permissions: |
+            actions: read
+
+          claude_args: |
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git show:*),Bash(git log:*),Bash(head:*),Bash(jq:*),Bash(rg:*)"
+            --system-prompt "You are the repository's read-only Claude review workflow. Review the current same-repo pull request and respond in GitHub. Never modify files, never create commits, never push branches, and never open or update pull requests. Fork pull requests are blocked before this job starts."

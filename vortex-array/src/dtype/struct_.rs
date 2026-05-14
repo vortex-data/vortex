@@ -138,8 +138,18 @@ impl FieldDTypeInner {
 /// // Accessing a field by name will yield the first
 /// assert_eq!(fields.field("int_col").unwrap(), DType::Primitive(PType::I32, Nullability::Nullable));
 /// ```
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[allow(
+    clippy::derived_hash_with_manual_eq,
+    reason = "manual PartialEq adds Arc::ptr_eq fast path only"
+)]
+#[derive(Clone, Eq, Hash)]
 pub struct StructFields(Arc<StructFieldsInner>);
+
+impl PartialEq for StructFields {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0) || self.0 == other.0
+    }
+}
 
 impl std::fmt::Debug for StructFields {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

@@ -38,6 +38,7 @@ jobs:
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=arm64-medium/disk=large/tag={1}-minimize', github.run_id, inputs.fuzz_target)
           || 'ubuntu-latest' }}
+    timeout-minutes: 240
     steps:
       - name: Bail if not on develop
         if: github.ref != 'refs/heads/develop'
@@ -50,7 +51,7 @@ jobs:
         with:
           sccache: s3
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
 
       - uses: ./.github/actions/setup-rust
         with:

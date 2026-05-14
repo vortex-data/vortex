@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod bench_config;
+
 use std::time::Duration;
 
 use criterion::BenchmarkId;
@@ -25,11 +27,7 @@ use vortex_cuda::zstd_kernel_prepare;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 
-const BENCH_ARGS: &[(usize, &str)] = &[
-    (1_000_000, "1M"),
-    (10_000_000, "10M"),
-    (100_000_000, "100M"),
-];
+use crate::bench_config::BENCH_SIZES;
 
 /// Generate compressible string data by repeating patterns.
 fn generate_string_data(count: usize) -> Vec<&'static str> {
@@ -50,14 +48,22 @@ fn generate_string_data(count: usize) -> Vec<&'static str> {
 }
 
 /// Create a ZSTD-compressed array
-fn make_zstd_array(num_strings: usize) -> VortexResult<(ZstdArray, usize)> {
+fn make_zstd_array(
+    num_strings: usize,
+    cuda_ctx: &mut vortex_cuda::CudaExecutionCtx,
+) -> VortexResult<(ZstdArray, usize)> {
     let strings = generate_string_data(num_strings);
     let var_bin_view = VarBinViewArray::from_iter_str(strings.iter().copied());
     let uncompressed_size: usize = strings.iter().map(|s| s.len()).sum();
     let zstd_compression_level = -10; // Less compression but faster.
     let zstd_array =
         // Disable dictionary as nvCOMP doesn't support ZSTD dictionaries.
-        Zstd::from_var_bin_view_without_dict(&var_bin_view, zstd_compression_level, 2048)?;
+        Zstd::from_var_bin_view_without_dict(
+            &var_bin_view,
+            zstd_compression_level,
+            2048,
+            cuda_ctx.execution_ctx(),
+        )?;
 
     Ok((zstd_array, uncompressed_size))
 }
@@ -117,16 +123,17 @@ async fn execute_zstd_kernel(
 
 /// Benchmark ZSTD CUDA decompression kernel performance
 fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
-    let mut group = c.benchmark_group("ZSTD_cuda");
-    group.sample_size(10);
+    let mut group = c.benchmark_group("cuda");
 
-    for (num_strings, label) in BENCH_ARGS {
-        let (zstd_array, uncompressed_size) =
-            make_zstd_array(*num_strings).vortex_expect("failed to create ZSTD array");
+    for (num_strings, label) in BENCH_SIZES {
+        let mut setup_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+        let (zstd_array, uncompressed_size) = make_zstd_array(*num_strings, &mut setup_ctx)
+            .vortex_expect("failed to create ZSTD array");
 
         group.throughput(Throughput::Bytes(uncompressed_size as u64));
         group.bench_with_input(
-            BenchmarkId::new("decompress_kernel", label),
+            BenchmarkId::new("cuda/zstd/decompress", label),
             &zstd_array,
             |b, zstd_array| {
                 b.iter_custom(|iters| {
@@ -140,7 +147,7 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
                             frames, metadata, ..
                         } = {
                             let validity = child_to_validity(
-                                &zstd_array.as_ref().slots()[0],
+                                zstd_array.as_ref().slots()[0].as_ref(),
                                 zstd_array.dtype().nullability(),
                             );
                             zstd_array.clone().into_data().into_parts(validity)
@@ -162,7 +169,11 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
     group.finish();
 }
 
-criterion::criterion_group!(benches, benchmark_zstd_cuda_decompress);
+criterion::criterion_group! {
+    name = benches;
+    config = bench_config::cuda_bench_config();
+    targets = benchmark_zstd_cuda_decompress
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

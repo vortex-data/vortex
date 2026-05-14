@@ -27,7 +27,8 @@ use ratatui::widgets::Table;
 use ratatui::widgets::Widget;
 use ratatui::widgets::Wrap;
 use vortex::array::ArrayRef;
-use vortex::array::ToCanonical;
+use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::error::VortexExpect;
 use vortex::layout::layouts::flat::Flat;
@@ -140,7 +141,11 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
 
     if is_stats_table {
         // Render the stats table horizontally
-        let struct_array = array.to_struct();
+        let mut ctx = app.session.create_execution_ctx();
+        let struct_array = array
+            .clone()
+            .execute::<StructArray>(&mut ctx)
+            .vortex_expect("failed to canonicalize stats array to StructArray");
         // add 1 for the chunk column
         let field_count = struct_array.struct_fields().nfields() + 1;
         let header = std::iter::once("chunk")
@@ -159,17 +164,18 @@ fn render_array(app: &AppState, area: Rect, buf: &mut Buffer, is_stats_table: bo
         let field_arrays: Vec<ArrayRef> = struct_array.unmasked_fields().to_vec();
 
         // TODO: trim the number of displayed rows and allow paging through column stats.
-        let rows = (0..array.len()).map(|chunk_id| {
-            std::iter::once(Cell::from(Text::from(format!("{chunk_id}"))))
-                .chain(field_arrays.iter().map(|arr| {
-                    Cell::from(Text::from(
-                        arr.scalar_at(chunk_id)
-                            .vortex_expect("scalar_at failed")
-                            .to_string(),
-                    ))
-                }))
-                .collect::<Row>()
-        });
+        let mut rows = Vec::with_capacity(array.len());
+        for chunk_id in 0..array.len() {
+            let mut cells: Vec<Cell> = Vec::with_capacity(field_count);
+            cells.push(Cell::from(Text::from(format!("{chunk_id}"))));
+            for arr in &field_arrays {
+                let scalar = arr
+                    .execute_scalar(chunk_id, &mut ctx)
+                    .vortex_expect("scalar_at failed");
+                cells.push(Cell::from(Text::from(scalar.to_string())));
+            }
+            rows.push(cells.into_iter().collect::<Row>());
+        }
 
         Widget::render(
             Table::new(rows, (0..field_count).map(|_| Constraint::Min(6))).header(header),

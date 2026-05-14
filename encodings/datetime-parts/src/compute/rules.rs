@@ -10,8 +10,8 @@ use vortex_array::arrays::Filter;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::filter::FilterReduceAdaptor;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
+use vortex_array::arrays::scalar_fn::ScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
-use vortex_array::arrays::scalar_fn::ScalarFnVTable;
 use vortex_array::arrays::slice::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
@@ -27,7 +27,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DateTimeParts;
-use crate::array::DateTimePartsArrayExt;
+use crate::array::DateTimePartsArraySlotsExt;
 use crate::timestamp;
 pub(crate) const PARENT_RULES: ParentRuleSet<DateTimeParts> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DTPFilterPushDownRule),
@@ -95,7 +95,7 @@ impl ArrayParentReduceRule<DateTimeParts> for DTPComparisonPushDownRule {
     fn reduce_parent(
         &self,
         child: ArrayView<'_, DateTimeParts>,
-        parent: ArrayView<'_, ScalarFnVTable>,
+        parent: ArrayView<'_, ScalarFn>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         // Only handle comparison operations (Binary comparisons or Between)
@@ -179,6 +179,8 @@ fn is_constant_zero(array: &ArrayRef) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
@@ -217,7 +219,7 @@ mod tests {
             time_unit,
             None,
         );
-        DateTimeParts::try_from_temporal(temporal)
+        DateTimeParts::try_from_temporal(temporal, &mut LEGACY_SESSION.create_execution_ctx())
             .vortex_expect("TemporalArray must produce valid DateTimeParts")
     }
 
@@ -350,7 +352,9 @@ mod tests {
             TimeUnit::Seconds,
             None,
         );
-        let dtp = DateTimeParts::try_from_temporal(temporal).unwrap();
+        let dtp =
+            DateTimeParts::try_from_temporal(temporal, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap();
         let len = dtp.len();
 
         // Compare against midnight constant

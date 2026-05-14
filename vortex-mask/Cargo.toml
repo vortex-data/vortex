@@ -35,5 +35,9 @@ rstest = { workspace = true }
 name = "intersect_by_rank"
 harness = false
 
+[[bench]]
+name = "rank"
+harness = false
+
 [lints]
 workspace = true

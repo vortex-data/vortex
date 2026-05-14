@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use num_traits::AsPrimitive;
+use smallvec::smallvec;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -13,6 +14,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -117,8 +119,8 @@ impl ListData {
         offsets: &ArrayRef,
         validity: &Validity,
         len: usize,
-    ) -> Vec<Option<ArrayRef>> {
-        vec![
+    ) -> ArraySlots {
+        smallvec![
             Some(elements.clone()),
             Some(offsets.clone()),
             validity_to_child(validity, len),
@@ -197,9 +199,10 @@ impl ListData {
 
         // We can safely unwrap the DType as primitive now
         let offsets_ptype = offsets.dtype().as_ptype();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         // Offsets must be sorted (but not strictly sorted, zero-length lists are allowed)
-        if let Some(is_sorted) = offsets.statistics().compute_is_sorted() {
+        if let Some(is_sorted) = offsets.statistics().compute_is_sorted(&mut ctx) {
             vortex_ensure!(is_sorted, InvalidArgument: "offsets must be sorted");
         } else {
             vortex_bail!(InvalidArgument: "offsets must report is_sorted statistic");
@@ -207,7 +210,6 @@ impl ListData {
 
         // Validate that offsets min is non-negative, and max does not exceed the length of
         // the elements array.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         if let Some(min_max) = min_max(offsets, &mut ctx)? {
             match_each_integer_ptype!(offsets_ptype, |P| {
                 #[allow(clippy::absurd_extreme_comparisons, unused_comparisons)]
@@ -285,11 +287,10 @@ pub trait ListArrayExt: TypedArrayRef<List> {
     }
 
     fn list_validity(&self) -> Validity {
-        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
-    }
-
-    fn list_validity_mask(&self) -> vortex_mask::Mask {
-        self.list_validity().to_mask(self.as_ref().len())
+        child_to_validity(
+            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.nullability(),
+        )
     }
 
     fn offset_at(&self, index: usize) -> VortexResult<usize> {
@@ -305,7 +306,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
             }))
         } else {
             self.offsets()
-                .scalar_at(index)?
+                .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())?
                 .as_primitive()
                 .as_::<usize>()
                 .ok_or_else(|| vortex_error::vortex_err!("offset value does not fit in usize"))
@@ -331,7 +332,9 @@ pub trait ListArrayExt: TypedArrayRef<List> {
     fn reset_offsets(&self, recurse: bool) -> VortexResult<Array<List>> {
         let mut elements = self.sliced_elements()?;
         if recurse && elements.is_canonical() {
-            elements = elements.to_canonical()?.compact()?.into_array();
+            #[expect(deprecated)]
+            let compacted = elements.to_canonical()?.compact()?.into_array();
+            elements = compacted;
         } else if recurse && let Some(child_list_array) = elements.as_opt::<List>() {
             elements = child_list_array
                 .into_owned()
@@ -340,7 +343,7 @@ pub trait ListArrayExt: TypedArrayRef<List> {
         }
 
         let offsets = self.offsets();
-        let first_offset = offsets.scalar_at(0)?;
+        let first_offset = offsets.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
         let adjusted_offsets = offsets.clone().binary(
             ConstantArray::new(first_offset, offsets.len()).into_array(),
             Operator::Sub,

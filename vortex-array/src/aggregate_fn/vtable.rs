@@ -14,11 +14,9 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::aggregate_fn::AggregateFn;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnRef;
-use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::scalar::Scalar;
 
@@ -104,6 +102,25 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     /// final result is fully determined.
     fn is_saturated(&self, state: &Self::Partial) -> bool;
 
+    /// Try to derive a partial scalar from the batch's cached statistics, before any
+    /// kernel dispatch or canonicalization.
+    ///
+    /// Returns `Some(partial_scalar)` if the answer can be read directly from `batch.statistics()`,
+    /// otherwise `Ok(None)` to fall through to the rest of dispatch. The returned scalar must
+    /// have the dtype reported by `partial_dtype`.
+    ///
+    /// This is the single place stats-based shortcuts live; encoding kernels must not consult
+    /// stats themselves. Runs first so that an upstream producer who pre-populates the relevant
+    /// stat (e.g. a layout reader hydrating `Stat::UncompressedSizeInBytes` from file metadata)
+    /// can skip both kernel dispatch and decode.
+    ///
+    /// TODO: this hook may be removed once `ArrayStats` stores aggregate partials internally —
+    /// at that point stat-driven shortcuts can be resolved automatically by the dispatch layer
+    /// without each aggregate vtable opting in.
+    fn try_partial_from_stats(&self, _batch: &ArrayRef) -> VortexResult<Option<Scalar>> {
+        Ok(None)
+    }
+
     /// Try to accumulate the raw array before decompression.
     ///
     /// Returns `true` if the array was handled, `false` to fall through to
@@ -138,12 +155,7 @@ pub trait AggregateFnVTable: 'static + Sized + Clone + Send + Sync {
     ///
     /// The provided `state` has dtype as specified by `state_dtype`, the result scalar must have
     /// dtype as specified by `return_dtype`.
-    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        let scalar = self.to_scalar(partial)?;
-        let array = ConstantArray::new(scalar, 1).into_array();
-        let result = self.finalize(array)?;
-        result.scalar_at(0)
-    }
+    fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar>;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

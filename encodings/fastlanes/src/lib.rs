@@ -7,11 +7,13 @@ pub use bitpacking::*;
 pub use delta::*;
 pub use r#for::*;
 pub use rle::*;
-use vortex_array::ToCanonical;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexResult;
 
 pub mod bit_transpose;
 mod bitpacking;
@@ -24,11 +26,12 @@ pub(crate) const FL_CHUNK_SIZE: usize = 1024;
 use bitpacking::compute::is_constant::BitPackedIsConstantKernel;
 use r#for::compute::is_constant::FoRIsConstantKernel;
 use r#for::compute::is_sorted::FoRIsSortedKernel;
+use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::is_sorted::IsSorted;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-use vortex_array::arrays::patched::USE_EXPERIMENTAL_PATCHES;
+use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
@@ -36,7 +39,7 @@ use vortex_session::VortexSession;
 pub fn initialize(session: &VortexSession) {
     // If we're using the experimental Patched encoding, register a shim
     // for BitPacked with interior patches decode as Patched array.
-    if *USE_EXPERIMENTAL_PATCHES {
+    if use_experimental_patches() {
         session.arrays().register(BitPackedPatchedPlugin);
     } else {
         session.arrays().register(BitPacked);
@@ -47,17 +50,17 @@ pub fn initialize(session: &VortexSession) {
 
     // Register the encoding-specific aggregate kernels.
     session.aggregate_fns().register_aggregate_kernel(
-        BitPacked::ID,
+        BitPacked.id(),
         Some(IsConstant.id()),
         &BitPackedIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        FoR::ID,
+        FoR.id(),
         Some(IsConstant.id()),
         &FoRIsConstantKernel,
     );
     session.aggregate_fns().register_aggregate_kernel(
-        FoR::ID,
+        FoR.id(),
         Some(IsSorted.id()),
         &FoRIsSortedKernel,
     );
@@ -76,12 +79,16 @@ pub fn initialize(session: &VortexSession) {
 pub(crate) fn fill_forward_nulls<T: Copy + Default>(
     values: Buffer<T>,
     validity: &Validity,
-) -> Buffer<T> {
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Buffer<T>> {
     match validity {
-        Validity::NonNullable | Validity::AllValid => values,
-        Validity::AllInvalid => Buffer::zeroed(values.len()),
+        Validity::NonNullable | Validity::AllValid => Ok(values),
+        Validity::AllInvalid => Ok(Buffer::zeroed(values.len())),
         Validity::Array(validity_array) => {
-            let bit_buffer = validity_array.to_bool().to_bit_buffer();
+            let bit_buffer = validity_array
+                .clone()
+                .execute::<BoolArray>(ctx)?
+                .to_bit_buffer();
             let mut last_valid = T::default();
             match values.try_into_mut() {
                 Ok(mut to_fill_mut) => {
@@ -96,7 +103,7 @@ pub(crate) fn fill_forward_nulls<T: Copy + Default>(
                             *v = last_valid;
                         }
                     }
-                    to_fill_mut.freeze()
+                    Ok(to_fill_mut.freeze())
                 }
                 Err(to_fill) => {
                     let mut to_fill_mut = BufferMut::<T>::with_capacity(to_fill.len());
@@ -118,7 +125,7 @@ pub(crate) fn fill_forward_nulls<T: Copy + Default>(
                         out.write(last_valid);
                     }
                     unsafe { to_fill_mut.set_len(to_fill.len()) };
-                    to_fill_mut.freeze()
+                    Ok(to_fill_mut.freeze())
                 }
             }
         }
@@ -129,6 +136,7 @@ pub(crate) fn fill_forward_nulls<T: Copy + Default>(
 mod test {
     use std::sync::LazyLock;
 
+    use vortex_array::VortexSessionExecute;
     use vortex_array::session::ArraySessionExt;
     use vortex_buffer::BitBufferMut;
     use vortex_session::VortexSession;
@@ -145,7 +153,8 @@ mod test {
     });
 
     #[test]
-    fn fill_forward_nulls_resets_at_chunk_boundary() {
+    fn fill_forward_nulls_resets_at_chunk_boundary() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
         // Build a buffer spanning two chunks where the last valid value in chunk 0
         // is non-zero. Null positions at the start of chunk 1 must get T::default()
         // (0), not the carry-over from chunk 0.
@@ -157,7 +166,7 @@ mod test {
         validity_bits.set(FL_CHUNK_SIZE - 1); // only this position is valid
 
         let validity = Validity::from(validity_bits.freeze());
-        let result = fill_forward_nulls(values.freeze(), &validity);
+        let result = fill_forward_nulls(values.freeze(), &validity, &mut ctx)?;
 
         // Within chunk 0, nulls before the valid element get 0 (default), and the
         // valid element itself is 42.
@@ -171,5 +180,6 @@ mod test {
                 "position {i} should be 0, not carried from chunk 0"
             );
         }
+        Ok(())
     }
 }

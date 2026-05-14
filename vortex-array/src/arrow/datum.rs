@@ -11,10 +11,13 @@ use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
+use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::FromArrowArray;
-use crate::arrow::IntoArrowArray;
+use crate::executor::ExecutionCtx;
 
 /// A wrapper around a generic Arrow array that can be used as a Datum in Arrow compute.
 #[derive(Debug)]
@@ -25,25 +28,25 @@ pub struct Datum {
 
 impl Datum {
     /// Create a new [`Datum`] from an [`ArrayRef`], which can then be passed to Arrow compute.
-    pub fn try_new(array: &ArrayRef) -> VortexResult<Self> {
+    pub fn try_new(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         if array.is::<Constant>() {
             Ok(Self {
-                array: array.slice(0..1)?.into_arrow_preferred()?,
+                array: array.slice(0..1)?.execute_arrow(None, ctx)?,
                 is_scalar: true,
             })
         } else {
             Ok(Self {
-                array: array.clone().into_arrow_preferred()?,
+                array: array.clone().execute_arrow(None, ctx)?,
                 is_scalar: false,
             })
         }
     }
 
-    /// Create a new [`Datum`] from an `DynArray`, which can then be passed to Arrow compute.
+    /// Create a new [`Datum`] from an `DynArrayData`, which can then be passed to Arrow compute.
     /// This not try and convert the array to a scalar if it is constant.
-    pub fn try_new_array(array: &ArrayRef) -> VortexResult<Self> {
+    pub fn try_new_array(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         Ok(Self {
-            array: array.clone().into_arrow_preferred()?,
+            array: array.clone().execute_arrow(None, ctx)?,
             is_scalar: false,
         })
     }
@@ -51,15 +54,18 @@ impl Datum {
     pub fn try_new_with_target_datatype(
         array: &ArrayRef,
         target_datatype: &DataType,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         if array.is::<Constant>() {
             Ok(Self {
-                array: array.slice(0..1)?.into_arrow(target_datatype)?,
+                array: array
+                    .slice(0..1)?
+                    .execute_arrow(Some(target_datatype), ctx)?,
                 is_scalar: true,
             })
         } else {
             Ok(Self {
-                array: array.clone().into_arrow(target_datatype)?,
+                array: array.clone().execute_arrow(Some(target_datatype), ctx)?,
                 is_scalar: false,
             })
         }
@@ -103,8 +109,8 @@ where
 
     Ok(ConstantArray::new(
         array
-            .scalar_at(0)
-            .vortex_expect("array of length 1 must support scalar_at(0)"),
+            .execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("array of length 1 must support execute_scalar(0)"),
         len,
     )
     .into_array())

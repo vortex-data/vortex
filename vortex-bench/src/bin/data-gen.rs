@@ -17,12 +17,13 @@ use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
 use vortex_bench::CompactionStrategy;
 use vortex_bench::Format;
+use vortex_bench::LogFormat;
 use vortex_bench::Opt;
 use vortex_bench::Opts;
 use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::generate_duckdb_registration_sql;
-use vortex_bench::setup_logging_and_tracing;
+use vortex_bench::setup_logging_and_tracing_with_format;
 
 #[derive(Parser)]
 #[command(name = "bench-data-gen")]
@@ -37,6 +38,11 @@ struct Args {
     #[arg(long)]
     tracing: bool,
 
+    /// Format for the primary stderr log sink. `text` is the default human-readable format;
+    /// `json` emits one JSON object per event, suitable for piping into `jq`.
+    #[arg(long, value_enum, default_value_t = LogFormat::Text)]
+    log_format: LogFormat,
+
     #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
@@ -49,7 +55,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let opts = Opts::from(args.options);
 
-    setup_logging_and_tracing(args.verbose, args.tracing)?;
+    setup_logging_and_tracing_with_format(args.verbose, args.tracing, args.log_format)?;
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
 

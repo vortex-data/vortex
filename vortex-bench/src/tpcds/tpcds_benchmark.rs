@@ -27,11 +27,11 @@ impl TpcDsBenchmark {
     pub fn new(scale_factor: String, use_remote_data_dir: Option<String>) -> Result<Self> {
         Ok(Self {
             scale_factor: scale_factor.clone(),
-            data_url: Self::create_data_url(&use_remote_data_dir, &scale_factor)?,
+            data_url: Self::create_data_url(use_remote_data_dir.as_deref(), &scale_factor)?,
         })
     }
 
-    fn create_data_url(remote_data_dir: &Option<String>, scale_factor: &str) -> Result<Url> {
+    fn create_data_url(remote_data_dir: Option<&str>, scale_factor: &str) -> Result<Url> {
         match remote_data_dir {
             None => {
                 let data_dir = "tpcds".to_data_path();
@@ -124,7 +124,7 @@ impl Benchmark for TpcDsBenchmark {
         ]
     }
 
-    #[expect(clippy::expect_used, clippy::unwrap_in_result)]
+    #[expect(clippy::expect_used)]
     fn pattern(&self, table_name: &str, format: Format) -> Option<Pattern> {
         Some(
             format!("{}.{}", table_name, format.ext())

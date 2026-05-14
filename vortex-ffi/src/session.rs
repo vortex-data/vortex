@@ -31,3 +31,35 @@ pub unsafe extern "C-unwind" fn vx_session_clone(session: *const vx_session) -> 
     let session = vx_session::as_ref(session);
     vx_session::new(session.clone())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::session::vx_session_clone;
+    use crate::session::vx_session_free;
+    use crate::session::vx_session_new;
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_basic() {
+        unsafe {
+            let session = vx_session_new();
+            assert!(!session.is_null());
+            vx_session_free(session);
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_clone() {
+        unsafe {
+            let session = vx_session_new();
+            assert!(!session.is_null());
+
+            let copy = vx_session_clone(session);
+            assert!(!copy.is_null());
+            vx_session_free(session);
+
+            vx_session_free(copy);
+        }
+    }
+}

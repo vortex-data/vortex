@@ -10,12 +10,14 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use futures::stream;
+use smallvec::SmallVec;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::IntoArray;
 use crate::array::Array;
 use crate::array::ArrayParts;
@@ -37,6 +39,8 @@ pub(super) const CHUNKS_OFFSET: usize = 1;
 #[derive(Clone, Debug)]
 pub struct ChunkedData {
     pub(super) chunk_offsets: Vec<usize>,
+    /// This is used to find the next child to execute when in executing into a builder.
+    pub(super) next_builder_slot: usize,
 }
 
 impl Display for ChunkedData {
@@ -114,6 +118,13 @@ pub trait ChunkedArrayExt: TypedArrayRef<Chunked> {
 impl<T: TypedArrayRef<Chunked>> ChunkedArrayExt for T {}
 
 impl ChunkedData {
+    pub(super) fn new(chunk_offsets: Vec<usize>) -> Self {
+        Self {
+            chunk_offsets,
+            next_builder_slot: CHUNKS_OFFSET,
+        }
+    }
+
     pub(super) fn compute_chunk_offsets(chunks: &[ArrayRef]) -> Vec<usize> {
         let mut chunk_offsets = Vec::with_capacity(chunks.len() + 1);
         chunk_offsets.push(0);
@@ -125,10 +136,7 @@ impl ChunkedData {
         chunk_offsets
     }
 
-    pub(super) fn make_slots(
-        chunk_offsets: &[usize],
-        chunks: &[ArrayRef],
-    ) -> Vec<Option<ArrayRef>> {
+    pub(super) fn make_slots(chunk_offsets: &[usize], chunks: &[ArrayRef]) -> ArraySlots {
         let mut chunk_offsets_buf = BufferMut::<u64>::with_capacity(chunk_offsets.len());
         for &offset in chunk_offsets {
             let offset = u64::try_from(offset)
@@ -136,7 +144,7 @@ impl ChunkedData {
             unsafe { chunk_offsets_buf.push_unchecked(offset) }
         }
 
-        let mut slots = Vec::with_capacity(1 + chunks.len());
+        let mut slots = SmallVec::with_capacity(1 + chunks.len());
         slots.push(Some(
             PrimitiveArray::new(chunk_offsets_buf.freeze(), Validity::NonNullable).into_array(),
         ));
@@ -159,24 +167,31 @@ impl ChunkedData {
 }
 
 impl Array<Chunked> {
+    pub(super) fn with_next_builder_slot(mut self, next_builder_slot: usize) -> Self {
+        if let Some(data) = self.data_mut() {
+            data.next_builder_slot = next_builder_slot;
+            return self;
+        }
+        // This is the slow path that will be hit at most once per execution since the second one
+        // *MUST* have execlusive access due to this copy.
+        let stats = self.statistics().to_owned();
+        let mut data = self.data().clone();
+        data.next_builder_slot = next_builder_slot;
+        // SAFETY: we only modified next_builder_slot which doesn't affect array invariants.
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(Chunked, self.dtype().clone(), self.len(), data)
+                    .with_slots(self.slots().iter().cloned().collect::<ArraySlots>()),
+            )
+        }
+        .with_stats_set(stats)
+    }
+
     /// Constructs a new `ChunkedArray`.
     pub fn try_new(chunks: Vec<ArrayRef>, dtype: DType) -> VortexResult<Self> {
         ChunkedData::validate(&chunks, &dtype)?;
-        let len = chunks.iter().map(|chunk| chunk.len()).sum();
-        let chunk_offsets = ChunkedData::compute_chunk_offsets(&chunks);
-        Ok(unsafe {
-            Array::from_parts_unchecked(
-                ArrayParts::new(
-                    Chunked,
-                    dtype,
-                    len,
-                    ChunkedData {
-                        chunk_offsets: chunk_offsets.clone(),
-                    },
-                )
-                .with_slots(ChunkedData::make_slots(&chunk_offsets, &chunks)),
-            )
-        })
+        // SAFETY just validated on previous line.
+        Ok(unsafe { Self::new_unchecked(chunks, dtype) })
     }
 
     pub fn rechunk(&self, target_bytesize: u64, target_rowsize: usize) -> VortexResult<Self> {
@@ -192,14 +207,14 @@ impl Array<Chunked> {
                 || new_chunk_n_elements + n_elements > target_rowsize)
                 && !chunks_to_combine.is_empty()
             {
-                new_chunks.push(
-                    unsafe {
-                        Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone())
-                    }
-                    .into_array()
-                    .to_canonical()?
-                    .into_array(),
-                );
+                #[expect(deprecated)]
+                let canonical = unsafe {
+                    Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone())
+                }
+                .into_array()
+                .to_canonical()?
+                .into_array();
+                new_chunks.push(canonical);
 
                 new_chunk_n_bytes = 0;
                 new_chunk_n_elements = 0;
@@ -216,12 +231,13 @@ impl Array<Chunked> {
         }
 
         if !chunks_to_combine.is_empty() {
-            new_chunks.push(
+            #[expect(deprecated)]
+            let canonical =
                 unsafe { Array::<Chunked>::new_unchecked(chunks_to_combine, self.dtype().clone()) }
                     .into_array()
                     .to_canonical()?
-                    .into_array(),
-            );
+                    .into_array();
+            new_chunks.push(canonical);
         }
 
         unsafe { Ok(Self::new_unchecked(new_chunks, self.dtype().clone())) }
@@ -237,15 +253,8 @@ impl Array<Chunked> {
         let chunk_offsets = ChunkedData::compute_chunk_offsets(&chunks);
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(
-                    Chunked,
-                    dtype,
-                    len,
-                    ChunkedData {
-                        chunk_offsets: chunk_offsets.clone(),
-                    },
-                )
-                .with_slots(ChunkedData::make_slots(&chunk_offsets, &chunks)),
+                ArrayParts::new(Chunked, dtype, len, ChunkedData::new(chunk_offsets.clone()))
+                    .with_slots(ChunkedData::make_slots(&chunk_offsets, &chunks)),
             )
         }
     }
@@ -269,6 +278,8 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArrayExt;
@@ -358,8 +369,12 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_valid since all non-empty chunks are all_valid
-        assert!(chunked.all_valid().unwrap());
-        assert!(!chunked.into_array().all_invalid().unwrap());
+        assert!(chunked.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?);
+        assert!(
+            !chunked
+                .into_array()
+                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())?
+        );
 
         Ok(())
     }
@@ -378,8 +393,12 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_invalid since all non-empty chunks are all_invalid
-        assert!(!chunked.all_valid().unwrap());
-        assert!(chunked.into_array().all_invalid().unwrap());
+        assert!(!chunked.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?);
+        assert!(
+            chunked
+                .into_array()
+                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())?
+        );
 
         Ok(())
     }
@@ -398,8 +417,12 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be neither all_valid nor all_invalid
-        assert!(!chunked.all_valid().unwrap());
-        assert!(!chunked.into_array().all_invalid().unwrap());
+        assert!(!chunked.all_valid(&mut LEGACY_SESSION.create_execution_ctx())?);
+        assert!(
+            !chunked
+                .into_array()
+                .all_invalid(&mut LEGACY_SESSION.create_execution_ctx())?
+        );
 
         Ok(())
     }

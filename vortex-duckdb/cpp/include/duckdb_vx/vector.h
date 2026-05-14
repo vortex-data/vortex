@@ -54,6 +54,15 @@ void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector);
 // Set the data pointer for the vector. This is the start of the values array in the vector.
 void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *ptr);
 
+// Set the validity pointer for the vector to external data, and store the buffer in auxiliary
+// to keep it alive. The validity pointer is derived from data_ptr at the given u64 offset.
+// The buffer is attached purely as a keep-alive. This enables zero-copy export of validity masks.
+void duckdb_vx_vector_set_validity_data(duckdb_vector ffi_vector,
+                                        idx_t u64_offset,
+                                        idx_t capacity,
+                                        duckdb_vx_vector_buffer buffer,
+                                        void *data_ptr);
+
 // Converts a duckdb flat vector into a Sequence vector.
 void duckdb_vx_sequence_vector(duckdb_vector c_vector, int64_t start, int64_t step, idx_t capacity);
 

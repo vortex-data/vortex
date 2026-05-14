@@ -1,354 +1,347 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! An implementation of lane-wise patches instead of linear patches. This layout for exception
-//! patching enables fully parallel GPU execution, as outlined by Hepkema et al. in
-//! "G-ALP: Rethinking Light-weight Encodings for GPUs" <https://doi.org/10.1145/3736227.3736242>
+//! GPU patches loading for fused exception patching during bit-unpacking.
 
-use vortex::array::Canonical;
+use std::mem::size_of;
+use std::ops::Range;
+
+use num_traits::ToPrimitive;
 use vortex::array::buffer::BufferHandle;
-use vortex::array::dtype::IntegerPType;
-use vortex::array::dtype::NativePType;
+use vortex::buffer::Alignment;
 use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
-use vortex_array::match_each_native_ptype;
+use vortex::buffer::ByteBufferMut;
+use vortex::dtype::PType;
 use vortex_array::match_each_unsigned_integer_ptype;
+use vortex_array::patches::PATCH_CHUNK_SIZE;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
+use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
+use crate::executor::CudaArrayExt;
+use crate::kernel::patches::gpu::ChunkOffsetType;
+use crate::kernel::patches::gpu::ChunkOffsetType_CO_U8;
+use crate::kernel::patches::gpu::ChunkOffsetType_CO_U16;
+use crate::kernel::patches::gpu::ChunkOffsetType_CO_U32;
+use crate::kernel::patches::gpu::ChunkOffsetType_CO_U64;
+use crate::kernel::patches::gpu::GPUPatches;
+use crate::kernel::patches::gpu::PATCH_DERIVE_INDICES_BASE;
 
-/// A set of device-resident patches that live in the GPU.
-///
-/// These are dynamically typed.
-#[repr(C)]
+/// A set of device-resident patches.
 pub struct DevicePatches {
-    pub(crate) lane_offsets: BufferHandle,
+    pub(crate) chunk_offsets: BufferHandle,
+    pub(crate) chunk_offset_ptype: PType,
     pub(crate) indices: BufferHandle,
     pub(crate) values: BufferHandle,
+    pub(crate) offset: usize,
+    pub(crate) offset_within_chunk: usize,
+    pub(crate) num_patches: usize,
+    pub(crate) n_chunks: usize,
+    /// Base patch index for chunk offsets when indices/values remain unsliced.
+    /// `None` means derive it in the kernel via `PATCH_DERIVE_INDICES_BASE`.
+    pub(crate) indices_base: Option<usize>,
 }
 
-/// Number of lanes used at patch time for a value of type `V`.
+/// Build [`DevicePatches`] from patches by ensuring their buffers are on GPU.
 ///
-/// This is *NOT* equal to the number of FastLanes lanes for the type `V`, rather this will
-/// correspond with the number of CUDA threads dedicated to executing each 1024-element vector.
-const fn patch_lanes<V: Sized>() -> usize {
-    // For types 32-bits or smaller, we use a 32 lane configuration, and for 64-bit we use 16 lanes.
-    // This matches up with the number of lanes we use to execute copying results from bit-unpacking
-    // from shared to global memory.
-    if size_of::<V>() < 8 { 32 } else { 16 }
-}
-
-/// A set of patches of values `V` existing in host buffers.
-#[allow(dead_code)]
-pub struct HostPatches<V> {
-    n_chunks: usize,
-    n_lanes: usize,
-    lane_offsets: Buffer<u32>,
-    indices: Buffer<u16>,
-    /// Values. This is a buffer handle which might live on the new buffer type here
-    values: Buffer<V>,
-}
-
-#[cfg(test)]
-struct LanePatches<'a, V> {
-    indices: &'a [u16],
-    values: &'a [V],
-}
-
-impl<V: Copy> HostPatches<V> {
-    /// Get number of patches for a specific lane.
-    #[cfg(test)]
-    fn patch_count(&self, chunk: usize, lane: usize) -> usize {
-        let start = chunk * self.n_lanes + lane;
-        let end = start + 1;
-        let count = self.lane_offsets[end] - self.lane_offsets[start];
-
-        count as usize
-    }
-
-    /// Get an ordered list of patches for the given chunk/lane.
-    #[cfg(test)]
-    fn patches(&self, chunk: usize, lane: usize) -> LanePatches<'_, V> {
-        let start = chunk * self.n_lanes + lane;
-        let end = start + 1;
-
-        let lane_start = self.lane_offsets[start] as usize;
-        let lane_stop = self.lane_offsets[end] as usize;
-
-        LanePatches {
-            indices: &self.indices[lane_start..lane_stop],
-            values: &self.values[lane_start..lane_stop],
-        }
-    }
-
-    /// Apply the patches on top of the other buffer.
-    #[cfg(test)]
-    fn apply(&self, output: &mut BufferMut<V>) {
-        for chunk in 0..self.n_chunks {
-            for lane in 0..self.n_lanes {
-                let patches = self.patches(chunk, lane);
-                for (&index, &value) in std::iter::zip(patches.indices, patches.values) {
-                    let full_index = chunk * 1024 + (index as usize);
-                    output[full_index] = value;
-                }
-            }
-        }
-    }
-
-    /// Export the patches for use on the device associated with the provided execution context.
-    pub async fn export_to_device(
-        mut self,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<DevicePatches> {
-        let lane_offsets = std::mem::take(&mut self.lane_offsets);
-        let indices = std::mem::take(&mut self.indices);
-        let values = std::mem::take(&mut self.values);
-
-        // Convert each into a handle that can be passed around.
-        let lane_offsets_handle = BufferHandle::new_host(lane_offsets.into_byte_buffer());
-        let indices_handle = BufferHandle::new_host(indices.into_byte_buffer());
-        let values_handle = BufferHandle::new_host(values.into_byte_buffer());
-
-        let lane_offsets_handle = ctx.ensure_on_device(lane_offsets_handle).await?;
-        let indices_handle = ctx.ensure_on_device(indices_handle).await?;
-        let values_handle = ctx.ensure_on_device(values_handle).await?;
-
-        Ok(DevicePatches {
-            lane_offsets: lane_offsets_handle,
-            indices: indices_handle,
-            values: values_handle,
-        })
-    }
-}
-
-/// Transpose a set of patches from the default sorted layout into the data parallel layout.
-#[expect(clippy::cognitive_complexity)]
-pub async fn transpose_patches(
+/// This prepares `chunk_offsets`, `indices`, and `values` as device buffers and collects the
+/// metadata needed to build a [`GPUPatches`] descriptor. It does not upload the descriptor itself.
+///
+/// # Errors
+///
+/// If the patches do not have `chunk_offsets`. They have been written by
+/// default in new Vortex files since 0.54.0.
+pub(crate) async fn load_device_patches(
     patches: &Patches,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<DevicePatches> {
-    let array_len = patches.array_len();
     let offset = patches.offset();
+    let offset_within_chunk = patches.offset_within_chunk().unwrap_or_default();
+    // Get or compute chunk_offsets
+    let Some(co) = patches.chunk_offsets() else {
+        vortex_bail!("cannot execute_cuda for patched BitPacked array without chunk_offsets")
+    };
 
+    let (chunk_offsets, chunk_offset_ptype, n_chunks) = {
+        let co_canonical = co.clone().execute_cuda(ctx).await?.into_primitive();
+        let ptype = co_canonical.ptype();
+        let len = co_canonical.len();
+        (co_canonical.buffer_handle().clone(), ptype, len)
+    };
+
+    // Load indices - must be converted to u32 for GPU use
     let indices = patches
         .indices()
         .clone()
-        .execute::<Canonical>(ctx.execution_ctx())?
+        .execute_cuda(ctx)
+        .await?
         .into_primitive();
+    let indices_ptype = indices.ptype();
+    #[expect(clippy::expect_used)]
+    let indices = if indices_ptype == PType::U32 {
+        indices.buffer_handle().clone()
+    } else {
+        // Convert indices to u32
+        let indices_buf = indices.buffer_handle().to_host().await;
+        let indices_u32 = match_each_unsigned_integer_ptype!(indices_ptype, |I| {
+            let src: Buffer<I> = Buffer::from_byte_buffer(indices_buf);
+            let mut dst: BufferMut<u32> = BufferMut::with_capacity(src.len());
+            for &idx in src.as_slice() {
+                // Indices are limited to u32 range for GPU
+                dst.push(idx.to_u32().expect("index should fit in u32"));
+            }
+            dst.freeze()
+        });
+        BufferHandle::new_host(indices_u32.into_byte_buffer())
+    };
 
+    // Load values
     let values = patches
         .values()
         .clone()
-        .execute::<Canonical>(ctx.execution_ctx())?
+        .execute_cuda(ctx)
+        .await?
         .into_primitive();
 
-    let indices_ptype = indices.ptype();
-    let values_ptype = values.ptype();
+    // Ensure all on device
+    let chunk_offsets = ctx.ensure_on_device(chunk_offsets).await?;
+    let indices = ctx.ensure_on_device(indices).await?;
+    let values = ctx.ensure_on_device(values.buffer_handle().clone()).await?;
 
-    let indices = indices.buffer_handle().to_host().await;
-    let values = values.buffer_handle().to_host().await;
+    let num_patches = patches.num_patches();
 
-    match_each_unsigned_integer_ptype!(indices_ptype, |I| {
-        match_each_native_ptype!(values_ptype, |V| {
-            let indices: Buffer<I> = Buffer::from_byte_buffer(indices);
-            let values: Buffer<V> = Buffer::from_byte_buffer(values);
-
-            let host_patches = transpose(indices.as_slice(), values.as_slice(), offset, array_len);
-
-            host_patches.export_to_device(ctx).await
-        })
+    Ok(DevicePatches {
+        chunk_offsets,
+        chunk_offset_ptype,
+        indices,
+        values,
+        offset,
+        offset_within_chunk,
+        num_patches,
+        n_chunks,
+        indices_base: None,
     })
 }
 
+/// Convert a PType to the corresponding `ChunkOffsetType` for GPU patches.
+pub(crate) fn ptype_to_chunk_offset_type(ptype: PType) -> VortexResult<ChunkOffsetType> {
+    match ptype {
+        PType::U8 => Ok(ChunkOffsetType_CO_U8),
+        PType::U16 => Ok(ChunkOffsetType_CO_U16),
+        PType::U32 => Ok(ChunkOffsetType_CO_U32),
+        PType::U64 => Ok(ChunkOffsetType_CO_U64),
+        _ => vortex_bail!("Invalid PType for chunk_offsets: {:?}", ptype),
+    }
+}
+
+/// Build a [`GPUPatches`] struct from [`DevicePatches`], serialize it to bytes, and upload to the
+/// device. Returns the device pointer and a buffer handle that must be kept alive for the kernel
+/// launch.
 #[expect(clippy::cast_possible_truncation)]
-fn transpose<I: IntegerPType, V: NativePType>(
-    indices_in: &[I],
-    values_in: &[V],
-    offset: usize,
-    array_len: usize,
-) -> HostPatches<V> {
-    // Total number of slots is number of chunks times number of lanes.
-    let n_chunks = array_len.div_ceil(1024);
-    assert!(
-        n_chunks <= u32::MAX as usize,
-        "Cannot transpose patches for array with >= 4 trillion elements"
-    );
+fn build_gpu_patches(
+    dp: &DevicePatches,
+    ctx: &CudaExecutionCtx,
+) -> VortexResult<(BufferHandle, u64)> {
+    // Zero-initialize to avoid uninitialized padding bytes (e.g. between
+    // chunk_offset_type and indices) which would be UB when serialized.
+    let mut gpu_patches: GPUPatches = unsafe { std::mem::zeroed() };
+    gpu_patches.chunk_offsets = dp.chunk_offsets.cuda_device_ptr()? as _;
+    gpu_patches.chunk_offset_type = ptype_to_chunk_offset_type(dp.chunk_offset_ptype)?;
+    gpu_patches.indices = dp.indices.cuda_device_ptr()? as _;
+    gpu_patches.values = dp.values.cuda_device_ptr()? as _;
+    gpu_patches.offset = dp.offset as u32;
+    gpu_patches.offset_within_chunk = dp.offset_within_chunk as u32;
+    gpu_patches.num_patches = dp.num_patches as u32;
+    // n_chunks must match the chunk_offsets array length, not array_len / 1024.
+    // When patches are sliced, chunk_offsets is sliced to only include chunks
+    // overlapping the slice range — matching the CPU's patch_chunk which uses
+    // chunk_offsets_slice.len().
+    gpu_patches.n_chunks = dp.n_chunks as u32;
+    gpu_patches.indices_base = dp
+        .indices_base
+        .map_or(PATCH_DERIVE_INDICES_BASE, |base| base as u32);
 
-    let n_lanes = patch_lanes::<V>();
+    let bytes = unsafe {
+        std::slice::from_raw_parts(
+            std::ptr::from_ref(&gpu_patches).cast::<u8>(),
+            size_of::<GPUPatches>(),
+        )
+    };
+    let mut buf =
+        ByteBufferMut::with_capacity_aligned(size_of::<GPUPatches>(), Alignment::of::<u64>());
+    buf.extend_from_slice(bytes);
+    let gpu_buf = ctx.ensure_on_device_sync(BufferHandle::new_host(buf.freeze()))?;
+    let ptr = gpu_buf.cuda_device_ptr()?;
+    Ok((gpu_buf, ptr))
+}
 
-    // We know upfront how many indices and values we'll have.
-    let mut indices_buffer = BufferMut::with_capacity(indices_in.len());
-    let mut values_buffer = BufferMut::with_capacity(values_in.len());
+/// Transfers patches to the GPU and builds a [`GPUPatches`] descriptor.
+///
+/// When `range` is set, this builds a sliced patch view without reading patch metadata on the
+/// host. It slices `chunk_offsets` by chunk boundaries, keeps `indices` and `values` unsliced, and
+/// records an explicit `indices_base` so the kernel can interpret the sliced chunk offsets against
+/// the original patch arrays.
+///
+/// Returns the device pointer and all buffer handles that must be kept alive for the kernel launch.
+pub(crate) async fn load_patches_to_gpu(
+    patches: &Patches,
+    range: Option<Range<usize>>,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(u64, Vec<BufferHandle>)> {
+    let mut device_patches = load_device_patches(patches, ctx).await?;
 
-    // number of patches in each chunk.
-    let mut lane_offsets: BufferMut<u32> = BufferMut::zeroed(n_chunks * n_lanes + 1);
-
-    // Scan the index/values once to get chunk/lane counts
-    for index in indices_in {
-        let index = index.as_() - offset;
-        let chunk = index / 1024;
-        let lane = index % n_lanes;
-
-        lane_offsets[chunk * n_lanes + lane + 1] += 1;
+    if let Some(range) = range {
+        slice_device_patches(patches, range, &mut device_patches);
     }
 
-    // Prefix-sum sizes -> offsets
-    for index in 1..lane_offsets.len() {
-        lane_offsets[index] += lane_offsets[index - 1];
+    let (gpu_buf, ptr) = build_gpu_patches(&device_patches, ctx)?;
+    let DevicePatches {
+        chunk_offsets,
+        indices,
+        values,
+        ..
+    } = device_patches;
+    Ok((ptr, vec![chunk_offsets, indices, values, gpu_buf]))
+}
+
+fn slice_device_patches(
+    patches: &Patches,
+    range: Range<usize>,
+    device_patches: &mut DevicePatches,
+) {
+    let offset = patches.offset() + range.start;
+    let len = range.len();
+    let chunk_start = offset / PATCH_CHUNK_SIZE;
+    let chunk_end = offset.saturating_add(len).div_ceil(PATCH_CHUNK_SIZE);
+    let first_chunk = patches.offset() / PATCH_CHUNK_SIZE;
+    let start = chunk_start.saturating_sub(first_chunk);
+    let end = (chunk_end.saturating_sub(first_chunk) + 1).min(device_patches.n_chunks);
+    if start < end {
+        let width = device_patches.chunk_offset_ptype.byte_width();
+        device_patches.chunk_offsets = device_patches
+            .chunk_offsets
+            .slice(start * width..end * width);
+        device_patches.n_chunks = end - start;
     }
 
-    // Loop over patches, writing them to final positions
-    let indices_out = indices_buffer.spare_capacity_mut();
-    let values_out = values_buffer.spare_capacity_mut();
-    for (index, &value) in std::iter::zip(indices_in, values_in) {
-        let index = index.as_() - offset;
-        let chunk = index / 1024;
-        let lane = index % n_lanes;
-
-        let position = &mut lane_offsets[chunk * n_lanes + lane];
-        indices_out[*position as usize].write((index % 1024) as u16);
-        values_out[*position as usize].write(value);
-        *position += 1;
-    }
-
-    // SAFETY: we know there are exactly indices_in.len() indices/values, and we just
-    //  set them to the appropriate values in the loop above.
-    unsafe {
-        indices_buffer.set_len(indices_in.len());
-        values_buffer.set_len(values_in.len());
-    }
-
-    // Now, pass over all the indices and values again and subtract out the position increments.
-    for index in indices_in {
-        let index = index.as_() - offset;
-        let chunk = index / 1024;
-        let lane = index % n_lanes;
-
-        lane_offsets[chunk * n_lanes + lane] -= 1;
-    }
-
-    HostPatches {
-        n_chunks,
-        n_lanes,
-        lane_offsets: lane_offsets.freeze(),
-        indices: indices_buffer.freeze(),
-        values: values_buffer.freeze(),
-    }
+    // Keep indices/values unsliced. This is a conservative chunk-aligned
+    // patch view for lookup-style consumers: patches outside `range` may be
+    // scanned, but their indices cannot match positions inside the range.
+    device_patches.offset = offset;
+    device_patches.offset_within_chunk = 0;
+    device_patches.indices_base = Some(0);
 }
 
 #[cfg(test)]
 mod tests {
-    use vortex::array::ExecutionCtx;
-    use vortex::buffer::BufferMut;
-    use vortex::buffer::buffer;
-    use vortex::buffer::buffer_mut;
+    use vortex::buffer::Buffer;
+    use vortex::session::VortexSession;
     use vortex_array::IntoArray;
-    use vortex_array::LEGACY_SESSION;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::assert_arrays_eq;
-    use vortex_array::dtype::NativePType;
     use vortex_array::patches::Patches;
     use vortex_error::VortexResult;
 
-    use crate::kernel::patches::types::transpose;
-
-    #[crate::test]
-    fn test_transpose_patches() {
-        let patch_values = buffer![0u32, 10, 20, 30, 40, 50, 60, 70, 80];
-
-        let mut patch_indices = BufferMut::empty();
-        // CHUNK 0. patch_values have value type i32, which means there will be 32 lanes.
-        patch_indices.extend_from_slice(&[0, 31, 63, 64]);
-
-        // CHUNK 1.
-        patch_indices.extend_from_slice(&[1024, 1056, 1058]);
-
-        // CHUNK 2: empty
-        patch_indices.extend_from_slice(&[]);
-
-        // CHUNK 3
-        patch_indices.extend_from_slice(&[3073, 3076]);
-
-        let patch_indices = patch_indices.freeze();
-
-        let transposed = transpose(
-            patch_indices.as_slice(),
-            patch_values.as_slice(),
-            0,
-            1024 * 5,
-        );
-
-        // Chunk 0 should have patches in lanes 0, 31
-        assert_eq!(transposed.patches(0, 0).values, &[0, 30]);
-        assert_eq!(transposed.patches(0, 0).indices, &[0, 64]);
-
-        assert_eq!(transposed.patches(0, 31).values, &[10, 20]);
-        assert_eq!(transposed.patches(0, 31).indices, &[31, 63]);
-
-        // Chunk 1 should have patches in lanes 0, 2
-        assert_eq!(transposed.patches(1, 0).values, &[40, 50]);
-        assert_eq!(transposed.patches(1, 0).indices, &[0, 32]);
-        assert_eq!(transposed.patches(1, 2).values, &[60]);
-        assert_eq!(transposed.patches(1, 2).indices, &[34]);
-
-        // Chunk 2 should be empty
-        for lane in 0..transposed.n_lanes {
-            assert_eq!(transposed.patch_count(2, lane), 0);
-        }
-
-        // Chunk 3 contains patches at lanes 1, 4
-        assert_eq!(transposed.patches(3, 1).values, &[70]);
-        assert_eq!(transposed.patches(3, 1).indices, &[1]);
-        assert_eq!(transposed.patches(3, 4).values, &[80]);
-        assert_eq!(transposed.patches(3, 4).indices, &[4]);
-    }
+    use super::load_device_patches;
+    use super::slice_device_patches;
+    use crate::CudaSession;
 
     #[test]
-    #[expect(clippy::cast_possible_truncation)]
-    fn test_transpose_complex() -> VortexResult<()> {
-        test_case(1024, 0, &[0], &[0f32])?;
-        test_case(512, 512, &[512, 513, 514], &[10i8, 20, 30])?;
-        test_case(10_000, 100, &[500, 1_000, 1_001, 1_002], &[1i16, 2, 3, 4])?;
+    fn test_patches_with_chunk_offsets() -> VortexResult<()> {
+        // Test creating patches with pre-computed chunk_offsets
+        let indices = PrimitiveArray::from_iter([0u32, 500, 1024, 2000]);
+        let values = PrimitiveArray::from_iter([10u32, 20, 30, 40]);
+        let chunk_offsets = PrimitiveArray::from_iter([0u32, 2, 3, 4]);
 
-        for len in (1..4096).step_by(10) {
-            let offset = len / 2;
+        let patches = Patches::new(
+            3072,
+            0,
+            indices.into_array(),
+            values.into_array(),
+            Some(chunk_offsets.into_array()),
+        )?;
 
-            let indices: Vec<u32> = (offset..len).map(|x| x as u32).collect();
-
-            test_case(len, offset, &indices, &indices)?;
-        }
+        assert!(patches.chunk_offsets().is_some());
+        assert_eq!(patches.chunk_offset_at(0)?, 0);
+        assert_eq!(patches.chunk_offset_at(1)?, 2);
+        assert_eq!(patches.chunk_offset_at(2)?, 3);
 
         Ok(())
     }
 
-    fn test_case<V: NativePType>(
-        len: usize,
-        offset: usize,
-        patch_indices: &[u32],
-        patch_values: &[V],
+    #[rstest::rstest]
+    #[case::full_range(0..5120, 0, vec![0, 1, 2, 3, 4, 5])]
+    #[case::single_first_chunk(0..1024, 0, vec![0, 1])]
+    #[case::partial_first_chunk(100..3000, 100, vec![0, 1, 2, 3])]
+    #[case::chunk_aligned_start(1024..3000, 1024, vec![1, 2, 3])]
+    #[case::single_middle_chunk(2048..3072, 2048, vec![2, 3])]
+    #[case::middle_of_chunks(1500..2800, 1500, vec![1, 2, 3])]
+    #[case::skip_first_chunks(3072..4500, 3072, vec![3, 4, 5])]
+    #[case::tail_chunk(4500..5000, 4500, vec![4, 5])]
+    #[crate::test]
+    async fn test_slice_device_patches(
+        #[case] range: std::ops::Range<usize>,
+        #[case] expected_offset: usize,
+        #[case] expected_chunk_offsets: Vec<u32>,
     ) -> VortexResult<()> {
-        let mut data = buffer_mut![V::default(); len];
-        let array = PrimitiveArray::from_iter(data.iter().copied());
-
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let indices = PrimitiveArray::from_iter([100u32, 1100, 2100, 3100, 4100]);
+        let values = PrimitiveArray::from_iter([10u32, 11, 12, 13, 14]);
+        let chunk_offsets = PrimitiveArray::from_iter([0u32, 1, 2, 3, 4, 5]);
         let patches = Patches::new(
-            len,
-            offset,
-            PrimitiveArray::from_iter(patch_indices.iter().copied()).into_array(),
-            PrimitiveArray::from_iter(patch_values.iter().copied()).into_array(),
-            None,
+            5120,
+            0,
+            indices.into_array(),
+            values.into_array(),
+            Some(chunk_offsets.into_array()),
         )?;
 
-        // Verify that the outputs match between Patches and transpose_patches().
-        let mut ctx = ExecutionCtx::new(LEGACY_SESSION.clone());
-        let patched = array.patch(&patches, &mut ctx)?.into_array();
+        let mut device_patches = load_device_patches(&patches, &mut cuda_ctx).await?;
+        slice_device_patches(&patches, range, &mut device_patches);
 
-        let transposed = transpose(patch_indices, patch_values, offset, len);
-        transposed.apply(&mut data);
+        let chunk_offsets =
+            Buffer::<u32>::from_byte_buffer(device_patches.chunk_offsets.to_host().await);
+        assert_eq!(chunk_offsets.as_slice(), expected_chunk_offsets.as_slice());
+        assert_eq!(device_patches.n_chunks, expected_chunk_offsets.len());
+        assert_eq!(device_patches.offset, expected_offset);
+        assert_eq!(device_patches.offset_within_chunk, 0);
+        assert_eq!(device_patches.indices_base, Some(0));
 
-        let patched_transposed = data.freeze().into_array();
+        Ok(())
+    }
 
-        assert_arrays_eq!(patched, patched_transposed);
+    #[rstest::rstest]
+    #[case::u8(PrimitiveArray::from_iter([0u8, 1, 2, 3, 4, 5]).into_array())]
+    #[case::u16(PrimitiveArray::from_iter([0u16, 1, 2, 3, 4, 5]).into_array())]
+    #[case::u64(PrimitiveArray::from_iter([0u64, 1, 2, 3, 4, 5]).into_array())]
+    #[crate::test]
+    async fn test_slice_device_patches_chunk_offset_widths(
+        #[case] chunk_offsets: vortex_array::ArrayRef,
+    ) -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let indices = PrimitiveArray::from_iter([100u32, 1100, 2100, 3100, 4100]);
+        let values = PrimitiveArray::from_iter([10u32, 11, 12, 13, 14]);
+        let patches = Patches::new(
+            5120,
+            0,
+            indices.into_array(),
+            values.into_array(),
+            Some(chunk_offsets),
+        )?;
+
+        let mut device_patches = load_device_patches(&patches, &mut cuda_ctx).await?;
+        slice_device_patches(&patches, 1024..3000, &mut device_patches);
+
+        assert_eq!(
+            device_patches.chunk_offsets.len(),
+            3 * device_patches.chunk_offset_ptype.byte_width()
+        );
+        assert_eq!(device_patches.n_chunks, 3);
+        assert_eq!(device_patches.offset, 1024);
+        assert_eq!(device_patches.offset_within_chunk, 0);
+        assert_eq!(device_patches.indices_base, Some(0));
 
         Ok(())
     }

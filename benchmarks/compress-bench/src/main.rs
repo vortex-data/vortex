@@ -15,6 +15,7 @@ use regex::Regex;
 use vortex::utils::aliases::hash_map::HashMap;
 use vortex_bench::Engine;
 use vortex_bench::Format;
+use vortex_bench::LogFormat;
 use vortex_bench::Target;
 use vortex_bench::compress::CompressMeasurements;
 use vortex_bench::compress::CompressOp;
@@ -39,7 +40,8 @@ use vortex_bench::public_bi::PBIDataset::CMSprovider;
 use vortex_bench::public_bi::PBIDataset::Euro2016;
 use vortex_bench::public_bi::PBIDataset::Food;
 use vortex_bench::public_bi::PBIDataset::HashTags;
-use vortex_bench::setup_logging_and_tracing;
+use vortex_bench::setup_logging_and_tracing_with_format;
+use vortex_bench::v3;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -67,15 +69,23 @@ struct Args {
     display_format: DisplayFormat,
     #[arg(short, long)]
     output_path: Option<PathBuf>,
+    /// Additionally write v3 JSONL records to this path. See
+    /// `benchmarks-website/planning/02-contracts.md`.
+    #[arg(long)]
+    gh_json_v3: Option<PathBuf>,
     #[arg(long)]
     tracing: bool,
+    /// Format for the primary stderr log sink. `text` is the default human-readable format;
+    /// `json` emits one JSON object per event, suitable for piping into `jq`.
+    #[arg(long, value_enum, default_value_t = LogFormat::Text)]
+    log_format: LogFormat,
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    setup_logging_and_tracing(args.verbose, args.tracing)?;
+    setup_logging_and_tracing_with_format(args.verbose, args.tracing, args.log_format)?;
 
     run_compress(
         args.iterations,
@@ -84,6 +94,7 @@ async fn main() -> anyhow::Result<()> {
         args.ops,
         args.display_format,
         args.output_path,
+        args.gh_json_v3,
     )
     .await
 }
@@ -109,6 +120,7 @@ async fn run_compress(
     ops: Vec<CompressOp>,
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
+    gh_json_v3: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     let targets = formats
         .iter()
@@ -158,16 +170,23 @@ async fn run_compress(
     let progress = ProgressBar::new((datasets.len() * formats.len() * ops.len()) as u64);
 
     let mut measurements = vec![];
+    let mut v3_records: Vec<v3::V3Record> = Vec::new();
 
     for dataset_handle in datasets.into_iter() {
-        let m = run_benchmark_for_dataset(&progress, &formats, &ops, iterations, dataset_handle)
-            .await?;
+        let (m, mut records) =
+            run_benchmark_for_dataset(&progress, &formats, &ops, iterations, dataset_handle)
+                .await?;
         measurements.push(m);
+        v3_records.append(&mut records);
     }
 
     let measurements = CompressMeasurements::from_iter(measurements);
 
     progress.finish();
+
+    if let Some(path) = gh_json_v3 {
+        v3::write_jsonl_to_path(&path, &v3_records)?;
+    }
 
     let mut writer = create_output_writer(&display_format, output_path, BENCHMARK_ID)?;
 
@@ -197,8 +216,9 @@ async fn run_benchmark_for_dataset(
     ops: &[CompressOp],
     iterations: usize,
     dataset_handle: &dyn Dataset,
-) -> anyhow::Result<CompressMeasurements> {
+) -> anyhow::Result<(CompressMeasurements, Vec<v3::V3Record>)> {
     let bench_name = dataset_handle.name();
+    let (v3_dataset, v3_variant) = dataset_handle.v3_dataset_dims();
     tracing::info!("Running {bench_name} benchmark");
 
     // Get the parquet file path for this dataset
@@ -208,6 +228,7 @@ async fn run_benchmark_for_dataset(
     let mut timings = Vec::new();
     let mut measurements_map: HashMap<(Format, CompressOp), Duration> = HashMap::new();
     let mut compressed_sizes: HashMap<Format, u64> = HashMap::new();
+    let mut v3_records: Vec<v3::V3Record> = Vec::new();
 
     for format in formats {
         let compressor = get_compressor(*format);
@@ -223,6 +244,24 @@ async fn run_benchmark_for_dataset(
                     )
                     .await?;
                     compressed_sizes.insert(*format, result.compressed_size);
+                    let all_runs_ns: Vec<u64> = result
+                        .all_runs
+                        .iter()
+                        .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+                        .collect();
+                    v3_records.push(v3::compression_time_record(
+                        &result.timing,
+                        v3_dataset,
+                        v3_variant,
+                        CompressOp::Compress,
+                        all_runs_ns,
+                    ));
+                    v3_records.push(v3::compression_size_record(
+                        v3_dataset,
+                        v3_variant,
+                        *format,
+                        result.compressed_size,
+                    ));
                     ratios.extend(result.ratios);
                     timings.push(result.timing);
                     result.time
@@ -235,6 +274,18 @@ async fn run_benchmark_for_dataset(
                         bench_name,
                     )
                     .await?;
+                    let all_runs_ns: Vec<u64> = result
+                        .all_runs
+                        .iter()
+                        .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+                        .collect();
+                    v3_records.push(v3::compression_time_record(
+                        &result.timing,
+                        v3_dataset,
+                        v3_variant,
+                        CompressOp::Decompress,
+                        all_runs_ns,
+                    ));
                     timings.push(result.timing);
                     result.time
                 }
@@ -253,5 +304,5 @@ async fn run_benchmark_for_dataset(
         &mut ratios,
     );
 
-    Ok(CompressMeasurements { timings, ratios })
+    Ok((CompressMeasurements { timings, ratios }, v3_records))
 }

@@ -29,19 +29,21 @@ mod kernel;
 mod operations;
 mod validity;
 
+use vortex_session::registry::CachedId;
+
 use crate::array::ArrayId;
 
 /// A [`Struct`]-encoded Vortex array.
 pub type StructArray = Array<Struct>;
 
 impl VTable for Struct {
-    type ArrayData = EmptyArrayData;
+    type TypedArrayData = EmptyArrayData;
 
     type OperationsVTable = Self;
     type ValidityVTable = Self;
-
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.struct");
+        *ID
     }
 
     fn nbuffers(_array: ArrayView<'_, Self>) -> usize {
@@ -68,7 +70,7 @@ impl VTable for Struct {
             );
         }
 
-        let validity = child_to_validity(&slots[VALIDITY_SLOT], *nullability);
+        let validity = child_to_validity(slots[VALIDITY_SLOT].as_ref(), *nullability);
         if let Some(validity_len) = validity.maybe_len()
             && validity_len != len
         {
@@ -205,7 +207,3 @@ impl VTable for Struct {
 
 #[derive(Clone, Debug)]
 pub struct Struct;
-
-impl Struct {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.struct");
-}

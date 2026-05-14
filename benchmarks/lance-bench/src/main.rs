@@ -28,6 +28,7 @@ use vortex_bench::runner::BenchmarkQueryResult;
 use vortex_bench::runner::SqlBenchmarkRunner;
 use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
+use vortex_bench::v3;
 
 /// Lance benchmark tool - runs SQL queries against Lance format data using DataFusion
 #[derive(Parser)]
@@ -59,11 +60,19 @@ struct Args {
     #[arg(short)]
     output_path: Option<PathBuf>,
 
+    /// Additionally write v3 JSONL records to this path. See
+    /// `benchmarks-website/planning/02-contracts.md`.
+    #[arg(long)]
+    gh_json_v3: Option<PathBuf>,
+
     #[arg(long, default_value_t = false)]
     hide_progress_bar: bool,
 
     #[arg(long, default_value_t = false)]
     track_memory: bool,
+
+    #[arg(long, default_value = "unknown")]
+    runner: String,
 
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
@@ -93,6 +102,7 @@ async fn main() -> anyhow::Result<()> {
     let mut runner = SqlBenchmarkRunner::new(
         &*benchmark,
         Engine::DataFusion,
+        args.runner.clone(),
         vec![Format::Lance],
         args.track_memory,
         args.hide_progress_bar,
@@ -119,6 +129,10 @@ async fn main() -> anyhow::Result<()> {
             },
         )
         .await?;
+
+    if let Some(path) = args.gh_json_v3.as_ref() {
+        v3::write_jsonl_to_path(path, &runner.v3_records())?;
+    }
 
     let benchmark_id = format!("lance-{}", benchmark.dataset_name());
     let writer = create_output_writer(&args.display_format, args.output_path, &benchmark_id)?;

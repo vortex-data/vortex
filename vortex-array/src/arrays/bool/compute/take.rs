@@ -28,7 +28,7 @@ impl TakeExecute for Bool {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let indices_nulls_zeroed = match indices.validity_mask()? {
+        let indices_nulls_zeroed = match indices.validity()?.execute_mask(indices.len(), ctx)? {
             Mask::AllTrue(_) => indices.clone(),
             Mask::AllFalse(_) => {
                 return Ok(Some(
@@ -84,7 +84,8 @@ mod test {
     use vortex_buffer::buffer;
 
     use crate::IntoArray as _;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::bool::BoolArrayExt;
@@ -102,6 +103,7 @@ mod test {
             Some(false),
         ]);
 
+        #[expect(deprecated)]
         let b = reference
             .take(buffer![0, 3, 4].into_array())
             .unwrap()

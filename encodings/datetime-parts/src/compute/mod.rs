@@ -15,6 +15,8 @@ mod take;
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
@@ -25,7 +27,8 @@ mod tests {
     use crate::DateTimePartsArray;
 
     fn dtp_from_temporal(temporal: TemporalArray) -> DateTimePartsArray {
-        DateTimeParts::try_from_temporal(temporal).unwrap()
+        DateTimeParts::try_from_temporal(temporal, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap()
     }
 
     #[rstest]

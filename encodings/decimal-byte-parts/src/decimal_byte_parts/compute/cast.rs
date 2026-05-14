@@ -7,47 +7,42 @@ use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::DecimalByteParts;
 use crate::decimal_byte_parts::DecimalBytePartsArrayExt;
+
 impl CastReduce for DecimalByteParts {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+        // Check if this is just a nullability change
+        if !dtype.eq_ignore_nullability(array.dtype()) {
+            return Ok(None);
+        }
         // DecimalBytePartsArray can only have Decimal dtype, so we only handle decimal-to-decimal casts
         let DType::Decimal(target_decimal, target_nullability) = dtype else {
             // Cannot cast decimal to non-decimal types - delegate to canonical form
             return Ok(None);
         };
 
-        // Check if this is just a nullability change
-        if array
-            .dtype()
-            .as_decimal_opt()
-            .vortex_expect("must be a decimal dtype")
-            == target_decimal
-            && array.dtype().nullability() != *target_nullability
-        {
-            // Cast the msp array to handle nullability change
-            let new_msp = array
-                .msp()
-                .cast(array.msp().dtype().with_nullability(*target_nullability))?;
+        // Cast the msp array to handle nullability change
+        let new_msp = array
+            .msp()
+            .cast(array.msp().dtype().with_nullability(*target_nullability))?;
 
-            return Ok(Some(
-                DecimalByteParts::try_new(new_msp, *target_decimal)?.into_array(),
-            ));
-        }
-
-        // For precision/scale changes, decode to canonical and let DecimalArray handle it
-        Ok(None)
+        Ok(Some(
+            DecimalByteParts::try_new(new_msp, *target_decimal)?.into_array(),
+        ))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::DecimalArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
@@ -61,6 +56,7 @@ mod tests {
 
     #[test]
     fn test_cast_decimal_byte_parts_nullability() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
         let array =
             DecimalByteParts::try_new(buffer![100i32, 200, 300, 400].into_array(), decimal_dtype)
@@ -77,12 +73,13 @@ mod tests {
         );
 
         // Verify the values are preserved
-        let decoded = casted.to_decimal();
+        let decoded = casted.execute::<DecimalArray>(&mut ctx).unwrap();
         assert_eq!(decoded.len(), 4);
     }
 
     #[test]
     fn test_cast_decimal_byte_parts_nullable_to_non_nullable() {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let decimal_dtype = DecimalDType::new(10, 2);
         let array = DecimalByteParts::try_new(
             PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
@@ -90,11 +87,11 @@ mod tests {
         )
         .unwrap();
 
-        // Cast to non-nullable should fail due to nulls - force evaluation via to_canonical
+        // Cast to non-nullable should fail due to nulls - force evaluation via execute::<Canonical>
         let result = array
             .into_array()
             .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))
-            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+            .and_then(|a| a.execute::<Canonical>(&mut ctx).map(|c| c.into_array()));
         assert!(result.is_err());
     }
 

@@ -49,7 +49,7 @@ impl<'py> FromPyObject<'_, 'py> for PythonArray {
         let python_array = ob_cast.get();
         Ok(Self {
             vtable: PythonVTable {
-                id: python_array.id.clone(),
+                id: python_array.id,
             },
             object: Arc::new(ob.to_owned().unbind()),
             len: python_array.len,

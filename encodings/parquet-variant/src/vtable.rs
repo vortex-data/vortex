@@ -20,6 +20,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::smallvec::smallvec;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::child_to_validity;
@@ -30,6 +31,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_proto::dtype as pb;
 use vortex_session::VortexSession;
+use vortex_session::registry::CachedId;
 
 use crate::array::METADATA_SLOT;
 use crate::array::ParquetVariantArrayExt;
@@ -44,10 +46,6 @@ use crate::kernel::PARENT_KERNELS;
 /// VTable for [`ParquetVariantArray`].
 #[derive(Debug, Clone)]
 pub struct ParquetVariant;
-
-impl ParquetVariant {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.parquet.variant");
-}
 
 #[derive(Clone, prost::Message)]
 struct ParquetVariantMetadataProto {
@@ -66,23 +64,24 @@ struct ParquetVariantMetadataProto {
 pub type ParquetVariantArray = Array<ParquetVariant>;
 
 impl VTable for ParquetVariant {
-    type ArrayData = ParquetVariantData;
+    type TypedArrayData = ParquetVariantData;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
 
     fn id(&self) -> ArrayId {
-        Self::ID
+        static ID: CachedId = CachedId::new("vortex.parquet.variant");
+        *ID
     }
 
     fn validate(
         &self,
-        data: &Self::ArrayData,
+        data: &Self::TypedArrayData,
         dtype: &DType,
         len: usize,
         slots: &[Option<ArrayRef>],
     ) -> VortexResult<()> {
         let _ = data;
-        let validity = child_to_validity(&slots[VALIDITY_SLOT], dtype.nullability());
+        let validity = child_to_validity(slots[VALIDITY_SLOT].as_ref(), dtype.nullability());
         let metadata = slots[METADATA_SLOT]
             .as_ref()
             .ok_or_else(|| vortex_err!("ParquetVariantArray metadata slot"))?;
@@ -202,7 +201,7 @@ impl VTable for ParquetVariant {
             dtype,
             len,
         )?;
-        let slots = vec![
+        let slots = smallvec![
             validity_to_child(&validity, len),
             Some(variant_metadata),
             value,
@@ -246,13 +245,13 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::Precision;
     use vortex_array::arrays::VarBinViewArray;
-    use vortex_array::arrays::Variant;
     use vortex_array::arrays::VariantArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::serde::SerializedArray;
+    use vortex_array::session::ArraySession;
     use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
@@ -263,11 +262,14 @@ mod tests {
 
     use crate::ParquetVariant;
     use crate::array::ParquetVariantArrayExt;
+
     fn roundtrip(array: ArrayRef) -> ArrayRef {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let session = VortexSession::empty().with::<vortex_array::session::ArraySession>();
+        let session = VortexSession::empty().with::<ArraySession>();
+        session.arrays().register(ParquetVariant);
+
         let ctx = ArrayContext::empty();
         let serialized = array
             .serialize(&ctx, &session, &SerializeOptions::default())
@@ -278,8 +280,6 @@ mod tests {
             concat.extend_from_slice(buf.as_ref());
         }
         let concat = concat.freeze();
-        session.arrays().register(ParquetVariant);
-        session.arrays().register(Variant);
 
         let parts = SerializedArray::try_from(concat).unwrap();
         parts

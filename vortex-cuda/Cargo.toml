@@ -30,6 +30,7 @@ cudarc = { workspace = true, features = ["f16"] }
 futures = { workspace = true, features = ["executor"] }
 itertools = { workspace = true }
 kanal = { workspace = true }
+num-traits = { workspace = true }
 object_store = { workspace = true, features = ["fs"] }
 parking_lot = { workspace = true }
 prost = { workspace = true }
@@ -49,6 +50,7 @@ rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-cuda = { path = ".", features = ["_test-harness"] }
+vortex-fsst = { workspace = true, features = ["_test-harness"] }
 
 [build-dependencies]
 bindgen = { workspace = true }
@@ -83,6 +85,10 @@ name = "bitpacked_cuda"
 harness = false
 
 [[bench]]
+name = "alp_cuda"
+harness = false
+
+[[bench]]
 name = "dynamic_dispatch_cuda"
 harness = false
 
@@ -91,5 +97,9 @@ name = "throughput_cuda"
 harness = false
 
 [[bench]]
-name = "transpose_patches"
+name = "core_primitives"
+harness = false
+
+[[bench]]
+name = "fsst_cuda"
 harness = false

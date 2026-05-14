@@ -1,1 +1,6 @@
 _extends: .github-private
+images:
+  ubuntu24-full-arm64-pre:
+    platform: "linux"
+    arch: "arm64"
+    ami: "ami-0f1ea4587146704c3"

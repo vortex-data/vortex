@@ -12,9 +12,9 @@ import org.apache.spark.sql.connector.write.WriteBuilder;
 
 /**
  * Builder for configuring Vortex write operations.
- * <p>
- * This class is responsible for creating BatchWrite instances that execute
- * the actual write operations to create Vortex files from Spark DataFrames.
+ *
+ * <p>This class is responsible for creating BatchWrite instances that execute the actual write operations to create
+ * Vortex files from Spark DataFrames.
  */
 public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate {
 
@@ -27,9 +27,9 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate 
     /**
      * Creates a new VortexWriteBuilder.
      *
-     * @param paths               root path for write
-     * @param writeInfo           logical information about the write operation
-     * @param options             additional write options
+     * @param paths root path for write
+     * @param writeInfo logical information about the write operation
+     * @param options additional write options
      * @param partitionTransforms partition transforms (may be empty)
      */
     public VortexWriteBuilder(
@@ -52,9 +52,8 @@ public final class VortexWriteBuilder implements WriteBuilder, SupportsTruncate 
 
     /**
      * Configures the write operation to truncate existing data.
-     * <p>
-     * When truncate is enabled, existing Vortex files at the output path
-     * will be removed before writing new data.
+     *
+     * <p>When truncate is enabled, existing Vortex files at the output path will be removed before writing new data.
      *
      * @return this builder for method chaining
      */

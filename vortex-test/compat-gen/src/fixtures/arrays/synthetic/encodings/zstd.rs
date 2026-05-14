@@ -3,7 +3,10 @@
 
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
+use vortex::array::ArrayVTable;
 use vortex::array::IntoArray;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinViewArray;
@@ -27,10 +30,11 @@ impl FlatLayoutFixture for ZstdFixture {
     }
 
     fn expected_encodings(&self) -> Vec<ArrayId> {
-        vec![Zstd::ID]
+        vec![Zstd.id()]
     }
 
     fn build(&self) -> VortexResult<ArrayRef> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let ints: PrimitiveArray = (0..N as i32).map(|i| i / 8).collect();
         let floats: PrimitiveArray = (0..N)
             .map(|i| {
@@ -86,14 +90,14 @@ impl FlatLayoutFixture for ZstdFixture {
                 "pseudo_random",
             ]),
             vec![
-                Zstd::from_primitive(&ints, 3, 128)?.into_array(),
-                Zstd::from_primitive(&floats, 3, 128)?.into_array(),
-                Zstd::from_primitive(&nullable_i64, 3, 128)?.into_array(),
-                Zstd::from_var_bin_view(&utf8, 3, 128)?.into_array(),
-                Zstd::from_var_bin_view(&nullable_utf8, 3, 128)?.into_array(),
-                Zstd::from_primitive(&all_zeros, 3, 128)?.into_array(),
-                Zstd::from_primitive(&all_null_i32, 3, 128)?.into_array(),
-                Zstd::from_primitive(&pseudo_random, 3, 128)?.into_array(),
+                Zstd::from_primitive(&ints, 3, 128, &mut ctx)?.into_array(),
+                Zstd::from_primitive(&floats, 3, 128, &mut ctx)?.into_array(),
+                Zstd::from_primitive(&nullable_i64, 3, 128, &mut ctx)?.into_array(),
+                Zstd::from_var_bin_view(&utf8, 3, 128, &mut ctx)?.into_array(),
+                Zstd::from_var_bin_view(&nullable_utf8, 3, 128, &mut ctx)?.into_array(),
+                Zstd::from_primitive(&all_zeros, 3, 128, &mut ctx)?.into_array(),
+                Zstd::from_primitive(&all_null_i32, 3, 128, &mut ctx)?.into_array(),
+                Zstd::from_primitive(&pseudo_random, 3, 128, &mut ctx)?.into_array(),
             ],
             N,
             Validity::NonNullable,

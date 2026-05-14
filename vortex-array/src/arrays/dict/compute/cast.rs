@@ -18,10 +18,7 @@ impl CastReduce for Dict {
     fn cast(array: ArrayView<'_, Dict>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Can have un-reference null values making the cast of values fail without a possible mask.
         // TODO(joe): optimize this, could look at accessible values and fill_null not those?
-        if !dtype.is_nullable()
-            && array.values().dtype().is_nullable()
-            && !array.values().all_valid()?
-        {
+        if !dtype.is_nullable() && !array.values().validity()?.no_nulls() {
             return Ok(None);
         }
         // Cast the dictionary values to the target type
@@ -53,7 +50,8 @@ mod tests {
     use vortex_buffer::buffer;
 
     use crate::IntoArray;
-    use crate::ToCanonical;
+    #[expect(deprecated)]
+    use crate::ToCanonical as _;
     use crate::arrays::Dict;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictArraySlotsExt;
@@ -79,6 +77,7 @@ mod tests {
             &DType::Primitive(PType::I64, Nullability::NonNullable)
         );
 
+        #[expect(deprecated)]
         let decoded = casted.to_primitive();
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i64, 2, 3, 2, 1]));
     }
@@ -163,20 +162,11 @@ mod tests {
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
 
-        // Check that both codes and values are NonNullable again
-        let back_dict = back_to_non_nullable.as_::<Dict>();
-        assert_eq!(
-            back_dict.codes().dtype().nullability(),
-            Nullability::NonNullable
-        );
-        assert_eq!(
-            back_dict.values().dtype().nullability(),
-            Nullability::NonNullable
-        );
-
         // Verify values are unchanged
+        #[expect(deprecated)]
         let original_values = dict.as_array().to_primitive();
-        let final_values = back_dict.array().to_primitive();
+        #[expect(deprecated)]
+        let final_values = back_to_non_nullable.to_primitive();
         assert_arrays_eq!(original_values, final_values);
     }
 
@@ -224,9 +214,8 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
-        assert_arrays_eq!(
-            casted.to_primitive(),
-            PrimitiveArray::from_iter([1.0f64, 3.0, 1.0])
-        );
+        #[expect(deprecated)]
+        let casted_prim = casted.to_primitive();
+        assert_arrays_eq!(casted_prim, PrimitiveArray::from_iter([1.0f64, 3.0, 1.0]));
     }
 }

@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 
 use crate::ConstantArray;
 use crate::Sparse;
+use crate::SparseExt as _;
 
 impl SliceKernel for Sparse {
     fn slice(

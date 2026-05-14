@@ -5,10 +5,13 @@
 
 use std::any::Any;
 use std::any::TypeId;
+use std::sync::Arc;
 
+use parking_lot::Mutex;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::ToCanonical;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::Bool;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::VarBinView;
 use vortex_error::VortexExpect;
@@ -18,43 +21,50 @@ use super::FloatStats;
 use super::GenerateStatsOptions;
 use super::IntegerStats;
 use super::StringStats;
+use crate::trace;
+
+/// A single cache entry: a concrete [`TypeId`] paired with a type-erased value.
+type StatsEntry = (TypeId, Arc<dyn Any + Send + Sync>);
 
 /// Cache for compression statistics, keyed by concrete type.
+///
+/// The cache is interior-mutable: entries can be inserted through a shared [`&StatsCache`]
+/// borrow. Values are stored as [`Arc<dyn Any + Send + Sync>`] so that cached entries can be
+/// cloned out of the lock cheaply and handed back to callers as [`Arc<T>`].
 struct StatsCache {
     // TODO(connor): We could further optimize this with a `SmallVec` here.
     /// The cache entries, keyed by [`TypeId`].
     ///
     /// The total number of statistics types in this stats should be relatively small, so we use a
     /// vector instead of a hash map.
-    entries: Vec<(TypeId, Box<dyn Any>)>,
+    entries: Arc<Mutex<Vec<StatsEntry>>>,
 }
 
 impl StatsCache {
     /// Creates a new empty cache.
     fn new() -> Self {
         Self {
-            entries: Vec::new(),
+            entries: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
     /// Returns a cached value, computing it on first access.
-    fn get_or_insert_with<T: 'static>(&mut self, f: impl FnOnce() -> T) -> &T {
+    fn get_or_insert_with<T: Send + Sync + 'static>(&self, f: impl FnOnce() -> T) -> Arc<T> {
         let type_id = TypeId::of::<T>();
-        let pos = self.entries.iter().position(|(id, _)| *id == type_id);
+        let mut guard = self.entries.lock();
 
-        if let Some(pos) = pos {
-            self.entries[pos]
-                .1
-                .downcast_ref::<T>()
+        if let Some(pos) = guard.iter().position(|(id, _)| *id == type_id) {
+            Arc::clone(&guard[pos].1)
+                .downcast::<T>()
+                .ok()
                 .vortex_expect("we just checked the TypeID")
         } else {
-            self.entries.push((type_id, Box::new(f())));
-            self.entries
-                .last()
-                .vortex_expect("just pushed")
-                .1
-                .downcast_ref::<T>()
-                .vortex_expect("we just checked the TypeID")
+            let new_arc: Arc<T> = {
+                let _span = trace::generate_stats_span(std::any::type_name::<T>()).entered();
+                Arc::new(f())
+            };
+            guard.push((type_id, Arc::clone(&new_arc) as Arc<dyn Any + Send + Sync>));
+            new_arc
         }
     }
 }
@@ -65,10 +75,16 @@ impl StatsCache {
 /// FoR bias subtraction), it must create a new [`ArrayAndStats`] so that stale stats from the
 /// original array are not reused.
 ///
-/// Built-in stats are accessed via typed methods (`integer_stats`, `float_stats`, `string_stats`)
-/// which generate stats lazily on first access using the stored [`GenerateStatsOptions`].
+/// Built-in stats are accessed via typed methods ([`integer_stats`], [`float_stats`],
+/// [`string_stats`]) which generate stats lazily on first access using the stored
+/// [`GenerateStatsOptions`].
 ///
-/// Extension schemes can use `get_or_insert_with` for custom stats types.
+/// Extension schemes can use [`get_or_insert_with`] for custom stats types.
+///
+/// [`integer_stats`]: ArrayAndStats::integer_stats
+/// [`float_stats`]: ArrayAndStats::float_stats
+/// [`string_stats`]: ArrayAndStats::string_stats
+/// [`get_or_insert_with`]: ArrayAndStats::get_or_insert_with
 pub struct ArrayAndStats {
     /// The array. This is always in canonical form.
     array: ArrayRef,
@@ -137,48 +153,58 @@ impl ArrayAndStats {
     }
 
     /// Returns bool stats, generating them lazily on first access.
-    pub fn bool_stats(&mut self) -> &BoolStats {
+    pub fn bool_stats(&self, ctx: &mut ExecutionCtx) -> Arc<BoolStats> {
         let array = self.array.clone();
-
         self.cache.get_or_insert_with::<BoolStats>(|| {
-            BoolStats::generate(&array.to_bool()).vortex_expect("BoolStats shouldn't fail")
+            let bool_array = array
+                .as_opt::<Bool>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
+            BoolStats::generate(&bool_array, ctx).vortex_expect("BoolStats shouldn't fail")
         })
     }
 
-    // TODO(connor): These should all have interior mutability instead!!!
-
     /// Returns integer stats, generating them lazily on first access.
-    pub fn integer_stats(&mut self) -> &IntegerStats {
+    pub fn integer_stats(&self, ctx: &mut ExecutionCtx) -> Arc<IntegerStats> {
         let array = self.array.clone();
         let opts = self.opts;
-
         self.cache.get_or_insert_with::<IntegerStats>(|| {
-            IntegerStats::generate_opts(&array.to_primitive(), opts)
+            let primitive = array
+                .as_opt::<Primitive>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
+            IntegerStats::generate_opts(&primitive, opts, ctx)
         })
     }
 
     /// Returns float stats, generating them lazily on first access.
-    pub fn float_stats(&mut self) -> &FloatStats {
+    pub fn float_stats(&self, ctx: &mut ExecutionCtx) -> Arc<FloatStats> {
         let array = self.array.clone();
         let opts = self.opts;
-
         self.cache.get_or_insert_with::<FloatStats>(|| {
-            FloatStats::generate_opts(&array.to_primitive(), opts)
+            let primitive = array
+                .as_opt::<Primitive>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
+            FloatStats::generate_opts(&primitive, opts, ctx)
         })
     }
 
     /// Returns string stats, generating them lazily on first access.
-    pub fn string_stats(&mut self) -> &StringStats {
+    pub fn string_stats(&self, ctx: &mut ExecutionCtx) -> Arc<StringStats> {
         let array = self.array.clone();
         let opts = self.opts;
-
         self.cache.get_or_insert_with::<StringStats>(|| {
-            StringStats::generate_opts(&array.to_varbinview(), opts)
+            let varbinview = array
+                .as_opt::<VarBinView>()
+                .vortex_expect("the array is guaranteed to already be canonical by construction")
+                .into_owned();
+            StringStats::generate_opts(&varbinview, opts, ctx)
         })
     }
 
     /// For extension schemes with custom stats types.
-    pub fn get_or_insert_with<T: 'static>(&mut self, f: impl FnOnce() -> T) -> &T {
+    pub fn get_or_insert_with<T: Send + Sync + 'static>(&self, f: impl FnOnce() -> T) -> Arc<T> {
         self.cache.get_or_insert_with::<T>(f)
     }
 }

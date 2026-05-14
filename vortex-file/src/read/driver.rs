@@ -9,6 +9,7 @@ use std::task::Poll;
 
 use futures::Stream;
 use pin_project_lite::pin_project;
+use tracing::trace;
 use vortex_buffer::Alignment;
 use vortex_error::VortexExpect;
 use vortex_io::CoalesceConfig;
@@ -133,11 +134,11 @@ impl State {
 
     #[allow(clippy::cognitive_complexity)]
     fn on_event(&mut self, event: ReadEvent) {
-        tracing::debug!(?event, "Received ReadEvent");
+        trace!(?event, "Received ReadEvent");
         match event {
             ReadEvent::Request(req) => {
                 if req.callback.is_closed() {
-                    tracing::debug!(?req, "ReadRequest dropped before registration");
+                    trace!(?req, "ReadRequest dropped before registration");
                     return;
                 }
                 self.requests_by_offset.insert((req.offset, req.id));
@@ -147,7 +148,7 @@ impl State {
                 if let Some(req) = self.requests.remove(&req_id) {
                     if req.callback.is_closed() {
                         self.requests_by_offset.remove(&(req.offset, req_id));
-                        tracing::debug!(?req, "ReadRequest dropped before poll");
+                        trace!(?req, "ReadRequest dropped before poll");
                     } else {
                         self.polled_requests.insert(req_id, req);
                     }
@@ -156,11 +157,11 @@ impl State {
             ReadEvent::Dropped(req_id) => {
                 if let Some(req) = self.requests.remove(&req_id) {
                     self.requests_by_offset.remove(&(req.offset, req_id));
-                    tracing::debug!(?req, "ReadRequest dropped before poll");
+                    trace!(?req, "ReadRequest dropped before poll");
                 }
                 if let Some(req) = self.polled_requests.remove(&req_id) {
                     self.requests_by_offset.remove(&(req.offset, req_id));
-                    tracing::debug!(?req, "ReadRequest dropped after poll");
+                    trace!(?req, "ReadRequest dropped after poll");
                 }
             }
         }
@@ -174,7 +175,7 @@ impl State {
                 IoRequest::new_single(request)
             }),
             Some(window) => self.next_coalesced(window).map(|request| {
-                match request.requests.len() {
+                match request.requests().len() {
                     1 => self.metrics.individual_requests.add(1),
                     num_requests => {
                         self.metrics.coalesced_requests.add(1);
@@ -193,7 +194,7 @@ impl State {
         while let Some((req_id, req)) = self.polled_requests.pop_first() {
             self.requests_by_offset.remove(&(req.offset, req_id));
             if req.callback.is_closed() {
-                tracing::debug!("Dropping canceled request");
+                trace!("Dropping canceled request");
                 continue;
             }
             return Some(req);
@@ -303,7 +304,7 @@ impl State {
 
         let aligned_start = current_start - (current_start % align);
 
-        tracing::debug!(
+        trace!(
             "Coalesced {} requests into range {}..{} (len={})",
             requests.len(),
             aligned_start,
@@ -311,11 +312,14 @@ impl State {
             current_end - aligned_start,
         );
 
-        Some(CoalescedRequest {
-            range: aligned_start..current_end,
-            alignment: self.coalesced_buffer_alignment,
-            requests,
-        })
+        Some(
+            CoalescedRequest::try_new(
+                aligned_start..current_end,
+                self.coalesced_buffer_alignment,
+                requests,
+            )
+            .vortex_expect("each request is correctly constructed and range.start <= range.end"),
+        )
     }
 }
 
@@ -438,8 +442,8 @@ mod tests {
 
         match outputs[0].inner() {
             IoRequestInner::Coalesced(coalesced) => {
-                assert_eq!(coalesced.range, 0..30);
-                assert_eq!(coalesced.requests.len(), 3);
+                assert_eq!(*coalesced.range(), 0..30);
+                assert_eq!(coalesced.requests().len(), 3);
             }
             _ => panic!("Expected coalesced request"),
         }
@@ -467,7 +471,7 @@ mod tests {
         .await;
         assert_eq!(outputs.len(), 1);
         match outputs[0].inner() {
-            IoRequestInner::Coalesced(c) => assert_eq!(c.requests.len(), 2),
+            IoRequestInner::Coalesced(c) => assert_eq!(c.requests().len(), 2),
             _ => panic!("Expected coalesced"),
         }
     }
@@ -512,10 +516,10 @@ mod tests {
         assert_eq!(outputs.len(), 1);
         match outputs[0].inner() {
             IoRequestInner::Coalesced(coalesced) => {
-                assert_eq!(coalesced.range.start, 4);
-                assert_eq!(coalesced.alignment, Alignment::new(4));
-                for req in &coalesced.requests {
-                    let rel = req.offset - coalesced.range.start;
+                assert_eq!(coalesced.range().start, 4);
+                assert_eq!(coalesced.alignment(), Alignment::new(4));
+                for req in coalesced.requests() {
+                    let rel = req.offset - coalesced.range().start;
                     assert_eq!(rel % *req.alignment as u64, 0);
                 }
             }
@@ -657,12 +661,12 @@ mod tests {
 
         match outputs[0].inner() {
             IoRequestInner::Coalesced(coalesced) => {
-                assert_eq!(coalesced.range, 0..110);
-                assert_eq!(coalesced.requests.len(), 3);
+                assert_eq!(*coalesced.range(), 0..110);
+                assert_eq!(coalesced.requests().len(), 3);
                 // Should be sorted by offset
-                assert_eq!(coalesced.requests[0].offset, 0);
-                assert_eq!(coalesced.requests[1].offset, 50);
-                assert_eq!(coalesced.requests[2].offset, 100);
+                assert_eq!(coalesced.requests()[0].offset, 0);
+                assert_eq!(coalesced.requests()[1].offset, 50);
+                assert_eq!(coalesced.requests()[2].offset, 100);
             }
             _ => panic!("Expected coalesced request"),
         }

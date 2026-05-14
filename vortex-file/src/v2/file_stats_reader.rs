@@ -15,6 +15,7 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::NullArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
@@ -26,10 +27,12 @@ use vortex_array::expr::lit;
 use vortex_array::expr::stats::Stat;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::literal::Literal;
+use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
 use vortex_error::VortexResult;
 use vortex_layout::ArrayFuture;
 use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
+use vortex_layout::SplitRange;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -75,18 +78,19 @@ impl FileStatsLayoutReader {
         }
     }
 
-    /// Evaluates whether the file can be fully pruned for the given expression.
+    /// Evaluates whether file-level statistics prove `expr` cannot match.
     ///
-    /// Returns `true` if file-level stats prove no rows can match, `false` otherwise.
+    /// Row-count placeholders are resolved against the full file row count,
+    /// independent of the requested row range.
     fn evaluate_file_stats(&self, expr: &Expression) -> VortexResult<bool> {
         let Some(pruning_expr) = expr.stat_falsification(self) else {
             // If there is no pruning expression, we can't prune.
             return Ok(false);
         };
 
-        // Given how we implemented the StatsCatalog, we know the expression must be all literals.
-        // We can therefore optimize with a null scope since there are no field references that
-        // need to be resolved.
+        // Given how we implemented the StatsCatalog, we know the expression must be all literals
+        // or row_count placeholders. We can therefore optimize with a null scope since there are
+        // no field references that need to be resolved.
         let simplified = pruning_expr.optimize_recursive(&DType::Null)?;
         if let Some(result) = simplified.as_opt::<Literal>() {
             // Can prune if the result is non-nullable and true
@@ -94,17 +98,25 @@ impl FileStatsLayoutReader {
         }
 
         // Sometimes expressions don't implement constant folding to literals... In this case,
-        // we just execute the expression over a null array.
+        // we apply the expression over a null array and substitute any row_count placeholders
+        // in the resulting array tree with the file's row count.
         let pruning = NullArray::new(1).into_array().apply(&pruning_expr)?;
+        let row_count_replacement =
+            ConstantArray::new(self.child.row_count(), pruning.len()).into_array();
+        let pruning = substitute_row_count(pruning, &row_count_replacement)?;
 
         let mut ctx = self.session.create_execution_ctx();
         let result = pruning
             .execute::<Canonical>(&mut ctx)?
             .into_bool()
             .into_array()
-            .scalar_at(0)?;
+            .execute_scalar(0, &mut ctx)?;
 
         Ok(result.as_bool().value() == Some(true))
+    }
+
+    pub fn file_stats(&self) -> &FileStatistics {
+        &self.file_stats
     }
 }
 
@@ -122,7 +134,8 @@ impl StatsCatalog for FileStatsLayoutReader {
 
         let stat_value = field_stats.get(stat)?.as_exact()?;
         let field_dtype = self.struct_fields.field_by_index(field_idx)?;
-        let stat_scalar = Scalar::try_new(field_dtype, Some(stat_value)).ok()?;
+        let stat_dtype = stat.dtype(&field_dtype)?;
+        let stat_scalar = Scalar::try_new(stat_dtype, Some(stat_value)).ok()?;
 
         Some(lit(stat_scalar))
     }
@@ -144,10 +157,10 @@ impl LayoutReader for FileStatsLayoutReader {
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
-        row_range: &Range<u64>,
+        split_range: &SplitRange,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        self.child.register_splits(field_mask, row_range, splits)
+        self.child.register_splits(field_mask, split_range, splits)
     }
 
     fn pruning_evaluation(
@@ -192,6 +205,10 @@ impl LayoutReader for FileStatsLayoutReader {
     ) -> VortexResult<ArrayFuture> {
         self.child.projection_evaluation(row_range, expr, mask)
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 #[cfg(test)]
@@ -201,16 +218,21 @@ mod tests {
 
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::datetime::TemporalData;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::expr::get_item;
     use vortex_array::expr::gt;
+    use vortex_array::expr::is_not_null;
+    use vortex_array::expr::is_null;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
+    use vortex_array::extension::datetime::TimeUnit;
     use vortex_array::scalar::ScalarValue;
     use vortex_array::scalar_fn::session::ScalarFnSession;
     use vortex_array::session::ArraySession;
@@ -224,6 +246,7 @@ mod tests {
     use vortex_layout::LayoutStrategy;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::layouts::table::TableStrategy;
+    use vortex_layout::segments::SegmentSink;
     use vortex_layout::segments::TestSegments;
     use vortex_layout::sequence::SequenceId;
     use vortex_layout::sequence::SequentialArrayStreamExt;
@@ -248,6 +271,18 @@ mod tests {
         FileStatistics::new(
             Arc::from([stats]),
             Arc::from([DType::Primitive(PType::I32, Nullability::NonNullable)]),
+        )
+    }
+
+    fn test_file_null_count_stats(null_count: u64) -> FileStatistics {
+        let mut stats = StatsSet::default();
+        stats.set(
+            Stat::NullCount,
+            Precision::exact(ScalarValue::from(null_count)),
+        );
+        FileStatistics::new(
+            Arc::from([stats]),
+            Arc::from([DType::Primitive(PType::I32, Nullability::Nullable)]),
         )
     }
 
@@ -325,6 +360,104 @@ mod tests {
             let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
             // Should delegate to child, which returns the mask unchanged (struct reader doesn't prune).
             assert_eq!(result, Mask::new_true(5));
+
+            Ok(())
+        })
+    }
+
+    /// Regression test: `IS NULL` on a nullable timestamp column must not fail with a
+    /// dtype mismatch. The bug was that `stats_ref` used the *field* dtype (timestamp)
+    /// for the `NullCount` stat scalar instead of the stat's own dtype (u64).
+    #[test]
+    fn is_null_pruning_on_nullable_timestamp_column() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+
+            // Build a struct with a nullable timestamp column containing some nulls.
+            let prim_array =
+                PrimitiveArray::from_option_iter([Some(1_000_000i64), None, Some(3_000_000)])
+                    .into_array();
+            let ts_data = TemporalData::new_timestamp(prim_array, TimeUnit::Microseconds, None);
+            let ts_dtype = ts_data.dtype().clone();
+            let ts_array = ts_data.into_array();
+
+            let struct_array = StructArray::from_fields([("deleted_at", ts_array)].as_slice())?;
+
+            let strategy = TableStrategy::new(
+                Arc::new(FlatLayoutStrategy::default()),
+                Arc::new(FlatLayoutStrategy::default()),
+            );
+            let layout = strategy
+                .write_stream(
+                    ctx,
+                    Arc::clone(&segments) as Arc<dyn SegmentSink>,
+                    struct_array.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let child = layout.new_reader("".into(), segments, &SESSION)?;
+
+            // File-level stats: 1 null in deleted_at.
+            let mut stats = StatsSet::default();
+            stats.set(Stat::NullCount, Precision::exact(ScalarValue::from(1u64)));
+            let file_stats = FileStatistics::new(Arc::from([stats]), Arc::from([ts_dtype]));
+
+            let reader = FileStatsLayoutReader::new(child, file_stats, SESSION.clone());
+
+            // `is_null(deleted_at)` — should NOT panic or error due to dtype mismatch.
+            let expr = is_null(get_item("deleted_at", root()));
+            let mask = Mask::new_true(3);
+            let result = reader.pruning_evaluation(&(0..3), &expr, mask)?.await?;
+            // null_count is 1 (non-zero), so is_null is not falsified => not pruned.
+            assert_eq!(result, Mask::new_true(3));
+
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn pruning_is_not_null_when_file_is_all_null() -> VortexResult<()> {
+        block_on(|handle| async {
+            let session = SESSION.clone().with_handle(handle);
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let struct_array = StructArray::from_fields(
+                [(
+                    "col",
+                    PrimitiveArray::from_option_iter([None::<i32>, None, None, None, None])
+                        .into_array(),
+                )]
+                .as_slice(),
+            )?;
+            let strategy = TableStrategy::new(
+                Arc::new(FlatLayoutStrategy::default()),
+                Arc::new(FlatLayoutStrategy::default()),
+            );
+            let layout = strategy
+                .write_stream(
+                    ctx,
+                    Arc::clone(&segments) as Arc<dyn SegmentSink>,
+                    struct_array.into_array().to_array_stream().sequenced(ptr),
+                    eof,
+                    &session,
+                )
+                .await?;
+
+            let child = layout.new_reader("".into(), segments, &SESSION)?;
+
+            let reader =
+                FileStatsLayoutReader::new(child, test_file_null_count_stats(5), SESSION.clone());
+
+            let expr = is_not_null(get_item("col", root()));
+            let mask = Mask::new_true(5);
+            let result = reader.pruning_evaluation(&(0..5), &expr, mask)?.await?;
+            assert_eq!(result, Mask::new_false(5));
 
             Ok(())
         })

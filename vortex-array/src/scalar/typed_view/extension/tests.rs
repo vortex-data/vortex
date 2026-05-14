@@ -21,7 +21,7 @@ impl ExtVTable for TestI32Ext {
     type NativeValue<'a> = &'a str;
 
     fn id(&self) -> ExtId {
-        ExtId::new_ref("test_ext")
+        ExtId::new("test_ext")
     }
 
     fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -104,7 +104,7 @@ fn test_ext_scalar_partial_ord_different_types() {
         type NativeValue<'a> = &'a str;
 
         fn id(&self) -> ExtId {
-            ExtId::new_ref("test_ext_2")
+            ExtId::new("test_ext_2")
         }
 
         fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
@@ -286,7 +286,7 @@ fn test_ext_scalar_with_metadata() {
         type NativeValue<'a> = &'a str;
 
         fn id(&self) -> ExtId {
-            ExtId::new_ref("test_ext_metadata")
+            ExtId::new("test_ext_metadata")
         }
 
         fn serialize_metadata(&self, _metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {

@@ -2,10 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::DType;
@@ -24,6 +27,7 @@ pub fn compare_canonical_array(
     array: &ArrayRef,
     value: &Scalar,
     operator: CompareOperator,
+    ctx: &mut ExecutionCtx,
 ) -> ArrayRef {
     if value.is_null() {
         return BoolArray::new(BitBuffer::new_unset(array.len()), Validity::AllInvalid)
@@ -38,15 +42,20 @@ pub fn compare_canonical_array(
                 .as_bool()
                 .value()
                 .vortex_expect("nulls handled before");
+            let bool_array = array
+                .clone()
+                .execute::<BoolArray>(ctx)
+                .vortex_expect("to bool");
             compare_to(
-                array
-                    .to_bool()
+                bool_array
                     .to_bit_buffer()
                     .iter()
                     .zip(
                         array
-                            .validity_mask()
+                            .validity()
                             .vortex_expect("validity_mask")
+                            .execute_mask(array.len(), ctx)
+                            .vortex_expect("Failed to compute validity mask")
                             .to_bit_buffer()
                             .iter(),
                     )
@@ -58,7 +67,10 @@ pub fn compare_canonical_array(
         }
         DType::Primitive(p, _) => {
             let primitive = value.as_primitive();
-            let primitive_array = array.to_primitive();
+            let primitive_array = array
+                .clone()
+                .execute::<PrimitiveArray>(ctx)
+                .vortex_expect("to primitive");
             match_each_native_ptype!(p, |P| {
                 let pval = primitive
                     .typed_value::<P>()
@@ -70,8 +82,10 @@ pub fn compare_canonical_array(
                         .copied()
                         .zip(
                             array
-                                .validity_mask()
+                                .validity()
                                 .vortex_expect("validity_mask")
+                                .execute_mask(array.len(), ctx)
+                                .vortex_expect("Failed to compute validity mask")
                                 .to_bit_buffer()
                                 .iter(),
                         )
@@ -84,7 +98,10 @@ pub fn compare_canonical_array(
         }
         DType::Decimal(..) => {
             let decimal = value.as_decimal();
-            let decimal_array = array.to_decimal();
+            let decimal_array = array
+                .clone()
+                .execute::<DecimalArray>(ctx)
+                .vortex_expect("to decimal");
             match_each_decimal_value_type!(decimal_array.values_type(), |D| {
                 let dval = decimal
                     .decimal_value()
@@ -98,8 +115,10 @@ pub fn compare_canonical_array(
                         .copied()
                         .zip(
                             array
-                                .validity_mask()
+                                .validity()
                                 .vortex_expect("validity_mask")
+                                .execute_mask(array.len(), ctx)
+                                .vortex_expect("Failed to compute validity mask")
                                 .to_bit_buffer()
                                 .iter(),
                         )
@@ -110,29 +129,41 @@ pub fn compare_canonical_array(
                 )
             })
         }
-        DType::Utf8(_) => array.to_varbinview().with_iterator(|iter| {
-            let utf8_value = value.as_utf8();
-            compare_to(
-                iter.map(|v| v.map(|b| unsafe { str::from_utf8_unchecked(b) })),
-                utf8_value.value().vortex_expect("nulls handled before"),
-                operator,
-                result_nullability,
-            )
-        }),
-        DType::Binary(_) => array.to_varbinview().with_iterator(|iter| {
-            let binary_value = value.as_binary();
-            compare_to(
-                // Don't understand the lifetime problem here but identity map makes it go away
-                #[expect(clippy::map_identity)]
-                iter.map(|v| v),
-                binary_value.value().vortex_expect("nulls handled before"),
-                operator,
-                result_nullability,
-            )
-        }),
-        DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
+        DType::Utf8(_) => {
+            let varbinview = array
+                .clone()
+                .execute::<VarBinViewArray>(ctx)
+                .vortex_expect("to varbinview");
+            varbinview.with_iterator(|iter| {
+                let utf8_value = value.as_utf8();
+                compare_to(
+                    iter.map(|v| v.map(|b| unsafe { str::from_utf8_unchecked(b) })),
+                    utf8_value.value().vortex_expect("nulls handled before"),
+                    operator,
+                    result_nullability,
+                )
+            })
+        }
+        DType::Binary(_) => {
+            let varbinview = array
+                .clone()
+                .execute::<VarBinViewArray>(ctx)
+                .vortex_expect("to varbinview");
+            varbinview.with_iterator(|iter| {
+                let binary_value = value.as_binary();
+                compare_to(
+                    // Don't understand the lifetime problem here but identity map makes it go away
+                    #[expect(clippy::map_identity)]
+                    iter.map(|v| v),
+                    binary_value.value().vortex_expect("nulls handled before"),
+                    operator,
+                    result_nullability,
+                )
+            })
+        }
+        DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) => {
             let scalar_vals: Vec<Scalar> = (0..array.len())
-                .map(|i| array.scalar_at(i).vortex_expect("scalar_at"))
+                .map(|i| array.execute_scalar(i, ctx).vortex_expect("scalar_at"))
                 .collect();
             BoolArray::from_iter(scalar_vals.iter().map(|v| {
                 scalar_cmp(v, value, operator)
@@ -142,7 +173,7 @@ pub fn compare_canonical_array(
             }))
             .into_array()
         }
-        d @ (DType::Null | DType::Extension(_) | DType::Variant(_)) => {
+        d @ (DType::Null | DType::Union(..) | DType::Variant(_) | DType::Extension(_)) => {
             unreachable!("DType {d} not supported for fuzzing")
         }
     }

@@ -13,12 +13,11 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::BoolArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrays::bool::BoolArrayExt;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::builtins::ArrayBuiltins;
+use crate::child_to_validity;
 use crate::dtype::DType;
 use crate::dtype::Nullability;
 use crate::expr::Expression;
@@ -45,7 +44,7 @@ impl ScalarFnVTable for Mask {
     type Options = EmptyOptions;
 
     fn id(&self) -> ScalarFnId {
-        ScalarFnId::from("vortex.mask")
+        ScalarFnId::new("vortex.mask")
     }
 
     fn serialize(&self, _options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
@@ -168,11 +167,9 @@ fn execute_canonical(
     mask_array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let mask_bool = mask_array.execute::<BoolArray>(ctx)?;
-    let validity_mask = vortex_mask::Mask::from(mask_bool.to_bit_buffer());
-
+    let validity = child_to_validity(Some(&mask_array), Nullability::Nullable);
     let canonical = input.execute::<Canonical>(ctx)?;
-    Ok(mask_validity_canonical(canonical, &validity_mask, ctx)?.into_array())
+    Ok(mask_validity_canonical(canonical, validity, ctx)?.into_array())
 }
 
 #[cfg(test)]

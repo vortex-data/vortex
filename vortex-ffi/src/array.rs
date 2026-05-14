@@ -7,13 +7,20 @@ use std::ffi::c_void;
 use std::ptr;
 use std::sync::Arc;
 
+use arrow_array::array::make_array;
+use arrow_array::ffi::FFI_ArrowArray;
+use arrow_array::ffi::FFI_ArrowSchema;
+use arrow_array::ffi::from_ffi;
 use paste::paste;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
-use vortex::array::ToCanonical;
+use vortex::array::LEGACY_SESSION;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::NullArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::StructArray;
 use vortex::array::arrays::struct_::StructArrayExt;
+use vortex::array::arrow::FromArrowArray;
 use vortex::array::validity::Validity;
 use vortex::buffer::Buffer;
 use vortex::dtype::DType;
@@ -193,6 +200,9 @@ pub unsafe extern "C-unwind" fn vx_array_dtype(array: *const vx_array) -> *const
     vx_dtype::new_ref(vx_array::as_ref(array).dtype())
 }
 
+// Return an owned field for array at index.
+// Returns NULL and sets error_out if index is out of bounds or array doesn't
+// have dtype DTYPE_STRUCT.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_array_get_field(
     array: *const vx_array,
@@ -202,8 +212,10 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
     try_or_default(error_out, || {
         let array = vx_array::as_ref(array);
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let field_array = array
-            .to_struct()
+            .clone()
+            .execute::<StructArray>(&mut ctx)?
             .unmasked_fields()
             .get(index)
             .ok_or_else(|| vortex_err!("Field index out of bounds"))?
@@ -238,7 +250,7 @@ pub unsafe extern "C-unwind" fn vx_array_element_is_invalid(
 ) -> bool {
     try_or_default(error, || {
         vortex_ensure!(!array.is_null());
-        vx_array::as_ref(array).is_invalid(index)
+        vx_array::as_ref(array).is_invalid(index, &mut LEGACY_SESSION.create_execution_ctx())
     })
 }
 
@@ -251,7 +263,7 @@ pub unsafe extern "C-unwind" fn vx_array_invalid_count(
     try_or_default(error_out, || {
         vortex_ensure!(!array.is_null());
         let array = vx_array::as_ref(array);
-        array.invalid_count()
+        array.invalid_count(&mut LEGACY_SESSION.create_execution_ctx())
     })
 }
 
@@ -319,6 +331,49 @@ pub extern "C-unwind" fn vx_array_new_primitive(
     }
 }
 
+/// Create a Vortex array by importing an Arrow array via the Arrow C Data Interface.
+///
+/// `array` and `schema` together describe a single Arrow array (the standard Arrow C Data
+/// Interface pair, e.g. as produced by exporting a record batch). Both are *consumed*: their
+/// `release` callbacks are invoked by this function and the caller must not use or release them
+/// afterwards.
+///
+/// `nullable` controls the top-level nullability of the resulting array's dtype. For an Arrow
+/// record batch (which has no top-level validity) pass `false`.
+///
+/// The imported buffers are referenced zero-copy where possible; the returned array keeps the
+/// Arrow data alive until it is freed with [`vx_array_free`].
+///
+/// On error, returns NULL and sets `error_out`.
+///
+/// Example:
+///
+/// // export an Arrow record batch into (array, schema), then:
+/// vx_error* error = NULL;
+/// const vx_array* vx = vx_array_from_arrow(&array, &schema, false, &error);
+/// // ... push it to a sink or write it ...
+/// vx_array_free(vx);
+///
+#[unsafe(no_mangle)]
+pub unsafe extern "C-unwind" fn vx_array_from_arrow(
+    array: *mut FFI_ArrowArray,
+    schema: *mut FFI_ArrowSchema,
+    nullable: bool,
+    error_out: *mut *mut vx_error,
+) -> *const vx_array {
+    try_or_default(error_out, || {
+        vortex_ensure!(!array.is_null(), "null arrow array");
+        vortex_ensure!(!schema.is_null(), "null arrow schema");
+        let ffi_array = unsafe { ptr::replace(array, FFI_ArrowArray::empty()) };
+        let ffi_schema = unsafe { ptr::replace(schema, FFI_ArrowSchema::empty()) };
+        let array_data = unsafe { from_ffi(ffi_array, &ffi_schema) }?;
+        drop(ffi_schema);
+        let arrow_array = make_array(array_data);
+        let vortex_array = ArrayRef::from_arrow(arrow_array.as_ref(), nullable)?;
+        Ok(vx_array::new(Arc::new(vortex_array)))
+    })
+}
+
 macro_rules! ffiarray_get_ptype {
     ($ptype:ident) => {
         paste! {
@@ -326,7 +381,9 @@ macro_rules! ffiarray_get_ptype {
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: usize) -> $ptype {
                 let array = vx_array::as_ref(array);
                 // TODO(joe): propagate this error up instead of expecting
-                let value = array.scalar_at(index).vortex_expect("scalar_at failed");
+                let value = array
+                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
                 value.as_primitive()
                     .as_::<$ptype>()
@@ -337,7 +394,9 @@ macro_rules! ffiarray_get_ptype {
             pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: usize) -> $ptype {
                 let array = vx_array::as_ref(array);
                 // TODO(joe): propagate this error up instead of expecting
-                let value = array.scalar_at(index).vortex_expect("scalar_at failed");
+                let value = array
+                    .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+                    .vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
                 value.as_extension()
                     .to_storage_scalar()
@@ -371,7 +430,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     let array = vx_array::as_ref(array);
     // TODO(joe): propagate this error up instead of expecting
     let value = array
-        .scalar_at(index as usize)
+        .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())
         .vortex_expect("scalar_at failed");
     let utf8_scalar = value.as_utf8();
     if let Some(buffer) = utf8_scalar.value() {
@@ -391,7 +450,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
     let array = vx_array::as_ref(array);
     // TODO(joe): propagate this error up instead of expecting
     let value = array
-        .scalar_at(index as usize)
+        .execute_scalar(index as usize, &mut LEGACY_SESSION.create_execution_ctx())
         .vortex_expect("scalar_at failed");
     let binary_scalar = value.as_binary();
     if let Some(bytes) = binary_scalar.value() {
@@ -424,6 +483,8 @@ mod tests {
     use std::ptr;
 
     use vortex::array::IntoArray;
+    use vortex::array::LEGACY_SESSION;
+    use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::array::arrays::StructArray;
@@ -442,20 +503,9 @@ mod tests {
     use crate::dtype::vx_dtype_get_variant;
     use crate::dtype::vx_dtype_variant;
     use crate::error::vx_error_free;
-    use crate::error::vx_error_get_message;
     use crate::expression::vx_expression_free;
     use crate::string::vx_string_free;
-
-    fn assert_no_error(error: *mut vx_error) {
-        if !error.is_null() {
-            let message;
-            unsafe {
-                message = vx_string::as_str(vx_error_get_message(error)).to_owned();
-                vx_error_free(error);
-            }
-            panic!("{message}");
-        }
-    }
+    use crate::tests::assert_no_error;
 
     #[test]
     // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
@@ -764,7 +814,9 @@ mod tests {
             assert!(!res.is_null());
             {
                 let res = vx_array::as_ref(res);
-                let buffer = res.to_bool().to_bit_buffer();
+                let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                let bool_array = res.clone().execute::<BoolArray>(&mut ctx).unwrap();
+                let buffer = bool_array.to_bit_buffer();
                 let expected = BoolArray::from_iter(vec![false, false, true, true]);
                 assert_eq!(buffer, expected.to_bit_buffer());
             }
@@ -775,6 +827,8 @@ mod tests {
         }
     }
 
+    // TODO: re-enable under miri once parking_lot_core fixes strict-provenance violations
+    #[cfg_attr(miri, ignore)]
     #[test]
     fn test_array_dtype_lifetime_pattern() {
         let array = {
@@ -802,5 +856,68 @@ mod tests {
 
         // Note: dtype_ptr is now invalid - this test documents the lifetime pattern
         // In real usage, don't access dtype_ptr after freeing the array
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_from_arrow_roundtrip() {
+        use arrow_array::Array as ArrowArrayTrait;
+        use arrow_array::Int32Array;
+        use arrow_array::RecordBatch;
+        use arrow_array::StringArray;
+        use arrow_array::ffi::to_ffi;
+        use arrow_schema::DataType;
+        use arrow_schema::Field;
+        use arrow_schema::Schema as ArrowSchema;
+
+        let schema = Arc::new(ArrowSchema::new(vec![
+            Field::new("a", DataType::Int32, false),
+            Field::new("b", DataType::Utf8, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            schema,
+            vec![
+                Arc::new(Int32Array::from(vec![1, 2, 3])),
+                Arc::new(StringArray::from(vec![Some("x"), None, Some("z")])),
+            ],
+        )
+        .unwrap();
+
+        let data = ArrowArrayTrait::into_data(arrow_array::StructArray::from(batch));
+        let (mut ffi_array, mut ffi_schema) = to_ffi(&data).unwrap();
+
+        let mut error = ptr::null_mut();
+        let vx = unsafe {
+            vx_array_from_arrow(
+                &raw mut ffi_array,
+                &raw mut ffi_schema,
+                false,
+                &raw mut error,
+            )
+        };
+        assert_no_error(error);
+        assert!(!vx.is_null());
+
+        unsafe {
+            assert!(vx_array_has_dtype(vx, vx_dtype_variant::DTYPE_STRUCT));
+            assert_eq!(vx_array_len(vx), 3);
+            assert!(!vx_array_is_nullable(vx));
+
+            let a = vx_array_get_field(vx, 0, &raw mut error);
+            assert_no_error(error);
+            assert!(vx_array_is_primitive(a, vx_ptype::PTYPE_I32));
+            assert_eq!(vx_array_get_i32(a, 0), 1);
+            assert_eq!(vx_array_get_i32(a, 2), 3);
+            vx_array_free(a);
+
+            let b = vx_array_get_field(vx, 1, &raw mut error);
+            assert_no_error(error);
+            assert!(vx_array_has_dtype(b, vx_dtype_variant::DTYPE_UTF8));
+            assert!(vx_array_element_is_invalid(b, 1, &raw mut error));
+            assert_no_error(error);
+            vx_array_free(b);
+
+            vx_array_free(vx);
+        }
     }
 }

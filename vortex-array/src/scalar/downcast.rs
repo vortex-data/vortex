@@ -115,12 +115,13 @@ impl Scalar {
 
     /// Returns a view of the scalar as a list scalar.
     ///
-    /// Note that we use [`ListScalar`] to represent **both** [`List`](crate::dtype::DType::List) and
-    /// [`FixedSizeList`](crate::dtype::DType::FixedSizeList).
+    /// Note that we use [`ListScalar`] to represent **both** [`List`](crate::dtype::DType::List)
+    /// and [`FixedSizeList`](crate::dtype::DType::FixedSizeList).
     ///
     /// # Panics
     ///
-    /// Panics if the scalar does not have a [`List`](crate::dtype::DType::List) or [`FixedSizeList`](crate::dtype::DType::FixedSizeList) type.
+    /// Panics if the scalar does not have a [`List`](crate::dtype::DType::List) or
+    /// [`FixedSizeList`](crate::dtype::DType::FixedSizeList) type.
     pub fn as_list(&self) -> ListScalar<'_> {
         self.as_list_opt()
             .vortex_expect("Failed to convert scalar to list")
@@ -128,8 +129,8 @@ impl Scalar {
 
     /// Returns a view of the scalar as a list scalar if it has a list type.
     ///
-    /// Note that we use [`ListScalar`] to represent **both** [`List`](crate::dtype::DType::List) and
-    /// [`FixedSizeList`](crate::dtype::DType::FixedSizeList).
+    /// Note that we use [`ListScalar`] to represent **both** [`List`](crate::dtype::DType::List)
+    /// and [`FixedSizeList`](crate::dtype::DType::FixedSizeList).
     pub fn as_list_opt(&self) -> Option<ListScalar<'_>> {
         ListScalar::try_new(self.dtype(), self.value()).ok()
     }
@@ -172,7 +173,7 @@ impl Scalar {
 }
 
 impl ScalarValue {
-    /// Returns the boolean value, panicking if the value is not a [`Bool`][ScalarValue::Bool].
+    /// Returns the boolean value, panicking if the value is not a [`Bool`](ScalarValue::Bool).
     pub fn as_bool(&self) -> bool {
         match self {
             ScalarValue::Bool(b) => *b,
@@ -181,7 +182,7 @@ impl ScalarValue {
     }
 
     /// Returns the primitive value, panicking if the value is not a
-    /// [`Primitive`][ScalarValue::Primitive].
+    /// [`Primitive`](ScalarValue::Primitive).
     pub fn as_primitive(&self) -> &PValue {
         match self {
             ScalarValue::Primitive(p) => p,
@@ -190,7 +191,7 @@ impl ScalarValue {
     }
 
     /// Returns the decimal value, panicking if the value is not a
-    /// [`Decimal`][ScalarValue::Decimal].
+    /// [`Decimal`](ScalarValue::Decimal).
     pub fn as_decimal(&self) -> &DecimalValue {
         match self {
             ScalarValue::Decimal(d) => d,
@@ -198,7 +199,7 @@ impl ScalarValue {
         }
     }
 
-    /// Returns the UTF-8 string value, panicking if the value is not a [`Utf8`][ScalarValue::Utf8].
+    /// Returns the UTF-8 string value, panicking if the value is not a [`Utf8`](ScalarValue::Utf8).
     pub fn as_utf8(&self) -> &BufferString {
         match self {
             ScalarValue::Utf8(s) => s,
@@ -206,7 +207,7 @@ impl ScalarValue {
         }
     }
 
-    /// Returns the binary value, panicking if the value is not a [`Binary`][ScalarValue::Binary].
+    /// Returns the binary value, panicking if the value is not a [`Binary`](ScalarValue::Binary).
     pub fn as_binary(&self) -> &ByteBuffer {
         match self {
             ScalarValue::Binary(b) => b,
@@ -214,15 +215,15 @@ impl ScalarValue {
         }
     }
 
-    /// Returns the list elements, panicking if the value is not a [`List`][ScalarValue::List].
+    /// Returns the tuple elements, panicking if the value is not a [`Tuple`](ScalarValue::Tuple).
     pub fn as_list(&self) -> &[Option<ScalarValue>] {
         match self {
-            ScalarValue::List(elements) => elements,
-            _ => vortex_panic!("ScalarValue is not a List"),
+            ScalarValue::Tuple(elements) => elements,
+            _ => vortex_panic!("ScalarValue is not a Tuple"),
         }
     }
 
-    /// Returns the boolean value, panicking if the value is not a [`Bool`][ScalarValue::Bool].
+    /// Returns the boolean value, panicking if the value is not a [`Bool`](ScalarValue::Bool).
     pub fn into_bool(self) -> bool {
         match self {
             ScalarValue::Bool(b) => b,
@@ -231,7 +232,7 @@ impl ScalarValue {
     }
 
     /// Returns the primitive value, panicking if the value is not a
-    /// [`Primitive`][ScalarValue::Primitive].
+    /// [`Primitive`](ScalarValue::Primitive).
     pub fn into_primitive(self) -> PValue {
         match self {
             ScalarValue::Primitive(p) => p,
@@ -240,7 +241,7 @@ impl ScalarValue {
     }
 
     /// Returns the decimal value, panicking if the value is not a
-    /// [`Decimal`][ScalarValue::Decimal].
+    /// [`Decimal`](ScalarValue::Decimal).
     pub fn into_decimal(self) -> DecimalValue {
         match self {
             ScalarValue::Decimal(d) => d,
@@ -248,7 +249,7 @@ impl ScalarValue {
         }
     }
 
-    /// Returns the UTF-8 string value, panicking if the value is not a [`Utf8`][ScalarValue::Utf8].
+    /// Returns the UTF-8 string value, panicking if the value is not a [`Utf8`](ScalarValue::Utf8).
     pub fn into_utf8(self) -> BufferString {
         match self {
             ScalarValue::Utf8(s) => s,
@@ -256,7 +257,7 @@ impl ScalarValue {
         }
     }
 
-    /// Returns the binary value, panicking if the value is not a [`Binary`][ScalarValue::Binary].
+    /// Returns the binary value, panicking if the value is not a [`Binary`](ScalarValue::Binary).
     pub fn into_binary(self) -> ByteBuffer {
         match self {
             ScalarValue::Binary(b) => b,
@@ -264,11 +265,11 @@ impl ScalarValue {
         }
     }
 
-    /// Returns the list elements, panicking if the value is not a [`List`][ScalarValue::List].
+    /// Returns the tuple elements, panicking if the value is not a [`Tuple`](ScalarValue::Tuple).
     pub fn into_list(self) -> Vec<Option<ScalarValue>> {
         match self {
-            ScalarValue::List(elements) => elements,
-            _ => vortex_panic!("ScalarValue is not a List"),
+            ScalarValue::Tuple(elements) => elements,
+            _ => vortex_panic!("ScalarValue is not a Tuple"),
         }
     }
 

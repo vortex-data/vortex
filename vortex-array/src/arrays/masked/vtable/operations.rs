@@ -7,16 +7,16 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::Masked;
-use crate::arrays::masked::MaskedArrayExt;
+use crate::arrays::masked::MaskedArraySlotsExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Masked> for Masked {
     fn scalar_at(
         array: ArrayView<'_, Masked>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         // Invalid indices are handled by the entrypoint function.
-        Ok(array.child().scalar_at(index)?.into_nullable())
+        Ok(array.child().execute_scalar(index, ctx)?.into_nullable())
     }
 }

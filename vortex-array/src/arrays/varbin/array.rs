@@ -5,15 +5,19 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use num_traits::AsPrimitive;
+use smallvec::smallvec;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::ToCanonical;
+use crate::ArraySlots;
+use crate::LEGACY_SESSION;
+#[expect(deprecated)]
+use crate::ToCanonical as _;
+use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -79,12 +83,8 @@ impl VarBinData {
         Self::try_build_from_handle(offset, bytes, dtype, validity).vortex_expect("VarBinArray new")
     }
 
-    pub(crate) fn make_slots(
-        offsets: ArrayRef,
-        validity: &Validity,
-        len: usize,
-    ) -> Vec<Option<ArrayRef>> {
-        vec![Some(offsets), validity_to_child(validity, len)]
+    pub(crate) fn make_slots(offsets: ArrayRef, validity: &Validity, len: usize) -> ArraySlots {
+        smallvec![Some(offsets), validity_to_child(validity, len)]
     }
 
     /// Constructs a new `VarBinArray`.
@@ -211,7 +211,10 @@ impl VarBinData {
         // Skip host-only validation when offsets/bytes are not host-resident.
         if offsets.is_host() && bytes.is_on_host() {
             let last_offset = offsets
-                .scalar_at(offsets.len() - 1)?
+                .execute_scalar(
+                    offsets.len() - 1,
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?
                 .as_primitive()
                 .as_::<usize>()
                 .ok_or_else(
@@ -241,6 +244,7 @@ impl VarBinData {
             && matches!(dtype, DType::Utf8(_))
             && let Some(bytes) = bytes.as_host_opt()
         {
+            #[expect(deprecated)]
             let primitive_offsets = offsets.to_primitive();
             match_each_integer_ptype!(primitive_offsets.dtype().as_ptype(), |O| {
                 let offsets_slice = primitive_offsets.as_slice::<O>();
@@ -314,11 +318,10 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
     }
 
     fn varbin_validity(&self) -> Validity {
-        child_to_validity(&self.as_ref().slots()[VALIDITY_SLOT], self.nullability())
-    }
-
-    fn varbin_validity_mask(&self) -> Mask {
-        self.varbin_validity().to_mask(self.as_ref().len())
+        child_to_validity(
+            self.as_ref().slots()[VALIDITY_SLOT].as_ref(),
+            self.nullability(),
+        )
     }
 
     fn offset_at(&self, index: usize) -> usize {
@@ -330,8 +333,8 @@ pub trait VarBinArrayExt: TypedArrayRef<VarBin> {
 
         (&self
             .offsets()
-            .scalar_at(index)
-            .vortex_expect("offsets must support scalar_at"))
+            .execute_scalar(index, &mut LEGACY_SESSION.create_execution_ctx())
+            .vortex_expect("offsets must support execute_scalar"))
             .try_into()
             .vortex_expect("Failed to convert offset to usize")
     }

@@ -14,8 +14,8 @@ impl OperationsVTable<Variant> for Variant {
     fn scalar_at(
         array: ArrayView<'_, Variant>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        array.child().scalar_at(index)
+        array.child().execute_scalar(index, ctx)
     }
 }
