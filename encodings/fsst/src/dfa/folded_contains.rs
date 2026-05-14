@@ -390,6 +390,23 @@ impl FoldedContainsDfa {
         }
     }
 
+    /// The bucketed (c1, c2_set) pair buckets for this needle, if any.
+    /// Exposed to the multi-needle Fat Teddy planner so it can union the
+    /// per-needle c2 sets per bucketed c1 across needles.
+    #[inline]
+    pub(super) fn bucketed_pair_codes_slice(&self) -> Option<&[(u8, Vec<u8>)]> {
+        self.bucketed_pair_codes.as_deref()
+    }
+
+    /// The single-step-accept c1 codes for this needle, if any. Exposed
+    /// to the Fat Teddy planner so it can fold SSA c1's into the
+    /// bucket's c1 set (with the bucket's c2 union acting as a wildcard
+    /// for SSA candidates).
+    #[inline]
+    pub(super) fn single_step_accept_codes_slice(&self) -> Option<&[u8]> {
+        self.single_step_accept_codes.as_deref()
+    }
+
     #[inline]
     pub(crate) fn scan_plan_name(&self) -> &'static str {
         if self.escape_only_pattern.is_some() {

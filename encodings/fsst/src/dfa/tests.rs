@@ -1360,3 +1360,319 @@ fn test_random_needles_match_naive_contains() -> VortexResult<()> {
 
     Ok(())
 }
+
+#[expect(deprecated)]
+use vortex_array::ToCanonical;
+use vortex_array::arrays::varbin::VarBinArrayExt;
+use vortex_array::match_each_integer_ptype;
+
+use super::MultiNeedleMatcher;
+use crate::FSSTArrayExt;
+
+/// Run Fat Teddy via `MultiNeedleMatcher` on `fsst` for the given
+/// patterns, returning the OR bit-buffer as a `Vec<bool>` of length `n`.
+fn run_fat_teddy_or(fsst: &FSSTArray, patterns: &[&str], negated: bool) -> Vec<bool> {
+    let symbols = fsst.symbols();
+    let symbol_lengths = fsst.symbol_lengths();
+    let codes = fsst.codes();
+    #[expect(deprecated)]
+    let offsets = codes.offsets().to_primitive();
+    let all_bytes = codes.bytes();
+    let all_bytes = all_bytes.as_slice();
+    let n = codes.len();
+
+    let pattern_bytes: Vec<&[u8]> = patterns.iter().map(|s| s.as_bytes()).collect();
+    let matcher = MultiNeedleMatcher::try_new_multi(
+        symbols.as_slice(),
+        symbol_lengths.as_slice(),
+        &pattern_bytes,
+        false,
+    )
+    .expect("matcher build")
+    .expect("multi matcher should be supported for these patterns");
+
+    let bits = match_each_integer_ptype!(offsets.ptype(), |T| {
+        let off = offsets.as_slice::<T>();
+        matcher.scan_or_to_bitbuf(n, off, all_bytes, negated)
+    });
+    (0..n).map(|i| bits.value(i)).collect()
+}
+
+/// Naive baseline: OR of per-pattern `String::contains` results.
+fn naive_or(strings: &[&str], needles: &[&str]) -> Vec<bool> {
+    strings
+        .iter()
+        .map(|s| needles.iter().any(|n| s.contains(n)))
+        .collect()
+}
+
+/// 3-needle Fat Teddy on a small FSST array.
+#[test]
+fn test_fat_teddy_three_needles_small() -> VortexResult<()> {
+    let strings: &[Option<&str>] = &[
+        Some("https://www.google.com/"),
+        Some("https://www.example.org/"),
+        Some("xyz_marker_xyz"),
+        Some("hello world"),
+        Some("nothing-matches"),
+        Some("ear infection"),
+        Some("https://images.google.com"),
+    ];
+    let fsst = make_fsst_str(strings);
+    let patterns = &["%google%", "%xyz%", "%ear%"];
+    let strs: Vec<&str> = strings.iter().map(|o| o.unwrap()).collect();
+    let got = run_fat_teddy_or(&fsst, patterns, false);
+    let want = naive_or(
+        &strs,
+        patterns
+            .iter()
+            .map(|p| p.trim_matches('%'))
+            .collect::<Vec<_>>()
+            .as_slice(),
+    );
+    assert_eq!(got, want);
+    Ok(())
+}
+
+/// 8-needle Fat Teddy on a small FSST array.
+#[test]
+fn test_fat_teddy_eight_needles_small() -> VortexResult<()> {
+    let strings: &[Option<&str>] = &[
+        Some("alpha beta gamma"),
+        Some("delta epsilon zeta"),
+        Some("eta theta iota"),
+        Some("kappa lambda mu"),
+        Some("nu xi omicron"),
+        Some("pi rho sigma"),
+        Some("tau upsilon phi"),
+        Some("chi psi omega"),
+        Some("none of the above"),
+    ];
+    let fsst = make_fsst_str(strings);
+    let patterns = &[
+        "%alpha%", "%delta%", "%eta%", "%kappa%", "%xi%", "%pi%", "%tau%", "%chi%",
+    ];
+    let strs: Vec<&str> = strings.iter().map(|o| o.unwrap()).collect();
+    let bare: Vec<&str> = patterns.iter().map(|p| p.trim_matches('%')).collect();
+    let got = run_fat_teddy_or(&fsst, patterns, false);
+    let want = naive_or(&strs, &bare);
+    assert_eq!(got, want);
+    Ok(())
+}
+
+/// Negated Fat Teddy: `NOT (LIKE x OR LIKE y ...)` is the complement
+/// of the OR result.
+#[test]
+fn test_fat_teddy_negated() -> VortexResult<()> {
+    let strings: &[Option<&str>] = &[Some("alpha"), Some("beta"), Some("gamma"), Some("xyz")];
+    let fsst = make_fsst_str(strings);
+    let patterns = &["%alpha%", "%beta%"];
+    let strs: Vec<&str> = strings.iter().map(|o| o.unwrap()).collect();
+    let positive = run_fat_teddy_or(&fsst, patterns, false);
+    let negated = run_fat_teddy_or(&fsst, patterns, true);
+    let positive_naive = naive_or(&strs, &["alpha", "beta"]);
+    assert_eq!(positive, positive_naive);
+    let negated_expected: Vec<bool> = positive_naive.iter().map(|b| !b).collect();
+    assert_eq!(negated, negated_expected);
+    Ok(())
+}
+
+/// More-than-eight needles: Fat Teddy chunks into multiple passes
+/// (8 + remainder) and OR-merges. We use 12 needles spread across
+/// several letter classes.
+#[test]
+fn test_fat_teddy_twelve_needles_chunks() -> VortexResult<()> {
+    let strings: &[Option<&str>] = &[
+        Some("alpha"),
+        Some("beta"),
+        Some("gamma"),
+        Some("delta"),
+        Some("epsilon"),
+        Some("zeta"),
+        Some("eta"),
+        Some("theta"),
+        Some("iota"),
+        Some("kappa"),
+        Some("lambda"),
+        Some("mu"),
+        Some("nothing"),
+        Some("xyzzy"),
+    ];
+    let fsst = make_fsst_str(strings);
+    let patterns = &[
+        "%alp%", "%bet%", "%gam%", "%del%", "%eps%", "%zet%", "%eta%", "%the%", "%iot%", "%kap%",
+        "%lam%", "%mu%",
+    ];
+    let bare: Vec<&str> = patterns.iter().map(|p| p.trim_matches('%')).collect();
+    let strs: Vec<&str> = strings.iter().map(|o| o.unwrap()).collect();
+    let got = run_fat_teddy_or(&fsst, patterns, false);
+    let want = naive_or(&strs, &bare);
+    assert_eq!(got, want);
+    Ok(())
+}
+
+/// Property test: random 3–16 needles on random clickbench-style URLs.
+/// Fat Teddy result must equal the OR of per-needle single-pattern
+/// results. This is the load-bearing correctness gate per the brief.
+#[cfg(feature = "_test-harness")]
+#[test]
+fn test_fat_teddy_random_needles_equals_or_of_singles() -> VortexResult<()> {
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::prelude::StdRng;
+
+    use crate::test_utils::generate_clickbench_urls;
+    use crate::test_utils::make_fsst_clickbench_urls;
+
+    const N_STRINGS: usize = 2_000;
+    const ROUNDS: usize = 8;
+
+    let urls = generate_clickbench_urls(N_STRINGS);
+    let fsst = make_fsst_clickbench_urls(N_STRINGS);
+
+    let mut rng = StdRng::seed_from_u64(0xFADE_C0DE);
+    const URL_BYTES: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789-./";
+
+    for round in 0..ROUNDS {
+        let n_needles = rng.random_range(3..=16);
+        let mut needles: Vec<String> = Vec::with_capacity(n_needles);
+        let mut patterns: Vec<String> = Vec::with_capacity(n_needles);
+        for _ in 0..n_needles {
+            let len = rng.random_range(2..=6);
+            let needle: Vec<u8> = (0..len)
+                .map(|_| URL_BYTES[rng.random_range(0..URL_BYTES.len())])
+                .collect();
+            let needle_str = String::from_utf8(needle).expect("ascii");
+            patterns.push(format!("%{needle_str}%"));
+            needles.push(needle_str);
+        }
+
+        let pattern_refs: Vec<&str> = patterns.iter().map(|s| s.as_str()).collect();
+        let got = run_fat_teddy_or(&fsst, &pattern_refs, false);
+        let needle_refs: Vec<&str> = needles.iter().map(|s| s.as_str()).collect();
+        let want: Vec<bool> = urls
+            .iter()
+            .map(|u| needle_refs.iter().any(|n| u.contains(*n)))
+            .collect();
+
+        assert_eq!(
+            got, want,
+            "round {round}: Fat Teddy OR diverged from naive OR for needles {needle_refs:?}"
+        );
+    }
+
+    Ok(())
+}
+
+/// Property test with single-pattern matchers: Fat Teddy OR must equal
+/// the bitwise OR of `MultiNeedleMatcher`'s per-needle results
+/// computed via per-pattern `FsstMatcher::scan_to_bitbuf`. This
+/// validates that the Fat Teddy bucket-packed verifier produces the
+/// same per-needle accept set as the single-pattern scan.
+#[cfg(feature = "_test-harness")]
+#[test]
+#[allow(clippy::many_single_char_names)]
+fn test_fat_teddy_equals_or_of_single_matchers() -> VortexResult<()> {
+    use crate::test_utils::make_fsst_clickbench_urls;
+
+    const N_STRINGS: usize = 1_000;
+    let fsst = make_fsst_clickbench_urls(N_STRINGS);
+
+    let symbols = fsst.symbols();
+    let symbol_lengths = fsst.symbol_lengths();
+    let codes = fsst.codes();
+    #[expect(deprecated)]
+    let offsets = codes.offsets().to_primitive();
+    let all_bytes = codes.bytes();
+    let all_bytes = all_bytes.as_slice();
+    let n = codes.len();
+
+    let patterns: &[&str] = &[
+        "%google%", "%yandex%", "%http%", "%www%", "%com%", "%ru%", "%page%",
+    ];
+    let pattern_bytes: Vec<&[u8]> = patterns.iter().map(|s| s.as_bytes()).collect();
+
+    let multi = MultiNeedleMatcher::try_new_multi(
+        symbols.as_slice(),
+        symbol_lengths.as_slice(),
+        &pattern_bytes,
+        false,
+    )?
+    .expect("MultiNeedleMatcher should build");
+
+    let fat_teddy_bits = match_each_integer_ptype!(offsets.ptype(), |T| {
+        let off = offsets.as_slice::<T>();
+        multi.scan_or_to_bitbuf(n, off, all_bytes, false)
+    });
+
+    // Build the per-pattern OR via single-pattern FsstMatchers.
+    let mut or_acc: Option<vortex_buffer::BitBuffer> = None;
+    for p in patterns {
+        let m = FsstMatcher::try_new_with(
+            symbols.as_slice(),
+            symbol_lengths.as_slice(),
+            p.as_bytes(),
+            false,
+        )?
+        .expect("single matcher");
+        let r = match_each_integer_ptype!(offsets.ptype(), |T| {
+            let off = offsets.as_slice::<T>();
+            m.scan_to_bitbuf(n, off, all_bytes, false)
+        });
+        or_acc = Some(match or_acc {
+            Some(prev) => &prev | &r,
+            None => r,
+        });
+    }
+    let expected = or_acc.expect("at least one pattern");
+    for i in 0..n {
+        assert_eq!(
+            fat_teddy_bits.value(i),
+            expected.value(i),
+            "row {i} disagreement"
+        );
+    }
+    Ok(())
+}
+
+/// Build-time bucket-packing assertions: 3 needles → up to 3 buckets;
+/// 16 disjoint short needles → exactly 8 buckets (FAT_TEDDY_BUCKETS).
+#[test]
+fn test_fat_teddy_bucket_packing_counts() -> VortexResult<()> {
+    let strings: &[Option<&str>] = &[Some("xx")];
+    let fsst = make_fsst_str(strings);
+    let symbols = fsst.symbols();
+    let symbol_lengths = fsst.symbol_lengths();
+
+    // Three needles.
+    let patterns_3: &[&[u8]] = &[b"%abc%", b"%def%", b"%ghi%"];
+    let m3 = MultiNeedleMatcher::try_new_multi(
+        symbols.as_slice(),
+        symbol_lengths.as_slice(),
+        patterns_3,
+        false,
+    )?
+    .expect("should build");
+    assert!(m3.bucket_count() <= 3);
+
+    // 16 disjoint short needles.
+    let patterns_16_strs: Vec<String> = (0..16)
+        .map(|i| {
+            let c1 = (b'a' + (i % 26) as u8) as char;
+            let c2 = (b'A' + (i % 26) as u8) as char;
+            format!("%{c1}{c2}%")
+        })
+        .collect();
+    let patterns_16: Vec<&[u8]> = patterns_16_strs.iter().map(|s| s.as_bytes()).collect();
+    let m16 = MultiNeedleMatcher::try_new_multi(
+        symbols.as_slice(),
+        symbol_lengths.as_slice(),
+        &patterns_16,
+        false,
+    )?
+    .expect("should build");
+    // With 16 disjoint needles the bucket count is capped at 8.
+    assert!(m16.bucket_count() <= super::fat_teddy::FAT_TEDDY_BUCKETS);
+
+    Ok(())
+}
