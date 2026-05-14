@@ -13,13 +13,15 @@ header = """
 // THIS FILE IS AUTO-GENERATED, DO NOT MAKE EDITS DIRECTLY
 //
 """
+#[export]
+#include = ["FFI_ArrowArray", "FFI_ArrowSchema"]
 
 [export.rename]
 "f16" = "uint16_t"
 
 [parse]
 parse_deps = true
-include = ["vortex", "vortex-array"]
+include = ["vortex", "vortex-array", "arrow-schema", "arrow-data"]
 
 [parse.expand]
 crates = ["vortex-ffi"]

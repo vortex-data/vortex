@@ -19,6 +19,7 @@ mod session;
 mod sink;
 mod string;
 mod struct_fields;
+mod arrow;
 
 use std::ffi::CStr;
 use std::ffi::c_char;

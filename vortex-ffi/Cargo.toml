@@ -20,6 +20,7 @@ categories = { workspace = true }
 all-features = true
 
 [dependencies]
+arrow-array = { workspace = true, features = ["ffi"] }
 async-fs = { workspace = true }
 futures = { workspace = true }
 itertools = { workspace = true }
