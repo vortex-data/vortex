@@ -13,7 +13,6 @@ pub use stats_set::*;
 mod array;
 pub mod expr;
 pub mod flatbuffers;
-pub(crate) mod legacy;
 mod stats_set;
 
 pub use array::*;

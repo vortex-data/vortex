@@ -25,7 +25,9 @@ pub use provider::*;
 pub use stat_bound::*;
 
 use crate::aggregate_fn;
+use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
+use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
 
 #[derive(
@@ -185,6 +187,40 @@ impl Stat {
                 return aggregate_fn::fns::sum::Sum.return_dtype(&EmptyOptions, data_type);
             }
         })
+    }
+
+    /// Return the built-in aggregate function corresponding to this statistic, if one exists.
+    pub fn aggregate_fn(&self) -> Option<AggregateFnRef> {
+        Some(match self {
+            Self::Sum => aggregate_fn::fns::sum::Sum.bind(EmptyOptions),
+            Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
+            Self::UncompressedSizeInBytes => {
+                aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+                    .bind(EmptyOptions)
+            }
+            Self::IsConstant
+            | Self::IsSorted
+            | Self::IsStrictSorted
+            | Self::Max
+            | Self::Min
+            | Self::NullCount => return None,
+        })
+    }
+
+    /// Return the statistic represented by `aggregate_fn`, if it has a legacy stat slot.
+    pub fn from_aggregate_fn(aggregate_fn: &AggregateFnRef) -> Option<Self> {
+        if aggregate_fn.is::<aggregate_fn::fns::sum::Sum>() {
+            return Some(Self::Sum);
+        }
+        if aggregate_fn.is::<aggregate_fn::fns::nan_count::NanCount>() {
+            return Some(Self::NaNCount);
+        }
+        if aggregate_fn
+            .is::<aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes>()
+        {
+            return Some(Self::UncompressedSizeInBytes);
+        }
+        None
     }
 
     pub fn name(&self) -> &str {

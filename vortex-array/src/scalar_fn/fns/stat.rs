@@ -16,6 +16,7 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::arrays::ConstantArray;
 use crate::dtype::DType;
 use crate::expr::Expression;
+use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
@@ -23,7 +24,6 @@ use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
-use crate::stats::legacy::legacy_stat_for_aggregate;
 
 /// Options for the `stat` scalar function.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -133,15 +133,20 @@ fn stat_array(
     dtype: DType,
     len: usize,
 ) -> VortexResult<ArrayRef> {
-    let value = legacy_stat_for_aggregate(aggregate_fn)
-        .and_then(|stat| {
-            array
-                .statistics()
-                .with_typed_stats_set(|stats| stats.get(stat))
-        })
-        // We don't mind whether the stat is approxed or not, since these are row-wise bounds
-        .map(|stat| stat.into_inner())
-        .and_then(Scalar::into_value);
+    let value = if let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) {
+        array
+            .statistics()
+            .with_typed_stats_set(|stats| stats.get(stat))
+            // We don't mind whether the stat is approxed or not, since these are row-wise bounds.
+            .map(|stat| stat.into_inner())
+            .and_then(Scalar::into_value)
+    } else {
+        tracing::trace!(
+            "No legacy Stat slot for aggregate {}; stat expression will resolve to null",
+            aggregate_fn
+        );
+        None
+    };
 
     let scalar = Scalar::try_new(dtype, value)?;
     Ok(ConstantArray::new(scalar, len).into_array())
