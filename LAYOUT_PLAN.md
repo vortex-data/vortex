@@ -851,7 +851,7 @@ Run to fixed point per rule, then proceed to the next.
 
 ## Migration plan
 
-PRs land in order on the `ngates/layoutv2-N` stack. The first four
+PRs land in order on the `ngates/layoutv2-N` stack. The first five
 have already shipped:
 
 - **PR1 — Trait skeleton + design doc.** `LayoutPlan` with the full
@@ -868,19 +868,18 @@ have already shipped:
   (`DictDecodePlan`); `StructLayout::plan` does field routing via
   `partition()`; `AlignedArrayStream` k-way zip in `StructPlan`;
   opener uses linear byte→row interp instead of zone alignment.
+- **PR5 — `FilterPlan` + `AndBoolStreamsPlan`.** End-to-end filtered
+  scan. `Scan::build` decomposes the filter into AND conjuncts,
+  plans each as a bool-stream against the layout, ANDs them with
+  `AndBoolStreamsPlan`, and wraps projection with `FilterPlan`.
+  Opener drops the `filter.is_none()` eligibility check.
+  **`RowDemand` publishing is still stubbed** — the demand
+  short-circuit moves to PR7 alongside `Let`/`Use`.
 
 Remaining (numbering is loose — some of these may split or fuse as
 they land):
 
-- **PR5 — `FilterPlan` + `AndBoolStreamsPlan` + minimal `RowDemand`.**
-  End-to-end filtered scan. RowDemand windows allocated against the
-  scan's input row range (per the "post-selected, pre-filter" model
-  in § SIPs / RowDemand). `FilterPlan` publishes per-conjunct masks;
-  `AndBoolStreamsPlan` zips the bool streams.
-- **PR6 — Pushdown rules.** `PushFilterThroughStruct`,
-  `PushFilterThroughChunked`, `FuseFilterIntoFlat`. Run-to-fixed-point
-  driver. `EnforceOrdering` post-pass.
-- **PR7 — `Let` / `Use` (sharing primitive) + `CommonSubplanElimination`
+- **PR6 — `Let` / `Use` (sharing primitive) + `CommonSubplanElimination`
   pass.** Single primitive replaces the conceptual `TeePlan`: a `Let p
   = source` node materialises a source once and exposes N consumers
   through `Use(p)` references. Discriminates between streaming
@@ -890,14 +889,20 @@ they land):
   structural plan-equality and rewrites to `Let`/`Use`. **Once this
   lands, the redundant per-execute reads from PR4 collapse**
   (DictDecodePlan re-reading values per call, FlatPlan re-fetching
-  segments) — that's the main perf-recovery PR.
-- **PR8 — Zoned pruning.** `ZonedPruningPlan` that publishes to
+  segments) — that's the main perf-recovery PR for wide-table reads.
+- **PR7 — Zoned pruning.** `ZonedPruningPlan` that publishes to
   `RowDemand` from zone-map stats. Lights up the
-  pruning-via-stats path that `ZonedLayout::plan` currently no-ops.
-  Depends on PR5 (RowDemand) and PR7 (Let/Use for zone-map sharing
-  across conjuncts).
+  pruning-via-stats path that `ZonedLayout::plan` currently no-ops,
+  and is the direct fix for the catastrophic ClickBench-style
+  regressions on highly-selective filters. Depends on PR6 (Let/Use
+  for zone-map sharing across conjuncts).
+- **PR8 — Pushdown rules.** `PushFilterThroughStruct`,
+  `PushFilterThroughChunked`, `FuseFilterIntoFlat`. Run-to-fixed-point
+  driver. `EnforceOrdering` post-pass. Reordered after PR6/PR7
+  because the bench shows perf depends on closing the redundancy
+  and pruning gaps first; pushdown then refines what remains.
 - **PR9 — `DictPlan` predicate rewrite.** `col = "Alice"` →
-  `codes IN {17}` rewriting on the way down; combined with PR8 makes
+  `codes IN {17}` rewriting on the way down; combined with PR7 makes
   codes-zoned pruning work end-to-end.
 - **PR10 — `PartialAggregatePlan`** + DataFusion physical rule that
   places it over Vortex scans. `PushPartialAggThroughChunked` +

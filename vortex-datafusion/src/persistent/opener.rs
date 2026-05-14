@@ -440,15 +440,15 @@ impl FileOpener for VortexOpener {
             // The downstream pipeline (slicing into batch_size, error
             // mapping, leftover projection) is identical across both.
             //
-            // V2 today only handles the projection-only shape — see
-            // `vortex::layout::v2::scan::Scan::build` and
-            // `LAYOUT_PLAN.md` § Scan construction. Anything outside that
-            // (filter, limit, non-`All` selection) falls back to v1.
+            // V2 supports projection and filter expressions. Limits and
+            // non-`All` selections fall back to v1 — neither has the
+            // plumbing on the V2 side yet (limit needs a counting
+            // wrapper plan, selection needs row-pre-mask wiring).
+            //
             // The row range plumbs through unchanged: V2 builds a plan
             // over the whole file, then `execute(row_range, ...)` reads
             // exactly the bytes the opener was asked for.
             let v2_eligible = v2_toggle::use_v2_scan()
-                && filter.is_none()
                 && limit.is_none()
                 && matches!(access_plan_selection.as_ref(), None | Some(Selection::All));
 
@@ -458,7 +458,7 @@ impl FileOpener for VortexOpener {
                     segment_source: vxf.segment_source(),
                     session: session.clone(),
                     projection: scan_projection.clone(),
-                    filter: None,
+                    filter: filter.clone(),
                     selection: Selection::All,
                 };
                 match scan.build() {

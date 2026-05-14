@@ -12,6 +12,7 @@
 use std::sync::Arc;
 
 use vortex_array::expr::Expression;
+use vortex_array::expr::split_conjunction;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_scan::selection::Selection;
@@ -19,7 +20,9 @@ use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::segments::SegmentSource;
+use crate::v2::and_bool::AndBoolStreamsPlan;
 use crate::v2::demand::RowDemand;
+use crate::v2::filter::FilterPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PlanArguments;
 use crate::v2::plan::PlanContext;
@@ -50,14 +53,14 @@ pub struct Scan {
 impl Scan {
     /// Build the layout plan tree for this scan.
     ///
-    /// Projection-only is the only supported shape today. A `Some`
-    /// filter returns an error so callers (e.g. the DataFusion opener)
-    /// can fall back to the v1 [`crate::scan::scan_builder::ScanBuilder`]
-    /// path.
+    /// Projection-only and filtered scans are both supported.
+    /// Selection (row sub-set hints) other than `Selection::All` is
+    /// not yet plumbed through; callers (e.g. the DataFusion opener)
+    /// must fall back to v1 in that case.
     pub fn build(&self) -> VortexResult<LayoutPlanRef> {
-        if self.filter.is_some() {
+        if !matches!(self.selection, Selection::All) {
             vortex_bail!(
-                "Scan::build does not yet support filter expressions; \
+                "Scan::build does not yet support non-`All` selections; \
                  fall back to the v1 ScanBuilder path"
             );
         }
@@ -69,11 +72,43 @@ impl Scan {
             session: self.session.clone(),
         };
 
-        self.layout.plan(PlanArguments {
+        let projection_plan = self.layout.plan(PlanArguments {
             selection: self.selection.clone(),
             expr: self.projection.clone(),
-            ctx,
-        })
+            ctx: ctx.clone(),
+        })?;
+
+        let Some(filter) = self.filter.as_ref() else {
+            return Ok(projection_plan);
+        };
+
+        // Decompose the filter into top-level AND conjuncts, plan
+        // each as a bool-stream against the layout, AND them together,
+        // and wrap projection with FilterPlan. See `LAYOUT_PLAN.md`
+        // § Scan construction.
+        let conjuncts = split_conjunction(filter);
+        let row_count = self.layout.row_count();
+        let conjunct_plans: Vec<LayoutPlanRef> = conjuncts
+            .into_iter()
+            .map(|expr| {
+                self.layout.plan(PlanArguments {
+                    selection: self.selection.clone(),
+                    expr,
+                    ctx: ctx.clone(),
+                })
+            })
+            .collect::<VortexResult<_>>()?;
+
+        let mask_plan: LayoutPlanRef = match conjunct_plans.len() {
+            0 => return Ok(projection_plan),
+            1 => conjunct_plans
+                .into_iter()
+                .next()
+                .ok_or_else(|| vortex_error::vortex_err!("len-1 conjunct_plans was empty"))?,
+            _ => Arc::new(AndBoolStreamsPlan::new(conjunct_plans, row_count)),
+        };
+
+        Ok(Arc::new(FilterPlan::new(projection_plan, mask_plan)))
     }
 }
 
@@ -177,19 +212,21 @@ mod tests {
 
     /// Drive the legacy [`ScanBuilder`] path to read the layout into a single array.
     fn read_v1(segments: Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexResult<ArrayRef> {
-        read_v1_with(segments, layout, root())
+        read_v1_with(segments, layout, root(), None)
     }
 
     fn read_v1_with(
         segments: Arc<dyn SegmentSource>,
         layout: &LayoutRef,
         projection: vortex_array::expr::Expression,
+        filter: Option<vortex_array::expr::Expression>,
     ) -> VortexResult<ArrayRef> {
         let (chunks, dtype) = block_on(|handle| async move {
             let session = SESSION.clone().with_handle(handle);
             let reader = layout.new_reader("v1".into(), segments, &session)?;
             let stream = ScanBuilder::new(session, reader)
                 .with_projection(projection)
+                .with_some_filter(filter)
                 .into_array_stream()?;
             let dtype = stream.dtype().clone();
             let mut stream = stream;
@@ -204,13 +241,14 @@ mod tests {
 
     /// Drive the v2 [`Scan`] / [`crate::v2::plan::LayoutPlan`] path.
     fn read_v2(segments: Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexResult<ArrayRef> {
-        read_v2_with(segments, layout, root())
+        read_v2_with(segments, layout, root(), None)
     }
 
     fn read_v2_with(
         segments: Arc<dyn SegmentSource>,
         layout: &LayoutRef,
         projection: vortex_array::expr::Expression,
+        filter: Option<vortex_array::expr::Expression>,
     ) -> VortexResult<ArrayRef> {
         let layout = Arc::clone(layout);
         let row_count = layout.row_count();
@@ -221,7 +259,7 @@ mod tests {
                 segment_source: segments,
                 session: session.clone(),
                 projection,
-                filter: None,
+                filter,
                 selection: Selection::All,
             };
             let plan = scan.build()?;
@@ -307,8 +345,8 @@ mod tests {
         let (segments, layout, _) = build_chunked_struct_layout();
 
         let proj = get_item("a", root());
-        let v1 = read_v1_with(Arc::clone(&segments), &layout, proj.clone())?;
-        let v2 = read_v2_with(Arc::clone(&segments), &layout, proj)?;
+        let v1 = read_v1_with(Arc::clone(&segments), &layout, proj.clone(), None)?;
+        let v2 = read_v2_with(Arc::clone(&segments), &layout, proj, None)?;
 
         assert_arrays_eq!(v1, v2);
         Ok(())
@@ -331,8 +369,8 @@ mod tests {
             ],
             Nullability::NonNullable,
         );
-        let v1 = read_v1_with(Arc::clone(&segments), &layout, proj.clone())?;
-        let v2 = read_v2_with(Arc::clone(&segments), &layout, proj)?;
+        let v1 = read_v1_with(Arc::clone(&segments), &layout, proj.clone(), None)?;
+        let v2 = read_v2_with(Arc::clone(&segments), &layout, proj, None)?;
 
         assert_arrays_eq!(v1, v2);
         Ok(())
@@ -425,13 +463,71 @@ mod tests {
         use vortex_array::expr::pack;
         let (segments, layout, _) = build_chunked_struct_layout();
 
-        let proj = pack(Vec::<(&str, vortex_array::expr::Expression)>::new(), Nullability::NonNullable);
-        let v1 = read_v1_with(Arc::clone(&segments), &layout, proj.clone())?;
-        let v2 = read_v2_with(Arc::clone(&segments), &layout, proj)?;
+        let proj = pack(
+            Vec::<(&str, vortex_array::expr::Expression)>::new(),
+            Nullability::NonNullable,
+        );
+        let v1 = read_v1_with(Arc::clone(&segments), &layout, proj.clone(), None)?;
+        let v2 = read_v2_with(Arc::clone(&segments), &layout, proj, None)?;
 
         assert_arrays_eq!(v1, v2);
         // Five rows of empty struct.
         assert_eq!(v2.len(), 5);
+        Ok(())
+    }
+
+    /// V1/V2 must agree on a single-conjunct filtered scan.
+    #[test]
+    fn diff_v1_v2_filtered_chunked_struct_single_conjunct() -> VortexResult<()> {
+        use vortex_array::expr::eq;
+        use vortex_array::expr::get_item;
+        use vortex_array::expr::lit;
+        let (segments, layout, _) = build_chunked_struct_layout();
+
+        let projection = root();
+        let filter = eq(get_item("a", root()), lit(2i32));
+
+        let v1 = read_v1_with(
+            Arc::clone(&segments),
+            &layout,
+            projection.clone(),
+            Some(filter.clone()),
+        )?;
+        let v2 = read_v2_with(Arc::clone(&segments), &layout, projection, Some(filter))?;
+
+        assert_arrays_eq!(v1, v2);
+        Ok(())
+    }
+
+    /// V1/V2 must agree when the filter has multiple AND conjuncts —
+    /// `Scan::build` decomposes via `split_conjunction` and combines
+    /// with `AndBoolStreamsPlan`.
+    #[test]
+    fn diff_v1_v2_filtered_chunked_struct_two_conjuncts() -> VortexResult<()> {
+        use vortex_array::expr::and;
+        use vortex_array::expr::get_item;
+        use vortex_array::expr::gt;
+        use vortex_array::expr::lit;
+        use vortex_array::expr::lt;
+        let (segments, layout, _) = build_chunked_struct_layout();
+
+        let projection = root();
+        // a > 1 AND b < 50 — touches both fields, ensures the AND
+        // path runs (vs the single-mask short-circuit).
+        let filter = and(
+            gt(get_item("a", root()), lit(1i32)),
+            lt(get_item("b", root()), lit(50i32)),
+        );
+
+        let v1 = read_v1_with(
+            Arc::clone(&segments),
+            &layout,
+            projection.clone(),
+            Some(filter.clone()),
+        )?;
+        let v2 = read_v2_with(Arc::clone(&segments), &layout, projection, Some(filter))?;
+
+        assert_arrays_eq!(v1, v2);
         Ok(())
     }
 }

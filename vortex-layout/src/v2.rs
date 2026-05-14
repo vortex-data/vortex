@@ -12,10 +12,12 @@
 //! See `LAYOUT_PLAN.md` at the repo root for the design.
 
 pub mod aligned;
+pub mod and_bool;
 pub mod chunked;
 pub mod demand;
 pub mod dict;
 pub mod empty_struct;
+pub mod filter;
 pub mod flat;
 pub mod plan;
 pub mod project;
