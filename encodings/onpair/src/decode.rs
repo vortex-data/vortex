@@ -112,18 +112,91 @@ pub(crate) struct DecodeView<'a> {
 impl<'a> DecodeView<'a> {
     /// Decode row `row` into `out` (appended).
     ///
-    /// Hot path. LLVM vectorises the `extend_from_slice` for runs where
-    /// successive tokens land on consecutive dict bytes, and for long
-    /// strings the inner copy is a memcpy regardless.
+    /// Fast path matching OnPair's C++ decoder: a fixed [`MAX_TOKEN_SIZE`]
+    /// memcpy per token, regardless of the token's true length. The output
+    /// cursor advances by the *true* length, so the next memcpy overwrites
+    /// the trailing slop from the previous one. Requires:
+    ///
+    /// * `dict_bytes` padded with `MAX_TOKEN_SIZE` trailing bytes (the
+    ///   compress path enforces this).
+    /// * `out` has at least `MAX_TOKEN_SIZE` bytes of headroom past the
+    ///   decoded end. The function reserves this implicitly.
+    ///
+    /// On x86_64 / aarch64 LLVM lowers the fixed-size copy to a single
+    /// 16-byte unaligned vector store, making each token an O(1) SIMD op.
     #[inline]
     pub fn decode_row_into(&self, row: usize, out: &mut Vec<u8>) {
         let lo = self.codes_offsets[row] as usize;
         let hi = self.codes_offsets[row + 1] as usize;
         let row_codes = &self.codes[lo..hi];
+
+        // Pre-compute the true decoded length so we can size `out` once and
+        // use the unchecked-write fast loop below.
+        let mut decoded_len = 0usize;
         for &c in row_codes {
             let dlo = self.dict_offsets[c as usize] as usize;
             let dhi = self.dict_offsets[c as usize + 1] as usize;
-            out.extend_from_slice(&self.dict_bytes[dlo..dhi]);
+            decoded_len += dhi - dlo;
+        }
+
+        let written_start = out.len();
+        out.reserve(decoded_len + crate::MAX_TOKEN_SIZE);
+        // SAFETY: we just reserved at least `decoded_len + MAX_TOKEN_SIZE`
+        // bytes past `written_start`. The over-copy writes
+        // `MAX_TOKEN_SIZE` bytes per token, but we only advance the cursor
+        // by the true token length, so the final `set_len` reflects the
+        // true decoded length.
+        unsafe {
+            let dst_base = out.as_mut_ptr().add(written_start);
+            let mut cursor = 0usize;
+            for &c in row_codes {
+                let dlo = *self.dict_offsets.get_unchecked(c as usize) as usize;
+                let dhi = *self.dict_offsets.get_unchecked(c as usize + 1) as usize;
+                let src = self.dict_bytes.as_ptr().add(dlo);
+                let dst = dst_base.add(cursor);
+                // Fixed 16-byte copy — LLVM lowers to a SIMD store.
+                std::ptr::copy_nonoverlapping(src, dst, crate::MAX_TOKEN_SIZE);
+                cursor += dhi - dlo;
+            }
+            out.set_len(written_start + decoded_len);
+        }
+    }
+
+    /// Bulk decode rows `[start, start + count)` contiguously into `out`.
+    /// Reuses the same over-copy strategy as [`Self::decode_row_into`] but
+    /// computes lengths only once across the full window, which removes the
+    /// per-row reserve / set_len overhead in the canonicalise hot path.
+    pub fn decode_rows_into(&self, start: usize, count: usize, out: &mut Vec<u8>) {
+        if count == 0 {
+            return;
+        }
+        let lo = self.codes_offsets[start] as usize;
+        let hi = self.codes_offsets[start + count] as usize;
+        let codes = &self.codes[lo..hi];
+
+        let mut decoded_len = 0usize;
+        for &c in codes {
+            let dlo = self.dict_offsets[c as usize] as usize;
+            let dhi = self.dict_offsets[c as usize + 1] as usize;
+            decoded_len += dhi - dlo;
+        }
+
+        let written_start = out.len();
+        out.reserve(decoded_len + crate::MAX_TOKEN_SIZE);
+        // SAFETY: same invariants as `decode_row_into` — pad written by
+        // `MAX_TOKEN_SIZE`, advance cursor by true length, then truncate.
+        unsafe {
+            let dst_base = out.as_mut_ptr().add(written_start);
+            let mut cursor = 0usize;
+            for &c in codes {
+                let dlo = *self.dict_offsets.get_unchecked(c as usize) as usize;
+                let dhi = *self.dict_offsets.get_unchecked(c as usize + 1) as usize;
+                let src = self.dict_bytes.as_ptr().add(dlo);
+                let dst = dst_base.add(cursor);
+                std::ptr::copy_nonoverlapping(src, dst, crate::MAX_TOKEN_SIZE);
+                cursor += dhi - dlo;
+            }
+            out.set_len(written_start + decoded_len);
         }
     }
 

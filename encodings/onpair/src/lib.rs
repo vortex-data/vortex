@@ -20,6 +20,13 @@ mod ops;
 mod rules;
 mod slice;
 
+/// Fixed token-byte over-copy width. Matches OnPair C++'s `MAX_TOKEN_SIZE`:
+/// the decoder copies exactly this many bytes per token and advances the
+/// output cursor by the *true* token length. Lets the compiler emit a single
+/// 128-bit SIMD store per token on x86_64 / aarch64 instead of a
+/// variable-length memcpy.
+pub const MAX_TOKEN_SIZE: usize = 16;
+
 #[cfg(test)]
 mod tests;
 

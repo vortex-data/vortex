@@ -105,7 +105,13 @@ fn parts_to_buffers(
         .parts()
         .map_err(|e| vortex_err!("OnPair parts failed: {e}"))?;
     let bits = parts.bits;
-    let dict_bytes = BufferHandle::new_host(ByteBuffer::from(parts.dict_bytes.to_vec()));
+    // Pad the dictionary blob with MAX_TOKEN_SIZE zero bytes so the
+    // over-copy decoder can issue a fixed 16-byte load for every token
+    // without risking an OOB read on the last entry.
+    let mut padded = Vec::with_capacity(parts.dict_bytes.len() + crate::MAX_TOKEN_SIZE);
+    padded.extend_from_slice(parts.dict_bytes);
+    padded.resize(parts.dict_bytes.len() + crate::MAX_TOKEN_SIZE, 0);
+    let dict_bytes = BufferHandle::new_host(ByteBuffer::from(padded));
     let dict_offsets =
         BufferHandle::new_host(Buffer::<u32>::copy_from(parts.dict_offsets).into_byte_buffer());
     let total_tokens = usize::try_from(

@@ -164,6 +164,8 @@ pub const vortex_onpair::DEFAULT_BITS: u32
 
 pub const vortex_onpair::DEFAULT_DICT12_CONFIG: vortex_onpair_sys::ffi::OnPairTrainingConfig
 
+pub const vortex_onpair::MAX_TOKEN_SIZE: usize
+
 pub trait vortex_onpair::OnPairArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_onpair::OnPair>
 
 pub fn vortex_onpair::OnPairArrayExt::array_validity(&self) -> vortex_array::validity::Validity

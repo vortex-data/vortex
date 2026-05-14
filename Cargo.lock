@@ -10969,6 +10969,7 @@ dependencies = [
 name = "vortex-onpair"
 version = "0.1.0"
 dependencies = [
+ "codspeed-divan-compat",
  "parking_lot",
  "prost 0.14.3",
  "rstest",

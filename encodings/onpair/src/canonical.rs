@@ -55,13 +55,12 @@ pub(crate) fn onpair_decode_views(
 
     let inputs = OwnedDecodeInputs::collect(array, ctx)?;
     let dv = inputs.view();
-    let mut out_bytes = ByteBufferMut::with_capacity(total_size + 64);
-    let mut scratch: Vec<u8> = Vec::with_capacity(64);
-    for row in 0..n {
-        scratch.clear();
-        dv.decode_row_into(row, &mut scratch);
-        out_bytes.extend_from_slice(&scratch);
-    }
+    // Bulk decode every row in one shot — the over-copy decoder writes
+    // contiguously into one output buffer with no per-row reserve overhead.
+    let mut buf: Vec<u8> = Vec::with_capacity(total_size + crate::MAX_TOKEN_SIZE);
+    dv.decode_rows_into(0, n, &mut buf);
+    let mut out_bytes = ByteBufferMut::with_capacity(buf.len());
+    out_bytes.extend_from_slice(&buf);
 
     match_each_integer_ptype!(lengths.ptype(), |P| {
         Ok(build_views(
