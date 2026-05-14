@@ -15,6 +15,7 @@ pub mod aligned;
 pub mod chunked;
 pub mod demand;
 pub mod dict;
+pub mod empty_struct;
 pub mod flat;
 pub mod plan;
 pub mod project;

@@ -33,6 +33,7 @@ use crate::children::LayoutChildren;
 use crate::children::OwnedLayoutChildren;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::empty_struct::EmptyStructPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PlanArguments;
 use crate::v2::project::ProjectPlan;
@@ -224,9 +225,11 @@ impl VTable for Struct {
         )?;
 
         if partitions.is_empty() {
-            // Expression doesn't reference any fields (e.g., `lit(1)`).
-            // Fall back to reading every field, then evaluating on top.
-            return plan_full_struct_with_projection(layout, struct_fields, args);
+            // Expression doesn't reference any fields (e.g., `lit(1)`,
+            // `pack([], …)`). Don't read any field data — emit a stream
+            // of empty structs of the right length and evaluate the
+            // expression on top.
+            return plan_no_field_refs(layout, args);
         }
 
         let mut child_plans = Vec::with_capacity(partitions.len());
@@ -314,18 +317,23 @@ fn plan_full_struct(
     )))
 }
 
-/// Same as `plan_full_struct` but additionally wraps the result with a
-/// top-level `ProjectPlan` evaluating the original expression. Used for
-/// expressions that don't actually reference any field (e.g. `lit(1)`).
-fn plan_full_struct_with_projection(
+/// Plan for an expression that doesn't reference any field. We don't
+/// need any field data — emit empty structs of the layout's row count
+/// and apply the expression on top. Saves the per-field `Layout::plan`
+/// traversal for queries like `COUNT(*)` whose scan projection is
+/// `pack([], …)`.
+fn plan_no_field_refs(
     layout: &StructLayout,
-    struct_fields: &StructFields,
     args: PlanArguments,
 ) -> VortexResult<LayoutPlanRef> {
-    let output_dtype = args.expr.return_dtype(&layout.dtype)?;
-    let expr = args.expr.clone();
-    let inner = plan_full_struct(layout, struct_fields, args)?;
-    Ok(Arc::new(ProjectPlan::new(inner, expr, output_dtype)))
+    let inner: LayoutPlanRef = Arc::new(EmptyStructPlan::new(layout.row_count));
+    let inner_dtype = inner.schema().clone();
+    if vortex_array::expr::is_root(&args.expr) {
+        // `root()` is handled by the earlier fast path; defensive fallback.
+        return Ok(inner);
+    }
+    let output_dtype = args.expr.return_dtype(&inner_dtype)?;
+    Ok(Arc::new(ProjectPlan::new(inner, args.expr, output_dtype)))
 }
 
 #[derive(Debug)]

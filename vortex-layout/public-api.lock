@@ -1442,6 +1442,24 @@ pub type vortex_layout::session::LayoutRegistry = vortex_session::registry::Regi
 
 pub mod vortex_layout::v2
 
+pub mod vortex_layout::v2::aligned
+
+pub struct vortex_layout::v2::aligned::AlignedArrayStream
+
+impl vortex_layout::v2::aligned::AlignedArrayStream
+
+pub fn vortex_layout::v2::aligned::AlignedArrayStream::arity(&self) -> usize
+
+pub fn vortex_layout::v2::aligned::AlignedArrayStream::new(alloc::vec::Vec<vortex_array::stream::SendableArrayStream>) -> Self
+
+pub fn vortex_layout::v2::aligned::AlignedArrayStream::with_min_rows(self, usize) -> Self
+
+impl futures_core::stream::Stream for vortex_layout::v2::aligned::AlignedArrayStream
+
+pub type vortex_layout::v2::aligned::AlignedArrayStream::Item = core::result::Result<alloc::vec::Vec<vortex_array::array::erased::ArrayRef>, vortex_error::VortexError>
+
+pub fn vortex_layout::v2::aligned::AlignedArrayStream::poll_next(core::pin::Pin<&mut Self>, &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<core::option::Option<Self::Item>>
+
 pub mod vortex_layout::v2::chunked
 
 pub struct vortex_layout::v2::chunked::ChunkedPlan
@@ -1513,6 +1531,36 @@ pub fn vortex_layout::v2::dict::DictDecodePlan::required_input_ordered(&self) ->
 pub fn vortex_layout::v2::dict::DictDecodePlan::schema(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_layout::v2::dict::DictDecodePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+
+pub mod vortex_layout::v2::empty_struct
+
+pub struct vortex_layout::v2::empty_struct::EmptyStructPlan
+
+impl vortex_layout::v2::empty_struct::EmptyStructPlan
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::new(u64) -> Self
+
+impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::empty_struct::EmptyStructPlan
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
 
 pub mod vortex_layout::v2::flat
 
@@ -1673,6 +1721,28 @@ pub fn vortex_layout::v2::dict::DictDecodePlan::required_input_ordered(&self) ->
 pub fn vortex_layout::v2::dict::DictDecodePlan::schema(&self) -> &vortex_array::dtype::DType
 
 pub fn vortex_layout::v2::dict::DictDecodePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+
+impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::empty_struct::EmptyStructPlan
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
 
 impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::flat::FlatPlan
 

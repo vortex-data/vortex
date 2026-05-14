@@ -412,4 +412,26 @@ mod tests {
         assert_arrays_eq!(v2, expected);
         Ok(())
     }
+
+    /// `pack([], …)` projection: no field references. V2 must build a
+    /// plan that does not recurse into any field's `Layout::plan` and
+    /// emit a stream of empty structs of the layout's row count. The
+    /// pre-fix behaviour would still plan every field through
+    /// `plan_full_struct_with_projection`, paying per-field setup cost
+    /// (and surfacing as the `COUNT(*)` regression on wide schemas).
+    #[test]
+    fn diff_v1_v2_empty_pack_projection_chunked_struct() -> VortexResult<()> {
+        use vortex_array::dtype::Nullability;
+        use vortex_array::expr::pack;
+        let (segments, layout, _) = build_chunked_struct_layout();
+
+        let proj = pack(Vec::<(&str, vortex_array::expr::Expression)>::new(), Nullability::NonNullable);
+        let v1 = read_v1_with(Arc::clone(&segments), &layout, proj.clone())?;
+        let v2 = read_v2_with(Arc::clone(&segments), &layout, proj)?;
+
+        assert_arrays_eq!(v1, v2);
+        // Five rows of empty struct.
+        assert_eq!(v2.len(), 5);
+        Ok(())
+    }
 }
