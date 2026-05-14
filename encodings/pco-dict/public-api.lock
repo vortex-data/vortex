@@ -1,1 +1,131 @@
 pub mod vortex_pco_dict
+
+pub struct vortex_pco_dict::PcoDict
+
+impl vortex_pco_dict::PcoDict
+
+pub fn vortex_pco_dict::PcoDict::encode(vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_pco_dict::PcoDictArray>
+
+pub fn vortex_pco_dict::PcoDict::try_new(vortex_array::dtype::DType, vortex_buffer::ByteBuffer, u32, u32, vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_pco_dict::PcoDictArray>
+
+impl core::clone::Clone for vortex_pco_dict::PcoDict
+
+pub fn vortex_pco_dict::PcoDict::clone(&self) -> vortex_pco_dict::PcoDict
+
+impl core::fmt::Debug for vortex_pco_dict::PcoDict
+
+pub fn vortex_pco_dict::PcoDict::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::vtable::VTable for vortex_pco_dict::PcoDict
+
+pub type vortex_pco_dict::PcoDict::OperationsVTable = vortex_pco_dict::PcoDict
+
+pub type vortex_pco_dict::PcoDict::TypedArrayData = vortex_pco_dict::PcoDictData
+
+pub type vortex_pco_dict::PcoDict::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
+
+pub fn vortex_pco_dict::PcoDict::buffer(vortex_array::array::view::ArrayView<'_, Self>, usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_pco_dict::PcoDict::buffer_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> core::option::Option<alloc::string::String>
+
+pub fn vortex_pco_dict::PcoDict::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &[vortex_array::buffer::BufferHandle], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
+
+pub fn vortex_pco_dict::PcoDict::execute(vortex_array::array::typed::Array<Self>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+
+pub fn vortex_pco_dict::PcoDict::id(&self) -> vortex_array::array::ArrayId
+
+pub fn vortex_pco_dict::PcoDict::nbuffers(vortex_array::array::view::ArrayView<'_, Self>) -> usize
+
+pub fn vortex_pco_dict::PcoDict::serialize(vortex_array::array::view::ArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_pco_dict::PcoDict::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
+
+pub fn vortex_pco_dict::PcoDict::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_pco_dict::PcoDict> for vortex_pco_dict::PcoDict
+
+pub fn vortex_pco_dict::PcoDict::scalar_at(vortex_array::array::view::ArrayView<'_, vortex_pco_dict::PcoDict>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::array::vtable::validity::ValidityChild<vortex_pco_dict::PcoDict> for vortex_pco_dict::PcoDict
+
+pub fn vortex_pco_dict::PcoDict::validity_child(vortex_array::array::view::ArrayView<'_, vortex_pco_dict::PcoDict>) -> vortex_array::array::erased::ArrayRef
+
+pub struct vortex_pco_dict::PcoDictData
+
+impl vortex_pco_dict::PcoDictData
+
+pub fn vortex_pco_dict::PcoDictData::dict_bytes(&self) -> &vortex_buffer::ByteBuffer
+
+pub fn vortex_pco_dict::PcoDictData::dict_len(&self) -> u32
+
+pub fn vortex_pco_dict::PcoDictData::idx_width(&self) -> u32
+
+impl core::clone::Clone for vortex_pco_dict::PcoDictData
+
+pub fn vortex_pco_dict::PcoDictData::clone(&self) -> vortex_pco_dict::PcoDictData
+
+impl core::fmt::Debug for vortex_pco_dict::PcoDictData
+
+pub fn vortex_pco_dict::PcoDictData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_pco_dict::PcoDictData
+
+pub fn vortex_pco_dict::PcoDictData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_pco_dict::PcoDictData
+
+pub fn vortex_pco_dict::PcoDictData::array_eq(&self, &Self, vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_pco_dict::PcoDictData
+
+pub fn vortex_pco_dict::PcoDictData::array_hash<H: core::hash::Hasher>(&self, &mut H, vortex_array::hash::Precision)
+
+pub struct vortex_pco_dict::PcoDictMetadata
+
+pub vortex_pco_dict::PcoDictMetadata::dict_len: u32
+
+pub vortex_pco_dict::PcoDictMetadata::idx_width: u32
+
+impl core::clone::Clone for vortex_pco_dict::PcoDictMetadata
+
+pub fn vortex_pco_dict::PcoDictMetadata::clone(&self) -> vortex_pco_dict::PcoDictMetadata
+
+impl core::default::Default for vortex_pco_dict::PcoDictMetadata
+
+pub fn vortex_pco_dict::PcoDictMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_pco_dict::PcoDictMetadata
+
+pub fn vortex_pco_dict::PcoDictMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_pco_dict::PcoDictMetadata
+
+pub fn vortex_pco_dict::PcoDictMetadata::clear(&mut self)
+
+pub fn vortex_pco_dict::PcoDictMetadata::encoded_len(&self) -> usize
+
+pub trait vortex_pco_dict::PcoDictArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_pco_dict::PcoDict>
+
+pub fn vortex_pco_dict::PcoDictArrayExt::dict_bytes(&self) -> &vortex_buffer::ByteBuffer
+
+pub fn vortex_pco_dict::PcoDictArrayExt::dict_len(&self) -> u32
+
+pub fn vortex_pco_dict::PcoDictArrayExt::idx_width(&self) -> u32
+
+pub fn vortex_pco_dict::PcoDictArrayExt::indices(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_pco_dict::PcoDictArrayExt::ptype(&self) -> vortex_array::dtype::ptype::PType
+
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_pco_dict::PcoDict>> vortex_pco_dict::PcoDictArrayExt for T
+
+pub fn T::dict_bytes(&self) -> &vortex_buffer::ByteBuffer
+
+pub fn T::dict_len(&self) -> u32
+
+pub fn T::idx_width(&self) -> u32
+
+pub fn T::indices(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub type vortex_pco_dict::PcoDictArray = vortex_array::array::typed::Array<vortex_pco_dict::PcoDict>

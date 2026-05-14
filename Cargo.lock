@@ -11067,8 +11067,10 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-mask",
  "vortex-pco",
  "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]
