@@ -35,17 +35,10 @@ pub fn delta_decompress(
     let validity = validity.slice(start..end)?;
 
     let original_ptype = deltas.ptype();
-    let unsigned_ptype = original_ptype.to_unsigned();
     // Signed inputs are processed through their unsigned counterpart; `wrapping_add` on the
     // raw bytes inverts the `wrapping_sub` done at compress time regardless of signedness.
-    let (bases, deltas) = if original_ptype == unsigned_ptype {
-        (bases, deltas)
-    } else {
-        (
-            bases.reinterpret_cast(unsigned_ptype),
-            deltas.reinterpret_cast(unsigned_ptype),
-        )
-    };
+    let bases = bases.reinterpret_cast(original_ptype.to_unsigned());
+    let deltas = deltas.reinterpret_cast(original_ptype.to_unsigned());
 
     let decoded = match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {
         const LANES: usize = T::LANES;
@@ -56,11 +49,7 @@ pub fn delta_decompress(
         PrimitiveArray::new(buffer, validity)
     });
 
-    Ok(if original_ptype == unsigned_ptype {
-        decoded
-    } else {
-        decoded.reinterpret_cast(original_ptype)
-    })
+    Ok(decoded.reinterpret_cast(original_ptype))
 }
 
 /// Performs the low-level delta decompression on primitive values.

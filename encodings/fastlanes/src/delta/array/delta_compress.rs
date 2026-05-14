@@ -25,38 +25,26 @@ pub fn delta_compress(
 ) -> VortexResult<(PrimitiveArray, PrimitiveArray)> {
     let validity = array.validity()?;
     let original_ptype = array.ptype();
-    let unsigned_ptype = original_ptype.to_unsigned();
-    // Signed integers are processed through their unsigned counterpart: `wrapping_sub`
-    // is bit-identical for signed and unsigned operands, so the encoded bytes are the
-    // same regardless of how the buffer's elements are interpreted.
-    let work = if original_ptype == unsigned_ptype {
-        array.clone()
-    } else {
-        array.reinterpret_cast(unsigned_ptype)
-    };
+    let array = array.reinterpret_cast(original_ptype.to_unsigned());
 
-    let (bases, deltas) = match_each_unsigned_integer_ptype!(work.ptype(), |T| {
+    let (bases, deltas) = match_each_unsigned_integer_ptype!(array.ptype(), |T| {
         // Fill-forward null values so that transposed deltas at null positions remain
         // small. Without this, bitpacking may skip patches for null positions, and the
         // corrupted delta values propagate through the cumulative sum during decompression.
-        let filled = fill_forward_nulls(work.to_buffer::<T>(), &validity, ctx)?;
+        let filled = fill_forward_nulls(array.to_buffer::<T>(), &validity, ctx)?;
         let (bases, deltas) = compress_primitive::<T, { T::LANES }>(&filled);
         // TODO(robert): This can be avoided if we add TransposedBoolArray that performs index translation when necessary.
         let validity = transpose_validity(&validity, ctx)?;
         (
-            PrimitiveArray::new(bases, work.dtype().nullability().into()),
+            PrimitiveArray::new(bases, array.dtype().nullability().into()),
             PrimitiveArray::new(deltas, validity),
         )
     });
 
-    Ok(if original_ptype == unsigned_ptype {
-        (bases, deltas)
-    } else {
-        (
-            bases.reinterpret_cast(original_ptype),
-            deltas.reinterpret_cast(original_ptype),
-        )
-    })
+    Ok((
+        bases.reinterpret_cast(original_ptype),
+        deltas.reinterpret_cast(original_ptype),
+    ))
 }
 
 fn compress_primitive<T, const LANES: usize>(array: &[T]) -> (Buffer<T>, Buffer<T>)
