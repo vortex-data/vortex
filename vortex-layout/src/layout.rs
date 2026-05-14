@@ -13,6 +13,7 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_session::registry::Id;
@@ -25,6 +26,8 @@ use crate::display::DisplayLayoutTree;
 use crate::display::display_tree_with_segment_sizes;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plan::PlanArguments;
 
 /// A unique identifier for a layout.
 pub type LayoutId = Id;
@@ -69,6 +72,16 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef>;
+
+    /// Build a [`crate::v2::plan::LayoutPlan`] subtree for this layout
+    /// against the given expression and selection. See `LAYOUT_PLAN.md`
+    /// at the repo root for the design.
+    ///
+    /// The default implementation bails. Layouts opt in as the v2
+    /// rollout progresses.
+    fn plan(&self, _args: PlanArguments) -> VortexResult<LayoutPlanRef> {
+        vortex_bail!("LayoutPlan not yet supported for this layout")
+    }
 }
 
 pub trait IntoLayout {
