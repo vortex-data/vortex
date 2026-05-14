@@ -34,15 +34,22 @@ use crate::OnPairArrayExt;
 pub struct OwnedDecodeInputs {
     pub dict_bytes: ByteBuffer,
     pub dict_offsets: Buffer<u32>,
+    /// `(dict_offset << 16) | dict_len` per token. Built once per array so
+    /// the hot decode loop loads a single `u64` per token instead of two
+    /// adjacent `u32`s. `dict_len ≤ MAX_TOKEN_SIZE = 16` fits in 16 bits.
+    pub dict_table: Buffer<u64>,
     pub codes: Buffer<u16>,
     pub codes_offsets: Buffer<u32>,
 }
 
 impl OwnedDecodeInputs {
     pub fn collect(array: ArrayView<'_, OnPair>, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let dict_offsets = widen_to_u32(&to_primitive(array.dict_offsets(), ctx)?);
+        let dict_table = build_dict_table(dict_offsets.as_slice());
         Ok(Self {
             dict_bytes: array.dict_bytes().clone(),
-            dict_offsets: widen_to_u32(&to_primitive(array.dict_offsets(), ctx)?),
+            dict_offsets,
+            dict_table,
             codes: widen_to_u16(&to_primitive(array.codes(), ctx)?),
             codes_offsets: widen_to_u32(&to_primitive(array.codes_offsets(), ctx)?),
         })
@@ -52,10 +59,25 @@ impl OwnedDecodeInputs {
         DecodeView {
             dict_bytes: self.dict_bytes.as_slice(),
             dict_offsets: self.dict_offsets.as_slice(),
+            dict_table: self.dict_table.as_slice(),
             codes: self.codes.as_slice(),
             codes_offsets: self.codes_offsets.as_slice(),
         }
     }
+}
+
+/// Pack `dict_offsets` into `(offset << 16) | length` per token. `length`
+/// is at most `MAX_TOKEN_SIZE = 16` so 16 bits are sufficient; offsets are
+/// `u32` so the resulting `u64` is `(u32 << 16) | u16`.
+fn build_dict_table(dict_offsets: &[u32]) -> Buffer<u64> {
+    let dict_size = dict_offsets.len().saturating_sub(1);
+    let mut table: Vec<u64> = Vec::with_capacity(dict_size);
+    for i in 0..dict_size {
+        let off = u64::from(dict_offsets[i]);
+        let len = u64::from(dict_offsets[i + 1] - dict_offsets[i]);
+        table.push((off << 16) | len);
+    }
+    Buffer::<u64>::copy_from(table)
 }
 
 fn to_primitive(arr: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
@@ -67,7 +89,12 @@ fn to_primitive(arr: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Primitiv
 /// the decode loop wants the canonical wide type. The macro covers `i64` /
 /// `u64` too; for OnPair-produced offsets those values always fit in u32
 /// (we cap at `dict_offsets[last] = dict_bytes.len() ≤ u32::MAX`).
-#[allow(clippy::cast_lossless, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::unnecessary_cast)]
+#[allow(
+    clippy::cast_lossless,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::unnecessary_cast
+)]
 fn widen_to_u32(arr: &PrimitiveArray) -> Buffer<u32> {
     match_each_integer_ptype!(arr.ptype(), |P| {
         Buffer::<u32>::copy_from(
@@ -79,7 +106,12 @@ fn widen_to_u32(arr: &PrimitiveArray) -> Buffer<u32> {
     })
 }
 
-#[allow(clippy::cast_lossless, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::unnecessary_cast)]
+#[allow(
+    clippy::cast_lossless,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::unnecessary_cast
+)]
 fn widen_to_u16(arr: &PrimitiveArray) -> Buffer<u16> {
     match_each_integer_ptype!(arr.ptype(), |P| {
         Buffer::<u16>::copy_from(
@@ -96,6 +128,7 @@ fn widen_to_u16(arr: &PrimitiveArray) -> Buffer<u16> {
 pub struct DecodeView<'a> {
     pub dict_bytes: &'a [u8],
     pub dict_offsets: &'a [u32],
+    pub dict_table: &'a [u64],
     pub codes: &'a [u16],
     pub codes_offsets: &'a [u32],
 }
@@ -189,7 +222,9 @@ impl<'a> DecodeView<'a> {
         let hi = unsafe { *self.codes_offsets.get_unchecked(start + count) } as usize;
 
         let codes_ptr = self.codes.as_ptr();
-        let off_ptr = self.dict_offsets.as_ptr();
+        // Combined (offset << 16) | length table — one u64 load replaces the
+        // pair of adjacent u32 loads we'd otherwise do on `dict_offsets`.
+        let table_ptr = self.dict_table.as_ptr();
         let dict_ptr = self.dict_bytes.as_ptr();
 
         let mut cursor = dst;
@@ -203,14 +238,15 @@ impl<'a> DecodeView<'a> {
                 macro_rules! emit {
                     ($k:expr) => {{
                         let c = *codes_ptr.add(i + $k) as usize;
-                        let off_lo = *off_ptr.add(c) as usize;
-                        let off_hi = *off_ptr.add(c + 1) as usize;
+                        let entry = *table_ptr.add(c);
+                        let off = (entry >> 16) as usize;
+                        let len = (entry & 0xffff) as usize;
                         std::ptr::copy_nonoverlapping(
-                            dict_ptr.add(off_lo),
+                            dict_ptr.add(off),
                             cursor,
                             crate::MAX_TOKEN_SIZE,
                         );
-                        cursor = cursor.add(off_hi - off_lo);
+                        cursor = cursor.add(len);
                     }};
                 }
                 emit!(0);
@@ -221,10 +257,11 @@ impl<'a> DecodeView<'a> {
             }
             while i < hi {
                 let c = *codes_ptr.add(i) as usize;
-                let off_lo = *off_ptr.add(c) as usize;
-                let off_hi = *off_ptr.add(c + 1) as usize;
-                std::ptr::copy_nonoverlapping(dict_ptr.add(off_lo), cursor, crate::MAX_TOKEN_SIZE);
-                cursor = cursor.add(off_hi - off_lo);
+                let entry = *table_ptr.add(c);
+                let off = (entry >> 16) as usize;
+                let len = (entry & 0xffff) as usize;
+                std::ptr::copy_nonoverlapping(dict_ptr.add(off), cursor, crate::MAX_TOKEN_SIZE);
+                cursor = cursor.add(len);
                 i += 1;
             }
             cursor.offset_from(dst) as usize

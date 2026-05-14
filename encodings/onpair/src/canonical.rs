@@ -55,15 +55,24 @@ pub(crate) fn onpair_decode_views(
 
     let inputs = OwnedDecodeInputs::collect(array, ctx)?;
     let dv = inputs.view();
-    // Fast path: `total_size` already known from `uncompressed_lengths`, so
-    // skip the decoder's own size-precomputation pass. Single allocation,
-    // single 4×-unrolled over-copy loop, no second scan.
-    let mut buf: Vec<u8> = Vec::with_capacity(total_size + crate::MAX_TOKEN_SIZE);
-    // SAFETY: capacity reserved above; `total_size` is the true decoded
-    // byte count (sum of `uncompressed_lengths`).
-    unsafe { dv.decode_rows_into_with_size(0, n, total_size, &mut buf) };
-    let mut out_bytes = ByteBufferMut::with_capacity(buf.len());
-    out_bytes.extend_from_slice(&buf);
+    // Decode directly into the canonical output buffer's spare capacity —
+    // no temporary `Vec<u8>` + `extend_from_slice` round-trip. Total size
+    // is already known from `uncompressed_lengths`, so we can size the
+    // buffer once with the over-copy slack and call into the unchecked
+    // single-pass decoder.
+    let mut out_bytes = ByteBufferMut::with_capacity(total_size + crate::MAX_TOKEN_SIZE);
+    // SAFETY:
+    // * `out_bytes` reserved at least `total_size + MAX_TOKEN_SIZE` bytes
+    //   above; `decode_rows_unchecked` may over-copy up to MAX_TOKEN_SIZE
+    //   bytes past the true end, all within reserved capacity.
+    // * Caller has verified the array's invariants in `OnPair::try_new`,
+    //   so every code is a valid index and `dict_bytes` is padded.
+    unsafe {
+        let dst = out_bytes.spare_capacity_mut().as_mut_ptr().cast::<u8>();
+        let written = dv.decode_rows_unchecked(0, n, dst);
+        debug_assert_eq!(written, total_size);
+        out_bytes.set_len(written);
+    }
 
     match_each_integer_ptype!(lengths.ptype(), |P| {
         Ok(build_views(
