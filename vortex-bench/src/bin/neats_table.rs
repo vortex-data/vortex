@@ -72,20 +72,19 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // `neats_bp` / `neats_bp_lossy` use the legacy BitPack residuals path; `neats` /
-    // `neats_lossy` use the new PCO-on-residuals default.
+    // Compare across residual encodings: pco-default, PerPieceBitPack (paper), BtrBlocks, PCO.
     println!("## COMPRESSED BYTES (and ratio vs raw)");
     println!(
         "{:<28} {:>8} | {:>10} {:>6} | {:>10} {:>6} | {:>10} {:>6} | {:>10} {:>6} | {:>10} {:>6} | {:>10} {:>6}",
         "input",
         "rows",
-        "neats_bp",
+        "neats_pco",
         "ratio",
-        "bp_lossy",
+        "pco_lossy",
         "ratio",
-        "neats",
+        "neats_ppb",
         "ratio",
-        "lossy",
+        "ppb_lossy",
         "ratio",
         "btr",
         "ratio",
@@ -95,10 +94,10 @@ async fn main() -> anyhow::Result<()> {
 
     for (name, values) in inputs {
         let raw_bytes = (values.len() * size_of::<f64>()) as f64;
-        let neats_bp = run_neats_bitpack(&values, None)?;
-        let neats_bp_lossy = run_neats_bitpack(&values, Some(1e-3))?;
         let neats = run_neats(&values, None)?;
         let neats_lossy = run_neats(&values, Some(1e-3))?;
+        let neats_ppb = run_neats_perpiece(&values, None)?;
+        let neats_ppb_lossy = run_neats_perpiece(&values, Some(1e-3))?;
         let btr = run_btr(&values)?;
         let pco = run_pco(&values)?;
 
@@ -106,14 +105,14 @@ async fn main() -> anyhow::Result<()> {
             "{:<28} {:>8} | {:>10.0} {:>5.2}x | {:>10.0} {:>5.2}x | {:>10.0} {:>5.2}x | {:>10.0} {:>5.2}x | {:>10.0} {:>5.2}x | {:>10.0} {:>5.2}x",
             name,
             values.len(),
-            neats_bp.bytes,
-            raw_bytes / neats_bp.bytes.max(1.0),
-            neats_bp_lossy.bytes,
-            raw_bytes / neats_bp_lossy.bytes.max(1.0),
             neats.bytes,
             raw_bytes / neats.bytes.max(1.0),
             neats_lossy.bytes,
             raw_bytes / neats_lossy.bytes.max(1.0),
+            neats_ppb.bytes,
+            raw_bytes / neats_ppb.bytes.max(1.0),
+            neats_ppb_lossy.bytes,
+            raw_bytes / neats_ppb_lossy.bytes.max(1.0),
             btr.bytes,
             raw_bytes / btr.bytes.max(1.0),
             pco.bytes,
@@ -153,7 +152,37 @@ fn run_neats(values: &[f64], epsilon: Option<f64>) -> anyhow::Result<Row> {
     })
 }
 
+/// Force the paper-faithful "PerPieceBitPack" residual encoding.
+fn run_neats_perpiece(values: &[f64], epsilon: Option<f64>) -> anyhow::Result<Row> {
+    let array = PrimitiveArray::from_iter(values.iter().copied());
+    let opts = NeaTSOptions {
+        epsilon,
+        residual_encoding: vortex_neats::ResidualEncoding::PerPieceBitPack,
+        ..NeaTSOptions::default()
+    };
+    let mut enc_ctx = SESSION.create_execution_ctx();
+    let t0 = Instant::now();
+    let encoded = neats_encode(array.as_view(), opts, &mut enc_ctx)?;
+    let compress = t0.elapsed();
+
+    let bytes = encoded.as_ref().nbytes();
+
+    let mut ctx2 = SESSION.create_execution_ctx();
+    let t1 = Instant::now();
+    let decoded = encoded.into_array().execute::<PrimitiveArray>(&mut ctx2)?;
+    let decompress = t1.elapsed();
+    let max_abs_err = max_abs_err(values, decoded.as_slice::<f64>());
+
+    Ok(Row {
+        bytes: bytes as f64,
+        compress,
+        decompress,
+        max_abs_err,
+    })
+}
+
 /// Force the legacy "BitPack on residuals" path (no PCO) — for comparison.
+#[allow(dead_code)]
 fn run_neats_bitpack(values: &[f64], epsilon: Option<f64>) -> anyhow::Result<Row> {
     let array = PrimitiveArray::from_iter(values.iter().copied());
     let opts = NeaTSOptions {

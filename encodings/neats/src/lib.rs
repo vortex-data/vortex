@@ -36,6 +36,7 @@ use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
 
 mod array;
+mod bitpack;
 mod canonical;
 mod compress;
 pub mod compute;
@@ -175,6 +176,36 @@ mod test {
                 "scalar_at[{idx}] = {scalar} but canonical = {} (diff {})",
                 decoded_slice[idx],
                 (scalar - decoded_slice[idx]).abs()
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn per_piece_bitpack_roundtrip() -> VortexResult<()> {
+        // Same shape as the lossy test, but use the paper-faithful per-piece bit-pack encoding.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let values: Vec<f64> = (0..2048).map(|i| (i as f64 * 0.05).sin()).collect();
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let encoded = neats_encode(
+            array.as_view(),
+            NeaTSOptions {
+                epsilon: Some(1e-3),
+                residual_encoding: crate::ResidualEncoding::PerPieceBitPack,
+                ..NeaTSOptions::default()
+            },
+            &mut ctx,
+        )?;
+        let decoded = encoded.into_array().execute::<PrimitiveArray>(&mut ctx)?;
+        for (i, (a, e)) in decoded
+            .as_slice::<f64>()
+            .iter()
+            .zip(values.iter())
+            .enumerate()
+        {
+            assert!(
+                (a - e).abs() <= 2e-3,
+                "PerPieceBitPack roundtrip mismatch at {i}: actual={a} expected={e}",
             );
         }
         Ok(())

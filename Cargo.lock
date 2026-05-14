@@ -10972,6 +10972,7 @@ dependencies = [
  "vortex-mask",
  "vortex-pco",
  "vortex-session",
+ "vortex-zigzag",
 ]
 
 [[package]]

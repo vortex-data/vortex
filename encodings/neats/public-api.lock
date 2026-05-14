@@ -152,6 +152,8 @@ pub vortex_neats::ResidualEncoding::BitPack
 
 pub vortex_neats::ResidualEncoding::Pco
 
+pub vortex_neats::ResidualEncoding::PerPieceBitPack
+
 impl core::clone::Clone for vortex_neats::ResidualEncoding
 
 pub fn vortex_neats::ResidualEncoding::clone(&self) -> vortex_neats::ResidualEncoding

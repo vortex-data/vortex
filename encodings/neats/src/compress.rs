@@ -42,16 +42,26 @@ use crate::models::fit_best;
 /// Choice of encoding for the residuals slot.
 ///
 /// The residuals carry 99% of the compressed bytes in practice, so this is the highest-leverage
-/// knob. `Pco` (default) hands the residuals to `vortex-pco` which uses pcodec's signed-integer
-/// pipeline (delta + FSE + chunked statistics) — much tighter than FoR + bit-pack on noisy
-/// residual streams. `BitPack` leaves the residuals as a `PrimitiveArray` so the cascading
-/// compressor downstream picks FoR + FastLanes bit-pack; faster encode/decode, looser ratio.
+/// knob.
+///
+/// - `Pco` (default): hand residuals to `vortex-pco`. PCO's signed-integer pipeline (delta +
+///   FSE + chunked statistics) handles noisy residuals well. PCO chunks its own pages, so the
+///   bit width is tuned per-page, not per-NeaTS-piece.
+/// - `BitPack`: leave residuals as a plain primitive array. The downstream cascading
+///   compressor picks FoR + FastLanes bit-pack at chunk granularity. Fastest decode, loosest
+///   ratio.
+/// - `PerPieceBitPack` (paper-faithful): build one [`ChunkedArray`] chunk per NeaTS piece,
+///   ZigZag-encode each piece's residuals, then bit-pack at a piece-specific width. This is
+///   the residual encoding the NeaTS paper uses — each piece gets its own bit-width tuned to
+///   its own max-abs residual, so a quiet piece pays only its actual residual bits.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResidualEncoding {
     /// Hand residuals to PCO. Best compression, slower compress + decompress.
     Pco,
     /// Leave residuals as a plain primitive array. Cascading compressor handles the rest.
     BitPack,
+    /// Per-piece ZigZag + bit-pack, wrapped in a chunked array (paper-faithful).
+    PerPieceBitPack,
 }
 
 /// Options for [`neats_encode`].
@@ -133,8 +143,9 @@ pub fn neats_encode(
     // Sentinel: piece_starts[P] = len.
     piece_starts.push(u32::try_from(len).unwrap_or(u32::MAX));
 
+    let piece_starts_data = piece_starts.freeze();
     let piece_starts =
-        PrimitiveArray::new(piece_starts.freeze(), Validity::NonNullable).into_array();
+        PrimitiveArray::new(piece_starts_data.clone(), Validity::NonNullable).into_array();
     let model_ids = PrimitiveArray::new(model_ids.freeze(), Validity::NonNullable).into_array();
     let coeff_a = PrimitiveArray::new(coeff_a.freeze(), Validity::NonNullable).into_array();
     let coeff_b = PrimitiveArray::new(coeff_b.freeze(), Validity::NonNullable).into_array();
@@ -155,10 +166,18 @@ pub fn neats_encode(
     // Carry validity on residuals so downstream sees the same mask as input. Residuals
     // already get their own residual_encoding (PCO by default) so we don't cascade them
     // through BtrBlocks again — that path canonicalises and re-compresses, undoing PCO.
-    let residuals = narrow_residuals(residuals.freeze(), validity);
+    let residuals_i64 = residuals.freeze();
+    let residuals_narrow = narrow_residuals(residuals_i64.clone(), validity.clone());
     let residuals: ArrayRef = match options.residual_encoding {
-        ResidualEncoding::BitPack => btr.compress(&residuals, ctx)?,
-        ResidualEncoding::Pco => encode_residuals_pco(residuals, ctx)?,
+        ResidualEncoding::BitPack => btr.compress(&residuals_narrow, ctx)?,
+        ResidualEncoding::Pco => encode_residuals_pco(residuals_narrow, ctx)?,
+        ResidualEncoding::PerPieceBitPack => {
+            // Build per-piece chunks with their own bit-width. piece_starts is still a P+1 Vec
+            // here (we sentinel-pushed `len` above). We pull start/end pairs from the buffer
+            // we still have access to.
+            let starts_u32: &[u32] = piece_starts_data.as_slice();
+            encode_residuals_per_piece(&residuals_i64, starts_u32, validity, ctx)?
+        }
     };
 
     NeaTS::try_new(
@@ -180,6 +199,124 @@ pub fn neats_encode(
 ///
 /// PCO doesn't support `i8`, so we widen i8 residuals to i16 before handing over. The two-byte
 /// stride is still tighter than FoR+bitpack on most signals.
+/// Per-piece ZigZag + bit-pack residuals, wrapped in a `ChunkedArray<i64>`. Each chunk is
+/// `ZigZag(BitPacked(piece's u64 residuals, piece's bit_width))`, so each piece gets exactly the
+/// number of bits its own max-abs residual needs.
+///
+/// This is the residual encoding the NeaTS paper uses (modulo their succinct rank/select tables
+/// for per-piece offsets, which Vortex's `ChunkedArray` provides implicitly via chunk boundaries).
+fn encode_residuals_per_piece(
+    residuals: &[i64],
+    piece_starts: &[u32],
+    validity: Validity,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    use vortex_array::arrays::ChunkedArray;
+
+    if piece_starts.len() < 2 {
+        // No pieces — return an empty placeholder.
+        let empty = PrimitiveArray::new(Buffer::<i64>::empty(), validity).into_array();
+        return Ok(empty);
+    }
+
+    // Pick the chunk-level signed dtype as the widest needed across all pieces.
+    let global_max_abs: u64 = residuals
+        .iter()
+        .map(|r| r.unsigned_abs())
+        .max()
+        .unwrap_or(0);
+    let signed_ptype = if global_max_abs <= i8::MAX as u64 {
+        PType::I8
+    } else if global_max_abs <= i16::MAX as u64 {
+        PType::I16
+    } else if global_max_abs <= i32::MAX as u64 {
+        PType::I32
+    } else {
+        PType::I64
+    };
+    // ZigZag needs an unsigned ptype one step wider on the unsigned side. For i8, ZigZag values
+    // fit in u8 (max 255 → 8 bits, fine). For i16 → u16, etc.
+    let unsigned_ptype = match signed_ptype {
+        PType::I8 => PType::U8,
+        PType::I16 => PType::U16,
+        PType::I32 => PType::U32,
+        PType::I64 => PType::U64,
+        _ => unreachable!(),
+    };
+
+    let mut chunks: Vec<ArrayRef> = Vec::with_capacity(piece_starts.len() - 1);
+    for w in piece_starts.windows(2) {
+        let s = w[0] as usize;
+        let e = w[1] as usize;
+        let piece = &residuals[s..e];
+        let chunk = encode_piece_residuals(piece, unsigned_ptype, ctx)?;
+        chunks.push(chunk);
+    }
+
+    let dtype = vortex_array::dtype::DType::Primitive(signed_ptype, validity.nullability());
+    let chunked = ChunkedArray::try_new(chunks, dtype)?;
+    Ok(chunked.into_array())
+}
+
+/// Encode a single piece's signed residuals as `ZigZag(BitPacked(unsigned, bit_width))`.
+fn encode_piece_residuals(
+    piece: &[i64],
+    unsigned_ptype: PType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    use vortex_fastlanes::BitPackedData;
+    use vortex_zigzag::ZigZag;
+
+    // Step 1: ZigZag-encode each residual.
+    let max_abs: u64 = piece.iter().map(|r| r.unsigned_abs()).max().unwrap_or(0);
+    let bit_width = crate::bitpack::bits_for_max_abs(max_abs);
+
+    // Step 2: build an unsigned PrimitiveArray of the chunk dtype.
+    let unsigned_array = match unsigned_ptype {
+        PType::U8 => {
+            let buf: BufferMut<u8> = piece
+                .iter()
+                .map(|r| crate::bitpack::zigzag_encode(*r) as u8)
+                .collect();
+            PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array()
+        }
+        PType::U16 => {
+            let buf: BufferMut<u16> = piece
+                .iter()
+                .map(|r| crate::bitpack::zigzag_encode(*r) as u16)
+                .collect();
+            PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array()
+        }
+        PType::U32 => {
+            let buf: BufferMut<u32> = piece
+                .iter()
+                .map(|r| crate::bitpack::zigzag_encode(*r) as u32)
+                .collect();
+            PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array()
+        }
+        PType::U64 => {
+            let buf: BufferMut<u64> = piece
+                .iter()
+                .map(|r| crate::bitpack::zigzag_encode(*r))
+                .collect();
+            PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array()
+        }
+        _ => vortex_bail!("unexpected unsigned ptype {unsigned_ptype}"),
+    };
+
+    // Step 3: bit-pack at the piece's bit_width. If bit_width is the full ptype width, skip the
+    // wrap (a BitPacked at max width is identity).
+    let bp_capacity = unsigned_ptype.bit_width() as u8;
+    let inner = if bit_width >= bp_capacity || bit_width == 0 {
+        unsigned_array
+    } else {
+        BitPackedData::encode(&unsigned_array, bit_width, ctx)?.into_array()
+    };
+
+    // Step 4: wrap in ZigZag so the chunk's logical dtype is the signed ptype.
+    Ok(ZigZag::try_new(inner)?.into_array())
+}
+
 fn encode_residuals_pco(residuals: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     let prim = residuals.execute::<PrimitiveArray>(ctx)?;
     let prim = if matches!(prim.ptype(), PType::I8) {
