@@ -10779,6 +10779,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-float-mult"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "prost 0.14.3",
+ "rand 0.10.1",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-pco",
+ "vortex-session",
+]
+
+[[package]]
+name = "vortex-float-quant"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "prost 0.14.3",
+ "rand 0.10.1",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-pco",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-fsst"
 version = "0.1.0"
 dependencies = [
@@ -11023,6 +11053,21 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-mask",
+ "vortex-session",
+]
+
+[[package]]
+name = "vortex-pco-dict"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "prost 0.14.3",
+ "rand 0.10.1",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-pco",
  "vortex-session",
 ]
 

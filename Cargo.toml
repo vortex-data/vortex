@@ -47,10 +47,13 @@ members = [
     "encodings/sequence",
     "encodings/alp",
     "encodings/datetime-parts",
+    "encodings/float-mult",
+    "encodings/float-quant",
     "encodings/fsst",
     "encodings/int-mult",
     "encodings/ordered-latent",
     "encodings/pco",
+    "encodings/pco-dict",
     "encodings/sparse",
     "encodings/zigzag",
     "encodings/zstd",
@@ -285,6 +288,8 @@ vortex-error = { version = "0.1.0", path = "./vortex-error", default-features = 
 vortex-fastlanes = { version = "0.1.0", path = "./encodings/fastlanes", default-features = false }
 vortex-file = { version = "0.1.0", path = "./vortex-file", default-features = false }
 vortex-flatbuffers = { version = "0.1.0", path = "./vortex-flatbuffers", default-features = false }
+vortex-float-mult = { version = "0.1.0", path = "./encodings/float-mult", default-features = false }
+vortex-float-quant = { version = "0.1.0", path = "./encodings/float-quant", default-features = false }
 vortex-fsst = { version = "0.1.0", path = "./encodings/fsst", default-features = false }
 vortex-int-mult = { version = "0.1.0", path = "./encodings/int-mult", default-features = false }
 vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false }
@@ -294,6 +299,7 @@ vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = fa
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
 vortex-ordered-latent = { version = "0.1.0", path = "./encodings/ordered-latent", default-features = false }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
+vortex-pco-dict = { version = "0.1.0", path = "./encodings/pco-dict", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
