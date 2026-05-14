@@ -68,6 +68,7 @@ impl FlatContainsDfa {
         symbols: &[Symbol],
         symbol_lengths: &[u8],
         needle: &[u8],
+        case_insensitive: bool,
     ) -> VortexResult<Self> {
         if needle.len() > Self::MAX_NEEDLE_LEN {
             vortex_bail!(
@@ -82,7 +83,7 @@ impl FlatContainsDfa {
         let n_states = accept_state + 1;
         let sentinel = n_states;
 
-        let byte_table = kmp_byte_transitions(needle);
+        let byte_table = kmp_byte_transitions(needle, case_insensitive);
         let sym_trans =
             build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
         let transitions = build_fused_table(&sym_trans, symbols.len(), n_states, |_| sentinel, 0);
@@ -103,7 +104,8 @@ impl FlatContainsDfa {
         // and `scan_to_bitbuf` can prefilter with a single `memmem` over
         // `all_bytes` whose length matches the encoded needle. Disabled
         // for L < 2 (no possible win over the existing scan path).
-        let escape_only_pattern = (needle.len() >= 2
+        let escape_only_pattern = (!case_insensitive
+            && needle.len() >= 2
             && super::needle_is_literal(needle)
             && needle_bytes_absent_from_all_symbols(symbols, symbol_lengths, needle))
         .then(|| build_escape_only_encoded_pattern(needle));

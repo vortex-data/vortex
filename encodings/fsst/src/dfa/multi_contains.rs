@@ -101,6 +101,7 @@ impl MultiContainsDfa {
         symbols: &[Symbol],
         symbol_lengths: &[u8],
         segments: &[&[u8]],
+        case_insensitive: bool,
     ) -> VortexResult<Self> {
         let total_len: usize = segments.iter().map(|s| s.len()).sum();
         if total_len > Self::MAX_TOTAL_LEN {
@@ -116,7 +117,7 @@ impl MultiContainsDfa {
         let n_states = accept_state + 1;
         let sentinel = n_states;
 
-        let byte_table = chained_kmp_byte_transitions(segments, accept_state);
+        let byte_table = chained_kmp_byte_transitions(segments, accept_state, case_insensitive);
         let sym_trans =
             build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
         let transitions = build_fused_table(&sym_trans, symbols.len(), n_states, |_| sentinel, 0);
@@ -160,8 +161,13 @@ impl MultiContainsDfa {
         // requires every segment to appear in order, so the longest
         // segment's encoded pattern (the most selective single test) is
         // a sound row-level prefilter — rows without it can't match.
-        let escape_only_anchor_pattern =
-            compute_escape_only_anchor(symbols, symbol_lengths, segments);
+        // Case-insensitive patterns disable this fast path; the encoded
+        // pattern is byte-exact and wouldn't match case-flipped bytes.
+        let escape_only_anchor_pattern = if case_insensitive {
+            None
+        } else {
+            compute_escape_only_anchor(symbols, symbol_lengths, segments)
+        };
 
         Ok(Self {
             transitions,
@@ -351,7 +357,11 @@ impl MultiContainsDfa {
 /// - The final phase's accept is the global accept state (sticky)
 ///
 /// Each phase has its own KMP failure function for intra-segment backtracking.
-fn chained_kmp_byte_transitions(segments: &[&[u8]], accept_state: u8) -> Vec<u8> {
+fn chained_kmp_byte_transitions(
+    segments: &[&[u8]],
+    accept_state: u8,
+    case_insensitive: bool,
+) -> Vec<u8> {
     let n_states = accept_state + 1;
     let mut table = vec![0u8; usize::from(n_states) * 256];
 
@@ -366,14 +376,21 @@ fn chained_kmp_byte_transitions(segments: &[&[u8]], accept_state: u8) -> Vec<u8>
 
     for (k, segment) in segments.iter().enumerate() {
         let base = offsets[k];
-        let failure = kmp_failure_table(segment);
+        let failure = kmp_failure_table(segment, case_insensitive);
 
         for local_s in 0..segment.len() {
             let global_s = base + local_s;
             for byte in 0..256usize {
                 let mut s = local_s;
                 loop {
-                    if byte == usize::from(segment[s]) {
+                    let pattern_byte = segment[s];
+                    let matches = if case_insensitive {
+                        super::ascii_to_lower(pattern_byte)
+                            == super::ascii_to_lower(u8::try_from(byte).expect("0..256"))
+                    } else {
+                        byte == usize::from(pattern_byte)
+                    };
+                    if matches {
                         s += 1;
                         break;
                     }

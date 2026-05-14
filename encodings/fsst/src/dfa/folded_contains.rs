@@ -219,6 +219,7 @@ impl FoldedContainsDfa {
         symbols: &[Symbol],
         symbol_lengths: &[u8],
         needle: &[u8],
+        case_insensitive: bool,
     ) -> VortexResult<Self> {
         if needle.len() > Self::MAX_NEEDLE_LEN {
             vortex_bail!(
@@ -235,7 +236,7 @@ impl FoldedContainsDfa {
         // Total states: 2N+1 (normal 0..=N, escape N+1..=2N for base 0..=N-1).
         let n_states_usize = 2 * usize::from(accept_state) + 1;
 
-        let byte_table = kmp_byte_transitions(needle);
+        let byte_table = kmp_byte_transitions(needle, case_insensitive);
         let sym_trans =
             build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_normal, accept_state);
 
@@ -327,13 +328,10 @@ impl FoldedContainsDfa {
             if v.is_empty() { None } else { Some(v) }
         });
 
-        // Escape-only fast path: when no symbol's expansion contains any
-        // needle byte AND the needle has no `_` wildcards, the only
-        // DFA-accepting compressed sequence is the 2L-byte pattern
-        // `[ESCAPE, needle[0], …, ESCAPE, needle[L-1]]`. With wildcards
-        // present the encoded pattern is no longer unique and the
-        // memmem prefilter is disabled.
-        let escape_only_pattern = (needle.len() >= 2
+        // Escape-only fast path: only when the needle is wildcard-free,
+        // case-sensitive, and no symbol contains any literal needle byte.
+        let escape_only_pattern = (!case_insensitive
+            && needle.len() >= 2
             && super::needle_is_literal(needle)
             && needle_bytes_absent_from_all_symbols(symbols, symbol_lengths, needle))
         .then(|| build_escape_only_encoded_pattern(needle));

@@ -68,9 +68,8 @@ impl LikeKernel for FSST {
             return Ok(None);
         };
 
-        if options.case_insensitive {
-            return Ok(None);
-        }
+        // `case_insensitive` (SQL `ILIKE`) is plumbed through the
+        // matcher; only ASCII letter case is folded.
 
         let pattern_bytes: &[u8] = if let Some(s) = pattern_scalar.as_utf8_opt() {
             let Some(v) = s.value() else {
@@ -101,8 +100,12 @@ impl LikeKernel for FSST {
         let layout_us = phase_us(phase_t);
         phase_t = trace.then(std::time::Instant::now);
 
-        let Some(matcher) =
-            FsstMatcher::try_new(symbols.as_slice(), symbol_lengths.as_slice(), pattern_bytes)?
+        let Some(matcher) = FsstMatcher::try_new_with(
+            symbols.as_slice(),
+            symbol_lengths.as_slice(),
+            pattern_bytes,
+            options.case_insensitive,
+        )?
         else {
             return Ok(None);
         };
@@ -364,21 +367,22 @@ mod tests {
         let fsst = make_fsst(&[Some("abc"), Some("def")], Nullability::NonNullable);
         let mut ctx = SESSION.create_execution_ctx();
 
-        // Underscore wildcard -- not handled.
+        // Anchored exact pattern (no bookend `%`) is still unsupported —
+        // mixed-anchor work is a separate item.
         let pattern = ConstantArray::new("a_c", fsst.len()).into_array();
         let fsst_v = fsst.as_view();
         let result =
             <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?;
-        assert!(result.is_none(), "underscore pattern should fall back");
+        assert!(result.is_none(), "anchored exact pattern should fall back");
 
-        // Case-insensitive -- not handled.
+        // ILIKE is now handled by the matcher's case-insensitive path.
         let pattern = ConstantArray::new("abc%", fsst.len()).into_array();
         let opts = LikeOptions {
             negated: false,
             case_insensitive: true,
         };
         let result = <FSST as LikeKernel>::like(fsst_v, &pattern, opts, &mut ctx)?;
-        assert!(result.is_none(), "ilike should fall back");
+        assert!(result.is_some(), "ilike should now be handled");
 
         Ok(())
     }

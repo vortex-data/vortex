@@ -60,6 +60,7 @@ impl FlatPrefixDfa {
         symbols: &[Symbol],
         symbol_lengths: &[u8],
         prefix: &[u8],
+        case_insensitive: bool,
     ) -> VortexResult<Self> {
         if prefix.len() > Self::MAX_PREFIX_LEN {
             vortex_bail!(
@@ -74,7 +75,8 @@ impl FlatPrefixDfa {
         let n_states = fail_state + 1;
         let sentinel = fail_state + 1;
 
-        let byte_table = build_prefix_byte_table(prefix, accept_state, fail_state);
+        let byte_table =
+            build_prefix_byte_table(prefix, accept_state, fail_state, case_insensitive);
 
         let sym_trans =
             build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
@@ -226,7 +228,12 @@ impl FlatPrefixDfa {
 ///
 /// For each state, only the correct next byte advances; everything else goes
 /// to the fail state.
-fn build_prefix_byte_table(prefix: &[u8], accept_state: u8, fail_state: u8) -> Vec<u8> {
+fn build_prefix_byte_table(
+    prefix: &[u8],
+    accept_state: u8,
+    fail_state: u8,
+    case_insensitive: bool,
+) -> Vec<u8> {
     let n_states = fail_state + 1;
     let mut table = vec![fail_state; usize::from(n_states) * 256];
 
@@ -248,8 +255,9 @@ fn build_prefix_byte_table(prefix: &[u8], accept_state: u8, fail_state: u8) -> V
                     table[s * 256 + byte] = next_state;
                 }
             } else {
-                // Only the literal byte advances; everything else fails.
-                table[s * 256 + usize::from(prefix[s])] = next_state;
+                // Only the literal byte (and its case-flip when
+                // case-insensitive) advances; everything else fails.
+                super::set_advance(&mut table, s * 256, prefix[s], next_state, case_insensitive);
             }
         }
     }

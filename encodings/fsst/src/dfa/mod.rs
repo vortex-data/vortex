@@ -181,10 +181,23 @@ impl FsstMatcher {
         symbol_lengths: &[u8],
         pattern: &[u8],
     ) -> VortexResult<Option<Self>> {
+        Self::try_new_with(symbols, symbol_lengths, pattern, false)
+    }
+
+    /// Variant of [`Self::try_new`] that opts in to ASCII case-insensitive
+    /// matching (SQL `ILIKE`). Letter bytes in the needle then accept
+    /// either case at every position.
+    pub fn try_new_with(
+        symbols: &[Symbol],
+        symbol_lengths: &[u8],
+        pattern: &[u8],
+        case_insensitive: bool,
+    ) -> VortexResult<Option<Self>> {
         let Some(like_kind) = LikeKind::parse(pattern) else {
             return Ok(None);
         };
 
+        let ci = case_insensitive;
         let inner = match like_kind {
             LikeKind::Prefix(b"") | LikeKind::Contains(b"") | LikeKind::Suffix(b"") => {
                 MatcherInner::MatchAll
@@ -193,13 +206,13 @@ impl FsstMatcher {
                 if prefix.len() > FlatPrefixDfa::MAX_PREFIX_LEN {
                     return Ok(None);
                 }
-                MatcherInner::Prefix(FlatPrefixDfa::new(symbols, symbol_lengths, prefix)?)
+                MatcherInner::Prefix(FlatPrefixDfa::new(symbols, symbol_lengths, prefix, ci)?)
             }
             LikeKind::Suffix(suffix) => {
                 if suffix.len() > SuffixMatcher::MAX_SUFFIX_LEN {
                     return Ok(None);
                 }
-                MatcherInner::Suffix(SuffixMatcher::new(symbols, symbol_lengths, suffix)?)
+                MatcherInner::Suffix(SuffixMatcher::new(symbols, symbol_lengths, suffix, ci)?)
             }
             LikeKind::Contains(needle) => {
                 if needle.len() <= FoldedContainsDfa::MAX_NEEDLE_LEN {
@@ -207,9 +220,15 @@ impl FsstMatcher {
                         symbols,
                         symbol_lengths,
                         needle,
+                        ci,
                     )?)
                 } else if needle.len() <= FlatContainsDfa::MAX_NEEDLE_LEN {
-                    MatcherInner::Contains(FlatContainsDfa::new(symbols, symbol_lengths, needle)?)
+                    MatcherInner::Contains(FlatContainsDfa::new(
+                        symbols,
+                        symbol_lengths,
+                        needle,
+                        ci,
+                    )?)
                 } else {
                     return Ok(None);
                 }
@@ -223,6 +242,7 @@ impl FsstMatcher {
                     symbols,
                     symbol_lengths,
                     &segments,
+                    ci,
                 )?))
             }
         };
@@ -610,20 +630,57 @@ fn build_fused_table(
 /// expressed.
 pub(super) const WILDCARD: u8 = b'_';
 
+/// ASCII case fold to lowercase. Non-letters pass through.
+#[inline]
+fn ascii_to_lower(b: u8) -> u8 {
+    if b.is_ascii_uppercase() { b + 32 } else { b }
+}
+
 /// Pattern-position byte equality with wildcard semantics. Returns
 /// `true` if `a` or `b` is the [`WILDCARD`] byte, or both bytes are
-/// equal.
+/// equal. When `ci` is true, ASCII letter case is ignored.
 #[inline]
-fn pattern_eq(a: u8, b: u8) -> bool {
-    a == WILDCARD || b == WILDCARD || a == b
+fn pattern_eq(a: u8, b: u8, ci: bool) -> bool {
+    if a == WILDCARD || b == WILDCARD {
+        return true;
+    }
+    if ci {
+        ascii_to_lower(a) == ascii_to_lower(b)
+    } else {
+        a == b
+    }
 }
 
 /// Concrete-input byte match against a needle position. The pattern
 /// position `p` is one of the needle bytes (possibly the wildcard);
-/// the input byte `b` is always concrete (never a wildcard).
+/// the input byte `b` is always concrete (never a wildcard). When `ci`
+/// is true, ASCII letter case is ignored.
 #[inline]
-fn pattern_matches_byte(p: u8, b: u8) -> bool {
-    p == WILDCARD || p == b
+#[expect(
+    dead_code,
+    reason = "Reserved for the future correct contains-wildcard DFA."
+)]
+fn pattern_matches_byte(p: u8, b: u8, ci: bool) -> bool {
+    if p == WILDCARD {
+        return true;
+    }
+    if ci {
+        ascii_to_lower(p) == ascii_to_lower(b)
+    } else {
+        p == b
+    }
+}
+
+/// For an advancing transition on byte `needle_byte`, set the table
+/// row entry. With `ci` true, also set the entry for the case-flipped
+/// byte so either case of the same ASCII letter advances.
+#[inline]
+fn set_advance(table: &mut [u8], row_start: usize, needle_byte: u8, new_state: u8, ci: bool) {
+    table[row_start + usize::from(needle_byte)] = new_state;
+    if ci && needle_byte.is_ascii_alphabetic() {
+        let flipped = needle_byte ^ 0x20;
+        table[row_start + usize::from(flipped)] = new_state;
+    }
 }
 
 /// Build the `(state × byte) → state` KMP transition table.
@@ -641,11 +698,11 @@ fn pattern_matches_byte(p: u8, b: u8) -> bool {
 ///
 /// This is one 256-byte memcpy + a single override per state, instead
 /// of running the KMP fallback loop at every cell.
-fn kmp_byte_transitions(needle: &[u8]) -> Vec<u8> {
+fn kmp_byte_transitions(needle: &[u8], ci: bool) -> Vec<u8> {
     let n_states = u8::try_from(needle.len() + 1)
         .vortex_expect("kmp_byte_transitions: must have needle.len() ≤ 255");
     let accept = n_states - 1;
-    let failure = kmp_failure_table(needle);
+    let failure = kmp_failure_table(needle, ci);
 
     let mut table = vec![0u8; usize::from(n_states) * 256];
 
@@ -654,7 +711,7 @@ fn kmp_byte_transitions(needle: &[u8]) -> Vec<u8> {
         if first == WILDCARD {
             table[0..256].fill(1);
         } else {
-            table[usize::from(first)] = 1;
+            set_advance(&mut table, 0, first, 1, ci);
         }
     }
 
@@ -672,7 +729,7 @@ fn kmp_byte_transitions(needle: &[u8]) -> Vec<u8> {
             // Wildcard at position s: every byte advances.
             table[state_row..state_row + 256].fill(state + 1);
         } else {
-            table[state_row + usize::from(needle[s])] = state + 1;
+            set_advance(&mut table, state_row, needle[s], state + 1, ci);
         }
     }
 
@@ -685,14 +742,14 @@ fn kmp_byte_transitions(needle: &[u8]) -> Vec<u8> {
     table
 }
 
-fn kmp_failure_table(needle: &[u8]) -> Vec<u8> {
+fn kmp_failure_table(needle: &[u8], ci: bool) -> Vec<u8> {
     let mut failure = vec![0u8; needle.len()];
     let mut k = 0u8;
     for i in 1..needle.len() {
-        while k > 0 && !pattern_eq(needle[usize::from(k)], needle[i]) {
+        while k > 0 && !pattern_eq(needle[usize::from(k)], needle[i], ci) {
             k = failure[usize::from(k) - 1];
         }
-        if pattern_eq(needle[usize::from(k)], needle[i]) {
+        if pattern_eq(needle[usize::from(k)], needle[i], ci) {
             k += 1;
         }
         failure[i] = k;
