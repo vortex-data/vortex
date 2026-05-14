@@ -22,5 +22,6 @@ pub mod flat;
 pub mod plan;
 pub mod project;
 pub mod scan;
+pub mod scan_ctx;
 pub mod struct_;
 pub mod toggle;

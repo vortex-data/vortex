@@ -19,6 +19,7 @@ use vortex_session::VortexSession;
 
 use crate::segments::SegmentSource;
 use crate::v2::demand::RowDemand;
+use crate::v2::scan_ctx::ScanCtx;
 
 pub type LayoutPlanRef = Arc<dyn LayoutPlan>;
 
@@ -88,16 +89,16 @@ pub trait LayoutPlan: 'static + Send + Sync {
     /// row coordinate space. Returns a stream of arrays whose total
     /// row count is `row_range.len()`.
     ///
-    /// Each call is independent: the plan should not cache state
-    /// across calls. Repeated reads of the same data (segments,
-    /// dict values, etc.) are paid by the caller until `Let` / `Use`
-    /// nodes land — see `LAYOUT_PLAN.md` § Tee and
-    /// CommonSubplanElimination.
-    fn execute(
-        &self,
-        row_range: Range<u64>,
-        session: &VortexSession,
-    ) -> VortexResult<SendableArrayStream>;
+    /// `ctx` is the per-scan execution context (see
+    /// [`crate::v2::scan_ctx::ScanCtx`]). It carries the
+    /// [`vortex_session::VortexSession`] for this scan plus a typed
+    /// key/value map for state plans need to share across `execute`
+    /// calls. The plan struct itself must remain a pure description.
+    ///
+    /// Cross-execute sharing of derived values (e.g. dict values) is
+    /// expressed via [`crate::v2::let_use::LetPlan`], which publishes
+    /// the value into `ctx` and consumers look it up by `LetId`.
+    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream>;
 }
 
 /// Arguments passed to [`crate::Layout::plan`]. Carries the consumer's

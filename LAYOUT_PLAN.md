@@ -714,19 +714,33 @@ shared stream-source doesn't fit cleanly. Pattern 3 wants a one-shot
 materialised result `Arc`-shared across calls, not a streaming source
 with cursors.
 
-The current direction is to fuse all three into a single
-`Let p = source` / `Use(p)` primitive (working name `LetPlan` /
-`UsePlan`). The same `Let` source can be either a streaming
-multi-cursor handle (Tee semantics, for patterns 1 & 2) or a one-shot
-broadcast handle (Arc semantics, for pattern 3) — discriminated by
-how it's used downstream. A `CommonSubplanElimination` pass
-identifies candidates by structural plan-equality (same layout, same
-expression, same selection) and rewrites duplicates into the shared
-`Let`. Run as a post-pass after all pushdown reaches fixed point.
+The unifying primitive will be `Let p = source` / `Use(p)` plan nodes
+once a CSE pass needs them. Two semantics:
 
-Until that lands, plans deliberately do not cache execution state
-(see § Model: "Plans are pure descriptions"). Redundant reads are
-honest, not hidden — they go away when CSE / Let-Use does.
+- **Broadcast.** Source materialises once per scan into a single
+  `Arc<ArrayRef>`-shaped value. Used for whole-array values reused
+  across many `execute` calls (dict values, file stats).
+- **Streaming.** Source is materialised once per `execute` call and
+  fanned out to N cursors via a multi-cursor `TeeStream`-style
+  primitive. Used for intra-execute mask fan-out (e.g., post
+  `PushFilterThroughStruct`) and inter-subtree CSE.
+
+These plan nodes and the optimizer pass that introduces them are
+deferred to the PR that actually needs them. Today no in-tree
+consumer warrants the structural representation:
+
+- Pattern 3 (dict broadcast) is local to one `DictDecodePlan`. The
+  values future is awaited once at the start of the output stream
+  and captured by every codes-chunk closure that follows — single
+  producer, single consumer, no shared-future plumbing.
+- Patterns 1 and 2 wait for `PushFilterThroughStruct` to land.
+
+Plans remain pure descriptions (see § Model). The `ScanCtx` is a
+`VortexSession`-style typed key/value map plus the session itself,
+threaded through every `execute` call. It exists today as
+infrastructure; the future `Let` / `Use` registry will be one of its
+`ScanCtxValue` consumers, alongside whatever else later plan nodes
+need to stash per-scan.
 
 ## Partial-aggregate push-down
 
@@ -851,7 +865,7 @@ Run to fixed point per rule, then proceed to the next.
 
 ## Migration plan
 
-PRs land in order on the `ngates/layoutv2-N` stack. The first five
+PRs land in order on the `ngates/layoutv2-N` stack. The first six
 have already shipped:
 
 - **PR1 — Trait skeleton + design doc.** `LayoutPlan` with the full
@@ -874,33 +888,31 @@ have already shipped:
   `AndBoolStreamsPlan`, and wraps projection with `FilterPlan`.
   Opener drops the `filter.is_none()` eligibility check.
   **`RowDemand` publishing is still stubbed** — the demand
-  short-circuit moves to PR7 alongside `Let`/`Use`.
+  short-circuit moves to a later PR alongside zoned pruning.
+- **PR6 — `ScanCtx` + dict values awaited once per execute.**
+  `LayoutPlan::execute` signature folds `VortexSession` into a per-
+  scan `ScanCtx`, a `VortexSession`-style typed key/value map.
+  `DictDecodePlan::execute` awaits the values future once at the
+  start of its output stream (via `try_stream!`) and reuses the
+  resulting array for every codes-chunk closure — single producer,
+  single consumer, no `SharedArrayFuture`/registry plumbing. The
+  structural `Let`/`Use` primitive plus `TeeStream` are deferred to
+  the PR that introduces a CSE pass / `PushFilterThroughStruct`.
 
 Remaining (numbering is loose — some of these may split or fuse as
 they land):
 
-- **PR6 — `Let` / `Use` (sharing primitive) + `CommonSubplanElimination`
-  pass.** Single primitive replaces the conceptual `TeePlan`: a `Let p
-  = source` node materialises a source once and exposes N consumers
-  through `Use(p)` references. Discriminates between streaming
-  multi-cursor (intra-partition mask fan-out, inter-subtree source
-  sharing) and one-shot broadcast (cross-partition dict values, flat
-  segments) at construction time. CSE pass identifies candidates by
-  structural plan-equality and rewrites to `Let`/`Use`. **Once this
-  lands, the redundant per-execute reads from PR4 collapse**
-  (DictDecodePlan re-reading values per call, FlatPlan re-fetching
-  segments) — that's the main perf-recovery PR for wide-table reads.
 - **PR7 — Zoned pruning.** `ZonedPruningPlan` that publishes to
   `RowDemand` from zone-map stats. Lights up the
   pruning-via-stats path that `ZonedLayout::plan` currently no-ops,
   and is the direct fix for the catastrophic ClickBench-style
-  regressions on highly-selective filters. Depends on PR6 (Let/Use
-  for zone-map sharing across conjuncts).
+  regressions on highly-selective filters.
 - **PR8 — Pushdown rules.** `PushFilterThroughStruct`,
   `PushFilterThroughChunked`, `FuseFilterIntoFlat`. Run-to-fixed-point
-  driver. `EnforceOrdering` post-pass. Reordered after PR6/PR7
-  because the bench shows perf depends on closing the redundancy
-  and pruning gaps first; pushdown then refines what remains.
+  driver. `EnforceOrdering` post-pass. Brings in the streaming
+  `LetPlan` variant (mask fan-out across struct children) backed by
+  `TeeStream`. The general CSE pass that auto-inserts `Let`/`Use`
+  for inter-subtree duplicates lands here or alongside.
 - **PR9 — `DictPlan` predicate rewrite.** `col = "Alice"` →
   `codes IN {17}` rewriting on the way down; combined with PR7 makes
   codes-zoned pruning work end-to-end.

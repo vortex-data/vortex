@@ -18,12 +18,12 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_scan::selection::Selection;
-use vortex_session::VortexSession;
 
 use crate::LayoutReaderRef;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
+use crate::v2::scan_ctx::ScanCtx;
 
 /// Terminal node. Reads one segment, evaluates `expr` against the
 /// resulting array, emits a single-partition stream.
@@ -111,11 +111,7 @@ impl LayoutPlan for FlatPlan {
         Ok(self)
     }
 
-    fn execute(
-        &self,
-        row_range: Range<u64>,
-        _session: &VortexSession,
-    ) -> VortexResult<SendableArrayStream> {
+    fn execute(&self, row_range: Range<u64>, _ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
         if !matches!(self.selection, Selection::All) {
             // The V2 entrypoints never hand FlatPlan a non-`All`
             // selection — `FilterPlan` carries masks separately.

@@ -24,12 +24,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
 
 use crate::v2::aligned::AlignedArrayStream;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
+use crate::v2::scan_ctx::ScanCtx;
 
 /// Combines N bool-stream children into a single bool stream by
 /// AND-ing per row. Children's chunk boundaries don't have to line
@@ -114,18 +114,14 @@ impl LayoutPlan for AndBoolStreamsPlan {
         }))
     }
 
-    fn execute(
-        &self,
-        row_range: Range<u64>,
-        session: &VortexSession,
-    ) -> VortexResult<SendableArrayStream> {
+    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
         let mut child_streams = Vec::with_capacity(self.children.len());
         for child in &self.children {
-            child_streams.push(child.execute(row_range.clone(), session)?);
+            child_streams.push(child.execute(row_range.clone(), ctx)?);
         }
 
         let dtype = self.output_dtype.clone();
-        let session = session.clone();
+        let session = ctx.session().clone();
         let aligned = AlignedArrayStream::new(child_streams);
         let mapped = aligned.map(move |result| {
             let arrays = result?;

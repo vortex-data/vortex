@@ -266,12 +266,13 @@ mod tests {
             };
             let plan = scan.build()?;
             let plan_dtype = plan.schema().clone();
+            let scan_ctx = crate::v2::scan_ctx::ScanCtx::new(session);
 
             let mut chunks = Vec::new();
             // Single execute call covering the entire layout's row
             // range. The plan internally handles whatever
             // chunking/slicing it needs.
-            let mut stream = plan.execute(0..row_count, &session)?;
+            let mut stream = plan.execute(0..row_count, &scan_ctx)?;
             while let Some(chunk) = stream.next().await {
                 chunks.push(chunk?);
             }

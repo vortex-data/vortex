@@ -145,12 +145,12 @@ impl VTable for Dict {
     }
 
     fn plan(layout: &Self::Layout, args: PlanArguments) -> VortexResult<LayoutPlanRef> {
-        // Projection-only path: read codes via the codes child plan,
-        // then materialise a `DictArray` per chunk against the values
-        // inside `DictDecodePlan::execute`. No values cache lives on
-        // the plan — see `LAYOUT_PLAN.md` § Model "Plans are pure
-        // descriptions". Cross-execute sharing is `Let` / `Use`
-        // territory.
+        // Projection-only path: codes via the codes child plan; values
+        // are read once at the start of `DictDecodePlan::execute` and
+        // shared across all codes-chunk closures within that call (see
+        // `DictDecodePlan::execute`). The values layout and segment
+        // source pass through unchanged — no per-call I/O state lives
+        // on the plan struct.
         let output_dtype = args.expr.return_dtype(layout.values.dtype())?;
         let codes_plan = layout
             .codes

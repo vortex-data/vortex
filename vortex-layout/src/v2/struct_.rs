@@ -20,12 +20,12 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_session::VortexSession;
 
 use crate::v2::aligned::AlignedArrayStream;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
+use crate::v2::scan_ctx::ScanCtx;
 
 /// Composes child plans positionally; each child produces values for
 /// one field, and `StructPlan::execute` zips them into struct arrays.
@@ -123,11 +123,7 @@ impl LayoutPlan for StructPlan {
         }))
     }
 
-    fn execute(
-        &self,
-        row_range: Range<u64>,
-        session: &VortexSession,
-    ) -> VortexResult<SendableArrayStream> {
+    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
         if self.output_dtype.is_nullable() {
             // Nullable structs need a validity child; that wiring lives in
             // StructLayout::plan and isn't plumbed through StructPlan yet.
@@ -136,7 +132,7 @@ impl LayoutPlan for StructPlan {
 
         let mut child_streams = Vec::with_capacity(self.children.len());
         for child in &self.children {
-            child_streams.push(child.execute(row_range.clone(), session)?);
+            child_streams.push(child.execute(row_range.clone(), ctx)?);
         }
 
         // Different fields can return arrays at different chunk

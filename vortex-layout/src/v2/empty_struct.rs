@@ -24,11 +24,11 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_session::VortexSession;
 
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
+use crate::v2::scan_ctx::ScanCtx;
 
 /// Single-partition plan that emits one chunk of empty struct of the
 /// requested length per `execute` call. Schema is `Struct({},
@@ -93,7 +93,7 @@ impl LayoutPlan for EmptyStructPlan {
     fn execute(
         &self,
         row_range: Range<u64>,
-        _session: &VortexSession,
+        _ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
         if row_range.start > self.row_count || row_range.end > self.row_count {
             vortex_bail!(

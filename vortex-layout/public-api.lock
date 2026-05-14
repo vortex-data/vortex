@@ -1472,7 +1472,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::and_bool::AndBoo
 
 pub fn vortex_layout::v2::and_bool::AndBoolStreamsPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::and_bool::AndBoolStreamsPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::and_bool::AndBoolStreamsPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::and_bool::AndBoolStreamsPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1504,7 +1504,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::chunked::Chunked
 
 pub fn vortex_layout::v2::chunked::ChunkedPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::chunked::ChunkedPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::chunked::ChunkedPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::chunked::ChunkedPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1544,7 +1544,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::dict::DictDecode
 
 pub fn vortex_layout::v2::dict::DictDecodePlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::dict::DictDecodePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::dict::DictDecodePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1574,7 +1574,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::empty_struct::Em
 
 pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1604,7 +1604,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::filter::FilterPl
 
 pub fn vortex_layout::v2::filter::FilterPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::filter::FilterPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::filter::FilterPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::filter::FilterPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1640,7 +1640,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::flat::FlatPlan
 
 pub fn vortex_layout::v2::flat::FlatPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::flat::FlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::flat::FlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::flat::FlatPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1720,7 +1720,7 @@ pub trait vortex_layout::v2::plan::LayoutPlan: 'static + core::marker::Send + co
 
 pub fn vortex_layout::v2::plan::LayoutPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plan::LayoutPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plan::LayoutPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plan::LayoutPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1742,7 +1742,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::and_bool::AndBoo
 
 pub fn vortex_layout::v2::and_bool::AndBoolStreamsPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::and_bool::AndBoolStreamsPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::and_bool::AndBoolStreamsPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::and_bool::AndBoolStreamsPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1764,7 +1764,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::chunked::Chunked
 
 pub fn vortex_layout::v2::chunked::ChunkedPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::chunked::ChunkedPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::chunked::ChunkedPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::chunked::ChunkedPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1786,7 +1786,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::dict::DictDecode
 
 pub fn vortex_layout::v2::dict::DictDecodePlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::dict::DictDecodePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::dict::DictDecodePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1808,7 +1808,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::empty_struct::Em
 
 pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1830,7 +1830,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::filter::FilterPl
 
 pub fn vortex_layout::v2::filter::FilterPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::filter::FilterPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::filter::FilterPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::filter::FilterPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1852,7 +1852,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::flat::FlatPlan
 
 pub fn vortex_layout::v2::flat::FlatPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::flat::FlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::flat::FlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::flat::FlatPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1874,7 +1874,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::project::Project
 
 pub fn vortex_layout::v2::project::ProjectPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::project::ProjectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::project::ProjectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::project::ProjectPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1896,7 +1896,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::struct_::StructP
 
 pub fn vortex_layout::v2::struct_::StructPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::struct_::StructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::struct_::StructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::struct_::StructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1928,7 +1928,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::project::Project
 
 pub fn vortex_layout::v2::project::ProjectPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::project::ProjectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::project::ProjectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::project::ProjectPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
@@ -1966,6 +1966,66 @@ impl vortex_layout::v2::scan::Scan
 
 pub fn vortex_layout::v2::scan::Scan::build(&self) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
 
+pub mod vortex_layout::v2::scan_ctx
+
+pub struct vortex_layout::v2::scan_ctx::Ref<'a, T>(_)
+
+impl<'a, T> vortex_layout::v2::scan_ctx::Ref<'a, T>
+
+pub fn vortex_layout::v2::scan_ctx::Ref<'a, T>::map<F, U>(self, F) -> vortex_layout::v2::scan_ctx::Ref<'a, U> where F: core::ops::function::FnOnce(&T) -> &U
+
+impl<'a, T> core::ops::deref::Deref for vortex_layout::v2::scan_ctx::Ref<'a, T>
+
+pub type vortex_layout::v2::scan_ctx::Ref<'a, T>::Target = T
+
+pub fn vortex_layout::v2::scan_ctx::Ref<'a, T>::deref(&self) -> &Self::Target
+
+pub struct vortex_layout::v2::scan_ctx::RefMut<'a, T>(_)
+
+impl<'a, T> vortex_layout::v2::scan_ctx::RefMut<'a, T>
+
+pub fn vortex_layout::v2::scan_ctx::RefMut<'a, T>::map<F, U>(self, F) -> vortex_layout::v2::scan_ctx::RefMut<'a, U> where F: core::ops::function::FnOnce(&mut T) -> &mut U
+
+impl<'a, T> core::ops::deref::Deref for vortex_layout::v2::scan_ctx::RefMut<'a, T>
+
+pub type vortex_layout::v2::scan_ctx::RefMut<'a, T>::Target = T
+
+pub fn vortex_layout::v2::scan_ctx::RefMut<'a, T>::deref(&self) -> &Self::Target
+
+impl<'a, T> core::ops::deref::DerefMut for vortex_layout::v2::scan_ctx::RefMut<'a, T>
+
+pub fn vortex_layout::v2::scan_ctx::RefMut<'a, T>::deref_mut(&mut self) -> &mut Self::Target
+
+pub struct vortex_layout::v2::scan_ctx::ScanCtx
+
+impl vortex_layout::v2::scan_ctx::ScanCtx
+
+pub fn vortex_layout::v2::scan_ctx::ScanCtx::empty() -> Self
+
+pub fn vortex_layout::v2::scan_ctx::ScanCtx::get<V: vortex_layout::v2::scan_ctx::ScanCtxValue + core::default::Default>(&self) -> vortex_layout::v2::scan_ctx::Ref<'_, V>
+
+pub fn vortex_layout::v2::scan_ctx::ScanCtx::get_mut<V: vortex_layout::v2::scan_ctx::ScanCtxValue + core::default::Default>(&self) -> vortex_layout::v2::scan_ctx::RefMut<'_, V>
+
+pub fn vortex_layout::v2::scan_ctx::ScanCtx::get_opt<V: vortex_layout::v2::scan_ctx::ScanCtxValue>(&self) -> core::option::Option<vortex_layout::v2::scan_ctx::Ref<'_, V>>
+
+pub fn vortex_layout::v2::scan_ctx::ScanCtx::new(vortex_session::VortexSession) -> Self
+
+pub fn vortex_layout::v2::scan_ctx::ScanCtx::session(&self) -> &vortex_session::VortexSession
+
+impl core::clone::Clone for vortex_layout::v2::scan_ctx::ScanCtx
+
+pub fn vortex_layout::v2::scan_ctx::ScanCtx::clone(&self) -> vortex_layout::v2::scan_ctx::ScanCtx
+
+impl core::fmt::Debug for vortex_layout::v2::scan_ctx::ScanCtx
+
+pub fn vortex_layout::v2::scan_ctx::ScanCtx::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub trait vortex_layout::v2::scan_ctx::ScanCtxValue: core::any::Any + core::marker::Send + core::marker::Sync + core::fmt::Debug + 'static
+
+pub fn vortex_layout::v2::scan_ctx::ScanCtxValue::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_layout::v2::scan_ctx::ScanCtxValue::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
 pub mod vortex_layout::v2::struct_
 
 pub struct vortex_layout::v2::struct_::StructPlan
@@ -1980,7 +2040,7 @@ impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::struct_::StructP
 
 pub fn vortex_layout::v2::struct_::StructPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
-pub fn vortex_layout::v2::struct_::StructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::struct_::StructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::struct_::StructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 

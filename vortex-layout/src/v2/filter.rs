@@ -28,12 +28,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
 
 use crate::v2::aligned::AlignedArrayStream;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
+use crate::v2::scan_ctx::ScanCtx;
 
 /// Applies `mask` to `values` per row. Output dtype matches the
 /// value plan's schema; output row count is the number of `true`
@@ -112,15 +112,11 @@ impl LayoutPlan for FilterPlan {
         Ok(self)
     }
 
-    fn execute(
-        &self,
-        row_range: Range<u64>,
-        session: &VortexSession,
-    ) -> VortexResult<SendableArrayStream> {
-        let values_stream = self.values.execute(row_range.clone(), session)?;
-        let mask_stream = self.mask.execute(row_range, session)?;
+    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
+        let values_stream = self.values.execute(row_range.clone(), ctx)?;
+        let mask_stream = self.mask.execute(row_range, ctx)?;
 
-        let session = session.clone();
+        let session = ctx.session().clone();
         let dtype = self.output_dtype.clone();
         let aligned = AlignedArrayStream::new(vec![values_stream, mask_stream]);
         let mapped = aligned.map(move |result| {

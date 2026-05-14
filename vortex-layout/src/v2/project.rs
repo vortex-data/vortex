@@ -21,11 +21,11 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_session::VortexSession;
 
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
+use crate::v2::scan_ctx::ScanCtx;
 
 /// Applies a Vortex [`Expression`] to every batch produced by `child`.
 pub struct ProjectPlan {
@@ -98,9 +98,9 @@ impl LayoutPlan for ProjectPlan {
     fn execute(
         &self,
         row_range: std::ops::Range<u64>,
-        session: &VortexSession,
+        ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
-        let inner = self.child.execute(row_range, session)?;
+        let inner = self.child.execute(row_range, ctx)?;
         let expr = self.expr.clone();
         let dtype = self.output_dtype.clone();
         let mapped = inner.map(move |chunk_res| chunk_res.and_then(|chunk| chunk.apply(&expr)));

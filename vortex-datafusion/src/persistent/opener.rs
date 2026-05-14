@@ -489,8 +489,9 @@ impl FileOpener for VortexOpener {
                     return Ok(stream::empty().boxed());
                 }
 
+                let scan_ctx = vortex::layout::v2::scan_ctx::ScanCtx::new(session.clone());
                 let chunk_stream = plan
-                    .execute(v2_range, &session)
+                    .execute(v2_range, &scan_ctx)
                     .map_err(|e| exec_datafusion_err!("Failed to execute LayoutPlan v2: {e}"))?;
 
                 chunk_stream

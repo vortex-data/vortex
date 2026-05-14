@@ -16,11 +16,11 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_session::VortexSession;
 
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
+use crate::v2::scan_ctx::ScanCtx;
 
 /// Routes one partition per child chunk. `partition_count == children.len()`
 /// in the default (ordered) mode; relaxed mode is a follow-up PR.
@@ -123,11 +123,7 @@ impl LayoutPlan for ChunkedPlan {
         }))
     }
 
-    fn execute(
-        &self,
-        row_range: Range<u64>,
-        session: &VortexSession,
-    ) -> VortexResult<SendableArrayStream> {
+    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
         if row_range.start > self.total_rows() || row_range.end > self.total_rows() {
             vortex_bail!(
                 "ChunkedPlan::execute row range {row_range:?} exceeds total {}",
@@ -157,7 +153,7 @@ impl LayoutPlan for ChunkedPlan {
             let intersect_end = chunk_end.min(row_range.end);
             // Translate to the child's own row coordinates.
             let child_range = (intersect_start - chunk_start)..(intersect_end - chunk_start);
-            child_streams.push(self.children[idx].execute(child_range, session)?);
+            child_streams.push(self.children[idx].execute(child_range, ctx)?);
         }
 
         let dtype = self.output_dtype.clone();
