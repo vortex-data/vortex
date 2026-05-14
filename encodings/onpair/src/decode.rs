@@ -9,24 +9,29 @@
 //! / `Buffer<u32>` (always at native alignment) so the inner loop can index
 //! straight into raw slices without branches.
 
+use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::match_each_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use crate::OnPair;
+use crate::OnPairArrayExt;
 
 /// Materialised, host-resident copies of every read path's input.
 ///
-/// All four byte arrays come from the outer `OnPair` array as raw
-/// `BufferHandle`s, which Vortex's flat-segment writer pads to the buffer's
-/// own alignment on disk. To insulate the decoder from arbitrary host
-/// alignment (e.g. a file segment that started mid-byte), we copy each
-/// buffer into a `Buffer<uN>` at the right type. The decode hot loop then
-/// indexes raw slices with no branches.
-pub(crate) struct OwnedDecodeInputs {
+/// Each integer child (`dict_offsets`, `codes`, `codes_offsets`) is a slot
+/// on the outer `OnPair` array, possibly wrapped in a non-canonical encoding
+/// the cascading compressor chose (e.g. FastLanes-bit-packed `codes`,
+/// `narrow`-ed dict offsets) and `execute::<PrimitiveArray>` may hand us
+/// back a narrower ptype than the decode loop wants (`u8`/`u16` instead of
+/// `u32`). `collect` widens each child to the decoder's native width
+/// (`u32` for both offset arrays, `u16` for codes) once so the inner loop
+/// is branch-free pointer arithmetic.
+pub struct OwnedDecodeInputs {
     pub dict_bytes: ByteBuffer,
     pub dict_offsets: Buffer<u32>,
     pub codes: Buffer<u16>,
@@ -34,12 +39,12 @@ pub(crate) struct OwnedDecodeInputs {
 }
 
 impl OwnedDecodeInputs {
-    pub fn collect(array: ArrayView<'_, OnPair>, _ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+    pub fn collect(array: ArrayView<'_, OnPair>, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         Ok(Self {
             dict_bytes: array.dict_bytes().clone(),
-            dict_offsets: bytes_to_buffer_u32(array.dict_offsets_bytes())?,
-            codes: bytes_to_buffer_u16(array.codes_bytes_raw())?,
-            codes_offsets: bytes_to_buffer_u32(array.codes_offsets_bytes())?,
+            dict_offsets: widen_to_u32(&to_primitive(array.dict_offsets(), ctx)?),
+            codes: widen_to_u16(&to_primitive(array.codes(), ctx)?),
+            codes_offsets: widen_to_u32(&to_primitive(array.codes_offsets(), ctx)?),
         })
     }
 
@@ -53,56 +58,42 @@ impl OwnedDecodeInputs {
     }
 }
 
-/// Decode `bytes` (little-endian-packed u32s) into an aligned `Buffer<u32>`.
-/// Goes through a typed `Vec<u32>` so the result is always 4-aligned.
-/// LLVM autovectorises the inner `from_le_bytes` loop to a single load on
-/// little-endian targets.
-#[inline]
-fn bytes_to_buffer_u32(bytes: &ByteBuffer) -> VortexResult<Buffer<u32>> {
-    if !bytes.len().is_multiple_of(4) {
-        return Err(vortex_err!(
-            "OnPair: byte buffer of length {} is not a multiple of 4",
-            bytes.len()
-        ));
-    }
-    let n = bytes.len() / 4;
-    let mut out: Vec<u32> = Vec::with_capacity(n);
-    let slice = bytes.as_slice();
-    let mut i = 0;
-    while i + 4 <= slice.len() {
-        // SAFETY: bounds checked by the while condition.
-        let arr: [u8; 4] = unsafe { slice.get_unchecked(i..i + 4).try_into().unwrap_unchecked() };
-        out.push(u32::from_le_bytes(arr));
-        i += 4;
-    }
-    Ok(Buffer::<u32>::copy_from(out))
+fn to_primitive(arr: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+    arr.clone().execute::<PrimitiveArray>(ctx)
 }
 
-/// Same as `bytes_to_buffer_u32` for u16.
-#[inline]
-fn bytes_to_buffer_u16(bytes: &ByteBuffer) -> VortexResult<Buffer<u16>> {
-    if !bytes.len().is_multiple_of(2) {
-        return Err(vortex_err!(
-            "OnPair: byte buffer of length {} is not a multiple of 2",
-            bytes.len()
-        ));
-    }
-    let n = bytes.len() / 2;
-    let mut out: Vec<u16> = Vec::with_capacity(n);
-    let slice = bytes.as_slice();
-    let mut i = 0;
-    while i + 2 <= slice.len() {
-        // SAFETY: bounds checked by the while condition.
-        let arr: [u8; 2] = unsafe { slice.get_unchecked(i..i + 2).try_into().unwrap_unchecked() };
-        out.push(u16::from_le_bytes(arr));
-        i += 2;
-    }
-    Ok(Buffer::<u16>::copy_from(out))
+/// Widen any integer-typed PrimitiveArray to `Buffer<u32>`. Used when the
+/// cascading compressor narrowed an offset array (e.g. `u32` → `u16`) and
+/// the decode loop wants the canonical wide type. The macro covers `i64` /
+/// `u64` too; for OnPair-produced offsets those values always fit in u32
+/// (we cap at `dict_offsets[last] = dict_bytes.len() ≤ u32::MAX`).
+#[allow(clippy::cast_lossless, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::unnecessary_cast)]
+fn widen_to_u32(arr: &PrimitiveArray) -> Buffer<u32> {
+    match_each_integer_ptype!(arr.ptype(), |P| {
+        Buffer::<u32>::copy_from(
+            arr.as_slice::<P>()
+                .iter()
+                .map(|&v| v as u32)
+                .collect::<Vec<_>>(),
+        )
+    })
+}
+
+#[allow(clippy::cast_lossless, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::unnecessary_cast)]
+fn widen_to_u16(arr: &PrimitiveArray) -> Buffer<u16> {
+    match_each_integer_ptype!(arr.ptype(), |P| {
+        Buffer::<u16>::copy_from(
+            arr.as_slice::<P>()
+                .iter()
+                .map(|&v| v as u16)
+                .collect::<Vec<_>>(),
+        )
+    })
 }
 
 /// Borrowed slices for the decode loop.
 #[derive(Copy, Clone)]
-pub(crate) struct DecodeView<'a> {
+pub struct DecodeView<'a> {
     pub dict_bytes: &'a [u8],
     pub dict_offsets: &'a [u32],
     pub codes: &'a [u16],
@@ -126,78 +117,144 @@ impl<'a> DecodeView<'a> {
     /// 16-byte unaligned vector store, making each token an O(1) SIMD op.
     #[inline]
     pub fn decode_row_into(&self, row: usize, out: &mut Vec<u8>) {
-        let lo = self.codes_offsets[row] as usize;
-        let hi = self.codes_offsets[row + 1] as usize;
-        let row_codes = &self.codes[lo..hi];
-
-        // Pre-compute the true decoded length so we can size `out` once and
-        // use the unchecked-write fast loop below.
-        let mut decoded_len = 0usize;
-        for &c in row_codes {
-            let dlo = self.dict_offsets[c as usize] as usize;
-            let dhi = self.dict_offsets[c as usize + 1] as usize;
-            decoded_len += dhi - dlo;
-        }
-
-        let written_start = out.len();
-        out.reserve(decoded_len + crate::MAX_TOKEN_SIZE);
-        // SAFETY: we just reserved at least `decoded_len + MAX_TOKEN_SIZE`
-        // bytes past `written_start`. The over-copy writes
-        // `MAX_TOKEN_SIZE` bytes per token, but we only advance the cursor
-        // by the true token length, so the final `set_len` reflects the
-        // true decoded length.
-        unsafe {
-            let dst_base = out.as_mut_ptr().add(written_start);
-            let mut cursor = 0usize;
-            for &c in row_codes {
-                let dlo = *self.dict_offsets.get_unchecked(c as usize) as usize;
-                let dhi = *self.dict_offsets.get_unchecked(c as usize + 1) as usize;
-                let src = self.dict_bytes.as_ptr().add(dlo);
-                let dst = dst_base.add(cursor);
-                // Fixed 16-byte copy — LLVM lowers to a SIMD store.
-                std::ptr::copy_nonoverlapping(src, dst, crate::MAX_TOKEN_SIZE);
-                cursor += dhi - dlo;
-            }
-            out.set_len(written_start + decoded_len);
-        }
+        self.decode_rows_into(row, 1, out);
     }
 
     /// Bulk decode rows `[start, start + count)` contiguously into `out`.
-    /// Reuses the same over-copy strategy as [`Self::decode_row_into`] but
-    /// computes lengths only once across the full window, which removes the
-    /// per-row reserve / set_len overhead in the canonicalise hot path.
+    /// Pre-computes the decoded length, reserves once, then delegates to
+    /// the unrolled fast path. Callers that already know the size (e.g.
+    /// canonicalize from `uncompressed_lengths`) should call
+    /// [`Self::decode_rows_into_with_size`] to skip the size pre-pass.
     pub fn decode_rows_into(&self, start: usize, count: usize, out: &mut Vec<u8>) {
         if count == 0 {
             return;
         }
-        let lo = self.codes_offsets[start] as usize;
-        let hi = self.codes_offsets[start + count] as usize;
-        let codes = &self.codes[lo..hi];
-
-        let mut decoded_len = 0usize;
-        for &c in codes {
-            let dlo = self.dict_offsets[c as usize] as usize;
-            let dhi = self.dict_offsets[c as usize + 1] as usize;
-            decoded_len += dhi - dlo;
-        }
+        // Closed-form sum over the token window — autovectorises.
+        let decoded_len = {
+            let lo = self.codes_offsets[start] as usize;
+            let hi = self.codes_offsets[start + count] as usize;
+            let mut total = 0usize;
+            // SAFETY: bounds checked by indexing above.
+            unsafe {
+                for i in lo..hi {
+                    let c = *self.codes.get_unchecked(i) as usize;
+                    let dlo = *self.dict_offsets.get_unchecked(c) as usize;
+                    let dhi = *self.dict_offsets.get_unchecked(c + 1) as usize;
+                    total += dhi - dlo;
+                }
+            }
+            total
+        };
 
         let written_start = out.len();
         out.reserve(decoded_len + crate::MAX_TOKEN_SIZE);
-        // SAFETY: same invariants as `decode_row_into` — pad written by
-        // `MAX_TOKEN_SIZE`, advance cursor by true length, then truncate.
+        // SAFETY: capacity reserved above; `decode_rows_unchecked`'s
+        // invariants are upheld by the [`OnPair::try_new`] validation.
         unsafe {
-            let dst_base = out.as_mut_ptr().add(written_start);
-            let mut cursor = 0usize;
-            for &c in codes {
-                let dlo = *self.dict_offsets.get_unchecked(c as usize) as usize;
-                let dhi = *self.dict_offsets.get_unchecked(c as usize + 1) as usize;
-                let src = self.dict_bytes.as_ptr().add(dlo);
-                let dst = dst_base.add(cursor);
-                std::ptr::copy_nonoverlapping(src, dst, crate::MAX_TOKEN_SIZE);
-                cursor += dhi - dlo;
-            }
-            out.set_len(written_start + decoded_len);
+            let written =
+                self.decode_rows_unchecked(start, count, out.as_mut_ptr().add(written_start));
+            debug_assert_eq!(written, decoded_len);
+            out.set_len(written_start + written);
         }
+    }
+
+    /// Single-pass over-copy decode of a token window into raw `dst`.
+    ///
+    /// Mirrors OnPair C++ `decode_all<Bits = 16>` (and `decompress`) exactly:
+    /// each iteration loads one `u16` code, two adjacent `u32` dict
+    /// offsets, issues a fixed [`MAX_TOKEN_SIZE`][crate::MAX_TOKEN_SIZE]
+    /// `copy_nonoverlapping` (which LLVM lowers to a single unaligned
+    /// 128-bit SIMD store on x86_64 / aarch64), and advances the cursor by
+    /// the *true* token length. The body is hand-unrolled four times so
+    /// the CPU can keep four independent stores in flight, matching the
+    /// `ONPAIR_EMIT4` block of the upstream `decode_all.h`.
+    ///
+    /// Returns the number of *true* bytes written.
+    ///
+    /// # Safety
+    /// * `dst` must point into a region with at least
+    ///   `decoded_byte_length + MAX_TOKEN_SIZE` bytes of writable
+    ///   uninitialised capacity.
+    /// * `self.dict_bytes` must have at least `MAX_TOKEN_SIZE` trailing
+    ///   pad bytes past the last real token byte (`compress.rs` enforces
+    ///   this).
+    /// * Every `code` in the window must be `< dict_offsets.len() - 1`.
+    #[inline]
+    pub unsafe fn decode_rows_unchecked(&self, start: usize, count: usize, dst: *mut u8) -> usize {
+        if count == 0 {
+            return 0;
+        }
+        // SAFETY: caller invariants.
+        let lo = unsafe { *self.codes_offsets.get_unchecked(start) } as usize;
+        let hi = unsafe { *self.codes_offsets.get_unchecked(start + count) } as usize;
+
+        let codes_ptr = self.codes.as_ptr();
+        let off_ptr = self.dict_offsets.as_ptr();
+        let dict_ptr = self.dict_bytes.as_ptr();
+
+        let mut cursor = dst;
+        let unroll_end = lo + ((hi - lo) & !3);
+        let mut i = lo;
+        // SAFETY: indices derived from validated offsets; the 16-byte
+        // over-copy reads stay within `dict_bytes`'s trailing pad; writes
+        // stay within the caller-promised capacity.
+        unsafe {
+            while i < unroll_end {
+                macro_rules! emit {
+                    ($k:expr) => {{
+                        let c = *codes_ptr.add(i + $k) as usize;
+                        let off_lo = *off_ptr.add(c) as usize;
+                        let off_hi = *off_ptr.add(c + 1) as usize;
+                        std::ptr::copy_nonoverlapping(
+                            dict_ptr.add(off_lo),
+                            cursor,
+                            crate::MAX_TOKEN_SIZE,
+                        );
+                        cursor = cursor.add(off_hi - off_lo);
+                    }};
+                }
+                emit!(0);
+                emit!(1);
+                emit!(2);
+                emit!(3);
+                i += 4;
+            }
+            while i < hi {
+                let c = *codes_ptr.add(i) as usize;
+                let off_lo = *off_ptr.add(c) as usize;
+                let off_hi = *off_ptr.add(c + 1) as usize;
+                std::ptr::copy_nonoverlapping(dict_ptr.add(off_lo), cursor, crate::MAX_TOKEN_SIZE);
+                cursor = cursor.add(off_hi - off_lo);
+                i += 1;
+            }
+            cursor.offset_from(dst) as usize
+        }
+    }
+
+    /// Single-pass decode when the caller already knows the total decoded
+    /// byte length (e.g. from summing `uncompressed_lengths`). Skips the
+    /// size-precomputation pass.
+    ///
+    /// # Safety
+    /// `out.capacity() - out.len() >= total_size + MAX_TOKEN_SIZE` and
+    /// `total_size` equals the true decoded length.
+    #[inline]
+    pub unsafe fn decode_rows_into_with_size(
+        &self,
+        start: usize,
+        count: usize,
+        total_size: usize,
+        out: &mut Vec<u8>,
+    ) {
+        let written_start = out.len();
+        debug_assert!(out.capacity() - written_start >= total_size + crate::MAX_TOKEN_SIZE);
+        // SAFETY: caller's invariants.
+        let written = unsafe {
+            self.decode_rows_unchecked(start, count, out.as_mut_ptr().add(written_start))
+        };
+        debug_assert_eq!(written, total_size);
+        // SAFETY: `written` ≤ reserved capacity (caller invariants).
+        unsafe { out.set_len(written_start + written) };
     }
 
     /// Decoded byte length of row `row` without actually copying bytes.

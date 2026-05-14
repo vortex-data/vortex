@@ -75,7 +75,7 @@ where
 
     let column = Column::compress(&flat, &offsets, config)
         .map_err(|e| vortex_err!("OnPair compress failed: {e}"))?;
-    let (bits, dict_bytes, dict_offsets, codes, codes_offsets) = parts_to_buffers(&column)?;
+    let (bits, dict_bytes, dict_offsets, codes, codes_offsets) = parts_to_children(&column)?;
     drop(column);
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
@@ -96,11 +96,11 @@ where
     )
 }
 
-/// Borrow the raw C++ parts and lift them into Vortex buffers.
-/// Returns `(bits, dict_bytes, dict_offsets, codes, codes_offsets)`.
-fn parts_to_buffers(
+/// Borrow the raw C++ parts and lift them into Vortex children + the dict buffer.
+/// Returns `(bits, dict_bytes_buffer, dict_offsets_child, codes_child, codes_offsets_child)`.
+fn parts_to_children(
     column: &Column,
-) -> VortexResult<(u32, BufferHandle, BufferHandle, BufferHandle, BufferHandle)> {
+) -> VortexResult<(u32, BufferHandle, ArrayRef, ArrayRef, ArrayRef)> {
     let parts = column
         .parts()
         .map_err(|e| vortex_err!("OnPair parts failed: {e}"))?;
@@ -111,9 +111,16 @@ fn parts_to_buffers(
     let mut padded = Vec::with_capacity(parts.dict_bytes.len() + crate::MAX_TOKEN_SIZE);
     padded.extend_from_slice(parts.dict_bytes);
     padded.resize(parts.dict_bytes.len() + crate::MAX_TOKEN_SIZE, 0);
-    let dict_bytes = BufferHandle::new_host(ByteBuffer::from(padded));
-    let dict_offsets =
-        BufferHandle::new_host(Buffer::<u32>::copy_from(parts.dict_offsets).into_byte_buffer());
+    // Align dict_bytes to 8 bytes so the segment that ultimately holds the
+    // OnPair tree starts at an 8-aligned in-memory address. Without this
+    // anchor, the per-buffer padding the serializer inserts is only
+    // *relative* to the segment start; if the segment lands at a u8-aligned
+    // heap address, downstream `PrimitiveArray<u32>::deserialize` panics
+    // with `Misaligned buffer cannot be used to build PrimitiveArray of u32`.
+    let dict_bytes =
+        BufferHandle::new_host(ByteBuffer::from(padded).aligned(vortex_buffer::Alignment::new(8)));
+
+    let dict_offsets = Buffer::<u32>::copy_from(parts.dict_offsets).into_array();
     let total_tokens = usize::try_from(
         *parts
             .codes_boundaries
@@ -122,9 +129,8 @@ fn parts_to_buffers(
     )
     .map_err(|_| vortex_err!("OnPair: total_tokens does not fit in usize"))?;
     let codes_vec = unpack_codes_to_u16(parts.codes_packed, total_tokens, bits);
-    let codes = BufferHandle::new_host(Buffer::<u16>::copy_from(codes_vec).into_byte_buffer());
-    let codes_offsets =
-        BufferHandle::new_host(Buffer::<u32>::copy_from(parts.codes_boundaries).into_byte_buffer());
+    let codes = Buffer::<u16>::copy_from(codes_vec).into_array();
+    let codes_offsets = Buffer::<u32>::copy_from(parts.codes_boundaries).into_array();
     Ok((bits, dict_bytes, dict_offsets, codes, codes_offsets))
 }
 

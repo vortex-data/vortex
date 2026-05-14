@@ -55,10 +55,13 @@ pub(crate) fn onpair_decode_views(
 
     let inputs = OwnedDecodeInputs::collect(array, ctx)?;
     let dv = inputs.view();
-    // Bulk decode every row in one shot — the over-copy decoder writes
-    // contiguously into one output buffer with no per-row reserve overhead.
+    // Fast path: `total_size` already known from `uncompressed_lengths`, so
+    // skip the decoder's own size-precomputation pass. Single allocation,
+    // single 4×-unrolled over-copy loop, no second scan.
     let mut buf: Vec<u8> = Vec::with_capacity(total_size + crate::MAX_TOKEN_SIZE);
-    dv.decode_rows_into(0, n, &mut buf);
+    // SAFETY: capacity reserved above; `total_size` is the true decoded
+    // byte count (sum of `uncompressed_lengths`).
+    unsafe { dv.decode_rows_into_with_size(0, n, total_size, &mut buf) };
     let mut out_bytes = ByteBufferMut::with_capacity(buf.len());
     out_bytes.extend_from_slice(&buf);
 

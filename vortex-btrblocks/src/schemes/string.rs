@@ -177,10 +177,13 @@ impl Scheme for OnPairScheme {
     /// offsets, codes (u16), and codes offsets all live as raw byte buffers
     /// on the OnPair array — they're not primitive slot children, so the
     /// cascading compressor doesn't recompress them. Codes intentionally
-    /// stay at u16 (each value uses up to `bits ≤ 16` bits) so the decoder
-    /// is a straight indexed lookup with no bit-unpacking.
+    /// 4 primitive slot children flow through the cascading compressor:
+    /// `dict_offsets` (u32 → typically `FoR`/`BitPacked`), `codes` (u16 →
+    /// `FastLanes::BitPacked` to exactly `bits` = 12 by default),
+    /// `codes_offsets` (u32 → `FoR`), `uncompressed_lengths` (i32 → narrow
+    /// + `FoR`). Validity stays untouched.
     fn num_children(&self) -> usize {
-        1
+        4
     }
 
     fn expected_compression_ratio(
@@ -202,32 +205,70 @@ impl Scheme for OnPairScheme {
         let utf8 = data.array_as_utf8().into_owned();
         let onpair_array = onpair_compress(&utf8, utf8.len(), utf8.dtype(), DEFAULT_DICT12_CONFIG)?;
 
-        let uncompressed_lengths = onpair_array
-            .uncompressed_lengths()
-            .clone()
-            .execute::<PrimitiveArray>(exec_ctx)?
-            .narrow()?
-            .into_array();
-        let compressed_lengths = compressor.compress_child(
-            &uncompressed_lengths,
+        let dict_offsets = compress_primitive_child(
+            compressor,
+            onpair_array.dict_offsets(),
             &compress_ctx,
             self.id(),
             0,
+            exec_ctx,
+        )?;
+        let codes = compress_primitive_child(
+            compressor,
+            onpair_array.codes(),
+            &compress_ctx,
+            self.id(),
+            1,
+            exec_ctx,
+        )?;
+        let codes_offsets = compress_primitive_child(
+            compressor,
+            onpair_array.codes_offsets(),
+            &compress_ctx,
+            self.id(),
+            2,
+            exec_ctx,
+        )?;
+        let uncompressed_lengths = compress_primitive_child(
+            compressor,
+            onpair_array.uncompressed_lengths(),
+            &compress_ctx,
+            self.id(),
+            3,
             exec_ctx,
         )?;
 
         Ok(OnPair::try_new(
             onpair_array.dtype().clone(),
             onpair_array.dict_bytes_handle().clone(),
-            onpair_array.dict_offsets_handle().clone(),
-            onpair_array.codes_handle().clone(),
-            onpair_array.codes_offsets_handle().clone(),
-            compressed_lengths,
+            dict_offsets,
+            codes,
+            codes_offsets,
+            uncompressed_lengths,
             onpair_array.array_validity(),
             onpair_array.bits(),
         )?
         .into_array())
     }
+}
+
+/// Narrow a primitive child to its tightest int type, then forward it to
+/// the cascading compressor.
+#[cfg(feature = "onpair")]
+fn compress_primitive_child(
+    compressor: &CascadingCompressor,
+    child: &ArrayRef,
+    compress_ctx: &CompressorContext,
+    scheme_id: vortex_compressor::scheme::SchemeId,
+    child_idx: usize,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let narrowed = child
+        .clone()
+        .execute::<PrimitiveArray>(exec_ctx)?
+        .narrow()?
+        .into_array();
+    compressor.compress_child(&narrowed, compress_ctx, scheme_id, child_idx, exec_ctx)
 }
 
 impl Scheme for NullDominatedSparseScheme {

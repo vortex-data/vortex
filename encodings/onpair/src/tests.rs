@@ -51,6 +51,11 @@ fn test_onpair_metadata_golden() {
         &OnPairMetadata {
             uncompressed_lengths_ptype: PType::I32 as i32,
             bits: 12,
+            dict_size: 4096,
+            total_tokens: 128_000,
+            dict_offsets_ptype: PType::U32 as i32,
+            codes_ptype: PType::U16 as i32,
+            codes_offsets_ptype: PType::U32 as i32,
         }
         .encode_to_vec(),
     );
