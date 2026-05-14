@@ -53,7 +53,6 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     // String schemes.
     ////////////////////////////////////////////////////////////////////////////////////////////////
     &string::StringDictScheme,
-    &string::FSSTScheme,
     #[cfg(feature = "onpair")]
     &string::OnPairScheme,
     &string::StringConstantScheme,
@@ -170,14 +169,20 @@ impl BtrBlocksCompressorBuilder {
     /// preserves the array buffer layout for zero-conversion GPU decompression. Without it,
     /// interleaved Zstd compression is used.
     pub fn only_cuda_compatible(self) -> Self {
-        let builder = self.exclude_schemes([
+        // String fragmentation schemes (OnPair, FSST) require host-side
+        // dictionary expansion at decode time, which is incompatible with
+        // pure-GPU decompression paths. Strip whichever string-fragment
+        // scheme is enabled by feature.
+        let mut excluded: Vec<SchemeId> = vec![
             integer::SparseScheme.id(),
             integer::IntRLEScheme.id(),
             float::FloatRLEScheme.id(),
             float::NullDominatedSparseScheme.id(),
             string::StringDictScheme.id(),
-            string::FSSTScheme.id(),
-        ]);
+        ];
+        #[cfg(feature = "onpair")]
+        excluded.push(string::OnPairScheme.id());
+        let builder = self.exclude_schemes(excluded);
 
         #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
         let builder = builder.with_new_scheme(&string::ZstdBuffersScheme);

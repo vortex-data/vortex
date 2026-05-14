@@ -115,6 +115,8 @@ use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::session::ArraySessionExt;
 use vortex_bytebool::ByteBool;
 use vortex_fsst::FSST;
+#[cfg(feature = "onpair")]
+use vortex_onpair::OnPair;
 use vortex_pco::Pco;
 use vortex_session::VortexSession;
 use vortex_sparse::Sparse;
@@ -163,6 +165,8 @@ pub fn register_default_encodings(session: &VortexSession) {
         arrays.register(ByteBool);
         arrays.register(Dict);
         arrays.register(FSST);
+        #[cfg(feature = "onpair")]
+        arrays.register(OnPair);
         arrays.register(Pco);
         arrays.register(Sparse);
         arrays.register(ZigZag);

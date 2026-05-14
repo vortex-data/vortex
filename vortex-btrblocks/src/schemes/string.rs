@@ -41,17 +41,22 @@ use crate::Scheme;
 use crate::SchemeExt;
 
 /// FSST (Fast Static Symbol Table) compression.
+///
+/// Retained for callers that want to opt back in via
+/// [`BtrBlocksCompressorBuilder::with_new_scheme`]; it is **not** part of the
+/// default [`ALL_SCHEMES`] anymore — the default string-fragmentation slot is
+/// filled by [`OnPairScheme`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct FSSTScheme;
 
-/// OnPair short-string compression (dict-12, FSST-shape children).
+/// OnPair short-string compression (dict-12).
 ///
-/// Targets the same workload as FSST — large columns of short-to-medium
-/// strings with high lexical overlap — but uses a learned dictionary of
-/// frequent adjacent substrings and 12-bit codes. The codes / offsets /
-/// uncompressed-lengths children all flow through the cascading compressor
-/// the same way FSST's do, so any downstream bit-packing / FoR / etc. still
-/// applies.
+/// The default string-fragmentation scheme — targets large columns of
+/// short-to-medium strings with high lexical overlap, like URLs or log lines.
+/// Uses a learned dictionary of frequent adjacent substrings (built by the
+/// OnPair C++ trainer at compress time) and 12-bit token codes stored as a
+/// u16 child, with offsets / uncompressed-lengths flowing through the
+/// cascading compressor like any other primitive children.
 #[cfg(feature = "onpair")]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct OnPairScheme;
@@ -546,11 +551,12 @@ mod scheme_selection_tests {
         );
     }
 
+    #[cfg(feature = "onpair")]
     #[test]
-    fn test_dictionary_string_scheme_compressed() -> VortexResult<()> {
+    fn test_onpair_compressed() -> VortexResult<()> {
         // Dictionary-style string corpus: high lexical overlap, short rows.
-        // FSST and OnPair both target this shape; the cascading compressor
-        // picks whichever samples better, so accept either.
+        // OnPair is the only string-fragmentation scheme in the default
+        // builder, so it should win the sample-based comparison.
         let mut strings = Vec::with_capacity(1000);
         for i in 0..1000 {
             strings.push(Some(format!(
@@ -561,14 +567,47 @@ mod scheme_selection_tests {
         let array_ref = array.into_array();
         let compressed = BtrBlocksCompressor::default()
             .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
-        let is_fsst = compressed.is::<FSST>();
-        #[cfg(feature = "onpair")]
-        let is_onpair = compressed.is::<vortex_onpair::OnPair>();
-        #[cfg(not(feature = "onpair"))]
-        let is_onpair = false;
         assert!(
-            is_fsst || is_onpair,
-            "expected FSST or OnPair, got {}",
+            compressed.is::<vortex_onpair::OnPair>(),
+            "expected OnPair, got {}",
+            compressed.encoding_id()
+        );
+        Ok(())
+    }
+
+    /// FSST is no longer in the default scheme list, but `with_new_scheme`
+    /// still lets callers opt it back in.
+    #[test]
+    fn test_fsst_opt_in_still_works() -> VortexResult<()> {
+        use crate::BtrBlocksCompressorBuilder;
+        use crate::SchemeExt;
+        use crate::schemes::string::FSSTScheme;
+
+        // FSST must not be registered by default.
+        assert!(
+            !crate::ALL_SCHEMES.iter().any(|s| s.id() == FSSTScheme.id()),
+            "FSSTScheme should not be in ALL_SCHEMES anymore",
+        );
+
+        // ...but explicitly adding it back should still produce a compressor
+        // that returns an FSST array for FSST-favourable input. Start from an
+        // empty builder so the sample-based comparison can't pick OnPair.
+        let mut strings = Vec::with_capacity(1000);
+        for i in 0..1000 {
+            strings.push(Some(format!(
+                "this_is_a_common_prefix_with_some_variation_{i}_and_a_common_suffix_pattern"
+            )));
+        }
+        let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
+        let array_ref = array.into_array();
+
+        let compressor = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&FSSTScheme)
+            .build();
+        let compressed = compressor.compress(&array_ref, &mut SESSION.create_execution_ctx())?;
+        assert!(
+            compressed.is::<FSST>(),
+            "expected FSST when only FSSTScheme is registered, got {}",
             compressed.encoding_id()
         );
         Ok(())

@@ -52,6 +52,8 @@ use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
+#[cfg(feature = "onpair")]
+use vortex_onpair::OnPair;
 use vortex_pco::Pco;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
@@ -100,6 +102,8 @@ pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
     allowed.insert(Delta.id());
     allowed.insert(FoR.id());
     allowed.insert(FSST.id());
+    #[cfg(feature = "onpair")]
+    allowed.insert(OnPair.id());
     allowed.insert(Pco.id());
     allowed.insert(RLE.id());
     allowed.insert(RunEnd.id());
