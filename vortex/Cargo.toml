@@ -102,3 +102,8 @@ test = false
 [[bench]]
 name = "pipeline"
 harness = false
+
+[[bench]]
+name = "pcodec_page_size"
+harness = false
+test = false
