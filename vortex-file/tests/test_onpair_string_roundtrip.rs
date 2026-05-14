@@ -301,6 +301,55 @@ async fn tpch_supplier_shape() {
     assert_eq!(row, n);
 }
 
+/// 30 short fixed strings where the dictionary blob length is unlikely to
+/// be a multiple of 4. Earlier buffer orderings (dict_bytes first) tripped
+/// the segment writer's first-buffer-only alignment, surfacing
+/// `Misaligned buffer cannot be used to build PrimitiveArray of u32` on
+/// read.
+#[tokio::test]
+async fn odd_dict_length_alignment() {
+    let words: &[&str] = &[
+        "a", "bb", "ccc", "dddd", "eeeee", "fffff", "ggggggg", "h", "ii", "jjj",
+    ];
+    let n = 20_000usize;
+    let strings: Vec<&str> = (0..n).map(|i| words[i % words.len()]).collect();
+    let str_array = VarBinViewArray::from_iter(
+        strings.iter().map(|s| Some(*s)),
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array();
+    let data = StructArray::new(
+        FieldNames::from(["w"]),
+        vec![str_array],
+        n,
+        Validity::NonNullable,
+    )
+    .into_array();
+
+    let chunks = write_and_read_back(data).await;
+    let mut row = 0;
+    for chunk in chunks {
+        let strct = chunk
+            .try_downcast::<vortex_array::arrays::Struct>()
+            .expect("Struct");
+        let mut ctx = SESSION.create_execution_ctx();
+        let s = strct
+            .unmasked_field(0)
+            .clone()
+            .execute::<VarBinViewArray>(&mut ctx)
+            .unwrap();
+        s.with_iterator(|iter| {
+            for b in iter {
+                assert_eq!(b, Some(strings[row].as_bytes()), "row {row}");
+                row += 1;
+            }
+            Ok::<_, vortex_error::VortexError>(())
+        })
+        .unwrap();
+    }
+    assert_eq!(row, n);
+}
+
 /// Mixed-shape strings: empty, short, very long, with a fair chunk of nulls
 /// — exercising the validity child + edge offsets.
 #[tokio::test]

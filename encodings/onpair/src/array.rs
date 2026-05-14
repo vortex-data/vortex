@@ -59,16 +59,21 @@ pub const DEFAULT_BITS: u32 = 12;
 ///
 /// On disk the layout is:
 ///
-/// * Buffer 0 — `dict_bytes`: dictionary blob built by the C++ trainer.
-/// * Buffer 1 — `dict_offsets`: `dict_size + 1` u32 offsets into `dict_bytes`,
-///   stored as raw little-endian bytes.
-/// * Buffer 2 — `codes`: per-token `u16` ids, stored as raw little-endian
-///   bytes. Each value only uses its low `bits` bits, but we keep the u16
-///   width on disk so the decode loop is a straight indexed lookup without
-///   bit-unpacking. Downstream compaction can still re-encode this buffer
-///   externally.
-/// * Buffer 3 — `codes_offsets`: `num_rows + 1` u32 offsets into `codes`,
-///   stored as raw little-endian bytes.
+/// * Buffer 0 — `dict_offsets`: `dict_size + 1` u32 offsets into `dict_bytes`,
+///   stored as raw little-endian bytes. **First so the segment-level
+///   alignment is u32 (4 bytes).**
+/// * Buffer 1 — `codes_offsets`: `num_rows + 1` u32 offsets into `codes`.
+///   Lengths of buffers 0 and 1 are both multiples of 4, so buffer 2 starts
+///   at a 4-aligned (and thus 2-aligned) offset within the segment.
+/// * Buffer 2 — `codes`: per-token `u16` ids. Each value only uses its low
+///   `bits` bits, but we keep the u16 width on disk so the decode loop is
+///   a straight indexed lookup without bit-unpacking. Downstream compaction
+///   can still re-encode this buffer externally.
+/// * Buffer 3 — `dict_bytes`: dictionary blob built by the C++ trainer,
+///   padded with [`MAX_TOKEN_SIZE`][crate::MAX_TOKEN_SIZE] trailing zero
+///   bytes so the over-copy decoder can safely read 16 bytes past the last
+///   token. **Last because its length is variable and it has no alignment
+///   requirement; any padding pressure on later buffers is moot.**
 /// * Slot 0   — `uncompressed_lengths`: `PrimitiveArray<integer>`.
 /// * Slot 1   — optional validity child.
 ///
@@ -103,10 +108,19 @@ pub(crate) const NUM_SLOTS: usize = 2;
 pub(crate) const SLOT_NAMES: [&str; NUM_SLOTS] = ["uncompressed_lengths", "validity"];
 
 /// Buffer indices.
-pub(crate) const DICT_BYTES_BUF: usize = 0;
-pub(crate) const DICT_OFFSETS_BUF: usize = 1;
+///
+/// Order matters for on-disk alignment: the Vortex flat-segment writer
+/// aligns each segment to the first buffer's alignment only, so we put the
+/// strictest-alignment buffers first. Both `u32` offsets buffers have
+/// length-multiple-of-4 by construction, and `codes` has
+/// length-multiple-of-2; that means every later buffer's relative offset
+/// inside the segment stays aligned to its own type's requirement. The
+/// variable-length `dict_bytes` blob (no alignment) is last so nothing
+/// downstream can be tripped up by its length.
+pub(crate) const DICT_OFFSETS_BUF: usize = 0;
+pub(crate) const CODES_OFFSETS_BUF: usize = 1;
 pub(crate) const CODES_BUF: usize = 2;
-pub(crate) const CODES_OFFSETS_BUF: usize = 3;
+pub(crate) const DICT_BYTES_BUF: usize = 3;
 
 /// Inner data for an OnPair-encoded array.
 ///
@@ -388,20 +402,20 @@ impl VTable for OnPair {
 
     fn buffer(array: ArrayView<'_, Self>, idx: usize) -> BufferHandle {
         match idx {
-            DICT_BYTES_BUF => array.dict_bytes_handle().clone(),
             DICT_OFFSETS_BUF => array.dict_offsets_handle().clone(),
-            CODES_BUF => array.codes_handle().clone(),
             CODES_OFFSETS_BUF => array.codes_offsets_handle().clone(),
+            CODES_BUF => array.codes_handle().clone(),
+            DICT_BYTES_BUF => array.dict_bytes_handle().clone(),
             _ => vortex_panic!("OnPairArray buffer index {idx} out of bounds"),
         }
     }
 
     fn buffer_name(_array: ArrayView<'_, Self>, idx: usize) -> Option<String> {
         match idx {
-            DICT_BYTES_BUF => Some("dict_bytes".to_string()),
             DICT_OFFSETS_BUF => Some("dict_offsets".to_string()),
-            CODES_BUF => Some("codes".to_string()),
             CODES_OFFSETS_BUF => Some("codes_offsets".to_string()),
+            CODES_BUF => Some("codes".to_string()),
+            DICT_BYTES_BUF => Some("dict_bytes".to_string()),
             _ => vortex_panic!("OnPairArray buffer_name index {idx} out of bounds"),
         }
     }
