@@ -1,20 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Fast-path `Eq` / `NotEq` comparison against a constant.
+//! Fast-path comparison against a constant for bit-packed arrays.
 //!
-//! When the constant cannot fit in the packable range `[0, 2^bit_width - 1]`, no value
-//! stored in the packed buffer can equal it, so:
+//! A bit-packed lane holds values in `[0, 2^bit_width - 1]`. When the RHS constant sits
+//! outside that range, every packed lane has the same `Ordering` relative to `c`:
 //!
-//! * `Eq`    → every position is `false` (modulo patches/validity).
-//! * `NotEq` → every position is `true`  (modulo patches/validity).
+//! * `c > 2^bit_width - 1` (above range) → every packed lane is `< c`
+//! * `c < 0` (below range) → every packed lane is `> c` (packed values are non-negative)
 //!
-//! Detecting this is an `O(1)` range check on the constant — strictly cheaper than
-//! encoding `c` into the bit-packed representation. The check is layout-agnostic and
-//! does not touch the packed buffer.
+//! That collapses each of the six comparison operators to a constant boolean (modulo
+//! patches and validity), so the result is either a `ConstantArray<bool>` (`O(1)`) or a
+//! `BitBuffer` filled with that constant and overlaid with per-position results at any
+//! patched indices.
 //!
-//! In-range constants and ordering operators (`Lt`/`Lte`/`Gt`/`Gte`) currently fall
-//! through to the canonical decompress + Arrow compare path.
+//! Detecting whether the constant falls in the packable range is an `O(1)` `i128` check
+//! on the constant alone — strictly cheaper than encoding `c` into the bit-packed
+//! representation, and layout-agnostic.
+//!
+//! **In-range constants** (those that could match a packed lane) fall through to the
+//! canonical decompress + Arrow compare path. See `docs/inrange_compare_plan.md` for the
+//! plan to accelerate that case for ordering operators.
+
+use std::cmp::Ordering;
 
 use num_traits::ToPrimitive;
 use vortex_array::ArrayRef;
@@ -47,13 +55,6 @@ impl CompareKernel for BitPacked {
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Only `Eq` / `NotEq` are accelerated here. Ordering operators (`Lt`, `Lte`, `Gt`,
-        // `Gte`) need either a SWAR less-than over the packed bytes or unpack-then-compare;
-        // both are out of scope for this commit and fall through to the canonical path.
-        if !matches!(operator, CompareOperator::Eq | CompareOperator::NotEq) {
-            return Ok(None);
-        }
-
         let Some(constant) = rhs.as_constant() else {
             return Ok(None);
         };
@@ -62,7 +63,7 @@ impl CompareKernel for BitPacked {
         };
 
         match_each_integer_ptype!(constant.ptype(), |T| {
-            compare_eq_constant::<T>(
+            compare_constant::<T>(
                 lhs,
                 constant
                     .typed_value::<T>()
@@ -75,22 +76,45 @@ impl CompareKernel for BitPacked {
     }
 }
 
-/// Returns `true` if `constant` cannot fit in the packable range `[0, 2^bit_width - 1]`.
+/// Ordering of every packed lane vs `constant` when `constant` is outside the packable
+/// range. Returns `None` when `constant` itself fits in the range (no fast path applies).
 ///
 /// `O(1)` check on the constant; never inspects the packed buffer.
 #[inline]
-fn constant_out_of_packable_range<T>(constant: T, bit_width: u8) -> bool
+fn constant_relation_to_packed<T>(constant: T, bit_width: u8) -> Option<Ordering>
 where
     T: NativePType + ToPrimitive,
 {
-    let Some(c) = constant.to_i128() else {
-        return false;
-    };
+    let c = constant.to_i128()?;
+    if c < 0 {
+        return Some(Ordering::Greater);
+    }
     let max = (1i128 << bit_width) - 1;
-    c < 0 || c > max
+    if c > max {
+        return Some(Ordering::Less);
+    }
+    None
 }
 
-fn compare_eq_constant<T>(
+/// Reduce `lane op constant` to a constant boolean when every packed lane has the same
+/// ordering relation to `constant`.
+#[inline]
+fn reduce_constant(relation: Ordering, operator: CompareOperator) -> bool {
+    match (operator, relation) {
+        (CompareOperator::Eq, _) => false,
+        (CompareOperator::NotEq, _) => true,
+        (CompareOperator::Lt, Ordering::Less) => true,
+        (CompareOperator::Lt, _) => false,
+        (CompareOperator::Lte, Ordering::Less | Ordering::Equal) => true,
+        (CompareOperator::Lte, _) => false,
+        (CompareOperator::Gt, Ordering::Greater) => true,
+        (CompareOperator::Gt, _) => false,
+        (CompareOperator::Gte, Ordering::Greater | Ordering::Equal) => true,
+        (CompareOperator::Gte, _) => false,
+    }
+}
+
+fn compare_constant<T>(
     lhs: ArrayView<'_, BitPacked>,
     constant: T,
     rhs_nullability: Nullability,
@@ -100,22 +124,19 @@ fn compare_eq_constant<T>(
 where
     T: NativePType + ToPrimitive,
 {
-    if !constant_out_of_packable_range(constant, lhs.bit_width()) {
-        // Constant fits in the packable range, so at least some packed lanes could match
-        // it. The fast path doesn't apply.
+    let Some(relation) = constant_relation_to_packed(constant, lhs.bit_width()) else {
+        // In-range constants currently fall through to the canonical path. See
+        // `docs/inrange_compare_plan.md` for the plan to accelerate Lt/Lte/Gt/Gte here.
         return Ok(None);
-    }
+    };
 
-    // Every packed lane disagrees with `constant`. `Eq` is `false` everywhere, `NotEq` is
-    // `true` everywhere — modulo patches (which carry the real value) and validity.
-    let packed_lane_result = matches!(operator, CompareOperator::NotEq);
+    let packed_lane_result = reduce_constant(relation, operator);
     let len = lhs.len();
     let validity = lhs.validity()?;
     let patches = lhs.patches();
     let result_nullability = lhs.dtype().nullability() | rhs_nullability;
 
-    // Hot path: no patches, no nulls — every position has the same boolean result, so we
-    // return a `ConstantArray<bool>` in `O(1)`.
+    // Hot path: no patches, no nulls — every position has the same boolean result.
     if patches.is_none() && validity.no_nulls() {
         return Ok(Some(
             ConstantArray::new(Scalar::bool(packed_lane_result, result_nullability), len)
@@ -131,7 +152,7 @@ where
         let patches_offset = patches.offset();
 
         match_each_unsigned_integer_ptype!(indices.ptype(), |I| {
-            apply_eq_patches::<T, I>(
+            apply_patches::<T, I>(
                 &mut bits,
                 indices.as_slice::<I>(),
                 values.as_slice::<T>(),
@@ -146,7 +167,7 @@ where
     Ok(Some(BoolArray::new(bits.freeze(), validity).into_array()))
 }
 
-fn apply_eq_patches<T, I>(
+fn apply_patches<T, I>(
     bits: &mut BitBufferMut,
     indices: &[I],
     values: &[T],
@@ -157,11 +178,13 @@ fn apply_eq_patches<T, I>(
     T: NativePType,
     I: IntegerPType,
 {
-    // Only Eq/NotEq reach this point (see `CompareKernel::compare`).
     let cmp: fn(T, T) -> bool = match operator {
         CompareOperator::Eq => |l, r| NativeValue(l) == NativeValue(r),
         CompareOperator::NotEq => |l, r| NativeValue(l) != NativeValue(r),
-        _ => unreachable!("only Eq/NotEq reach the bitpacked compare-constant fast path"),
+        CompareOperator::Lt => |l, r| NativeValue(l) < NativeValue(r),
+        CompareOperator::Lte => |l, r| NativeValue(l) <= NativeValue(r),
+        CompareOperator::Gt => |l, r| NativeValue(l) > NativeValue(r),
+        CompareOperator::Gte => |l, r| NativeValue(l) >= NativeValue(r),
     };
 
     let len = bits.len();
@@ -184,6 +207,7 @@ fn apply_eq_patches<T, I>(
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
     use std::sync::LazyLock;
 
     use rstest::rstest;
@@ -205,26 +229,36 @@ mod tests {
 
     use crate::BitPackedArrayExt;
     use crate::BitPackedData;
-    use crate::bitpacking::compute::compare::constant_out_of_packable_range;
+    use crate::bitpacking::compute::compare::constant_relation_to_packed;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn range_check_is_o1() {
-        // 8-bit packable range is [0, 255].
-        assert!(constant_out_of_packable_range::<i32>(256, 8));
-        assert!(constant_out_of_packable_range::<i32>(-1, 8));
-        assert!(!constant_out_of_packable_range::<i32>(255, 8));
-        assert!(!constant_out_of_packable_range::<i32>(0, 8));
+        // For an 8-bit packable range of [0, 255]:
+        assert_eq!(
+            constant_relation_to_packed::<i32>(256, 8),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            constant_relation_to_packed::<i32>(-1, 8),
+            Some(Ordering::Greater)
+        );
+        assert_eq!(constant_relation_to_packed::<i32>(255, 8), None);
+        assert_eq!(constant_relation_to_packed::<i32>(0, 8), None);
     }
 
     #[rstest]
     #[case(Operator::Eq, false)]
     #[case(Operator::NotEq, true)]
-    fn eq_above_range_no_patches(#[case] op: Operator, #[case] expected: bool) -> VortexResult<()> {
+    #[case(Operator::Lt, true)]
+    #[case(Operator::Lte, true)]
+    #[case(Operator::Gt, false)]
+    #[case(Operator::Gte, false)]
+    fn above_range_no_patches(#[case] op: Operator, #[case] expected: bool) -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
-        // 999 is above the 8-bit packable range; no packed lane matches.
+        // 999 is above the 8-bit packable range; every packed lane is < 999.
         let packed = BitPackedData::encode(
             &PrimitiveArray::from_iter([1u32, 2, 3, 250, 100]).into_array(),
             8,
@@ -240,8 +274,8 @@ mod tests {
 
     #[rstest]
     #[case(Operator::Eq)]
-    #[case(Operator::NotEq)]
-    fn eq_above_range_with_patches(#[case] op: Operator) -> VortexResult<()> {
+    #[case(Operator::Lt)]
+    fn above_range_with_patches(#[case] op: Operator) -> VortexResult<()> {
         // bit_width=4 packable range is [0, 15]; out-of-range values become patches.
         let mut ctx = SESSION.create_execution_ctx();
         let values = buffer![1u32, 5, 1000, 7, 1000, 14];
@@ -255,40 +289,39 @@ mod tests {
             .binary(ConstantArray::new(constant, values.len()).into_array(), op)?
             .execute::<BoolArray>(&mut ctx)?;
 
-        let expected: Vec<bool> = values
-            .iter()
-            .map(|v| match op {
-                Operator::Eq => *v == constant,
-                Operator::NotEq => *v != constant,
-                _ => unreachable!(),
-            })
-            .collect();
-        assert_arrays_eq!(result, BoolArray::from_iter(expected));
-        Ok(())
-    }
-
-    #[test]
-    fn ordering_falls_through() -> VortexResult<()> {
-        // Ordering ops aren't accelerated yet; they go through the canonical path and
-        // must still return a correct answer.
-        let mut ctx = SESSION.create_execution_ctx();
-        let values = [1u32, 2, 3, 250, 100];
-        let packed =
-            BitPackedData::encode(&PrimitiveArray::from_iter(values).into_array(), 8, &mut ctx)?;
-        let result = packed
-            .into_array()
-            .binary(ConstantArray::new(999u32, 5).into_array(), Operator::Lt)?
-            .execute::<BoolArray>(&mut ctx)?;
+        let cmp: fn(u32, u32) -> bool = match op {
+            Operator::Eq => |l, r| l == r,
+            Operator::Lt => |l, r| l < r,
+            _ => unreachable!(),
+        };
         assert_arrays_eq!(
             result,
-            BoolArray::from_iter(values.iter().map(|v| *v < 999))
+            BoolArray::from_iter(values.iter().map(|v| cmp(*v, constant)))
         );
         Ok(())
     }
 
     #[test]
-    fn eq_in_range_falls_through() -> VortexResult<()> {
-        // In-range constants must defer to the canonical path.
+    fn below_range_signed() -> VortexResult<()> {
+        // Packed signed values are non-negative, so -5 is always less than every lane.
+        let mut ctx = SESSION.create_execution_ctx();
+        let packed = BitPackedData::encode(
+            &PrimitiveArray::from_iter([0i32, 7, 15, 3, 12]).into_array(),
+            4,
+            &mut ctx,
+        )?;
+        let len = packed.len();
+        let result = packed
+            .into_array()
+            .binary(ConstantArray::new(-5i32, len).into_array(), Operator::Gt)?
+            .execute::<BoolArray>(&mut ctx)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([true; 5]));
+        Ok(())
+    }
+
+    #[test]
+    fn in_range_falls_through() -> VortexResult<()> {
+        // 100 is in the 8-bit packable range; fall through to the canonical path.
         let mut ctx = SESSION.create_execution_ctx();
         let values = [1u32, 2, 3, 250, 100];
         let packed =
@@ -305,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn eq_nullable_constant() -> VortexResult<()> {
+    fn nullable_constant() -> VortexResult<()> {
         let mut ctx = SESSION.create_execution_ctx();
         let packed = BitPackedData::encode(
             &PrimitiveArray::from_iter([1u32, 2, 3]).into_array(),

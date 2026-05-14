@@ -273,6 +273,29 @@ impl BitPackedData {
     pub fn max_packed_value(&self) -> usize {
         (1 << self.bit_width()) - 1
     }
+
+    /// Test whether `value` can be represented as a packed lane in this array, i.e. whether
+    /// it falls in the range `[0, 2^bit_width - 1]`.
+    ///
+    /// This is an `O(1)` check that never inspects the packed buffer and is strictly cheaper
+    /// than encoding `value` into the bit-packed representation. It is the building block for
+    /// fast comparison kernels that can short-circuit when the constant cannot match any
+    /// packed lane.
+    ///
+    /// Returns `None` if `value` cannot be losslessly converted to `i128` (which never
+    /// happens for the integer types supported by bit-packing).
+    #[inline]
+    pub fn value_fits_bit_width<T: NativePType + num_traits::ToPrimitive>(
+        &self,
+        value: T,
+    ) -> Option<bool> {
+        let v = value.to_i128()?;
+        if v < 0 {
+            return Some(false);
+        }
+        let max = (1i128 << self.bit_width()) - 1;
+        Some(v <= max)
+    }
 }
 
 pub trait BitPackedArrayExt: BitPackedArraySlotsExt {
