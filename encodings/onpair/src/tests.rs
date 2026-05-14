@@ -191,3 +191,59 @@ fn test_onpair_like_contains() {
     let result = run_like(&arr, "%example.com%");
     assert_eq!(result.as_bool_typed().true_count().unwrap(), 4);
 }
+
+/// The hot decode loop is 4×-unrolled with a scalar tail. Anything that
+/// lands in the tail (1-3 leftover tokens, or zero total tokens) must
+/// produce the same bytes as the unrolled body. Hit every row-count
+/// near the boundary.
+#[cfg_attr(miri, ignore)]
+#[rstest::rstest]
+#[case::n_1(1)]
+#[case::n_2(2)]
+#[case::n_3(3)]
+#[case::n_4(4)]
+#[case::n_5(5)]
+#[case::n_7(7)]
+#[case::n_8(8)]
+#[case::n_9(9)]
+fn test_onpair_unroll_tail_boundaries(#[case] n: usize) {
+    let words: &[&str] = &["a", "bb", "ccc", "https://www.example.com/x"];
+    let strings: Vec<&str> = (0..n).map(|i| words[i % words.len()]).collect();
+    let input = VarBinArray::from_iter(
+        strings.iter().map(|s| Some(*s)),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let len = input.len();
+    let dtype = input.dtype().clone();
+    let arr = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG).unwrap();
+    let mut ctx = SESSION.create_execution_ctx();
+    let canonical = arr
+        .into_array()
+        .execute::<VarBinViewArray>(&mut ctx)
+        .unwrap();
+    canonical
+        .with_iterator(|iter| {
+            let got: Vec<Option<Vec<u8>>> = iter.map(|b| b.map(|s| s.to_vec())).collect();
+            assert_eq!(got.len(), n);
+            for (i, expected) in strings.iter().enumerate() {
+                assert_eq!(got[i].as_deref(), Some(expected.as_bytes()), "n={n}, i={i}");
+            }
+            Ok::<_, vortex_error::VortexError>(())
+        })
+        .unwrap();
+}
+
+/// Empty array — the unroll path must short-circuit cleanly.
+#[cfg_attr(miri, ignore)]
+#[test]
+fn test_onpair_empty() {
+    let input =
+        VarBinArray::from_iter(std::iter::empty::<Option<&str>>(), DType::Utf8(Nullability::NonNullable));
+    let len = input.len();
+    let dtype = input.dtype().clone();
+    let arr = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG).unwrap();
+    assert_eq!(arr.len(), 0);
+    let mut ctx = SESSION.create_execution_ctx();
+    let canonical = arr.into_array().execute::<VarBinViewArray>(&mut ctx).unwrap();
+    assert_eq!(canonical.len(), 0);
+}

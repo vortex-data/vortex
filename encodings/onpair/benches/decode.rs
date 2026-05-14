@@ -11,8 +11,8 @@
 //!   `OnPair → VarBinViewArray` path callers actually hit. Includes
 //!   `OwnedDecodeInputs::collect`, the build_views step, allocation, etc.
 //!
-//! Historical experiments (padded-dict, NT stores) lived here briefly and
-//! were dropped after benchmarking — see git history.
+//! Each bench sweeps four corpus shapes against two row counts to surface
+//! cache-pressure cliffs and per-row decode cost.
 
 #![allow(
     clippy::cast_possible_truncation,
@@ -43,31 +43,77 @@ use vortex_session::VortexSession;
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
-fn corpus(n: usize) -> Vec<String> {
-    let templates: &[&str] = &[
-        "https://www.example.com/products/{id}",
-        "https://cdn.example.com/img/{id}.webp",
-        "https://api.example.com/v2/orders/{id}",
-        "https://www.example.com/users/{id}/profile",
-        "INFO  request_id={id} status=200 method=GET",
-        "WARN  request_id={id} status=429 method=POST",
-        "ERROR request_id={id} status=500 method=PUT",
-    ];
-    let mut out = Vec::with_capacity(n);
+#[derive(Copy, Clone, Debug)]
+enum Shape {
+    /// URL / HTTP-log shaped — high lexical overlap, ~35–45 bytes per row.
+    UrlLog,
+    /// Short uniform strings — 4–8 bytes per row, very low cardinality.
+    Short,
+    /// Long log-line shaped — ~120 bytes per row, more tokens per row.
+    Long,
+    /// High cardinality — every row unique.
+    HighCard,
+}
+
+fn corpus(n: usize, shape: Shape) -> Vec<String> {
     let mut state = 0x9e37_79b9_7f4a_7c15_u64;
-    for _ in 0..n {
+    let mut next = || {
         state = state
             .wrapping_mul(6364136223846793005)
             .wrapping_add(1442695040888963407);
-        let pick = (state as usize) % templates.len();
-        let id = state as u32;
-        out.push(templates[pick].replace("{id}", &format!("{id:08x}")));
+        state
+    };
+    let mut out = Vec::with_capacity(n);
+    match shape {
+        Shape::UrlLog => {
+            let templates: &[&str] = &[
+                "https://www.example.com/products/{id}",
+                "https://cdn.example.com/img/{id}.webp",
+                "https://api.example.com/v2/orders/{id}",
+                "https://www.example.com/users/{id}/profile",
+                "INFO  request_id={id} status=200 method=GET",
+                "WARN  request_id={id} status=429 method=POST",
+                "ERROR request_id={id} status=500 method=PUT",
+            ];
+            for _ in 0..n {
+                let s = next();
+                let pick = (s as usize) % templates.len();
+                let id = s as u32;
+                out.push(templates[pick].replace("{id}", &format!("{id:08x}")));
+            }
+        }
+        Shape::Short => {
+            let templates: &[&str] =
+                &["alpha", "beta", "gamma", "delta", "eps", "zeta", "eta"];
+            for _ in 0..n {
+                let s = next();
+                out.push(templates[(s as usize) % templates.len()].to_string());
+            }
+        }
+        Shape::Long => {
+            let templates: &[&str] = &[
+                "2026-05-14T12:34:56.789012Z INFO  request_id={id} method=GET path=/api/v1/users/{id}/profile status=200",
+                "2026-05-14T12:34:56.789012Z WARN  request_id={id} method=POST path=/api/v1/users/{id}/sessions status=429",
+                "2026-05-14T12:34:56.789012Z ERROR request_id={id} method=PUT  path=/api/v1/users/{id}/settings status=500",
+            ];
+            for _ in 0..n {
+                let s = next();
+                let pick = (s as usize) % templates.len();
+                let id = s as u32;
+                out.push(templates[pick].replace("{id}", &format!("{id:08x}")));
+            }
+        }
+        Shape::HighCard => {
+            for i in 0..n {
+                out.push(format!("row-{i:010x}-{rand:016x}", rand = next()));
+            }
+        }
     }
     out
 }
 
-fn compress(n: usize) -> OnPairArray {
-    let strings = corpus(n);
+fn compress(n: usize, shape: Shape) -> OnPairArray {
+    let strings = corpus(n, shape);
     let varbin = VarBinArray::from_iter(
         strings.iter().map(|s| Some(s.as_bytes())),
         DType::Utf8(Nullability::NonNullable),
@@ -81,23 +127,29 @@ fn materialise(arr: &OnPairArray) -> (OwnedDecodeInputs, usize, usize) {
     let inputs = OwnedDecodeInputs::collect(arr.as_view(), &mut ctx)
         .unwrap_or_else(|e| panic!("collect: {e}"));
     let n = arr.len();
-    let dict_offsets = inputs.dict_offsets.as_slice();
     let total: usize = inputs
         .codes
         .as_slice()
         .iter()
-        .map(|&c| (dict_offsets[c as usize + 1] - dict_offsets[c as usize]) as usize)
+        .map(|&c| (inputs.dict_table.as_slice()[c as usize] & 0xffff) as usize)
         .sum();
     (inputs, n, total)
 }
 
-const SIZES: &[usize] = &[10_000, 100_000, 1_000_000];
+const CASES: &[(Shape, usize)] = &[
+    (Shape::UrlLog, 100_000),
+    (Shape::UrlLog, 1_000_000),
+    (Shape::Short, 100_000),
+    (Shape::Long, 100_000),
+    (Shape::HighCard, 100_000),
+];
 
-/// Raw decode loop time, excluding `OwnedDecodeInputs::collect` and
-/// the allocation. Hits `DecodeView::decode_rows_unchecked` directly.
-#[divan::bench(args = SIZES)]
-fn decode_rows_unchecked(bencher: Bencher, n: usize) {
-    let arr = compress(n);
+/// Raw decode loop time, excluding `OwnedDecodeInputs::collect` and the
+/// output allocation. Hits `DecodeView::decode_rows_unchecked` directly.
+#[divan::bench(args = CASES)]
+fn decode_rows_unchecked(bencher: Bencher, case: (Shape, usize)) {
+    let (shape, n) = case;
+    let arr = compress(n, shape);
     let (inputs, n_rows, total) = materialise(&arr);
     bencher.bench_local(|| {
         let mut out: Vec<u8> = Vec::with_capacity(total + MAX_TOKEN_SIZE);
@@ -112,9 +164,10 @@ fn decode_rows_unchecked(bencher: Bencher, n: usize) {
 
 /// Full Vortex canonicalisation, including `execute<>` on every child,
 /// building the view buffer + `BinaryView` list, etc.
-#[divan::bench(args = SIZES)]
-fn canonicalize_to_varbinview(bencher: Bencher, n: usize) {
-    let arr = compress(n);
+#[divan::bench(args = CASES)]
+fn canonicalize_to_varbinview(bencher: Bencher, case: (Shape, usize)) {
+    let (shape, n) = case;
+    let arr = compress(n, shape);
     bencher
         .with_inputs(|| arr.clone().into_array())
         .bench_local_values(|arr| {

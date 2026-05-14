@@ -71,13 +71,27 @@ fn needle_bytes(scalar: &Scalar) -> Option<Vec<u8>> {
 /// True iff row `r` decodes to exactly `needle`.
 fn row_equals_needle(dv: &DecodeView<'_>, r: usize, needle: &[u8]) -> bool {
     let mut pos = 0usize;
+    let n = needle.len();
+    let needle_ptr = needle.as_ptr();
     let ok = dv.for_each_dict_slice(r, |slice| {
         let take = slice.len();
-        if pos + take > needle.len() || &needle[pos..pos + take] != slice {
+        // Fast-path: bail on length overflow first so we never compare a
+        // partial slice that would walk past `needle`.
+        if pos + take > n {
+            return false;
+        }
+        // SAFETY: `pos + take <= n`, `take == slice.len()`. Compares
+        // `needle[pos..pos+take]` with `slice` via raw `memcmp`-style
+        // pointer math. The branch on length above is the only check.
+        let eq = unsafe {
+            let lhs = needle_ptr.add(pos);
+            std::slice::from_raw_parts(lhs, take) == slice
+        };
+        if !eq {
             return false;
         }
         pos += take;
         true
     });
-    ok && pos == needle.len()
+    ok && pos == n
 }

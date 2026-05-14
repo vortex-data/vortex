@@ -106,15 +106,22 @@ impl LikeKernel for OnPair {
 
 fn row_equals(dv: &DecodeView<'_>, r: usize, needle: &[u8]) -> bool {
     let mut pos = 0usize;
+    let n = needle.len();
+    let needle_ptr = needle.as_ptr();
     let ok = dv.for_each_dict_slice(r, |slice| {
         let take = slice.len();
-        if pos + take > needle.len() || &needle[pos..pos + take] != slice {
+        if pos + take > n {
+            return false;
+        }
+        // SAFETY: `pos + take <= n`.
+        let eq = unsafe { std::slice::from_raw_parts(needle_ptr.add(pos), take) == slice };
+        if !eq {
             return false;
         }
         pos += take;
         true
     });
-    ok && pos == needle.len()
+    ok && pos == n
 }
 
 fn row_starts_with(dv: &DecodeView<'_>, r: usize, prefix: &[u8]) -> bool {
@@ -123,14 +130,24 @@ fn row_starts_with(dv: &DecodeView<'_>, r: usize, prefix: &[u8]) -> bool {
     }
     let mut pos = 0usize;
     let mut matched = false;
+    let plen = prefix.len();
+    let prefix_ptr = prefix.as_ptr();
     dv.for_each_dict_slice(r, |slice| {
-        let remaining = prefix.len() - pos;
+        let remaining = plen - pos;
         let take = slice.len().min(remaining);
-        if prefix[pos..pos + take] != slice[..take] {
+        // SAFETY:
+        // * `pos + take <= plen` because `take <= remaining`.
+        // * `take <= slice.len()` by construction.
+        let eq = unsafe {
+            let lhs = std::slice::from_raw_parts(prefix_ptr.add(pos), take);
+            let rhs = slice.get_unchecked(..take);
+            lhs == rhs
+        };
+        if !eq {
             return false;
         }
         pos += take;
-        if pos == prefix.len() {
+        if pos == plen {
             matched = true;
             return false; // short-circuit, prefix satisfied
         }
