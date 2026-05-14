@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![expect(clippy::unwrap_used)]
+
 use std::sync::Arc;
 
 use divan::Bencher;
@@ -75,7 +77,7 @@ fn array() -> ArrayRef {
 
 #[divan::bench]
 fn to_arrow_dtype(bencher: Bencher) {
-    bencher.with_inputs(|| schema()).bench_values(|dtype| {
+    bencher.with_inputs(schema).bench_values(|dtype| {
         #[expect(deprecated, reason = "benchmarking deprecated code path")]
         dtype.to_arrow_dtype().unwrap()
     });
@@ -93,7 +95,7 @@ fn ArrowExportVTable_to_arrow_field(bencher: Bencher) {
     );
 
     bencher
-        .with_inputs(|| schema())
+        .with_inputs(schema)
         .bench_values(|dtype| LEGACY_SESSION.arrow().to_arrow_field("", &dtype).unwrap())
 }
 
