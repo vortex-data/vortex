@@ -55,6 +55,7 @@ impl SuffixMatcher {
         symbols: &[Symbol],
         symbol_lengths: &[u8],
         suffix: &[u8],
+        case_insensitive: bool,
     ) -> VortexResult<Self> {
         if suffix.len() > Self::MAX_SUFFIX_LEN {
             vortex_bail!(
@@ -85,7 +86,8 @@ impl SuffixMatcher {
         // State s means s bytes confirmed. For byte b at the next position from the right:
         // - If s < suf_len and b == suffix[suf_len - 1 - s] → advance to s+1
         // - Otherwise → FAIL (the string doesn't end with our suffix)
-        let byte_table = build_suffix_byte_table(suffix, accept_state, fail_state);
+        let byte_table =
+            build_suffix_byte_table(suffix, accept_state, fail_state, case_insensitive);
 
         // Build symbol-level transitions: for each (state, symbol), simulate feeding
         // the symbol's bytes through the byte table IN REVERSE ORDER (since we're
@@ -195,7 +197,12 @@ impl SuffixMatcher {
 /// State `s` means "confirmed `s` bytes from the right end of the suffix".
 /// For each state, only the correct next byte (going leftward in the suffix)
 /// advances; everything else goes to fail.
-fn build_suffix_byte_table(suffix: &[u8], accept_state: u8, fail_state: u8) -> Vec<u8> {
+fn build_suffix_byte_table(
+    suffix: &[u8],
+    accept_state: u8,
+    fail_state: u8,
+    case_insensitive: bool,
+) -> Vec<u8> {
     let n_states = fail_state + 1;
     let suf_len = suffix.len();
     let mut table = vec![fail_state; usize::from(n_states) * 256];
@@ -209,14 +216,21 @@ fn build_suffix_byte_table(suffix: &[u8], accept_state: u8, fail_state: u8) -> V
             }
         } else if state != fail_state {
             // State s: confirmed s bytes from the right. Next byte must be
-            // suffix[suf_len - 1 - s] to advance.
+            // suffix[suf_len - 1 - s] to advance — or any byte if that
+            // pattern position is the `_` wildcard.
             let expected = suffix[suf_len - 1 - s];
             let next_state = if s + 1 >= suf_len {
                 accept_state
             } else {
                 state + 1
             };
-            table[s * 256 + usize::from(expected)] = next_state;
+            if expected == super::WILDCARD {
+                for byte in 0..256 {
+                    table[s * 256 + byte] = next_state;
+                }
+            } else {
+                super::set_advance(&mut table, s * 256, expected, next_state, case_insensitive);
+            }
         }
         // fail_state stays fail for all bytes (default)
     }

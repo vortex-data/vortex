@@ -68,9 +68,8 @@ impl LikeKernel for FSST {
             return Ok(None);
         };
 
-        if options.case_insensitive {
-            return Ok(None);
-        }
+        // `case_insensitive` (SQL `ILIKE`) is plumbed through the
+        // matcher; only ASCII letter case is folded.
 
         let pattern_bytes: &[u8] = if let Some(s) = pattern_scalar.as_utf8_opt() {
             let Some(v) = s.value() else {
@@ -101,8 +100,12 @@ impl LikeKernel for FSST {
         let layout_us = phase_us(phase_t);
         phase_t = trace.then(std::time::Instant::now);
 
-        let Some(matcher) =
-            FsstMatcher::try_new(symbols.as_slice(), symbol_lengths.as_slice(), pattern_bytes)?
+        let Some(matcher) = FsstMatcher::try_new_with(
+            symbols.as_slice(),
+            symbol_lengths.as_slice(),
+            pattern_bytes,
+            options.case_insensitive,
+        )?
         else {
             return Ok(None);
         };
@@ -111,23 +114,13 @@ impl LikeKernel for FSST {
 
         let result = match_each_integer_ptype!(offsets.ptype(), |T| {
             let off = offsets.as_slice::<T>();
-            if negated {
-                crate::dfa::scan_to_bitbuf_with(n, off, all_bytes, negated, |codes| {
-                    matcher.matches(codes)
-                })
-            } else {
-                matcher.scan_to_bitbuf(n, off, all_bytes, negated)
-            }
+            matcher.scan_to_bitbuf(n, off, all_bytes, negated)
         });
         let scan_us = phase_us(phase_t);
         let total_us = phase_us(total_t);
 
         if trace {
-            let scan_plan = if negated {
-                "negated_row_loop"
-            } else {
-                matcher.scan_plan_name()
-            };
+            let scan_plan = matcher.scan_plan_name();
             eprintln!(
                 "[fsst::like] rows={} bytes={} pattern_len={} negated={} matcher={} scan_plan={} pattern_us={:.3} layout_us={:.3} matcher_us={:.3} scan_us={:.3} total_us={:.3}",
                 n,
@@ -374,21 +367,22 @@ mod tests {
         let fsst = make_fsst(&[Some("abc"), Some("def")], Nullability::NonNullable);
         let mut ctx = SESSION.create_execution_ctx();
 
-        // Underscore wildcard -- not handled.
+        // Anchored exact pattern (no bookend `%`) is still unsupported —
+        // mixed-anchor work is a separate item.
         let pattern = ConstantArray::new("a_c", fsst.len()).into_array();
         let fsst_v = fsst.as_view();
         let result =
             <FSST as LikeKernel>::like(fsst_v, &pattern, LikeOptions::default(), &mut ctx)?;
-        assert!(result.is_none(), "underscore pattern should fall back");
+        assert!(result.is_none(), "anchored exact pattern should fall back");
 
-        // Case-insensitive -- not handled.
+        // ILIKE is now handled by the matcher's case-insensitive path.
         let pattern = ConstantArray::new("abc%", fsst.len()).into_array();
         let opts = LikeOptions {
             negated: false,
             case_insensitive: true,
         };
         let result = <FSST as LikeKernel>::like(fsst_v, &pattern, opts, &mut ctx)?;
-        assert!(result.is_none(), "ilike should fall back");
+        assert!(result.is_some(), "ilike should now be handled");
 
         Ok(())
     }

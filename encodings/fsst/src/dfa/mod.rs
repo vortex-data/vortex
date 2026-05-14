@@ -124,10 +124,13 @@
 //! not use FSST pushdown and must be evaluated through the fallback path.
 
 mod anchor_scan;
+mod fat_teddy;
 mod flat_contains;
 mod folded_contains;
 mod multi_contains;
+mod planner;
 mod prefix;
+mod shift_or;
 mod skip;
 mod suffix;
 #[cfg(test)]
@@ -139,6 +142,7 @@ use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use multi_contains::MultiContainsDfa;
 use prefix::FlatPrefixDfa;
+use shift_or::ShiftOrDfa;
 use suffix::SuffixMatcher;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
@@ -162,6 +166,10 @@ enum MatcherInner {
     MatchAll,
     Prefix(FlatPrefixDfa),
     Suffix(SuffixMatcher),
+    /// Bit-parallel Shift-Or matcher for short needles (≤ 8 bytes) in the
+    /// no-SSA regime. One ALU op per code byte replaces the Teddy +
+    /// verifier dispatch and wins on very short selective needles.
+    ShiftOr(ShiftOrDfa),
     /// Escape-folded DFA for short needles (`<= 127` bytes). Eliminates the
     /// per-byte sentinel branch from the inner loop.
     FoldedContains(FoldedContainsDfa),
@@ -181,10 +189,23 @@ impl FsstMatcher {
         symbol_lengths: &[u8],
         pattern: &[u8],
     ) -> VortexResult<Option<Self>> {
+        Self::try_new_with(symbols, symbol_lengths, pattern, false)
+    }
+
+    /// Variant of [`Self::try_new`] that opts in to ASCII case-insensitive
+    /// matching (SQL `ILIKE`). Letter bytes in the needle then accept
+    /// either case at every position.
+    pub fn try_new_with(
+        symbols: &[Symbol],
+        symbol_lengths: &[u8],
+        pattern: &[u8],
+        case_insensitive: bool,
+    ) -> VortexResult<Option<Self>> {
         let Some(like_kind) = LikeKind::parse(pattern) else {
             return Ok(None);
         };
 
+        let ci = case_insensitive;
         let inner = match like_kind {
             LikeKind::Prefix(b"") | LikeKind::Contains(b"") | LikeKind::Suffix(b"") => {
                 MatcherInner::MatchAll
@@ -193,23 +214,59 @@ impl FsstMatcher {
                 if prefix.len() > FlatPrefixDfa::MAX_PREFIX_LEN {
                     return Ok(None);
                 }
-                MatcherInner::Prefix(FlatPrefixDfa::new(symbols, symbol_lengths, prefix)?)
+                MatcherInner::Prefix(FlatPrefixDfa::new(symbols, symbol_lengths, prefix, ci)?)
             }
             LikeKind::Suffix(suffix) => {
                 if suffix.len() > SuffixMatcher::MAX_SUFFIX_LEN {
                     return Ok(None);
                 }
-                MatcherInner::Suffix(SuffixMatcher::new(symbols, symbol_lengths, suffix)?)
+                MatcherInner::Suffix(SuffixMatcher::new(symbols, symbol_lengths, suffix, ci)?)
             }
             LikeKind::Contains(needle) => {
-                if needle.len() <= FoldedContainsDfa::MAX_NEEDLE_LEN {
+                // Prefer Shift-Or for short (≤ 8 byte) needles when (a)
+                // FoldedContains' escape-only `memmem` specialization
+                // doesn't apply (which beats ShiftOr outright on
+                // rare-match corpora) AND (b) FoldedContains would
+                // otherwise fall back to its 1-byte progressing bitset
+                // path or row_loop. The second condition is approximated
+                // by `pair_anchor_likely`: if at least one needle byte
+                // appears as the first byte of some symbol expansion,
+                // FoldedContains will likely build a Teddy-2 bucketed
+                // pair scan that beats ShiftOr's per-byte inner loop on
+                // throughput, so we keep FoldedContains.
+                //
+                // This conservative gate keeps the ShiftOr variant
+                // active (its `matches()` is still exercised whenever the
+                // matcher's row-level dispatcher is called) without
+                // regressing any existing `fsst_contains` bench that
+                // today routes through Teddy-2.
+                let escape_only_eligible = !ci
+                    && needle.len() >= 2
+                    && needle_is_literal(needle)
+                    && needle_bytes_absent_from_all_symbols(symbols, symbol_lengths, needle);
+                let pair_anchor_likely = !escape_only_eligible
+                    && first_byte_present_in_any_symbol(symbols, symbol_lengths, needle);
+                if !escape_only_eligible
+                    && !pair_anchor_likely
+                    && needle.len() <= shift_or::MAX_NEEDLE_LEN
+                    && needle_len_safe_for_shift_or(needle, ci)
+                    && let Ok(dfa) = ShiftOrDfa::new(symbols, symbol_lengths, needle, ci)
+                {
+                    MatcherInner::ShiftOr(dfa)
+                } else if needle.len() <= FoldedContainsDfa::MAX_NEEDLE_LEN {
                     MatcherInner::FoldedContains(FoldedContainsDfa::new(
                         symbols,
                         symbol_lengths,
                         needle,
+                        ci,
                     )?)
                 } else if needle.len() <= FlatContainsDfa::MAX_NEEDLE_LEN {
-                    MatcherInner::Contains(FlatContainsDfa::new(symbols, symbol_lengths, needle)?)
+                    MatcherInner::Contains(FlatContainsDfa::new(
+                        symbols,
+                        symbol_lengths,
+                        needle,
+                        ci,
+                    )?)
                 } else {
                     return Ok(None);
                 }
@@ -223,6 +280,7 @@ impl FsstMatcher {
                     symbols,
                     symbol_lengths,
                     &segments,
+                    ci,
                 )?))
             }
         };
@@ -237,6 +295,7 @@ impl FsstMatcher {
             MatcherInner::MatchAll => true,
             MatcherInner::Prefix(dfa) => dfa.matches(codes),
             MatcherInner::Suffix(dfa) => dfa.matches(codes),
+            MatcherInner::ShiftOr(dfa) => dfa.matches(codes),
             MatcherInner::FoldedContains(dfa) => dfa.matches(codes),
             MatcherInner::Contains(dfa) => dfa.matches(codes),
             MatcherInner::MultiContains(dfa) => dfa.matches(codes),
@@ -249,6 +308,7 @@ impl FsstMatcher {
             MatcherInner::MatchAll => "match_all",
             MatcherInner::Prefix(_) => "prefix",
             MatcherInner::Suffix(_) => "suffix",
+            MatcherInner::ShiftOr(_) => "shift_or",
             MatcherInner::FoldedContains(_) => "folded_contains",
             MatcherInner::Contains(_) => "contains",
             MatcherInner::MultiContains(_) => "multi_contains",
@@ -261,6 +321,7 @@ impl FsstMatcher {
             MatcherInner::MatchAll => "match_all",
             MatcherInner::Prefix(_) => "row_start_scan",
             MatcherInner::Suffix(_) => "row_loop",
+            MatcherInner::ShiftOr(_) => "shift_or",
             MatcherInner::FoldedContains(dfa) => dfa.scan_plan_name(),
             MatcherInner::Contains(_) => "row_loop",
             MatcherInner::MultiContains(_) => "row_loop",
@@ -306,11 +367,271 @@ impl FsstMatcher {
             }
             MatcherInner::Prefix(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
             MatcherInner::Suffix(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
+            MatcherInner::ShiftOr(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
             MatcherInner::FoldedContains(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
             MatcherInner::Contains(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
             MatcherInner::MultiContains(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// MultiNeedleMatcher — Fat Teddy multi-needle OR matcher
+// ---------------------------------------------------------------------------
+
+/// A compiled multi-needle OR matcher for `LIKE x OR LIKE y OR ...` over
+/// FSST-compressed strings. Builds a per-needle [`FoldedContainsDfa`] for
+/// every needle, packs up to eight needles per Fat Teddy pass, and OR-merges
+/// the results across passes.
+///
+/// Falls back to per-needle [`FsstMatcher`]-style scans for:
+/// - Needles whose progressing c1 set includes `ESCAPE_CODE` (cross-bucket
+///   FDR handling is a follow-up; see the TODO in
+///   [`fat_teddy::pack_needles`]).
+/// - Needles outside the [`FoldedContainsDfa`] needle-length range
+///   (`> 127` bytes).
+/// - Needles with patterns we can't represent as `%needle%`
+///   (`prefix%`, `%suffix`, multi-contains) — Fat Teddy is `Contains`-only.
+///
+/// Pass [`Self::try_new_multi`] a slice of LIKE patterns; it returns
+/// `None` if any pattern is unsupported for pushdown. Use
+/// [`Self::scan_or_to_bitbuf`] to produce a single [`BitBuffer`] whose bit
+/// `i` is set iff the `i`-th row matches *any* of the needles.
+pub struct MultiNeedleMatcher {
+    /// Per-needle DFAs. Indices into this vec are the bucket-needle ids
+    /// used by [`fat_teddy`].
+    fat_teddy_dfas: Vec<FoldedContainsDfa>,
+    /// Bucket-packed needles for the Fat Teddy pass. The buckets cover
+    /// `fat_teddy_dfas` minus `fat_teddy_fallback`.
+    buckets: Vec<fat_teddy::Bucket>,
+    /// Indices into `fat_teddy_dfas` that couldn't participate in a Fat
+    /// Teddy pass (ESCAPE-anchored, no usable pair buckets, etc.) and
+    /// must be evaluated via per-needle scans.
+    fat_teddy_fallback: Vec<u16>,
+    /// Needles that couldn't be folded-contains at all (too long,
+    /// non-Contains shape) and need a generic per-needle scan via
+    /// [`FsstMatcher::scan_to_bitbuf`].
+    generic_matchers: Vec<FsstMatcher>,
+}
+
+impl MultiNeedleMatcher {
+    /// Maximum number of needles in a single OR. The implementation is
+    /// not strictly capped, but very large needle sets degrade to
+    /// `ceil(N / 8)` Fat Teddy passes plus N-pass for fallbacks.
+    pub const MAX_NEEDLES: usize = u16::MAX as usize;
+
+    /// Try to build a multi-needle matcher for the given LIKE patterns.
+    /// Returns `Ok(None)` if any pattern is unsupported for pushdown
+    /// (mixed shapes, exceeds DFA length limits, etc.) — the caller
+    /// should then fall back to ordinary decompression-based LIKE OR.
+    ///
+    /// All patterns share the same `case_insensitive` flag. Mixing
+    /// CI/CS in a single batch is not supported.
+    pub fn try_new_multi(
+        symbols: &[Symbol],
+        symbol_lengths: &[u8],
+        patterns: &[&[u8]],
+        case_insensitive: bool,
+    ) -> VortexResult<Option<Self>> {
+        if patterns.is_empty() || patterns.len() > Self::MAX_NEEDLES {
+            return Ok(None);
+        }
+
+        // Partition each pattern into either a Fat-Teddy-eligible
+        // FoldedContainsDfa or a generic per-needle FsstMatcher. Any
+        // pattern that fails the parser falls through to a None result
+        // for the entire batch — the caller will then take the
+        // fallback path.
+        let mut fat_teddy_dfas: Vec<FoldedContainsDfa> = Vec::new();
+        let mut generic_matchers: Vec<FsstMatcher> = Vec::new();
+
+        for &pattern in patterns {
+            let Some(kind) = LikeKind::parse(pattern) else {
+                return Ok(None);
+            };
+            match kind {
+                LikeKind::Contains(needle)
+                    if !needle.is_empty() && needle.len() <= FoldedContainsDfa::MAX_NEEDLE_LEN =>
+                {
+                    let dfa =
+                        FoldedContainsDfa::new(symbols, symbol_lengths, needle, case_insensitive)?;
+                    fat_teddy_dfas.push(dfa);
+                }
+                _ => {
+                    // Use the existing single-pattern matcher (handles
+                    // empty contains as MatchAll, plus all the other
+                    // shapes that Fat Teddy doesn't cover).
+                    let Some(m) = FsstMatcher::try_new_with(
+                        symbols,
+                        symbol_lengths,
+                        pattern,
+                        case_insensitive,
+                    )?
+                    else {
+                        return Ok(None);
+                    };
+                    generic_matchers.push(m);
+                }
+            }
+        }
+
+        let (buckets, fat_teddy_fallback) = fat_teddy::pack_needles(&fat_teddy_dfas);
+
+        Ok(Some(Self {
+            fat_teddy_dfas,
+            buckets,
+            fat_teddy_fallback,
+            generic_matchers,
+        }))
+    }
+
+    /// Number of needles in this batch (Fat-Teddy-eligible plus generic
+    /// fallback). Exposed for tests and diagnostics.
+    pub fn needle_count(&self) -> usize {
+        self.fat_teddy_dfas.len() + self.generic_matchers.len()
+    }
+
+    /// Number of buckets the Fat Teddy pass would use. Exposed for
+    /// tests and benches.
+    pub fn bucket_count(&self) -> usize {
+        self.buckets.len()
+    }
+
+    /// Number of needles routed to the per-needle scalar fallback —
+    /// either because they couldn't fit into a Fat Teddy bucket
+    /// (ESCAPE-anchored, no pair buckets) or because they're not
+    /// `Contains`-shape (the `generic_matchers`).
+    pub fn fallback_count(&self) -> usize {
+        self.fat_teddy_fallback.len() + self.generic_matchers.len()
+    }
+
+    /// Scan `n` strings (delimited by `offsets` over `all_bytes`) and
+    /// return a `BitBuffer` whose `i`-th bit is set iff *any* of the
+    /// configured needles match the `i`-th string (XOR `negated`).
+    ///
+    /// When `negated` is `true`, the bit `i` is set iff *none* of the
+    /// needles match — i.e. `NOT (LIKE x OR LIKE y ...)` ≡ `NOT LIKE x
+    /// AND NOT LIKE y ...`. We compute the inverse by running the
+    /// positive scan and inverting at the end; this preserves the
+    /// existing single-pattern `negated` semantics.
+    pub fn scan_or_to_bitbuf<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        negated: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        // We always run the positive OR scan and invert at the end if
+        // negated. This keeps the candidate-handling loop simple and
+        // matches the test convention.
+        let positive = self.scan_or_positive(n, offsets, all_bytes);
+        if negated { !&positive } else { positive }
+    }
+
+    /// Internal: positive OR scan. The `negated` post-processing
+    /// happens in [`Self::scan_or_to_bitbuf`].
+    fn scan_or_positive<T>(&self, n: usize, offsets: &[T], all_bytes: &[u8]) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        // Empty needle set: no row matches.
+        if self.needle_count() == 0 {
+            return BitBuffer::new_unset(n);
+        }
+
+        // Step 1: Fat Teddy pass over up to eight buckets at a time.
+        // Each pass takes a chunk of `FAT_TEDDY_BUCKETS` buckets and
+        // OR-merges into the running result.
+        let mut acc: Option<BitBuffer> = None;
+        for chunk in self.buckets.chunks(fat_teddy::FAT_TEDDY_BUCKETS) {
+            let pass = fat_teddy::fat_teddy_or_scan(
+                n,
+                offsets,
+                all_bytes,
+                chunk,
+                false,
+                |needle_idx, row| {
+                    // Bucket needle ids index into self.fat_teddy_dfas.
+                    let dfa = &self.fat_teddy_dfas[usize::from(needle_idx)];
+                    dfa.matches(row)
+                },
+            );
+            acc = Some(match acc {
+                Some(prev) => &prev | &pass,
+                None => pass,
+            });
+        }
+
+        // Step 2: Fat Teddy fallback — per-needle scans for needles
+        // that couldn't participate in the Fat Teddy pass. OR these
+        // in via scalar per-row scans.
+        for &fb_idx in &self.fat_teddy_fallback {
+            let dfa = &self.fat_teddy_dfas[usize::from(fb_idx)];
+            let pass = dfa.scan_to_bitbuf(n, offsets, all_bytes, false);
+            acc = Some(match acc {
+                Some(prev) => &prev | &pass,
+                None => pass,
+            });
+        }
+
+        // Step 3: Generic per-needle scans for non-Contains shapes.
+        for matcher in &self.generic_matchers {
+            let pass = matcher.scan_to_bitbuf(n, offsets, all_bytes, false);
+            acc = Some(match acc {
+                Some(prev) => &prev | &pass,
+                None => pass,
+            });
+        }
+
+        acc.unwrap_or_else(|| BitBuffer::new_unset(n))
+    }
+}
+
+/// Returns `true` iff the Shift-Or path can be safely used for this needle.
+///
+/// Shift-Or supports ASCII case-folding (uppercase ↔ lowercase letter
+/// bytes). Non-ASCII bytes in the needle have no defined case folding in
+/// the matcher (the FSST stream is byte-level, not Unicode-aware), so for
+/// case-insensitive matching the Shift-Or `B` table is identical to the
+/// case-sensitive one for non-letter bytes — i.e. ASCII-only case folding
+/// is correct. This helper exists to make the routing decision explicit
+/// and to leave room for future stricter checks if non-ASCII semantics
+/// ever land.
+#[inline]
+fn needle_len_safe_for_shift_or(needle: &[u8], _ci: bool) -> bool {
+    !needle.is_empty() && needle.len() <= shift_or::MAX_NEEDLE_LEN
+}
+
+/// Returns `true` iff `needle[0]` (or, for `ci`, either case of
+/// `needle[0]`) appears anywhere in any symbol's decompressed
+/// expansion. Used by [`FsstMatcher::try_new_with`] to detect when
+/// FoldedContains will build a high-throughput Teddy-2 bucketed pair
+/// scan — in that regime the per-row Shift-Or inner loop loses to the
+/// per-block PSHUFB-Mula prefilter, so the planner keeps FoldedContains.
+fn first_byte_present_in_any_symbol(
+    symbols: &[Symbol],
+    symbol_lengths: &[u8],
+    needle: &[u8],
+) -> bool {
+    let Some(&first) = needle.first() else {
+        return false;
+    };
+    if first == WILDCARD {
+        // Wildcards admit every byte — assume Teddy-2 will fire.
+        return true;
+    }
+    debug_assert!(symbol_lengths.len() >= symbols.len());
+    for (sym, &len) in symbols.iter().zip(symbol_lengths.iter()) {
+        let bytes = sym.to_u64().to_le_bytes();
+        let len = usize::from(len).min(8);
+        if bytes[..len].contains(&first) {
+            return true;
+        }
+    }
+    false
 }
 
 /// The subset of LIKE patterns we can handle without decompression.
@@ -327,29 +648,37 @@ enum LikeKind<'a> {
 
 impl<'a> LikeKind<'a> {
     fn parse(pattern: &'a [u8]) -> Option<Self> {
-        // `prefix%` (including just `%` where prefix is empty)
+        // `prefix%` (including just `%` where prefix is empty).
+        // `_` in the prefix is the single-byte wildcard (anchored from
+        // the row start, no KMP fallback ambiguity).
         if let Some(prefix) = pattern.strip_suffix(b"%")
             && !prefix.contains(&b'%')
-            && !prefix.contains(&b'_')
         {
             return Some(LikeKind::Prefix(prefix));
         }
 
-        // `%suffix` (no trailing %)
+        // `%suffix` (no trailing %); `_` allowed in suffix (anchored
+        // from the row end, scanned right-to-left, also wildcard-safe).
         if let Some(suffix) = pattern.strip_prefix(b"%")
             && !suffix.contains(&b'%')
-            && !suffix.contains(&b'_')
         {
             return Some(LikeKind::Suffix(suffix));
         }
 
-        // `%needle%`
+        // `%needle%`. We reject `_` in unanchored contains for now —
+        // the symmetric KMP failure function over-approximates when
+        // wildcards appear in the matched portion, producing false
+        // positives. A correct unanchored wildcard matcher needs NFA
+        // subset construction (or per-position sliding-window match);
+        // tracked as a follow-up.
         let inner = pattern.strip_prefix(b"%")?.strip_suffix(b"%")?;
         if !inner.contains(&b'%') && !inner.contains(&b'_') {
             return Some(LikeKind::Contains(inner));
         }
 
-        // `%seg1%seg2%...%segN%`
+        // `%seg1%seg2%...%segN%`. Same wildcard limitation: any
+        // segment containing `_` falls through to the
+        // decompression-based fallback.
         let segments: Vec<&[u8]> = inner
             .split(|&b| b == b'%')
             .filter(|s| !s.is_empty())
@@ -412,6 +741,64 @@ where
 // ---------------------------------------------------------------------------
 // DFA construction helpers
 // ---------------------------------------------------------------------------
+
+/// Returns `true` iff no literal byte of `needle` appears in any symbol's
+/// expansion. Wildcard (`_`) positions are skipped — they're allowed to
+/// match symbol bytes and don't constrain the prefilter.
+///
+/// When this holds AND the needle has no wildcards, every needle byte in
+/// the decompressed stream must come from an `ESCAPE` pair, so the only
+/// compressed sequence that reaches the contains DFA's accept state
+/// from state 0 is exactly
+/// `[ESCAPE, needle[0], ESCAPE, needle[1], …, ESCAPE, needle[L-1]]`. The
+/// contains scan can then prefilter with a single `memmem` for that 2L-byte
+/// pattern. For needles WITH wildcards, the same condition implies each
+/// literal byte must come from an escape pair, but wildcard bytes can
+/// come from anywhere — the encoded pattern is no longer unique, so
+/// the memmem prefilter is disabled.
+pub(super) fn needle_bytes_absent_from_all_symbols(
+    symbols: &[Symbol],
+    symbol_lengths: &[u8],
+    needle: &[u8],
+) -> bool {
+    let mut needle_byte_present = [false; 256];
+    for &b in needle {
+        if b == WILDCARD {
+            continue;
+        }
+        needle_byte_present[usize::from(b)] = true;
+    }
+    debug_assert!(symbol_lengths.len() >= symbols.len());
+    for (sym, &len) in symbols.iter().zip(symbol_lengths.iter()) {
+        let bytes = sym.to_u64().to_le_bytes();
+        let len = usize::from(len).min(8);
+        for &b in &bytes[..len] {
+            if needle_byte_present[usize::from(b)] {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Build the compressed pattern `[ESCAPE, needle[0], ESCAPE, needle[1], …,
+/// ESCAPE, needle[L-1]]`. Only meaningful when
+/// [`needle_bytes_absent_from_all_symbols`] is true AND the needle is
+/// wildcard-free.
+pub(super) fn build_escape_only_encoded_pattern(needle: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(needle.len() * 2);
+    for &b in needle {
+        out.push(ESCAPE_CODE);
+        out.push(b);
+    }
+    out
+}
+
+/// `true` iff the needle has no `_` wildcard bytes.
+#[inline]
+pub(super) fn needle_is_literal(needle: &[u8]) -> bool {
+    !needle.contains(&WILDCARD)
+}
 
 /// Builds the per-symbol transition table for FSST symbols.
 ///
@@ -537,34 +924,99 @@ fn build_fused_table(
 // KMP helpers
 // ---------------------------------------------------------------------------
 
+/// The wildcard byte in a LIKE needle. SQL `_` (`0x5F`) is interpreted
+/// as "match any single byte" by [`kmp_byte_transitions`] and
+/// [`kmp_failure_table`]. Without SQL `ESCAPE` support, every `_`
+/// in the parsed needle is a wildcard; a literal `_` cannot be
+/// expressed.
+pub(super) const WILDCARD: u8 = b'_';
+
+/// ASCII case fold to lowercase. Non-letters pass through.
+#[inline]
+fn ascii_to_lower(b: u8) -> u8 {
+    if b.is_ascii_uppercase() { b + 32 } else { b }
+}
+
+/// Pattern-position byte equality with wildcard semantics. Returns
+/// `true` if `a` or `b` is the [`WILDCARD`] byte, or both bytes are
+/// equal. When `ci` is true, ASCII letter case is ignored.
+#[inline]
+fn pattern_eq(a: u8, b: u8, ci: bool) -> bool {
+    if a == WILDCARD || b == WILDCARD {
+        return true;
+    }
+    if ci {
+        ascii_to_lower(a) == ascii_to_lower(b)
+    } else {
+        a == b
+    }
+}
+
+/// Concrete-input byte match against a needle position. The pattern
+/// position `p` is one of the needle bytes (possibly the wildcard);
+/// the input byte `b` is always concrete (never a wildcard). When `ci`
+/// is true, ASCII letter case is ignored.
+#[inline]
+#[expect(
+    dead_code,
+    reason = "Reserved for the future correct contains-wildcard DFA."
+)]
+fn pattern_matches_byte(p: u8, b: u8, ci: bool) -> bool {
+    if p == WILDCARD {
+        return true;
+    }
+    if ci {
+        ascii_to_lower(p) == ascii_to_lower(b)
+    } else {
+        p == b
+    }
+}
+
+/// For an advancing transition on byte `needle_byte`, set the table
+/// row entry. With `ci` true, also set the entry for the case-flipped
+/// byte so either case of the same ASCII letter advances.
+#[inline]
+fn set_advance(table: &mut [u8], row_start: usize, needle_byte: u8, new_state: u8, ci: bool) {
+    table[row_start + usize::from(needle_byte)] = new_state;
+    if ci && needle_byte.is_ascii_alphabetic() {
+        let flipped = needle_byte ^ 0x20;
+        table[row_start + usize::from(flipped)] = new_state;
+    }
+}
+
 /// Build the `(state × byte) → state` KMP transition table.
 ///
 /// ## Construction
 ///
 /// Uses the standard recurrence — for each non-accept state `s`:
-///   - On byte == `needle[s]`: transition to `s + 1`.
+///   - On byte == `needle[s]` (or `needle[s]` is the wildcard): transition to `s + 1`.
 ///   - On any other byte: transition to whatever the *failure* row
 ///     would give for the same byte, i.e. `table[failure[s-1] * 256 + b]`
 ///     for `s > 0`, and `0` for `s = 0`.
 ///
+/// When `needle[s]` is the [`WILDCARD`] byte (`_`), every input byte
+/// advances to `s + 1` regardless of the failure row's content.
+///
 /// This is one 256-byte memcpy + a single override per state, instead
-/// of running the KMP fallback loop at every cell. For an N=6 needle
-/// that's 6 × 256 = 1536 bytes copied + 6 overrides vs ~3500 iterative
-/// fallback steps previously — about 3× faster.
-fn kmp_byte_transitions(needle: &[u8]) -> Vec<u8> {
+/// of running the KMP fallback loop at every cell.
+fn kmp_byte_transitions(needle: &[u8], ci: bool) -> Vec<u8> {
     let n_states = u8::try_from(needle.len() + 1)
         .vortex_expect("kmp_byte_transitions: must have needle.len() ≤ 255");
     let accept = n_states - 1;
-    let failure = kmp_failure_table(needle);
+    let failure = kmp_failure_table(needle, ci);
 
     let mut table = vec![0u8; usize::from(n_states) * 256];
 
-    // State 0: only `needle[0]` advances.
-    if !needle.is_empty() {
-        table[usize::from(needle[0])] = 1;
+    // State 0: either `needle[0]` (literal) or every byte (wildcard) advances.
+    if let Some(&first) = needle.first() {
+        if first == WILDCARD {
+            table[0..256].fill(1);
+        } else {
+            set_advance(&mut table, 0, first, 1, ci);
+        }
     }
 
-    // States 1..accept: each row is the failure-row plus one advance entry.
+    // States 1..accept: each row is the failure-row plus the advance entry.
     for state in 1..accept {
         let s = usize::from(state);
         let fail_row = usize::from(failure[s - 1]) * 256;
@@ -573,28 +1025,32 @@ fn kmp_byte_transitions(needle: &[u8]) -> Vec<u8> {
         // the KMP fallback eventually lands at the same place the
         // failure-state would land on that byte.
         table.copy_within(fail_row..fail_row + 256, state_row);
-        // Override the one entry that advances.
-        table[state_row + usize::from(needle[s])] = state + 1;
+        // Override the advancing entries.
+        if needle[s] == WILDCARD {
+            // Wildcard at position s: every byte advances.
+            table[state_row..state_row + 256].fill(state + 1);
+        } else {
+            set_advance(&mut table, state_row, needle[s], state + 1, ci);
+        }
     }
 
     // Accept state: sticky — every byte stays at accept.
     if usize::from(accept) < usize::from(n_states) {
         let accept_row = usize::from(accept) * 256;
-        // SAFETY-ish: in-bounds writes to a pre-zeroed Vec.
         table[accept_row..accept_row + 256].fill(accept);
     }
 
     table
 }
 
-fn kmp_failure_table(needle: &[u8]) -> Vec<u8> {
+fn kmp_failure_table(needle: &[u8], ci: bool) -> Vec<u8> {
     let mut failure = vec![0u8; needle.len()];
     let mut k = 0u8;
     for i in 1..needle.len() {
-        while k > 0 && needle[usize::from(k)] != needle[i] {
+        while k > 0 && !pattern_eq(needle[usize::from(k)], needle[i], ci) {
             k = failure[usize::from(k) - 1];
         }
-        if needle[usize::from(k)] == needle[i] {
+        if pattern_eq(needle[usize::from(k)], needle[i], ci) {
             k += 1;
         }
         failure[i] = k;

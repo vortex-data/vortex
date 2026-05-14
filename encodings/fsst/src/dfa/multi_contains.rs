@@ -44,13 +44,19 @@
 use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use super::build_escape_only_encoded_pattern;
 use super::build_fused_table;
 use super::build_symbol_transitions;
 use super::kmp_failure_table;
+use super::needle_bytes_absent_from_all_symbols;
+use super::planner::ScanContext;
+use super::planner::ScanPlan;
+use super::planner::ScanPlanner;
 use super::scan_to_bitbuf_with;
 use super::skip::SkipStrategy;
 
@@ -80,6 +86,18 @@ pub(crate) struct MultiContainsDfa {
     segments: Vec<Vec<u8>>,
     /// If a compressed string has more codes than this, use decompress+memmem.
     decompress_threshold: usize,
+    /// Compressed `[ESCAPE, anchor_seg[0], …, ESCAPE, anchor_seg[L-1]]`
+    /// for the longest segment, populated when no symbol's expansion
+    /// contains any byte from any segment. Every segment must appear in
+    /// the row for a match, so the longest segment's encoded pattern is
+    /// a sound (and most-selective) row-level prefilter; rows without it
+    /// can never match, while rows with a hit are verified by the
+    /// standard [`Self::matches`].
+    escape_only_anchor_pattern: Option<Vec<u8>>,
+    /// Routing engine. The multi DFA only routes between `EscapeOnly`
+    /// and `RowLoop`, but going through the planner keeps the
+    /// dispatch surface uniform across the three contains DFAs.
+    planner: ScanPlanner,
 }
 
 impl MultiContainsDfa {
@@ -90,6 +108,7 @@ impl MultiContainsDfa {
         symbols: &[Symbol],
         symbol_lengths: &[u8],
         segments: &[&[u8]],
+        case_insensitive: bool,
     ) -> VortexResult<Self> {
         let total_len: usize = segments.iter().map(|s| s.len()).sum();
         if total_len > Self::MAX_TOTAL_LEN {
@@ -105,7 +124,7 @@ impl MultiContainsDfa {
         let n_states = accept_state + 1;
         let sentinel = n_states;
 
-        let byte_table = chained_kmp_byte_transitions(segments, accept_state);
+        let byte_table = chained_kmp_byte_transitions(segments, accept_state, case_insensitive);
         let sym_trans =
             build_symbol_transitions(symbols, symbol_lengths, &byte_table, n_states, accept_state);
         let transitions = build_fused_table(&sym_trans, symbols.len(), n_states, |_| sentinel, 0);
@@ -141,6 +160,22 @@ impl MultiContainsDfa {
 
         let segments_owned: Vec<Vec<u8>> = segments.iter().map(|s| s.to_vec()).collect();
 
+        // Escape-only anchor: when no symbol's expansion contains any byte
+        // from any segment, every segment's bytes in the decompressed
+        // stream must come from `ESCAPE` pairs. Each segment therefore
+        // appears in the compressed stream as a contiguous
+        // `[ESCAPE, seg[0], …, ESCAPE, seg[L-1]]` block. A match
+        // requires every segment to appear in order, so the longest
+        // segment's encoded pattern (the most selective single test) is
+        // a sound row-level prefilter — rows without it can't match.
+        // Case-insensitive patterns disable this fast path; the encoded
+        // pattern is byte-exact and wouldn't match case-flipped bytes.
+        let escape_only_anchor_pattern = if case_insensitive {
+            None
+        } else {
+            compute_escape_only_anchor(symbols, symbol_lengths, segments)
+        };
+
         Ok(Self {
             transitions,
             escape_transitions: byte_table,
@@ -153,6 +188,8 @@ impl MultiContainsDfa {
             exp_lens,
             segments: segments_owned,
             decompress_threshold: 28,
+            escape_only_anchor_pattern,
+            planner: ScanPlanner::new(),
         })
     }
 
@@ -178,7 +215,84 @@ impl MultiContainsDfa {
     where
         T: vortex_array::dtype::IntegerPType,
     {
-        scan_to_bitbuf_with(n, offsets, all_bytes, negated, |codes| self.matches(codes))
+        let ctx =
+            ScanContext::for_flat_or_multi(n, all_bytes, self.escape_only_anchor_pattern.is_some());
+        match self.planner.plan_flat_or_multi(&ctx) {
+            ScanPlan::EscapeOnly => {
+                let pattern = self
+                    .escape_only_anchor_pattern
+                    .as_deref()
+                    .vortex_expect("EscapeOnly plan requires escape_only_anchor_pattern");
+                self.scan_via_escape_only_anchor(n, offsets, all_bytes, pattern, negated)
+            }
+            _ => scan_to_bitbuf_with(n, offsets, all_bytes, negated, |codes| self.matches(codes)),
+        }
+    }
+
+    /// Prefilter via a single `memmem` for the longest segment's encoded
+    /// pattern. Rows without a hit are guaranteed to miss; rows with a
+    /// hit are verified through [`Self::matches`] (which checks the
+    /// full ordered chain of segments).
+    fn scan_via_escape_only_anchor<T>(
+        &self,
+        n: usize,
+        offsets: &[T],
+        all_bytes: &[u8],
+        pattern: &[u8],
+        negated: bool,
+    ) -> BitBuffer
+    where
+        T: vortex_array::dtype::IntegerPType,
+    {
+        let mut bits = if negated {
+            BitBufferMut::new_set(n)
+        } else {
+            BitBufferMut::new_unset(n)
+        };
+        if n == 0 || pattern.len() > all_bytes.len() {
+            return bits.freeze();
+        }
+        debug_assert!(offsets.len() > n);
+
+        let mut string_idx: usize = 0;
+        // SAFETY: caller guarantees `offsets.len() > n`.
+        let mut string_start: usize = unsafe { *offsets.get_unchecked(0) }.as_();
+        let mut string_end: usize = unsafe { *offsets.get_unchecked(1) }.as_();
+        let mut last_processed_row: Option<usize> = None;
+
+        for hit in memchr::memmem::find_iter(all_bytes, pattern) {
+            while hit >= string_end {
+                string_idx += 1;
+                if string_idx >= n {
+                    return bits.freeze();
+                }
+                string_start = string_end;
+                // SAFETY: `string_idx < n` and `offsets.len() >= n + 1`.
+                string_end = unsafe { *offsets.get_unchecked(string_idx + 1) }.as_();
+            }
+            if last_processed_row == Some(string_idx) {
+                continue;
+            }
+            if hit + pattern.len() > string_end {
+                last_processed_row = Some(string_idx);
+                continue;
+            }
+            // SAFETY: `string_start <= string_end <= all_bytes.len()`.
+            let row = unsafe { all_bytes.get_unchecked(string_start..string_end) };
+            if self.matches(row) {
+                // SAFETY: `string_idx < n`.
+                unsafe {
+                    if negated {
+                        bits.unset_unchecked(string_idx);
+                    } else {
+                        bits.set_unchecked(string_idx);
+                    }
+                }
+            }
+            last_processed_row = Some(string_idx);
+        }
+
+        bits.freeze()
     }
 
     /// DFA path with per-phase seek-verify.
@@ -259,7 +373,11 @@ impl MultiContainsDfa {
 /// - The final phase's accept is the global accept state (sticky)
 ///
 /// Each phase has its own KMP failure function for intra-segment backtracking.
-fn chained_kmp_byte_transitions(segments: &[&[u8]], accept_state: u8) -> Vec<u8> {
+fn chained_kmp_byte_transitions(
+    segments: &[&[u8]],
+    accept_state: u8,
+    case_insensitive: bool,
+) -> Vec<u8> {
     let n_states = accept_state + 1;
     let mut table = vec![0u8; usize::from(n_states) * 256];
 
@@ -274,14 +392,21 @@ fn chained_kmp_byte_transitions(segments: &[&[u8]], accept_state: u8) -> Vec<u8>
 
     for (k, segment) in segments.iter().enumerate() {
         let base = offsets[k];
-        let failure = kmp_failure_table(segment);
+        let failure = kmp_failure_table(segment, case_insensitive);
 
         for local_s in 0..segment.len() {
             let global_s = base + local_s;
             for byte in 0..256usize {
                 let mut s = local_s;
                 loop {
-                    if byte == usize::from(segment[s]) {
+                    let pattern_byte = segment[s];
+                    let matches = if case_insensitive {
+                        super::ascii_to_lower(pattern_byte)
+                            == super::ascii_to_lower(u8::try_from(byte).expect("0..256"))
+                    } else {
+                        byte == usize::from(pattern_byte)
+                    };
+                    if matches {
                         s += 1;
                         break;
                     }
@@ -305,4 +430,40 @@ fn chained_kmp_byte_transitions(segments: &[&[u8]], accept_state: u8) -> Vec<u8>
     }
 
     table
+}
+
+/// Pick a row-level prefilter pattern for the escape-only regime.
+///
+/// Returns `Some(encoded_pattern)` for the longest segment iff:
+///   - There are at least two segments (single-segment `%foo%` is routed
+///     to [`super::folded_contains::FoldedContainsDfa`] /
+///     [`super::flat_contains::FlatContainsDfa`], which have their own
+///     escape-only paths).
+///   - The longest segment has at least two bytes (the encoded pattern
+///     is 4+ bytes; below that there's no win over the standard scan).
+///   - No symbol's expansion contains any byte that appears in any
+///     segment.
+fn compute_escape_only_anchor(
+    symbols: &[Symbol],
+    symbol_lengths: &[u8],
+    segments: &[&[u8]],
+) -> Option<Vec<u8>> {
+    if segments.len() < 2 {
+        return None;
+    }
+    let longest = segments.iter().max_by_key(|s| s.len())?;
+    if longest.len() < 2 || !super::needle_is_literal(longest) {
+        // The encoded pattern is only well-defined when the longest
+        // (anchor) segment is wildcard-free.
+        return None;
+    }
+    // Union of every segment's bytes is what must be absent from symbols.
+    let mut union = Vec::with_capacity(segments.iter().map(|s| s.len()).sum());
+    for seg in segments {
+        union.extend_from_slice(seg);
+    }
+    if !needle_bytes_absent_from_all_symbols(symbols, symbol_lengths, &union) {
+        return None;
+    }
+    Some(build_escape_only_encoded_pattern(longest))
 }

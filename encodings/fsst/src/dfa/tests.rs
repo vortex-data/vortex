@@ -82,15 +82,29 @@ fn test_like_kind_parse() {
         Some(LikeKind::MultiContains(_))
     ));
     // Underscore in any segment rejects
+    // `_` is now accepted in anchored shapes (prefix, suffix), where
+    // there's no KMP failure ambiguity.
+    assert!(matches!(
+        LikeKind::parse(b"a_c%"),
+        Some(LikeKind::Prefix(b"a_c"))
+    ));
+    assert!(matches!(
+        LikeKind::parse(b"%a_c"),
+        Some(LikeKind::Suffix(b"a_c"))
+    ));
+    // `_` in an unanchored contains is rejected pending a proper
+    // wildcard automaton (KMP failure with wildcards is unsound).
+    assert!(LikeKind::parse(b"%a_c%").is_none());
     assert!(LikeKind::parse(b"%abc%d_f%").is_none());
-    // Underscore patterns are not supported.
+    // Anchored patterns without a bookend `%` are still unsupported
+    // (mixed-anchor work is a separate item).
     assert!(LikeKind::parse(b"a_c").is_none());
 }
 
 /// No symbols — all bytes escaped. Simplest case to see the two tables.
 #[test]
 fn test_prefix_dfa_no_symbols() -> VortexResult<()> {
-    let dfa = FlatPrefixDfa::new(&[], &[], b"ab")?;
+    let dfa = FlatPrefixDfa::new(&[], &[], b"ab", false)?;
 
     assert!(dfa.matches(&escaped(b"abx")));
     assert!(dfa.matches(&escaped(b"ab")));
@@ -115,7 +129,7 @@ fn test_prefix_dfa_no_symbols() -> VortexResult<()> {
 fn test_prefix_dfa_with_symbols() -> VortexResult<()> {
     let symbols = [sym(b"ht"), sym(b"tp")];
     let lengths = [2u8, 2];
-    let dfa = FlatPrefixDfa::new(&symbols, &lengths, b"http")?;
+    let dfa = FlatPrefixDfa::new(&symbols, &lengths, b"http", false)?;
 
     // "http" via two symbols: code 0 ("ht") + code 1 ("tp") → accept
     assert!(dfa.matches(&[0, 1]));
@@ -143,7 +157,7 @@ fn test_prefix_dfa_longer() -> VortexResult<()> {
     // code 0 = "tp" (2 bytes), code 1 = "htt" (3 bytes), code 2 = "p:/" (3 bytes)
     let symbols = [sym(b"tp"), sym(b"htt"), sym(b"p:/")];
     let lengths = [2u8, 3, 3];
-    let dfa = FlatPrefixDfa::new(&symbols, &lengths, b"http://")?;
+    let dfa = FlatPrefixDfa::new(&symbols, &lengths, b"http://", false)?;
 
     // "http://e" via symbols: "htt"(1) + "p:/"(2) + escaped "/" + escaped "e"
     // "htt" = states 0→1→2→3, "p:/" = states 3→4→5→6, "/" = state 6→accept
@@ -216,7 +230,7 @@ fn test_prefix_pushdown_rejects_len_254() {
 fn test_prefix_scan_to_bitbuf_matches_row_start_fast_path() -> VortexResult<()> {
     let symbols = [sym(b"ab"), sym(b"cd")];
     let lengths = [2u8, 2];
-    let dfa = FlatPrefixDfa::new(&symbols, &lengths, b"xy")?;
+    let dfa = FlatPrefixDfa::new(&symbols, &lengths, b"xy", false)?;
 
     let rows = [
         escaped(b"xy"),
@@ -273,6 +287,64 @@ fn test_contains_pushdown_rejects_len_255() {
     );
 }
 
+/// Escape-only fast path on the FlatContainsDfa: a 128-byte needle (just
+/// past the folded boundary) whose bytes don't appear in any symbol.
+#[test]
+fn test_flat_contains_escape_only_path() -> VortexResult<()> {
+    let symbols = [sym(b"ab"), sym(b"cd"), sym(b"ef")];
+    let lengths = [2u8, 2, 2];
+    // 128 'X's — pushes beyond FoldedContainsDfa::MAX_NEEDLE_LEN = 127
+    // and routes to FlatContainsDfa. 'X' is absent from every symbol.
+    let needle: Vec<u8> = vec![b'X'; FoldedContainsDfa::MAX_NEEDLE_LEN + 1];
+    let dfa = FlatContainsDfa::new(&symbols, &lengths, &needle, false)?;
+
+    // Matching row: needle escaped.
+    let row_match = escaped(&needle);
+    assert!(dfa.matches(&row_match));
+
+    // Mismatch: change one byte to break the contiguous escape sequence.
+    let mut bad = needle.clone();
+    bad[needle.len() - 1] = b'a';
+    let row_miss = escaped(&bad);
+    assert!(!dfa.matches(&row_miss));
+
+    // Scan two rows through the memmem fast path.
+    let mut all_bytes = Vec::new();
+    let mut offsets = Vec::with_capacity(3);
+    offsets.push(0u32);
+    all_bytes.extend_from_slice(&row_match);
+    offsets.push(u32::try_from(all_bytes.len()).expect("fits in u32"));
+    all_bytes.extend_from_slice(&row_miss);
+    offsets.push(u32::try_from(all_bytes.len()).expect("fits in u32"));
+
+    let bits = dfa.scan_to_bitbuf(2, &offsets, &all_bytes, false);
+    assert!(bits.value(0));
+    assert!(!bits.value(1));
+
+    let negated = dfa.scan_to_bitbuf(2, &offsets, &all_bytes, true);
+    assert!(!negated.value(0));
+    assert!(negated.value(1));
+
+    Ok(())
+}
+
+/// FlatContainsDfa escape-only path stays disabled when a symbol contains
+/// any needle byte — the standard sentinel-branching DFA scan handles it.
+#[test]
+fn test_flat_contains_escape_only_disabled_when_symbol_overlap() -> VortexResult<()> {
+    let symbols = [sym(b"Xy")];
+    let lengths = [2u8];
+    let needle: Vec<u8> = vec![b'X'; FoldedContainsDfa::MAX_NEEDLE_LEN + 1];
+    let dfa = FlatContainsDfa::new(&symbols, &lengths, &needle, false)?;
+
+    // A row with 'X' from the symbol then escaped X's — verifies the
+    // standard DFA still produces a correct match.
+    let mut row = vec![0u8]; // symbol "Xy" → bytes Xy
+    row.extend_from_slice(&escaped(&needle));
+    assert!(dfa.matches(&row));
+    Ok(())
+}
+
 /// Folded contains DFA boundary check: matches and rejects across the full
 /// supported needle length range.
 #[rstest]
@@ -284,7 +356,7 @@ fn test_folded_contains_needle_len_boundaries(#[case] n: usize) -> VortexResult<
     let needle: Vec<u8> = (0..n)
         .map(|i| b'a' + u8::try_from(i % 26).expect("i%26 fits in u8"))
         .collect();
-    let dfa = FoldedContainsDfa::new(&[], &[], &needle)?;
+    let dfa = FoldedContainsDfa::new(&[], &[], &needle, false)?;
 
     // Plain match: needle itself, escaped.
     assert!(dfa.matches(&escaped(&needle)));
@@ -310,7 +382,7 @@ fn test_folded_contains_needle_len_boundaries(#[case] n: usize) -> VortexResult<
 #[test]
 fn test_folded_contains_rejects_len_128() {
     let needle = vec![b'a'; FoldedContainsDfa::MAX_NEEDLE_LEN + 1];
-    assert!(FoldedContainsDfa::new(&[], &[], &needle).is_err());
+    assert!(FoldedContainsDfa::new(&[], &[], &needle, false).is_err());
 }
 
 /// `FsstMatcher` selects the folded DFA at the boundary length 127 and the
@@ -336,6 +408,106 @@ fn test_contains_matcher_routing_at_folded_boundary() -> VortexResult<()> {
     Ok(())
 }
 
+/// `FsstMatcher` routes short (≤ 8 byte) Contains needles through the
+/// Shift-Or matcher when (a) the FoldedContains escape-only `memmem`
+/// fast path doesn't apply, (b) needle[0] is not the first byte of any
+/// symbol (so the Teddy-2 pair scan would be empty), and (c) no symbol
+/// contains the needle outright.
+#[test]
+fn test_contains_matcher_routes_to_shift_or_for_short_needles() -> VortexResult<()> {
+    // ShiftOr is chosen for short needles when needle[1..] uses symbol
+    // bytes (so escape-only doesn't apply) but needle[0] is absent
+    // from every symbol expansion (so Teddy-2 would have no bucket).
+    let symbols = [sym(b"b"), sym(b"c")];
+    let lengths = [1u8, 1];
+    let matcher = FsstMatcher::try_new(&symbols, &lengths, b"%abc%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "shift_or");
+
+    // 8-byte needle (max ShiftOr) — same setup -> ShiftOr.
+    let matcher = FsstMatcher::try_new(&symbols, &lengths, b"%abcdcbcb%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "shift_or");
+
+    // 9-byte needle -> falls back to FoldedContains.
+    let matcher = FsstMatcher::try_new(&symbols, &lengths, b"%abcdcbcba%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "folded_contains");
+
+    // SSA: a symbol contains the needle -> falls back to FoldedContains.
+    let symbols2 = [sym(b"abc")];
+    let lengths2 = [3u8];
+    let matcher = FsstMatcher::try_new(&symbols2, &lengths2, b"%bc%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "folded_contains");
+
+    // No needle bytes appear in any symbol -> FoldedContains takes the
+    // escape-only memmem fast path and beats ShiftOr.
+    let matcher = FsstMatcher::try_new(&[], &[], b"%xyzzy%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "folded_contains");
+
+    // needle[0] IS in a symbol -> Teddy-2 pair scan would fire ->
+    // FoldedContains wins, ShiftOr is bypassed.
+    let symbols3 = [sym(b"a")];
+    let lengths3 = [1u8];
+    let matcher = FsstMatcher::try_new(&symbols3, &lengths3, b"%ab%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "folded_contains");
+
+    Ok(())
+}
+
+/// End-to-end: build a small FSST array and scan through `FsstMatcher`
+/// with a short needle. The results match the naive substring check.
+#[test]
+fn test_shift_or_scan_to_bitbuf_end_to_end() -> VortexResult<()> {
+    // Symbols include some needle bytes (so escape-only memmem is
+    // disabled) but do NOT contain needle[0]='X' (so the Teddy-2 pair
+    // scan would have no bucket, and the routing picks ShiftOr). Codes:
+    // 0 -> "ab", 1 -> "cd", 2 -> "Yb", 3 -> "q".
+    let symbols = [sym(b"ab"), sym(b"cd"), sym(b"Yb"), sym(b"q")];
+    let lengths = [2u8, 2, 2, 1];
+    let matcher = FsstMatcher::try_new(&symbols, &lengths, b"%Xb%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "shift_or");
+
+    // Row 0: codes [0, 1] -> "abcd" no "Xb"
+    // Row 1: codes [ESCAPE, b'X', 0] -> "Xab" matches "Xa"? no, needle is "Xb"
+    //        -> "Xab" contains "X" then "a", not "Xb" -> no match
+    // Row 2: codes [ESCAPE, b'X', ESCAPE, b'b'] -> "Xb" matches
+    // Row 3: codes [2, 3] -> "Ybq" no "Xb"
+    // Row 4: codes [ESCAPE, b'X', 2] -> "XYb" doesn't contain "Xb"
+    //        (the 'Y' is between, not adjacent)
+    let mut all_bytes = Vec::new();
+    let mut offsets = vec![0u32];
+    let rows: &[&[u8]] = &[
+        &[0u8, 1u8],
+        &[ESCAPE_CODE, b'X', 0u8],
+        &[ESCAPE_CODE, b'X', ESCAPE_CODE, b'b'],
+        &[2u8, 3u8],
+        &[ESCAPE_CODE, b'X', 2u8],
+    ];
+    for row in rows {
+        all_bytes.extend_from_slice(row);
+        offsets.push(u32::try_from(all_bytes.len()).unwrap());
+    }
+    let bits = matcher.scan_to_bitbuf(5, &offsets, &all_bytes, false);
+    assert!(!bits.value(0));
+    assert!(!bits.value(1));
+    assert!(bits.value(2));
+    assert!(!bits.value(3));
+    assert!(!bits.value(4));
+
+    let negated = matcher.scan_to_bitbuf(5, &offsets, &all_bytes, true);
+    assert!(negated.value(0));
+    assert!(negated.value(1));
+    assert!(!negated.value(2));
+    assert!(negated.value(3));
+    assert!(negated.value(4));
+    Ok(())
+}
+
 /// The Teddy-3 prefilter is more selective than Teddy-2, but it does not cover
 /// valid 2-code matches such as `c1 -> accept` or escape-followed continuations.
 /// The production scan must keep those pair-only cases alive when triple buckets
@@ -344,7 +516,7 @@ fn test_contains_matcher_routing_at_folded_boundary() -> VortexResult<()> {
 fn test_folded_contains_scan_keeps_pair_only_matches_when_triples_exist() -> VortexResult<()> {
     let symbols = [sym(b"a"), sym(b"b"), sym(b"ab"), sym(b"c")];
     let lengths = [1u8, 1, 2, 1];
-    let dfa = FoldedContainsDfa::new(&symbols, &lengths, b"abc")?;
+    let dfa = FoldedContainsDfa::new(&symbols, &lengths, b"abc", false)?;
 
     // Row 0 matches in 2 codes via "ab" + "c" and is only visible to Teddy-2.
     // Row 1 matches in 3 codes via "a" + "b" + "c" and is visible to Teddy-3.
@@ -367,7 +539,7 @@ fn test_folded_contains_scan_keeps_pair_only_matches_when_triples_exist() -> Vor
 
 #[test]
 fn test_folded_contains_scan_handles_escape_only_pair_anchor() -> VortexResult<()> {
-    let dfa = FoldedContainsDfa::new(&[], &[], b"XY")?;
+    let dfa = FoldedContainsDfa::new(&[], &[], b"XY", false)?;
     let rows = [escaped(b"AB"), escaped(b"WXYZ"), escaped(b"XQ"), Vec::new()];
     let mut all_bytes = Vec::new();
     let mut offsets = Vec::with_capacity(rows.len() + 1);
@@ -392,6 +564,164 @@ fn test_folded_contains_scan_handles_escape_only_pair_anchor() -> VortexResult<(
     Ok(())
 }
 
+/// Escape-only fast path: a multi-byte needle whose bytes don't appear in
+/// any symbol's expansion. The scan should rely on a single `memmem` for
+/// the encoded 2L-byte pattern and produce exact results across rows.
+#[test]
+fn test_folded_contains_escape_only_path() -> VortexResult<()> {
+    // Symbols contain only the letters "abcdefgh" — none of the needle
+    // bytes appear in any symbol.
+    let symbols = [sym(b"ab"), sym(b"cd"), sym(b"ef"), sym(b"gh")];
+    let lengths = [2u8, 2, 2, 2];
+    let needle = b"XYZ";
+    let dfa = FoldedContainsDfa::new(&symbols, &lengths, needle, false)?;
+    assert_eq!(dfa.scan_plan_name(), "escape_only_memmem");
+
+    // Row 0: matches via `XYZ` escaped at the start.
+    // Row 1: matches via `XYZ` escaped after some symbol bytes.
+    // Row 2: no match — has X and Z but no `XYZ` substring.
+    // Row 3: empty.
+    // Row 4: matches via `XYZ` straddling escapes interleaved with symbols
+    //   that decompress to non-needle bytes — these symbols reset the
+    //   DFA back to state 0 between escapes, so they MUST be absent
+    //   between the three escape pairs for a real match.
+    let mut row0 = escaped(b"XYZ");
+    row0.extend_from_slice(&[0u8, 1, 2]);
+    let mut row1 = vec![0u8, 1];
+    row1.extend_from_slice(&escaped(b"XYZ"));
+    let mut row2 = escaped(b"XaZ");
+    row2.extend_from_slice(&[3u8]);
+    let row3: Vec<u8> = Vec::new();
+    // Row 4 has the three escape pairs separated by a symbol — should NOT match.
+    let mut row4 = escaped(b"X");
+    row4.extend_from_slice(&[0u8]);
+    row4.extend_from_slice(&escaped(b"YZ"));
+
+    let rows = [row0, row1, row2, row3, row4];
+    let mut all_bytes = Vec::new();
+    let mut offsets = Vec::with_capacity(rows.len() + 1);
+    offsets.push(0u32);
+    for row in rows {
+        all_bytes.extend_from_slice(&row);
+        offsets.push(u32::try_from(all_bytes.len()).expect("test data fits in u32"));
+    }
+
+    let bits = dfa.scan_to_bitbuf(5, &offsets, &all_bytes, false);
+    assert!(bits.value(0));
+    assert!(bits.value(1));
+    assert!(!bits.value(2));
+    assert!(!bits.value(3));
+    assert!(!bits.value(4));
+
+    let negated = dfa.scan_to_bitbuf(5, &offsets, &all_bytes, true);
+    assert!(!negated.value(0));
+    assert!(!negated.value(1));
+    assert!(negated.value(2));
+    assert!(negated.value(3));
+    assert!(negated.value(4));
+
+    Ok(())
+}
+
+/// Escape-only fast path stays disabled (and the normal Teddy / 1-byte
+/// paths kick in) as soon as any symbol contains a needle byte.
+#[test]
+fn test_folded_contains_escape_only_disabled_when_symbol_overlap() -> VortexResult<()> {
+    // Symbol "Xy" contains 'X', a needle byte, so the escape-only path
+    // must be skipped — the regular Teddy / 1-byte routing handles it.
+    let symbols = [sym(b"Xy"), sym(b"cd")];
+    let lengths = [2u8, 2];
+    let needle = b"XYZ";
+    let dfa = FoldedContainsDfa::new(&symbols, &lengths, needle, false)?;
+    assert_ne!(dfa.scan_plan_name(), "escape_only_memmem");
+
+    // Matches across the symbol boundary: code 0 ("Xy") then escaped "YZ"
+    // → decompressed "XyYZ", which does NOT contain "XYZ". Make sure the
+    // fallback DFA agrees.
+    let row_no_match = vec![0u8, ESCAPE_CODE, b'Y', ESCAPE_CODE, b'Z'];
+    assert!(!dfa.matches(&row_no_match));
+
+    // Matches via full escape sequence.
+    let row_match = escaped(b"XYZ");
+    assert!(dfa.matches(&row_match));
+
+    Ok(())
+}
+
+/// Escape-only fast path on an empty symbol table — every byte is
+/// escaped, so the encoded pattern path applies trivially.
+#[test]
+fn test_folded_contains_escape_only_no_symbols() -> VortexResult<()> {
+    let dfa = FoldedContainsDfa::new(&[], &[], b"hi", false)?;
+    assert_eq!(dfa.scan_plan_name(), "escape_only_memmem");
+
+    let rows = [
+        escaped(b"say hi there"),
+        escaped(b"no match"),
+        escaped(b"hi"),
+        Vec::new(),
+    ];
+    let mut all_bytes = Vec::new();
+    let mut offsets = Vec::with_capacity(rows.len() + 1);
+    offsets.push(0u32);
+    for row in rows {
+        all_bytes.extend_from_slice(&row);
+        offsets.push(u32::try_from(all_bytes.len()).expect("test data fits in u32"));
+    }
+
+    let bits = dfa.scan_to_bitbuf(4, &offsets, &all_bytes, false);
+    assert!(bits.value(0));
+    assert!(!bits.value(1));
+    assert!(bits.value(2));
+    assert!(!bits.value(3));
+    Ok(())
+}
+
+/// Cross-row safety: a memmem hit that straddles two row boundaries must
+/// NOT be reported as a match for either row. The encoded pattern is
+/// `[ESCAPE, 'a', ESCAPE, 'b']`; place the first half at the end of row 0
+/// and the second half at the start of row 1.
+#[test]
+fn test_folded_contains_escape_only_no_cross_row_match() -> VortexResult<()> {
+    let dfa = FoldedContainsDfa::new(&[], &[], b"ab", false)?;
+    assert_eq!(dfa.scan_plan_name(), "escape_only_memmem");
+
+    // Row 0: ends with [ESCAPE, 'a'] (matches needle byte 0 then ends).
+    // Row 1: starts with [ESCAPE, 'b'] (escaped 'b' on its own).
+    // Concatenated in `all_bytes`, memmem will find `[ESCAPE, 'a',
+    // ESCAPE, 'b']` straddling the row boundary; we must not promote it
+    // to a match for either row.
+    let row0 = vec![ESCAPE_CODE, b'a'];
+    let row1 = vec![ESCAPE_CODE, b'b'];
+    let mut all_bytes = Vec::new();
+    let mut offsets = Vec::with_capacity(3);
+    offsets.push(0u32);
+    all_bytes.extend_from_slice(&row0);
+    offsets.push(u32::try_from(all_bytes.len()).expect("fits in u32"));
+    all_bytes.extend_from_slice(&row1);
+    offsets.push(u32::try_from(all_bytes.len()).expect("fits in u32"));
+
+    let bits = dfa.scan_to_bitbuf(2, &offsets, &all_bytes, false);
+    assert!(!bits.value(0));
+    assert!(!bits.value(1));
+    Ok(())
+}
+
+/// FsstMatcher end-to-end: the user-visible LIKE pipeline must produce
+/// identical results regardless of which DFA path the scan chooses.
+#[test]
+fn test_folded_contains_escape_only_matcher_routing() -> VortexResult<()> {
+    let symbols = [sym(b"ab"), sym(b"cd"), sym(b"ef")];
+    let lengths = [2u8, 2, 2];
+    let matcher = FsstMatcher::try_new(&symbols, &lengths, b"%XYZ%")?
+        .expect("contains pattern must produce a matcher");
+
+    assert!(matcher.matches(&escaped(b"the XYZ string")));
+    assert!(!matcher.matches(&escaped(b"the xyz string")));
+    assert!(!matcher.matches(&escaped(b"XY")));
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // MultiContainsDfa unit tests
 // ---------------------------------------------------------------------------
@@ -399,7 +729,7 @@ fn test_folded_contains_scan_handles_escape_only_pair_anchor() -> VortexResult<(
 /// No symbols — all bytes escaped. Two segments.
 #[test]
 fn test_multi_contains_dfa_no_symbols() -> VortexResult<()> {
-    let dfa = MultiContainsDfa::new(&[], &[], &[b"ab", b"cd"])?;
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"ab", b"cd"], false)?;
 
     assert!(dfa.matches(&escaped(b"abcd")));
     assert!(dfa.matches(&escaped(b"xxabxxcdxx")));
@@ -415,7 +745,7 @@ fn test_multi_contains_dfa_no_symbols() -> VortexResult<()> {
 /// Three segments, all escaped.
 #[test]
 fn test_multi_contains_dfa_three_segments() -> VortexResult<()> {
-    let dfa = MultiContainsDfa::new(&[], &[], &[b"a", b"b", b"c"])?;
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"a", b"b", b"c"], false)?;
 
     assert!(dfa.matches(&escaped(b"abc")));
     assert!(dfa.matches(&escaped(b"xaxbxcx")));
@@ -433,7 +763,7 @@ fn test_multi_contains_dfa_with_symbols() -> VortexResult<()> {
     // code 0 = "ab", code 1 = "cd"
     let symbols = [sym(b"ab"), sym(b"cd")];
     let lengths = [2u8, 2];
-    let dfa = MultiContainsDfa::new(&symbols, &lengths, &[b"ab", b"cd"])?;
+    let dfa = MultiContainsDfa::new(&symbols, &lengths, &[b"ab", b"cd"], false)?;
 
     // "abcd" via symbols: code 0 ("ab") + code 1 ("cd")
     assert!(dfa.matches(&[0, 1]));
@@ -452,7 +782,7 @@ fn test_multi_contains_dfa_with_symbols() -> VortexResult<()> {
 /// KMP overlap within a segment: "abab" has failure [0,0,1,2].
 #[test]
 fn test_multi_contains_dfa_kmp_within_segment() -> VortexResult<()> {
-    let dfa = MultiContainsDfa::new(&[], &[], &[b"abab", b"xy"])?;
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"abab", b"xy"], false)?;
 
     assert!(dfa.matches(&escaped(b"ababxy")));
     assert!(dfa.matches(&escaped(b"xababxyx")));
@@ -468,7 +798,7 @@ fn test_multi_contains_dfa_kmp_within_segment() -> VortexResult<()> {
 /// Find "ab" at 0, then "ab" from position 2 onward — found at 2.
 #[test]
 fn test_multi_contains_dfa_greedy_correctness() -> VortexResult<()> {
-    let dfa = MultiContainsDfa::new(&[], &[], &[b"ab", b"ab"])?;
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"ab", b"ab"], false)?;
 
     assert!(dfa.matches(&escaped(b"abab")));
     assert!(dfa.matches(&escaped(b"xababx")));
@@ -483,7 +813,7 @@ fn test_multi_contains_dfa_greedy_correctness() -> VortexResult<()> {
 fn test_multi_contains_dfa_max_total_len() -> VortexResult<()> {
     let seg1 = "a".repeat(127);
     let seg2 = "b".repeat(127);
-    let dfa = MultiContainsDfa::new(&[], &[], &[seg1.as_bytes(), seg2.as_bytes()])?;
+    let dfa = MultiContainsDfa::new(&[], &[], &[seg1.as_bytes(), seg2.as_bytes()], false)?;
 
     let matching = format!("{seg1}{seg2}");
     assert!(dfa.matches(&escaped(matching.as_bytes())));
@@ -499,7 +829,7 @@ fn test_multi_contains_dfa_rejects_over_max() {
     let seg1 = "a".repeat(128);
     let seg2 = "b".repeat(127);
     // total = 255 > MAX_TOTAL_LEN = 254
-    assert!(MultiContainsDfa::new(&[], &[], &[seg1.as_bytes(), seg2.as_bytes()]).is_err());
+    assert!(MultiContainsDfa::new(&[], &[], &[seg1.as_bytes(), seg2.as_bytes()], false).is_err());
 }
 
 /// FsstMatcher integration: %abc%def% should be handled.
@@ -516,13 +846,235 @@ fn test_multi_contains_matcher_handles() {
 }
 
 // ---------------------------------------------------------------------------
+// `_` single-byte wildcard (anchored shapes only)
+// ---------------------------------------------------------------------------
+
+/// `_` in a prefix pattern: anchored from the row start; the wildcard
+/// position accepts any single byte.
+#[test]
+fn test_wildcard_prefix() {
+    let matcher = FsstMatcher::try_new(&[], &[], b"a_c%").unwrap().unwrap();
+    assert!(matcher.matches(&escaped(b"abc")));
+    assert!(matcher.matches(&escaped(b"aZcdef")));
+    assert!(!matcher.matches(&escaped(b"ac")));
+    assert!(!matcher.matches(&escaped(b"xabc")));
+}
+
+/// Multiple `_` in a prefix pattern.
+#[test]
+fn test_wildcard_prefix_multiple() {
+    let matcher = FsstMatcher::try_new(&[], &[], b"a__c%").unwrap().unwrap();
+    assert!(matcher.matches(&escaped(b"abXc")));
+    assert!(matcher.matches(&escaped(b"a12cdef")));
+    assert!(!matcher.matches(&escaped(b"abc")));
+    assert!(!matcher.matches(&escaped(b"abbbc")));
+}
+
+/// `_` at the start of a prefix.
+#[test]
+fn test_wildcard_prefix_leading() {
+    let matcher = FsstMatcher::try_new(&[], &[], b"_bc%").unwrap().unwrap();
+    assert!(matcher.matches(&escaped(b"abc")));
+    assert!(matcher.matches(&escaped(b"Xbcdef")));
+    assert!(!matcher.matches(&escaped(b"bc"))); // no byte before "bc"
+    assert!(!matcher.matches(&escaped(b"axc")));
+}
+
+/// `_` in a suffix pattern: anchored from the row end.
+#[test]
+fn test_wildcard_suffix() {
+    let matcher = FsstMatcher::try_new(&[], &[], b"%a_c").unwrap().unwrap();
+    assert!(matcher.matches(&escaped(b"abc")));
+    assert!(matcher.matches(&escaped(b"helloaZc")));
+    assert!(!matcher.matches(&escaped(b"abc!"))); // doesn't end with a_c
+    assert!(!matcher.matches(&escaped(b"ac")));
+}
+
+/// `_` interacting with multi-byte FSST symbols on a prefix pattern.
+#[test]
+fn test_wildcard_prefix_with_symbols() -> VortexResult<()> {
+    // code 0 = "ab", code 1 = "Xc"
+    let symbols = [sym(b"ab"), sym(b"Xc")];
+    let lengths = [2u8, 2];
+    let matcher = FsstMatcher::try_new(&symbols, &lengths, b"a_c%")?.unwrap();
+
+    // "ab" (code 0) + "c" (escape) = "abc" — matches "a_c" via 'b'.
+    assert!(matcher.matches(&[0u8, ESCAPE_CODE, b'c']));
+    // "a" (escape) + "Xc" (code 1) = "aXc" — matches with 'X'.
+    assert!(matcher.matches(&[ESCAPE_CODE, b'a', 1u8]));
+    // First byte not 'a' → no match.
+    assert!(!matcher.matches(&[1u8])); // "Xc" alone
+    Ok(())
+}
+
+/// `_` in unanchored contains is currently rejected (unsound KMP-fallback
+/// with wildcards). Verify the matcher correctly falls through.
+#[test]
+fn test_wildcard_contains_unsupported() {
+    assert!(FsstMatcher::try_new(&[], &[], b"%a_c%").unwrap().is_none());
+    assert!(
+        FsstMatcher::try_new(&[], &[], b"%a_c%xyz%")
+            .unwrap()
+            .is_none()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ILIKE (ASCII case-insensitive)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_ilike_prefix() {
+    let matcher = FsstMatcher::try_new_with(&[], &[], b"http%", true)
+        .unwrap()
+        .unwrap();
+    assert!(matcher.matches(&escaped(b"http://x")));
+    assert!(matcher.matches(&escaped(b"HTTP://X")));
+    assert!(matcher.matches(&escaped(b"HtTp://Mixed")));
+    assert!(!matcher.matches(&escaped(b"ftp://x")));
+}
+
+#[test]
+fn test_ilike_suffix() {
+    let matcher = FsstMatcher::try_new_with(&[], &[], b"%.com", true)
+        .unwrap()
+        .unwrap();
+    assert!(matcher.matches(&escaped(b"google.com")));
+    assert!(matcher.matches(&escaped(b"google.COM")));
+    assert!(matcher.matches(&escaped(b"GOOGLE.CoM")));
+    assert!(!matcher.matches(&escaped(b"google.org")));
+}
+
+#[test]
+fn test_ilike_contains() {
+    let matcher = FsstMatcher::try_new_with(&[], &[], b"%hello%", true)
+        .unwrap()
+        .unwrap();
+    assert!(matcher.matches(&escaped(b"hello world")));
+    assert!(matcher.matches(&escaped(b"say HELLO")));
+    assert!(matcher.matches(&escaped(b"HeLLo there")));
+    assert!(!matcher.matches(&escaped(b"goodbye")));
+}
+
+#[test]
+fn test_ilike_multi_contains() {
+    let matcher = FsstMatcher::try_new_with(&[], &[], b"%abc%def%", true)
+        .unwrap()
+        .unwrap();
+    assert!(matcher.matches(&escaped(b"abc-def")));
+    assert!(matcher.matches(&escaped(b"ABCxxxDEF")));
+    assert!(matcher.matches(&escaped(b"AbC and DeF")));
+    assert!(!matcher.matches(&escaped(b"abc")));
+    assert!(!matcher.matches(&escaped(b"def abc"))); // wrong order
+}
+
+/// ILIKE combined with `_` wildcard in an anchored shape.
+#[test]
+fn test_ilike_with_wildcard_prefix() {
+    let matcher = FsstMatcher::try_new_with(&[], &[], b"A_C%", true)
+        .unwrap()
+        .unwrap();
+    assert!(matcher.matches(&escaped(b"abc")));
+    assert!(matcher.matches(&escaped(b"AZCdef")));
+    assert!(matcher.matches(&escaped(b"aXc")));
+    assert!(!matcher.matches(&escaped(b"ac")));
+    assert!(!matcher.matches(&escaped(b"xabc")));
+}
+
+/// ILIKE with FSST symbols whose expansion has letters in either case.
+#[test]
+fn test_ilike_with_symbols() -> VortexResult<()> {
+    let symbols = [sym(b"ab"), sym(b"AB"), sym(b"cd")];
+    let lengths = [2u8, 2, 2];
+    let matcher = FsstMatcher::try_new_with(&symbols, &lengths, b"%abcd%", true)?.unwrap();
+    // lowercase via code 0 + code 2 = "abcd"
+    assert!(matcher.matches(&[0u8, 2u8]));
+    // mixed: "AB" (code 1) + "cd" (code 2) = "ABcd" — case-insensitive match
+    assert!(matcher.matches(&[1u8, 2u8]));
+    // escaped uppercase: ESCAPE_CODE + 'A'/'B'/'C'/'D'
+    assert!(matcher.matches(&escaped(b"ABCD")));
+    Ok(())
+}
+
+/// MultiContainsDfa escape-only prefilter: with no segment byte present
+/// in any symbol, scan_to_bitbuf should route through the longest
+/// segment's encoded-pattern memmem and still return exact results
+/// (rejecting rows that contain only one segment, or both in the wrong
+/// order).
+#[test]
+fn test_multi_contains_scan_escape_only_anchor() -> VortexResult<()> {
+    // Symbols use only lowercase 'abcdefgh' — none of the segment bytes.
+    let symbols = [sym(b"ab"), sym(b"cd"), sym(b"ef"), sym(b"gh")];
+    let lengths = [2u8, 2, 2, 2];
+    let dfa = MultiContainsDfa::new(&symbols, &lengths, &[b"XYZ", b"PQ"], false)?;
+
+    // Row 0: both segments in order — match.
+    let mut row0 = Vec::new();
+    row0.extend_from_slice(&escaped(b"XYZ"));
+    row0.extend_from_slice(&[0u8, 1]); // "abcd"
+    row0.extend_from_slice(&escaped(b"PQ"));
+
+    // Row 1: only longest segment — should NOT match.
+    let row1 = escaped(b"XYZ");
+
+    // Row 2: both segments in wrong order — should NOT match.
+    let mut row2 = Vec::new();
+    row2.extend_from_slice(&escaped(b"PQ"));
+    row2.extend_from_slice(&escaped(b"XYZ"));
+
+    // Row 3: empty.
+    let row3: Vec<u8> = Vec::new();
+
+    let rows = [row0, row1, row2, row3];
+    let mut all_bytes = Vec::new();
+    let mut offsets = Vec::with_capacity(rows.len() + 1);
+    offsets.push(0u32);
+    for row in rows {
+        all_bytes.extend_from_slice(&row);
+        offsets.push(u32::try_from(all_bytes.len()).expect("fits in u32"));
+    }
+
+    let bits = dfa.scan_to_bitbuf(4, &offsets, &all_bytes, false);
+    assert!(bits.value(0));
+    assert!(!bits.value(1));
+    assert!(!bits.value(2));
+    assert!(!bits.value(3));
+
+    let negated = dfa.scan_to_bitbuf(4, &offsets, &all_bytes, true);
+    assert!(!negated.value(0));
+    assert!(negated.value(1));
+    assert!(negated.value(2));
+    assert!(negated.value(3));
+    Ok(())
+}
+
+/// MultiContainsDfa anchor stays disabled if any segment byte appears in
+/// any symbol — the standard DFA scan path handles it.
+#[test]
+fn test_multi_contains_scan_escape_only_disabled_when_symbol_overlap() -> VortexResult<()> {
+    // Symbol "Xy" contains 'X', a segment byte — disables the anchor path.
+    let symbols = [sym(b"Xy"), sym(b"PQ"), sym(b"ab")];
+    let lengths = [2u8, 2, 2];
+    let dfa = MultiContainsDfa::new(&symbols, &lengths, &[b"XYZ", b"PQ"], false)?;
+
+    // Standard DFA correctness: a match across symbol+escape boundaries.
+    // "XyXYZab PQ" — contains "XYZ" then later "PQ".
+    let mut row = vec![0u8]; // symbol "Xy"
+    row.extend_from_slice(&escaped(b"XYZ"));
+    row.push(2u8); // symbol "ab"
+    row.push(1u8); // symbol "PQ"
+    assert!(dfa.matches(&row));
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Seek-verify and decompress+memmem tests
 // ---------------------------------------------------------------------------
 
 /// Long input (>28 escaped codes) triggers decompress+memmem fallback.
 #[test]
 fn test_multi_contains_decompress_fallback() -> VortexResult<()> {
-    let dfa = MultiContainsDfa::new(&[], &[], &[b"ab", b"cd"])?;
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"ab", b"cd"], false)?;
 
     // 30+ escaped bytes → exceeds decompress_threshold of 28
     let mut long_match = escaped(&[b'x'; 20]);
@@ -546,7 +1098,7 @@ fn test_multi_contains_decompress_fallback() -> VortexResult<()> {
 /// Decompress+memmem with three segments on a long string.
 #[test]
 fn test_multi_contains_decompress_three_segments() -> VortexResult<()> {
-    let dfa = MultiContainsDfa::new(&[], &[], &[b"foo", b"bar", b"baz"])?;
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"foo", b"bar", b"baz"], false)?;
 
     let mut long = escaped(&[b'x'; 15]);
     long.extend_from_slice(&escaped(b"foo"));
@@ -573,7 +1125,7 @@ fn test_multi_contains_decompress_three_segments() -> VortexResult<()> {
 fn test_multi_contains_seek_verify_with_symbols() -> VortexResult<()> {
     let symbols = [sym(b"ab"), sym(b"cd"), sym(b"xx")];
     let lengths = [2u8, 2, 2];
-    let dfa = MultiContainsDfa::new(&symbols, &lengths, &[b"ab", b"cd"])?;
+    let dfa = MultiContainsDfa::new(&symbols, &lengths, &[b"ab", b"cd"], false)?;
 
     // Many non-progressing codes (2 = "xx") then match
     assert!(dfa.matches(&[2, 2, 2, 2, 2, 0, 2, 2, 1]));
@@ -589,7 +1141,7 @@ fn test_multi_contains_seek_verify_with_symbols() -> VortexResult<()> {
 /// DFA and decompress paths must agree on the same input.
 #[test]
 fn test_multi_contains_dfa_decompress_consistency() -> VortexResult<()> {
-    let dfa = MultiContainsDfa::new(&[], &[], &[b"abc", b"def"])?;
+    let dfa = MultiContainsDfa::new(&[], &[], &[b"abc", b"def"], false)?;
 
     let cases: &[(&[u8], bool)] = &[
         (b"abcdef", true),
@@ -804,6 +1356,428 @@ fn test_random_needles_match_naive_contains() -> VortexResult<()> {
         let expected = BoolArray::from_iter(expected_bits.iter().copied());
 
         assert_arrays_eq!(&result, &expected);
+    }
+
+    Ok(())
+}
+
+#[expect(deprecated)]
+use vortex_array::ToCanonical;
+use vortex_array::arrays::varbin::VarBinArrayExt;
+use vortex_array::match_each_integer_ptype;
+
+use super::MultiNeedleMatcher;
+use crate::FSSTArrayExt;
+
+/// Run Fat Teddy via `MultiNeedleMatcher` on `fsst` for the given
+/// patterns, returning the OR bit-buffer as a `Vec<bool>` of length `n`.
+fn run_fat_teddy_or(fsst: &FSSTArray, patterns: &[&str], negated: bool) -> Vec<bool> {
+    let symbols = fsst.symbols();
+    let symbol_lengths = fsst.symbol_lengths();
+    let codes = fsst.codes();
+    #[expect(deprecated)]
+    let offsets = codes.offsets().to_primitive();
+    let all_bytes = codes.bytes();
+    let all_bytes = all_bytes.as_slice();
+    let n = codes.len();
+
+    let pattern_bytes: Vec<&[u8]> = patterns.iter().map(|s| s.as_bytes()).collect();
+    let matcher = MultiNeedleMatcher::try_new_multi(
+        symbols.as_slice(),
+        symbol_lengths.as_slice(),
+        &pattern_bytes,
+        false,
+    )
+    .expect("matcher build")
+    .expect("multi matcher should be supported for these patterns");
+
+    let bits = match_each_integer_ptype!(offsets.ptype(), |T| {
+        let off = offsets.as_slice::<T>();
+        matcher.scan_or_to_bitbuf(n, off, all_bytes, negated)
+    });
+    (0..n).map(|i| bits.value(i)).collect()
+}
+
+/// Naive baseline: OR of per-pattern `String::contains` results.
+fn naive_or(strings: &[&str], needles: &[&str]) -> Vec<bool> {
+    strings
+        .iter()
+        .map(|s| needles.iter().any(|n| s.contains(n)))
+        .collect()
+}
+
+/// 3-needle Fat Teddy on a small FSST array.
+#[test]
+fn test_fat_teddy_three_needles_small() -> VortexResult<()> {
+    let strings: &[Option<&str>] = &[
+        Some("https://www.google.com/"),
+        Some("https://www.example.org/"),
+        Some("xyz_marker_xyz"),
+        Some("hello world"),
+        Some("nothing-matches"),
+        Some("ear infection"),
+        Some("https://images.google.com"),
+    ];
+    let fsst = make_fsst_str(strings);
+    let patterns = &["%google%", "%xyz%", "%ear%"];
+    let strs: Vec<&str> = strings.iter().map(|o| o.unwrap()).collect();
+    let got = run_fat_teddy_or(&fsst, patterns, false);
+    let want = naive_or(
+        &strs,
+        patterns
+            .iter()
+            .map(|p| p.trim_matches('%'))
+            .collect::<Vec<_>>()
+            .as_slice(),
+    );
+    assert_eq!(got, want);
+    Ok(())
+}
+
+/// 8-needle Fat Teddy on a small FSST array.
+#[test]
+fn test_fat_teddy_eight_needles_small() -> VortexResult<()> {
+    let strings: &[Option<&str>] = &[
+        Some("alpha beta gamma"),
+        Some("delta epsilon zeta"),
+        Some("eta theta iota"),
+        Some("kappa lambda mu"),
+        Some("nu xi omicron"),
+        Some("pi rho sigma"),
+        Some("tau upsilon phi"),
+        Some("chi psi omega"),
+        Some("none of the above"),
+    ];
+    let fsst = make_fsst_str(strings);
+    let patterns = &[
+        "%alpha%", "%delta%", "%eta%", "%kappa%", "%xi%", "%pi%", "%tau%", "%chi%",
+    ];
+    let strs: Vec<&str> = strings.iter().map(|o| o.unwrap()).collect();
+    let bare: Vec<&str> = patterns.iter().map(|p| p.trim_matches('%')).collect();
+    let got = run_fat_teddy_or(&fsst, patterns, false);
+    let want = naive_or(&strs, &bare);
+    assert_eq!(got, want);
+    Ok(())
+}
+
+/// Negated Fat Teddy: `NOT (LIKE x OR LIKE y ...)` is the complement
+/// of the OR result.
+#[test]
+fn test_fat_teddy_negated() -> VortexResult<()> {
+    let strings: &[Option<&str>] = &[Some("alpha"), Some("beta"), Some("gamma"), Some("xyz")];
+    let fsst = make_fsst_str(strings);
+    let patterns = &["%alpha%", "%beta%"];
+    let strs: Vec<&str> = strings.iter().map(|o| o.unwrap()).collect();
+    let positive = run_fat_teddy_or(&fsst, patterns, false);
+    let negated = run_fat_teddy_or(&fsst, patterns, true);
+    let positive_naive = naive_or(&strs, &["alpha", "beta"]);
+    assert_eq!(positive, positive_naive);
+    let negated_expected: Vec<bool> = positive_naive.iter().map(|b| !b).collect();
+    assert_eq!(negated, negated_expected);
+    Ok(())
+}
+
+/// More-than-eight needles: Fat Teddy chunks into multiple passes
+/// (8 + remainder) and OR-merges. We use 12 needles spread across
+/// several letter classes.
+#[test]
+fn test_fat_teddy_twelve_needles_chunks() -> VortexResult<()> {
+    let strings: &[Option<&str>] = &[
+        Some("alpha"),
+        Some("beta"),
+        Some("gamma"),
+        Some("delta"),
+        Some("epsilon"),
+        Some("zeta"),
+        Some("eta"),
+        Some("theta"),
+        Some("iota"),
+        Some("kappa"),
+        Some("lambda"),
+        Some("mu"),
+        Some("nothing"),
+        Some("xyzzy"),
+    ];
+    let fsst = make_fsst_str(strings);
+    let patterns = &[
+        "%alp%", "%bet%", "%gam%", "%del%", "%eps%", "%zet%", "%eta%", "%the%", "%iot%", "%kap%",
+        "%lam%", "%mu%",
+    ];
+    let bare: Vec<&str> = patterns.iter().map(|p| p.trim_matches('%')).collect();
+    let strs: Vec<&str> = strings.iter().map(|o| o.unwrap()).collect();
+    let got = run_fat_teddy_or(&fsst, patterns, false);
+    let want = naive_or(&strs, &bare);
+    assert_eq!(got, want);
+    Ok(())
+}
+
+/// Property test: random 3–16 needles on random clickbench-style URLs.
+/// Fat Teddy result must equal the OR of per-needle single-pattern
+/// results. This is the load-bearing correctness gate per the brief.
+#[cfg(feature = "_test-harness")]
+#[test]
+fn test_fat_teddy_random_needles_equals_or_of_singles() -> VortexResult<()> {
+    use rand::RngExt;
+    use rand::SeedableRng;
+    use rand::prelude::StdRng;
+
+    use crate::test_utils::generate_clickbench_urls;
+    use crate::test_utils::make_fsst_clickbench_urls;
+
+    const N_STRINGS: usize = 2_000;
+    const ROUNDS: usize = 8;
+
+    let urls = generate_clickbench_urls(N_STRINGS);
+    let fsst = make_fsst_clickbench_urls(N_STRINGS);
+
+    let mut rng = StdRng::seed_from_u64(0xFADE_C0DE);
+    const URL_BYTES: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789-./";
+
+    for round in 0..ROUNDS {
+        let n_needles = rng.random_range(3..=16);
+        let mut needles: Vec<String> = Vec::with_capacity(n_needles);
+        let mut patterns: Vec<String> = Vec::with_capacity(n_needles);
+        for _ in 0..n_needles {
+            let len = rng.random_range(2..=6);
+            let needle: Vec<u8> = (0..len)
+                .map(|_| URL_BYTES[rng.random_range(0..URL_BYTES.len())])
+                .collect();
+            let needle_str = String::from_utf8(needle).expect("ascii");
+            patterns.push(format!("%{needle_str}%"));
+            needles.push(needle_str);
+        }
+
+        let pattern_refs: Vec<&str> = patterns.iter().map(|s| s.as_str()).collect();
+        let got = run_fat_teddy_or(&fsst, &pattern_refs, false);
+        let needle_refs: Vec<&str> = needles.iter().map(|s| s.as_str()).collect();
+        let want: Vec<bool> = urls
+            .iter()
+            .map(|u| needle_refs.iter().any(|n| u.contains(*n)))
+            .collect();
+
+        assert_eq!(
+            got, want,
+            "round {round}: Fat Teddy OR diverged from naive OR for needles {needle_refs:?}"
+        );
+    }
+
+    Ok(())
+}
+
+/// Property test with single-pattern matchers: Fat Teddy OR must equal
+/// the bitwise OR of `MultiNeedleMatcher`'s per-needle results
+/// computed via per-pattern `FsstMatcher::scan_to_bitbuf`. This
+/// validates that the Fat Teddy bucket-packed verifier produces the
+/// same per-needle accept set as the single-pattern scan.
+#[cfg(feature = "_test-harness")]
+#[test]
+#[allow(clippy::many_single_char_names)]
+fn test_fat_teddy_equals_or_of_single_matchers() -> VortexResult<()> {
+    use crate::test_utils::make_fsst_clickbench_urls;
+
+    const N_STRINGS: usize = 1_000;
+    let fsst = make_fsst_clickbench_urls(N_STRINGS);
+
+    let symbols = fsst.symbols();
+    let symbol_lengths = fsst.symbol_lengths();
+    let codes = fsst.codes();
+    #[expect(deprecated)]
+    let offsets = codes.offsets().to_primitive();
+    let all_bytes = codes.bytes();
+    let all_bytes = all_bytes.as_slice();
+    let n = codes.len();
+
+    let patterns: &[&str] = &[
+        "%google%", "%yandex%", "%http%", "%www%", "%com%", "%ru%", "%page%",
+    ];
+    let pattern_bytes: Vec<&[u8]> = patterns.iter().map(|s| s.as_bytes()).collect();
+
+    let multi = MultiNeedleMatcher::try_new_multi(
+        symbols.as_slice(),
+        symbol_lengths.as_slice(),
+        &pattern_bytes,
+        false,
+    )?
+    .expect("MultiNeedleMatcher should build");
+
+    let fat_teddy_bits = match_each_integer_ptype!(offsets.ptype(), |T| {
+        let off = offsets.as_slice::<T>();
+        multi.scan_or_to_bitbuf(n, off, all_bytes, false)
+    });
+
+    // Build the per-pattern OR via single-pattern FsstMatchers.
+    let mut or_acc: Option<vortex_buffer::BitBuffer> = None;
+    for p in patterns {
+        let m = FsstMatcher::try_new_with(
+            symbols.as_slice(),
+            symbol_lengths.as_slice(),
+            p.as_bytes(),
+            false,
+        )?
+        .expect("single matcher");
+        let r = match_each_integer_ptype!(offsets.ptype(), |T| {
+            let off = offsets.as_slice::<T>();
+            m.scan_to_bitbuf(n, off, all_bytes, false)
+        });
+        or_acc = Some(match or_acc {
+            Some(prev) => &prev | &r,
+            None => r,
+        });
+    }
+    let expected = or_acc.expect("at least one pattern");
+    for i in 0..n {
+        assert_eq!(
+            fat_teddy_bits.value(i),
+            expected.value(i),
+            "row {i} disagreement"
+        );
+    }
+    Ok(())
+}
+
+/// Build-time bucket-packing assertions: 3 needles → up to 3 buckets;
+/// 16 disjoint short needles → exactly 8 buckets (FAT_TEDDY_BUCKETS).
+#[test]
+fn test_fat_teddy_bucket_packing_counts() -> VortexResult<()> {
+    let strings: &[Option<&str>] = &[Some("xx")];
+    let fsst = make_fsst_str(strings);
+    let symbols = fsst.symbols();
+    let symbol_lengths = fsst.symbol_lengths();
+
+    // Three needles.
+    let patterns_3: &[&[u8]] = &[b"%abc%", b"%def%", b"%ghi%"];
+    let m3 = MultiNeedleMatcher::try_new_multi(
+        symbols.as_slice(),
+        symbol_lengths.as_slice(),
+        patterns_3,
+        false,
+    )?
+    .expect("should build");
+    assert!(m3.bucket_count() <= 3);
+
+    // 16 disjoint short needles.
+    let patterns_16_strs: Vec<String> = (0..16)
+        .map(|i| {
+            let c1 = (b'a' + (i % 26) as u8) as char;
+            let c2 = (b'A' + (i % 26) as u8) as char;
+            format!("%{c1}{c2}%")
+        })
+        .collect();
+    let patterns_16: Vec<&[u8]> = patterns_16_strs.iter().map(|s| s.as_bytes()).collect();
+    let m16 = MultiNeedleMatcher::try_new_multi(
+        symbols.as_slice(),
+        symbol_lengths.as_slice(),
+        &patterns_16,
+        false,
+    )?
+    .expect("should build");
+    // With 16 disjoint needles the bucket count is capped at 8.
+    assert!(m16.bucket_count() <= super::fat_teddy::FAT_TEDDY_BUCKETS);
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Bench parity regression: planner picks the same plan as the legacy
+// cascade for every fsst_contains bench.
+// ---------------------------------------------------------------------------
+
+/// Independently re-implement the legacy `FoldedContainsDfa::scan_to_bitbuf`
+/// routing cascade. The planner's chosen plan must match this function on
+/// every existing fsst_contains bench needle + corpus pair, otherwise the
+/// refactor would have silently re-routed traffic. This is the load-bearing
+/// regression guard for Task C.
+#[cfg(feature = "_test-harness")]
+fn legacy_path_for(dfa: &FoldedContainsDfa, all_bytes: &[u8]) -> super::planner::ScanPlan {
+    use super::planner::ScanPlan;
+    use super::planner::escape_pair_targets;
+    use super::planner::ssa_saturated;
+
+    if dfa.escape_only_pattern_for_test().is_some() {
+        return ScanPlan::EscapeOnly;
+    }
+    let ssa_codes = dfa.single_step_accept_codes_for_test();
+    if let Some(codes) = ssa_codes
+        && dfa.progressing_codes_for_test().is_some()
+        && ssa_saturated(all_bytes, codes)
+    {
+        return ScanPlan::OneByteSaturated;
+    }
+    if dfa.bucketed_triple_codes_for_test() {
+        return ScanPlan::TripleTeddy;
+    }
+    if let Some(buckets) = dfa.bucketed_pair_codes_for_test() {
+        if ssa_codes.is_none() && escape_pair_targets(buckets).is_some() {
+            return ScanPlan::EscapePair;
+        }
+        return ScanPlan::PairTeddy;
+    }
+    if dfa.progressing_codes_for_test().is_some() {
+        ScanPlan::OneByteBitset
+    } else {
+        ScanPlan::RowLoop
+    }
+}
+
+/// Bench-parity property test. For every `(corpus, needle)` pair driven by
+/// the existing `fsst_contains*` benches, build the matcher and assert
+/// `planner.plan() == legacy_path_for(...)`. If a needle re-routes to a
+/// different plan, this test fails before any silent perf regression can
+/// land.
+#[cfg(feature = "_test-harness")]
+#[test]
+fn test_planner_matches_legacy_cascade() -> VortexResult<()> {
+    use crate::test_utils::make_fsst_clickbench_urls;
+    use crate::test_utils::make_fsst_emails;
+    use crate::test_utils::make_fsst_file_paths;
+    use crate::test_utils::make_fsst_json_strings;
+    use crate::test_utils::make_fsst_log_lines;
+    use crate::test_utils::make_fsst_rare_match;
+    use crate::test_utils::make_fsst_short_urls;
+
+    // Same N as the benches use, but lazily — the test only needs the
+    // compressed bytes + symbol table, which dominate the routing decision.
+    const N_STRINGS: usize = 10_000;
+
+    // (corpus_builder, needle bytes) pairs taken verbatim from `benches/fsst_like.rs`:
+    //  - `fsst_contains` parametric corpora + needles
+    //  - `fsst_contains_{htt,ear,https}_*` short-needle stress benches
+    //  - `fsst_not_contains_*` negated benches (negation doesn't affect routing).
+    type CorpusBuilder = fn(usize) -> FSSTArray;
+    let cases: Vec<(&str, CorpusBuilder, &[u8])> = vec![
+        ("urls/%google%", make_fsst_short_urls, b"google"),
+        ("cb/%yandex%", make_fsst_clickbench_urls, b"yandex"),
+        ("log/%Googlebot%", make_fsst_log_lines, b"Googlebot"),
+        ("json/%enterprise%", make_fsst_json_strings, b"enterprise"),
+        (
+            "path/%target/release%",
+            make_fsst_file_paths,
+            b"target/release",
+        ),
+        ("email/%gmail%", make_fsst_emails, b"gmail"),
+        ("rare/%xyzzy%", make_fsst_rare_match, b"xyzzy"),
+        ("urls/%htt%", make_fsst_short_urls, b"htt"),
+        ("cb/%htt%", make_fsst_clickbench_urls, b"htt"),
+        ("urls/%ear%", make_fsst_short_urls, b"ear"),
+        ("cb/%ear%", make_fsst_clickbench_urls, b"ear"),
+        ("urls/%https%", make_fsst_short_urls, b"https"),
+    ];
+
+    for (label, builder, needle) in cases {
+        let fsst = builder(N_STRINGS);
+        let symbols = fsst.symbols();
+        let lengths = fsst.symbol_lengths();
+        let dfa = FoldedContainsDfa::new(symbols.as_slice(), lengths.as_slice(), needle, false)?;
+        let all_bytes = fsst.codes_bytes();
+        let all_bytes = all_bytes.as_slice();
+        let n = fsst.len();
+
+        let legacy = legacy_path_for(&dfa, all_bytes);
+        let planned = dfa.plan_for(n, all_bytes);
+        assert_eq!(
+            planned, legacy,
+            "planner picked {planned:?} but legacy cascade picked {legacy:?} for {label}"
+        );
     }
 
     Ok(())
