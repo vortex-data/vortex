@@ -12,6 +12,7 @@ use num_enum::TryFromPrimitive;
 
 use crate::dtype::DType;
 use crate::dtype::Nullability::NonNullable;
+use crate::dtype::PType;
 
 mod bound;
 mod precision;
@@ -173,10 +174,7 @@ impl Stat {
             Self::Max => data_type.clone(),
             Self::Min if matches!(data_type, DType::Null) => return None,
             Self::Min => data_type.clone(),
-            Self::NullCount => {
-                return aggregate_fn::fns::null_count::NullCount
-                    .return_dtype(&EmptyOptions, data_type);
-            }
+            Self::NullCount => DType::Primitive(PType::U64, NonNullable),
             Self::UncompressedSizeInBytes => {
                 return aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
                     .return_dtype(&EmptyOptions, data_type);
@@ -195,15 +193,17 @@ impl Stat {
     pub fn aggregate_fn(&self) -> Option<AggregateFnRef> {
         Some(match self {
             Self::Sum => aggregate_fn::fns::sum::Sum.bind(EmptyOptions),
-            Self::NullCount => aggregate_fn::fns::null_count::NullCount.bind(EmptyOptions),
             Self::NaNCount => aggregate_fn::fns::nan_count::NanCount.bind(EmptyOptions),
             Self::UncompressedSizeInBytes => {
                 aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
                     .bind(EmptyOptions)
             }
-            Self::IsConstant | Self::IsSorted | Self::IsStrictSorted | Self::Max | Self::Min => {
-                return None;
-            }
+            Self::IsConstant
+            | Self::IsSorted
+            | Self::IsStrictSorted
+            | Self::Max
+            | Self::Min
+            | Self::NullCount => return None,
         })
     }
 
@@ -214,9 +214,6 @@ impl Stat {
         }
         if aggregate_fn.is::<aggregate_fn::fns::nan_count::NanCount>() {
             return Some(Self::NaNCount);
-        }
-        if aggregate_fn.is::<aggregate_fn::fns::null_count::NullCount>() {
-            return Some(Self::NullCount);
         }
         if aggregate_fn
             .is::<aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes>()

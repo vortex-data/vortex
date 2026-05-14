@@ -4,12 +4,6 @@
 //! Expression constructors for statistics backed by aggregate functions.
 
 use crate::aggregate_fn::AggregateFnRef;
-use crate::aggregate_fn::AggregateFnVTableExt;
-use crate::aggregate_fn::EmptyOptions;
-use crate::aggregate_fn::fns::min_max::MinMax;
-use crate::aggregate_fn::fns::nan_count::NanCount;
-use crate::aggregate_fn::fns::null_count::NullCount;
-use crate::aggregate_fn::fns::sum::Sum;
 use crate::expr::Expression;
 use crate::scalar_fn::ScalarFnVTableExt;
 pub use crate::scalar_fn::fns::stat::StatFn;
@@ -21,26 +15,6 @@ pub use crate::scalar_fn::fns::stat::StatOptions;
 /// a nullable all-null array with the aggregate return type.
 pub fn stat(expr: Expression, aggregate_fn: AggregateFnRef) -> Expression {
     StatFn.new_expr(StatOptions::new(aggregate_fn), [expr])
-}
-
-/// Creates `stat(expr, min_max)`, returning a nullable `{ min, max }` struct statistic.
-pub fn min_max(expr: Expression) -> Expression {
-    stat(expr, MinMax.bind(EmptyOptions))
-}
-
-/// Creates `stat(expr, sum)`, returning a nullable sum statistic.
-pub fn sum(expr: Expression) -> Expression {
-    stat(expr, Sum.bind(EmptyOptions))
-}
-
-/// Creates `stat(expr, null_count)`, returning a nullable null-count statistic.
-pub fn null_count(expr: Expression) -> Expression {
-    stat(expr, NullCount.bind(EmptyOptions))
-}
-
-/// Creates `stat(expr, nan_count)`, returning a nullable NaN-count statistic.
-pub fn nan_count(expr: Expression) -> Expression {
-    stat(expr, NanCount.bind(EmptyOptions))
 }
 
 #[cfg(test)]
@@ -142,32 +116,6 @@ mod tests {
             Validity::from_iter([true, true, false, false, false]),
         )
         .into_array();
-        assert_arrays_eq!(result, expected);
-
-        Ok(())
-    }
-
-    #[test]
-    fn stat_expr_reads_cached_null_count() -> VortexResult<()> {
-        let array =
-            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None]).into_array();
-        let null_count_scalar = Scalar::primitive(2u64, Nullability::NonNullable);
-        array.statistics().set(
-            Stat::NullCount,
-            Precision::exact(
-                null_count_scalar
-                    .into_value()
-                    .vortex_expect("non-null null_count"),
-            ),
-        );
-
-        let result = array
-            .apply(&super::null_count(root()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
-            .into_array();
-
-        let expected =
-            ConstantArray::new(Scalar::primitive(2u64, Nullability::Nullable), 4).into_array();
         assert_arrays_eq!(result, expected);
 
         Ok(())

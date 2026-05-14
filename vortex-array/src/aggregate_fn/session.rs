@@ -21,7 +21,6 @@ use crate::aggregate_fn::fns::is_sorted::IsSorted;
 use crate::aggregate_fn::fns::last::Last;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
-use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::Sum;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
@@ -75,7 +74,6 @@ impl Default for AggregateFnSession {
         this.register(Last);
         this.register(MinMax);
         this.register(NanCount);
-        this.register(NullCount);
         this.register(Sum);
         this.register(UncompressedSizeInBytes);
 
