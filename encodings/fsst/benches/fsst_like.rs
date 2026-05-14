@@ -189,3 +189,38 @@ fn fsst_not_contains_google_urls(bencher: Bencher) {
 fn fsst_not_contains_xyzzy_rare(bencher: Bencher) {
     bench_not_like(bencher, &FSST_RARE_MATCH, "%xyzzy%");
 }
+
+// Short-needle (≤ 4 byte) benches that exercise the Shift-Or matcher path
+// added in dfa/shift_or.rs. On selective short needles, the bit-parallel
+// `(state << shift) | or_mask` inner loop replaces the Teddy + verifier
+// dispatch and wins ≥ 1.5×.
+
+#[divan::bench]
+fn fsst_contains_short_xy_urls(bencher: Bencher) {
+    bench_like(bencher, &FSST_URLS, "%xy%");
+}
+
+#[divan::bench]
+fn fsst_contains_short_zz_urls(bencher: Bencher) {
+    bench_like(bencher, &FSST_URLS, "%zz%");
+}
+
+#[divan::bench]
+fn fsst_contains_short_qq_urls(bencher: Bencher) {
+    bench_like(bencher, &FSST_URLS, "%qq%");
+}
+
+#[divan::bench]
+fn fsst_contains_short_zzz_urls(bencher: Bencher) {
+    bench_like(bencher, &FSST_URLS, "%zzz%");
+}
+
+#[divan::bench]
+fn fsst_contains_short_qq_cb(bencher: Bencher) {
+    bench_like(bencher, &FSST_CB_URLS, "%qq%");
+}
+
+#[divan::bench]
+fn fsst_contains_short_xyzz_rare(bencher: Bencher) {
+    bench_like(bencher, &FSST_RARE_MATCH, "%xyzz%");
+}

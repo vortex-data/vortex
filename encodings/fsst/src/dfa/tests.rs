@@ -408,6 +408,106 @@ fn test_contains_matcher_routing_at_folded_boundary() -> VortexResult<()> {
     Ok(())
 }
 
+/// `FsstMatcher` routes short (≤ 8 byte) Contains needles through the
+/// Shift-Or matcher when (a) the FoldedContains escape-only `memmem`
+/// fast path doesn't apply, (b) needle[0] is not the first byte of any
+/// symbol (so the Teddy-2 pair scan would be empty), and (c) no symbol
+/// contains the needle outright.
+#[test]
+fn test_contains_matcher_routes_to_shift_or_for_short_needles() -> VortexResult<()> {
+    // ShiftOr is chosen for short needles when needle[1..] uses symbol
+    // bytes (so escape-only doesn't apply) but needle[0] is absent
+    // from every symbol expansion (so Teddy-2 would have no bucket).
+    let symbols = [sym(b"b"), sym(b"c")];
+    let lengths = [1u8, 1];
+    let matcher = FsstMatcher::try_new(&symbols, &lengths, b"%abc%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "shift_or");
+
+    // 8-byte needle (max ShiftOr) — same setup -> ShiftOr.
+    let matcher = FsstMatcher::try_new(&symbols, &lengths, b"%abcdcbcb%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "shift_or");
+
+    // 9-byte needle -> falls back to FoldedContains.
+    let matcher = FsstMatcher::try_new(&symbols, &lengths, b"%abcdcbcba%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "folded_contains");
+
+    // SSA: a symbol contains the needle -> falls back to FoldedContains.
+    let symbols2 = [sym(b"abc")];
+    let lengths2 = [3u8];
+    let matcher = FsstMatcher::try_new(&symbols2, &lengths2, b"%bc%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "folded_contains");
+
+    // No needle bytes appear in any symbol -> FoldedContains takes the
+    // escape-only memmem fast path and beats ShiftOr.
+    let matcher = FsstMatcher::try_new(&[], &[], b"%xyzzy%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "folded_contains");
+
+    // needle[0] IS in a symbol -> Teddy-2 pair scan would fire ->
+    // FoldedContains wins, ShiftOr is bypassed.
+    let symbols3 = [sym(b"a")];
+    let lengths3 = [1u8];
+    let matcher = FsstMatcher::try_new(&symbols3, &lengths3, b"%ab%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "folded_contains");
+
+    Ok(())
+}
+
+/// End-to-end: build a small FSST array and scan through `FsstMatcher`
+/// with a short needle. The results match the naive substring check.
+#[test]
+fn test_shift_or_scan_to_bitbuf_end_to_end() -> VortexResult<()> {
+    // Symbols include some needle bytes (so escape-only memmem is
+    // disabled) but do NOT contain needle[0]='X' (so the Teddy-2 pair
+    // scan would have no bucket, and the routing picks ShiftOr). Codes:
+    // 0 -> "ab", 1 -> "cd", 2 -> "Yb", 3 -> "q".
+    let symbols = [sym(b"ab"), sym(b"cd"), sym(b"Yb"), sym(b"q")];
+    let lengths = [2u8, 2, 2, 1];
+    let matcher = FsstMatcher::try_new(&symbols, &lengths, b"%Xb%")?
+        .expect("contains pattern must produce a matcher");
+    assert_eq!(matcher.matcher_name(), "shift_or");
+
+    // Row 0: codes [0, 1] -> "abcd" no "Xb"
+    // Row 1: codes [ESCAPE, b'X', 0] -> "Xab" matches "Xa"? no, needle is "Xb"
+    //        -> "Xab" contains "X" then "a", not "Xb" -> no match
+    // Row 2: codes [ESCAPE, b'X', ESCAPE, b'b'] -> "Xb" matches
+    // Row 3: codes [2, 3] -> "Ybq" no "Xb"
+    // Row 4: codes [ESCAPE, b'X', 2] -> "XYb" doesn't contain "Xb"
+    //        (the 'Y' is between, not adjacent)
+    let mut all_bytes = Vec::new();
+    let mut offsets = vec![0u32];
+    let rows: &[&[u8]] = &[
+        &[0u8, 1u8],
+        &[ESCAPE_CODE, b'X', 0u8],
+        &[ESCAPE_CODE, b'X', ESCAPE_CODE, b'b'],
+        &[2u8, 3u8],
+        &[ESCAPE_CODE, b'X', 2u8],
+    ];
+    for row in rows {
+        all_bytes.extend_from_slice(row);
+        offsets.push(u32::try_from(all_bytes.len()).unwrap());
+    }
+    let bits = matcher.scan_to_bitbuf(5, &offsets, &all_bytes, false);
+    assert!(!bits.value(0));
+    assert!(!bits.value(1));
+    assert!(bits.value(2));
+    assert!(!bits.value(3));
+    assert!(!bits.value(4));
+
+    let negated = matcher.scan_to_bitbuf(5, &offsets, &all_bytes, true);
+    assert!(negated.value(0));
+    assert!(negated.value(1));
+    assert!(!negated.value(2));
+    assert!(negated.value(3));
+    assert!(negated.value(4));
+    Ok(())
+}
+
 /// The Teddy-3 prefilter is more selective than Teddy-2, but it does not cover
 /// valid 2-code matches such as `c1 -> accept` or escape-followed continuations.
 /// The production scan must keep those pair-only cases alive when triple buckets

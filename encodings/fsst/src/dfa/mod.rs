@@ -128,6 +128,7 @@ mod flat_contains;
 mod folded_contains;
 mod multi_contains;
 mod prefix;
+mod shift_or;
 mod skip;
 mod suffix;
 #[cfg(test)]
@@ -139,6 +140,7 @@ use fsst::ESCAPE_CODE;
 use fsst::Symbol;
 use multi_contains::MultiContainsDfa;
 use prefix::FlatPrefixDfa;
+use shift_or::ShiftOrDfa;
 use suffix::SuffixMatcher;
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
@@ -162,6 +164,10 @@ enum MatcherInner {
     MatchAll,
     Prefix(FlatPrefixDfa),
     Suffix(SuffixMatcher),
+    /// Bit-parallel Shift-Or matcher for short needles (≤ 8 bytes) in the
+    /// no-SSA regime. One ALU op per code byte replaces the Teddy +
+    /// verifier dispatch and wins on very short selective needles.
+    ShiftOr(ShiftOrDfa),
     /// Escape-folded DFA for short needles (`<= 127` bytes). Eliminates the
     /// per-byte sentinel branch from the inner loop.
     FoldedContains(FoldedContainsDfa),
@@ -215,7 +221,49 @@ impl FsstMatcher {
                 MatcherInner::Suffix(SuffixMatcher::new(symbols, symbol_lengths, suffix, ci)?)
             }
             LikeKind::Contains(needle) => {
-                if needle.len() <= FoldedContainsDfa::MAX_NEEDLE_LEN {
+                // Prefer Shift-Or for short (≤ 8 byte) needles when no
+                // symbol's expansion contains the needle (SSA). One ALU
+                // op per code byte beats the Teddy + verifier dispatch
+                // for selective short needles. Falls through to the
+                // FoldedContains path when SSA is present (ShiftOrDfa::new
+                // returns Err in that regime), when the needle is a
+                // candidate for FoldedContains' escape-only `memmem`
+                // fast path (the FoldedContains path then runs a single
+                // `memmem` over the 2L-byte encoded needle and wins
+                // outright on rare-match corpora), or when ASCII
+                // case-folding can't fully express the needle's case
+                // rules.
+                // ShiftOr selection: prefer Shift-Or for short (≤ 8 byte)
+                // needles when (a) FoldedContains' escape-only memmem
+                // specialization doesn't apply (which beats ShiftOr on
+                // rare-match corpora) AND (b) FoldedContains would
+                // otherwise fall back to its 1-byte progressing bitset
+                // path or row_loop. The second condition is approximated
+                // by `pair_anchor_unlikely`: if at least one needle byte
+                // appears as the first byte of some symbol expansion,
+                // FoldedContains will likely build a Teddy-2 bucketed
+                // pair scan that beats ShiftOr's per-byte inner loop on
+                // throughput. In that case we keep FoldedContains.
+                //
+                // This conservative gate keeps the ShiftOr enum variant
+                // active (so its `matches()` is exercised whenever the
+                // matcher's row-level dispatcher is called) without
+                // regressing any of the existing `fsst_contains` benches
+                // that today route through Teddy-2.
+                let escape_only_eligible = !ci
+                    && needle.len() >= 2
+                    && needle_is_literal(needle)
+                    && needle_bytes_absent_from_all_symbols(symbols, symbol_lengths, needle);
+                let pair_anchor_likely = !escape_only_eligible
+                    && first_byte_present_in_any_symbol(symbols, symbol_lengths, needle);
+                if !escape_only_eligible
+                    && !pair_anchor_likely
+                    && needle.len() <= shift_or::MAX_NEEDLE_LEN
+                    && needle_len_safe_for_shift_or(needle, ci)
+                    && let Ok(dfa) = ShiftOrDfa::new(symbols, symbol_lengths, needle, ci)
+                {
+                    MatcherInner::ShiftOr(dfa)
+                } else if needle.len() <= FoldedContainsDfa::MAX_NEEDLE_LEN {
                     MatcherInner::FoldedContains(FoldedContainsDfa::new(
                         symbols,
                         symbol_lengths,
@@ -257,6 +305,7 @@ impl FsstMatcher {
             MatcherInner::MatchAll => true,
             MatcherInner::Prefix(dfa) => dfa.matches(codes),
             MatcherInner::Suffix(dfa) => dfa.matches(codes),
+            MatcherInner::ShiftOr(dfa) => dfa.matches(codes),
             MatcherInner::FoldedContains(dfa) => dfa.matches(codes),
             MatcherInner::Contains(dfa) => dfa.matches(codes),
             MatcherInner::MultiContains(dfa) => dfa.matches(codes),
@@ -269,6 +318,7 @@ impl FsstMatcher {
             MatcherInner::MatchAll => "match_all",
             MatcherInner::Prefix(_) => "prefix",
             MatcherInner::Suffix(_) => "suffix",
+            MatcherInner::ShiftOr(_) => "shift_or",
             MatcherInner::FoldedContains(_) => "folded_contains",
             MatcherInner::Contains(_) => "contains",
             MatcherInner::MultiContains(_) => "multi_contains",
@@ -281,6 +331,7 @@ impl FsstMatcher {
             MatcherInner::MatchAll => "match_all",
             MatcherInner::Prefix(_) => "row_start_scan",
             MatcherInner::Suffix(_) => "row_loop",
+            MatcherInner::ShiftOr(_) => "shift_or",
             MatcherInner::FoldedContains(dfa) => dfa.scan_plan_name(),
             MatcherInner::Contains(_) => "row_loop",
             MatcherInner::MultiContains(_) => "row_loop",
@@ -326,11 +377,56 @@ impl FsstMatcher {
             }
             MatcherInner::Prefix(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
             MatcherInner::Suffix(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
+            MatcherInner::ShiftOr(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
             MatcherInner::FoldedContains(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
             MatcherInner::Contains(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
             MatcherInner::MultiContains(dfa) => dfa.scan_to_bitbuf(n, offsets, all_bytes, negated),
         }
     }
+}
+
+/// Returns `true` iff the Shift-Or path can be safely used for this needle.
+///
+/// Shift-Or supports ASCII case-folding (uppercase ↔ lowercase letter
+/// bytes). Non-ASCII bytes in the needle have no defined case folding in
+/// the matcher (the FSST stream is byte-level, not Unicode-aware), so for
+/// case-insensitive matching the Shift-Or `B` table is identical to the
+/// case-sensitive one for non-letter bytes — i.e. ASCII-only case folding
+/// is correct. This helper exists to make the routing decision explicit
+/// and to leave room for future stricter checks if non-ASCII semantics
+/// ever land.
+#[inline]
+fn needle_len_safe_for_shift_or(needle: &[u8], _ci: bool) -> bool {
+    !needle.is_empty() && needle.len() <= shift_or::MAX_NEEDLE_LEN
+}
+
+/// Returns `true` iff `needle[0]` (or, for `ci`, either case of
+/// `needle[0]`) appears anywhere in any symbol's decompressed
+/// expansion. Used by [`FsstMatcher::try_new_with`] to detect when
+/// FoldedContains will build a high-throughput Teddy-2 bucketed pair
+/// scan — in that regime the per-row Shift-Or inner loop loses to the
+/// per-block PSHUFB-Mula prefilter, so the planner keeps FoldedContains.
+fn first_byte_present_in_any_symbol(
+    symbols: &[Symbol],
+    symbol_lengths: &[u8],
+    needle: &[u8],
+) -> bool {
+    let Some(&first) = needle.first() else {
+        return false;
+    };
+    if first == WILDCARD {
+        // Wildcards admit every byte — assume Teddy-2 will fire.
+        return true;
+    }
+    debug_assert!(symbol_lengths.len() >= symbols.len());
+    for (sym, &len) in symbols.iter().zip(symbol_lengths.iter()) {
+        let bytes = sym.to_u64().to_le_bytes();
+        let len = usize::from(len).min(8);
+        if bytes[..len].contains(&first) {
+            return true;
+        }
+    }
+    false
 }
 
 /// The subset of LIKE patterns we can handle without decompression.
