@@ -798,8 +798,6 @@ impl vortex_layout::layouts::zoned::zone_map::ZoneMap
 
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::dtype_for_stats_table(&vortex_array::dtype::DType, &[vortex_array::expr::stats::Stat]) -> vortex_array::dtype::DType
 
-pub unsafe fn vortex_layout::layouts::zoned::zone_map::ZoneMap::new_unchecked(vortex_array::arrays::struct_::vtable::StructArray, u64, u64) -> Self
-
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::prune(&self, &vortex_array::expr::expression::Expression, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_mask::Mask>
 
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::try_new(vortex_array::dtype::DType, vortex_array::arrays::struct_::vtable::StructArray, alloc::sync::Arc<[vortex_array::expr::stats::Stat]>, u64, u64) -> vortex_error::VortexResult<Self>

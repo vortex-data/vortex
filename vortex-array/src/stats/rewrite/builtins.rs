@@ -9,6 +9,7 @@ use vortex_error::VortexResult;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
+use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
 use crate::aggregate_fn::fns::all_non_null::AllNonNull;
 use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::aggregate_fn::fns::bounded_max::BoundedMax;
@@ -91,16 +92,25 @@ impl StatsRewriteRule for BinaryStatsRewrite {
                 let left = min(lhs).zip(max(rhs)).map(|(a, b)| gt(a, b));
                 let right = min(rhs).zip(max(lhs)).map(|(a, b)| gt(a, b));
                 or_collect(left.into_iter().chain(right))
+                    .map(|value_predicate| with_nan_predicate(lhs, rhs, value_predicate))
             }
             Operator::NotEq => min(lhs).zip(max(rhs)).zip(max(lhs).zip(min(rhs))).map(
                 |((min_lhs, max_rhs), (max_lhs, min_rhs))| {
-                    and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs))
+                    with_nan_predicate(lhs, rhs, and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs)))
                 },
             ),
-            Operator::Gt => max(lhs).zip(min(rhs)).map(|(a, b)| lt_eq(a, b)),
-            Operator::Gte => max(lhs).zip(min(rhs)).map(|(a, b)| lt(a, b)),
-            Operator::Lt => min(lhs).zip(max(rhs)).map(|(a, b)| gt_eq(a, b)),
-            Operator::Lte => min(lhs).zip(max(rhs)).map(|(a, b)| gt(a, b)),
+            Operator::Gt => max(lhs)
+                .zip(min(rhs))
+                .map(|(a, b)| with_nan_predicate(lhs, rhs, lt_eq(a, b))),
+            Operator::Gte => max(lhs)
+                .zip(min(rhs))
+                .map(|(a, b)| with_nan_predicate(lhs, rhs, lt(a, b))),
+            Operator::Lt => min(lhs)
+                .zip(max(rhs))
+                .map(|(a, b)| with_nan_predicate(lhs, rhs, gt_eq(a, b))),
+            Operator::Lte => min(lhs)
+                .zip(max(rhs))
+                .map(|(a, b)| with_nan_predicate(lhs, rhs, gt(a, b))),
             Operator::And => {
                 let lhs_falsifier = ctx.falsify(lhs)?;
                 let rhs_falsifier = ctx.falsify(rhs)?;
@@ -339,7 +349,8 @@ impl StatsRewriteRule for ListContainsStatsRewrite {
                 lt(value_max.clone(), lit(value.clone())),
                 gt(value_min.clone(), lit(value.clone())),
             )
-        })))
+        }))
+        .map(|value_predicate| with_all_non_nan_predicate([needle], value_predicate)))
     }
 }
 
@@ -397,9 +408,40 @@ fn all_non_null(expr: &Expression) -> Expression {
     stat_fn(expr.clone(), AllNonNull.bind(AggregateEmptyOptions))
 }
 
+// Min/max do not order NaN values, so comparison rewrites are only sound when every
+// candidate value is known to be non-NaN. Literal non-NaN values and casts to
+// non-float types are already proven, so they do not need a stat expression.
+fn all_non_nan_stat(expr: &Expression) -> Option<Expression> {
+    if let Some(scalar) = expr.as_opt::<Literal>() {
+        let value = scalar.as_primitive_opt()?;
+        return value.is_nan().then(|| lit(false));
+    }
+
+    if let Some(dtype) = expr.as_opt::<Cast>() {
+        if !has_nans(dtype) {
+            return None;
+        }
+
+        return all_non_nan_stat(expr.child(0));
+    }
+
+    Some(stat_fn(expr.clone(), AllNonNan.bind(AggregateEmptyOptions)))
+}
+
+fn has_nans(dtype: &DType) -> bool {
+    matches!(dtype, DType::Primitive(ptype, _) if ptype.is_float())
+}
+
 fn stat_expr(expr: &Expression, stat: Stat) -> Option<Expression> {
     if let Some(literal) = literal_stat(expr, stat) {
         return Some(literal);
+    }
+
+    // `literal_stat` handled every stat that is defined for literals. If it returned
+    // `None`, the requested stat is not meaningful for this literal, such as
+    // `NaNCount` over a non-float value, so do not manufacture `stat(literal, ...)`.
+    if expr.is::<Literal>() {
+        return None;
     }
 
     if let Some(dtype) = expr.as_opt::<Cast>() {
@@ -410,17 +452,46 @@ fn stat_expr(expr: &Expression, stat: Stat) -> Option<Expression> {
         .map(|aggregate_fn| stat_fn(expr.clone(), aggregate_fn))
 }
 
+fn with_nan_predicate(
+    lhs: &Expression,
+    rhs: &Expression,
+    value_predicate: Expression,
+) -> Expression {
+    with_all_non_nan_predicate([lhs, rhs], value_predicate)
+}
+
+fn with_all_non_nan_predicate<'a>(
+    exprs: impl IntoIterator<Item = &'a Expression>,
+    value_predicate: Expression,
+) -> Expression {
+    let nan_predicate = and_collect(exprs.into_iter().filter_map(all_non_nan_stat));
+
+    match nan_predicate {
+        Some(nan_check) => and(nan_check, value_predicate),
+        // No possible NaN-bearing expression remains, so the value predicate is
+        // already guarded.
+        None => value_predicate,
+    }
+}
+
 fn literal_stat(expr: &Expression, stat: Stat) -> Option<Expression> {
     let scalar = expr.as_opt::<Literal>()?;
     match stat {
         Stat::Min | Stat::Max => Some(lit(scalar.clone())),
         Stat::NullCount => Some(lit(if scalar.is_null() { 1u64 } else { 0u64 })),
+        Stat::NaNCount => {
+            let value = scalar.as_primitive_opt()?;
+            if !value.ptype().is_float() {
+                return None;
+            }
+
+            Some(lit(if value.is_nan() { 1u64 } else { 0u64 }))
+        }
         Stat::IsConstant
         | Stat::IsSorted
         | Stat::IsStrictSorted
         | Stat::Sum
-        | Stat::UncompressedSizeInBytes
-        | Stat::NaNCount => None,
+        | Stat::UncompressedSizeInBytes => None,
     }
 }
 
@@ -451,6 +522,9 @@ mod tests {
     use super::bounded_max;
     use super::bounded_min;
     use crate::aggregate_fn::AggregateFnRef;
+    use crate::aggregate_fn::AggregateFnVTableExt;
+    use crate::aggregate_fn::EmptyOptions as AggregateEmptyOptions;
+    use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
@@ -509,13 +583,20 @@ mod tests {
         expr.satisfy(&test_scope(), &SESSION)
     }
 
+    fn nan_free(expr: Expression) -> Expression {
+        stat_fn(expr, AllNonNan.bind(AggregateEmptyOptions))
+    }
+
     #[test]
     fn rewrites_comparison_falsifier() -> VortexResult<()> {
         let expr = gt(col("a"), lit(10));
         assert_eq!(
             falsify(&expr)?,
             Some(or(
-                lt_eq(stat(col("a"), Stat::Max), lit(10)),
+                and(
+                    nan_free(col("a")),
+                    lt_eq(stat(col("a"), Stat::Max), lit(10)),
+                ),
                 lt_eq(bounded_max(&col("a")), lit(10)),
             ))
         );
@@ -524,9 +605,12 @@ mod tests {
         assert_eq!(
             falsify(&expr)?,
             Some(or(
-                or(
-                    gt(stat(col("a"), Stat::Min), stat(col("b"), Stat::Max)),
-                    gt(stat(col("b"), Stat::Min), stat(col("a"), Stat::Max)),
+                and(
+                    and(nan_free(col("a")), nan_free(col("b"))),
+                    or(
+                        gt(stat(col("a"), Stat::Min), stat(col("b"), Stat::Max)),
+                        gt(stat(col("b"), Stat::Min), stat(col("a"), Stat::Max)),
+                    ),
                 ),
                 or(
                     gt(bounded_min(&col("a")), bounded_max(&col("b"))),
@@ -544,11 +628,17 @@ mod tests {
             falsify(&expr)?,
             Some(or(
                 or(
-                    lt_eq(stat(col("a"), Stat::Max), lit(10)),
+                    and(
+                        nan_free(col("a")),
+                        lt_eq(stat(col("a"), Stat::Max), lit(10)),
+                    ),
                     lt_eq(bounded_max(&col("a")), lit(10)),
                 ),
                 or(
-                    gt_eq(stat(col("a"), Stat::Min), lit(50)),
+                    and(
+                        nan_free(col("a")),
+                        gt_eq(stat(col("a"), Stat::Min), lit(50)),
+                    ),
                     gt_eq(bounded_min(&col("a")), lit(50)),
                 ),
             ))
@@ -572,11 +662,11 @@ mod tests {
             falsify(&expr)?,
             Some(or(
                 or(
-                    gt(lit(10), stat(col("a"), Stat::Max)),
+                    and(nan_free(col("a")), gt(lit(10), stat(col("a"), Stat::Max))),
                     gt(lit(10), bounded_max(&col("a"))),
                 ),
                 or(
-                    gt(stat(col("a"), Stat::Min), lit(50)),
+                    and(nan_free(col("a")), gt(stat(col("a"), Stat::Min), lit(50))),
                     gt(bounded_min(&col("a")), lit(50)),
                 ),
             ))
@@ -642,19 +732,22 @@ mod tests {
         assert_eq!(
             falsify(&expr)?,
             Some(and(
+                nan_free(col("a")),
                 and(
-                    or(
-                        lt(stat(col("a"), Stat::Max), lit(1i32)),
-                        gt(stat(col("a"), Stat::Min), lit(1i32)),
+                    and(
+                        or(
+                            lt(stat(col("a"), Stat::Max), lit(1i32)),
+                            gt(stat(col("a"), Stat::Min), lit(1i32)),
+                        ),
+                        or(
+                            lt(stat(col("a"), Stat::Max), lit(2i32)),
+                            gt(stat(col("a"), Stat::Min), lit(2i32)),
+                        ),
                     ),
                     or(
-                        lt(stat(col("a"), Stat::Max), lit(2i32)),
-                        gt(stat(col("a"), Stat::Min), lit(2i32)),
+                        lt(stat(col("a"), Stat::Max), lit(3i32)),
+                        gt(stat(col("a"), Stat::Min), lit(3i32)),
                     ),
-                ),
-                or(
-                    lt(stat(col("a"), Stat::Max), lit(3i32)),
-                    gt(stat(col("a"), Stat::Min), lit(3i32)),
                 ),
             ))
         );
