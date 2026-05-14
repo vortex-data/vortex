@@ -1,0 +1,42 @@
+[package]
+name = "layered-pco-bench"
+description = "Compare full pco, btrblocks, and a layered-pco + btrblocks hybrid (P6 measurement)"
+authors.workspace = true
+categories.workspace = true
+edition.workspace = true
+homepage.workspace = true
+include.workspace = true
+keywords.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+publish = false
+
+[lib]
+name = "layered_pco_bench"
+path = "src/lib.rs"
+
+[[bin]]
+name = "layered-pco-bench"
+path = "src/main.rs"
+
+[dependencies]
+rand = { workspace = true }
+vortex-array = { workspace = true }
+vortex-btrblocks = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-compressor = { workspace = true }
+vortex-consecutive-delta = { workspace = true }
+vortex-error = { workspace = true }
+vortex-float-mult = { workspace = true }
+vortex-float-quant = { workspace = true }
+vortex-int-mult = { workspace = true }
+vortex-ordered-latent = { workspace = true }
+vortex-pco = { workspace = true }
+vortex-pco-dict = { workspace = true }
+vortex-session = { workspace = true }
+
+[lints]
+workspace = true

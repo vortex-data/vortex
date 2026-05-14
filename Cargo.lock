@@ -5615,6 +5615,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "layered-pco-bench"
+version = "0.1.0"
+dependencies = [
+ "rand 0.10.1",
+ "vortex-array",
+ "vortex-btrblocks",
+ "vortex-buffer",
+ "vortex-compressor",
+ "vortex-consecutive-delta",
+ "vortex-error",
+ "vortex-float-mult",
+ "vortex-float-quant",
+ "vortex-int-mult",
+ "vortex-ordered-latent",
+ "vortex-pco",
+ "vortex-pco-dict",
+ "vortex-session",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
