@@ -1,0 +1,191 @@
+pub mod vortex_ans
+
+pub mod vortex_ans::tans
+
+pub struct vortex_ans::tans::Decoder
+
+impl vortex_ans::tans::Decoder
+
+pub fn vortex_ans::tans::Decoder::n_nodes(&self) -> usize
+
+pub fn vortex_ans::tans::Decoder::new(u8, &[vortex_ans::tans::Weight]) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_ans::tans::Decoder::state_symbols(u8, &[vortex_ans::tans::Weight]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_ans::tans::Symbol>>
+
+pub struct vortex_ans::tans::Encoder
+
+impl vortex_ans::tans::Encoder
+
+pub fn vortex_ans::tans::Encoder::default_state(&self) -> vortex_ans::tans::AnsState
+
+pub fn vortex_ans::tans::Encoder::encode(&self, vortex_ans::tans::AnsState, vortex_ans::tans::Symbol) -> (vortex_ans::tans::AnsState, u8)
+
+pub fn vortex_ans::tans::Encoder::new(u8, &[vortex_ans::tans::Weight]) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_ans::tans::Encoder::size_log(&self) -> u8
+
+pub const vortex_ans::tans::MAX_ANS_SIZE_LOG: u8
+
+pub const vortex_ans::tans::MIN_ANS_SIZE_LOG: u8
+
+pub fn vortex_ans::tans::decode_symbols(&[u8], u64, vortex_ans::tans::AnsState, u8, &[vortex_ans::tans::Weight]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_ans::tans::Symbol>>
+
+pub fn vortex_ans::tans::encode_symbols(&[vortex_ans::tans::Symbol], &vortex_ans::tans::Encoder) -> vortex_error::VortexResult<(alloc::vec::Vec<u8>, u64, vortex_ans::tans::AnsState)>
+
+pub fn vortex_ans::tans::quantize_weights(&[u32], usize, u8) -> (u8, alloc::vec::Vec<vortex_ans::tans::Weight>)
+
+pub type vortex_ans::tans::AnsState = u32
+
+pub type vortex_ans::tans::Symbol = u32
+
+pub type vortex_ans::tans::Weight = u32
+
+pub struct vortex_ans::Ans
+
+impl vortex_ans::Ans
+
+pub fn vortex_ans::Ans::encode(vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, u8, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_ans::AnsArray>
+
+pub fn vortex_ans::Ans::try_new(u8, alloc::vec::Vec<u8>, alloc::vec::Vec<vortex_ans::tans::Weight>, u32, u64, vortex_buffer::ByteBuffer, usize) -> vortex_error::VortexResult<vortex_ans::AnsArray>
+
+impl core::clone::Clone for vortex_ans::Ans
+
+pub fn vortex_ans::Ans::clone(&self) -> vortex_ans::Ans
+
+impl core::fmt::Debug for vortex_ans::Ans
+
+pub fn vortex_ans::Ans::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::vtable::VTable for vortex_ans::Ans
+
+pub type vortex_ans::Ans::OperationsVTable = vortex_ans::Ans
+
+pub type vortex_ans::Ans::TypedArrayData = vortex_ans::AnsData
+
+pub type vortex_ans::Ans::ValidityVTable = vortex_ans::Ans
+
+pub fn vortex_ans::Ans::buffer(vortex_array::array::view::ArrayView<'_, Self>, usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_ans::Ans::buffer_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> core::option::Option<alloc::string::String>
+
+pub fn vortex_ans::Ans::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &[vortex_array::buffer::BufferHandle], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
+
+pub fn vortex_ans::Ans::execute(vortex_array::array::typed::Array<Self>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+
+pub fn vortex_ans::Ans::id(&self) -> vortex_array::array::ArrayId
+
+pub fn vortex_ans::Ans::nbuffers(vortex_array::array::view::ArrayView<'_, Self>) -> usize
+
+pub fn vortex_ans::Ans::serialize(vortex_array::array::view::ArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_ans::Ans::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
+
+pub fn vortex_ans::Ans::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_ans::Ans> for vortex_ans::Ans
+
+pub fn vortex_ans::Ans::scalar_at(vortex_array::array::view::ArrayView<'_, vortex_ans::Ans>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::array::vtable::validity::ValidityVTable<vortex_ans::Ans> for vortex_ans::Ans
+
+pub fn vortex_ans::Ans::validity(vortex_array::array::view::ArrayView<'_, vortex_ans::Ans>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+pub struct vortex_ans::AnsData
+
+impl vortex_ans::AnsData
+
+pub fn vortex_ans::AnsData::alphabet(&self) -> &[u8]
+
+pub fn vortex_ans::AnsData::ans_size_log(&self) -> u8
+
+pub fn vortex_ans::AnsData::bit_len(&self) -> u64
+
+pub fn vortex_ans::AnsData::encoded(&self) -> &vortex_buffer::ByteBuffer
+
+pub fn vortex_ans::AnsData::final_state(&self) -> u32
+
+pub fn vortex_ans::AnsData::n_symbols(&self) -> u64
+
+pub fn vortex_ans::AnsData::weights(&self) -> &[vortex_ans::tans::Weight]
+
+impl core::clone::Clone for vortex_ans::AnsData
+
+pub fn vortex_ans::AnsData::clone(&self) -> vortex_ans::AnsData
+
+impl core::fmt::Debug for vortex_ans::AnsData
+
+pub fn vortex_ans::AnsData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_ans::AnsData
+
+pub fn vortex_ans::AnsData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_ans::AnsData
+
+pub fn vortex_ans::AnsData::array_eq(&self, &Self, vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_ans::AnsData
+
+pub fn vortex_ans::AnsData::array_hash<H: core::hash::Hasher>(&self, &mut H, vortex_array::hash::Precision)
+
+pub struct vortex_ans::AnsMetadata
+
+pub vortex_ans::AnsMetadata::alphabet: alloc::vec::Vec<u32>
+
+pub vortex_ans::AnsMetadata::ans_size_log: u32
+
+pub vortex_ans::AnsMetadata::bit_len: u64
+
+pub vortex_ans::AnsMetadata::final_state: u32
+
+pub vortex_ans::AnsMetadata::n_symbols: u64
+
+pub vortex_ans::AnsMetadata::weights: alloc::vec::Vec<u32>
+
+impl core::clone::Clone for vortex_ans::AnsMetadata
+
+pub fn vortex_ans::AnsMetadata::clone(&self) -> vortex_ans::AnsMetadata
+
+impl core::default::Default for vortex_ans::AnsMetadata
+
+pub fn vortex_ans::AnsMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_ans::AnsMetadata
+
+pub fn vortex_ans::AnsMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_ans::AnsMetadata
+
+pub fn vortex_ans::AnsMetadata::clear(&mut self)
+
+pub fn vortex_ans::AnsMetadata::encoded_len(&self) -> usize
+
+pub trait vortex_ans::AnsArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_ans::Ans>
+
+pub fn vortex_ans::AnsArrayExt::alphabet(&self) -> &[u8]
+
+pub fn vortex_ans::AnsArrayExt::ans_size_log(&self) -> u8
+
+pub fn vortex_ans::AnsArrayExt::encoded(&self) -> &vortex_buffer::ByteBuffer
+
+pub fn vortex_ans::AnsArrayExt::final_state(&self) -> u32
+
+pub fn vortex_ans::AnsArrayExt::n_symbols(&self) -> u64
+
+pub fn vortex_ans::AnsArrayExt::weights(&self) -> &[vortex_ans::tans::Weight]
+
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_ans::Ans>> vortex_ans::AnsArrayExt for T
+
+pub fn T::alphabet(&self) -> &[u8]
+
+pub fn T::ans_size_log(&self) -> u8
+
+pub fn T::encoded(&self) -> &vortex_buffer::ByteBuffer
+
+pub fn T::final_state(&self) -> u32
+
+pub fn T::n_symbols(&self) -> u64
+
+pub fn T::weights(&self) -> &[vortex_ans::tans::Weight]
+
+pub type vortex_ans::AnsArray = vortex_array::array::typed::Array<vortex_ans::Ans>

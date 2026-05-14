@@ -1,0 +1,34 @@
+[package]
+name = "vortex-ans"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex tANS entropy-coded array (layered pco P5)"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+rand = { workspace = true }
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+
+[[bench]]
+name = "ans"
+harness = false
+
+[lints]
+workspace = true
