@@ -592,6 +592,38 @@ pub fn vortex_btrblocks::schemes::string::NullDominatedSparseScheme::num_childre
 
 pub fn vortex_btrblocks::schemes::string::NullDominatedSparseScheme::scheme_name(&self) -> &'static str
 
+pub struct vortex_btrblocks::schemes::string::OnPairScheme
+
+impl core::clone::Clone for vortex_btrblocks::schemes::string::OnPairScheme
+
+pub fn vortex_btrblocks::schemes::string::OnPairScheme::clone(&self) -> vortex_btrblocks::schemes::string::OnPairScheme
+
+impl core::cmp::Eq for vortex_btrblocks::schemes::string::OnPairScheme
+
+impl core::cmp::PartialEq for vortex_btrblocks::schemes::string::OnPairScheme
+
+pub fn vortex_btrblocks::schemes::string::OnPairScheme::eq(&self, &vortex_btrblocks::schemes::string::OnPairScheme) -> bool
+
+impl core::fmt::Debug for vortex_btrblocks::schemes::string::OnPairScheme
+
+pub fn vortex_btrblocks::schemes::string::OnPairScheme::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_btrblocks::schemes::string::OnPairScheme
+
+impl core::marker::StructuralPartialEq for vortex_btrblocks::schemes::string::OnPairScheme
+
+impl vortex_compressor::scheme::Scheme for vortex_btrblocks::schemes::string::OnPairScheme
+
+pub fn vortex_btrblocks::schemes::string::OnPairScheme::compress(&self, &vortex_compressor::compressor::CascadingCompressor, &vortex_compressor::stats::cache::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_btrblocks::schemes::string::OnPairScheme::expected_compression_ratio(&self, &vortex_compressor::stats::cache::ArrayAndStats, vortex_compressor::ctx::CompressorContext, &mut vortex_array::executor::ExecutionCtx) -> vortex_compressor::estimate::CompressionEstimate
+
+pub fn vortex_btrblocks::schemes::string::OnPairScheme::matches(&self, &vortex_array::canonical::Canonical) -> bool
+
+pub fn vortex_btrblocks::schemes::string::OnPairScheme::num_children(&self) -> usize
+
+pub fn vortex_btrblocks::schemes::string::OnPairScheme::scheme_name(&self) -> &'static str
+
 pub struct vortex_btrblocks::schemes::string::ZstdScheme
 
 impl core::clone::Clone for vortex_btrblocks::schemes::string::ZstdScheme

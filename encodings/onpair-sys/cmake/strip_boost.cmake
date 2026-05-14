@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+#
 # Replaces boost::unordered_flat_{map,set} with std::unordered_{map,set}
 # in the fetched onpair_cpp source tree. Idempotent.
 #

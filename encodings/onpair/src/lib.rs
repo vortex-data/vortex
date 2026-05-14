@@ -5,7 +5,7 @@
 //! compression library, with compressed-domain predicate pushdown.
 //!
 //! The default training preset is `dict-12` (12 bits per token, dictionary
-//! capped at 4 096 entries). See [`OnPair::compress`] for the entry point and
+//! capped at 4 096 entries). See [`onpair_compress`] for the entry point and
 //! [`OnPairArray`] for the resulting array type.
 //!
 //! [onpair]: https://arxiv.org/abs/2508.02280

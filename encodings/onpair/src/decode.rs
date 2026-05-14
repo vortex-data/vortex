@@ -12,47 +12,67 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::match_each_integer_ptype;
+use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::OnPair;
 use crate::OnPairArrayExt;
 
 /// Materialised, host-resident copy of every read path's input.
 ///
-/// `OnPairArray` exposes its children as `ArrayRef`s, which may live on a
-/// device or be backed by a non-primitive encoding. Decoding loops want flat
-/// slices, so this struct lands the children once and then hands out borrowed
-/// slices for the duration of a read.
+/// The cascading compressor may narrow our `u16` `codes` and `u32` offset
+/// children down to a tighter integer type (e.g. `u8` codes for dict-8
+/// data). We widen each back to its canonical width at materialisation time
+/// so the decode loop can index without per-token branching.
 pub(crate) struct OwnedDecodeInputs {
     pub dict_bytes: ByteBuffer,
-    pub dict_offsets: PrimitiveArray,
-    pub codes: PrimitiveArray,
-    pub codes_offsets: PrimitiveArray,
+    pub dict_offsets: Buffer<u32>,
+    pub codes: Buffer<u16>,
+    pub codes_offsets: Buffer<u32>,
 }
 
 impl OwnedDecodeInputs {
     pub fn collect(array: ArrayView<'_, OnPair>, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         Ok(Self {
             dict_bytes: array.dict_bytes().clone(),
-            dict_offsets: to_primitive(array.dict_offsets(), ctx)?,
-            codes: to_primitive(array.codes(), ctx)?,
-            codes_offsets: to_primitive(array.codes_offsets(), ctx)?,
+            dict_offsets: widen_to_u32(array.dict_offsets(), ctx)?,
+            codes: widen_to_u16(array.codes(), ctx)?,
+            codes_offsets: widen_to_u32(array.codes_offsets(), ctx)?,
         })
     }
 
     pub fn view(&self) -> DecodeView<'_> {
         DecodeView {
             dict_bytes: self.dict_bytes.as_slice(),
-            dict_offsets: self.dict_offsets.as_slice::<u32>(),
-            codes: self.codes.as_slice::<u16>(),
-            codes_offsets: self.codes_offsets.as_slice::<u32>(),
+            dict_offsets: self.dict_offsets.as_slice(),
+            codes: self.codes.as_slice(),
+            codes_offsets: self.codes_offsets.as_slice(),
         }
     }
 }
 
-fn to_primitive(arr: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
-    arr.clone().execute::<PrimitiveArray>(ctx)
+fn widen_to_u16(arr: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Buffer<u16>> {
+    let primitive = arr.clone().execute::<PrimitiveArray>(ctx)?;
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let widened: Buffer<u16> = match_each_integer_ptype!(primitive.ptype(), |P| {
+        primitive.as_slice::<P>().iter().map(|x| *x as u16).collect()
+    });
+    Ok(widened)
+}
+
+fn widen_to_u32(arr: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Buffer<u32>> {
+    let primitive = arr.clone().execute::<PrimitiveArray>(ctx)?;
+    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let widened: Buffer<u32> = match_each_integer_ptype!(primitive.ptype(), |P| {
+        primitive.as_slice::<P>().iter().map(|x| *x as u32).collect()
+    });
+    if widened.is_empty() {
+        return Err(vortex_err!("OnPair: empty offsets after widening"));
+    }
+    Ok(widened)
 }
 
 /// Borrowed slices for the decode loop.
