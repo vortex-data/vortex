@@ -40,6 +40,35 @@
 // 16-aligned) and the epilogue tail (< 16 bytes left, no room for u128).
 // In steady state out_pos stays 16-aligned and u128 fires repeatedly.
 //
+// The compressed code stream is staged in a per-thread register `chunk`
+// (up to 8 bytes). The fill is split into two phases:
+//
+//   - **Initial align-up.** When `chunk` is empty and `fill_pos =
+//     in_pos + chunk_bytes` isn't u64-aligned, walk it up with the
+//     largest aligned load at each step (u8 / u16 / u32). The fill
+//     loop **exits as soon as `fill_pos` reaches u64 alignment with
+//     `chunk_bytes >= 2`**, even though chunk isn't full. This leaves
+//     chunk partial (3..7 bytes) but with a u64-aligned `fill_pos`.
+//
+//   - **Steady state.** `consume` preserves `fill_pos` (each consume
+//     advances `in_pos` by N and drops `chunk_bytes` by N), so
+//     `fill_pos` stays u64-aligned forever. The main loop refills
+//     only when `chunk_bytes == 0`, and that refill is a single
+//     `ld.global.u64`.
+//
+//   - **Boundary escape.** If `chunk_bytes == 1` and `chunk[0] == 255`
+//     we'd need a byte that isn't in chunk. Read it directly from
+//     `codes_bytes[in_pos + 1]`. This advances `fill_pos` by 1, so
+//     the next refill walks the u8/u16/u32 ladder once before
+//     returning to steady-state u64 loads.
+//
+//   load    gate                                       ptx
+//   ------  -----------------------------------------  ----------------
+//    u64    chunk_bytes == 0, fill_pos % 8 == 0        ld.global.u64
+//    u32    chunk_bytes + 4 ≤ 8, fill_pos % 4 == 0     ld.global.u32
+//    u16    chunk_bytes + 2 ≤ 8, fill_pos % 2 == 0     ld.global.u16
+//    u8     (always)                                   ld.global.u8
+//
 // The 256-entry symbol table (≤ 2 KB) is read directly from global memory.
 // Staging it into shared memory measured ~3% slower at 10M rows and ~15%
 // slower at 1M rows (benchmarked on clickbench URLs). The hypothesis is that L1
@@ -51,10 +80,6 @@
 // Decoded symbols are masked to their valid byte length so the table's high
 // bits never leak. The main loop drains to `scratch.cursor ≤ 16`, keeping
 // the next add (≤ 8 bytes) within the 24-byte capacity.
-//
-// The compressed code stream is read one byte at a time from global
-// memory; chunk-loading is re-added later on top of the split-based
-// kernel.
 //
 // `codes_offsets` is templated over the four unsigned integer widths
 // (u8/u16/u32/u64). `output_offsets` is uint64_t.
@@ -147,6 +172,47 @@ struct FSSTArgs {
     const uint8_t *__restrict validity_bits;
 };
 
+// Refill `chunk` from `codes_bytes + (in_pos + chunk_bytes)`. Exits early
+// once `fill_pos` reaches u64 alignment with `chunk_bytes >= 2`, so the
+// next refill (at chunk_bytes == 0) lands on the aligned u64 fast path.
+template <typename OffT>
+__device__ inline void fsst_chunk_refill(const uint8_t *__restrict codes_bytes,
+                                         OffT in_pos,
+                                         OffT in_end,
+                                         uint64_t &chunk,
+                                         uint32_t &chunk_bytes) {
+#pragma unroll 1
+    while (chunk_bytes < 8) {
+        const OffT fill_pos = in_pos + (OffT)chunk_bytes;
+        if (fill_pos >= in_end) {
+            break;
+        }
+        const int32_t remaining = (int32_t)(in_end - fill_pos);
+        const uint32_t aln = (uint32_t)fill_pos & 7u;
+        if (chunk_bytes == 0 && aln == 0 && remaining >= 8) {
+            chunk = *reinterpret_cast<const uint64_t *>(codes_bytes + fill_pos);
+            chunk_bytes = 8;
+            return;
+        }
+        if (chunk_bytes >= 2 && aln == 0) {
+            return;
+        }
+        if (chunk_bytes + 4u <= 8u && (aln & 3u) == 0 && remaining >= 4) {
+            const uint64_t v = *reinterpret_cast<const uint32_t *>(codes_bytes + fill_pos);
+            chunk |= v << (8u * chunk_bytes);
+            chunk_bytes += 4;
+        } else if (chunk_bytes + 2u <= 8u && (aln & 1u) == 0 && remaining >= 2) {
+            const uint64_t v = *reinterpret_cast<const uint16_t *>(codes_bytes + fill_pos);
+            chunk |= v << (8u * chunk_bytes);
+            chunk_bytes += 2;
+        } else {
+            const uint64_t v = codes_bytes[fill_pos];
+            chunk |= v << (8u * chunk_bytes);
+            chunk_bytes += 1;
+        }
+    }
+}
+
 template <typename OffT>
 __device__ inline void fsst_decode_string(const FSSTArgs<OffT> &args, uint64_t sid) {
     if (((args.validity_bits[sid >> 3] >> (sid & 7u)) & 1u) == 0u) {
@@ -160,18 +226,40 @@ __device__ inline void fsst_decode_string(const FSSTArgs<OffT> &args, uint64_t s
 
     Scratch scratch;
 
+    // `chunk` holds the next up-to-8 bytes of the code stream in a register.
+    // Byte 0 of `chunk` is always `codes_bytes[in_pos]`. `chunk_bytes` is the
+    // count of valid bytes still in `chunk`.
+    uint64_t chunk = 0;
+    uint32_t chunk_bytes = 0;
+
     while (in_pos < in_end) {
         // Drain to scratch.cursor ≤ 16 so the next ≤8-byte symbol fits in 24.
         while (scratch.cursor > 16) {
             scratch.drain(args.output_bytes, out_pos, out_end);
         }
 
+        // Refill only when chunk is fully drained so the load lands at the
+        // aligned `fill_pos` left by the previous refill's early exit.
+        // The `chunk_bytes == 1 && code == 255` boundary is handled inline below.
+        if (chunk_bytes == 0) {
+            fsst_chunk_refill<OffT>(args.codes_bytes, in_pos, in_end, chunk, chunk_bytes);
+            if (chunk_bytes == 0) {
+                break;
+            }
+        }
+
         // Decode next code. 255 is the escape for raw literal bytes.
-        const uint8_t code = args.codes_bytes[in_pos];
+        const uint8_t code = (uint8_t)(chunk & 0xFFu);
         uint64_t sym;
         uint32_t len, consumed;
+        bool boundary_escape = false;
         if (code == 255) {
-            sym = (uint64_t)args.codes_bytes[in_pos + 1];
+            if (chunk_bytes >= 2) {
+                sym = (chunk >> 8u) & 0xFFu;
+            } else {
+                sym = (uint64_t)args.codes_bytes[in_pos + (OffT)1];
+                boundary_escape = true;
+            }
             len = 1;
             consumed = 2;
         } else {
@@ -186,6 +274,13 @@ __device__ inline void fsst_decode_string(const FSSTArgs<OffT> &args, uint64_t s
 
         scratch.push(sym, len);
         in_pos += (OffT)consumed;
+        if (boundary_escape) {
+            chunk = 0;
+            chunk_bytes = 0;
+        } else {
+            chunk >>= 8u * consumed;
+            chunk_bytes -= consumed;
+        }
     }
 
     // Epilogue: drain everything that's left.
