@@ -173,6 +173,7 @@ impl BtrBlocksCompressorBuilder {
         // dictionary expansion at decode time, which is incompatible with
         // pure-GPU decompression paths. Strip whichever string-fragment
         // scheme is enabled by feature.
+        #[cfg_attr(not(feature = "onpair"), allow(unused_mut))]
         let mut excluded: Vec<SchemeId> = vec![
             integer::SparseScheme.id(),
             integer::IntRLEScheme.id(),

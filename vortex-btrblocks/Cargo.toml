@@ -48,9 +48,11 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-session = { workspace = true }
 
 [features]
-default = ["onpair"]
 # This feature enabled unstable encodings for which we don't guarantee stability.
 unstable_encodings = ["dep:vortex-tensor", "vortex-zstd?/unstable_encodings"]
+# OnPair short-string compression. Pulls in a C++ build dependency (CMake +
+# C++20). Off by default so wasm / minimal-deps builds work; the umbrella
+# `vortex` crate enables it in its own defaults.
 onpair = ["dep:vortex-onpair"]
 pco = ["dep:pco", "dep:vortex-pco"]
 zstd = ["dep:vortex-zstd"]

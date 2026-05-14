@@ -69,8 +69,8 @@ vortex-scan = { workspace = true }
 workspace = true
 
 [features]
-default = ["onpair"]
 object_store = ["dep:object_store", "vortex-io/object_store", "tokio"]
+# OnPair short-string compression (see vortex-btrblocks for build details).
 onpair = ["dep:vortex-onpair", "vortex-btrblocks/onpair"]
 tokio = [
     "dep:tokio",
