@@ -1,27 +1,31 @@
-//! Dumps the AOT stencil bytes and the two patched variants. Useful for
+//! Dumps the AOT stencil bytes and all six patched variants. Useful for
 //! sanity-checking the encoding by piping through `ndisasm -b 64`.
 
 #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
 fn main() {
-    use stencil_jit::debug;
+    use stencil_jit::{CmpOp, debug};
 
     let bytes = debug::stencil_bytes();
     let off = debug::patch_offset();
     let len = debug::patch_len();
 
-    let render = |label: &str, slot: &[u8]| {
+    println!(
+        "stencil length = {} bytes, patch slot @ {}..{} ({} bytes)",
+        bytes.len(),
+        off,
+        off + len,
+        len,
+    );
+
+    for op in CmpOp::ALL {
         let mut full = bytes.to_vec();
-        full[off..off + len].copy_from_slice(slot);
-        print!("{label}: ");
+        full[off..off + len].copy_from_slice(debug::op_patch(op));
+        print!("{:>3?}: ", op);
         for b in &full {
             print!("{b:02x} ");
         }
         println!();
-    };
-
-    println!("stencil length = {} bytes, patch slot @ {}..{}", bytes.len(), off, off + len);
-    render("eq ", debug::eq_patch());
-    render("neq", debug::neq_patch());
+    }
 }
 
 #[cfg(not(all(target_arch = "x86_64", target_os = "linux")))]

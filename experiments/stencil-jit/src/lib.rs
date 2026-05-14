@@ -28,12 +28,36 @@ use core::ptr::NonNull;
 use std::io;
 
 /// Comparison ops that this prototype can splice in.
+///
+/// Ordering comparisons (`Lt`, `Le`, `Gt`, `Ge`) are *signed* — the
+/// underlying AVX2 instruction is `vpcmpgtb`. Treating bitpacked unsigned
+/// data with these would require an extra sign-bit flip in the prologue;
+/// see the README for the follow-up.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum CmpOp {
-    /// `lane == constant` for each of 32 `u8` lanes.
+    /// `lane == constant`
     Eq,
-    /// `lane != constant` for each of 32 `u8` lanes.
+    /// `lane != constant`
     Neq,
+    /// `lane > constant` (signed)
+    Gt,
+    /// `lane < constant` (signed)
+    Lt,
+    /// `lane >= constant` (signed)
+    Ge,
+    /// `lane <= constant` (signed)
+    Le,
+}
+
+impl CmpOp {
+    pub const ALL: [Self; 6] = [
+        Self::Eq,
+        Self::Neq,
+        Self::Gt,
+        Self::Lt,
+        Self::Ge,
+        Self::Le,
+    ];
 }
 
 /// A compiled kernel sitting in an mmap'd, executable page. The kernel
@@ -85,9 +109,13 @@ impl Kernel {
         // SAFETY: we mmap'd `page_len >= bytes.len()` bytes of writable memory.
         unsafe {
             core::ptr::copy_nonoverlapping(bytes.as_ptr(), page.as_ptr(), bytes.len());
-            let patch_src = match op {
+            let patch_src: &[u8; 8] = match op {
                 CmpOp::Eq => &stencil::EQ_PATCH,
                 CmpOp::Neq => &stencil::NEQ_PATCH,
+                CmpOp::Gt => &stencil::GT_PATCH,
+                CmpOp::Lt => &stencil::LT_PATCH,
+                CmpOp::Ge => &stencil::GE_PATCH,
+                CmpOp::Le => &stencil::LE_PATCH,
             };
             core::ptr::copy_nonoverlapping(
                 patch_src.as_ptr(),
@@ -179,13 +207,15 @@ pub mod debug {
         stencil::patch_len()
     }
 
-    /// The 8 bytes the JIT splices in to select `eq`.
-    pub fn eq_patch() -> &'static [u8] {
-        &stencil::EQ_PATCH
-    }
-
-    /// The 8 bytes the JIT splices in to select `neq`.
-    pub fn neq_patch() -> &'static [u8] {
-        &stencil::NEQ_PATCH
+    /// The 8 bytes the JIT splices in to select a given op.
+    pub fn op_patch(op: super::CmpOp) -> &'static [u8] {
+        match op {
+            super::CmpOp::Eq => &stencil::EQ_PATCH,
+            super::CmpOp::Neq => &stencil::NEQ_PATCH,
+            super::CmpOp::Gt => &stencil::GT_PATCH,
+            super::CmpOp::Lt => &stencil::LT_PATCH,
+            super::CmpOp::Ge => &stencil::GE_PATCH,
+            super::CmpOp::Le => &stencil::LE_PATCH,
+        }
     }
 }

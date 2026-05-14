@@ -15,11 +15,47 @@ outside the Cargo workspace via the top-level `exclude` so it stays out of
 | Target         | x86-64 Linux only                     | + Windows/macOS, NEON for aarch64, AVX-512 path      |
 | Vector ISA     | AVX2 (32 x u8 lanes)                  | SSE2 / AVX2 / AVX-512 / NEON / SVE selection         |
 | Bit width      | `bw = 8` (no real unpack)             | One stencil per `bw` in 1..=32, or a single unpack-by-shift kernel parameterized at compile time |
-| Ops            | `eq`, `neq`                           | `==, !=, <, ≤, >, ≥`, signed/unsigned, plus arith    |
+| Ops            | `eq, neq, lt, le, gt, ge` (signed)    | + unsigned variants, plus arithmetic and fused predicates |
 | Patch sites    | One 8-byte slot                       | Multiple slots with relocation table (stencil graph) |
 | Constant       | `u8` broadcast                        | Type-generic broadcast, or in-register predicate     |
 
 The stencil is 39 bytes; the splice slot is 8 of them.
+
+## The six ops
+
+All six fit in the 8-byte splice slot:
+
+```
+eq : vpcmpeqb ymm0,ymm0,ymm1            ; 4-byte nop pad
+neq: vpcmpeqb ymm0,ymm0,ymm1            ; vpxor ymm0,ymm0,ymm2
+gt : vpcmpgtb ymm0,ymm0,ymm1            ; 4-byte nop pad  (signed)
+lt : vpcmpgtb ymm0,ymm1,ymm0            ; 4-byte nop pad  (signed; operands swapped)
+ge : vpcmpgtb ymm0,ymm1,ymm0            ; vpxor ymm0,ymm0,ymm2     (!lt)
+le : vpcmpgtb ymm0,ymm0,ymm1            ; vpxor ymm0,ymm0,ymm2     (!gt)
+```
+
+`ymm2` is materialised once in the prologue as all-ones via `vpcmpeqb ymm2,ymm2,ymm2`,
+so the inversion is one 4-byte `vpxor` rather than a load.
+
+Run `cargo run --example dump` to print the exact 39-byte buffer for each
+op side-by-side. Bytes 21..29 are the only ones that change between the six.
+
+## Code-size impact
+
+Companion crate `experiments/aot-size` measures the AOT cost of every
+`unpack_cmp` monomorphization in `fastlanes-rs`. Headline numbers:
+
+| Variant                                  | Size       |
+|------------------------------------------|------------|
+| AOT, eq only, u32, all widths            | 47 KB      |
+| AOT, 6 ops, u32, all widths              | 316 KB     |
+| AOT, 6 ops, u8/u16/u32/u64, all widths   | 1.9 MB     |
+| `vx` (vortex-tui) `.text` for context    | 70 MB      |
+| `vx` fastlanes kernels today             | 525 KB     |
+
+A copy-and-patch JIT that keeps **one stencil per (T, W)** and splices in
+the op collapses the 6-way op fan-out to ~316 KB across all types (≈6×
+reduction, ≈83% saving on the 1.9 MB AOT figure). See `aot-size/README.md`.
 
 ## How it works
 

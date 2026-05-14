@@ -1,0 +1,17 @@
+[package]
+name = "aot-size"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Research: measure code size of AOT bitpacking kernels vs JIT stencil."
+
+[workspace]
+
+[dependencies]
+fastlanes = "0.5"
+
+[profile.release]
+lto = false
+codegen-units = 1
+strip = "none"
+debug = false
