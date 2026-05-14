@@ -126,6 +126,38 @@ pub struct FoldedContainsDfa {
     escape_only_pattern: Option<Vec<u8>>,
 }
 
+/// Estimated total-candidate count above which fused-Teddy+SSA loses to
+/// the 1-byte path. Calibrated empirically: on the bench corpora
+/// `%ear%` (~10k candidates) and `%google%` (~14k) the fused path wins;
+/// `%htt%` and `%https%` (~70k–80k candidates) regress. Threshold
+/// chosen at 32k as the midpoint with comfortable margin.
+const SSA_CANDIDATE_BUDGET: usize = 32 * 1024;
+
+/// Cheap scalar sample of a prefix of `all_bytes` for SSA bytes, then
+/// extrapolate to a full-buffer candidate estimate. Returns `true` when
+/// fused-Teddy+SSA's per-candidate dispatch is likely to lose to the
+/// 1-byte path's per-row `matches_with_bitset` short-circuit.
+fn ssa_saturated(all_bytes: &[u8], ssa_codes: &[u8]) -> bool {
+    // 8 KiB sample covers a few hundred typical rows on URL-shaped data
+    // and is cheap enough to keep in the overhead budget even when the
+    // pattern turns out to be selective.
+    const SAMPLE: usize = 8 * 1024;
+    let sample = SAMPLE.min(all_bytes.len());
+    if sample == 0 || ssa_codes.is_empty() {
+        return false;
+    }
+    let mut is_ssa = [false; 256];
+    for &c in ssa_codes {
+        is_ssa[usize::from(c)] = true;
+    }
+    // SAFETY: sample <= all_bytes.len().
+    let head = unsafe { all_bytes.get_unchecked(..sample) };
+    let hits = head.iter().filter(|&&b| is_ssa[usize::from(b)]).count();
+    // Extrapolate to the full buffer: estimated_candidates = hits * (all_bytes.len() / sample).
+    let estimated = hits.saturating_mul(all_bytes.len()) / sample;
+    estimated >= SSA_CANDIDATE_BUDGET
+}
+
 #[inline]
 fn escape_pair_targets(buckets: &[(u8, Vec<u8>)]) -> Option<&[u8]> {
     match buckets {
@@ -448,14 +480,40 @@ impl FoldedContainsDfa {
         // each have their own preferred c2 the bucketed path is
         // 3–10× sparser.
         //
-        // Streaming Teddy paths with fused SSA. Buckets exclude SSA c1's
-        // by construction; when `single_step_accept_codes` is present
-        // we pass it as `ssa_codes` so the AVX2/AVX-512 inner loop
-        // ORs an SSA nibble-table lookup into the same per-block
-        // candidate mask. Verifier runs inline as before. Skips the
-        // gate that previously routed SSA-present needles to the
-        // dense 1-byte path.
+        // Dense-pattern short-circuit. When SSA codes saturate the
+        // compressed bytes (e.g. `%htt%` on URL data, where every row
+        // carries an `http`/`https` SSA symbol), the fused-Teddy+SSA
+        // path emits a candidate per SSA byte, and the per-candidate
+        // `verify_at` dispatch dominates. The 1-byte path's
+        // `matches_with_bitset` short-circuits per row at the first
+        // accept — `O(1)` per row regardless of candidate density —
+        // and wins outright in that regime. A cheap scalar sample
+        // estimates the density; above the threshold we route to
+        // the 1-byte path directly.
         let ssa_codes = self.single_step_accept_codes.as_deref();
+        if let Some(codes) = ssa_codes
+            && ssa_saturated(all_bytes, codes)
+            && let Some(progressing) = self.progressing_codes.as_deref()
+        {
+            let trace = std::env::var_os("VORTEX_FSST_TEDDY_TRACE")
+                .map(|v| !v.is_empty())
+                .unwrap_or(false);
+            let t = trace.then(std::time::Instant::now);
+            let bitset = anchor_scan::build_progressing_bitset_unbounded(all_bytes, progressing);
+            let result = self.scan_with_anchor_bitset(n, offsets, all_bytes, &bitset, negated);
+            if trace {
+                let total_us = t
+                    .map(|t| t.elapsed().as_secs_f64() * 1e6)
+                    .unwrap_or_default();
+                eprintln!(
+                    "[fsst::teddy] path=ssa_saturated_one_byte progressing_codes={} bytes={} total_us={:.3}",
+                    progressing.len(),
+                    all_bytes.len(),
+                    total_us,
+                );
+            }
+            return result;
+        }
         let trace = std::env::var_os("VORTEX_FSST_TEDDY_TRACE")
             .map(|v| !v.is_empty())
             .unwrap_or(false);

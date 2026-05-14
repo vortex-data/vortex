@@ -111,23 +111,13 @@ impl LikeKernel for FSST {
 
         let result = match_each_integer_ptype!(offsets.ptype(), |T| {
             let off = offsets.as_slice::<T>();
-            if negated {
-                crate::dfa::scan_to_bitbuf_with(n, off, all_bytes, negated, |codes| {
-                    matcher.matches(codes)
-                })
-            } else {
-                matcher.scan_to_bitbuf(n, off, all_bytes, negated)
-            }
+            matcher.scan_to_bitbuf(n, off, all_bytes, negated)
         });
         let scan_us = phase_us(phase_t);
         let total_us = phase_us(total_t);
 
         if trace {
-            let scan_plan = if negated {
-                "negated_row_loop"
-            } else {
-                matcher.scan_plan_name()
-            };
+            let scan_plan = matcher.scan_plan_name();
             eprintln!(
                 "[fsst::like] rows={} bytes={} pattern_len={} negated={} matcher={} scan_plan={} pattern_us={:.3} layout_us={:.3} matcher_us={:.3} scan_us={:.3} total_us={:.3}",
                 n,
