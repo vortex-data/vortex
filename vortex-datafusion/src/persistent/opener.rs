@@ -42,6 +42,7 @@ use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
+use vortex::layout::v2::toggle as v2_toggle;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
@@ -307,6 +308,17 @@ impl FileOpener for VortexOpener {
                 }
             };
 
+            if v2_toggle::use_v2_scan() {
+                // PR 2 lands the toggle and the plan-node scaffolding only.
+                // Real V2 execution arrives in PR 3 (FilterPlan + differential
+                // test). Until then we always fall back to the legacy path
+                // and log so benchmark setups can confirm the flag is wired.
+                tracing::warn!(
+                    "{} is set but LayoutPlan v2 execution is not yet implemented; \
+                     falling back to v1 ScanBuilder.",
+                    v2_toggle::ENV_VAR,
+                );
+            }
             let mut scan_builder = ScanBuilder::new(session.clone(), Arc::clone(&layout_reader));
 
             if let Some(extensions) = file.extensions

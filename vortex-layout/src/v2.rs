@@ -8,5 +8,9 @@
 //! `vortex_bail!`. See `LAYOUT_PLAN.md` at the repo root for the
 //! design.
 
+pub mod chunked;
 pub mod demand;
+pub mod flat;
 pub mod plan;
+pub mod struct_;
+pub mod toggle;

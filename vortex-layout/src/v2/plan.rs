@@ -16,6 +16,7 @@ use vortex_error::vortex_err;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
+use crate::segments::SegmentSource;
 use crate::v2::demand::RowDemand;
 
 pub type LayoutPlanRef = Arc<dyn LayoutPlan>;
@@ -100,21 +101,36 @@ impl PlanArguments {
 }
 
 /// Cross-cutting context threaded through [`crate::Layout::plan`].
-/// Carries the [`RowDemand`] SIP resource that layouts can register
-/// publishers/consumers against.
+///
+/// Carries:
+/// - the [`RowDemand`] SIP resource for layout-emitted publishers and
+///   downstream consumers,
+/// - the [`SegmentSource`] used to fetch on-disk bytes at execute time.
 #[derive(Clone)]
 pub struct PlanContext {
     pub demand: Arc<RowDemand>,
+    pub segment_source: Arc<dyn SegmentSource>,
 }
 
 impl PlanContext {
-    /// A context with a freshly-allocated, empty [`RowDemand`]. Useful
-    /// for layouts that recurse into a sub-plan that shouldn't share
-    /// demand with the parent (e.g., evaluating a pruning expression
-    /// over a zone-map child).
-    pub fn without_demand() -> Self {
+    /// Construct a context with the given segment source and an empty
+    /// (no-op) [`RowDemand`]. Useful as a default for layouts that
+    /// don't need to participate in demand publication.
+    pub fn new(segment_source: Arc<dyn SegmentSource>) -> Self {
         Self {
             demand: Arc::new(RowDemand::empty()),
+            segment_source,
+        }
+    }
+
+    /// Replace this context's demand with a freshly-allocated, empty
+    /// one. Useful for layouts that recurse into a sub-plan that
+    /// shouldn't share demand with the parent (e.g., evaluating a
+    /// pruning expression over a zone-map child).
+    pub fn without_demand(&self) -> Self {
+        Self {
+            demand: Arc::new(RowDemand::empty()),
+            segment_source: Arc::clone(&self.segment_source),
         }
     }
 }
