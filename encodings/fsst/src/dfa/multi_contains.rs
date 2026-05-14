@@ -54,6 +54,9 @@ use super::build_fused_table;
 use super::build_symbol_transitions;
 use super::kmp_failure_table;
 use super::needle_bytes_absent_from_all_symbols;
+use super::planner::ScanContext;
+use super::planner::ScanPlan;
+use super::planner::ScanPlanner;
 use super::scan_to_bitbuf_with;
 use super::skip::SkipStrategy;
 
@@ -91,6 +94,10 @@ pub(crate) struct MultiContainsDfa {
     /// can never match, while rows with a hit are verified by the
     /// standard [`Self::matches`].
     escape_only_anchor_pattern: Option<Vec<u8>>,
+    /// Routing engine. The multi DFA only routes between `EscapeOnly`
+    /// and `RowLoop`, but going through the planner keeps the
+    /// dispatch surface uniform across the three contains DFAs.
+    planner: ScanPlanner,
 }
 
 impl MultiContainsDfa {
@@ -182,6 +189,7 @@ impl MultiContainsDfa {
             segments: segments_owned,
             decompress_threshold: 28,
             escape_only_anchor_pattern,
+            planner: ScanPlanner::new(),
         })
     }
 
@@ -207,10 +215,18 @@ impl MultiContainsDfa {
     where
         T: vortex_array::dtype::IntegerPType,
     {
-        if let Some(pattern) = self.escape_only_anchor_pattern.as_deref() {
-            return self.scan_via_escape_only_anchor(n, offsets, all_bytes, pattern, negated);
+        let ctx =
+            ScanContext::for_flat_or_multi(n, all_bytes, self.escape_only_anchor_pattern.is_some());
+        match self.planner.plan_flat_or_multi(&ctx) {
+            ScanPlan::EscapeOnly => {
+                let pattern = self
+                    .escape_only_anchor_pattern
+                    .as_deref()
+                    .vortex_expect("EscapeOnly plan requires escape_only_anchor_pattern");
+                self.scan_via_escape_only_anchor(n, offsets, all_bytes, pattern, negated)
+            }
+            _ => scan_to_bitbuf_with(n, offsets, all_bytes, negated, |codes| self.matches(codes)),
         }
-        scan_to_bitbuf_with(n, offsets, all_bytes, negated, |codes| self.matches(codes))
     }
 
     /// Prefilter via a single `memmem` for the longest segment's encoded

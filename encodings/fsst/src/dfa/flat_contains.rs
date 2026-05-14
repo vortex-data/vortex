@@ -36,6 +36,9 @@ use super::build_fused_table;
 use super::build_symbol_transitions;
 use super::kmp_byte_transitions;
 use super::needle_bytes_absent_from_all_symbols;
+use super::planner::ScanContext;
+use super::planner::ScanPlan;
+use super::planner::ScanPlanner;
 use super::scan_to_bitbuf_with;
 use super::skip::SkipStrategy;
 
@@ -58,6 +61,10 @@ pub(crate) struct FlatContainsDfa {
     /// with a single `memmem` over `all_bytes` rather than running the
     /// sentinel-branching per-code DFA on every row.
     escape_only_pattern: Option<Vec<u8>>,
+    /// Routing engine. The flat DFA only routes between `EscapeOnly`
+    /// and `RowLoop`, but going through the planner keeps the
+    /// dispatch surface uniform across the three contains DFAs.
+    planner: ScanPlanner,
 }
 
 impl FlatContainsDfa {
@@ -118,6 +125,7 @@ impl FlatContainsDfa {
             skip,
             anchor,
             escape_only_pattern,
+            planner: ScanPlanner::new(),
         })
     }
 
@@ -176,10 +184,18 @@ impl FlatContainsDfa {
     where
         T: vortex_array::dtype::IntegerPType,
     {
-        if let Some(pattern) = self.escape_only_pattern.as_deref() {
-            return self.scan_via_escape_only_memmem(n, offsets, all_bytes, pattern, negated);
+        let ctx = ScanContext::for_flat_or_multi(n, all_bytes, self.escape_only_pattern.is_some());
+        match self.planner.plan_flat_or_multi(&ctx) {
+            ScanPlan::EscapeOnly => {
+                let pattern = self
+                    .escape_only_pattern
+                    .as_deref()
+                    .vortex_expect("EscapeOnly plan requires escape_only_pattern");
+                self.scan_via_escape_only_memmem(n, offsets, all_bytes, pattern, negated)
+            }
+            // The planner only emits these two for the flat DFA today.
+            _ => scan_to_bitbuf_with(n, offsets, all_bytes, negated, |codes| self.matches(codes)),
         }
-        scan_to_bitbuf_with(n, offsets, all_bytes, negated, |codes| self.matches(codes))
     }
 
     /// Single-`memmem` prefilter for the escape-only regime. Each hit is

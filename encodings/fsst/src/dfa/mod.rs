@@ -127,6 +127,7 @@ mod anchor_scan;
 mod flat_contains;
 mod folded_contains;
 mod multi_contains;
+mod planner;
 mod prefix;
 mod skip;
 mod suffix;

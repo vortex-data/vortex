@@ -1260,3 +1260,109 @@ fn test_random_needles_match_naive_contains() -> VortexResult<()> {
 
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Bench parity regression: planner picks the same plan as the legacy
+// cascade for every fsst_contains bench.
+// ---------------------------------------------------------------------------
+
+/// Independently re-implement the legacy `FoldedContainsDfa::scan_to_bitbuf`
+/// routing cascade. The planner's chosen plan must match this function on
+/// every existing fsst_contains bench needle + corpus pair, otherwise the
+/// refactor would have silently re-routed traffic. This is the load-bearing
+/// regression guard for Task C.
+#[cfg(feature = "_test-harness")]
+fn legacy_path_for(dfa: &FoldedContainsDfa, all_bytes: &[u8]) -> super::planner::ScanPlan {
+    use super::planner::ScanPlan;
+    use super::planner::escape_pair_targets;
+    use super::planner::ssa_saturated;
+
+    if dfa.escape_only_pattern_for_test().is_some() {
+        return ScanPlan::EscapeOnly;
+    }
+    let ssa_codes = dfa.single_step_accept_codes_for_test();
+    if let Some(codes) = ssa_codes
+        && dfa.progressing_codes_for_test().is_some()
+        && ssa_saturated(all_bytes, codes)
+    {
+        return ScanPlan::OneByteSaturated;
+    }
+    if dfa.bucketed_triple_codes_for_test() {
+        return ScanPlan::TripleTeddy;
+    }
+    if let Some(buckets) = dfa.bucketed_pair_codes_for_test() {
+        if ssa_codes.is_none() && escape_pair_targets(buckets).is_some() {
+            return ScanPlan::EscapePair;
+        }
+        return ScanPlan::PairTeddy;
+    }
+    if dfa.progressing_codes_for_test().is_some() {
+        ScanPlan::OneByteBitset
+    } else {
+        ScanPlan::RowLoop
+    }
+}
+
+/// Bench-parity property test. For every `(corpus, needle)` pair driven by
+/// the existing `fsst_contains*` benches, build the matcher and assert
+/// `planner.plan() == legacy_path_for(...)`. If a needle re-routes to a
+/// different plan, this test fails before any silent perf regression can
+/// land.
+#[cfg(feature = "_test-harness")]
+#[test]
+fn test_planner_matches_legacy_cascade() -> VortexResult<()> {
+    use crate::test_utils::make_fsst_clickbench_urls;
+    use crate::test_utils::make_fsst_emails;
+    use crate::test_utils::make_fsst_file_paths;
+    use crate::test_utils::make_fsst_json_strings;
+    use crate::test_utils::make_fsst_log_lines;
+    use crate::test_utils::make_fsst_rare_match;
+    use crate::test_utils::make_fsst_short_urls;
+
+    // Same N as the benches use, but lazily — the test only needs the
+    // compressed bytes + symbol table, which dominate the routing decision.
+    const N_STRINGS: usize = 10_000;
+
+    // (corpus_builder, needle bytes) pairs taken verbatim from `benches/fsst_like.rs`:
+    //  - `fsst_contains` parametric corpora + needles
+    //  - `fsst_contains_{htt,ear,https}_*` short-needle stress benches
+    //  - `fsst_not_contains_*` negated benches (negation doesn't affect routing).
+    type CorpusBuilder = fn(usize) -> FSSTArray;
+    let cases: Vec<(&str, CorpusBuilder, &[u8])> = vec![
+        ("urls/%google%", make_fsst_short_urls, b"google"),
+        ("cb/%yandex%", make_fsst_clickbench_urls, b"yandex"),
+        ("log/%Googlebot%", make_fsst_log_lines, b"Googlebot"),
+        ("json/%enterprise%", make_fsst_json_strings, b"enterprise"),
+        (
+            "path/%target/release%",
+            make_fsst_file_paths,
+            b"target/release",
+        ),
+        ("email/%gmail%", make_fsst_emails, b"gmail"),
+        ("rare/%xyzzy%", make_fsst_rare_match, b"xyzzy"),
+        ("urls/%htt%", make_fsst_short_urls, b"htt"),
+        ("cb/%htt%", make_fsst_clickbench_urls, b"htt"),
+        ("urls/%ear%", make_fsst_short_urls, b"ear"),
+        ("cb/%ear%", make_fsst_clickbench_urls, b"ear"),
+        ("urls/%https%", make_fsst_short_urls, b"https"),
+    ];
+
+    for (label, builder, needle) in cases {
+        let fsst = builder(N_STRINGS);
+        let symbols = fsst.symbols();
+        let lengths = fsst.symbol_lengths();
+        let dfa = FoldedContainsDfa::new(symbols.as_slice(), lengths.as_slice(), needle, false)?;
+        let all_bytes = fsst.codes_bytes();
+        let all_bytes = all_bytes.as_slice();
+        let n = fsst.len();
+
+        let legacy = legacy_path_for(&dfa, all_bytes);
+        let planned = dfa.plan_for(n, all_bytes);
+        assert_eq!(
+            planned, legacy,
+            "planner picked {planned:?} but legacy cascade picked {legacy:?} for {label}"
+        );
+    }
+
+    Ok(())
+}
