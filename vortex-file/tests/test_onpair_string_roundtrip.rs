@@ -21,6 +21,7 @@ use futures::pin_mut;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -28,6 +29,8 @@ use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldNames;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::session::DTypeSession;
+use vortex_array::optimizer::kernels::ArrayKernels;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
@@ -38,11 +41,18 @@ use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 
+/// Full default Vortex session — the same set of sub-sessions
+/// `vortex::VortexSession::default()` would install, plus
+/// `register_default_encodings`. Built inline here because `vortex-file`
+/// can't depend on the umbrella `vortex` crate (it's the other way round).
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let session = VortexSession::empty()
+        .with::<DTypeSession>()
         .with::<ArraySession>()
         .with::<LayoutSession>()
         .with::<ScalarFnSession>()
+        .with::<ArrayKernels>()
+        .with::<AggregateFnSession>()
         .with::<RuntimeSession>();
     vortex_file::register_default_encodings(&session);
     session
@@ -71,13 +81,23 @@ fn corpus(n: usize, offset: u64) -> Vec<String> {
     out
 }
 
+/// Write `data` to an in-memory `Vec<u8>` using the **full default Vortex
+/// compressor** (`WriteStrategyBuilder::default()` =
+/// `BtrBlocksCompressor::default()` cascading through every registered
+/// scheme, including OnPair), then open the resulting bytes via
+/// `OpenOptions::open_buffer` and stream every chunk back.
 async fn write_and_read_back(data: vortex_array::ArrayRef) -> Vec<vortex_array::ArrayRef> {
+    // `write_options()` builds a `VortexWriteOptions` whose `strategy` is
+    // `WriteStrategyBuilder::default().build()` — the same path `vortex-bench`
+    // uses for Parquet → Vortex conversion. No custom strategy injected.
     let mut bytes = Vec::new();
     SESSION
         .write_options()
         .write(&mut bytes, data.to_array_stream())
         .await
         .expect("write Vortex file");
+
+    // Read back from the in-memory byte buffer; no disk, no FS.
     let bytes = ByteBuffer::from(bytes);
     let vxf = SESSION.open_options().open_buffer(bytes).expect("open");
 
