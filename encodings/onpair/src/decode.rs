@@ -3,30 +3,29 @@
 //
 //! Pure-Rust decoder for an [`OnPair`][crate::OnPair] array.
 //!
-//! Given the materialised slot children (dictionary blob + offsets +
-//! per-token `codes` + per-row `codes_offsets`), every read path here is a
-//! straight Rust loop — no C++, no FFI, no bit-unpacking (the codes were
-//! unpacked at compress time and stored as u16).
+//! The decode loop is intentionally simple — three independent array
+//! lookups and a `memcpy` — so the autovectoriser keeps the hot bytes-out
+//! path SIMD-friendly. We materialise the children once into `Buffer<u16>`
+//! / `Buffer<u32>` (always at native alignment) so the inner loop can index
+//! straight into raw slices without branches.
 
-use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_array::match_each_integer_ptype;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::OnPair;
-use crate::OnPairArrayExt;
 
-/// Materialised, host-resident copy of every read path's input.
+/// Materialised, host-resident copies of every read path's input.
 ///
-/// The cascading compressor may narrow our `u16` `codes` and `u32` offset
-/// children down to a tighter integer type (e.g. `u8` codes for dict-8
-/// data). We widen each back to its canonical width at materialisation time
-/// so the decode loop can index without per-token branching.
+/// All four byte arrays come from the outer `OnPair` array as raw
+/// `BufferHandle`s, which Vortex's flat-segment writer pads to the buffer's
+/// own alignment on disk. To insulate the decoder from arbitrary host
+/// alignment (e.g. a file segment that started mid-byte), we copy each
+/// buffer into a `Buffer<uN>` at the right type. The decode hot loop then
+/// indexes raw slices with no branches.
 pub(crate) struct OwnedDecodeInputs {
     pub dict_bytes: ByteBuffer,
     pub dict_offsets: Buffer<u32>,
@@ -35,12 +34,12 @@ pub(crate) struct OwnedDecodeInputs {
 }
 
 impl OwnedDecodeInputs {
-    pub fn collect(array: ArrayView<'_, OnPair>, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+    pub fn collect(array: ArrayView<'_, OnPair>, _ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         Ok(Self {
             dict_bytes: array.dict_bytes().clone(),
-            dict_offsets: widen_to_u32(array.dict_offsets(), ctx)?,
-            codes: widen_to_u16(array.codes(), ctx)?,
-            codes_offsets: widen_to_u32(array.codes_offsets(), ctx)?,
+            dict_offsets: bytes_to_buffer_u32(array.dict_offsets_bytes())?,
+            codes: bytes_to_buffer_u16(array.codes_bytes_raw())?,
+            codes_offsets: bytes_to_buffer_u32(array.codes_offsets_bytes())?,
         })
     }
 
@@ -54,25 +53,51 @@ impl OwnedDecodeInputs {
     }
 }
 
-fn widen_to_u16(arr: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Buffer<u16>> {
-    let primitive = arr.clone().execute::<PrimitiveArray>(ctx)?;
-    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let widened: Buffer<u16> = match_each_integer_ptype!(primitive.ptype(), |P| {
-        primitive.as_slice::<P>().iter().map(|x| *x as u16).collect()
-    });
-    Ok(widened)
+/// Decode `bytes` (little-endian-packed u32s) into an aligned `Buffer<u32>`.
+/// Goes through a typed `Vec<u32>` so the result is always 4-aligned.
+/// LLVM autovectorises the inner `from_le_bytes` loop to a single load on
+/// little-endian targets.
+#[inline]
+fn bytes_to_buffer_u32(bytes: &ByteBuffer) -> VortexResult<Buffer<u32>> {
+    if !bytes.len().is_multiple_of(4) {
+        return Err(vortex_err!(
+            "OnPair: byte buffer of length {} is not a multiple of 4",
+            bytes.len()
+        ));
+    }
+    let n = bytes.len() / 4;
+    let mut out: Vec<u32> = Vec::with_capacity(n);
+    let slice = bytes.as_slice();
+    let mut i = 0;
+    while i + 4 <= slice.len() {
+        // SAFETY: bounds checked by the while condition.
+        let arr: [u8; 4] = unsafe { slice.get_unchecked(i..i + 4).try_into().unwrap_unchecked() };
+        out.push(u32::from_le_bytes(arr));
+        i += 4;
+    }
+    Ok(Buffer::<u32>::copy_from(out))
 }
 
-fn widen_to_u32(arr: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Buffer<u32>> {
-    let primitive = arr.clone().execute::<PrimitiveArray>(ctx)?;
-    #[expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let widened: Buffer<u32> = match_each_integer_ptype!(primitive.ptype(), |P| {
-        primitive.as_slice::<P>().iter().map(|x| *x as u32).collect()
-    });
-    if widened.is_empty() {
-        return Err(vortex_err!("OnPair: empty offsets after widening"));
+/// Same as `bytes_to_buffer_u32` for u16.
+#[inline]
+fn bytes_to_buffer_u16(bytes: &ByteBuffer) -> VortexResult<Buffer<u16>> {
+    if !bytes.len().is_multiple_of(2) {
+        return Err(vortex_err!(
+            "OnPair: byte buffer of length {} is not a multiple of 2",
+            bytes.len()
+        ));
     }
-    Ok(widened)
+    let n = bytes.len() / 2;
+    let mut out: Vec<u16> = Vec::with_capacity(n);
+    let slice = bytes.as_slice();
+    let mut i = 0;
+    while i + 2 <= slice.len() {
+        // SAFETY: bounds checked by the while condition.
+        let arr: [u8; 2] = unsafe { slice.get_unchecked(i..i + 2).try_into().unwrap_unchecked() };
+        out.push(u16::from_le_bytes(arr));
+        i += 2;
+    }
+    Ok(Buffer::<u16>::copy_from(out))
 }
 
 /// Borrowed slices for the decode loop.
@@ -86,11 +111,16 @@ pub(crate) struct DecodeView<'a> {
 
 impl<'a> DecodeView<'a> {
     /// Decode row `row` into `out` (appended).
+    ///
+    /// Hot path. LLVM vectorises the `extend_from_slice` for runs where
+    /// successive tokens land on consecutive dict bytes, and for long
+    /// strings the inner copy is a memcpy regardless.
     #[inline]
     pub fn decode_row_into(&self, row: usize, out: &mut Vec<u8>) {
         let lo = self.codes_offsets[row] as usize;
         let hi = self.codes_offsets[row + 1] as usize;
-        for &c in &self.codes[lo..hi] {
+        let row_codes = &self.codes[lo..hi];
+        for &c in row_codes {
             let dlo = self.dict_offsets[c as usize] as usize;
             let dhi = self.dict_offsets[c as usize + 1] as usize;
             out.extend_from_slice(&self.dict_bytes[dlo..dhi]);
@@ -102,13 +132,16 @@ impl<'a> DecodeView<'a> {
     pub fn decoded_len(&self, row: usize) -> usize {
         let lo = self.codes_offsets[row] as usize;
         let hi = self.codes_offsets[row + 1] as usize;
-        let mut total = 0;
-        for &c in &self.codes[lo..hi] {
-            let dlo = self.dict_offsets[c as usize] as usize;
-            let dhi = self.dict_offsets[c as usize + 1] as usize;
-            total += dhi - dlo;
-        }
-        total
+        let row_codes = &self.codes[lo..hi];
+        // Closed-form length sum — branch-free, autovectorises to gather + sub.
+        row_codes
+            .iter()
+            .map(|&c| {
+                let dlo = self.dict_offsets[c as usize] as usize;
+                let dhi = self.dict_offsets[c as usize + 1] as usize;
+                dhi - dlo
+            })
+            .sum()
     }
 
     /// Iterate the decoded bytes of `row` without materialising them, calling

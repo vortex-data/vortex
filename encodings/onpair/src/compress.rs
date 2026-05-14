@@ -40,11 +40,6 @@ pub fn config_with_bits(bits: u32) -> OnPairTrainingConfig {
 }
 
 /// Compress an iterable of optional byte strings via the OnPair C++ library.
-///
-/// The C++ column is consumed inside this call: its dictionary blob plus the
-/// bit-packed token stream are unpacked into native Vortex children (a u16
-/// `codes` array and a u32 `codes_offsets` array), then the column is freed.
-/// Nothing on the read path touches C++.
 pub fn onpair_compress_iter<'a, I>(
     iter: I,
     len: usize,
@@ -80,7 +75,7 @@ where
 
     let column = Column::compress(&flat, &offsets, config)
         .map_err(|e| vortex_err!("OnPair compress failed: {e}"))?;
-    let (bits, dict_bytes, dict_offsets, codes, codes_offsets) = parts_to_children(&column)?;
+    let (bits, dict_bytes, dict_offsets, codes, codes_offsets) = parts_to_buffers(&column)?;
     drop(column);
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
@@ -101,17 +96,18 @@ where
     )
 }
 
-/// Borrow the raw C++ parts and lift them into owned Vortex children.
+/// Borrow the raw C++ parts and lift them into Vortex buffers.
 /// Returns `(bits, dict_bytes, dict_offsets, codes, codes_offsets)`.
-fn parts_to_children(
+fn parts_to_buffers(
     column: &Column,
-) -> VortexResult<(u32, BufferHandle, ArrayRef, ArrayRef, ArrayRef)> {
+) -> VortexResult<(u32, BufferHandle, BufferHandle, BufferHandle, BufferHandle)> {
     let parts = column
         .parts()
         .map_err(|e| vortex_err!("OnPair parts failed: {e}"))?;
     let bits = parts.bits;
     let dict_bytes = BufferHandle::new_host(ByteBuffer::from(parts.dict_bytes.to_vec()));
-    let dict_offsets = Buffer::<u32>::copy_from(parts.dict_offsets).into_array();
+    let dict_offsets =
+        BufferHandle::new_host(Buffer::<u32>::copy_from(parts.dict_offsets).into_byte_buffer());
     let total_tokens = usize::try_from(
         *parts
             .codes_boundaries
@@ -120,8 +116,9 @@ fn parts_to_children(
     )
     .map_err(|_| vortex_err!("OnPair: total_tokens does not fit in usize"))?;
     let codes_vec = unpack_codes_to_u16(parts.codes_packed, total_tokens, bits);
-    let codes = Buffer::<u16>::copy_from(codes_vec).into_array();
-    let codes_offsets = Buffer::<u32>::copy_from(parts.codes_boundaries).into_array();
+    let codes = BufferHandle::new_host(Buffer::<u16>::copy_from(codes_vec).into_byte_buffer());
+    let codes_offsets =
+        BufferHandle::new_host(Buffer::<u32>::copy_from(parts.codes_boundaries).into_byte_buffer());
     Ok((bits, dict_bytes, dict_offsets, codes, codes_offsets))
 }
 

@@ -31,9 +31,9 @@ impl CastReduce for OnPair {
                 OnPair::new_unchecked(
                     dtype.clone(),
                     array.dict_bytes_handle().clone(),
-                    array.dict_offsets().clone(),
-                    array.codes().clone(),
-                    array.codes_offsets().clone(),
+                    array.dict_offsets_handle().clone(),
+                    array.codes_handle().clone(),
+                    array.codes_offsets_handle().clone(),
                     array.uncompressed_lengths().clone(),
                     new_validity,
                     array.bits(),

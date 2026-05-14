@@ -70,17 +70,7 @@ fn corpus(n: usize) -> Vec<String> {
 
 /// Build a single-column StructArray of `Utf8` strings and round-trip it
 /// through `VortexWriteOptions::write` + `OpenOptions::open_buffer`.
-///
-/// TODO(onpair): currently fails with
-/// `Misaligned buffer cannot be used to build PrimitiveArray of u32` when the
-/// cascading compressor leaves `dict_offsets` / `codes_offsets` as raw
-/// `PrimitiveArray<u32>` children (i.e. doesn't bit-pack them). The fix is
-/// to move those offset arrays into the OnPair array's `VTable::buffer`
-/// slots (where alignment is preserved via `BufferHandle::alignment`),
-/// rather than store them as primitive slot children. Re-enable this test
-/// once that refactor lands.
 #[tokio::test]
-#[ignore = "Misaligned buffer on file roundtrip; tracked as a layout follow-up"]
 async fn onpair_string_file_roundtrip() {
     let n = 4096usize;
     let strings = corpus(n);
