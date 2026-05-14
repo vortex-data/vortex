@@ -1,0 +1,113 @@
+pub mod vortex_consecutive_delta
+
+pub struct vortex_consecutive_delta::ConsecutiveDelta
+
+impl vortex_consecutive_delta::ConsecutiveDelta
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::encode(vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_consecutive_delta::ConsecutiveDeltaArray>
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::try_new(i64, vortex_array::array::erased::ArrayRef, usize) -> vortex_error::VortexResult<vortex_consecutive_delta::ConsecutiveDeltaArray>
+
+impl core::clone::Clone for vortex_consecutive_delta::ConsecutiveDelta
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::clone(&self) -> vortex_consecutive_delta::ConsecutiveDelta
+
+impl core::fmt::Debug for vortex_consecutive_delta::ConsecutiveDelta
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::vtable::VTable for vortex_consecutive_delta::ConsecutiveDelta
+
+pub type vortex_consecutive_delta::ConsecutiveDelta::OperationsVTable = vortex_consecutive_delta::ConsecutiveDelta
+
+pub type vortex_consecutive_delta::ConsecutiveDelta::TypedArrayData = vortex_consecutive_delta::ConsecutiveDeltaData
+
+pub type vortex_consecutive_delta::ConsecutiveDelta::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::buffer(vortex_array::array::view::ArrayView<'_, Self>, usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::buffer_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> core::option::Option<alloc::string::String>
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &[vortex_array::buffer::BufferHandle], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::execute(vortex_array::array::typed::Array<Self>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::id(&self) -> vortex_array::array::ArrayId
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::nbuffers(vortex_array::array::view::ArrayView<'_, Self>) -> usize
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::serialize(vortex_array::array::view::ArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_consecutive_delta::ConsecutiveDelta> for vortex_consecutive_delta::ConsecutiveDelta
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::scalar_at(vortex_array::array::view::ArrayView<'_, vortex_consecutive_delta::ConsecutiveDelta>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::array::vtable::validity::ValidityChild<vortex_consecutive_delta::ConsecutiveDelta> for vortex_consecutive_delta::ConsecutiveDelta
+
+pub fn vortex_consecutive_delta::ConsecutiveDelta::validity_child(vortex_array::array::view::ArrayView<'_, vortex_consecutive_delta::ConsecutiveDelta>) -> vortex_array::array::erased::ArrayRef
+
+pub struct vortex_consecutive_delta::ConsecutiveDeltaData
+
+impl vortex_consecutive_delta::ConsecutiveDeltaData
+
+pub fn vortex_consecutive_delta::ConsecutiveDeltaData::seed(&self) -> i64
+
+impl core::clone::Clone for vortex_consecutive_delta::ConsecutiveDeltaData
+
+pub fn vortex_consecutive_delta::ConsecutiveDeltaData::clone(&self) -> vortex_consecutive_delta::ConsecutiveDeltaData
+
+impl core::fmt::Debug for vortex_consecutive_delta::ConsecutiveDeltaData
+
+pub fn vortex_consecutive_delta::ConsecutiveDeltaData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_consecutive_delta::ConsecutiveDeltaData
+
+pub fn vortex_consecutive_delta::ConsecutiveDeltaData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_consecutive_delta::ConsecutiveDeltaData
+
+pub fn vortex_consecutive_delta::ConsecutiveDeltaData::array_eq(&self, &Self, vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_consecutive_delta::ConsecutiveDeltaData
+
+pub fn vortex_consecutive_delta::ConsecutiveDeltaData::array_hash<H: core::hash::Hasher>(&self, &mut H, vortex_array::hash::Precision)
+
+pub struct vortex_consecutive_delta::ConsecutiveDeltaMetadata
+
+pub vortex_consecutive_delta::ConsecutiveDeltaMetadata::seed: i64
+
+impl core::clone::Clone for vortex_consecutive_delta::ConsecutiveDeltaMetadata
+
+pub fn vortex_consecutive_delta::ConsecutiveDeltaMetadata::clone(&self) -> vortex_consecutive_delta::ConsecutiveDeltaMetadata
+
+impl core::default::Default for vortex_consecutive_delta::ConsecutiveDeltaMetadata
+
+pub fn vortex_consecutive_delta::ConsecutiveDeltaMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_consecutive_delta::ConsecutiveDeltaMetadata
+
+pub fn vortex_consecutive_delta::ConsecutiveDeltaMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_consecutive_delta::ConsecutiveDeltaMetadata
+
+pub fn vortex_consecutive_delta::ConsecutiveDeltaMetadata::clear(&mut self)
+
+pub fn vortex_consecutive_delta::ConsecutiveDeltaMetadata::encoded_len(&self) -> usize
+
+pub trait vortex_consecutive_delta::ConsecutiveDeltaArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_consecutive_delta::ConsecutiveDelta>
+
+pub fn vortex_consecutive_delta::ConsecutiveDeltaArrayExt::primary(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_consecutive_delta::ConsecutiveDeltaArrayExt::seed(&self) -> i64
+
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_consecutive_delta::ConsecutiveDelta>> vortex_consecutive_delta::ConsecutiveDeltaArrayExt for T
+
+pub fn T::primary(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::seed(&self) -> i64
+
+pub type vortex_consecutive_delta::ConsecutiveDeltaArray = vortex_array::array::typed::Array<vortex_consecutive_delta::ConsecutiveDelta>
