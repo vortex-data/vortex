@@ -41,6 +41,8 @@ pub trait VariantArrayExt: TypedArrayRef<Variant> {
     }
 
     /// Returns the optional row-aligned typed shredded tree for selected variant paths.
+    /// This functions returns `Some` only if the array was canonicalized and the shredded data
+    /// was pulled out of the underlying variant storage.
     fn shredded(&self) -> Option<&ArrayRef> {
         self.as_ref().slots()[SHREDDED_SLOT].as_ref()
     }

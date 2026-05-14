@@ -685,6 +685,8 @@ impl Executable for CanonicalValidity {
 /// callers should prefer an execution target that's suitable for their use case instead of this one.
 pub struct RecursiveCanonical(pub Canonical);
 
+// TODO: Currently only used for Variant, in the future
+// can probably be used for more canonical types like Struct.
 fn recursively_canonicalize_slots(
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,

@@ -119,6 +119,7 @@ impl ScalarFnVTable for VariantGet {
             "VariantGet input must be Variant, found {input_dtype}"
         );
 
+        // Missing paths, traversal mismatches, and cast failures all produce nulls.
         Ok(options
             .dtype()
             .map_or(DType::Variant(Nullability::Nullable), DType::as_nullable))
@@ -131,6 +132,7 @@ impl ScalarFnVTable for VariantGet {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         let input = args.get(0)?;
+        // Missing paths, traversal mismatches, and cast failures all produce nulls.
         let dtype = options
             .dtype()
             .map_or(DType::Variant(Nullability::Nullable), DType::as_nullable);

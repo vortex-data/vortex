@@ -18,7 +18,7 @@ impl OperationsVTable<Variant> for Variant {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
         let core_storage = array.core_storage();
-        if !core_storage.is_valid(index, ctx)? {
+        if core_storage.is_invalid(index, ctx)? {
             return Ok(Scalar::null(array.dtype().clone()));
         }
 
@@ -27,6 +27,7 @@ impl OperationsVTable<Variant> for Variant {
         };
 
         let typed = shredded.execute_scalar(index, ctx)?;
+        // If the shredded value is null OR we shredded an object we want to merge back together.
         let fallback = (typed.is_null() || typed.dtype().is_struct())
             .then(|| core_storage.execute_scalar(index, ctx))
             .transpose()?;

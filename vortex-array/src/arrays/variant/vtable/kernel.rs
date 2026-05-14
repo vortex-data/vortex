@@ -134,6 +134,9 @@ impl ExecuteParentKernel<Variant> for VariantGetKernel {
 
         // Null typed rows are not necessarily missing from the logical variant value;
         // fill those rows from core storage and keep valid typed rows unchanged.
+        // TODO: we are computing the entire fallback array here but only take indices where
+        // typed_mask is false, so we can narrow the core_storage to only the false
+        // indices and compute from there then zip
         let fallback = make_fallback(ctx)?;
         typed_mask
             .into_array()
