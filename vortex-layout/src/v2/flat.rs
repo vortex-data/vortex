@@ -7,8 +7,12 @@
 
 use std::sync::Arc;
 
+use futures::FutureExt;
+use futures::stream;
+use vortex_array::MaskFuture;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -16,14 +20,16 @@ use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
 use crate::LayoutReaderRef;
-use crate::v2::plan::{LayoutPlan, LayoutPlanRef, PartitionStats};
+use crate::v2::plan::LayoutPlan;
+use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plan::PartitionStats;
 
 /// Terminal node. Reads one segment, evaluates `expr` against the
 /// resulting array, emits a single-partition stream.
 ///
-/// In PR 2 this is a scaffold — `execute` is unimplemented. PR 3
-/// fills it in by driving the underlying [`crate::LayoutReader`]
-/// (and later, sub-segment reads).
+/// Today this bridges to the v1 [`crate::LayoutReader`] under the hood.
+/// The v2 trait exposes the right shape for future sub-segment reads
+/// and `FilterPlan` fusion (see `LAYOUT_PLAN.md` § FilterPlan).
 pub struct FlatPlan {
     reader: LayoutReaderRef,
     expr: Expression,
@@ -106,9 +112,30 @@ impl LayoutPlan for FlatPlan {
 
     fn execute(
         &self,
-        _partition: usize,
+        partition: usize,
         _session: &VortexSession,
     ) -> VortexResult<SendableArrayStream> {
-        todo!("FlatPlan::execute — implemented in PR 3 alongside the differential test")
+        if partition >= 1 {
+            vortex_bail!("FlatPlan partition out of range: {partition}");
+        }
+        if !matches!(self.selection, Selection::All) {
+            // Selection slicing for non-`All` selections is wired through
+            // `FilterPlan` in a later PR. The projection-only V2 entrypoint
+            // never hands us anything else.
+            vortex_bail!("FlatPlan only supports Selection::All in the projection-only path");
+        }
+
+        let row_range = 0..self.row_count;
+        let row_count_usize: usize = self.row_count.try_into().map_err(|_| {
+            vortex_error::vortex_err!("FlatPlan row count {} exceeds usize::MAX", self.row_count)
+        })?;
+        let mask = MaskFuture::new_true(row_count_usize);
+        let array_fut = self
+            .reader
+            .projection_evaluation(&row_range, &self.expr, mask)?;
+
+        let dtype = self.output_dtype.clone();
+        let inner = stream::once(array_fut.map(|res| res));
+        Ok(Box::pin(ArrayStreamAdapter::new(dtype, inner)))
     }
 }

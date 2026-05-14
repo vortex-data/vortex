@@ -11,6 +11,7 @@ use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Field;
 use vortex_array::dtype::FieldMask;
+use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::StructFields;
 use vortex_error::VortexExpect;
@@ -32,6 +33,10 @@ use crate::children::LayoutChildren;
 use crate::children::OwnedLayoutChildren;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plan::PlanArguments;
+use crate::v2::project::ProjectPlan;
+use crate::v2::struct_::StructPlan;
 use crate::vtable;
 
 vtable!(Struct);
@@ -167,6 +172,54 @@ impl VTable for Struct {
 
         layout.children = OwnedLayoutChildren::layout_children(children);
         Ok(())
+    }
+
+    fn plan(layout: &Self::Layout, args: PlanArguments) -> VortexResult<LayoutPlanRef> {
+        // PR 3 reads every field and applies the projection on top via
+        // [`ProjectPlan`]. Field-path pruning (so that we read only the
+        // referenced fields) is the next step — see `LAYOUT_PLAN.md`
+        // § Per-layout `plan` walkthrough / `StructLayout::plan`.
+        if layout.dtype.is_nullable() {
+            vortex_bail!("StructLayout::plan does not yet support nullable structs");
+        }
+
+        let struct_fields = layout.struct_fields();
+        let nfields = struct_fields.nfields();
+        let mut child_plans = Vec::with_capacity(nfields);
+        let mut field_names: Vec<FieldName> = Vec::with_capacity(nfields);
+        // Each field child reads its full data with `root()` so the
+        // top-level expression sees the original struct shape.
+        let child_args = args.clone().with_expr(vortex_array::expr::root());
+        for idx in 0..nfields {
+            // Non-nullable means children are positionally aligned with
+            // fields with no validity child to skip.
+            let child_dtype = struct_fields
+                .field_by_index(idx)
+                .ok_or_else(|| vortex_err!("Missing struct field at index {idx}"))?;
+            let field_name = struct_fields
+                .field_name(idx)
+                .ok_or_else(|| vortex_err!("Missing struct field name at index {idx}"))?
+                .clone();
+            let child = layout.children.child(idx, &child_dtype)?;
+            child_plans.push(child.plan(child_args.clone())?);
+            field_names.push(field_name);
+        }
+        let struct_plan: LayoutPlanRef = Arc::new(StructPlan::new(
+            child_plans,
+            field_names,
+            layout.dtype.clone(),
+        ));
+
+        if vortex_array::expr::is_root(&args.expr) {
+            return Ok(struct_plan);
+        }
+
+        let output_dtype = args.expr.return_dtype(&layout.dtype)?;
+        Ok(Arc::new(ProjectPlan::new(
+            struct_plan,
+            args.expr,
+            output_dtype,
+        )))
     }
 }
 

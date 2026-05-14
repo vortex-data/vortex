@@ -3,14 +3,19 @@
 
 //! LayoutPlan v2 — pushdown-first execution model for Vortex layouts.
 //!
-//! This module defines the trait skeleton. No layouts implement
-//! [`LayoutPlan`] yet; [`crate::Layout::plan`] returns
-//! `vortex_bail!`. See `LAYOUT_PLAN.md` at the repo root for the
-//! design.
+//! This module defines the [`plan::LayoutPlan`] trait and the layout-
+//! agnostic plan nodes that compose into a scan tree (`flat`, `chunked`,
+//! `struct_`, `project`). The per-layout `Layout::plan` overrides for
+//! `Flat` / `Chunked` / `Struct` live alongside their layout
+//! definitions in `crate::layouts::*` and route into these nodes.
+//!
+//! See `LAYOUT_PLAN.md` at the repo root for the design.
 
 pub mod chunked;
 pub mod demand;
 pub mod flat;
 pub mod plan;
+pub mod project;
+pub mod scan;
 pub mod struct_;
 pub mod toggle;

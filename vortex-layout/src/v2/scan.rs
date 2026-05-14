@@ -1,0 +1,272 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! [`Scan`] — entrypoint for the LayoutPlan v2 path.
+//!
+//! [`Scan::build`] turns a layout, projection, and selection into a
+//! [`LayoutPlanRef`] tree by recursing through `Layout::plan`. The
+//! initial cut handles the projection-only case (no filter); filter
+//! conjuncts and `FilterPlan` arrive in a later PR — see
+//! `LAYOUT_PLAN.md` § Scan construction.
+
+use std::sync::Arc;
+
+use vortex_array::expr::Expression;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_scan::selection::Selection;
+use vortex_session::VortexSession;
+
+use crate::LayoutRef;
+use crate::segments::SegmentSource;
+use crate::v2::demand::RowDemand;
+use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plan::PlanArguments;
+use crate::v2::plan::PlanContext;
+
+/// Scan request for the LayoutPlan v2 path. Mirrors the inputs to
+/// `vortex_layout::scan::scan_builder::ScanBuilder` but produces a
+/// [`LayoutPlanRef`] rather than driving execution itself.
+pub struct Scan {
+    /// Root layout being scanned.
+    pub layout: LayoutRef,
+    /// Source of segment bytes for the file under scan.
+    pub segment_source: Arc<dyn SegmentSource>,
+    /// Session used at plan-construction time.
+    pub session: VortexSession,
+    /// Projection expression — defaults to `root()` for "all columns".
+    pub projection: Expression,
+    /// Optional filter. Today only `None` is supported by [`Scan::build`].
+    pub filter: Option<Expression>,
+    /// Pre-mask selection over the layout's row space.
+    pub selection: Selection,
+}
+
+impl Scan {
+    /// Build the layout plan tree for this scan.
+    ///
+    /// Projection-only is the only supported shape today. A `Some`
+    /// filter returns an error so callers (e.g. the DataFusion opener)
+    /// can fall back to the v1 [`crate::scan::scan_builder::ScanBuilder`]
+    /// path.
+    pub fn build(&self) -> VortexResult<LayoutPlanRef> {
+        if self.filter.is_some() {
+            vortex_bail!(
+                "Scan::build does not yet support filter expressions; \
+                 fall back to the v1 ScanBuilder path"
+            );
+        }
+
+        let demand = Arc::new(RowDemand::empty());
+        let ctx = PlanContext {
+            demand,
+            segment_source: Arc::clone(&self.segment_source),
+            session: self.session.clone(),
+        };
+
+        self.layout.plan(PlanArguments {
+            selection: self.selection.clone(),
+            expr: self.projection.clone(),
+            ctx,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use futures::StreamExt;
+    use futures::stream;
+    use vortex_array::ArrayContext;
+    use vortex_array::ArrayRef;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::root;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
+    use vortex_scan::selection::Selection;
+
+    use super::Scan;
+    use crate::LayoutRef;
+    use crate::LayoutStrategy;
+    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::table::TableStrategy;
+    use crate::scan::scan_builder::ScanBuilder;
+    use crate::segments::SegmentSource;
+    use crate::segments::TestSegments;
+    use crate::sequence::SequenceId;
+    use crate::sequence::SequentialStreamAdapter;
+    use crate::sequence::SequentialStreamExt as _;
+    use crate::test::SESSION;
+
+    /// Build a `Chunked(Struct(Flat, Flat))` layout with two chunks.
+    /// Returns the segment source, the layout, and the array we wrote.
+    fn build_chunked_struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef, ArrayRef) {
+        let chunk1 = StructArray::from_fields(
+            [
+                ("a", buffer![1i32, 2, 3].into_array()),
+                ("b", buffer![10i32, 20, 30].into_array()),
+            ]
+            .as_slice(),
+        )
+        .unwrap()
+        .into_array();
+        let chunk2 = StructArray::from_fields(
+            [
+                ("a", buffer![4i32, 5].into_array()),
+                ("b", buffer![40i32, 50].into_array()),
+            ]
+            .as_slice(),
+        )
+        .unwrap()
+        .into_array();
+        let dtype = chunk1.dtype().clone();
+
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let segments_for_strategy = Arc::<TestSegments>::clone(&segments);
+        let strategy = ChunkedLayoutStrategy::new(TableStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+        ));
+
+        let (mut sequence_id, eof) = SequenceId::root().split();
+        let chunk1_for_write = chunk1.clone();
+        let chunk2_for_write = chunk2.clone();
+        let dtype_for_write = dtype.clone();
+
+        let layout = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx,
+                    segments_for_strategy,
+                    SequentialStreamAdapter::new(
+                        dtype_for_write,
+                        stream::iter([
+                            Ok((sequence_id.advance(), chunk1_for_write)),
+                            Ok((sequence_id.advance(), chunk2_for_write)),
+                        ]),
+                    )
+                    .sendable(),
+                    eof,
+                    &session,
+                )
+                .await
+        })
+        .unwrap();
+
+        let combined = ChunkedArray::try_new(vec![chunk1, chunk2], dtype)
+            .unwrap()
+            .into_array();
+        (segments, layout, combined)
+    }
+
+    /// Drive the legacy [`ScanBuilder`] path to read the layout into a single array.
+    fn read_v1(segments: Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexResult<ArrayRef> {
+        let chunks = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            let reader = layout.new_reader("v1".into(), segments, &session)?;
+            let mut stream = ScanBuilder::new(session, reader).into_array_stream()?;
+            let mut chunks = Vec::new();
+            while let Some(chunk) = stream.next().await {
+                chunks.push(chunk?);
+            }
+            VortexResult::Ok(chunks)
+        })?;
+        let dtype = layout.dtype().clone();
+        Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
+    }
+
+    /// Drive the v2 [`Scan`] / [`crate::v2::plan::LayoutPlan`] path.
+    fn read_v2(segments: Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexResult<ArrayRef> {
+        let layout = Arc::clone(layout);
+        let (chunks, plan_dtype) = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            let scan = Scan {
+                layout,
+                segment_source: segments,
+                session: session.clone(),
+                projection: root(),
+                filter: None,
+                selection: Selection::All,
+            };
+            let plan = scan.build()?;
+            let plan_dtype = plan.schema().clone();
+
+            let mut chunks = Vec::new();
+            for partition in 0..plan.partition_count() {
+                let mut stream = plan.execute(partition, &session)?;
+                while let Some(chunk) = stream.next().await {
+                    chunks.push(chunk?);
+                }
+            }
+            VortexResult::Ok((chunks, plan_dtype))
+        })?;
+        Ok(ChunkedArray::try_new(chunks, plan_dtype)?.into_array())
+    }
+
+    /// Build a single-chunk `Flat` layout backed by a primitive array.
+    fn build_flat_layout() -> (Arc<dyn SegmentSource>, LayoutRef, ArrayRef) {
+        let array = buffer![1i32, 2, 3, 4, 5].into_array();
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let segments_for_strategy = Arc::<TestSegments>::clone(&segments);
+        let (ptr, eof) = SequenceId::root().split();
+        let array_for_write = array.clone();
+        let layout = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            FlatLayoutStrategy::default()
+                .write_stream(
+                    ctx,
+                    segments_for_strategy,
+                    crate::sequence::SequentialArrayStreamExt::sequenced(
+                        array_for_write.to_array_stream(),
+                        ptr,
+                    ),
+                    eof,
+                    &session,
+                )
+                .await
+        })
+        .unwrap();
+        (segments, layout, array)
+    }
+
+    /// V1 and V2 must produce identical output for a projection-only scan.
+    #[test]
+    fn diff_v1_v2_projection_only_chunked_struct() -> VortexResult<()> {
+        let (segments, layout, expected) = build_chunked_struct_layout();
+
+        let v1 = read_v1(Arc::clone(&segments), &layout)?;
+        let v2 = read_v2(Arc::clone(&segments), &layout)?;
+
+        // V1 and V2 must agree.
+        assert_arrays_eq!(v1, v2);
+        // And both must agree with what we wrote.
+        assert_arrays_eq!(v2, expected);
+
+        Ok(())
+    }
+
+    /// Same diff but for a single-chunk `Flat` — exercises the bare
+    /// `FlatLayout::plan` path with no `Chunked`/`Struct` wrappers.
+    #[test]
+    fn diff_v1_v2_projection_only_flat() -> VortexResult<()> {
+        let (segments, layout, expected) = build_flat_layout();
+
+        let v1 = read_v1(Arc::clone(&segments), &layout)?;
+        let v2 = read_v2(Arc::clone(&segments), &layout)?;
+
+        assert_arrays_eq!(v1, v2);
+        assert_arrays_eq!(v2, expected);
+
+        Ok(())
+    }
+}

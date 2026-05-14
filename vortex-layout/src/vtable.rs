@@ -24,6 +24,8 @@ use crate::LayoutRef;
 use crate::children::LayoutChildren;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plan::PlanArguments;
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Layout: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Layout> + IntoLayout;
@@ -82,6 +84,17 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// This method is used for transforming layout trees by replacing child layouts.
     fn with_children(_layout: &mut Self::Layout, _children: Vec<LayoutRef>) -> VortexResult<()> {
         vortex_bail!("with_children not implemented for this layout")
+    }
+
+    /// Build a [`LayoutPlanRef`] for this layout against the given expression and selection.
+    ///
+    /// Layouts opt in to the LayoutPlan v2 path by overriding this method. The default
+    /// bails so that layouts which haven't been ported still fall back through
+    /// [`crate::Layout::plan`]'s default `vortex_bail!`.
+    ///
+    /// See `LAYOUT_PLAN.md` at the repo root for the design.
+    fn plan(_layout: &Self::Layout, _args: PlanArguments) -> VortexResult<LayoutPlanRef> {
+        vortex_bail!("LayoutPlan not yet supported for this layout")
     }
 }
 

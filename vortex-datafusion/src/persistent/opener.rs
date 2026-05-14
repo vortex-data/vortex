@@ -32,6 +32,7 @@ use futures::stream;
 use itertools::Itertools;
 use object_store::path::Path;
 use tracing::Instrument;
+use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::FieldMask;
@@ -42,9 +43,11 @@ use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
+use vortex::layout::v2::scan::Scan as V2Scan;
 use vortex::layout::v2::toggle as v2_toggle;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
+use vortex::scan::selection::Selection;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
@@ -308,18 +311,17 @@ impl FileOpener for VortexOpener {
                 }
             };
 
-            if v2_toggle::use_v2_scan() {
-                // PR 2 lands the toggle and the plan-node scaffolding only.
-                // Real V2 execution arrives in PR 3 (FilterPlan + differential
-                // test). Until then we always fall back to the legacy path
-                // and log so benchmark setups can confirm the flag is wired.
-                tracing::warn!(
-                    "{} is set but LayoutPlan v2 execution is not yet implemented; \
-                     falling back to v1 ScanBuilder.",
-                    v2_toggle::ENV_VAR,
-                );
-            }
             let mut scan_builder = ScanBuilder::new(session.clone(), Arc::clone(&layout_reader));
+
+            // Pull any access-plan selection out of the file extensions so we
+            // can both apply it to the v1 builder and inspect it for v2
+            // eligibility (we only support `Selection::All` on the v2 path
+            // until `FilterPlan` lands).
+            let access_plan_selection = file
+                .extensions
+                .as_ref()
+                .and_then(|extensions| extensions.downcast_ref::<VortexAccessPlan>())
+                .and_then(|plan| plan.selection().cloned());
 
             if let Some(extensions) = file.extensions
                 && let Some(vortex_plan) = extensions.downcast_ref::<VortexAccessPlan>()
@@ -327,6 +329,9 @@ impl FileOpener for VortexOpener {
                 scan_builder = vortex_plan.apply_to_builder(scan_builder);
             }
 
+            // Track whether DataFusion handed us anything other than a
+            // full-file byte range — `with_row_range` is a v1-only knob today.
+            let mut full_file_range = true;
             if let Some(file_range) = file.range {
                 let byte_range = Range {
                     start: u64::try_from(file_range.start)
@@ -335,6 +340,7 @@ impl FileOpener for VortexOpener {
                         .map_err(|_| exec_datafusion_err!("Vortex file range end is negative"))?,
                 };
                 if byte_range.start != 0 || byte_range.end != file.object_meta.size {
+                    full_file_range = false;
                     // Full-file scans already cover every natural split. Only translate the
                     // byte range back into row boundaries when DataFusion has trimmed the file.
                     let natural_split_ranges = natural_split_ranges_for_file(
@@ -398,17 +404,88 @@ impl FileOpener for VortexOpener {
                 scan_builder = scan_builder.with_concurrency(concurrency);
             }
 
-            let stream = scan_builder
-                .with_metrics_registry(metrics_registry)
-                .with_projection(scan_projection)
-                .with_some_filter(filter)
-                .with_ordered(has_output_ordering)
-                .map(move |chunk| {
-                    let mut ctx = session.create_execution_ctx();
-                    chunk.execute_record_batch(&stream_schema, &mut ctx)
-                })
-                .into_stream()
-                .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
+            // The raw stream of `VortexResult<RecordBatch>` produced by either
+            // the legacy v1 `ScanBuilder` path or the new LayoutPlan v2 path.
+            // The downstream pipeline (slicing into batch_size, error
+            // mapping, leftover projection) is identical across both.
+            //
+            // V2 today only handles the projection-only shape — see
+            // `vortex::layout::v2::scan::Scan::build` and
+            // `LAYOUT_PLAN.md` § Scan construction. Anything outside that
+            // shape (filter, limit, partial file range, non-`All` selection)
+            // falls back to v1.
+            // PR 3 supports any projection (via `ProjectPlan`'s read-all-then-
+            // apply fallback), but only the projection-only shape — no
+            // `FilterPlan`, no row-range slicing, no limit, no per-row
+            // selection. Anything outside that falls back to v1.
+            let v2_eligible = v2_toggle::use_v2_scan()
+                && filter.is_none()
+                && limit.is_none()
+                && full_file_range
+                && matches!(access_plan_selection.as_ref(), None | Some(Selection::All));
+
+            // Try V2 first if eligible; if `Layout::plan` bails (because some
+            // layout in the tree hasn't been ported yet), fall through to v1.
+            let v2_attempt = if v2_eligible {
+                let scan = V2Scan {
+                    layout: Arc::clone(vxf.footer().layout()),
+                    segment_source: vxf.segment_source(),
+                    session: session.clone(),
+                    projection: scan_projection.clone(),
+                    filter: None,
+                    selection: Selection::All,
+                };
+                match scan.build() {
+                    Ok(plan) => Some(plan),
+                    Err(err) => {
+                        tracing::debug!("LayoutPlan v2 build failed; falling back to v1: {err}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            let raw_stream = if let Some(plan) = v2_attempt {
+                let v2_session = session.clone();
+
+                // Eagerly start each partition so its lazy reader pipeline is
+                // primed. `LayoutPlan::execute` doesn't itself fetch — it
+                // returns a stream that drives I/O when polled — so this loop
+                // just schedules N futures.
+                let mut partition_streams = Vec::with_capacity(plan.partition_count());
+                for partition in 0..plan.partition_count() {
+                    partition_streams.push(plan.execute(partition, &session).map_err(|e| {
+                        exec_datafusion_err!(
+                            "Failed to execute LayoutPlan v2 partition {partition}: {e}"
+                        )
+                    })?);
+                }
+
+                stream::iter(partition_streams)
+                    .flatten()
+                    .map(move |chunk_res: vortex::error::VortexResult<ArrayRef>| {
+                        let mut ctx = v2_session.create_execution_ctx();
+                        chunk_res
+                            .and_then(|chunk| chunk.execute_record_batch(&stream_schema, &mut ctx))
+                    })
+                    .boxed()
+            } else {
+                scan_builder
+                    .with_metrics_registry(metrics_registry)
+                    .with_projection(scan_projection)
+                    .with_some_filter(filter)
+                    .with_ordered(has_output_ordering)
+                    .map(move |chunk| {
+                        let mut ctx = session.create_execution_ctx();
+                        chunk.execute_record_batch(&stream_schema, &mut ctx)
+                    })
+                    .into_stream()
+                    .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
+                    .boxed()
+            };
+
+            let stream = raw_stream
                 .map_ok(move |rb| {
                     // We try and slice the stream into respecting datafusion's configured batch size.
                     stream::iter(

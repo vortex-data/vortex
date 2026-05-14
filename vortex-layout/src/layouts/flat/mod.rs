@@ -28,6 +28,9 @@ use crate::children::LayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::flat::FlatPlan;
+use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plan::PlanArguments;
 use crate::vtable;
 
 /// Check if inline array node is enabled.
@@ -125,6 +128,23 @@ impl VTable for Flat {
             vortex_bail!("Flat layout has no children, got {}", children.len());
         }
         Ok(())
+    }
+
+    fn plan(layout: &Self::Layout, args: PlanArguments) -> VortexResult<LayoutPlanRef> {
+        let output_dtype = args.expr.return_dtype(&layout.dtype)?;
+        let reader: LayoutReaderRef = Arc::new(FlatReader::new(
+            layout.clone(),
+            "v2.flat".into(),
+            Arc::clone(&args.ctx.segment_source),
+            args.ctx.session.clone(),
+        ));
+        Ok(Arc::new(FlatPlan::new(
+            reader,
+            args.expr,
+            args.selection,
+            output_dtype,
+            layout.row_count,
+        )))
     }
 }
 

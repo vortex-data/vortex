@@ -24,6 +24,9 @@ use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::chunked::ChunkedPlan;
+use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plan::PlanArguments;
 use crate::vtable;
 
 vtable!(Chunked);
@@ -112,6 +115,17 @@ impl VTable for Chunked {
         layout.children = new_children;
         layout.chunk_offsets = chunk_offsets;
         Ok(())
+    }
+
+    fn plan(layout: &Self::Layout, args: PlanArguments) -> VortexResult<LayoutPlanRef> {
+        let dtype = layout.dtype.clone();
+        let nchildren = layout.children.nchildren();
+        let mut child_plans = Vec::with_capacity(nchildren);
+        for idx in 0..nchildren {
+            let child = layout.children.child(idx, &dtype)?;
+            child_plans.push(child.plan(args.clone())?);
+        }
+        Ok(Arc::new(ChunkedPlan::new(child_plans, dtype)))
     }
 }
 

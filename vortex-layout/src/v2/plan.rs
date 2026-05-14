@@ -105,21 +105,26 @@ impl PlanArguments {
 /// Carries:
 /// - the [`RowDemand`] SIP resource for layout-emitted publishers and
 ///   downstream consumers,
-/// - the [`SegmentSource`] used to fetch on-disk bytes at execute time.
+/// - the [`SegmentSource`] used to fetch on-disk bytes at execute time,
+/// - the [`VortexSession`] used for plan-time setup that touches the
+///   array context (e.g. constructing `LayoutReader`s while we still
+///   bridge to the v1 read path).
 #[derive(Clone)]
 pub struct PlanContext {
     pub demand: Arc<RowDemand>,
     pub segment_source: Arc<dyn SegmentSource>,
+    pub session: VortexSession,
 }
 
 impl PlanContext {
-    /// Construct a context with the given segment source and an empty
-    /// (no-op) [`RowDemand`]. Useful as a default for layouts that
-    /// don't need to participate in demand publication.
-    pub fn new(segment_source: Arc<dyn SegmentSource>) -> Self {
+    /// Construct a context with the given segment source and session, and
+    /// an empty (no-op) [`RowDemand`]. Useful as a default for layouts
+    /// that don't need to participate in demand publication.
+    pub fn new(segment_source: Arc<dyn SegmentSource>, session: VortexSession) -> Self {
         Self {
             demand: Arc::new(RowDemand::empty()),
             segment_source,
+            session,
         }
     }
 
@@ -131,6 +136,7 @@ impl PlanContext {
         Self {
             demand: Arc::new(RowDemand::empty()),
             segment_source: Arc::clone(&self.segment_source),
+            session: self.session.clone(),
         }
     }
 }

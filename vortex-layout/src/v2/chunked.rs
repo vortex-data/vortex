@@ -14,7 +14,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
-use crate::v2::plan::{LayoutPlan, LayoutPlanRef, PartitionStats};
+use crate::v2::plan::LayoutPlan;
+use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plan::PartitionStats;
 
 /// Routes one partition per child chunk. `partition_count == children.len()`
 /// in the default (ordered) mode; relaxed mode is a follow-up PR.
@@ -99,9 +101,14 @@ impl LayoutPlan for ChunkedPlan {
 
     fn execute(
         &self,
-        _partition: usize,
-        _session: &VortexSession,
+        partition: usize,
+        session: &VortexSession,
     ) -> VortexResult<SendableArrayStream> {
-        todo!("ChunkedPlan::execute — implemented in PR 3 alongside the differential test")
+        let child = self.children.get(partition).ok_or_else(|| {
+            vortex_error::vortex_err!("ChunkedPlan partition out of range: {partition}")
+        })?;
+        // One partition == one chunk. Each chunk plan exposes a single
+        // partition of its own, so we always execute partition 0.
+        child.execute(0, session)
     }
 }

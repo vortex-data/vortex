@@ -327,6 +327,10 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
     ) -> VortexResult<LayoutReaderRef> {
         V::new_reader(&self.0, name, segment_source, session)
     }
+
+    fn plan(&self, args: PlanArguments) -> VortexResult<LayoutPlanRef> {
+        V::plan(&self.0, args)
+    }
 }
 
 mod private {
