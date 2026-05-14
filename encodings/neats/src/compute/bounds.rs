@@ -82,6 +82,45 @@ pub(crate) fn model_bounds(
                 max: v0.max(v1),
             }
         }
+        ModelKind::Radical => {
+            // y = a + b * sqrt(t) is monotonic in t (sign of b decides direction).
+            let v0 = a;
+            let v1 = a + b * last.sqrt();
+            ModelBounds {
+                min: v0.min(v1),
+                max: v0.max(v1),
+            }
+        }
+        ModelKind::Logarithmic => {
+            // y = a + b * ln(t+1) is monotonic in t.
+            let v0 = a;
+            let v1 = a + b * (last + 1.0).ln();
+            ModelBounds {
+                min: v0.min(v1),
+                max: v0.max(v1),
+            }
+        }
+        ModelKind::Gaussian => {
+            // y = a * exp(-(t-μ)²/(2σ²)). The peak is at t = μ with value a; values fall off
+            // monotonically with |t-μ|. We bound by checking endpoints and (if inside the
+            // piece) the centre μ.
+            let v_at = |t: f64| -> f64 {
+                let dt = t - b;
+                a * (-0.5 * (dt * dt) / (c * c)).exp()
+            };
+            let v0 = v_at(0.0);
+            let v_last = v_at(last);
+            let mut lo = v0.min(v_last);
+            let mut hi = v0.max(v_last);
+            if b > 0.0 && b < last {
+                let v_peak = a; // exp(0) = 1
+                lo = lo.min(v_peak);
+                hi = hi.max(v_peak);
+            }
+            // Far from the centre the value goes to 0; the data span only covers a finite
+            // distance so the above three points give a valid bound (Gaussian is unimodal).
+            ModelBounds { min: lo, max: hi }
+        }
     }
 }
 

@@ -15,13 +15,19 @@
 
 mod constant;
 mod exponential;
+mod gaussian;
 mod linear;
+mod logarithmic;
 mod quadratic;
+mod radical;
 
 pub use constant::ConstantModel;
 pub use exponential::ExponentialModel;
+pub use gaussian::GaussianModel;
 pub use linear::LinearModel;
+pub use logarithmic::LogarithmicModel;
 pub use quadratic::QuadraticModel;
+pub use radical::RadicalModel;
 
 /// The model family identifier stored per piece. Values are stable on disk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,6 +37,9 @@ pub enum ModelKind {
     Linear = 1,
     Quadratic = 2,
     Exponential = 3,
+    Radical = 4,
+    Logarithmic = 5,
+    Gaussian = 6,
 }
 
 impl ModelKind {
@@ -41,6 +50,9 @@ impl ModelKind {
             1 => Some(Self::Linear),
             2 => Some(Self::Quadratic),
             3 => Some(Self::Exponential),
+            4 => Some(Self::Radical),
+            5 => Some(Self::Logarithmic),
+            6 => Some(Self::Gaussian),
             _ => None,
         }
     }
@@ -56,6 +68,13 @@ pub fn eval(kind: ModelKind, a: f64, b: f64, c: f64, t: f64) -> f64 {
         // Exponential is stored as (log(a), b, _) so we don't accumulate large numbers; the
         // canonical form is `exp(log(a) + b*t)`. We use `a` to hold `log(a_real)`.
         ModelKind::Exponential => (a + b * t).exp(),
+        ModelKind::Radical => a + b * t.sqrt(),
+        ModelKind::Logarithmic => a + b * (t + 1.0).ln(),
+        // Gaussian: a is amplitude, b is centre μ, c is width σ.
+        ModelKind::Gaussian => {
+            let dt = t - b;
+            a * (-0.5 * (dt * dt) / (c * c)).exp()
+        }
     }
 }
 
@@ -75,6 +94,9 @@ pub fn fit_best(values: &[f64], start: usize, end: usize, scale: f64) -> Option<
         LinearModel::fit(values, start, end, scale),
         QuadraticModel::fit(values, start, end, scale),
         ExponentialModel::fit(values, start, end, scale),
+        RadicalModel::fit(values, start, end, scale),
+        LogarithmicModel::fit(values, start, end, scale),
+        GaussianModel::fit(values, start, end, scale),
     ];
     for cand in candidates.into_iter().flatten() {
         match best {

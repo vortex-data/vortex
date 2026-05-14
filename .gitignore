@@ -188,6 +188,7 @@ zls.build.json
 *.npz
 .downloads
 benchmarks/.out
+benchmarks/real-data/
 
 # Scratch
 *.vortex

@@ -14,9 +14,15 @@ pub vortex_neats::models::ModelKind::Constant = 0
 
 pub vortex_neats::models::ModelKind::Exponential = 3
 
+pub vortex_neats::models::ModelKind::Gaussian = 6
+
 pub vortex_neats::models::ModelKind::Linear = 1
 
+pub vortex_neats::models::ModelKind::Logarithmic = 5
+
 pub vortex_neats::models::ModelKind::Quadratic = 2
+
+pub vortex_neats::models::ModelKind::Radical = 4
 
 impl vortex_neats::models::ModelKind
 
@@ -74,17 +80,35 @@ pub fn vortex_neats::models::FitResult::fmt(&self, &mut core::fmt::Formatter<'_>
 
 impl core::marker::Copy for vortex_neats::models::FitResult
 
+pub struct vortex_neats::models::GaussianModel
+
+impl vortex_neats::models::Model for vortex_neats::models::GaussianModel
+
+pub fn vortex_neats::models::GaussianModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
 pub struct vortex_neats::models::LinearModel
 
 impl vortex_neats::models::Model for vortex_neats::models::LinearModel
 
 pub fn vortex_neats::models::LinearModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
 
+pub struct vortex_neats::models::LogarithmicModel
+
+impl vortex_neats::models::Model for vortex_neats::models::LogarithmicModel
+
+pub fn vortex_neats::models::LogarithmicModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
 pub struct vortex_neats::models::QuadraticModel
 
 impl vortex_neats::models::Model for vortex_neats::models::QuadraticModel
 
 pub fn vortex_neats::models::QuadraticModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
+pub struct vortex_neats::models::RadicalModel
+
+impl vortex_neats::models::Model for vortex_neats::models::RadicalModel
+
+pub fn vortex_neats::models::RadicalModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
 
 pub trait vortex_neats::models::Model
 
@@ -98,13 +122,25 @@ impl vortex_neats::models::Model for vortex_neats::models::ExponentialModel
 
 pub fn vortex_neats::models::ExponentialModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
 
+impl vortex_neats::models::Model for vortex_neats::models::GaussianModel
+
+pub fn vortex_neats::models::GaussianModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
 impl vortex_neats::models::Model for vortex_neats::models::LinearModel
 
 pub fn vortex_neats::models::LinearModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
 
+impl vortex_neats::models::Model for vortex_neats::models::LogarithmicModel
+
+pub fn vortex_neats::models::LogarithmicModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
 impl vortex_neats::models::Model for vortex_neats::models::QuadraticModel
 
 pub fn vortex_neats::models::QuadraticModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
+
+impl vortex_neats::models::Model for vortex_neats::models::RadicalModel
+
+pub fn vortex_neats::models::RadicalModel::fit(&[f64], usize, usize, f64) -> core::option::Option<vortex_neats::models::FitResult>
 
 pub fn vortex_neats::models::eval(vortex_neats::models::ModelKind, f64, f64, f64, f64) -> f64
 

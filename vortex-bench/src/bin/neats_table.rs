@@ -60,6 +60,8 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| "synthetic".to_string());
     let inputs: Vec<(String, Vec<f64>)> = match mode.as_str() {
         "synthetic" => synthetic_inputs(),
+        "real" => load_real_datasets("/home/user/vortex/benchmarks/real-data")?,
+        path if path.ends_with(".csv") => load_csv_columns(path)?,
         path => {
             let parquet_path = PathBuf::from(path);
             println!("# loading parquet: {}", parquet_path.display());
@@ -139,9 +141,7 @@ fn run_neats(values: &[f64], epsilon: Option<f64>) -> anyhow::Result<Row> {
 
     let mut ctx2 = SESSION.create_execution_ctx();
     let t1 = Instant::now();
-    let decoded = encoded
-        .into_array()
-        .execute::<PrimitiveArray>(&mut ctx2)?;
+    let decoded = encoded.into_array().execute::<PrimitiveArray>(&mut ctx2)?;
     let decompress = t1.elapsed();
     let max_abs_err = max_abs_err(values, decoded.as_slice::<f64>());
 
@@ -170,9 +170,7 @@ fn run_neats_bitpack(values: &[f64], epsilon: Option<f64>) -> anyhow::Result<Row
 
     let mut ctx2 = SESSION.create_execution_ctx();
     let t1 = Instant::now();
-    let decoded = encoded
-        .into_array()
-        .execute::<PrimitiveArray>(&mut ctx2)?;
+    let decoded = encoded.into_array().execute::<PrimitiveArray>(&mut ctx2)?;
     let decompress = t1.elapsed();
     let max_abs_err = max_abs_err(values, decoded.as_slice::<f64>());
 
@@ -229,6 +227,67 @@ fn run_pco(values: &[f64]) -> anyhow::Result<Row> {
         decompress,
         max_abs_err,
     })
+}
+
+/// Load every numeric column from a CSV file. Columns where every row parses as f64 are kept;
+/// columns with any non-numeric value (text, dates, etc.) are skipped.
+fn load_csv_columns(path: &str) -> anyhow::Result<Vec<(String, Vec<f64>)>> {
+    let file = std::fs::File::open(path)?;
+    let reader = std::io::BufReader::new(file);
+    use std::io::BufRead;
+    let mut lines = reader.lines();
+    let header_line = match lines.next() {
+        Some(Ok(line)) => line,
+        _ => return Ok(vec![]),
+    };
+    let headers: Vec<String> = header_line
+        .split(',')
+        .map(|s| s.trim().trim_matches('"').to_string())
+        .collect();
+    let mut cols: Vec<Vec<Option<f64>>> = vec![Vec::new(); headers.len()];
+    for line in lines.map_while(Result::ok) {
+        let fields: Vec<&str> = line.split(',').collect();
+        for (i, field) in fields.iter().enumerate() {
+            if i >= cols.len() {
+                break;
+            }
+            let trimmed = field.trim().trim_matches('"');
+            cols[i].push(trimmed.parse::<f64>().ok());
+        }
+    }
+    let basename = std::path::Path::new(path)
+        .file_stem()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "csv".to_string());
+    let mut out = Vec::new();
+    for (i, col) in cols.into_iter().enumerate() {
+        // Keep columns where the bulk of rows parsed as f64.
+        let valid_count = col.iter().filter(|v| v.is_some()).count();
+        if valid_count < col.len() / 2 || valid_count < 16 {
+            continue;
+        }
+        let values: Vec<f64> = col.iter().filter_map(|v| *v).collect();
+        let name = headers.get(i).cloned().unwrap_or_else(|| format!("col{i}"));
+        out.push((format!("{basename}/{name}"), values));
+    }
+    Ok(out)
+}
+
+fn load_real_datasets(dir: &str) -> anyhow::Result<Vec<(String, Vec<f64>)>> {
+    let mut out = Vec::new();
+    let entries = std::fs::read_dir(dir)?;
+    let mut paths: Vec<_> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("csv"))
+        .collect();
+    paths.sort();
+    for p in paths {
+        if let Some(path_str) = p.to_str() {
+            out.extend(load_csv_columns(path_str)?);
+        }
+    }
+    Ok(out)
 }
 
 fn max_abs_err(original: &[f64], decoded: &[f64]) -> f64 {
