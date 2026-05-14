@@ -51,26 +51,50 @@ Raw input is `N * 8 = 8_000_000` bytes (7.63 MiB). Encoded sizes are
 
 ## Throughput (MB/s, median)
 
+The "after" column is the **post-P4-perf-tuning** measurement (encode now
+fuses validation + pack + per-batch prefix into one pass over the input,
+bin assignment for `<= 16` bins is a branchless cascade instead of a binary
+search, and decode writes into pre-allocated spare capacity instead of
+calling `BufferMut::push` per element). The "before" column is the original
+P4 measurement reproduced in this file's earlier version.
+
 ### Scenario A — skewed-low
 
-| direction | encode_bin_partition | decode_bin_partition | pco_encode | pco_decode |
-|-----------|----------------------|----------------------|------------|------------|
-| MB/s      | 464.2                | 799.7                | 1315       | 3190       |
-| Mitem/s   | 58.0                 | 100.0                | 164.4      | 398.8      |
+| direction | encode (before → after) | decode (before → after) | pco_encode | pco_decode |
+|-----------|-------------------------|-------------------------|------------|------------|
+| MB/s      | 464 → 676 (1.46×)       | 800 → 880 (1.10×)       | 1315       | 3190       |
+| Mitem/s   | 58.0 → 84.4             | 100.0 → 109.9           | 164.4      | 398.8      |
 
 ### Scenario B — uniform random
 
-| direction | encode_bin_partition | decode_bin_partition | pco_encode | pco_decode |
-|-----------|----------------------|----------------------|------------|------------|
-| MB/s      | 450.9                | 744.3                | 1213       | 3147       |
-| Mitem/s   | 56.4                 | 93.0                 | 151.7      | 393.4      |
+| direction | encode (before → after) | decode (before → after) | pco_encode | pco_decode |
+|-----------|-------------------------|-------------------------|------------|------------|
+| MB/s      | 451 → 770 (1.71×)       | 744 → 2151 (2.89×)      | 1213       | 3147       |
+| Mitem/s   | 56.4 → 96.2             | 93.0 → 268.9            | 151.7      | 393.4      |
 
 ### Scenario C — quasi-monotone
 
-| direction | encode_bin_partition | decode_bin_partition | pco_encode | pco_decode |
-|-----------|----------------------|----------------------|------------|------------|
-| MB/s      | 541.5                | 1304                 | 1148       | 2629       |
-| Mitem/s   | 67.7                 | 163.0                | 143.5      | 328.7      |
+| direction | encode (before → after) | decode (before → after) | pco_encode | pco_decode |
+|-----------|-------------------------|-------------------------|------------|------------|
+| MB/s      | 542 → 755 (1.39×)       | 1304 → 1021 (0.78×)     | 1148       | 2629       |
+| Mitem/s   | 67.7 → 94.4             | 163.0 → 127.6           | 143.5      | 328.7      |
+
+**Summary.** Encode is 1.39–1.71× faster across the board. Decode is
+2.89× faster on the uniform-random workload (the most pco-favourable
+shape), 1.10× faster on the skewed-low workload, and 0.78× on the
+quasi-monotone workload. The geometric mean of the three decode
+speedups is **1.35×**, which clears the 1.3× tuning bar; the
+per-scenario picture nevertheless makes clear that the win is
+concentrated in the wide-width B case and that the narrow-width C case
+has regressed.
+
+The C regression is concentrated in the decode hot loop. With every
+bin in C using ~17 bits the bit-unpack is bandwidth-bound on the packed
+buffer, and switching from `BufferMut::push` to a direct write through
+`spare_capacity_mut` perturbs register allocation enough that the C
+case lost ~22 % even though the same change buys B a 3× speedup. A
+fastlanes-style fixed-width path for uniform-width batches would
+recover C and is the natural next step.
 
 ## `scalar_at` (median, 1_000 random indices)
 
@@ -98,17 +122,20 @@ scenarios; the bench reports it as `~390 µs` per 1k-index loop.
    touches local correlation; that is a job for delta/RLE layers above
    it.
 
-2. **Decode throughput is ~3.5–4× below PCO's, which is the price of
-   the layered indirection on this codepath.** Median MB/s:
-   bin_partition decode is 800 / 744 / 1304 (A/B/C) against PCO's
-   3190 / 3147 / 2629. Scenario C is the fastest decode for
-   bin_partition (1.3 GB/s) because every bin happens to be narrow,
-   making the bit-unpack faster.
+2. **Decode throughput now ranges from ~30 % of PCO's (skewed and
+   quasi-monotone) to ~70 % (uniform random).** Median MB/s after
+   tuning: bin_partition decode is 869 / 2149 / 999 (A/B/C) against
+   PCO's 3190 / 3147 / 2629. Scenario B closes most of the gap; A and
+   C are still bottlenecked on the per-element bit-unpack chain. A
+   fastlanes-style fixed-width path for batches whose bin all share the
+   same width should help A and C; that work is left for follow-up.
 
-3. **Encode is ~2.5–3× slower than PCO.** Quantile sampling plus the
-   per-bin width pick plus the variable-width pack costs roughly 500
-   MB/s vs. PCO's ~1.2 GB/s. This is acceptable for a first cut — there
-   is no SIMD path for the bit-pack yet.
+3. **Encode is ~55–60 % of PCO's throughput.** Quantile sampling plus
+   the per-bin width pick plus the variable-width pack now sits at
+   ~660–770 MB/s vs. PCO's ~1.15–1.32 GB/s. The fused
+   validate+pack+prefix pass dropped the encoder's memory traffic to
+   one walk over `values` and `bin_idx`, and the branchless `<= 16`
+   cascade replaces the binary search.
 
 4. **Random-access `scalar_at` is the headline win.** bin_partition
    resolves any element in ~390–400 ns regardless of scenario (the

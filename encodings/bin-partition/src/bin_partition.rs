@@ -497,22 +497,63 @@ fn choose_bins(values: &[i64], max_bins: usize) -> Vec<Bin> {
     bins
 }
 
-/// Assign each value to a bin via binary search on bin lowers; compute the
-/// `(value - bin.lower) as u64` offset.
+/// Assign each value to a bin via a branchless cascade on bin lowers and
+/// compute the `(value - bin.lower) as u64` offset. For the common case of
+/// `bins.len() <= 16` we materialise the lowers into a fixed array and walk
+/// it with branchless `>= bins[k].lower` comparisons; the result is a small
+/// straight-line loop body the compiler can vectorise. For larger bin
+/// counts we fall back to a partition-point binary search.
 fn assign(values: &[i64], bins: &[Bin]) -> (Vec<u8>, Vec<u64>) {
     let n = values.len();
-    let mut bin_idx_vec = Vec::with_capacity(n);
-    let mut offsets = Vec::with_capacity(n);
-    for &v in values {
-        let b = bin_for(bins, v);
-        // `bins.len() <= MAX_BINS == 256`, so `b` fits in u8.
-        bin_idx_vec.push(u8::try_from(b).vortex_expect("bin index < MAX_BINS fits in u8"));
-        // `v >= bins[b].lower` by construction of `bin_for`. The wrapping
-        // sub-then-as-u64 gives the unsigned offset directly without
-        // touching `i128`.
-        let off = (v as u64).wrapping_sub(bins[b].lower as u64);
-        offsets.push(off);
+    let mut bin_idx_vec = vec![0u8; n];
+    let mut offsets = vec![0u64; n];
+    let n_bins = bins.len();
+
+    if n_bins <= 16 {
+        // Materialise lowers into a fixed buffer. Slots past `n_bins - 1`
+        // are filled with `i64::MAX` so the `>= lo` comparison reports
+        // false and never advances the index past the real bins.
+        let mut lowers = [i64::MAX; 16];
+        let mut bin_lower_lut = [0i64; 16];
+        for (i, b) in bins.iter().enumerate() {
+            lowers[i] = b.lower;
+            bin_lower_lut[i] = b.lower;
+        }
+        for (out_b, (out_off, &v)) in bin_idx_vec.iter_mut().zip(offsets.iter_mut().zip(values)) {
+            // The selected bin is the largest index k with lowers[k] <= v.
+            // Equivalently the count of true entries in `lowers[k] <= v`
+            // minus one, but a simpler branchless form is: start at 0 and
+            // increment for each subsequent bin whose lower is `<= v`. We
+            // walk slots 1..n_bins so the iteration count is constant per
+            // n_bins and the comparisons are independent.
+            let mut bin: u32 = 0;
+            // Use a fixed 16 iterations so the compiler can fully unroll;
+            // padding entries (`i64::MAX`) never satisfy `lo <= v`.
+            // Skip slot 0 (initial bin is 0).
+            for k in 1..16 {
+                let lo = lowers[k];
+                // (lo <= v) as u32 is 0 or 1. Adding it to `bin` advances
+                // when this bin is a candidate. Because `lowers` is sorted
+                // ascending, the count of `<= v` entries equals the bin
+                // index + 1.
+                bin += (lo <= v) as u32;
+            }
+            let b = bin as usize;
+            // `bin` is bounded by 15 (we count at most 15 of the 16
+            // lower comparisons), so the cast cannot truncate.
+            #[expect(clippy::cast_possible_truncation)]
+            let bin_u8 = bin as u8;
+            *out_b = bin_u8;
+            *out_off = (v as u64).wrapping_sub(bin_lower_lut[b] as u64);
+        }
+    } else {
+        for (out_b, (out_off, &v)) in bin_idx_vec.iter_mut().zip(offsets.iter_mut().zip(values)) {
+            let b = bin_for(bins, v);
+            *out_b = u8::try_from(b).vortex_expect("bin index < MAX_BINS fits in u8");
+            *out_off = (v as u64).wrapping_sub(bins[b].lower as u64);
+        }
     }
+
     (bin_idx_vec, offsets)
 }
 

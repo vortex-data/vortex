@@ -434,98 +434,140 @@ impl VarWidthBitPacked {
         let bin_idx_buf = bin_idx_typed.into_buffer::<u8>();
         let bin_idx_slice = bin_idx_buf.as_slice();
 
-        // Validate every value fits in its width and compute total bit length.
-        let mut total_bits: u64 = 0;
-        for (i, &v) in values.iter().enumerate() {
-            let bin = bin_idx_slice[i] as usize;
-            if bin >= widths.len() {
-                vortex_bail!("bin_idx[{i}] = {bin} >= widths.len() = {}", widths.len());
-            }
-            let w = widths[bin];
-            if w < 64 && v >= (1u64 << w) {
+        // Validate bin indices against widths.len() in one fast pass and
+        // build a 256-entry width LUT so the hot packing loop can do a
+        // single load per element regardless of n_bins. The LUT also makes
+        // a stray out-of-range bin_idx safe to load (any byte indexes a
+        // valid slot in width_lut), but we still bail above if any bin_idx
+        // exceeds widths.len().
+        let widths_len = widths.len();
+        let mut width_lut = [u8::MAX; 256];
+        for (i, &w) in widths.iter().enumerate() {
+            width_lut[i] = w;
+        }
+        for (i, &bi) in bin_idx_slice.iter().enumerate() {
+            if (bi as usize) >= widths_len {
                 vortex_bail!(
-                    "value {v} at index {i} overflows bin {bin} width {w} (max {})",
-                    if w == 0 { 0u64 } else { (1u64 << w) - 1 },
+                    "bin_idx[{i}] = {} >= widths.len() = {widths_len}",
+                    bi as usize,
                 );
             }
-            total_bits += w as u64;
         }
 
-        // Pack values. We append into a u64 stream with a running
-        // bit-cursor and flush full words. The final byte length is the
-        // ceiling of the total bit count.
-        let packed = pack_values(values, bin_idx_slice, &widths, total_bits);
-        let batch_prefix = build_batch_prefix(bin_idx_slice, &widths);
+        // Fused validate + pack + prefix pass. Walks `values` exactly once,
+        // verifying each value fits in its bin's width while emitting the
+        // packed bit stream and the per-batch bit-offset prefix sum.
+        let (packed, batch_prefix) = pack_and_prefix(values, bin_idx_slice, &width_lut)?;
 
         Self::try_new(widths, packed, batch_prefix, bin_idx, n)
     }
 }
 
-/// Pack the `values` stream at per-bin widths into a contiguous bit buffer.
-fn pack_values(values: &[u64], bin_idx: &[u8], widths: &[u8], total_bits: u64) -> ByteBuffer {
+/// Fused validate + pack + per-batch prefix sum.
+///
+/// Walks `values` exactly once, validating that each value fits in its bin's
+/// width while packing into the bit stream and recording the per-batch
+/// bit-offset prefix sum. The packing uses a rolling 64-bit accumulator that
+/// flushes a full `u64` word any time at least 64 bits are pending, exactly
+/// like the previous two-pass implementation; fusing the validation and
+/// prefix-sum construction into the same pass halves the memory traffic on
+/// `values` and `bin_idx`.
+///
+/// `width_lut` is a 256-entry `widths[bin_idx]` lookup; the caller has
+/// already verified every `bin_idx` resolves to a real width, so any of the
+/// 256 entries is safe to load (entries past `widths.len()` contain
+/// `u8::MAX`, which would fail the value-fits-in-width check below).
+#[expect(clippy::many_single_char_names)]
+fn pack_and_prefix(
+    values: &[u64],
+    bin_idx: &[u8],
+    width_lut: &[u8; 256],
+) -> VortexResult<(ByteBuffer, ByteBuffer)> {
+    let n = values.len();
+    let n_batches = n.div_ceil(BATCH);
+
+    // Compute total_bits in a tight pass over bin_idx so we can size the
+    // packed buffer correctly. Single-load-per-element via width_lut.
+    let mut total_bits: u64 = 0;
+    for &bi in bin_idx {
+        total_bits += width_lut[bi as usize] as u64;
+    }
     let total_bytes = usize::try_from(total_bits.div_ceil(8))
         .vortex_expect("packed length fits in usize on supported platforms");
-    let mut bytes = BufferMut::<u8>::zeroed(total_bytes);
+    // Reserve at least 8 extra bytes of tail slack so the final flush is
+    // always a full `u64` write without a bounds check.
+    let alloc_bytes = total_bytes + 8;
+    let mut bytes = BufferMut::<u8>::zeroed(alloc_bytes);
     let dst = bytes.as_mut_slice();
-    let mut bit_cursor: u64 = 0;
-    for (i, &v) in values.iter().enumerate() {
-        let w = widths[bin_idx[i] as usize] as u64;
-        if w == 0 {
-            continue;
-        }
-        write_bits(dst, bit_cursor, v, w);
-        bit_cursor += w;
-    }
-    bytes.freeze().into_byte_buffer()
-}
 
-/// Build the per-batch bit-offset prefix sum. Length is `n_batches + 1`;
-/// the trailing entry holds the total bit length used.
-fn build_batch_prefix(bin_idx: &[u8], widths: &[u8]) -> ByteBuffer {
-    let n = bin_idx.len();
-    let n_batches = n.div_ceil(BATCH);
-    let mut out = BufferMut::<u64>::with_capacity(n_batches + 1);
+    let mut prefix = BufferMut::<u64>::with_capacity(n_batches + 1);
+    prefix.push(0);
+
+    let mut acc: u64 = 0;
+    let mut acc_bits: u32 = 0;
+    let mut byte_pos: usize = 0;
     let mut bit_offset: u64 = 0;
-    out.push(0);
-    for b in 0..n_batches {
-        let start = b * BATCH;
-        let end = ((b + 1) * BATCH).min(n);
-        for &bi in &bin_idx[start..end] {
-            bit_offset += widths[bi as usize] as u64;
-        }
-        out.push(bit_offset);
-    }
-    out.freeze().into_byte_buffer()
-}
 
-/// Write the low `w` bits of `value` to `dst` starting at bit `bit_offset`
-/// (LSB-first within each byte). Requires `w <= 64` and that `dst` is large
-/// enough.
-#[inline]
-#[expect(clippy::cast_possible_truncation)]
-fn write_bits(dst: &mut [u8], bit_offset: u64, value: u64, w: u64) {
-    debug_assert!(w <= 64);
-    let mut remaining = w;
-    let mut value = if w == 64 {
-        value
-    } else {
-        value & ((1u64 << w) - 1)
-    };
-    // bit_offset >> 3 fits in usize once we've sized `dst` for the total bit
-    // count; `bit_in_byte` is always in 0..8.
-    let mut byte_idx = (bit_offset >> 3) as usize;
-    let mut bit_in_byte = (bit_offset & 7) as u32;
-    while remaining > 0 {
-        let space = 8 - bit_in_byte as u64;
-        let take = remaining.min(space);
-        // `take <= 8`, so `chunk` fits in a u8.
-        let chunk = (value & ((1u64 << take) - 1)) as u8;
-        dst[byte_idx] |= chunk << bit_in_byte;
-        value >>= take;
-        remaining -= take;
-        bit_in_byte = 0;
-        byte_idx += 1;
+    // Walk batches; flush a prefix entry at every BATCH boundary.
+    let mut i = 0;
+    while i < n {
+        let batch_end = (i + BATCH).min(n);
+        // Hot inner pack loop. The compiler is free to keep acc/acc_bits/
+        // byte_pos/bit_offset in registers; the only memory traffic per
+        // element is one u8 load (bin_idx), one u8 load (width_lut), one
+        // u64 load (values), and an occasional 8-byte store.
+        for j in i..batch_end {
+            let bi = bin_idx[j];
+            let w = width_lut[bi as usize] as u32;
+            let v = values[j];
+            // Overflow check: if w < 64 and v >= 1<<w, the encoding is
+            // ambiguous. Validate inline so we do not need a second pass.
+            if w < 64 && v >= (1u64 << w) {
+                vortex_bail!(
+                    "value {v} at index {j} overflows bin {} width {w} (max {})",
+                    bi as usize,
+                    if w == 0 { 0u64 } else { (1u64 << w) - 1 },
+                );
+            }
+            bit_offset += w as u64;
+            if w == 0 {
+                continue;
+            }
+            // Mask the high bits to keep the OR clean; `v` was just
+            // validated to fit in `w` bits.
+            let masked = if w >= 64 { v } else { v & ((1u64 << w) - 1) };
+            acc |= masked << acc_bits;
+            let new_bits = acc_bits + w;
+            if new_bits >= 64 {
+                let end = byte_pos + 8;
+                dst[byte_pos..end].copy_from_slice(&acc.to_le_bytes());
+                byte_pos = end;
+                let leftover = new_bits - 64;
+                acc = if leftover == 0 {
+                    0
+                } else {
+                    masked >> (w - leftover)
+                };
+                acc_bits = leftover;
+            } else {
+                acc_bits = new_bits;
+            }
+        }
+        prefix.push(bit_offset);
+        i = batch_end;
     }
+    // Flush remaining bits. The slack of 8 bytes guarantees the write is in
+    // bounds; only the first `total_bytes - byte_pos` bytes are logical.
+    if acc_bits > 0 || byte_pos < total_bytes {
+        let end = byte_pos + 8;
+        dst[byte_pos..end].copy_from_slice(&acc.to_le_bytes());
+    }
+
+    bytes.truncate(total_bytes);
+    Ok((
+        bytes.freeze().into_byte_buffer(),
+        prefix.freeze().into_byte_buffer(),
+    ))
 }
 
 /// Read `w` bits from `src` starting at bit `bit_offset`, as an unsigned u64.
@@ -562,14 +604,65 @@ fn read_bits(src: &[u8], bit_offset: u64, w: u64) -> u64 {
 
 /// Full-array decode: walk the bin_idx + widths, reading each value in
 /// sequence from the packed bit buffer.
+///
+/// Hot path: for every element we do a single unaligned `u128` read from the
+/// packed buffer at byte offset `bit_offset / 8`, shift down by
+/// `bit_offset & 7`, and mask to `w` bits. The `u128` covers any width
+/// `<= 64` bits at any sub-byte alignment, so a single load+shift+mask
+/// suffices.
+///
+/// The output buffer is pre-sized to `n` so the loop writes through a
+/// `&mut [u64]` (one store per element) rather than `BufferMut::push`
+/// (which performs a per-element capacity check and length bump).
+#[expect(clippy::cast_possible_truncation)]
+#[expect(clippy::many_single_char_names)]
 fn decode_buffer(bin_idx: &[u8], widths: &[u8], packed: &[u8], n: usize) -> Buffer<u64> {
-    let mut out = BufferMut::<u64>::with_capacity(n);
-    let mut bit_offset: u64 = 0;
-    for &bi in bin_idx {
-        let w = widths[bi as usize] as u64;
-        out.push(read_bits(packed, bit_offset, w));
-        bit_offset += w;
+    // 256-entry width lookup so the hot path is a single u8 load.
+    let mut width_lut = [0u8; 256];
+    for (i, &w) in widths.iter().enumerate() {
+        width_lut[i] = w;
     }
+
+    let mut out = BufferMut::<u64>::with_capacity(n);
+    if n == 0 {
+        return out.freeze();
+    }
+    // Write directly into the spare capacity (uninit memory) so we avoid
+    // `push`'s per-element bookkeeping. The slice we iterate is
+    // length-`n`, so the bounds on the zip iterator below are statically
+    // matched and Rust elides per-iteration bounds checks.
+    let uninit = &mut out.spare_capacity_mut()[..n];
+    let packed_len = packed.len();
+    let packed_ptr = packed.as_ptr();
+
+    let mut bit_offset: u64 = 0;
+    for (dst, &bi) in uninit.iter_mut().zip(bin_idx) {
+        let w = width_lut[bi as usize] as u32;
+        let value = if w == 0 {
+            0
+        } else {
+            let byte_idx = (bit_offset >> 3) as usize;
+            let bit_in_byte = (bit_offset & 7) as u32;
+            if byte_idx + 16 <= packed_len {
+                // SAFETY: byte_idx + 16 <= packed_len, so we may safely read
+                // 16 bytes starting at packed_ptr.add(byte_idx). u128
+                // alignment is 1 (byte-wise from_le_bytes).
+                let lo16 = unsafe {
+                    let p = packed_ptr.add(byte_idx) as *const [u8; 16];
+                    u128::from_le_bytes(*p)
+                };
+                let shifted = lo16 >> bit_in_byte;
+                let mask = if w == 64 { u64::MAX } else { (1u64 << w) - 1 };
+                (shifted as u64) & mask
+            } else {
+                read_bits(packed, bit_offset, w as u64)
+            }
+        };
+        dst.write(value);
+        bit_offset += w as u64;
+    }
+    // SAFETY: the zip above wrote every slot in 0..n; commit the length.
+    unsafe { out.set_len(n) };
     out.freeze()
 }
 

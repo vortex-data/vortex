@@ -91,7 +91,10 @@ fn build_monotone_timestamps() -> Buffer<i64> {
     out.freeze()
 }
 
-#[allow(clippy::cast_possible_truncation, reason = "f64->i64 OK, range is bounded by *1000.0")]
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "f64->i64 OK, range is bounded by *1000.0"
+)]
 fn build_cube_distributed() -> Buffer<i64> {
     let mut rng = SmallRng::seed_from_u64(SEED ^ 0xCAFE_C0DE_F00D_FEED);
     let mut out = BufferMut::<i64>::with_capacity(N);
