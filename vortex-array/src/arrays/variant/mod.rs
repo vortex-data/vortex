@@ -25,12 +25,15 @@ pub(super) const SLOT_NAMES: [&str; NUM_SLOTS] = ["core_storage", "shredded"];
 
 /// Accessors for canonical variant storage.
 ///
-/// A canonical variant array keeps raw variant semantics in `core_storage` and may carry a
-/// row-aligned, storage-agnostic `shredded` typed tree for selected paths. The shredded child may
-/// have any dtype; its dtype is recorded during serialization and validated by normal child
-/// deserialization.
+/// A canonical variant array keeps the full variant value for every row in `core_storage` and may
+/// carry a row-aligned, storage-agnostic `shredded` typed tree for selected paths.
+///
+/// `core_storage` is a logical `DType::Variant` array, not a specific physical encoding: it may be
+/// chunked, constant, or otherwise encoded. Callers must use normal array operations instead of
+/// assuming a particular slot layout. The shredded child may have any dtype; its dtype is recorded
+/// during serialization and validated by normal child deserialization.
 pub trait VariantArrayExt: TypedArrayRef<Variant> {
-    /// Returns the raw storage that preserves the full variant value for every row.
+    /// Returns the logical variant storage that preserves the full value for every row.
     fn core_storage(&self) -> &ArrayRef {
         self.as_ref().slots()[CORE_STORAGE_SLOT]
             .as_ref()
@@ -45,7 +48,7 @@ pub trait VariantArrayExt: TypedArrayRef<Variant> {
 impl<T: TypedArrayRef<Variant>> VariantArrayExt for T {}
 
 impl Array<Variant> {
-    /// Creates a new `VariantArray` with raw core storage and optional shredded storage.
+    /// Creates a new `VariantArray` with logical variant core storage and optional shredded storage.
     pub fn try_new(core_storage: ArrayRef, shredded: Option<ArrayRef>) -> VortexResult<Self> {
         let dtype = core_storage.dtype().clone();
         vortex_ensure!(

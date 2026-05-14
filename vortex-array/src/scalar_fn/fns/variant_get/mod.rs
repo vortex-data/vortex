@@ -677,6 +677,38 @@ mod tests {
     }
 
     #[test]
+    fn variant_get_reads_chunked_variant_input() -> VortexResult<()> {
+        let array = variant_rows([
+            Scalar::variant(variant_object([(
+                "a",
+                Scalar::primitive(10i32, Nullability::NonNullable),
+            )])),
+            Scalar::variant(variant_object([(
+                "b",
+                Scalar::primitive(20i32, Nullability::NonNullable),
+            )])),
+            Scalar::variant(variant_object([(
+                "a",
+                Scalar::primitive(30i32, Nullability::NonNullable),
+            )])),
+            Scalar::null(DType::Variant(Nullability::Nullable)),
+        ])?;
+        assert!(array.is::<Chunked>());
+
+        let result = execute_variant_get(
+            array,
+            "$.a",
+            Some(DType::Primitive(PType::I32, Nullability::NonNullable)),
+        )?;
+
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(10i32), None, Some(30), None])
+        );
+        Ok(())
+    }
+
+    #[test]
     fn variant_get_fallback_typed_output_is_contiguous() -> VortexResult<()> {
         let array = variant_rows([
             Scalar::variant(variant_object([(
@@ -769,13 +801,8 @@ mod tests {
 
         assert_eq!(variant.len(), 2);
         assert_eq!(canonical_variant.len(), 2);
-        assert!(variant.core_storage().is::<Chunked>());
-
-        let core_variant = variant
-            .core_storage()
-            .clone()
-            .execute::<VariantArray>(&mut LEGACY_SESSION.create_execution_ctx())?;
-        assert_eq!(core_variant.len(), 2);
+        assert_eq!(variant.core_storage().dtype(), variant.dtype());
+        assert_eq!(variant.core_storage().len(), variant.len());
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         for (idx, expected) in [10i32, 20].into_iter().enumerate() {
