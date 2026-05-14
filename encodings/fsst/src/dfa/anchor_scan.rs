@@ -1708,11 +1708,7 @@ unsafe fn teddy_pair_pass_avx2<T, V>(
 #[expect(unsafe_op_in_unsafe_fn)]
 unsafe fn teddy_pair_pass_neon<T, V>(
     tables: &BucketTables,
-    // TODO: NEON SSA fusion. For now the NEON path doesn't handle the
-    // SSA set inline; on AArch64 the caller falls back to the
-    // non-fused 1-byte path when SSA codes exist, so correctness is
-    // preserved.
-    _ssa_tables: Option<&NibbleTables>,
+    ssa_tables: Option<&NibbleTables>,
     n: usize,
     offsets: &[T],
     all_bytes: &[u8],
@@ -1740,6 +1736,14 @@ unsafe fn teddy_pair_pass_neon<T, V>(
     let zero = vdupq_n_u8(0);
     let nibble_mask = vdupq_n_u8(0x0F);
     let lane_bits = vld1q_u8(NEON_MOVEMASK_BITS.as_ptr());
+    // Fused SSA tables (mirrors the AVX2 path). When `ssa_tables` is
+    // None we splat zero — `vqtbl1q_u8` of zero is zero and the
+    // subsequent `vorrq_u8` is a no-op, keeping the inner loop
+    // branch-free.
+    let (ssa_lo, ssa_hi, has_ssa) = match ssa_tables {
+        Some(t) => (vld1q_u8(t.lo.as_ptr()), vld1q_u8(t.hi.as_ptr()), true),
+        None => (zero, zero, false),
+    };
     let setup_us = setup_t
         .map(|t| t.elapsed().as_secs_f64() * 1e6)
         .unwrap_or_default();
@@ -1765,7 +1769,15 @@ unsafe fn teddy_pair_pass_neon<T, V>(
         let c1_bits = neon_nibble_lookup(c1_lo, c1_hi, v1, nibble_mask);
         let c2_bits = neon_nibble_lookup(c2_lo, c2_hi, v2, nibble_mask);
         let pair = vandq_u8(c1_bits, c2_bits);
-        let mut mask = u32::from(neon_nonzero_mask(pair, zero, lane_bits));
+        // Fused SSA lookup on the same v1: bit `b` set in `ssa_bits`
+        // iff `v1[lane]` matches an SSA code value.
+        let combined = if has_ssa {
+            let ssa_bits = neon_nibble_lookup(ssa_lo, ssa_hi, v1, nibble_mask);
+            vorrq_u8(pair, ssa_bits)
+        } else {
+            pair
+        };
+        let mut mask = u32::from(neon_nonzero_mask(combined, zero, lane_bits));
         if mask != 0 {
             nonzero_masks += usize::from(trace);
             let candidate_t = trace.then(std::time::Instant::now);
@@ -1845,7 +1857,10 @@ unsafe fn teddy_pair_pass_neon<T, V>(
                 tables.c1.lo[usize::from(b1 & 0x0F)] & tables.c1.hi[usize::from(b1 >> 4)];
             let c2_bits_b =
                 tables.c2.lo[usize::from(b2 & 0x0F)] & tables.c2.hi[usize::from(b2 >> 4)];
-            if (c1_bits_b & c2_bits_b) == 0 {
+            let pair_hit = (c1_bits_b & c2_bits_b) != 0;
+            let ssa_hit = ssa_tables
+                .is_some_and(|t| (t.lo[usize::from(b1 & 0x0F)] & t.hi[usize::from(b1 >> 4)]) != 0);
+            if !pair_hit && !ssa_hit {
                 continue;
             }
             tail_candidates += usize::from(trace);
@@ -1882,6 +1897,31 @@ unsafe fn teddy_pair_pass_neon<T, V>(
                     bits.unset_unchecked(string_idx);
                 } else {
                     bits.set_unchecked(string_idx);
+                }
+            }
+        }
+        // Last-position SSA-only candidate (no successor for the pair check).
+        if let Some(t) = ssa_tables {
+            let j = len - 1;
+            let b = *all_bytes.get_unchecked(j);
+            let ssa_hit = (t.lo[usize::from(b & 0x0F)] & t.hi[usize::from(b >> 4)]) != 0;
+            if ssa_hit && j >= scan_start {
+                while j >= string_end && string_idx < n {
+                    string_idx += 1;
+                    if string_idx < n {
+                        string_end = (*offsets.get_unchecked(string_idx + 1)).as_();
+                    }
+                }
+                if string_idx < n {
+                    let already = bits.value(string_idx);
+                    let already_match = if negated { !already } else { already };
+                    if !already_match && verify_at(j, string_end) {
+                        if negated {
+                            bits.unset_unchecked(string_idx);
+                        } else {
+                            bits.set_unchecked(string_idx);
+                        }
+                    }
                 }
             }
         }
@@ -2752,8 +2792,7 @@ unsafe fn teddy_triple_pass_avx2<T, V>(
 #[expect(unsafe_op_in_unsafe_fn)]
 unsafe fn teddy_triple_pass_neon<T, V>(
     tables: &TripleTables,
-    // TODO: NEON SSA fusion. See `teddy_pair_pass_neon`.
-    _ssa_tables: Option<&NibbleTables>,
+    ssa_tables: Option<&NibbleTables>,
     n: usize,
     offsets: &[T],
     all_bytes: &[u8],
@@ -2783,6 +2822,10 @@ unsafe fn teddy_triple_pass_neon<T, V>(
     let zero = vdupq_n_u8(0);
     let nibble_mask = vdupq_n_u8(0x0F);
     let lane_bits = vld1q_u8(NEON_MOVEMASK_BITS.as_ptr());
+    let (ssa_lo, ssa_hi, has_ssa) = match ssa_tables {
+        Some(t) => (vld1q_u8(t.lo.as_ptr()), vld1q_u8(t.hi.as_ptr()), true),
+        None => (zero, zero, false),
+    };
     let setup_us = setup_t
         .map(|t| t.elapsed().as_secs_f64() * 1e6)
         .unwrap_or_default();
@@ -2812,8 +2855,14 @@ unsafe fn teddy_triple_pass_neon<T, V>(
         let c2_bits = neon_nibble_lookup(c2_lo, c2_hi, v2, nibble_mask);
         let c3_bits = neon_nibble_lookup(c3_lo, c3_hi, v3, nibble_mask);
         let triple = vandq_u8(vandq_u8(c1_bits, c2_bits), c3_bits);
+        let combined = if has_ssa {
+            let ssa_bits = neon_nibble_lookup(ssa_lo, ssa_hi, v1, nibble_mask);
+            vorrq_u8(triple, ssa_bits)
+        } else {
+            triple
+        };
 
-        let mut mask = u32::from(neon_nonzero_mask(triple, zero, lane_bits));
+        let mut mask = u32::from(neon_nonzero_mask(combined, zero, lane_bits));
         if mask != 0 {
             nonzero_masks += usize::from(trace);
             let candidate_t = trace.then(std::time::Instant::now);
