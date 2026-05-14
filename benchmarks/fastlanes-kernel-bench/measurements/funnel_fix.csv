@@ -1,0 +1,9 @@
+variant,W,best_median_ns
+baseline_macro_bare,51,191.600
+baseline_macro_bare,63,213.600
+baseline_macro_fused,51,186.700
+baseline_macro_fused,63,201.100
+hand_legacy,51,300.300
+hand_legacy,63,300.800
+hand_funnel,51,269.200
+hand_funnel,63,270.400

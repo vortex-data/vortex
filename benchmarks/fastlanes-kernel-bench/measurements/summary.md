@@ -2,7 +2,9 @@
 
 This document integrates two full 720-cell matrix runs, three new
 bench experiments (memcpy baseline, multi-block throughput, llvm-mca
-static port-pressure), and one ASM diff exercise to answer:
+static port-pressure), one ASM diff exercise, and a follow-up
+[funnel-shift compiler-vs-CPU isolation experiment](funnel_fix.md)
+([ASM verification](funnel_fix_asm.md)) to answer:
 
 > Is fusing the FoR `wrapping_add` into the unpack kernel free because the
 > kernel is memory-bandwidth-bound, or for some other reason?
@@ -337,3 +339,29 @@ cells). The headline "10-50 ns of overhead" cited in the README maps
 directly to the cells where llvm-mca shows ALU port saturation, and the
 remaining cells where fusing is "free" map to where llvm-mca shows port
 slack on P0/P1/P5.
+
+## 9. Funnel-shift compiler vs CPU isolation (`funnel_fix.md`)
+
+A follow-up experiment isolated whether the +52% u64 W=51 ymm cell is a
+compiler limitation (LLVM fails to combine the funnel-shift with the
+FoR add) or a CPU limitation (`vpshldq + vpaddq` is throughput-bound).
+Four hand-controlled variants per W in {51, 63} were measured (full
+results in [`funnel_fix.md`](funnel_fix.md), ASM in
+[`funnel_fix_asm.md`](funnel_fix_asm.md)):
+
+- **Compiler-fixable, not CPU-bound**: `hand_funnel` (vpshrdq + vpaddq,
+  inline asm) runs ~10% faster than `hand_legacy`
+  (vpsrlq + vpsllq + vpor + vpaddq, inline asm) at the same loop
+  structure (300 → 269 ns, both W=51 and W=63). The CPU executes
+  vpshldq + vpaddq just fine.
+- **rustc 1.91 nuance**: on this rustc, the macro-generated *bare*
+  unpack does NOT emit vpshldq for u64 W=51 (it emits the legacy
+  sequence too), so the matrix's bare-vs-fused asymmetry has shrunk
+  from +52% to about +3% on this toolchain. The matrix snapshot
+  reflected an older toolchain whose pattern matcher fired for the
+  bare kernel and missed for the fused kernel.
+- **Path forward**: rewriting `unpack!` to emit a funnel-shift idiom
+  LLVM consistently recognises (or relying on a stabilised
+  `funnel_shift_right` intrinsic) would close the residual gap and
+  pick up ~10% on every cell where the legacy 3-shift sequence is
+  used today.
