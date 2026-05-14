@@ -1,0 +1,293 @@
+pub mod vortex_bin_partition
+
+pub struct vortex_bin_partition::Bin
+
+pub vortex_bin_partition::Bin::lower: i64
+
+pub vortex_bin_partition::Bin::offset_bits: u8
+
+impl core::clone::Clone for vortex_bin_partition::Bin
+
+pub fn vortex_bin_partition::Bin::clone(&self) -> vortex_bin_partition::Bin
+
+impl core::cmp::Eq for vortex_bin_partition::Bin
+
+impl core::cmp::PartialEq for vortex_bin_partition::Bin
+
+pub fn vortex_bin_partition::Bin::eq(&self, &vortex_bin_partition::Bin) -> bool
+
+impl core::fmt::Debug for vortex_bin_partition::Bin
+
+pub fn vortex_bin_partition::Bin::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_bin_partition::Bin
+
+pub fn vortex_bin_partition::Bin::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_bin_partition::Bin
+
+pub struct vortex_bin_partition::BinInfo
+
+pub vortex_bin_partition::BinInfo::lower: i64
+
+pub vortex_bin_partition::BinInfo::offset_bits: u32
+
+impl core::clone::Clone for vortex_bin_partition::BinInfo
+
+pub fn vortex_bin_partition::BinInfo::clone(&self) -> vortex_bin_partition::BinInfo
+
+impl core::default::Default for vortex_bin_partition::BinInfo
+
+pub fn vortex_bin_partition::BinInfo::default() -> Self
+
+impl core::fmt::Debug for vortex_bin_partition::BinInfo
+
+pub fn vortex_bin_partition::BinInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_bin_partition::BinInfo
+
+pub fn vortex_bin_partition::BinInfo::clear(&mut self)
+
+pub fn vortex_bin_partition::BinInfo::encoded_len(&self) -> usize
+
+pub struct vortex_bin_partition::BinPartition
+
+impl vortex_bin_partition::BinPartition
+
+pub fn vortex_bin_partition::BinPartition::encode(vortex_array::array::view::ArrayView<'_, vortex_array::arrays::primitive::vtable::Primitive>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_bin_partition::BinPartitionArray>
+
+pub fn vortex_bin_partition::BinPartition::try_new(alloc::vec::Vec<vortex_bin_partition::Bin>, vortex_array::array::erased::ArrayRef, vortex_array::array::erased::ArrayRef) -> vortex_error::VortexResult<vortex_bin_partition::BinPartitionArray>
+
+impl core::clone::Clone for vortex_bin_partition::BinPartition
+
+pub fn vortex_bin_partition::BinPartition::clone(&self) -> vortex_bin_partition::BinPartition
+
+impl core::fmt::Debug for vortex_bin_partition::BinPartition
+
+pub fn vortex_bin_partition::BinPartition::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::vtable::VTable for vortex_bin_partition::BinPartition
+
+pub type vortex_bin_partition::BinPartition::OperationsVTable = vortex_bin_partition::BinPartition
+
+pub type vortex_bin_partition::BinPartition::TypedArrayData = vortex_bin_partition::BinPartitionData
+
+pub type vortex_bin_partition::BinPartition::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
+
+pub fn vortex_bin_partition::BinPartition::buffer(vortex_array::array::view::ArrayView<'_, Self>, usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_bin_partition::BinPartition::buffer_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> core::option::Option<alloc::string::String>
+
+pub fn vortex_bin_partition::BinPartition::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &[vortex_array::buffer::BufferHandle], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
+
+pub fn vortex_bin_partition::BinPartition::execute(vortex_array::array::typed::Array<Self>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+
+pub fn vortex_bin_partition::BinPartition::id(&self) -> vortex_array::array::ArrayId
+
+pub fn vortex_bin_partition::BinPartition::nbuffers(vortex_array::array::view::ArrayView<'_, Self>) -> usize
+
+pub fn vortex_bin_partition::BinPartition::serialize(vortex_array::array::view::ArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_bin_partition::BinPartition::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
+
+pub fn vortex_bin_partition::BinPartition::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_bin_partition::BinPartition> for vortex_bin_partition::BinPartition
+
+pub fn vortex_bin_partition::BinPartition::scalar_at(vortex_array::array::view::ArrayView<'_, vortex_bin_partition::BinPartition>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::array::vtable::validity::ValidityChild<vortex_bin_partition::BinPartition> for vortex_bin_partition::BinPartition
+
+pub fn vortex_bin_partition::BinPartition::validity_child(vortex_array::array::view::ArrayView<'_, vortex_bin_partition::BinPartition>) -> vortex_array::array::erased::ArrayRef
+
+pub struct vortex_bin_partition::BinPartitionData
+
+impl vortex_bin_partition::BinPartitionData
+
+pub fn vortex_bin_partition::BinPartitionData::bins(&self) -> &[vortex_bin_partition::Bin]
+
+impl core::clone::Clone for vortex_bin_partition::BinPartitionData
+
+pub fn vortex_bin_partition::BinPartitionData::clone(&self) -> vortex_bin_partition::BinPartitionData
+
+impl core::fmt::Debug for vortex_bin_partition::BinPartitionData
+
+pub fn vortex_bin_partition::BinPartitionData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_bin_partition::BinPartitionData
+
+pub fn vortex_bin_partition::BinPartitionData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_bin_partition::BinPartitionData
+
+pub fn vortex_bin_partition::BinPartitionData::array_eq(&self, &Self, vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_bin_partition::BinPartitionData
+
+pub fn vortex_bin_partition::BinPartitionData::array_hash<H: core::hash::Hasher>(&self, &mut H, vortex_array::hash::Precision)
+
+pub struct vortex_bin_partition::BinPartitionMetadata
+
+pub vortex_bin_partition::BinPartitionMetadata::bins: alloc::vec::Vec<vortex_bin_partition::BinInfo>
+
+impl core::clone::Clone for vortex_bin_partition::BinPartitionMetadata
+
+pub fn vortex_bin_partition::BinPartitionMetadata::clone(&self) -> vortex_bin_partition::BinPartitionMetadata
+
+impl core::default::Default for vortex_bin_partition::BinPartitionMetadata
+
+pub fn vortex_bin_partition::BinPartitionMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_bin_partition::BinPartitionMetadata
+
+pub fn vortex_bin_partition::BinPartitionMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_bin_partition::BinPartitionMetadata
+
+pub fn vortex_bin_partition::BinPartitionMetadata::clear(&mut self)
+
+pub fn vortex_bin_partition::BinPartitionMetadata::encoded_len(&self) -> usize
+
+pub struct vortex_bin_partition::VarWidthBitPacked
+
+impl vortex_bin_partition::VarWidthBitPacked
+
+pub fn vortex_bin_partition::VarWidthBitPacked::encode(vortex_array::array::erased::ArrayRef, alloc::vec::Vec<u8>, &[u64], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_bin_partition::VarWidthBitPackedArray>
+
+pub fn vortex_bin_partition::VarWidthBitPacked::try_new(alloc::vec::Vec<u8>, vortex_buffer::ByteBuffer, vortex_buffer::ByteBuffer, vortex_array::array::erased::ArrayRef, usize) -> vortex_error::VortexResult<vortex_bin_partition::VarWidthBitPackedArray>
+
+impl core::clone::Clone for vortex_bin_partition::VarWidthBitPacked
+
+pub fn vortex_bin_partition::VarWidthBitPacked::clone(&self) -> vortex_bin_partition::VarWidthBitPacked
+
+impl core::fmt::Debug for vortex_bin_partition::VarWidthBitPacked
+
+pub fn vortex_bin_partition::VarWidthBitPacked::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::vtable::VTable for vortex_bin_partition::VarWidthBitPacked
+
+pub type vortex_bin_partition::VarWidthBitPacked::OperationsVTable = vortex_bin_partition::VarWidthBitPacked
+
+pub type vortex_bin_partition::VarWidthBitPacked::TypedArrayData = vortex_bin_partition::VarWidthBitPackedData
+
+pub type vortex_bin_partition::VarWidthBitPacked::ValidityVTable = vortex_array::array::vtable::validity::ValidityVTableFromChild
+
+pub fn vortex_bin_partition::VarWidthBitPacked::buffer(vortex_array::array::view::ArrayView<'_, Self>, usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_bin_partition::VarWidthBitPacked::buffer_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> core::option::Option<alloc::string::String>
+
+pub fn vortex_bin_partition::VarWidthBitPacked::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &[vortex_array::buffer::BufferHandle], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
+
+pub fn vortex_bin_partition::VarWidthBitPacked::execute(vortex_array::array::typed::Array<Self>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+
+pub fn vortex_bin_partition::VarWidthBitPacked::id(&self) -> vortex_array::array::ArrayId
+
+pub fn vortex_bin_partition::VarWidthBitPacked::nbuffers(vortex_array::array::view::ArrayView<'_, Self>) -> usize
+
+pub fn vortex_bin_partition::VarWidthBitPacked::serialize(vortex_array::array::view::ArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_bin_partition::VarWidthBitPacked::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
+
+pub fn vortex_bin_partition::VarWidthBitPacked::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_bin_partition::VarWidthBitPacked> for vortex_bin_partition::VarWidthBitPacked
+
+pub fn vortex_bin_partition::VarWidthBitPacked::scalar_at(vortex_array::array::view::ArrayView<'_, vortex_bin_partition::VarWidthBitPacked>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::array::vtable::validity::ValidityChild<vortex_bin_partition::VarWidthBitPacked> for vortex_bin_partition::VarWidthBitPacked
+
+pub fn vortex_bin_partition::VarWidthBitPacked::validity_child(vortex_array::array::view::ArrayView<'_, vortex_bin_partition::VarWidthBitPacked>) -> vortex_array::array::erased::ArrayRef
+
+pub struct vortex_bin_partition::VarWidthBitPackedData
+
+impl vortex_bin_partition::VarWidthBitPackedData
+
+pub fn vortex_bin_partition::VarWidthBitPackedData::n_elements(&self) -> u64
+
+pub fn vortex_bin_partition::VarWidthBitPackedData::packed(&self) -> &vortex_buffer::ByteBuffer
+
+pub fn vortex_bin_partition::VarWidthBitPackedData::widths(&self) -> &[u8]
+
+impl core::clone::Clone for vortex_bin_partition::VarWidthBitPackedData
+
+pub fn vortex_bin_partition::VarWidthBitPackedData::clone(&self) -> vortex_bin_partition::VarWidthBitPackedData
+
+impl core::fmt::Debug for vortex_bin_partition::VarWidthBitPackedData
+
+pub fn vortex_bin_partition::VarWidthBitPackedData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_bin_partition::VarWidthBitPackedData
+
+pub fn vortex_bin_partition::VarWidthBitPackedData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_bin_partition::VarWidthBitPackedData
+
+pub fn vortex_bin_partition::VarWidthBitPackedData::array_eq(&self, &Self, vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_bin_partition::VarWidthBitPackedData
+
+pub fn vortex_bin_partition::VarWidthBitPackedData::array_hash<H: core::hash::Hasher>(&self, &mut H, vortex_array::hash::Precision)
+
+pub struct vortex_bin_partition::VarWidthBitPackedMetadata
+
+pub vortex_bin_partition::VarWidthBitPackedMetadata::n_elements: u64
+
+pub vortex_bin_partition::VarWidthBitPackedMetadata::widths: alloc::vec::Vec<u32>
+
+impl core::clone::Clone for vortex_bin_partition::VarWidthBitPackedMetadata
+
+pub fn vortex_bin_partition::VarWidthBitPackedMetadata::clone(&self) -> vortex_bin_partition::VarWidthBitPackedMetadata
+
+impl core::default::Default for vortex_bin_partition::VarWidthBitPackedMetadata
+
+pub fn vortex_bin_partition::VarWidthBitPackedMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_bin_partition::VarWidthBitPackedMetadata
+
+pub fn vortex_bin_partition::VarWidthBitPackedMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_bin_partition::VarWidthBitPackedMetadata
+
+pub fn vortex_bin_partition::VarWidthBitPackedMetadata::clear(&mut self)
+
+pub fn vortex_bin_partition::VarWidthBitPackedMetadata::encoded_len(&self) -> usize
+
+pub const vortex_bin_partition::DEFAULT_MAX_BINS: usize
+
+pub const vortex_bin_partition::MAX_BINS: usize
+
+pub trait vortex_bin_partition::BinPartitionArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_bin_partition::BinPartition>
+
+pub fn vortex_bin_partition::BinPartitionArrayExt::bin_idx(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_bin_partition::BinPartitionArrayExt::bins(&self) -> &[vortex_bin_partition::Bin]
+
+pub fn vortex_bin_partition::BinPartitionArrayExt::offset(&self) -> &vortex_array::array::erased::ArrayRef
+
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_bin_partition::BinPartition>> vortex_bin_partition::BinPartitionArrayExt for T
+
+pub fn T::bin_idx(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::bins(&self) -> &[vortex_bin_partition::Bin]
+
+pub fn T::offset(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub trait vortex_bin_partition::VarWidthBitPackedArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_bin_partition::VarWidthBitPacked>
+
+pub fn vortex_bin_partition::VarWidthBitPackedArrayExt::bin_idx(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_bin_partition::VarWidthBitPackedArrayExt::packed(&self) -> &vortex_buffer::ByteBuffer
+
+pub fn vortex_bin_partition::VarWidthBitPackedArrayExt::widths(&self) -> &[u8]
+
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_bin_partition::VarWidthBitPacked>> vortex_bin_partition::VarWidthBitPackedArrayExt for T
+
+pub fn T::bin_idx(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::packed(&self) -> &vortex_buffer::ByteBuffer
+
+pub fn T::widths(&self) -> &[u8]
+
+pub type vortex_bin_partition::BinPartitionArray = vortex_array::array::typed::Array<vortex_bin_partition::BinPartition>
+
+pub type vortex_bin_partition::VarWidthBitPackedArray = vortex_array::array::typed::Array<vortex_bin_partition::VarWidthBitPacked>

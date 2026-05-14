@@ -1,0 +1,35 @@
+[package]
+name = "vortex-bin-partition"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex bin-partition + variable-width bitpack arrays (layered pco P4)"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[dependencies]
+prost = { workspace = true }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+rand = { workspace = true }
+rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-pco = { workspace = true }
+
+[[bench]]
+name = "bin_partition"
+harness = false
+
+[lints]
+workspace = true

@@ -10395,6 +10395,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-bin-partition"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "prost 0.14.3",
+ "rand 0.10.1",
+ "rstest",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-pco",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
