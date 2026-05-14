@@ -78,7 +78,6 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
     Examples
     --------
 
-    >>> import vortex
     >>> array = vortex.array([
     ...     {'name': 'Joseph', 'age': 25},
     ...     {'name': 'Narendra', 'age': 31},
@@ -119,7 +118,6 @@ def _Array_to_pandas(self: _arrays.Array) -> pandas.DataFrame:
 
     Construct a dataframe from a Vortex array:
 
-    >>> import vortex
     >>> array = vortex.array([
     ...     {'name': 'Joseph', 'age': 25},
     ...     {'name': 'Narendra', 'age': 31},
@@ -166,14 +164,12 @@ def _Array_to_polars_dataframe(
     Examples
     --------
 
-    >>> import vortex
     >>> array = vortex.array([
     ...     {'name': 'Joseph', 'age': 25},
     ...     {'name': 'Narendra', 'age': 31},
     ...     {'name': 'Angela', 'age': 33},
     ...     {'name': 'Mikhail', 'age': 57},
     ... ])
-    >>> import vortex
     >>> array.to_polars_dataframe()
     shape: (4, 2)
     ┌─────┬──────────┐
@@ -196,9 +192,7 @@ def _Array_to_polars_dataframe(
 setattr(Array, "to_polars_dataframe", _Array_to_polars_dataframe)
 
 
-def _Array_to_polars_series(
-    self: _arrays.Array,
-):  # -> 'polars.Series':  # breaks docs due to Polars issue #7027
+def _Array_to_polars_series(self: _arrays.Array):  # -> 'polars.Series':  # breaks docs due to Polars issue #7027
     """Construct a Polars series from this Vortex array.
 
     .. seealso::
@@ -217,7 +211,6 @@ def _Array_to_polars_series(
 
     Convert a numeric array with nulls to a Polars Series:
 
-    >>> import vortex
     >>> vortex.array([1, None, 2, 3]).to_polars_series()  # doctest: +NORMALIZE_WHITESPACE
     shape: (4,)
     Series: '' [i64]
@@ -267,11 +260,7 @@ def _Array_to_polars_series(
 setattr(Array, "to_polars_series", _Array_to_polars_series)
 
 
-def _Array_to_numpy(
-    self: _arrays.Array,
-    *,
-    zero_copy_only: bool = True,
-) -> numpy.ndarray:
+def _Array_to_numpy(self: _arrays.Array, *, zero_copy_only: bool = True) -> numpy.ndarray:
     """Construct a NumPy array from this Vortex array.
 
     This is an alias for :code:`self.to_arrow_array().to_numpy(zero_copy_only)`
@@ -291,7 +280,6 @@ def _Array_to_numpy(
 
     Construct an immutable ndarray from a Vortex array:
 
-    >>> import vortex
     >>> array = vortex.array([1, 0, 0, 1])
     >>> array.to_numpy()
     array([1, 0, 0, 1])
@@ -313,14 +301,11 @@ def _Array_to_pylist(self: _arrays.Array) -> list[Any]:  # pyright: ignore[repor
     Examples
     --------
 
-    >>> import vortex
     >>> array = vortex.array([
     ...     {'name': 'Joseph', 'age': 25},
     ...     {'name': 'Narendra', 'age': 31},
     ...     {'name': 'Angela', 'age': 33},
     ... ])
-    >>> import pyarrow
-    >>> import vortex
     >>> array.to_pylist()
     [{'age': 25, 'name': 'Joseph'}, {'age': 31, 'name': 'Narendra'}, {'age': 33, 'name': 'Angela'}]
 
@@ -358,8 +343,6 @@ def array(
 
     A Vortex array containing the first three integers:
 
-    >>> import pyarrow
-    >>> import vortex
     >>> vortex.array([1, 2, 3]).to_arrow_array()
     <pyarrow.lib.Int64Array object at ...>
     [
