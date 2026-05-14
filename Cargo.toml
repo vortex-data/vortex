@@ -49,6 +49,7 @@ members = [
     "encodings/datetime-parts",
     "encodings/fsst",
     "encodings/onpair",
+    "encodings/onpair-rs",
     "encodings/onpair-sys",
     "encodings/pco",
     "encodings/sparse",

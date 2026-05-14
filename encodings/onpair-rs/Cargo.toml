@@ -1,0 +1,29 @@
+[package]
+name = "onpair-lib"
+description = "Pure-Rust port of the OnPair short-string compression library"
+authors = { workspace = true }
+categories = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+hashbrown = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
+vortex-onpair-sys = { workspace = true }
+
+[[test]]
+name = "cross_impl"
+path = "tests/cross_impl.rs"
