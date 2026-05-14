@@ -482,6 +482,7 @@ mod test {
     use super::ScanBuilder;
     use crate::ArrayFuture;
     use crate::LayoutReader;
+    use crate::SplitRange;
 
     #[derive(Debug)]
     struct CountingLayoutReader {
@@ -518,11 +519,11 @@ mod test {
         fn register_splits(
             &self,
             _field_mask: &[FieldMask],
-            row_range: &Range<u64>,
+            split_range: &SplitRange,
             splits: &mut BTreeSet<u64>,
         ) -> VortexResult<()> {
             self.register_splits_calls.fetch_add(1, Ordering::Relaxed);
-            splits.insert(row_range.end);
+            splits.insert(split_range.root_row_range().end);
             Ok(())
         }
 
@@ -607,12 +608,12 @@ mod test {
         fn register_splits(
             &self,
             _field_mask: &[FieldMask],
-            row_range: &Range<u64>,
+            split_range: &SplitRange,
             splits: &mut BTreeSet<u64>,
         ) -> VortexResult<()> {
             self.register_splits_calls.fetch_add(1, Ordering::Relaxed);
-            for split in (row_range.start + 1)..=row_range.end {
-                splits.insert(split);
+            for split in (split_range.row_range().start + 1)..=split_range.row_range().end {
+                splits.insert(split_range.row_offset() + split);
             }
             Ok(())
         }
@@ -720,12 +721,12 @@ mod test {
         fn register_splits(
             &self,
             _field_mask: &[FieldMask],
-            row_range: &Range<u64>,
+            split_range: &SplitRange,
             splits: &mut BTreeSet<u64>,
         ) -> VortexResult<()> {
             self.register_splits_calls.fetch_add(1, Ordering::Relaxed);
             let _guard = self.gate.lock();
-            splits.insert(row_range.end);
+            splits.insert(split_range.root_row_range().end);
             Ok(())
         }
 
