@@ -12,7 +12,9 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -20,6 +22,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_onpair_sys::Column;
 use vortex_onpair_sys::OnPairTrainingConfig;
+use vortex_onpair_sys::unpack_codes_to_u16;
 
 use crate::OnPair;
 use crate::OnPairArray;
@@ -38,8 +41,10 @@ pub fn config_with_bits(bits: u32) -> OnPairTrainingConfig {
 
 /// Compress an iterable of optional byte strings via the OnPair C++ library.
 ///
-/// Null entries are still indexed by the column (they map to empty payloads);
-/// their nullness is preserved on the outer Vortex array's validity slot.
+/// The C++ column is consumed inside this call: its dictionary blob plus the
+/// bit-packed token stream are unpacked into native Vortex children (a u16
+/// `codes` array and a u32 `codes_offsets` array), then the column is freed.
+/// Nothing on the read path touches C++.
 pub fn onpair_compress_iter<'a, I>(
     iter: I,
     len: usize,
@@ -52,7 +57,7 @@ where
     let mut flat: Vec<u8> = Vec::with_capacity(len * 16);
     let mut offsets: Vec<u64> = Vec::with_capacity(len + 1);
     let mut uncompressed_lengths: BufferMut<i32> = BufferMut::with_capacity(len);
-    let mut validity: Vec<bool> = Vec::with_capacity(len);
+    let mut validity_bits: Vec<bool> = Vec::with_capacity(len);
     offsets.push(0);
 
     for item in iter {
@@ -63,12 +68,12 @@ where
                 uncompressed_lengths.push(
                     i32::try_from(bytes.len()).vortex_expect("string length must fit in i32"),
                 );
-                validity.push(true);
+                validity_bits.push(true);
             }
             None => {
                 offsets.push(flat.len() as u64);
                 uncompressed_lengths.push(0);
-                validity.push(false);
+                validity_bits.push(false);
             }
         }
     }
@@ -76,18 +81,52 @@ where
     let column = Column::compress(&flat, &offsets, config)
         .map_err(|e| vortex_err!("OnPair compress failed: {e}"))?;
 
-    let serialised = column
-        .to_bytes()
-        .map_err(|e| vortex_err!("OnPair serialise failed: {e}"))?;
-    let column_bytes = BufferHandle::new_host(ByteBuffer::from(serialised));
+    let bits;
+    let dict_bytes;
+    let dict_offsets;
+    let codes;
+    let codes_offsets;
+    {
+        let parts = column
+            .parts()
+            .map_err(|e| vortex_err!("OnPair parts failed: {e}"))?;
+        bits = parts.bits;
+
+        // Last dict_offset = total token bytes; unpack into a single
+        // contiguous ByteBuffer for the Vortex `dict_bytes` blob.
+        dict_bytes = BufferHandle::new_host(ByteBuffer::from(parts.dict_bytes.to_vec()));
+        dict_offsets = Buffer::<u32>::copy_from(parts.dict_offsets).into_array();
+
+        let total_tokens = *parts
+            .codes_boundaries
+            .last()
+            .ok_or_else(|| vortex_err!("OnPair: missing boundaries"))?
+            as usize;
+        let codes_vec = unpack_codes_to_u16(parts.codes_packed, total_tokens, bits);
+        codes = Buffer::<u16>::copy_from(codes_vec).into_array();
+
+        // Token-index boundaries are exactly the offsets into our flat u16
+        // `codes` array, so we can use them as-is.
+        codes_offsets = Buffer::<u32>::copy_from(parts.codes_boundaries).into_array();
+    }
+    drop(column);
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
     let validity = match dtype.nullability() {
-        vortex_array::dtype::Nullability::NonNullable => Validity::NonNullable,
-        vortex_array::dtype::Nullability::Nullable => Validity::from_iter(validity),
+        Nullability::NonNullable => Validity::NonNullable,
+        Nullability::Nullable => Validity::from_iter(validity_bits),
     };
 
-    OnPair::try_new(dtype, column, column_bytes, uncompressed_lengths, validity)
+    OnPair::try_new(
+        dtype,
+        dict_bytes,
+        dict_offsets,
+        codes,
+        codes_offsets,
+        uncompressed_lengths,
+        validity,
+        bits,
+    )
 }
 
 /// Compress a byte-string accessor (typically a `VarBinArray` or

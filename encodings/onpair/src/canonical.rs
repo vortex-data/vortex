@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 //
-//! Convert an [`OnPairArray`] to its canonical `VarBinViewArray` representation
-//! by bulk-decompressing every row through the C++ `decompress` API.
+//! Convert an [`OnPairArray`] to its canonical `VarBinViewArray` by running
+//! the pure-Rust dictionary-lookup decoder over every row.
 
 use std::sync::Arc;
 
@@ -23,6 +23,7 @@ use vortex_error::VortexResult;
 
 use crate::OnPair;
 use crate::OnPairArrayExt;
+use crate::decode::OwnedDecodeInputs;
 
 pub(super) fn canonicalize_onpair(
     array: ArrayView<'_, OnPair>,
@@ -41,6 +42,7 @@ pub(crate) fn onpair_decode_views(
     start_buf_index: u32,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
+    let n = array.array().len();
     let lengths = array
         .uncompressed_lengths()
         .clone()
@@ -51,15 +53,13 @@ pub(crate) fn onpair_decode_views(
         lengths.as_slice::<P>().iter().map(|x| *x as usize).sum()
     });
 
-    let column = array.column()?;
-    let row_capacity = column.max_decompress_capacity().max(64);
-    let mut out_bytes = ByteBufferMut::with_capacity(total_size + row_capacity);
-    let mut scratch: Vec<u8> = Vec::with_capacity(row_capacity);
-
-    for row in 0..array.array().len() {
-        column
-            .decompress_row(row, &mut scratch)
-            .map_err(|e| vortex_error::vortex_err!("OnPair decompress failed: {e}"))?;
+    let inputs = OwnedDecodeInputs::collect(array, ctx)?;
+    let dv = inputs.view();
+    let mut out_bytes = ByteBufferMut::with_capacity(total_size + 64);
+    let mut scratch: Vec<u8> = Vec::with_capacity(64);
+    for row in 0..n {
+        scratch.clear();
+        dv.decode_row_into(row, &mut scratch);
         out_bytes.extend_from_slice(&scratch);
     }
 

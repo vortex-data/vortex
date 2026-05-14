@@ -7,11 +7,17 @@ use prost::Message;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
+use vortex_array::scalar_fn::fns::like::Like;
+use vortex_array::scalar_fn::fns::like::LikeOptions;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
 use vortex_array::test_harness::check_metadata;
 use vortex_session::VortexSession;
@@ -45,7 +51,6 @@ fn test_onpair_metadata_golden() {
         &OnPairMetadata {
             uncompressed_lengths_ptype: PType::I32 as i32,
             bits: 12,
-            dict_size: 256,
         }
         .encode_to_vec(),
     );
@@ -125,65 +130,59 @@ fn test_onpair_scalar_at() {
 
 #[cfg_attr(miri, ignore)]
 #[test]
-fn test_onpair_equals_pushdown_direct() {
-    // Drive the OnPair sys layer directly to validate the predicate FFI
-    // without going through the full compute kernel plumbing.
+fn test_onpair_eq_pushdown() {
     let input = sample_input();
     let len = input.len();
     let dtype = input.dtype().clone();
-    let arr = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG).unwrap();
+    let mut ctx = SESSION.create_execution_ctx();
+    let arr = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG)
+        .unwrap()
+        .into_array();
 
-    let column = arr.column().unwrap();
-    let bits = column
-        .equals_bitmap(b"https://www.example.com/page")
-        .unwrap();
+    let rhs = ConstantArray::new("https://www.example.com/page", arr.len()).into_array();
+    let eq = arr
+        .binary(rhs, Operator::Eq)
+        .unwrap()
+        .execute::<vortex_array::Canonical>(&mut ctx)
+        .unwrap()
+        .into_array();
+    assert_eq!(eq.as_bool_typed().true_count().unwrap(), 2);
+}
 
-    let mut matches = 0;
-    for i in 0..len {
-        if (bits[i / 8] >> (i % 8)) & 1 == 1 {
-            matches += 1;
-        }
-    }
-    assert_eq!(matches, 2);
+fn run_like(arr: &vortex_array::ArrayRef, pattern: &str) -> vortex_array::ArrayRef {
+    let n = arr.len();
+    let pat = ConstantArray::new(pattern, n).into_array();
+    let mut ctx = SESSION.create_execution_ctx();
+    Like.try_new_array(n, LikeOptions::default(), [arr.clone(), pat])
+        .unwrap()
+        .into_array()
+        .execute::<vortex_array::Canonical>(&mut ctx)
+        .unwrap()
+        .into_array()
 }
 
 #[cfg_attr(miri, ignore)]
 #[test]
-fn test_onpair_prefix_pushdown_direct() {
+fn test_onpair_like_prefix() {
     let input = sample_input();
     let len = input.len();
     let dtype = input.dtype().clone();
-    let arr = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG).unwrap();
-
-    let column = arr.column().unwrap();
-    let bits = column.starts_with_bitmap(b"https://www.").unwrap();
-
-    let mut matches = 0;
-    for i in 0..len {
-        if (bits[i / 8] >> (i % 8)) & 1 == 1 {
-            matches += 1;
-        }
-    }
-    // Four rows have the literal "https://www." prefix; the ftp row is excluded.
-    assert_eq!(matches, 4);
+    let arr = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG)
+        .unwrap()
+        .into_array();
+    let result = run_like(&arr, "https://www.%");
+    assert_eq!(result.as_bool_typed().true_count().unwrap(), 4);
 }
 
 #[cfg_attr(miri, ignore)]
 #[test]
-fn test_onpair_contains_pushdown_direct() {
+fn test_onpair_like_contains() {
     let input = sample_input();
     let len = input.len();
     let dtype = input.dtype().clone();
-    let arr = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG).unwrap();
-
-    let column = arr.column().unwrap();
-    let bits = column.contains_bitmap(b"example.com").unwrap();
-
-    let mut matches = 0;
-    for i in 0..len {
-        if (bits[i / 8] >> (i % 8)) & 1 == 1 {
-            matches += 1;
-        }
-    }
-    assert_eq!(matches, 4);
+    let arr = onpair_compress(&input, len, &dtype, DEFAULT_DICT12_CONFIG)
+        .unwrap()
+        .into_array();
+    let result = run_like(&arr, "%example.com%");
+    assert_eq!(result.as_bool_typed().true_count().unwrap(), 4);
 }

@@ -8,21 +8,20 @@ use vortex_array::scalar::Scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 
 use crate::OnPair;
+use crate::decode::OwnedDecodeInputs;
 
 impl OperationsVTable<OnPair> for OnPair {
     fn scalar_at(
         array: ArrayView<'_, OnPair>,
         index: usize,
-        _ctx: &mut ExecutionCtx,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let column = array.column()?;
-        let mut buf: Vec<u8> = Vec::with_capacity(column.max_decompress_capacity().max(64));
-        column
-            .decompress_row(index, &mut buf)
-            .map_err(|e| vortex_err!("OnPair decompress failed: {e}"))?;
+        let inputs = OwnedDecodeInputs::collect(array, ctx)?;
+        let dv = inputs.view();
+        let mut buf: Vec<u8> = Vec::with_capacity(dv.decoded_len(index));
+        dv.decode_row_into(index, &mut buf);
         Ok(varbin_scalar(ByteBuffer::from(buf), array.dtype()))
     }
 }

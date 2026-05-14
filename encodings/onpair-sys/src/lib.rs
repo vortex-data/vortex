@@ -115,6 +115,26 @@ pub mod ffi {
             bytes_capacity: usize,
             out_offsets: *mut u64,
         ) -> u32;
+
+        pub fn onpair_column_parts(
+            handle: *const OnPairColumnHandle,
+            out_parts: *mut OnPairColumnParts,
+        ) -> u32;
+    }
+
+    #[repr(C)]
+    #[derive(Debug, Copy, Clone)]
+    pub struct OnPairColumnParts {
+        pub dict_bytes: *const u8,
+        pub dict_bytes_len: usize,
+        pub dict_offsets: *const u32,
+        pub dict_offsets_len: usize,
+        pub codes_packed: *const u64,
+        pub codes_packed_u64_len: usize,
+        pub codes_boundaries: *const u32,
+        pub codes_boundaries_len: usize,
+        pub bits: u32,
+        pub num_rows: usize,
     }
 }
 
@@ -322,8 +342,109 @@ impl Column {
     }
 }
 
+impl Column {
+    /// Borrow the column's raw decomposition: dictionary, bit-packed token
+    /// stream, and per-row boundaries. The returned pointers reference memory
+    /// owned by `self` and remain valid for as long as the column does.
+    pub fn parts(&self) -> Result<Parts<'_>, Error> {
+        let mut raw = OnPairColumnParts {
+            dict_bytes: std::ptr::null(),
+            dict_bytes_len: 0,
+            dict_offsets: std::ptr::null(),
+            dict_offsets_len: 0,
+            codes_packed: std::ptr::null(),
+            codes_packed_u64_len: 0,
+            codes_boundaries: std::ptr::null(),
+            codes_boundaries_len: 0,
+            bits: 0,
+            num_rows: 0,
+        };
+        let status = unsafe { onpair_column_parts(self.handle.as_ptr(), &raw mut raw) };
+        Error::check(status)?;
+        // SAFETY: the C side returns pointers into vectors owned by `self`
+        // (the underlying `OnPairColumn`); they remain valid for `&self`.
+        Ok(unsafe { Parts::from_raw(raw) })
+    }
+}
+
 impl Drop for Column {
     fn drop(&mut self) {
         unsafe { onpair_column_free(self.handle.as_ptr()) }
     }
+}
+
+/// Borrowed view over a column's raw arrays. See [`Column::parts`].
+#[derive(Copy, Clone)]
+pub struct Parts<'a> {
+    /// Concatenated dictionary entry bytes (unpadded).
+    pub dict_bytes: &'a [u8],
+    /// Length `dict_size + 1`; entry `i` spans `dict_bytes[dict_offsets[i]..dict_offsets[i + 1]]`.
+    pub dict_offsets: &'a [u32],
+    /// LSB-first bit-packed token stream, packed `bits` bits per token.
+    pub codes_packed: &'a [u64],
+    /// Length `num_rows + 1`; row `r` spans tokens `codes_boundaries[r]..codes_boundaries[r + 1]`.
+    pub codes_boundaries: &'a [u32],
+    /// Bits per token (9..=16).
+    pub bits: u32,
+    pub num_rows: usize,
+}
+
+impl<'a> Parts<'a> {
+    /// # Safety
+    /// Caller must guarantee the pointers in `raw` are valid for `'a`.
+    unsafe fn from_raw(raw: OnPairColumnParts) -> Self {
+        unsafe {
+            Self {
+                dict_bytes: slice_or_empty(raw.dict_bytes, raw.dict_bytes_len),
+                dict_offsets: slice_or_empty(raw.dict_offsets, raw.dict_offsets_len),
+                codes_packed: slice_or_empty(raw.codes_packed, raw.codes_packed_u64_len),
+                codes_boundaries: slice_or_empty(raw.codes_boundaries, raw.codes_boundaries_len),
+                bits: raw.bits,
+                num_rows: raw.num_rows,
+            }
+        }
+    }
+}
+
+#[inline]
+unsafe fn slice_or_empty<'a, T>(ptr: *const T, len: usize) -> &'a [T] {
+    if ptr.is_null() || len == 0 {
+        &[]
+    } else {
+        unsafe { std::slice::from_raw_parts(ptr, len) }
+    }
+}
+
+/// Read `bits` (1..=16) bits from `packed` starting at LSB-first bit position
+/// `bit_pos`. Matches OnPair's `BitWriter` layout.
+#[inline]
+pub fn read_bits_lsb(packed: &[u64], bit_pos: usize, bits: u32) -> u16 {
+    debug_assert!((1..=16).contains(&bits));
+    let word_idx = bit_pos / 64;
+    // SAFETY of cast: `bit_pos % 64` is always in `0..64`, which fits in u32.
+    #[allow(clippy::cast_possible_truncation)]
+    let bit_off = (bit_pos % 64) as u32;
+    let mask: u64 = (1u64 << bits) - 1;
+    let low = packed[word_idx] >> bit_off;
+    let combined = if bit_off + bits <= 64 {
+        low & mask
+    } else {
+        let high = packed[word_idx + 1] << (64 - bit_off);
+        (low | high) & mask
+    };
+    // SAFETY of cast: `combined` has been masked to at most `bits` (<=16) bits.
+    #[allow(clippy::cast_possible_truncation)]
+    let value = combined as u16;
+    value
+}
+
+/// Decompress an LSB-first bit-packed token stream into a flat `Vec<u16>`,
+/// one element per token. Each `u16` only uses its low `bits` bits.
+pub fn unpack_codes_to_u16(packed: &[u64], total_tokens: usize, bits: u32) -> Vec<u16> {
+    assert!((9..=16).contains(&bits), "bits must be in [9, 16]");
+    let mut out = Vec::with_capacity(total_tokens);
+    for t in 0..total_tokens {
+        out.push(read_bits_lsb(packed, t * bits as usize, bits));
+    }
+    out
 }

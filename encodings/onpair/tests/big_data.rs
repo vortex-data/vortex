@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 //
-//! End-to-end smoke test on a realistically-sized input. Not part of the unit
-//! suite; run with `cargo test -p vortex-onpair --test big_data -- --nocapture`.
+//! End-to-end smoke test on a realistically-sized input. Validates the
+//! pure-Rust decode path and pushdown predicates end-to-end through the new
+//! u16-codes layout.
+
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::redundant_clone,
+    clippy::tests_outside_test_module,
+    clippy::use_debug
+)]
 
 use std::sync::LazyLock;
 use std::time::Instant;
@@ -10,10 +18,16 @@ use std::time::Instant;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::scalar_fn::fns::like::Like;
+use vortex_array::scalar_fn::fns::like::LikeOptions;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
 use vortex_onpair::DEFAULT_DICT12_CONFIG;
 use vortex_onpair::onpair_compress;
@@ -22,9 +36,6 @@ use vortex_session::VortexSession;
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
-/// Fake-but-realistic corpus: 100k log/URL-like rows drawn from a handful of
-/// templates with varying tail content. Models the kind of column OnPair
-/// actually targets (high lexical repetition, short-to-medium strings).
 fn corpus(n: usize) -> Vec<String> {
     let templates: &[&str] = &[
         "GET /api/v1/users/{id}/profile HTTP/1.1",
@@ -70,26 +81,22 @@ fn smoke_100k_rows() {
     let arr = onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG)
         .expect("compress");
     let compress_elapsed = t0.elapsed();
-
-    let column_bytes = arr.column_bytes().len();
-    let ratio = raw_bytes as f64 / column_bytes as f64;
+    let bits = arr.bits();
     eprintln!(
-        "compressed {} rows ({} bytes) -> {} bytes (ratio {:.2}x) in {:?}",
-        n, raw_bytes, column_bytes, ratio, compress_elapsed
+        "compressed {} rows ({} raw bytes) in {:?}, bits={}",
+        n, raw_bytes, compress_elapsed, bits
     );
-    eprintln!("dict_size={} bits={}", arr.dict_size(), arr.bits());
 
+    let arr_ref = arr.into_array();
     let mut ctx = SESSION.create_execution_ctx();
 
-    // Full canonicalisation round-trip.
+    // Full canonical round-trip via the pure-Rust decoder.
     let t0 = Instant::now();
-    let decoded = arr
+    let decoded = arr_ref
         .clone()
-        .into_array()
         .execute::<VarBinViewArray>(&mut ctx)
         .expect("canonicalize");
-    let decompress_elapsed = t0.elapsed();
-    eprintln!("canonicalized in {:?}", decompress_elapsed);
+    eprintln!("canonicalized in {:?}", t0.elapsed());
 
     assert_eq!(decoded.len(), n);
     decoded
@@ -103,56 +110,54 @@ fn smoke_100k_rows() {
         .unwrap();
     eprintln!("roundtrip OK on all {} rows", n);
 
-    // Predicate spot-checks: numbers must match a brute-force scan.
-    let column = arr.column().expect("materialize column");
+    // Equality pushdown: pick a specific row's value and ensure the kernel
+    // finds all occurrences.
+    let needle_row = 42;
+    let needle = strings[needle_row].clone();
+    let want_eq = strings.iter().filter(|s| **s == needle).count();
+    let eq = arr_ref
+        .binary(
+            ConstantArray::new(needle.as_str(), n).into_array(),
+            Operator::Eq,
+        )
+        .unwrap()
+        .execute::<vortex_array::Canonical>(&mut ctx)
+        .unwrap()
+        .into_array();
+    assert_eq!(eq.as_bool_typed().true_count().unwrap(), want_eq);
+    eprintln!("eq pushdown matches reference count ({})", want_eq);
 
-    let needle_eq = strings[42].as_bytes();
-    let want_eq = strings.iter().filter(|s| s.as_bytes() == needle_eq).count();
-    let bits = column.equals_bitmap(needle_eq).unwrap();
-    let got_eq = popcount(&bits, n);
-    eprintln!(
-        "equals('row 42 payload')  expected={} got={}",
-        want_eq, got_eq
-    );
-    assert_eq!(got_eq, want_eq);
-
-    let prefix = b"https://www.";
-    let want_prefix = strings
-        .iter()
-        .filter(|s| s.as_bytes().starts_with(prefix))
-        .count();
-    let bits = column.starts_with_bitmap(prefix).unwrap();
-    let got_prefix = popcount(&bits, n);
-    eprintln!(
-        "starts_with('https://www.')  expected={} got={}",
-        want_prefix, got_prefix
-    );
+    // Prefix pushdown.
+    let prefix = "https://www.";
+    let want_prefix = strings.iter().filter(|s| s.starts_with(prefix)).count();
+    let pat = ConstantArray::new(format!("{prefix}%").as_str(), n).into_array();
+    let got_prefix = Like
+        .try_new_array(n, LikeOptions::default(), [arr_ref.clone(), pat])
+        .unwrap()
+        .into_array()
+        .execute::<vortex_array::Canonical>(&mut ctx)
+        .unwrap()
+        .into_array()
+        .as_bool_typed()
+        .true_count()
+        .unwrap();
     assert_eq!(got_prefix, want_prefix);
+    eprintln!("starts_with pushdown matches reference ({})", want_prefix);
 
-    let needle_sub = b"status=500";
-    let want_sub = strings
-        .iter()
-        .filter(|s| {
-            s.as_bytes()
-                .windows(needle_sub.len())
-                .any(|w| w == needle_sub)
-        })
-        .count();
-    let bits = column.contains_bitmap(needle_sub).unwrap();
-    let got_sub = popcount(&bits, n);
-    eprintln!(
-        "contains('status=500')       expected={} got={}",
-        want_sub, got_sub
-    );
+    // Contains pushdown.
+    let sub = "status=500";
+    let want_sub = strings.iter().filter(|s| s.contains(sub)).count();
+    let pat = ConstantArray::new(format!("%{sub}%").as_str(), n).into_array();
+    let got_sub = Like
+        .try_new_array(n, LikeOptions::default(), [arr_ref.clone(), pat])
+        .unwrap()
+        .into_array()
+        .execute::<vortex_array::Canonical>(&mut ctx)
+        .unwrap()
+        .into_array()
+        .as_bool_typed()
+        .true_count()
+        .unwrap();
     assert_eq!(got_sub, want_sub);
-}
-
-fn popcount(bits: &[u8], n: usize) -> usize {
-    let mut c = 0;
-    for i in 0..n {
-        if (bits[i / 8] >> (i % 8)) & 1 == 1 {
-            c += 1;
-        }
-    }
-    c
+    eprintln!("contains pushdown matches reference ({})", want_sub);
 }

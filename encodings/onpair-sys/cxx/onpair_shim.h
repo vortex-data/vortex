@@ -124,6 +124,29 @@ OnPairStatus onpair_column_dict_copy(
 // Bytes occupied by the dictionary (sum of entry lengths).
 size_t onpair_column_dict_bytes(const OnPairColumnHandle* handle);
 
+// --- Decomposition into raw arrays (Vortex layout) ------------------------
+//
+// Borrows pointers to the column's underlying Dictionary + Store vectors.
+// The pointers remain valid until `handle` is freed; the caller is expected
+// to copy them out into Vortex buffers/children and then drop the column.
+
+typedef struct OnPairColumnParts {
+    const uint8_t*  dict_bytes;
+    size_t          dict_bytes_len;       // = dict_offsets[dict_size] (true, unpadded)
+    const uint32_t* dict_offsets;
+    size_t          dict_offsets_len;     // = dict_size + 1
+    const uint64_t* codes_packed;         // LSB-first bit-packed token stream
+    size_t          codes_packed_u64_len; // u64 word count
+    const uint32_t* codes_boundaries;     // per-row token index
+    size_t          codes_boundaries_len; // = num_rows + 1
+    uint32_t        bits;                 // 9..=16
+    size_t          num_rows;
+} OnPairColumnParts;
+
+OnPairStatus onpair_column_parts(
+    const OnPairColumnHandle* handle,
+    OnPairColumnParts*        out_parts);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+//
+//! Filter is implemented as a re-compress through canonical because OnPair's
+//! `codes` for surviving rows would also need to be re-laid out (the codes
+//! belong to whole rows, not single elements), and re-training keeps the
+//! resulting dictionary tight to the surviving data. Slice is cheaper — see
+//! `slice.rs` — because we can just sub-slice `codes_offsets` /
+//! `uncompressed_lengths`.
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
@@ -20,10 +27,6 @@ impl FilterKernel for OnPair {
         mask: &Mask,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // OnPair does not currently expose a `take`-style compressed-domain
-        // reshuffle, so we materialise to the canonical view, filter, and
-        // recompress with the same training config. This preserves end-to-end
-        // semantics; a future native filter kernel would skip the round-trip.
         let canonical = array
             .array()
             .clone()

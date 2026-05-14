@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::dtype::DType;
 use vortex_array::scalar_fn::fns::cast::CastKernel;
@@ -12,9 +13,8 @@ use vortex_error::VortexResult;
 use crate::OnPair;
 use crate::OnPairArrayExt;
 
-/// Casts between Utf8/Binary that only differ in nullability are no-ops at
-/// the bytes level: we rewrap the data into a new outer Array with the
-/// requested DType.
+/// Cast between `Utf8` and `Binary` (or adjust nullability) without touching
+/// any of the encoded payload — we only rewrap into a new outer DType.
 impl CastReduce for OnPair {
     fn cast(array: ArrayView<'_, Self>, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
@@ -28,14 +28,15 @@ impl CastReduce for OnPair {
         };
         Ok(Some(
             unsafe {
-                OnPair::new_unchecked_lazy(
+                OnPair::new_unchecked(
                     dtype.clone(),
-                    array.column_bytes_handle().clone(),
-                    array.array().len(),
-                    array.bits(),
-                    array.dict_size(),
+                    array.dict_bytes_handle().clone(),
+                    array.dict_offsets().clone(),
+                    array.codes().clone(),
+                    array.codes_offsets().clone(),
                     array.uncompressed_lengths().clone(),
                     new_validity,
+                    array.bits(),
                 )
             }
             .into_array(),
@@ -43,13 +44,11 @@ impl CastReduce for OnPair {
     }
 }
 
-/// `CastKernel` and `CastReduce` are sibling traits in `vortex-array` — the
-/// adaptor stack registers both — so we provide a forwarding kernel here.
 impl CastKernel for OnPair {
     fn cast(
         array: ArrayView<'_, Self>,
         dtype: &DType,
-        _ctx: &mut vortex_array::ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         <Self as CastReduce>::cast(array, dtype)
     }

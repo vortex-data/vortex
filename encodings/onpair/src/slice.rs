@@ -1,46 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+//
+//! Slicing an `OnPairArray` reuses the same dictionary blob and shares the
+//! `codes` child; we only narrow the `codes_offsets` and `uncompressed_lengths`
+//! slices and adjust the validity child. No decode, no re-training.
 
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
-use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::LEGACY_SESSION;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::slice::SliceReduce;
 use vortex_error::VortexResult;
 
 use crate::OnPair;
-use crate::compress::DEFAULT_DICT12_CONFIG;
-use crate::compress::onpair_compress_array;
+use crate::OnPairArrayExt;
 
 impl SliceReduce for OnPair {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // OnPair columns are not slice-cheap: the packed token stream is keyed
-        // by per-row offsets stored inside the C++ object. We canonicalise the
-        // requested range to a VarBinView and re-compress with the same config.
-        //
-        // For workloads with frequent sub-range scans this round-trip should be
-        // replaced by a native `OnPairColumnView::slice` API exposed through
-        // the shim; this is tracked as future work.
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        slice_with_ctx(array, range, &mut ctx).map(Some)
+        let codes_offsets = array.codes_offsets().slice(range.start..range.end + 1)?;
+        let uncompressed_lengths = array.uncompressed_lengths().slice(range.clone())?;
+        let validity = array.array_validity().slice(range)?;
+        Ok(Some(
+            unsafe {
+                OnPair::new_unchecked(
+                    array.dtype().clone(),
+                    array.dict_bytes_handle().clone(),
+                    array.dict_offsets().clone(),
+                    array.codes().clone(),
+                    codes_offsets,
+                    uncompressed_lengths,
+                    validity,
+                    array.bits(),
+                )
+            }
+            .into_array(),
+        ))
     }
-}
-
-fn slice_with_ctx(
-    array: ArrayView<'_, OnPair>,
-    range: Range<usize>,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<ArrayRef> {
-    let canonical = array
-        .array()
-        .clone()
-        .execute::<Canonical>(ctx)?
-        .into_array();
-    let sliced = canonical.slice(range)?;
-    Ok(onpair_compress_array(&sliced, DEFAULT_DICT12_CONFIG, ctx)?.into_array())
 }

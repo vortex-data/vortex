@@ -14,9 +14,11 @@
 #include <string_view>
 #include <vector>
 
+using onpair::DECOMPRESS_BUFFER_PADDING;
+using onpair::DictionaryView;
 using onpair::OnPairColumn;
 using onpair::OnPairColumnView;
-using onpair::DECOMPRESS_BUFFER_PADDING;
+using onpair::StoreView;
 using onpair::encoding::DynamicThreshold;
 using onpair::encoding::TrainingConfig;
 
@@ -348,6 +350,45 @@ size_t onpair_column_dict_bytes(const OnPairColumnHandle* handle) {
         return dv.bytes_used();
     } catch (...) {
         return 0;
+    }
+}
+
+OnPairStatus onpair_column_parts(
+    const OnPairColumnHandle* handle,
+    OnPairColumnParts*        out_parts) {
+    if (handle == nullptr || out_parts == nullptr) {
+        return ONPAIR_ERR_INVALID_ARG;
+    }
+    auto* h = const_cast<ColumnHandle*>(reinterpret_cast<const ColumnHandle*>(handle));
+    try {
+        const auto& view = h->get_view();
+        const DictionaryView& dv = view.dictionary();
+        const StoreView&      sv = view.store();
+
+        const size_t   dict_size  = dv.num_tokens();
+        const uint32_t* dict_off  = dv.raw_offsets();
+        const size_t   dict_bytes = dict_size == 0 ? 0 : dict_off[dict_size];
+
+        const size_t   num_rows   = sv.num_strings();
+        const uint32_t bw         = static_cast<uint32_t>(sv.bits());
+        const size_t   tokens     = sv.num_tokens();
+        // The packed stream is laid out by BitWriter as a vector<uint64_t>;
+        // round-up-to-u64 of (tokens * bits) bits.
+        const size_t   packed_u64 = (tokens * bw + 63) / 64;
+
+        out_parts->dict_bytes           = dv.raw_bytes();
+        out_parts->dict_bytes_len       = dict_bytes;
+        out_parts->dict_offsets         = dict_off;
+        out_parts->dict_offsets_len     = dict_size + 1;
+        out_parts->codes_packed         = sv.packed_data();
+        out_parts->codes_packed_u64_len = packed_u64;
+        out_parts->codes_boundaries     = sv.boundaries();
+        out_parts->codes_boundaries_len = num_rows + 1;
+        out_parts->bits                 = bw;
+        out_parts->num_rows             = num_rows;
+        return ONPAIR_OK;
+    } catch (...) {
+        return ONPAIR_ERR_INTERNAL;
     }
 }
 
