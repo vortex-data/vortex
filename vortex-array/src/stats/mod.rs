@@ -7,7 +7,11 @@ use arrow_buffer::BooleanBufferBuilder;
 use arrow_buffer::MutableBuffer;
 use arrow_buffer::bit_iterator::BitIterator;
 use enum_iterator::last;
+pub use expr::min_max;
+pub use expr::nan_count;
+pub use expr::null_count;
 pub use expr::stat;
+pub use expr::sum;
 pub use stats_set::*;
 
 mod array;
