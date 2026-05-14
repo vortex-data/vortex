@@ -15,6 +15,9 @@ use crate::aggregate_fn::session::AggregateFnSessionExt;
 use crate::columnar::AnyColumnar;
 use crate::dtype::DType;
 use crate::executor::max_iterations;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
+use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 
 /// Reference-counted type-erased accumulator.
@@ -116,17 +119,20 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
             batch.dtype()
         );
 
-        // 0. Stats-driven shortcut: if the aggregate can be derived directly from the batch's
-        //    cached statistics, use that and skip both kernel dispatch and decode. This is the
-        //    only layer that consults `batch.statistics()`; encoding kernels must not.
-        if let Some(result) = self.vtable.try_partial_from_stats(batch)? {
+        // 0. Legacy stats bridge: if this aggregate is still cached under a legacy Stat slot,
+        //    consume that exact stat before kernel dispatch or decode.
+        if let Some(stat) = Stat::from_aggregate_fn(&self.aggregate_fn)
+            && let Some(Precision::Exact(partial)) = batch.statistics().get(stat)
+        {
             vortex_ensure!(
-                result.dtype() == &self.partial_dtype,
-                "Aggregate try_partial_from_stats returned {}, expected {}",
-                result.dtype(),
+                partial.dtype() == &self.partial_dtype,
+                "Aggregate {} read legacy stat {} with dtype {}, expected {}",
+                self.aggregate_fn,
+                stat,
+                partial.dtype(),
                 self.partial_dtype,
             );
-            self.vtable.combine_partials(&mut self.partial, result)?;
+            self.vtable.combine_partials(&mut self.partial, partial)?;
             return Ok(());
         }
 
