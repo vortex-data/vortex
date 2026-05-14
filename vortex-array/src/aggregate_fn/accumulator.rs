@@ -124,14 +124,19 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         if let Some(stat) = Stat::from_aggregate_fn(&self.aggregate_fn)
             && let Some(Precision::Exact(partial)) = batch.statistics().get(stat)
         {
-            vortex_ensure!(
-                partial.dtype() == &self.partial_dtype,
-                "Aggregate {} read legacy stat {} with dtype {}, expected {}",
-                self.aggregate_fn,
-                stat,
-                partial.dtype(),
-                self.partial_dtype,
-            );
+            let partial = if partial.dtype() == &self.partial_dtype {
+                partial
+            } else {
+                vortex_ensure!(
+                    partial.dtype().eq_ignore_nullability(&self.partial_dtype),
+                    "Aggregate {} read legacy stat {} with dtype {}, expected {}",
+                    self.aggregate_fn,
+                    stat,
+                    partial.dtype(),
+                    self.partial_dtype,
+                );
+                partial.cast(&self.partial_dtype)?
+            };
             self.vtable.combine_partials(&mut self.partial, partial)?;
             return Ok(());
         }

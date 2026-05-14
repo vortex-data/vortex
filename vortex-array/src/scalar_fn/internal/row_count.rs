@@ -24,6 +24,12 @@ use vortex_error::vortex_ensure;
 
 /// Zero-argument placeholder for the row count of the current evaluation scope.
 ///
+/// This is a legacy pruning hack for readers that only have a `null_count`
+/// stat and need to support `is_not_null` pruning. It is currently substituted
+/// by the zoned/file stats pruning paths before execution. New stats rewrites
+/// should prefer boolean `all_null` and `all_non_null` aggregates instead of
+/// depending on this scope-level placeholder.
+///
 /// This expression *MUST* be replaced with a concrete array before evaluation.
 /// Currently, the rewrite only happens in the context of stats pruning.
 ///

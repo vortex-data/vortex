@@ -6,6 +6,10 @@
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::fns::all_nan::AllNan;
+use crate::aggregate_fn::fns::all_non_nan::AllNonNan;
+use crate::aggregate_fn::fns::all_non_null::AllNonNull;
+use crate::aggregate_fn::fns::all_null::AllNull;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::null_count::NullCount;
@@ -38,6 +42,26 @@ pub fn null_count(expr: Expression) -> Expression {
     stat(expr, NullCount.bind(EmptyOptions))
 }
 
+/// Creates `stat(expr, all_null)`, returning a nullable all-null statistic.
+pub fn all_null(expr: Expression) -> Expression {
+    stat(expr, AllNull.bind(EmptyOptions))
+}
+
+/// Creates `stat(expr, all_nan)`, returning a nullable all-NaN statistic.
+pub fn all_nan(expr: Expression) -> Expression {
+    stat(expr, AllNan.bind(EmptyOptions))
+}
+
+/// Creates `stat(expr, all_non_null)`, returning a nullable all-non-null statistic.
+pub fn all_non_null(expr: Expression) -> Expression {
+    stat(expr, AllNonNull.bind(EmptyOptions))
+}
+
+/// Creates `stat(expr, all_non_nan)`, returning a nullable all-non-NaN statistic.
+pub fn all_non_nan(expr: Expression) -> Expression {
+    stat(expr, AllNonNan.bind(EmptyOptions))
+}
+
 /// Creates `stat(expr, nan_count)`, returning a nullable NaN-count statistic.
 pub fn nan_count(expr: Expression) -> Expression {
     stat(expr, NanCount.bind(EmptyOptions))
@@ -56,6 +80,8 @@ mod tests {
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::AggregateFn;
     use crate::aggregate_fn::EmptyOptions;
+    use crate::aggregate_fn::fns::all_non_null::AllNonNull;
+    use crate::aggregate_fn::fns::all_null::AllNull;
     use crate::aggregate_fn::fns::sum::Sum;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
@@ -70,6 +96,7 @@ mod tests {
     use crate::expr::stats::Precision;
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
     #[test]
@@ -169,6 +196,183 @@ mod tests {
         let expected =
             ConstantArray::new(Scalar::primitive(2u64, Nullability::Nullable), 4).into_array();
         assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stat_expr_reads_cached_all_null_from_null_count() -> VortexResult<()> {
+        let array = PrimitiveArray::from_option_iter::<i32, _>([None, None, None]).into_array();
+        array
+            .statistics()
+            .set(Stat::NullCount, Precision::exact(ScalarValue::from(3u64)));
+
+        let result = array
+            .apply(&super::all_null(root()))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+
+        let expected =
+            ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stat_expr_reads_cached_all_null_false_from_inexact_low_null_count() -> VortexResult<()> {
+        let array = PrimitiveArray::from_option_iter::<i32, _>([None, Some(2), None]).into_array();
+        array
+            .statistics()
+            .set(Stat::NullCount, Precision::inexact(ScalarValue::from(2u64)));
+
+        let result = array
+            .apply(&super::all_null(root()))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+
+        let expected =
+            ConstantArray::new(Scalar::bool(false, Nullability::Nullable), 3).into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stat_expr_returns_null_for_inexact_full_null_count_as_all_null() -> VortexResult<()> {
+        let array = PrimitiveArray::from_option_iter::<i32, _>([None, Some(2), None]).into_array();
+        array
+            .statistics()
+            .set(Stat::NullCount, Precision::inexact(ScalarValue::from(3u64)));
+
+        let result = array
+            .apply(&stat(
+                root(),
+                AggregateFn::new(AllNull, EmptyOptions).erased(),
+            ))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+
+        let expected =
+            ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 3).into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stat_expr_reads_cached_all_non_null_from_null_count() -> VortexResult<()> {
+        let array = buffer![1i32, 2, 3].into_array();
+        array
+            .statistics()
+            .set(Stat::NullCount, Precision::exact(ScalarValue::from(0u64)));
+
+        let result = array
+            .apply(&super::all_non_null(root()))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+
+        let expected =
+            ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stat_expr_reads_cached_all_non_null_true_from_inexact_zero_null_count() -> VortexResult<()> {
+        let array = buffer![1i32, 2, 3].into_array();
+        array
+            .statistics()
+            .set(Stat::NullCount, Precision::inexact(ScalarValue::from(0u64)));
+
+        let result = array
+            .apply(&super::all_non_null(root()))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+
+        let expected =
+            ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stat_expr_returns_null_for_inexact_nonzero_null_count_as_all_non_null() -> VortexResult<()> {
+        let array =
+            PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None]).into_array();
+        array
+            .statistics()
+            .set(Stat::NullCount, Precision::inexact(ScalarValue::from(2u64)));
+
+        let result = array
+            .apply(&stat(
+                root(),
+                AggregateFn::new(AllNonNull, EmptyOptions).erased(),
+            ))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+
+        let expected =
+            ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 4).into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stat_expr_reads_all_nan_false_for_empty_non_float() -> VortexResult<()> {
+        let array = PrimitiveArray::empty::<i32>(Nullability::NonNullable).into_array();
+
+        let result = array
+            .apply(&super::all_nan(root()))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+
+        let expected =
+            ConstantArray::new(Scalar::bool(false, Nullability::Nullable), 0).into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stat_expr_reads_cached_min_and_max() -> VortexResult<()> {
+        let array = buffer![3i32, 1, 2].into_array();
+        array
+            .statistics()
+            .set(Stat::Min, Precision::exact(ScalarValue::from(1i32)));
+        array
+            .statistics()
+            .set(Stat::Max, Precision::exact(ScalarValue::from(3i32)));
+
+        let min_result = array
+            .clone()
+            .apply(&stat(
+                root(),
+                Stat::Min
+                    .aggregate_fn()
+                    .vortex_expect("min should have an aggregate function"),
+            ))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+        let expected_min =
+            ConstantArray::new(Scalar::primitive(1i32, Nullability::Nullable), 3).into_array();
+        assert_arrays_eq!(min_result, expected_min);
+
+        let max_result = array
+            .apply(&stat(
+                root(),
+                Stat::Max
+                    .aggregate_fn()
+                    .vortex_expect("max should have an aggregate function"),
+            ))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+        let expected_max =
+            ConstantArray::new(Scalar::primitive(3i32, Nullability::Nullable), 3).into_array();
+        assert_arrays_eq!(max_result, expected_max);
 
         Ok(())
     }
