@@ -6,10 +6,10 @@
 //!
 //! See `LAYOUT_PLAN.md` § Per-layout `plan` walkthrough / `StructLayout::plan`.
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use futures::StreamExt;
-use futures::stream;
 use vortex_array::IntoArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
@@ -20,9 +20,9 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use crate::v2::aligned::AlignedArrayStream;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -33,6 +33,10 @@ pub struct StructPlan {
     children: Vec<LayoutPlanRef>,
     field_names: Vec<FieldName>,
     output_dtype: DType,
+    /// Total row count of the struct — all children share this row
+    /// space even when their internal chunking differs (the writer's
+    /// byte-based coalescing leaves fields with non-aligned chunks).
+    row_count: u64,
 }
 
 impl StructPlan {
@@ -40,6 +44,7 @@ impl StructPlan {
         children: Vec<LayoutPlanRef>,
         field_names: Vec<FieldName>,
         output_dtype: DType,
+        row_count: u64,
     ) -> Self {
         debug_assert_eq!(
             children.len(),
@@ -50,6 +55,7 @@ impl StructPlan {
             children,
             field_names,
             output_dtype,
+            row_count,
         }
     }
 
@@ -64,21 +70,21 @@ impl LayoutPlan for StructPlan {
     }
 
     fn partition_count(&self) -> usize {
-        // Children are positionally aligned. Partition counts must
-        // match across children; the plan's count is any of them.
-        self.children
-            .first()
-            .map(|c| c.partition_count())
-            .unwrap_or(1)
+        // A struct's natural splits are the union of its children's
+        // split boundaries — that's the finest aligned granularity
+        // every field can produce without slicing. For PR4 we don't
+        // attempt that union and just expose a single partition over
+        // the full row range; engines usually drive partitioning from
+        // the dominant `Chunked` layer above the struct (e.g., zoned
+        // splits in TPC-H).
+        1
     }
 
     fn partition_stats(&self, partition: usize) -> VortexResult<PartitionStats> {
-        // First child's row count is authoritative since children
-        // are positionally aligned.
-        self.children
-            .first()
-            .map(|c| c.partition_stats(partition))
-            .unwrap_or_else(|| Ok(PartitionStats::unknown()))
+        if partition >= 1 {
+            vortex_bail!("StructPlan partition out of range: {partition}");
+        }
+        Ok(PartitionStats::for_range(0..self.row_count))
     }
 
     fn output_ordered(&self) -> bool {
@@ -113,12 +119,13 @@ impl LayoutPlan for StructPlan {
             children,
             field_names: self.field_names.clone(),
             output_dtype: self.output_dtype.clone(),
+            row_count: self.row_count,
         }))
     }
 
     fn execute(
         &self,
-        partition: usize,
+        row_range: Range<u64>,
         session: &VortexSession,
     ) -> VortexResult<SendableArrayStream> {
         if self.output_dtype.is_nullable() {
@@ -130,50 +137,29 @@ impl LayoutPlan for StructPlan {
 
         let mut child_streams = Vec::with_capacity(self.children.len());
         for child in &self.children {
-            child_streams.push(child.execute(partition, session)?);
+            child_streams.push(child.execute(row_range.clone(), session)?);
         }
 
+        // Different fields can return arrays at different chunk
+        // granularities for the same row range (the writer's
+        // byte-based coalescing produces one big chunk for narrow
+        // numeric columns and several smaller chunks for wide string
+        // columns). `AlignedArrayStream` k-way-zips the children,
+        // slicing each step to the smallest currently-available
+        // length so we emit row-aligned struct batches without
+        // collecting either side fully into memory.
         let names: FieldNames = FieldNames::from(self.field_names.as_slice());
         let dtype = self.output_dtype.clone();
 
-        let zipped = stream::unfold(
-            (child_streams, names, dtype.clone()),
-            |(mut streams, names, dtype)| async move {
-                let mut next_arrays = Vec::with_capacity(streams.len());
-                for stream in &mut streams {
-                    match stream.next().await {
-                        Some(Ok(a)) => next_arrays.push(a),
-                        Some(Err(e)) => return Some((Err(e), (streams, names, dtype))),
-                        None if next_arrays.is_empty() => return None,
-                        None => {
-                            return Some((
-                                Err(vortex_err!(
-                                    "StructPlan child streams emitted different numbers of batches"
-                                )),
-                                (streams, names, dtype),
-                            ));
-                        }
-                    }
-                }
-                let len = next_arrays[0].len();
-                for a in &next_arrays[1..] {
-                    if a.len() != len {
-                        return Some((
-                            Err(vortex_err!(
-                                "StructPlan child arrays have mismatched lengths {} vs {}",
-                                len,
-                                a.len()
-                            )),
-                            (streams, names, dtype),
-                        ));
-                    }
-                }
-                let result =
-                    StructArray::try_new(names.clone(), next_arrays, len, Validity::NonNullable)
-                        .map(|s| s.into_array());
-                Some((result, (streams, names, dtype)))
-            },
-        );
+        let aligned = AlignedArrayStream::new(child_streams);
+        let zipped = aligned.map(move |result| {
+            let arrays = result?;
+            let len = arrays.first().map_or(0, |a| a.len());
+            Ok(
+                StructArray::try_new(names.clone(), arrays, len, Validity::NonNullable)?
+                    .into_array(),
+            )
+        });
 
         Ok(Box::pin(ArrayStreamAdapter::new(dtype, zipped)))
     }

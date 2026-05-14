@@ -6,9 +6,13 @@
 //!
 //! See `LAYOUT_PLAN.md` § Per-layout `plan` walkthrough / `ChunkedPlan`.
 
+use std::ops::Range;
 use std::sync::Arc;
 
+use futures::TryStreamExt;
+use futures::stream;
 use vortex_array::dtype::DType;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -22,14 +26,23 @@ use crate::v2::plan::PartitionStats;
 /// in the default (ordered) mode; relaxed mode is a follow-up PR.
 pub struct ChunkedPlan {
     children: Vec<LayoutPlanRef>,
+    /// Cumulative row offsets, length `children.len() + 1`. Chunk
+    /// `i` covers rows `chunk_offsets[i]..chunk_offsets[i + 1]`.
+    chunk_offsets: Vec<u64>,
     output_dtype: DType,
     preserve_order: bool,
 }
 
 impl ChunkedPlan {
-    pub fn new(children: Vec<LayoutPlanRef>, output_dtype: DType) -> Self {
+    pub fn new(children: Vec<LayoutPlanRef>, chunk_offsets: Vec<u64>, output_dtype: DType) -> Self {
+        debug_assert_eq!(
+            chunk_offsets.len(),
+            children.len() + 1,
+            "ChunkedPlan: chunk_offsets must have len children.len() + 1",
+        );
         Self {
             children,
+            chunk_offsets,
             output_dtype,
             preserve_order: true,
         }
@@ -40,9 +53,19 @@ impl ChunkedPlan {
     pub fn with_preserve_order(self: Arc<Self>, preserve: bool) -> Arc<dyn LayoutPlan> {
         Arc::new(Self {
             children: self.children.clone(),
+            chunk_offsets: self.chunk_offsets.clone(),
             output_dtype: self.output_dtype.clone(),
             preserve_order: preserve,
         })
+    }
+
+    /// Total row count covered by this Chunked.
+    fn total_rows(&self) -> u64 {
+        *self.chunk_offsets.last().unwrap_or(&0)
+    }
+
+    fn chunk_range(&self, idx: usize) -> Range<u64> {
+        self.chunk_offsets[idx]..self.chunk_offsets[idx + 1]
     }
 }
 
@@ -56,10 +79,10 @@ impl LayoutPlan for ChunkedPlan {
     }
 
     fn partition_stats(&self, partition: usize) -> VortexResult<PartitionStats> {
-        let child = self.children.get(partition).ok_or_else(|| {
-            vortex_error::vortex_err!("ChunkedPlan partition out of range: {partition}")
-        })?;
-        child.partition_stats(0)
+        if partition >= self.children.len() {
+            vortex_bail!("ChunkedPlan partition out of range: {partition}");
+        }
+        Ok(PartitionStats::for_range(self.chunk_range(partition)))
     }
 
     fn output_ordered(&self) -> bool {
@@ -94,6 +117,7 @@ impl LayoutPlan for ChunkedPlan {
         }
         Ok(Arc::new(Self {
             children,
+            chunk_offsets: self.chunk_offsets.clone(),
             output_dtype: self.output_dtype.clone(),
             preserve_order: self.preserve_order,
         }))
@@ -101,14 +125,43 @@ impl LayoutPlan for ChunkedPlan {
 
     fn execute(
         &self,
-        partition: usize,
+        row_range: Range<u64>,
         session: &VortexSession,
     ) -> VortexResult<SendableArrayStream> {
-        let child = self.children.get(partition).ok_or_else(|| {
-            vortex_error::vortex_err!("ChunkedPlan partition out of range: {partition}")
-        })?;
-        // One partition == one chunk. Each chunk plan exposes a single
-        // partition of its own, so we always execute partition 0.
-        child.execute(0, session)
+        if row_range.start > self.total_rows() || row_range.end > self.total_rows() {
+            vortex_bail!(
+                "ChunkedPlan::execute row range {row_range:?} exceeds total {}",
+                self.total_rows()
+            );
+        }
+        if row_range.start > row_range.end {
+            vortex_bail!("ChunkedPlan::execute received reversed row range {row_range:?}");
+        }
+
+        // Find chunks intersecting the requested range. Walk each
+        // intersecting chunk and dispatch a sub-range relative to
+        // the chunk's own row coordinate space.
+        //
+        // Chunks are ordered and disjoint by construction, so a
+        // simple linear scan is fine for typical chunk counts. If a
+        // single Chunked grows to thousands of chunks we can swap to
+        // binary search over `chunk_offsets`.
+        let mut child_streams: Vec<SendableArrayStream> = Vec::new();
+        for idx in 0..self.children.len() {
+            let chunk_start = self.chunk_offsets[idx];
+            let chunk_end = self.chunk_offsets[idx + 1];
+            if chunk_end <= row_range.start || chunk_start >= row_range.end {
+                continue;
+            }
+            let intersect_start = chunk_start.max(row_range.start);
+            let intersect_end = chunk_end.min(row_range.end);
+            // Translate to the child's own row coordinates.
+            let child_range = (intersect_start - chunk_start)..(intersect_end - chunk_start);
+            child_streams.push(self.children[idx].execute(child_range, session)?);
+        }
+
+        let dtype = self.output_dtype.clone();
+        let flat = stream::iter(child_streams.into_iter().map(VortexResult::Ok)).try_flatten();
+        Ok(Box::pin(ArrayStreamAdapter::new(dtype, flat)))
     }
 }

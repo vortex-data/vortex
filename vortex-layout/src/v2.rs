@@ -11,8 +11,10 @@
 //!
 //! See `LAYOUT_PLAN.md` at the repo root for the design.
 
+pub mod aligned;
 pub mod chunked;
 pub mod demand;
+pub mod dict;
 pub mod flat;
 pub mod plan;
 pub mod project;

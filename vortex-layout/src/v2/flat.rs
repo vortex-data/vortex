@@ -5,6 +5,7 @@
 //!
 //! See `LAYOUT_PLAN.md` § Per-layout `plan` walkthrough / `FlatLayout::plan`.
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -81,7 +82,7 @@ impl LayoutPlan for FlatPlan {
         if partition >= 1 {
             vortex_bail!("FlatPlan partition out of range: {partition}");
         }
-        Ok(PartitionStats::unknown().with_row_count(self.row_count))
+        Ok(PartitionStats::for_range(0..self.row_count))
     }
 
     fn output_ordered(&self) -> bool {
@@ -112,23 +113,28 @@ impl LayoutPlan for FlatPlan {
 
     fn execute(
         &self,
-        partition: usize,
+        row_range: Range<u64>,
         _session: &VortexSession,
     ) -> VortexResult<SendableArrayStream> {
-        if partition >= 1 {
-            vortex_bail!("FlatPlan partition out of range: {partition}");
-        }
         if !matches!(self.selection, Selection::All) {
-            // Selection slicing for non-`All` selections is wired through
-            // `FilterPlan` in a later PR. The projection-only V2 entrypoint
-            // never hands us anything else.
+            // Selection slicing for non-`All` selections is wired
+            // through `FilterPlan` in a later PR. The projection-only
+            // V2 entrypoint never hands us anything else.
             vortex_bail!("FlatPlan only supports Selection::All in the projection-only path");
         }
+        if row_range.start > self.row_count || row_range.end > self.row_count {
+            vortex_bail!(
+                "FlatPlan::execute row range {row_range:?} exceeds layout row count {}",
+                self.row_count
+            );
+        }
 
-        let row_range = 0..self.row_count;
-        let row_count_usize: usize = self.row_count.try_into().map_err(|_| {
-            vortex_error::vortex_err!("FlatPlan row count {} exceeds usize::MAX", self.row_count)
-        })?;
+        let row_count_usize: usize =
+            (row_range.end - row_range.start).try_into().map_err(|_| {
+                vortex_error::vortex_err!(
+                    "FlatPlan::execute row range too large for usize: {row_range:?}",
+                )
+            })?;
         let mask = MaskFuture::new_true(row_count_usize);
         let array_fut = self
             .reader

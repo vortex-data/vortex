@@ -27,6 +27,11 @@ use crate::v2::plan::PlanContext;
 /// Scan request for the LayoutPlan v2 path. Mirrors the inputs to
 /// `vortex_layout::scan::scan_builder::ScanBuilder` but produces a
 /// [`LayoutPlanRef`] rather than driving execution itself.
+///
+/// `Scan` always builds a plan covering the layout's full row space.
+/// Engines that want to read only part of the file pick the relevant
+/// partitions out of the resulting plan — see `LAYOUT_PLAN.md`
+/// § Partial scans.
 pub struct Scan {
     /// Root layout being scanned.
     pub layout: LayoutRef,
@@ -84,7 +89,9 @@ mod tests {
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
     use vortex_array::expr::root;
+    use vortex_array::stream::ArrayStream as _;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
@@ -170,30 +177,50 @@ mod tests {
 
     /// Drive the legacy [`ScanBuilder`] path to read the layout into a single array.
     fn read_v1(segments: Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexResult<ArrayRef> {
-        let chunks = block_on(|handle| async move {
+        read_v1_with(segments, layout, root())
+    }
+
+    fn read_v1_with(
+        segments: Arc<dyn SegmentSource>,
+        layout: &LayoutRef,
+        projection: vortex_array::expr::Expression,
+    ) -> VortexResult<ArrayRef> {
+        let (chunks, dtype) = block_on(|handle| async move {
             let session = SESSION.clone().with_handle(handle);
             let reader = layout.new_reader("v1".into(), segments, &session)?;
-            let mut stream = ScanBuilder::new(session, reader).into_array_stream()?;
+            let stream = ScanBuilder::new(session, reader)
+                .with_projection(projection)
+                .into_array_stream()?;
+            let dtype = stream.dtype().clone();
+            let mut stream = stream;
             let mut chunks = Vec::new();
             while let Some(chunk) = stream.next().await {
                 chunks.push(chunk?);
             }
-            VortexResult::Ok(chunks)
+            VortexResult::Ok((chunks, dtype))
         })?;
-        let dtype = layout.dtype().clone();
         Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
     }
 
     /// Drive the v2 [`Scan`] / [`crate::v2::plan::LayoutPlan`] path.
     fn read_v2(segments: Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexResult<ArrayRef> {
+        read_v2_with(segments, layout, root())
+    }
+
+    fn read_v2_with(
+        segments: Arc<dyn SegmentSource>,
+        layout: &LayoutRef,
+        projection: vortex_array::expr::Expression,
+    ) -> VortexResult<ArrayRef> {
         let layout = Arc::clone(layout);
+        let row_count = layout.row_count();
         let (chunks, plan_dtype) = block_on(|handle| async move {
             let session = SESSION.clone().with_handle(handle);
             let scan = Scan {
                 layout,
                 segment_source: segments,
                 session: session.clone(),
-                projection: root(),
+                projection,
                 filter: None,
                 selection: Selection::All,
             };
@@ -201,11 +228,12 @@ mod tests {
             let plan_dtype = plan.schema().clone();
 
             let mut chunks = Vec::new();
-            for partition in 0..plan.partition_count() {
-                let mut stream = plan.execute(partition, &session)?;
-                while let Some(chunk) = stream.next().await {
-                    chunks.push(chunk?);
-                }
+            // Single execute call covering the entire layout's row
+            // range. The plan internally handles whatever
+            // chunking/slicing it needs.
+            let mut stream = plan.execute(0..row_count, &session)?;
+            while let Some(chunk) = stream.next().await {
+                chunks.push(chunk?);
             }
             VortexResult::Ok((chunks, plan_dtype))
         })?;
@@ -267,6 +295,121 @@ mod tests {
         assert_arrays_eq!(v1, v2);
         assert_arrays_eq!(v2, expected);
 
+        Ok(())
+    }
+
+    /// Project a single field out of the chunked struct via
+    /// `get_item("a", root())`. Exercises `StructLayout::plan`'s
+    /// partition-based field routing.
+    #[test]
+    fn diff_v1_v2_field_projection_chunked_struct() -> VortexResult<()> {
+        use vortex_array::expr::get_item;
+        let (segments, layout, _) = build_chunked_struct_layout();
+
+        let proj = get_item("a", root());
+        let v1 = read_v1_with(Arc::clone(&segments), &layout, proj.clone())?;
+        let v2 = read_v2_with(Arc::clone(&segments), &layout, proj)?;
+
+        assert_arrays_eq!(v1, v2);
+        Ok(())
+    }
+
+    /// Project a `pack(get_item, get_item)` re-ordering of struct
+    /// fields. Exercises the partition + re-assembly `ProjectPlan`
+    /// path on top of `StructLayout::plan`.
+    #[test]
+    fn diff_v1_v2_pack_projection_chunked_struct() -> VortexResult<()> {
+        use vortex_array::dtype::Nullability;
+        use vortex_array::expr::get_item;
+        use vortex_array::expr::pack;
+        let (segments, layout, _) = build_chunked_struct_layout();
+
+        let proj = pack(
+            [
+                ("b_out", get_item("b", root())),
+                ("a_out", get_item("a", root())),
+            ],
+            Nullability::NonNullable,
+        );
+        let v1 = read_v1_with(Arc::clone(&segments), &layout, proj.clone())?;
+        let v2 = read_v2_with(Arc::clone(&segments), &layout, proj)?;
+
+        assert_arrays_eq!(v1, v2);
+        Ok(())
+    }
+
+    /// Build a `Chunked(Dict(values=Flat, codes=Chunked(Flat)))` layout
+    /// — strings with dictionary compression. Exercises
+    /// `DictLayout::plan` + `DictDecodePlan`.
+    fn build_dict_chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef, ArrayRef) {
+        use vortex_array::arrays::VarBinArray;
+        use vortex_array::dtype::Nullability::NonNullable;
+
+        // Two chunks of repeated strings — high duplication so the
+        // writer should reach for the dict strategy.
+        let chunk1 = VarBinArray::from_iter(
+            ["alpha", "beta", "alpha", "alpha"].into_iter().map(Some),
+            DType::Utf8(NonNullable),
+        )
+        .into_array();
+        let chunk2 = VarBinArray::from_iter(
+            ["beta", "gamma", "alpha", "gamma"].into_iter().map(Some),
+            DType::Utf8(NonNullable),
+        )
+        .into_array();
+        let dtype = chunk1.dtype().clone();
+
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let segments_for_strategy = Arc::<TestSegments>::clone(&segments);
+        let strategy = ChunkedLayoutStrategy::new(crate::layouts::dict::writer::DictStrategy::new(
+            FlatLayoutStrategy::default(),
+            FlatLayoutStrategy::default(),
+            FlatLayoutStrategy::default(),
+            crate::layouts::dict::writer::DictLayoutOptions::default(),
+        ));
+        let (mut sequence_id, eof) = SequenceId::root().split();
+        let chunk1_for_write = chunk1.clone();
+        let chunk2_for_write = chunk2.clone();
+        let dtype_for_write = dtype.clone();
+        let layout = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            strategy
+                .write_stream(
+                    ctx,
+                    segments_for_strategy,
+                    SequentialStreamAdapter::new(
+                        dtype_for_write,
+                        stream::iter([
+                            Ok((sequence_id.advance(), chunk1_for_write)),
+                            Ok((sequence_id.advance(), chunk2_for_write)),
+                        ]),
+                    )
+                    .sendable(),
+                    eof,
+                    &session,
+                )
+                .await
+        })
+        .unwrap();
+
+        let combined = ChunkedArray::try_new(vec![chunk1, chunk2], dtype)
+            .unwrap()
+            .into_array();
+        (segments, layout, combined)
+    }
+
+    /// V1/V2 must agree for a dict-encoded chunked Utf8 column with
+    /// `root()` projection.
+    #[test]
+    fn diff_v1_v2_projection_only_dict() -> VortexResult<()> {
+        let (segments, layout, expected) = build_dict_chunked_layout();
+
+        let v1 = read_v1(Arc::clone(&segments), &layout)?;
+        let v2 = read_v2(Arc::clone(&segments), &layout)?;
+
+        assert_arrays_eq!(v1, v2);
+        assert_arrays_eq!(v2, expected);
         Ok(())
     }
 }

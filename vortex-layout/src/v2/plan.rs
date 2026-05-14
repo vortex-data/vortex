@@ -6,6 +6,7 @@
 //! A `LayoutPlan` is the unit of recursive plan-tree construction
 //! returned by [`crate::Layout::plan`]. See `LAYOUT_PLAN.md` § Model.
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
@@ -22,28 +23,39 @@ use crate::v2::demand::RowDemand;
 pub type LayoutPlanRef = Arc<dyn LayoutPlan>;
 
 /// A node in a layout plan tree. Each node produces output in one
-/// row domain, partitioned into `partition_count()` independent units
-/// of execution.
+/// row domain.
+///
+/// `partition_count()` / `partition_stats(i)` describe the natural
+/// splits a plan exposes — each split is a `Range<u64>` in this
+/// plan's row coordinate space. Engines pick a row range and call
+/// [`LayoutPlan::execute`]; aligning with `partition_stats` minimises
+/// slicing at the leaves but isn't required.
+///
+/// **Plans are pure descriptions.** No I/O caches live on the plan;
+/// holding a `LayoutPlanRef` should never hold execution state.
+/// Cross-execute sharing arrives via `Let` / `Use` (see
+/// `LAYOUT_PLAN.md` § Tee and CommonSubplanElimination).
 ///
 /// See `LAYOUT_PLAN.md` § Model.
 pub trait LayoutPlan: 'static + Send + Sync {
     /// The output schema of this plan node.
     fn schema(&self) -> &DType;
 
-    /// Number of independent partitions this plan exposes. A partition
-    /// is the unit of parallel execution; what it spans (rows, list
-    /// elements, arbitrary blocks) is layout-defined.
+    /// Number of natural splits this plan exposes. Each split is a
+    /// row range that the plan can produce atomically. Engines
+    /// typically use this to decide how to spread work across
+    /// partitions; the actual unit of execution is a `Range<u64>`
+    /// passed to [`LayoutPlan::execute`].
     fn partition_count(&self) -> usize;
 
-    /// Stats this plan can vouch for, per partition. Fields are
-    /// `Option<_>` because a plan may not know its row count or byte
-    /// size until execution. Returning a fully-unknown
-    /// [`PartitionStats`] is always valid.
+    /// The row range and stats for partition `i`. Drives engine
+    /// partitioning decisions; the row range is what an aligned
+    /// `execute` call would pass.
     fn partition_stats(&self, partition: usize) -> VortexResult<PartitionStats>;
 
     /// True iff this plan emits rows in the layout's natural row order:
-    /// within a partition, rows in row-id order; across partitions,
-    /// partitions in partition-id order.
+    /// within an `execute` call, rows in row-id order; across calls,
+    /// caller-supplied ranges in supplied order.
     fn output_ordered(&self) -> bool;
 
     /// For each child, true iff this plan needs that child row-ordered.
@@ -72,11 +84,18 @@ pub trait LayoutPlan: 'static + Send + Sync {
         children: Vec<LayoutPlanRef>,
     ) -> VortexResult<LayoutPlanRef>;
 
-    /// Execute one partition. Returns a stream of arrays in this
-    /// plan's output schema.
+    /// Read the rows in `row_range` from this plan, in this plan's
+    /// row coordinate space. Returns a stream of arrays whose total
+    /// row count is `row_range.len()`.
+    ///
+    /// Each call is independent: the plan should not cache state
+    /// across calls. Repeated reads of the same data (segments,
+    /// dict values, etc.) are paid by the caller until `Let` / `Use`
+    /// nodes land — see `LAYOUT_PLAN.md` § Tee and
+    /// CommonSubplanElimination.
     fn execute(
         &self,
-        partition: usize,
+        row_range: Range<u64>,
         session: &VortexSession,
     ) -> VortexResult<SendableArrayStream>;
 }
@@ -84,6 +103,11 @@ pub trait LayoutPlan: 'static + Send + Sync {
 /// Arguments passed to [`crate::Layout::plan`]. Carries the consumer's
 /// row selection, the expression to evaluate against the layout, and
 /// a [`PlanContext`] with cross-cutting handles.
+///
+/// Note: there is intentionally no `row_range` field. Engines express
+/// partial scans via partition selection (FileOpener) or
+/// `LayoutPlan::repartition` (ExecutionPlan boundary) — see
+/// `LAYOUT_PLAN.md` § Partial scans.
 #[derive(Clone)]
 pub struct PlanArguments {
     pub selection: Selection,
@@ -141,30 +165,34 @@ impl PlanContext {
     }
 }
 
-/// Stats a partition can vouch for. All fields are `Option<_>`; an
-/// empty `PartitionStats` is always valid.
+/// Stats a partition can vouch for. The row range is mandatory —
+/// every plan knows what range its `i`-th partition covers, since
+/// that's what an aligned `execute` would ask for. Other stats are
+/// `Option<_>`.
 ///
 /// Per-column stats (min/max/null counts) will be added in a later
-/// PR when there's a real consumer; for now the type carries row
-/// count and byte-size estimates only.
-#[derive(Default, Clone, Debug)]
+/// PR when there's a real consumer.
+#[derive(Clone, Debug)]
 pub struct PartitionStats {
-    pub row_count: Option<u64>,
+    pub row_range: Range<u64>,
     pub byte_size_estimate: Option<u64>,
 }
 
 impl PartitionStats {
-    pub fn unknown() -> Self {
-        Self::default()
-    }
-
-    pub fn with_row_count(mut self, n: u64) -> Self {
-        self.row_count = Some(n);
-        self
+    pub fn for_range(row_range: Range<u64>) -> Self {
+        Self {
+            row_range,
+            byte_size_estimate: None,
+        }
     }
 
     pub fn with_byte_size_estimate(mut self, n: u64) -> Self {
         self.byte_size_estimate = Some(n);
         self
+    }
+
+    /// Row count derived from the partition's row range.
+    pub fn row_count(&self) -> u64 {
+        self.row_range.end.saturating_sub(self.row_range.start)
     }
 }

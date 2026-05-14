@@ -51,6 +51,8 @@ use crate::layouts::zoned::reader::ZonedReader;
 use crate::layouts::zoned::schema::stats_table_dtype;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plan::PlanArguments;
 use crate::vtable;
 
 vtable!(Zoned);
@@ -155,6 +157,16 @@ impl VTable for Zoned {
         }
         layout.children = OwnedLayoutChildren::layout_children(children);
         Ok(())
+    }
+
+    fn plan(layout: &Self::Layout, args: PlanArguments) -> VortexResult<LayoutPlanRef> {
+        // Pass-through to the data child. The opportunistic
+        // `ZonedPruningPlan` publisher to `RowDemand` (see
+        // `LAYOUT_PLAN.md` § ZonedLayout::plan) only matters when a
+        // filter is present; it lands alongside `FilterPlan`.
+        let data_dtype = layout.dtype.clone();
+        let data_child = layout.children.child(0, &data_dtype)?;
+        data_child.plan(args)
     }
 }
 

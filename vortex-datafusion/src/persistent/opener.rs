@@ -329,10 +329,17 @@ impl FileOpener for VortexOpener {
                 scan_builder = vortex_plan.apply_to_builder(scan_builder);
             }
 
-            // Track whether DataFusion handed us anything other than a
-            // full-file byte range — `with_row_range` is a v1-only knob today.
-            let mut full_file_range = true;
-            if let Some(file_range) = file.range {
+            // V1 needs zone-aligned row ranges (its readers can't
+            // slice at arbitrary boundaries). V2 doesn't — every
+            // plan node slices its own data, so we can take whatever
+            // byte range DF picked and linearly interpolate to a
+            // row range. With `target_partitions ~= cores` that's a
+            // handful of large execute calls per file rather than
+            // hundreds of zone-sized ones — and the within-call
+            // shared dict/segment futures pay off across the zones
+            // each call covers.
+            let mut v2_row_range: Option<Range<u64>> = None;
+            if let Some(file_range) = &file.range {
                 let byte_range = Range {
                     start: u64::try_from(file_range.start)
                         .map_err(|_| exec_datafusion_err!("Vortex file range start is negative"))?,
@@ -340,24 +347,48 @@ impl FileOpener for VortexOpener {
                         .map_err(|_| exec_datafusion_err!("Vortex file range end is negative"))?,
                 };
                 if byte_range.start != 0 || byte_range.end != file.object_meta.size {
-                    full_file_range = false;
-                    // Full-file scans already cover every natural split. Only translate the
-                    // byte range back into row boundaries when DataFusion has trimmed the file.
+                    // V2 path: linear byte→row interpolation. Adjacent
+                    // DF byte ranges hit the same boundary value, so
+                    // partitioning is exact (no overlap, no gap).
+                    let v2_range = linear_byte_to_row_range(
+                        &byte_range,
+                        file.object_meta.size,
+                        vxf.row_count(),
+                    );
+                    if v2_range.start < v2_range.end {
+                        v2_row_range = Some(v2_range);
+                    }
+
+                    // V1 path: zone-aligned. Full-file scans already
+                    // cover every natural split, so we only translate
+                    // when DF has trimmed the file. If alignment
+                    // can't find any splits in this byte range, V1
+                    // gets nothing — but V2 (with linear interp) may
+                    // still have rows to read for this partition, so
+                    // we don't unconditionally exit here.
                     let natural_split_ranges = natural_split_ranges_for_file(
                         natural_split_ranges.as_ref(),
                         &file.object_meta.location,
                         &layout_reader,
                     )?;
 
-                    let Some(row_range) = split_aligned_row_range(
+                    match split_aligned_row_range(
                         byte_range,
                         file.object_meta.size,
                         natural_split_ranges.as_ref(),
-                    ) else {
-                        return Ok(stream::empty().boxed());
-                    };
-
-                    scan_builder = scan_builder.with_row_range(row_range);
+                    ) {
+                        Some(row_range) => {
+                            scan_builder = scan_builder.with_row_range(row_range);
+                        }
+                        None => {
+                            // V1 has no rows in this byte range. If we'll
+                            // also be running v1 (no V2 fallback), exit
+                            // empty as before. Otherwise let V2 take it.
+                            if !v2_toggle::use_v2_scan() {
+                                return Ok(stream::empty().boxed());
+                            }
+                        }
+                    }
                 }
             }
 
@@ -412,21 +443,16 @@ impl FileOpener for VortexOpener {
             // V2 today only handles the projection-only shape — see
             // `vortex::layout::v2::scan::Scan::build` and
             // `LAYOUT_PLAN.md` § Scan construction. Anything outside that
-            // shape (filter, limit, partial file range, non-`All` selection)
-            // falls back to v1.
-            // PR 3 supports any projection (via `ProjectPlan`'s read-all-then-
-            // apply fallback), but only the projection-only shape — no
-            // `FilterPlan`, no row-range slicing, no limit, no per-row
-            // selection. Anything outside that falls back to v1.
+            // (filter, limit, non-`All` selection) falls back to v1.
+            // The row range plumbs through unchanged: V2 builds a plan
+            // over the whole file, then `execute(row_range, ...)` reads
+            // exactly the bytes the opener was asked for.
             let v2_eligible = v2_toggle::use_v2_scan()
                 && filter.is_none()
                 && limit.is_none()
-                && full_file_range
                 && matches!(access_plan_selection.as_ref(), None | Some(Selection::All));
 
-            // Try V2 first if eligible; if `Layout::plan` bails (because some
-            // layout in the tree hasn't been ported yet), fall through to v1.
-            let v2_attempt = if v2_eligible {
+            let v2_plan = if v2_eligible {
                 let scan = V2Scan {
                     layout: Arc::clone(vxf.footer().layout()),
                     segment_source: vxf.segment_source(),
@@ -446,24 +472,28 @@ impl FileOpener for VortexOpener {
                 None
             };
 
-            let raw_stream = if let Some(plan) = v2_attempt {
+            let raw_stream = if let Some(plan) = v2_plan {
                 let v2_session = session.clone();
 
-                // Eagerly start each partition so its lazy reader pipeline is
-                // primed. `LayoutPlan::execute` doesn't itself fetch — it
-                // returns a stream that drives I/O when polled — so this loop
-                // just schedules N futures.
-                let mut partition_streams = Vec::with_capacity(plan.partition_count());
-                for partition in 0..plan.partition_count() {
-                    partition_streams.push(plan.execute(partition, &session).map_err(|e| {
-                        exec_datafusion_err!(
-                            "Failed to execute LayoutPlan v2 partition {partition}: {e}"
-                        )
-                    })?);
+                let total_rows = vxf.row_count();
+                let v2_range = v2_row_range.unwrap_or(0..total_rows);
+
+                tracing::debug!(
+                    "LayoutPlan v2 firing for {} (rows {}..{})",
+                    file.object_meta.location,
+                    v2_range.start,
+                    v2_range.end,
+                );
+
+                if v2_range.start >= v2_range.end {
+                    return Ok(stream::empty().boxed());
                 }
 
-                stream::iter(partition_streams)
-                    .flatten()
+                let chunk_stream = plan
+                    .execute(v2_range, &session)
+                    .map_err(|e| exec_datafusion_err!("Failed to execute LayoutPlan v2: {e}"))?;
+
+                chunk_stream
                     .map(move |chunk_res: vortex::error::VortexResult<ArrayRef>| {
                         let mut ctx = v2_session.create_execution_ctx();
                         chunk_res
@@ -532,6 +562,42 @@ impl FileOpener for VortexOpener {
         .in_current_span()
         .boxed())
     }
+}
+
+/// Linearly interpolate a byte range into a row range. V2 uses this
+/// (instead of natural-split alignment) since `LayoutPlan::execute`
+/// can slice on arbitrary boundaries.
+///
+/// Adjacent byte ranges produce abutting row ranges by construction —
+/// `byte_range.end` of partition `i` and `byte_range.start` of
+/// partition `i+1` are the same byte, and the same input gives the
+/// same row index, so there's no overlap or gap. A partition that
+/// covers byte 0 always starts at row 0; one that covers
+/// `total_size` always ends at `total_rows`, so the special-case
+/// boundaries don't drift via integer division.
+fn linear_byte_to_row_range(
+    byte_range: &Range<u64>,
+    total_size: u64,
+    total_rows: u64,
+) -> Range<u64> {
+    let interp = |byte: u64| -> u64 {
+        if total_size == 0 {
+            return 0;
+        }
+        let scaled = u128::from(byte) * u128::from(total_rows) / u128::from(total_size);
+        u64::try_from(scaled).unwrap_or(total_rows)
+    };
+    let row_start = if byte_range.start == 0 {
+        0
+    } else {
+        interp(byte_range.start).min(total_rows)
+    };
+    let row_end = if byte_range.end >= total_size {
+        total_rows
+    } else {
+        interp(byte_range.end).min(total_rows)
+    };
+    row_start..row_end
 }
 
 fn natural_split_ranges_for_file(

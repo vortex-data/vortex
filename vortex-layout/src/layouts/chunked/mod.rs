@@ -125,7 +125,19 @@ impl VTable for Chunked {
             let child = layout.children.child(idx, &dtype)?;
             child_plans.push(child.plan(args.clone())?);
         }
-        Ok(Arc::new(ChunkedPlan::new(child_plans, dtype)))
+        // Each chunk plans against the same projection, so they share
+        // an output dtype. Use the first child's schema (or fall back
+        // to evaluating the projection against the layout dtype if the
+        // chunked layout is empty — degenerate but legal).
+        let output_dtype = match child_plans.first() {
+            Some(child) => child.schema().clone(),
+            None => args.expr.return_dtype(&dtype)?,
+        };
+        Ok(Arc::new(ChunkedPlan::new(
+            child_plans,
+            layout.chunk_offsets.clone(),
+            output_dtype,
+        )))
     }
 }
 

@@ -116,13 +116,13 @@ pub trait LayoutPlan : 'static + Send + Sync {
 
     fn execute(
         &self,
-        partition: usize,
+        row_range: Range<u64>,
         session: &VortexSession,
     ) -> VortexResult<SendableArrayStream>;
 }
 
 pub struct PartitionStats {
-    pub row_count: Option<u64>,
+    pub row_range: Range<u64>,                 // physical row range this partition covers
     pub byte_size_estimate: Option<u64>,
     pub column_stats: HashMap<FieldPath, ColumnStats>,
 }
@@ -131,8 +131,8 @@ pub struct PartitionStats {
 Deliberate departures from DataFusion's `ExecutionPlan`:
 
 **No trait-level `row_count`.** Forces honesty about list and dynamic-
-filter-bearing plans. Row count moves to `partition_stats().row_count`
-as `Option<u64>`.
+filter-bearing plans. Row count moves to
+`partition_stats().row_range.len()`.
 
 **Stream output only.** `execute` returns a `SendableArrayStream` — no
 separate mask channel, no out-of-band coordination. Selection state
@@ -142,10 +142,29 @@ on the dataflow edge.
 **Binary ordering.** A plan is either row-ordered or not — see
 **Ordering**.
 
-**`partition` ≠ row range.** What a partition spans is layout-defined.
-A list layout's plan partitions parent rows; an element-domain plan
-partitions elements; they are different plans with different
-partition counts. See **Row domains and partitioning**.
+**Partitions are labeled row ranges.** `partition_count` /
+`partition_stats(i)` describe the natural splits a plan exposes —
+each split is a `Range<u64>` in the plan's row coordinate space.
+Engines pick which row range to ask for and call `execute(range, …)`;
+they're free to ignore `partition_stats` and request any range, but
+asking for partition-aligned ranges avoids slicing overhead at the
+leaves.
+
+**`execute` takes a `Range<u64>`, not a partition index.** Partitions
+were originally an integer abstraction, but heterogeneous chunking
+across struct fields (the writer coalesces per-field by bytes) means
+"partition 5 of field A" and "partition 5 of field B" don't cover
+the same rows. Row ranges are the only universal coordinate. Each
+plan node slices its own data on read — `ChunkedPlan.execute(range)`
+finds intersecting chunks; `StructPlan.execute(range)` delegates the
+range to every child; `FlatPlan.execute(range)` slices the segment.
+
+**Plans are pure descriptions.** No execution caches on the plan —
+holding a plan should never hold I/O state. Cross-execute sharing
+(dict values reused across N codes-partition reads, segment reused
+across sub-range reads of a flat) is **not** carried by the plan; it
+arrives later via explicit sharing nodes (see § Tee / Let-Use). Until
+those land, those reads are honestly redundant.
 
 ## Row domains and partitioning
 
@@ -311,6 +330,38 @@ producing real values for them."
 Dropping `RowDemand` entirely is always safe; sources just spend more
 work than necessary.
 
+#### Coordinate space
+
+Coordinates are **pre-filter**, in the **scan's input row space**, and
+**physically aligned to the data the leaves hold**. Any post-filter
+(rank-compressed) scheme would force every producer/consumer to know
+the rank function — i.e., to await upstream filter masks before they
+could even talk about positions — which kills the opportunistic /
+drop-safe / monotonic semantics that make `RowDemand` cheap.
+
+The scan's input row space is whatever `Scan::build` was asked to
+cover (the full file, or the partition subset the engine selected for
+this open — see "Partial scans" below). It is **not** the file's full
+row space when the engine has already restricted what to read.
+
+#### Window setup is one-shot, traversal slices the windows
+
+`RowDemand` windows are allocated once in `Scan::build`, sized by the
+dominant Chunked layout's chunks. Producer/consumer handles are then
+plumbed through the plan tree at construction time:
+
+- `Chunked` slices its window range and hands each child plan only the
+  sub-window covering that chunk's rows.
+- `Struct` / `Zoned` / `Dict` pass-through unchanged (their children
+  share the parent's row space).
+- A `Flat` leaf gets a window range that is exactly aligned to its own
+  data, so `consumer.snapshot(range)` returns a mask the leaf can
+  intersect with its on-disk row positions directly — no rank ops.
+
+This "slice as we traverse" model keeps coordinates aligned all the
+way down. By execute time, every producer/consumer handle is scoped
+to the leaf's local rows.
+
 ```
 pub struct RowDemand {
     spans: Vec<MonotoneMaskCell>,   // one cell per window of the partition
@@ -357,6 +408,53 @@ The cross-conjunct cooperation story flows entirely through
 downstream stream-AND) updates `RowDemand` based on the mask so far,
 conjunct 2's reader sees zero demand on already-rejected rows and
 short-circuits. Same as any other SIP — opportunistic, drop-safe.
+
+## Partial scans
+
+Engines never want a "scan rows X..Y" parameter on `LayoutPlan` —
+that's a row coordinate concern that doesn't belong in the trait.
+Instead, the two engine boundaries each express partial work using a
+primitive that already exists in `LayoutPlan`:
+
+**`ExecutionPlan::execute(partition_idx)` boundary** (e.g., a
+DataFusion `VortexExec` whose output partitioning is N). The engine
+asks for N partitions and calls `execute(0..N)`. The plan satisfies
+this via `LayoutPlan::repartition(n)` — coalesce or split partitions
+until `partition_count() == n`. `ChunkedPlan` is the layer that
+implements this in practice (chunks are the natural units to merge or
+split).
+
+**`FileOpener::open(file)` boundary**. DataFusion has already chosen
+its partitioning at the file-range level — each `(file, byte_range)`
+pair is one DF partition, and each `open()` call returns a single
+stream covering that range. The opener does **not** ask the plan to
+repartition; instead it does **partition selection**:
+
+1. Translate `byte_range` to a row range using the file's natural
+   splits (already done in v1 via `split_aligned_row_range`).
+2. Build the plan once over the whole file.
+3. Read `partition_stats(i).row_count` to learn each partition's row
+   span.
+4. Call `execute()` only on the partitions that fall within the
+   requested row range, flatten the resulting streams.
+
+`Scan::build` is therefore agnostic to the engine's partial-scan
+model: it always builds a plan over the full file. Slicing happens at
+the engine boundary using `partition_count` / `partition_stats` /
+`execute` — no row range is plumbed through `PlanArguments`.
+
+`RowDemand` is allocated against the **selected** partitions: if the
+opener chose partitions [5..8], the windows cover those three chunks'
+rows (in pre-filter, scan-input space — see above), nothing else.
+That naturally bounds the per-scan `RowDemand` allocation.
+
+A natural-but-deferred extension: instead of structurally pruning
+out-of-scope chunks, mark their windows as `demand=∅` in `RowDemand`
+at scan-build time. The plan stays canonical (full file); partial
+scans become an opening-state on the demand cells; producers
+short-circuit by checking demand. Composes uniformly with filter
+pushdown but only pays off once producers actually check demand —
+i.e., once `FilterPlan` lands.
 
 ## Scan construction
 
@@ -594,23 +692,41 @@ not at the root.
 
 ## Tee and CommonSubplanElimination
 
-Two fan-out patterns appear after pushdown:
+Three fan-out patterns appear, two of which a CSE pass naturally
+addresses:
 
-1. **Mask fan-out.** `PushFilterThroughStruct` gives the mask N
-   consumers (one per struct child).
-2. **Source sharing.** Filter conjunct `a > 5` and projection both
-   read column `a`'s flat layout. Two FlatPlans over the same source
-   do redundant I/O.
+1. **Intra-partition mask fan-out.** `PushFilterThroughStruct` gives
+   the mask N consumers (one per struct child). All N consumers run
+   inside the same `execute(range, …)` call.
+2. **Inter-subtree source sharing.** Filter conjunct `a > 5` and
+   projection both read column `a`'s flat layout. Two FlatPlans over
+   the same source do redundant I/O.
+3. **Cross-partition broadcast.** A `DictDecodePlan` reads its values
+   once and uses them across every codes-partition `execute(range)`
+   call. The values aren't a separately-occurring subtree, they're a
+   one-shot read fanned out to N execute calls.
 
-Both are solved by a `TeePlan` node owning one source and N cursored
-consumers, with bounded buffering between fastest and slowest cursor.
-If a consumer falls behind the buffer bound, fast consumers stall.
+Patterns 1 and 2 are CSE-friendly — structural plan-equality
+identifies the candidates and the rewrite is local. Pattern 3 is
+fundamentally different: it spans multiple `execute` calls (one per
+partition), and execute calls are independent, so a TeePlan owning a
+shared stream-source doesn't fit cleanly. Pattern 3 wants a one-shot
+materialised result `Arc`-shared across calls, not a streaming source
+with cursors.
 
-A `CommonSubplanElimination` pass identifies candidates by structural
-plan-equality (same layout, same expression, same selection),
-rewrites duplicates to a shared `TeePlan`. Run as a post-pass after
-all pushdown reaches fixed point. Missing a candidate costs perf,
-not correctness, so conservative matching is fine at first.
+The current direction is to fuse all three into a single
+`Let p = source` / `Use(p)` primitive (working name `LetPlan` /
+`UsePlan`). The same `Let` source can be either a streaming
+multi-cursor handle (Tee semantics, for patterns 1 & 2) or a one-shot
+broadcast handle (Arc semantics, for pattern 3) — discriminated by
+how it's used downstream. A `CommonSubplanElimination` pass
+identifies candidates by structural plan-equality (same layout, same
+expression, same selection) and rewrites duplicates into the shared
+`Let`. Run as a post-pass after all pushdown reaches fixed point.
+
+Until that lands, plans deliberately do not cache execution state
+(see § Model: "Plans are pure descriptions"). Redundant reads are
+honest, not hidden — they go away when CSE / Let-Use does.
 
 ## Partial-aggregate push-down
 
@@ -735,27 +851,60 @@ Run to fixed point per rule, then proceed to the next.
 
 ## Migration plan
 
-1. **Land the trait + scaffolding.** Fill in `LayoutPlan` with the
-   full method set (`schema`, `partition_count`, `partition_stats`,
-   `output_ordered`, `required_input_ordered`, `maintains_input_order`,
-   `repartition`, `children`, `with_new_children`, `execute`). Define
-   `PartitionStats` and `PlanArguments`.
-2. **Implement `RowDemand`.** Monotone-cell-per-window with watch-
-   channel semantics.
-3. **Stub plan nodes for every layout.** `execute` returns
-   `vortex_bail!` until implemented.
-4. **Implement `Layout::plan` for `Flat`, `Chunked`, `Struct`,
-   `Zoned`** in order. After Zoned, opportunistic pruning works.
-5. **Build `Scan::build`, `FilterPlan`, `AndBoolStreamsPlan`.**
-   End-to-end filtered scan.
-6. **Implement pushdown rules** in the order listed above.
-7. **Implement `DictPlan`** and verify the codes-zones case works.
-8. **Add `PartialAggregatePlan`** and a DataFusion physical rule that
-   places it over Vortex scans.
-9. **Implement `TeePlan` and `CommonSubplanElimination`.**
-10. **Port `ScanBuilder::into_array_stream`** behind a flag to use the
-    new path; flip the default once parity is reached; delete
-    `LayoutReader`.
+PRs land in order on the `ngates/layoutv2-N` stack. The first four
+have already shipped:
+
+- **PR1 — Trait skeleton + design doc.** `LayoutPlan` with the full
+  method surface, `PartitionStats`, `PlanArguments`, `LAYOUT_PLAN.md`.
+- **PR2 — Plan-node scaffolds + V1/V2 toggle.** `FlatPlan`,
+  `ChunkedPlan`, `StructPlan`, the `RowDemand` API stub (no
+  implementation), `VORTEX_LAYOUT_PLAN_V2` env var.
+- **PR3 — Projection-only `Scan` + DF opener wiring.** `Layout::plan`
+  for `Flat`/`Chunked`/`Struct`, `Scan::build` for projection-only,
+  V2 path wired into the persistent opener, differential test.
+- **PR4 — Row-range execute + Zoned/Dict + StructLayout field
+  routing.** `LayoutPlan::execute` switched from integer partition to
+  `Range<u64>`; `Layout::plan` for `Zoned` (pass-through) and `Dict`
+  (`DictDecodePlan`); `StructLayout::plan` does field routing via
+  `partition()`; `AlignedArrayStream` k-way zip in `StructPlan`;
+  opener uses linear byte→row interp instead of zone alignment.
+
+Remaining (numbering is loose — some of these may split or fuse as
+they land):
+
+- **PR5 — `FilterPlan` + `AndBoolStreamsPlan` + minimal `RowDemand`.**
+  End-to-end filtered scan. RowDemand windows allocated against the
+  scan's input row range (per the "post-selected, pre-filter" model
+  in § SIPs / RowDemand). `FilterPlan` publishes per-conjunct masks;
+  `AndBoolStreamsPlan` zips the bool streams.
+- **PR6 — Pushdown rules.** `PushFilterThroughStruct`,
+  `PushFilterThroughChunked`, `FuseFilterIntoFlat`. Run-to-fixed-point
+  driver. `EnforceOrdering` post-pass.
+- **PR7 — `Let` / `Use` (sharing primitive) + `CommonSubplanElimination`
+  pass.** Single primitive replaces the conceptual `TeePlan`: a `Let p
+  = source` node materialises a source once and exposes N consumers
+  through `Use(p)` references. Discriminates between streaming
+  multi-cursor (intra-partition mask fan-out, inter-subtree source
+  sharing) and one-shot broadcast (cross-partition dict values, flat
+  segments) at construction time. CSE pass identifies candidates by
+  structural plan-equality and rewrites to `Let`/`Use`. **Once this
+  lands, the redundant per-execute reads from PR4 collapse**
+  (DictDecodePlan re-reading values per call, FlatPlan re-fetching
+  segments) — that's the main perf-recovery PR.
+- **PR8 — Zoned pruning.** `ZonedPruningPlan` that publishes to
+  `RowDemand` from zone-map stats. Lights up the
+  pruning-via-stats path that `ZonedLayout::plan` currently no-ops.
+  Depends on PR5 (RowDemand) and PR7 (Let/Use for zone-map sharing
+  across conjuncts).
+- **PR9 — `DictPlan` predicate rewrite.** `col = "Alice"` →
+  `codes IN {17}` rewriting on the way down; combined with PR8 makes
+  codes-zoned pruning work end-to-end.
+- **PR10 — `PartialAggregatePlan`** + DataFusion physical rule that
+  places it over Vortex scans. `PushPartialAggThroughChunked` +
+  `AnswerFromPartitionStats` rules.
+- **PR11 — Cut over `ScanBuilder::into_array_stream` to V2 by
+  default.** Flip the toggle's default once V2 reaches parity. Delete
+  `LayoutReader`.
 
 ## Open questions
 

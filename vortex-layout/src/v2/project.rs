@@ -97,10 +97,10 @@ impl LayoutPlan for ProjectPlan {
 
     fn execute(
         &self,
-        partition: usize,
+        row_range: std::ops::Range<u64>,
         session: &VortexSession,
     ) -> VortexResult<SendableArrayStream> {
-        let inner = self.child.execute(partition, session)?;
+        let inner = self.child.execute(row_range, session)?;
         let expr = self.expr.clone();
         let dtype = self.output_dtype.clone();
         let mapped = inner.map(move |chunk_res| chunk_res.and_then(|chunk| chunk.apply(&expr)));

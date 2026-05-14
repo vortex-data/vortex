@@ -30,6 +30,9 @@ use crate::VTable;
 use crate::children::LayoutChildren;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::dict::DictDecodePlan;
+use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plan::PlanArguments;
 use crate::vtable;
 
 vtable!(Dict);
@@ -139,6 +142,27 @@ impl VTable for Dict {
             .next()
             .ok_or_else(|| vortex_err!("Missing codes child"))?;
         Ok(())
+    }
+
+    fn plan(layout: &Self::Layout, args: PlanArguments) -> VortexResult<LayoutPlanRef> {
+        // Projection-only path: read codes via the codes child plan,
+        // then materialise a `DictArray` per chunk against the values
+        // inside `DictDecodePlan::execute`. No values cache lives on
+        // the plan — see `LAYOUT_PLAN.md` § Model "Plans are pure
+        // descriptions". Cross-execute sharing is `Let` / `Use`
+        // territory.
+        let output_dtype = args.expr.return_dtype(layout.values.dtype())?;
+        let codes_plan = layout
+            .codes
+            .plan(args.clone().with_expr(vortex_array::expr::root()))?;
+        Ok(Arc::new(DictDecodePlan::new(
+            codes_plan,
+            Arc::clone(&layout.values),
+            Arc::clone(&args.ctx.segment_source),
+            args.expr,
+            output_dtype,
+            layout.all_values_referenced,
+        )))
     }
 }
 
