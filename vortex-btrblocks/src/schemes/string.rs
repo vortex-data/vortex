@@ -21,6 +21,14 @@ use vortex_fsst::FSST;
 use vortex_fsst::FSSTArrayExt;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
+#[cfg(feature = "onpair")]
+use vortex_onpair::DEFAULT_DICT12_CONFIG;
+#[cfg(feature = "onpair")]
+use vortex_onpair::OnPair;
+#[cfg(feature = "onpair")]
+use vortex_onpair::OnPairArrayExt;
+#[cfg(feature = "onpair")]
+use vortex_onpair::onpair_compress;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
 
@@ -35,6 +43,18 @@ use crate::SchemeExt;
 /// FSST (Fast Static Symbol Table) compression.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct FSSTScheme;
+
+/// OnPair short-string compression (dict-12, FSST-shape children).
+///
+/// Targets the same workload as FSST — large columns of short-to-medium
+/// strings with high lexical overlap — but uses a learned dictionary of
+/// frequent adjacent substrings and 12-bit codes. The codes / offsets /
+/// uncompressed-lengths children all flow through the cascading compressor
+/// the same way FSST's do, so any downstream bit-packing / FoR / etc. still
+/// applies.
+#[cfg(feature = "onpair")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct OnPairScheme;
 
 /// Sparse encoding for null-dominated arrays.
 ///
@@ -136,6 +156,108 @@ impl Scheme for FSSTScheme {
 
         Ok(fsst.into_array())
     }
+}
+
+#[cfg(feature = "onpair")]
+impl Scheme for OnPairScheme {
+    fn scheme_name(&self) -> &'static str {
+        "vortex.string.onpair"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        is_utf8_string(canonical)
+    }
+
+    /// Children, in slot order:
+    /// 0 = dict_offsets, 1 = codes, 2 = codes_offsets, 3 = uncompressed_lengths.
+    /// Validity is handled separately by the outer array.
+    fn num_children(&self) -> usize {
+        4
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+    }
+
+    fn compress(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let utf8 = data.array_as_utf8().into_owned();
+        let onpair_array = onpair_compress(&utf8, utf8.len(), utf8.dtype(), DEFAULT_DICT12_CONFIG)?;
+
+        let dict_offsets = compress_primitive_child(
+            compressor,
+            onpair_array.dict_offsets(),
+            &compress_ctx,
+            self.id(),
+            0,
+            exec_ctx,
+        )?;
+        let codes = compress_primitive_child(
+            compressor,
+            onpair_array.codes(),
+            &compress_ctx,
+            self.id(),
+            1,
+            exec_ctx,
+        )?;
+        let codes_offsets = compress_primitive_child(
+            compressor,
+            onpair_array.codes_offsets(),
+            &compress_ctx,
+            self.id(),
+            2,
+            exec_ctx,
+        )?;
+        let uncompressed_lengths = compress_primitive_child(
+            compressor,
+            onpair_array.uncompressed_lengths(),
+            &compress_ctx,
+            self.id(),
+            3,
+            exec_ctx,
+        )?;
+
+        Ok(OnPair::try_new(
+            onpair_array.dtype().clone(),
+            onpair_array.dict_bytes_handle().clone(),
+            dict_offsets,
+            codes,
+            codes_offsets,
+            uncompressed_lengths,
+            onpair_array.array_validity(),
+            onpair_array.bits(),
+        )?
+        .into_array())
+    }
+}
+
+/// Helper: narrow a primitive child to its tightest int type, then hand it
+/// off to the cascading compressor.
+#[cfg(feature = "onpair")]
+fn compress_primitive_child(
+    compressor: &CascadingCompressor,
+    child: &ArrayRef,
+    compress_ctx: &CompressorContext,
+    scheme_id: vortex_compressor::scheme::SchemeId,
+    child_idx: usize,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let narrowed = child
+        .clone()
+        .execute::<PrimitiveArray>(exec_ctx)?
+        .narrow()?
+        .into_array();
+    compressor.compress_child(&narrowed, compress_ctx, scheme_id, child_idx, exec_ctx)
 }
 
 impl Scheme for NullDominatedSparseScheme {
@@ -411,8 +533,24 @@ mod scheme_selection_tests {
         Ok(())
     }
 
+    #[cfg(feature = "onpair")]
     #[test]
-    fn test_fsst_compressed() -> VortexResult<()> {
+    fn test_onpair_in_default_scheme_list() {
+        use crate::SchemeExt;
+        use crate::schemes::string::OnPairScheme;
+
+        let ids: Vec<_> = crate::ALL_SCHEMES.iter().map(|s| s.id()).collect();
+        assert!(
+            ids.contains(&OnPairScheme.id()),
+            "OnPairScheme not registered in ALL_SCHEMES"
+        );
+    }
+
+    #[test]
+    fn test_dictionary_string_scheme_compressed() -> VortexResult<()> {
+        // Dictionary-style string corpus: high lexical overlap, short rows.
+        // FSST and OnPair both target this shape; the cascading compressor
+        // picks whichever samples better, so accept either.
         let mut strings = Vec::with_capacity(1000);
         for i in 0..1000 {
             strings.push(Some(format!(
@@ -423,7 +561,16 @@ mod scheme_selection_tests {
         let array_ref = array.into_array();
         let compressed = BtrBlocksCompressor::default()
             .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
-        assert!(compressed.is::<FSST>());
+        let is_fsst = compressed.is::<FSST>();
+        #[cfg(feature = "onpair")]
+        let is_onpair = compressed.is::<vortex_onpair::OnPair>();
+        #[cfg(not(feature = "onpair"))]
+        let is_onpair = false;
+        assert!(
+            is_fsst || is_onpair,
+            "expected FSST or OnPair, got {}",
+            compressed.encoding_id()
+        );
         Ok(())
     }
 }

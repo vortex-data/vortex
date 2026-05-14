@@ -54,6 +54,8 @@ pub const ALL_SCHEMES: &[&dyn Scheme] = &[
     ////////////////////////////////////////////////////////////////////////////////////////////////
     &string::StringDictScheme,
     &string::FSSTScheme,
+    #[cfg(feature = "onpair")]
+    &string::OnPairScheme,
     &string::StringConstantScheme,
     &string::NullDominatedSparseScheme,
     // Decimal schemes.

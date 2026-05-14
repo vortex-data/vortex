@@ -80,35 +80,7 @@ where
 
     let column = Column::compress(&flat, &offsets, config)
         .map_err(|e| vortex_err!("OnPair compress failed: {e}"))?;
-
-    let bits;
-    let dict_bytes;
-    let dict_offsets;
-    let codes;
-    let codes_offsets;
-    {
-        let parts = column
-            .parts()
-            .map_err(|e| vortex_err!("OnPair parts failed: {e}"))?;
-        bits = parts.bits;
-
-        // Last dict_offset = total token bytes; unpack into a single
-        // contiguous ByteBuffer for the Vortex `dict_bytes` blob.
-        dict_bytes = BufferHandle::new_host(ByteBuffer::from(parts.dict_bytes.to_vec()));
-        dict_offsets = Buffer::<u32>::copy_from(parts.dict_offsets).into_array();
-
-        let total_tokens = *parts
-            .codes_boundaries
-            .last()
-            .ok_or_else(|| vortex_err!("OnPair: missing boundaries"))?
-            as usize;
-        let codes_vec = unpack_codes_to_u16(parts.codes_packed, total_tokens, bits);
-        codes = Buffer::<u16>::copy_from(codes_vec).into_array();
-
-        // Token-index boundaries are exactly the offsets into our flat u16
-        // `codes` array, so we can use them as-is.
-        codes_offsets = Buffer::<u32>::copy_from(parts.codes_boundaries).into_array();
-    }
+    let (bits, dict_bytes, dict_offsets, codes, codes_offsets) = parts_to_children(&column)?;
     drop(column);
 
     let uncompressed_lengths = uncompressed_lengths.into_array();
@@ -127,6 +99,30 @@ where
         validity,
         bits,
     )
+}
+
+/// Borrow the raw C++ parts and lift them into owned Vortex children.
+/// Returns `(bits, dict_bytes, dict_offsets, codes, codes_offsets)`.
+fn parts_to_children(
+    column: &Column,
+) -> VortexResult<(u32, BufferHandle, ArrayRef, ArrayRef, ArrayRef)> {
+    let parts = column
+        .parts()
+        .map_err(|e| vortex_err!("OnPair parts failed: {e}"))?;
+    let bits = parts.bits;
+    let dict_bytes = BufferHandle::new_host(ByteBuffer::from(parts.dict_bytes.to_vec()));
+    let dict_offsets = Buffer::<u32>::copy_from(parts.dict_offsets).into_array();
+    let total_tokens = usize::try_from(
+        *parts
+            .codes_boundaries
+            .last()
+            .ok_or_else(|| vortex_err!("OnPair: missing codes_boundaries"))?,
+    )
+    .map_err(|_| vortex_err!("OnPair: total_tokens does not fit in usize"))?;
+    let codes_vec = unpack_codes_to_u16(parts.codes_packed, total_tokens, bits);
+    let codes = Buffer::<u16>::copy_from(codes_vec).into_array();
+    let codes_offsets = Buffer::<u32>::copy_from(parts.codes_boundaries).into_array();
+    Ok((bits, dict_bytes, dict_offsets, codes, codes_offsets))
 }
 
 /// Compress a byte-string accessor (typically a `VarBinArray` or
