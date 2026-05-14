@@ -34,12 +34,14 @@ use vortex::expr::nested_case_when;
 use vortex::expr::not;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::expr::transform::coerce_expression;
 use vortex::scalar::Scalar;
 use vortex::scalar_fn::ScalarFnVTableExt;
 use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::convert::FromDataFusion;
 
@@ -53,13 +55,21 @@ pub struct ProcessedProjection {
 pub(crate) fn make_vortex_predicate(
     expr_convertor: &dyn ExpressionConvertor,
     predicate: &[Arc<dyn PhysicalExpr>],
+    input_schema: &Schema,
 ) -> DFResult<Option<Expression>> {
     let exprs = predicate
         .iter()
         .map(|e| expr_convertor.convert(e.as_ref()))
         .collect::<DFResult<Vec<_>>>()?;
 
-    Ok(and_collect(exprs))
+    let Some(predicate) = and_collect(exprs) else {
+        return Ok(None);
+    };
+
+    let scope = DType::from_arrow(input_schema);
+    Ok(Some(coerce_expression(predicate, &scope).map_err(|e| {
+        exec_datafusion_err!("Failed to coerce Vortex predicate expression: {e}")
+    })?))
 }
 
 /// Trait for converting DataFusion expressions to Vortex ones.
@@ -111,6 +121,43 @@ pub trait ExpressionConvertor: Send + Sync {
 pub struct DefaultExpressionConvertor {}
 
 impl DefaultExpressionConvertor {
+    fn scan_projection_for_leftover_expr(
+        &self,
+        expr: &Arc<dyn PhysicalExpr>,
+    ) -> DFResult<Vec<(String, Expression)>> {
+        let mut projected_names = HashSet::new();
+        let mut scan_projection = Vec::new();
+
+        expr.apply(|node| {
+            if let Some(cast_col_expr) = node.as_any().downcast_ref::<df_expr::CastColumnExpr>()
+                && is_decimal(cast_col_expr.input_field().data_type())
+                && is_decimal(cast_col_expr.target_field().data_type())
+                && let Some(column) = cast_col_expr
+                    .expr()
+                    .as_any()
+                    .downcast_ref::<df_expr::Column>()
+            {
+                let name = column.name().to_string();
+                if projected_names.insert(name.clone()) {
+                    scan_projection.push((name, self.convert(node.as_ref())?));
+                }
+                return Ok(TreeNodeRecursion::Stop);
+            }
+
+            Ok(TreeNodeRecursion::Continue)
+        })?;
+
+        scan_projection.extend(
+            collect_columns(expr)
+                .into_iter()
+                .filter(|c| !projected_names.contains(c.name()))
+                .sorted_by_key(|c| c.index())
+                .map(|c| (c.name().to_string(), get_item(c.name(), root()))),
+        );
+
+        Ok(scan_projection)
+    }
+
     /// Attempts to convert a DataFusion ScalarFunctionExpr to a Vortex expression.
     fn try_convert_scalar_function(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
         if let Some(get_field_fn) = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn)
@@ -310,19 +357,12 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                     return Ok(TreeNodeRecursion::Stop);
                 }
 
-                // DataFusion assumes different decimal types can be coerced.
-                // Vortex expects a perfect match so we don't push it down.
                 if let Some(binary_expr) = node.as_any().downcast_ref::<df_expr::BinaryExpr>()
                     && binary_expr.op().is_numerical_operators()
                     && (is_decimal(&binary_expr.left().data_type(input_schema)?)
                         && is_decimal(&binary_expr.right().data_type(input_schema)?))
                 {
-                    scan_projection.extend(
-                        collect_columns(node)
-                            .into_iter()
-                            .map(|c| (c.name().to_string(), get_item(c.name(), root()))),
-                    );
-
+                    scan_projection.extend(self.scan_projection_for_leftover_expr(node)?);
                     leftover_projection.push(projection_expr.clone());
                     return Ok(TreeNodeRecursion::Stop);
                 }
@@ -478,10 +518,47 @@ fn is_convertible_expr(df_expr: &Arc<dyn PhysicalExpr>) -> bool {
 }
 
 fn can_binary_be_pushed_down(binary: &df_expr::BinaryExpr, schema: &Schema) -> bool {
-    let is_op_supported = try_operator_from_df(binary.op()).is_ok();
-    is_op_supported
-        && can_be_pushed_down_impl(binary.left(), schema)
+    let Ok(operator) = try_operator_from_df(binary.op()) else {
+        return false;
+    };
+
+    can_be_pushed_down_impl(binary.left(), schema)
         && can_be_pushed_down_impl(binary.right(), schema)
+        && can_vortex_binary_args_be_coerced(binary, operator, schema)
+}
+
+fn can_vortex_binary_args_be_coerced(
+    binary: &df_expr::BinaryExpr,
+    operator: Operator,
+    schema: &Schema,
+) -> bool {
+    if !(operator.is_arithmetic() || operator.is_comparison()) {
+        return true;
+    }
+
+    let Some(lhs) = physical_expr_dtype(binary.left(), schema) else {
+        return false;
+    };
+    let Some(rhs) = physical_expr_dtype(binary.right(), schema) else {
+        return false;
+    };
+
+    // Vortex does not currently support decimal arithmetic in the binary scalar function.
+    if operator.is_arithmetic() && (rhs.is_decimal() || lhs.is_decimal()) {
+        return false;
+    }
+
+    let Some(supertype) = lhs.least_supertype(&rhs) else {
+        return false;
+    };
+
+    lhs.can_coerce_to(&supertype) && rhs.can_coerce_to(&supertype)
+}
+
+fn physical_expr_dtype(expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> Option<DType> {
+    let data_type = expr.data_type(schema).ok()?;
+    let nullability = expr.nullable(schema).ok()?.into();
+    Some(DType::from_arrow((&data_type, nullability)))
 }
 
 fn can_case_be_pushed_down(case_expr: &df_expr::CaseExpr, schema: &Schema) -> bool {
@@ -568,6 +645,7 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Schema;
     use arrow_schema::TimeUnit as ArrowTimeUnit;
+    use datafusion::arrow::datatypes::i256 as arrow_i256;
     use datafusion_common::ScalarValue;
     use datafusion_expr::Operator as DFOperator;
     use datafusion_physical_expr::PhysicalExpr;
@@ -601,7 +679,7 @@ mod tests {
     #[test]
     fn test_make_vortex_predicate_empty() {
         let expr_convertor = DefaultExpressionConvertor::default();
-        let result = make_vortex_predicate(&expr_convertor, &[]).unwrap();
+        let result = make_vortex_predicate(&expr_convertor, &[], &Schema::empty()).unwrap();
         assert!(result.is_none());
     }
 
@@ -609,7 +687,8 @@ mod tests {
     fn test_make_vortex_predicate_single() {
         let expr_convertor = DefaultExpressionConvertor::default();
         let col_expr = Arc::new(df_expr::Column::new("test", 0)) as Arc<dyn PhysicalExpr>;
-        let result = make_vortex_predicate(&expr_convertor, &[col_expr]).unwrap();
+        let input_schema = Schema::new(vec![Field::new("test", DataType::Boolean, false)]);
+        let result = make_vortex_predicate(&expr_convertor, &[col_expr], &input_schema).unwrap();
         assert!(result.is_some());
     }
 
@@ -618,7 +697,11 @@ mod tests {
         let expr_convertor = DefaultExpressionConvertor::default();
         let col1 = Arc::new(df_expr::Column::new("col1", 0)) as Arc<dyn PhysicalExpr>;
         let col2 = Arc::new(df_expr::Column::new("col2", 1)) as Arc<dyn PhysicalExpr>;
-        let result = make_vortex_predicate(&expr_convertor, &[col1, col2]).unwrap();
+        let input_schema = Schema::new(vec![
+            Field::new("col1", DataType::Boolean, false),
+            Field::new("col2", DataType::Boolean, false),
+        ]);
+        let result = make_vortex_predicate(&expr_convertor, &[col1, col2], &input_schema).unwrap();
         assert!(result.is_some());
         // Result should be an AND expression combining the two columns
     }
@@ -858,6 +941,170 @@ mod tests {
     }
 
     #[rstest]
+    #[case::decimal32(DataType::Decimal32(7, 2), DataType::Decimal32(8, 2))]
+    #[case::decimal64(DataType::Decimal32(7, 2), DataType::Decimal64(16, 2))]
+    #[case::decimal128(DataType::Decimal64(16, 2), DataType::Decimal128(36, 2))]
+    #[case::decimal256(DataType::Decimal128(36, 2), DataType::Decimal256(74, 2))]
+    fn test_decimal_filter_with_different_literal_type_pushes_down(
+        #[case] file_type: DataType,
+        #[case] filter_type: DataType,
+    ) -> anyhow::Result<()> {
+        let file_field = Arc::new(Field::new("amount", file_type, true));
+        let filter_field = Arc::new(Field::new("amount", filter_type.clone(), true));
+        let input_schema = Schema::new(vec![file_field.as_ref().clone()]);
+
+        let file_amount = Arc::new(df_expr::Column::new("amount", 0)) as Arc<dyn PhysicalExpr>;
+        let filter_amount = Arc::new(df_expr::CastColumnExpr::new(
+            file_amount,
+            file_field,
+            filter_field,
+            None,
+        )) as Arc<dyn PhysicalExpr>;
+        let literal =
+            Arc::new(df_expr::Literal::new(decimal_one(&filter_type))) as Arc<dyn PhysicalExpr>;
+        let filter = Arc::new(df_expr::BinaryExpr::new(
+            filter_amount,
+            DFOperator::GtEq,
+            literal,
+        )) as Arc<dyn PhysicalExpr>;
+
+        let expr_convertor = DefaultExpressionConvertor::default();
+        assert!(
+            expr_convertor.can_be_pushed_down(&filter, &input_schema),
+            "expected decimal filter to be accepted for pushdown"
+        );
+
+        let predicate = make_vortex_predicate(&expr_convertor, &[filter], &input_schema)?
+            .expect("non-empty filter should produce a predicate");
+        let predicate_tree = predicate.display_tree().to_string();
+        match filter_type {
+            DataType::Decimal32(8, 2) => assert_snapshot!(predicate_tree, @r"
+            vortex.binary(>=)
+            ├── lhs: vortex.cast(decimal(8,2)?)
+            │   └── input: vortex.get_item(amount)
+            │       └── input: vortex.root()
+            └── rhs: vortex.literal(decimal32(100, precision=8, scale=2))
+            "),
+            DataType::Decimal64(16, 2) => assert_snapshot!(predicate_tree, @r"
+            vortex.binary(>=)
+            ├── lhs: vortex.cast(decimal(16,2)?)
+            │   └── input: vortex.get_item(amount)
+            │       └── input: vortex.root()
+            └── rhs: vortex.literal(decimal64(100, precision=16, scale=2))
+            "),
+            DataType::Decimal128(36, 2) => assert_snapshot!(predicate_tree, @r"
+            vortex.binary(>=)
+            ├── lhs: vortex.cast(decimal(36,2)?)
+            │   └── input: vortex.get_item(amount)
+            │       └── input: vortex.root()
+            └── rhs: vortex.literal(decimal128(100, precision=36, scale=2))
+            "),
+            DataType::Decimal256(74, 2) => assert_snapshot!(predicate_tree, @r"
+            vortex.binary(>=)
+            ├── lhs: vortex.cast(decimal(74,2)?)
+            │   └── input: vortex.get_item(amount)
+            │       └── input: vortex.root()
+            └── rhs: vortex.literal(decimal256(100, precision=74, scale=2))
+            "),
+            _ => unreachable!("unexpected filter type: {filter_type:?}"),
+        }
+
+        Ok(())
+    }
+
+    #[rstest]
+    #[case::decimal32_to_64(DataType::Decimal32(7, 2), DataType::Decimal64(16, 2))]
+    #[case::decimal64_to_128(DataType::Decimal64(16, 2), DataType::Decimal128(36, 2))]
+    #[case::decimal128_to_256(DataType::Decimal128(36, 2), DataType::Decimal256(74, 2))]
+    fn test_decimal_filter_literal_type_is_coerced_for_pushdown(
+        #[case] file_type: DataType,
+        #[case] literal_type: DataType,
+    ) -> anyhow::Result<()> {
+        let input_schema = Schema::new(vec![Field::new("amount", file_type, true)]);
+        let file_amount = Arc::new(df_expr::Column::new("amount", 0)) as Arc<dyn PhysicalExpr>;
+        let literal =
+            Arc::new(df_expr::Literal::new(decimal_one(&literal_type))) as Arc<dyn PhysicalExpr>;
+        let filter = Arc::new(df_expr::BinaryExpr::new(
+            file_amount,
+            DFOperator::GtEq,
+            literal,
+        )) as Arc<dyn PhysicalExpr>;
+
+        let expr_convertor = DefaultExpressionConvertor::default();
+        assert!(expr_convertor.can_be_pushed_down(&filter, &input_schema));
+
+        let predicate = make_vortex_predicate(&expr_convertor, &[filter], &input_schema)?
+            .expect("non-empty filter should produce a predicate");
+        let scope = DType::from_arrow(&input_schema);
+        predicate.return_dtype(&scope)?;
+
+        let predicate_tree = predicate.display_tree().to_string();
+        match literal_type {
+            DataType::Decimal64(16, 2) => assert_snapshot!(predicate_tree, @r"
+            vortex.binary(>=)
+            ├── lhs: vortex.cast(decimal(16,2)?)
+            │   └── input: vortex.get_item(amount)
+            │       └── input: vortex.root()
+            └── rhs: vortex.literal(decimal64(100, precision=16, scale=2))
+            "),
+            DataType::Decimal128(36, 2) => assert_snapshot!(predicate_tree, @r"
+            vortex.binary(>=)
+            ├── lhs: vortex.cast(decimal(36,2)?)
+            │   └── input: vortex.get_item(amount)
+            │       └── input: vortex.root()
+            └── rhs: vortex.literal(decimal128(100, precision=36, scale=2))
+            "),
+            DataType::Decimal256(74, 2) => assert_snapshot!(predicate_tree, @r"
+            vortex.binary(>=)
+            ├── lhs: vortex.cast(decimal(74,2)?)
+            │   └── input: vortex.get_item(amount)
+            │       └── input: vortex.root()
+            └── rhs: vortex.literal(decimal256(100, precision=74, scale=2))
+            "),
+            _ => unreachable!("unexpected literal type: {literal_type:?}"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_decimal_filter_literal_scale_change_pushes_down_using_dtype_coercion()
+    -> anyhow::Result<()> {
+        let input_schema = Schema::new(vec![Field::new("amount", DataType::Decimal32(7, 2), true)]);
+        let file_amount = Arc::new(df_expr::Column::new("amount", 0)) as Arc<dyn PhysicalExpr>;
+        let literal = Arc::new(df_expr::Literal::new(ScalarValue::Decimal32(
+            Some(10_000),
+            9,
+            4,
+        ))) as Arc<dyn PhysicalExpr>;
+        let filter = Arc::new(df_expr::BinaryExpr::new(
+            file_amount,
+            DFOperator::GtEq,
+            literal,
+        )) as Arc<dyn PhysicalExpr>;
+
+        let expr_convertor = DefaultExpressionConvertor::default();
+        assert!(
+            expr_convertor.can_be_pushed_down(&filter, &input_schema),
+            "decimal scale-widening coercion should use DType::can_coerce_to"
+        );
+        let predicate = make_vortex_predicate(&expr_convertor, &[filter], &input_schema)?
+            .expect("non-empty filter should produce a predicate");
+        let scope = DType::from_arrow(&input_schema);
+        predicate.return_dtype(&scope)?;
+
+        assert_snapshot!(predicate.display_tree().to_string(), @r"
+        vortex.binary(>=)
+        ├── lhs: vortex.cast(decimal(9,4)?)
+        │   └── input: vortex.get_item(amount)
+        │       └── input: vortex.root()
+        └── rhs: vortex.literal(decimal32(10000, precision=9, scale=4))
+        ");
+
+        Ok(())
+    }
+
+    #[rstest]
     fn test_can_be_pushed_down_like_supported(test_schema: Schema) {
         let expr = Arc::new(df_expr::Column::new("name", 1)) as Arc<dyn PhysicalExpr>;
         let pattern = Arc::new(df_expr::Literal::new(ScalarValue::Utf8(Some(
@@ -879,6 +1126,132 @@ mod tests {
             Arc::new(df_expr::LikeExpr::new(false, false, expr, pattern)) as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down_impl(&like_expr, &test_schema));
+    }
+
+    #[rstest]
+    #[case::decimal32(
+        DataType::Decimal32(7, 2),
+        DataType::Decimal32(8, 2),
+        DataType::Decimal32(9, 2)
+    )]
+    #[case::decimal64(
+        DataType::Decimal64(16, 2),
+        DataType::Decimal64(17, 2),
+        DataType::Decimal64(18, 2)
+    )]
+    #[case::decimal128(
+        DataType::Decimal128(36, 2),
+        DataType::Decimal128(37, 2),
+        DataType::Decimal128(38, 2)
+    )]
+    #[case::decimal256(
+        DataType::Decimal256(74, 2),
+        DataType::Decimal256(75, 2),
+        DataType::Decimal256(76, 2)
+    )]
+    fn test_split_projection_preserves_decimal_file_cast_for_leftover(
+        #[case] physical_type: DataType,
+        #[case] logical_type: DataType,
+        #[case] result_type: DataType,
+    ) -> anyhow::Result<()> {
+        let physical_field = Arc::new(Field::new("amount", physical_type, true));
+        let logical_field = Arc::new(Field::new("amount", logical_type.clone(), true));
+        let input_schema = Schema::new(vec![physical_field.as_ref().clone()]);
+        let output_schema = Schema::new(vec![Field::new("amount_plus_one", result_type, true)]);
+
+        let physical_amount = Arc::new(df_expr::Column::new("amount", 0)) as Arc<dyn PhysicalExpr>;
+        let logical_amount = Arc::new(df_expr::CastColumnExpr::new(
+            physical_amount,
+            physical_field,
+            logical_field,
+            None,
+        )) as Arc<dyn PhysicalExpr>;
+        let one =
+            Arc::new(df_expr::Literal::new(decimal_one(&logical_type))) as Arc<dyn PhysicalExpr>;
+        let projection = ProjectionExprs::from(vec![ProjectionExpr {
+            expr: Arc::new(df_expr::BinaryExpr::new(
+                logical_amount,
+                DFOperator::Plus,
+                one,
+            )),
+            alias: "amount_plus_one".to_string(),
+        }]);
+
+        let processed = DefaultExpressionConvertor::default().split_projection(
+            projection,
+            &input_schema,
+            &output_schema,
+        )?;
+        let scan_tree = processed.scan_projection.display_tree().to_string();
+
+        match logical_type {
+            DataType::Decimal32(8, 2) => assert_snapshot!(scan_tree, @r"
+            vortex.pack(names: [amount], nullability: NonNullable)
+            └── amount: vortex.cast(decimal(8,2)?)
+                └── input: vortex.get_item(amount)
+                    └── input: vortex.root()
+            "),
+            DataType::Decimal64(17, 2) => assert_snapshot!(scan_tree, @r"
+            vortex.pack(names: [amount], nullability: NonNullable)
+            └── amount: vortex.cast(decimal(17,2)?)
+                └── input: vortex.get_item(amount)
+                    └── input: vortex.root()
+            "),
+            DataType::Decimal128(37, 2) => assert_snapshot!(scan_tree, @r"
+            vortex.pack(names: [amount], nullability: NonNullable)
+            └── amount: vortex.cast(decimal(37,2)?)
+                └── input: vortex.get_item(amount)
+                    └── input: vortex.root()
+            "),
+            DataType::Decimal256(75, 2) => assert_snapshot!(scan_tree, @r"
+            vortex.pack(names: [amount], nullability: NonNullable)
+            └── amount: vortex.cast(decimal(75,2)?)
+                └── input: vortex.get_item(amount)
+                    └── input: vortex.root()
+            "),
+            _ => unreachable!("unexpected logical type: {logical_type:?}"),
+        }
+        let scan_dtype = processed
+            .scan_projection
+            .return_dtype(&DType::from_arrow(&input_schema))?;
+        let DType::Struct(fields, _) = scan_dtype else {
+            panic!("scan projection should return a struct dtype");
+        };
+        assert_eq!(
+            fields.field("amount"),
+            Some(DType::from_arrow((&logical_type, Nullability::Nullable)))
+        );
+
+        let leftover = processed.leftover_projection.as_ref();
+        assert_eq!(leftover.len(), 1);
+        assert!(
+            leftover[0]
+                .expr
+                .as_any()
+                .downcast_ref::<df_expr::BinaryExpr>()
+                .is_some()
+        );
+        assert_eq!(leftover[0].alias, "amount_plus_one");
+
+        Ok(())
+    }
+
+    fn decimal_one(data_type: &DataType) -> ScalarValue {
+        match data_type {
+            DataType::Decimal32(precision, scale) => {
+                ScalarValue::Decimal32(Some(100), *precision, *scale)
+            }
+            DataType::Decimal64(precision, scale) => {
+                ScalarValue::Decimal64(Some(100), *precision, *scale)
+            }
+            DataType::Decimal128(precision, scale) => {
+                ScalarValue::Decimal128(Some(100), *precision, *scale)
+            }
+            DataType::Decimal256(precision, scale) => {
+                ScalarValue::Decimal256(Some(arrow_i256::from_i128(100)), *precision, *scale)
+            }
+            _ => panic!("expected decimal type"),
+        }
     }
 
     // https://github.com/vortex-data/vortex/issues/6211

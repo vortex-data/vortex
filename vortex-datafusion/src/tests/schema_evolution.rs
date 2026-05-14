@@ -11,12 +11,18 @@ use arrow_schema::Fields;
 use arrow_schema::Schema;
 use datafusion::arrow::array::Array;
 use datafusion::arrow::array::ArrayRef as ArrowArrayRef;
+use datafusion::arrow::array::Decimal32Array;
+use datafusion::arrow::array::Decimal64Array;
+use datafusion::arrow::array::Decimal128Array;
+use datafusion::arrow::array::Decimal256Array;
 use datafusion::arrow::array::DictionaryArray;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::array::StructArray;
 use datafusion::arrow::datatypes::UInt16Type;
 use datafusion::arrow::datatypes::UInt32Type;
+use datafusion::arrow::datatypes::i256 as arrow_i256;
 use datafusion::assert_batches_sorted_eq;
+use datafusion_common::ScalarValue;
 use datafusion_common::assert_batches_eq;
 use datafusion_common::create_array;
 use datafusion_common::record_batch;
@@ -165,6 +171,120 @@ async fn test_filter_schema_evolution_order(
     );
 
     Ok(())
+}
+
+#[rstest]
+#[case::decimal32(
+    DataType::Decimal32(7, 2),
+    DataType::Decimal32(8, 2),
+    DataType::Decimal32(9, 2)
+)]
+#[case::decimal64(
+    DataType::Decimal64(16, 2),
+    DataType::Decimal64(17, 2),
+    DataType::Decimal64(18, 2)
+)]
+#[case::decimal128(
+    DataType::Decimal128(36, 2),
+    DataType::Decimal128(37, 2),
+    DataType::Decimal128(38, 2)
+)]
+#[case::decimal256(
+    DataType::Decimal256(74, 2),
+    DataType::Decimal256(75, 2),
+    DataType::Decimal256(76, 2)
+)]
+#[tokio::test]
+async fn test_projection_pushdown_casts_decimal_file_schema(
+    #[case] file_type: DataType,
+    #[case] table_type: DataType,
+    #[case] result_type: DataType,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new(true);
+
+    let amounts = decimal_array(&file_type)?;
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new("amount", file_type, true)])),
+        vec![amounts],
+    )?;
+    ctx.write_arrow_batch("files/file.vortex", &batch).await?;
+
+    let table_schema = Arc::new(Schema::new(vec![Field::new(
+        "amount",
+        table_type.clone(),
+        true,
+    )]));
+    let provider = ctx
+        .table_provider("tbl", "/files/", Arc::clone(&table_schema))
+        .await?;
+
+    let result = ctx
+        .session
+        .read_table(provider)?
+        .select(vec![
+            (col("amount") + lit(decimal_one(&table_type))).alias("amount_plus_one"),
+        ])?
+        .collect()
+        .await?;
+
+    assert!(!result.is_empty(), "expected decimal projection output");
+    assert_eq!(result[0].schema().field(0).data_type(), &result_type);
+    assert_batches_eq!(
+        &[
+            "+-----------------+",
+            "| amount_plus_one |",
+            "+-----------------+",
+            "| 11.00           |",
+            "| 26.00           |",
+            "+-----------------+",
+        ],
+        &result
+    );
+
+    Ok(())
+}
+
+fn decimal_array(data_type: &DataType) -> anyhow::Result<ArrowArrayRef> {
+    match data_type {
+        DataType::Decimal32(precision, scale) => Ok(Arc::new(
+            Decimal32Array::from(vec![Some(1000), Some(2500)])
+                .with_precision_and_scale(*precision, *scale)?,
+        )),
+        DataType::Decimal64(precision, scale) => Ok(Arc::new(
+            Decimal64Array::from(vec![Some(1000_i64), Some(2500)])
+                .with_precision_and_scale(*precision, *scale)?,
+        )),
+        DataType::Decimal128(precision, scale) => Ok(Arc::new(
+            Decimal128Array::from(vec![Some(1000_i128), Some(2500)])
+                .with_precision_and_scale(*precision, *scale)?,
+        )),
+        DataType::Decimal256(precision, scale) => Ok(Arc::new(
+            Decimal256Array::from(vec![
+                Some(arrow_i256::from_i128(1000)),
+                Some(arrow_i256::from_i128(2500)),
+            ])
+            .with_precision_and_scale(*precision, *scale)?,
+        )),
+        _ => panic!("expected decimal type"),
+    }
+}
+
+fn decimal_one(data_type: &DataType) -> ScalarValue {
+    match data_type {
+        DataType::Decimal32(precision, scale) => {
+            ScalarValue::Decimal32(Some(100), *precision, *scale)
+        }
+        DataType::Decimal64(precision, scale) => {
+            ScalarValue::Decimal64(Some(100), *precision, *scale)
+        }
+        DataType::Decimal128(precision, scale) => {
+            ScalarValue::Decimal128(Some(100), *precision, *scale)
+        }
+        DataType::Decimal256(precision, scale) => {
+            ScalarValue::Decimal256(Some(arrow_i256::from_i128(100)), *precision, *scale)
+        }
+        _ => panic!("expected decimal type"),
+    }
 }
 
 /// Test for correct schema evolution behavior in the presence of nested struct fields.

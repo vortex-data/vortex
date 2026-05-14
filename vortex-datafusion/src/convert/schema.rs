@@ -79,6 +79,22 @@ fn calculate_physical_field_type(dtype: &DType, logical_type: &DataType) -> DFRe
         // RunEndEncoded loses its encoding
         DataType::RunEndEncoded(..) => logical_type.clone(),
 
+        DataType::Decimal32(precision, scale)
+        | DataType::Decimal64(precision, scale)
+        | DataType::Decimal128(precision, scale)
+        | DataType::Decimal256(precision, scale) => {
+            if let DType::Decimal(decimal, _) = dtype
+                && decimal.precision() == *precision
+                && decimal.scale() == *scale
+            {
+                logical_type.clone()
+            } else {
+                dtype
+                    .to_arrow_dtype()
+                    .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?
+            }
+        }
+
         // For struct types, recursively check each field
         DataType::Struct(logical_fields) => {
             if let DType::Struct(struct_dtype, _) = dtype {
@@ -187,6 +203,7 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_schema::Fields;
+    use vortex::dtype::DecimalDType;
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
     use vortex::dtype::StructFields;
@@ -245,6 +262,38 @@ mod tests {
         assert_eq!(physical_schema.field(1).data_type(), &DataType::LargeUtf8);
         assert_eq!(physical_schema.field(2).data_type(), &DataType::Binary);
         assert_eq!(physical_schema.field(3).data_type(), &DataType::LargeBinary);
+    }
+
+    #[test]
+    fn test_decimal_variants_preserved() {
+        for logical_type in [
+            DataType::Decimal32(9, 2),
+            DataType::Decimal64(18, 2),
+            DataType::Decimal128(38, 2),
+            DataType::Decimal256(76, 2),
+        ] {
+            let (DataType::Decimal32(precision, scale)
+            | DataType::Decimal64(precision, scale)
+            | DataType::Decimal128(precision, scale)
+            | DataType::Decimal256(precision, scale)) = logical_type
+            else {
+                unreachable!()
+            };
+
+            let logical_schema =
+                Schema::new(vec![Field::new("decimal_col", logical_type.clone(), true)]);
+            let dtype = DType::Struct(
+                StructFields::from_iter([(
+                    "decimal_col",
+                    DType::Decimal(DecimalDType::new(precision, scale), Nullability::Nullable),
+                )]),
+                Nullability::NonNullable,
+            );
+
+            let physical_schema = calculate_physical_schema(&dtype, &logical_schema).unwrap();
+
+            assert_eq!(physical_schema.field(0).data_type(), &logical_type);
+        }
     }
 
     #[test]
