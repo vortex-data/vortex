@@ -381,7 +381,7 @@ debug = "full"
 inherits = "release"
 
 [profile.bench]
-codegen-units = 16
+codegen-units = 1
 debug = "full"
 lto = false
 
