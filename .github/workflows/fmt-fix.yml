@@ -4,58 +4,24 @@
 name: Auto-fix formatting
 
 on:
-  workflow_run:
-    workflows: ["Linters and Tests"]
-    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr-head-sha:
+        description: "The PR head commit SHA to format"
+        required: true
+        type: string
+      pr-head-ref:
+        description: "The PR head branch name"
+        required: true
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
   NIGHTLY_TOOLCHAIN: nightly-2026-02-05
 
 jobs:
-  check-lint-failed:
-    name: "Check if rust-lint failed"
-    # Only run when the triggering workflow was for a PR.
-    if: >-
-      github.event.workflow_run.event == 'pull_request'
-      && github.event.workflow_run.conclusion == 'failure'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      lint-failed: ${{ steps.check-job.outputs.lint-failed }}
-      pr-head-sha: ${{ steps.resolve.outputs.head-sha }}
-      pr-head-ref: ${{ steps.resolve.outputs.head-ref }}
-    steps:
-      - name: Resolve PR ref
-        id: resolve
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7
-        with:
-          script: |
-            const wr = context.payload.workflow_run;
-            core.setOutput('head-sha', wr.head_sha);
-            core.setOutput('head-ref', wr.head_branch);
-
-      - name: Check if rust-lint job failed
-        id: check-job
-        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7
-        with:
-          script: |
-            const jobs = await github.rest.actions.listJobsForWorkflowRun({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: context.payload.workflow_run.id,
-            });
-            const lintJob = jobs.data.jobs.find(j => j.name === 'Rust (lint)');
-            const failed = lintJob && lintJob.conclusion === 'failure';
-            core.setOutput('lint-failed', failed ? 'true' : 'false');
-            if (!failed) {
-              core.info('rust-lint did not fail, skipping fmt fix');
-            }
-
   apply-fmt:
     name: "Apply formatting fix"
-    needs: check-lint-failed
-    if: needs.check-lint-failed.outputs.lint-failed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # The fmt-fix environment must be configured with required reviewers
@@ -67,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
-          ref: ${{ needs.check-lint-failed.outputs.pr-head-sha }}
+          ref: ${{ inputs.pr-head-sha }}
 
       - name: Install nightly for fmt
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
@@ -77,8 +43,8 @@ jobs:
 
       - name: Commit and push
         env:
-          EXPECTED_SHA: ${{ needs.check-lint-failed.outputs.pr-head-sha }}
-          BRANCH: ${{ needs.check-lint-failed.outputs.pr-head-ref }}
+          EXPECTED_SHA: ${{ inputs.pr-head-sha }}
+          BRANCH: ${{ inputs.pr-head-ref }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

@@ -233,6 +233,20 @@ jobs:
         id: clippy-default
         continue-on-error: true
         run: cargo clippy --profile ci --locked --all-targets -- -D warnings
+      - name: Trigger fmt-fix workflow
+        if: always() && steps.fmt.outcome == 'failure' && github.event_name == 'pull_request'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              ...context.repo,
+              workflow_id: 'fmt-fix.yml',
+              ref: context.payload.pull_request.head.ref,
+              inputs: {
+                'pr-head-sha': context.payload.pull_request.head.sha,
+                'pr-head-ref': context.payload.pull_request.head.ref,
+              },
+            });
       - name: Check lint results
         if: always()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
