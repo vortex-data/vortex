@@ -85,7 +85,7 @@ mod tests {
     use vortex_array::VortexSessionExecute as _;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::primitive::PrimitiveArrayExt;
-    use vortex_array::arrow::ArrowArrayExecutor;
+    use vortex_array::arrow::ArrowSessionExt;
     use vortex_array::arrow::FromArrowArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
@@ -301,7 +301,10 @@ mod tests {
     }
 
     fn execute(array: ArrayRef, dt: &DataType) -> VortexResult<arrow_array::ArrayRef> {
-        array.execute_arrow(Some(dt), &mut SESSION.create_execution_ctx())
+        let field = Field::new("", dt.clone(), true);
+        SESSION
+            .arrow()
+            .execute_arrow(array, Some(&field), &mut SESSION.create_execution_ctx())
     }
 
     #[test]

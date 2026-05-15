@@ -104,6 +104,10 @@ fn to_parquet_variant_path(path: &VariantPath) -> VortexResult<PqVariantPath<'st
         .map(PqVariantPath::new)
 }
 
+#[expect(
+    deprecated,
+    reason = "TODO(aduffy): figure out what to do with Parquet Variant"
+)]
 fn to_arrow_as_type(dtype: Option<&DType>) -> VortexResult<Option<FieldRef>> {
     match dtype {
         Some(dtype) if !dtype.is_variant() => Ok(Some(Arc::new(Field::new(

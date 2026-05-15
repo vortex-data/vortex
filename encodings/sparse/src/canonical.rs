@@ -599,7 +599,7 @@ mod test {
     use vortex_array::arrays::VarBinArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::arrays::listview::ListViewArrayExt;
-    use vortex_array::arrow::ArrowArrayExecutor;
+    use vortex_array::arrow::ArrowSessionExt;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::DecimalDType;
@@ -845,23 +845,33 @@ mod test {
         let fill_scalar = Scalar::decimal(DecimalValue::I32(123), decimal_dtype, Nullable);
         let sparse_struct = Sparse::try_new(indices, patch_values, len, fill_scalar).unwrap();
 
-        let expected = DecimalArray::new(
-            buffer![100i128, 200, 123, 123, 123, 123, 123, 300, 4000, 123],
-            decimal_dtype,
-            // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 0, 1, 7 are valid.
-            Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
-        )
-        .into_array()
-        .execute_arrow(None, &mut ctx)
-        .unwrap();
+        let expected = LEGACY_SESSION
+            .arrow()
+            .execute_arrow(
+                DecimalArray::new(
+                    buffer![100i128, 200, 123, 123, 123, 123, 123, 300, 4000, 123],
+                    decimal_dtype,
+                    // NB: patch indices: [0, 1, 7, 8]; patch validity: [Valid, Valid, Valid, Invalid]; ergo 0, 1, 7 are valid.
+                    Validity::from_mask(Mask::from_excluded_indices(10, vec![8]), Nullable),
+                )
+                .into_array(),
+                None,
+                &mut ctx,
+            )
+            .unwrap();
 
-        let actual = sparse_struct
-            .as_array()
-            .clone()
-            .execute::<DecimalArray>(&mut ctx)
-            .unwrap()
-            .into_array()
-            .execute_arrow(None, &mut ctx)
+        let actual = LEGACY_SESSION
+            .arrow()
+            .execute_arrow(
+                sparse_struct
+                    .as_array()
+                    .clone()
+                    .execute::<DecimalArray>(&mut ctx)
+                    .unwrap()
+                    .into_array(),
+                None,
+                &mut ctx,
+            )
             .unwrap();
 
         assert_eq!(expected.data_type(), actual.data_type());
@@ -1544,9 +1554,16 @@ mod test {
         assert_arrays_eq!(&actual, &expected);
 
         // Note that the preferred arrow list representation is `List` (not `ListView`).
-        let arrow_dtype = expected.dtype().to_arrow_dtype()?;
-        let actual = actual.execute_arrow(Some(&arrow_dtype), &mut ctx)?;
-        let expected = expected.execute_arrow(Some(&arrow_dtype), &mut ctx)?;
+        let arrow_dtype = LEGACY_SESSION
+            .arrow()
+            .to_arrow_field("", expected.dtype())?;
+        let actual = LEGACY_SESSION
+            .arrow()
+            .execute_arrow(actual, Some(&arrow_dtype), &mut ctx)?;
+        let expected =
+            LEGACY_SESSION
+                .arrow()
+                .execute_arrow(expected, Some(&arrow_dtype), &mut ctx)?;
 
         assert_eq!(actual.data_type(), expected.data_type());
         Ok(())

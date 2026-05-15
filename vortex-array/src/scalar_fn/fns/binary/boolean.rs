@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use arrow_array::cast::AsArray;
-use arrow_schema::DataType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -10,7 +9,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
-use crate::arrow::ArrowArrayExecutor;
+use crate::arrow::ArrowSessionExt;
 use crate::arrow::FromArrowArray;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -54,13 +53,17 @@ fn arrow_execute_boolean(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
+    let session = ctx.session().clone();
 
-    let lhs = lhs
-        .execute_arrow(Some(&DataType::Boolean), ctx)?
+    let lhs = session
+        .arrow()
+        .execute_arrow(lhs, None, ctx)?
         .as_boolean()
         .clone();
-    let rhs = rhs
-        .execute_arrow(Some(&DataType::Boolean), ctx)?
+
+    let rhs = session
+        .arrow()
+        .execute_arrow(rhs, None, ctx)?
         .as_boolean()
         .clone();
 

@@ -33,6 +33,7 @@ use pyo3::pyclass;
 use pyo3::pymethods;
 use pyo3::types::PyType;
 use pyo3::wrap_pyfunction;
+use vortex::array::arrow::ArrowSessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 
@@ -51,6 +52,7 @@ use crate::dtype::utf8::PyUtf8DType;
 use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::python_repr::PythonRepr;
+use crate::session::session;
 
 /// Register DType functions and classes.
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -169,7 +171,11 @@ impl PyDType {
 #[pymethods]
 impl PyDType {
     fn to_arrow_type(&self, py: Python) -> PyVortexResult<Py<PyAny>> {
-        Ok(self.0.to_arrow_dtype()?.to_pyarrow(py)?)
+        Ok(session()
+            .arrow()
+            .to_arrow_field("", &self.0)?
+            .data_type()
+            .to_pyarrow(py)?)
     }
 
     fn to_arrow_schema(&self, py: Python) -> PyVortexResult<Py<PyAny>> {

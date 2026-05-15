@@ -22,6 +22,10 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::struct_::StructArrayExt;
+#[expect(
+    deprecated,
+    reason = "TODO(aduffy): figure out what to do with Parquet Variant"
+)]
 use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_array::arrow::FromArrowArray;
 use vortex_array::arrow::to_arrow_null_buffer;
@@ -331,6 +335,10 @@ pub trait ParquetVariantArrayExt: TypedArrayRef<ParquetVariant> {
     }
 
     /// Converts this storage array to Arrow's canonical Parquet Variant extension storage.
+    #[expect(
+        deprecated,
+        reason = "TODO(aduffy): figure out what to do with Parquet Variant"
+    )]
     fn to_arrow(&self, ctx: &mut ExecutionCtx) -> VortexResult<ArrowVariantArray> {
         let metadata = self.metadata_array();
         let len = metadata.len();

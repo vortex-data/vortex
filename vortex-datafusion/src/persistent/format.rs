@@ -44,11 +44,11 @@ use futures::stream;
 use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
+use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::memory::MemorySessionExt;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
-use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -378,7 +378,9 @@ impl FileFormat for VortexFormat {
                             .as_any()
                             .downcast_ref::<CachedVortexMetadata>()
                     {
-                        let inferred_schema = cached_vortex.footer().dtype().to_arrow_schema()?;
+                        let inferred_schema = session
+                            .arrow()
+                            .to_arrow_schema(cached_vortex.footer().dtype())?;
                         return VortexResult::Ok((object.location, inferred_schema));
                     }
 
@@ -402,7 +404,7 @@ impl FileFormat for VortexFormat {
                     let entry = CachedFileMetadataEntry::new(object.clone(), cached_metadata);
                     cache.put(&object.location, entry);
 
-                    let inferred_schema = vxf.dtype().to_arrow_schema()?;
+                    let inferred_schema = session.arrow().to_arrow_schema(vxf.dtype())?;
                     VortexResult::Ok((object.location, inferred_schema))
                 })
                 .map(|f| f.vortex_expect("Failed to spawn infer_schema"))
@@ -526,7 +528,16 @@ impl FileFormat for VortexFormat {
                 let column_size =
                     stats_set.get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into());
 
-                let target_dtype = DType::from_arrow(field.as_ref());
+                let target_dtype =
+                    session
+                        .arrow()
+                        .from_arrow_field(field.as_ref())
+                        .map_err(|e| {
+                            DataFusionError::Execution(format!(
+                                "Failed to derive Vortex DType for field {}: {e}",
+                                field.name()
+                            ))
+                        })?;
                 let min = scalar_stat_to_df(
                     Stat::Min,
                     stats_set.get(Stat::Min),

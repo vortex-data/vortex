@@ -15,8 +15,8 @@ use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewDataParts;
-use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
+use crate::arrow::session::ArrowSessionExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
@@ -51,7 +51,11 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
         ..
     } = array.into_data_parts();
 
-    let elements = elements.execute_arrow(Some(elements_field.data_type()), ctx)?;
+    let elements = ctx.session().clone().arrow().execute_arrow(
+        elements,
+        Some(elements_field.as_ref()),
+        ctx,
+    )?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Elements field is non-nullable but elements array contains nulls"

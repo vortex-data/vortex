@@ -10,7 +10,7 @@ use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrow::ArrowArrayExecutor;
+use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;
@@ -213,9 +213,14 @@ fn test_serde() -> VortexResult<()> {
         &ReadContext::new(context.to_ids()),
         &SESSION,
     )?;
-    let data_type = data.dtype().to_arrow_dtype()?;
-    let pco_arrow = pco.execute_arrow(Some(&data_type), &mut ctx)?;
-    let decoded_arrow = decoded.execute_arrow(Some(&data_type), &mut ctx)?;
+    let data_type = LEGACY_SESSION.arrow().to_arrow_field("", data.dtype())?;
+    let pco_arrow = LEGACY_SESSION
+        .arrow()
+        .execute_arrow(pco, Some(&data_type), &mut ctx)?;
+    let decoded_arrow =
+        LEGACY_SESSION
+            .arrow()
+            .execute_arrow(decoded, Some(&data_type), &mut ctx)?;
     assert!(pco_arrow == decoded_arrow);
     Ok(())
 }

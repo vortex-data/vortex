@@ -5,6 +5,9 @@ use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::Result;
+use arrow_array::RecordBatch;
+use arrow_array::cast::AsArray;
+use arrow_schema::Field;
 use async_trait::async_trait;
 use parquet::arrow::ArrowWriter;
 use rand::RngExt;
@@ -22,7 +25,7 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::chunked::ChunkedArrayExt;
 use vortex::array::arrays::listview::recursive_list_from_list_view;
-use vortex::array::arrow::ArrowArrayExecutor;
+use vortex::array::arrow::ArrowSessionExt;
 use vortex::array::validity::Validity;
 use vortex::dtype::FieldNames;
 
@@ -129,8 +132,13 @@ impl Dataset for StructListOfInts {
             for chunk in chunked.iter_chunks() {
                 let converted = recursive_list_from_list_view(chunk.clone())?;
                 let schema = converted.dtype().to_arrow_schema()?;
-                let batch = converted
-                    .execute_record_batch(&schema, &mut LEGACY_SESSION.create_execution_ctx())?;
+                let schema = Field::new_struct("", schema.fields, false);
+                let batch = LEGACY_SESSION.arrow().execute_arrow(
+                    converted,
+                    Some(&schema),
+                    &mut LEGACY_SESSION.create_execution_ctx(),
+                )?;
+                let batch = RecordBatch::from(batch.as_struct());
 
                 if writer.is_none() {
                     writer = Some(ArrowWriter::try_new(

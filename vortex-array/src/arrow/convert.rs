@@ -331,7 +331,7 @@ impl FromArrowArray<&ArrowBooleanArray> for ArrayRef {
 }
 
 /// Strip out the nulls from this array and return a new array without nulls.
-fn remove_nulls(data: arrow_data::ArrayData) -> arrow_data::ArrayData {
+pub(crate) fn remove_nulls(data: arrow_data::ArrayData) -> arrow_data::ArrayData {
     if data.null_count() == 0 {
         // No nulls to remove, return the array as is
         return data;
@@ -476,7 +476,7 @@ impl<K: ArrowDictionaryKeyType> FromArrowArray<&DictionaryArray<K>> for DictArra
     }
 }
 
-fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
+pub(crate) fn nulls(nulls: Option<&NullBuffer>, nullable: bool) -> Validity {
     if nullable {
         nulls
             .map(|nulls| {
@@ -909,8 +909,10 @@ mod tests {
         Arc::new(Date32Array::from(vec![18000_i32, 18001, 18002, 18003])),
     )]
     #[case::date64(
-        Arc::new(Date64Array::from(vec![Some(1555200000000), None, Some(1555286400000), Some(1555372800000)])),
-        Arc::new(Date64Array::from(vec![1555200000000_i64, 1555213600000, 1555286400000, 1555372800000])),
+        Arc::new(Date64Array::from(vec![Some(1555200000000), None, Some(1555286400000), Some(1555372800000)]
+        )),
+        Arc::new(Date64Array::from(vec![1555200000000_i64, 1555213600000, 1555286400000, 1555372800000]
+        )),
     )]
     fn test_temporal_array_conversion(
         #[case] nullable: Arc<dyn ArrowArray>,
