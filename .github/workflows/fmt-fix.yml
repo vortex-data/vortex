@@ -20,20 +20,41 @@ env:
   NIGHTLY_TOOLCHAIN: nightly-2026-02-05
 
 jobs:
+  # Gate job: requires manual approval via the fmt-fix environment before
+  # the formatting commit is pushed.
+  approve:
+    name: "Approve formatting fix"
+    runs-on: ubuntu-latest
+    environment: fmt-fix
+    steps:
+      - run: echo "Formatting fix approved"
+
   apply-fmt:
     name: "Apply formatting fix"
+    needs: approve
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # The fmt-fix environment must be configured with required reviewers
-    # in the repo settings. This creates an accept/reject gate on the PR
-    # before the fmt commit is pushed.
-    environment: fmt-fix
+    # Use the claude-automation environment to access the GitHub App secrets
+    # so the push triggers CI.
+    environment:
+      name: claude-automation
+      deployment: false
     permissions:
-      contents: write
+      contents: read
+      id-token: write
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          permission-contents: write
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
           ref: ${{ inputs.pr-head-sha }}
+          persist-credentials: false
 
       - name: Install nightly for fmt
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
@@ -45,6 +66,7 @@ jobs:
         env:
           EXPECTED_SHA: ${{ inputs.pr-head-sha }}
           BRANCH: ${{ inputs.pr-head-ref }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -53,6 +75,10 @@ jobs:
           git commit -m "chore: cargo fmt
 
           Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+
+          # Use the App token so the push triggers CI.
+          git remote set-url origin \
+            "https://x-access-token:${APP_TOKEN}@github.com/${{ github.repository }}.git"
 
           # --force-with-lease atomically checks that the remote branch HEAD
           # is still EXPECTED_SHA before pushing. If someone else pushed a
