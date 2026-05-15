@@ -53,7 +53,6 @@ use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
-use vortex_parquet_variant::ParquetVariant;
 use vortex_pco::Pco;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
@@ -114,7 +113,6 @@ pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
 
     if use_experimental_patches() {
         allowed.insert(Patched.id());
-        allowed.insert(ParquetVariant.id());
     }
 
     #[cfg(feature = "zstd")]
