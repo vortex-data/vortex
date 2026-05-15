@@ -14,7 +14,7 @@ on:
   workflow_dispatch: { }
 
 permissions:
-  actions: read
+  actions: write  # dispatch fmt-fix workflow on format failure
   contents: read
   checks: write  # audit-check creates checks
   issues: write  # audit-check creates issues
@@ -200,6 +200,8 @@ jobs:
   rust-lint:
     name: "Rust (lint)"
     timeout-minutes: 30
+    outputs:
+      fmt-failed: ${{ steps.fmt.outcome == 'failure' }}
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/tag=rust-lint', github.run_id)
@@ -233,20 +235,6 @@ jobs:
         id: clippy-default
         continue-on-error: true
         run: cargo clippy --profile ci --locked --all-targets -- -D warnings
-      - name: Trigger fmt-fix workflow
-        if: always() && steps.fmt.outcome == 'failure' && github.event_name == 'pull_request'
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
-        with:
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              ...context.repo,
-              workflow_id: 'fmt-fix.yml',
-              ref: context.payload.pull_request.head.ref,
-              inputs: {
-                'pr-head-sha': context.payload.pull_request.head.sha,
-                'pr-head-ref': context.payload.pull_request.head.ref,
-              },
-            });
       - name: Check lint results
         if: always()
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
@@ -273,6 +261,26 @@ jobs:
               });
             }
             core.setFailed(`Lint failed: ${failed.join(', ')}`);
+
+  dispatch-fmt-fix:
+    name: "Dispatch fmt-fix"
+    needs: rust-lint
+    if: always() && needs.rust-lint.outputs.fmt-failed == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              ...context.repo,
+              workflow_id: 'fmt-fix.yml',
+              ref: context.payload.pull_request.head.ref,
+              inputs: {
+                'pr-head-sha': context.payload.pull_request.head.sha,
+                'pr-head-ref': context.payload.pull_request.head.ref,
+              },
+            });
 
   cpp-lint:
     name: "C/C++ (lint)"
