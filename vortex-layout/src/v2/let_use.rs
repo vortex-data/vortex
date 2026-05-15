@@ -22,14 +22,12 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
-use async_stream::try_stream;
-use futures::StreamExt;
-use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::v2::plan::LayoutPlan;
@@ -213,11 +211,17 @@ impl LayoutPlan for LetPlan {
     }
 
     fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
-        // Idempotent register: first execute installs the tee in
-        // the registry; subsequent executes are no-ops. The tee is
-        // lazy (doesn't poll source until a UsePlan subscribes).
-        drop(self.publish_stream(ctx)?);
-        self.body.execute(row_range, ctx)
+        // Two-phase setup:
+        //   1. publish_stream — register the (not-yet-started) tee
+        //      in the registry.
+        //   2. body.execute — synchronously walks the body subtree,
+        //      causing every UsePlan to call tee.subscribe.
+        //   3. tee.start — spawn the producer task now that all
+        //      subscribers are registered.
+        let tee = self.publish_stream(ctx)?;
+        let body_stream = self.body.execute(row_range, ctx)?;
+        tee.start();
+        Ok(body_stream)
     }
 }
 
@@ -235,29 +239,25 @@ impl LetPlan {
         {
             return Ok(existing);
         }
-        // We must call source.execute() before we can hand the
-        // resulting stream to TeeStream. Do that under the write
-        // lock's get_or_init so two concurrent `publish_stream` calls
-        // don't both spin up sources.
         let total_rows = source_total_rows(&self.source);
         let source = Arc::clone(&self.source);
         let ctx_for_init = ctx.clone();
-        // `get_or_init_stream` runs `init` at most once per id, so
-        // we wrap the fallible source-execute in a `Result` channel
-        // via a helper.
+        let handle = ctx.session().handle();
+        let dtype_for_empty = source.schema().clone();
         let mut init_err: Option<vortex_error::VortexError> = None;
         let mut registry = ctx.get_mut::<LetRegistry>();
         let arc = registry.get_or_init_stream(self.id, || {
             match source.execute(0..total_rows, &ctx_for_init) {
-                Ok(stream) => TeeStream::new(stream),
+                Ok(stream) => TeeStream::new(stream, handle.clone()),
                 Err(e) => {
-                    // Stash error for the caller; install an empty
-                    // tee so subsequent UsePlans surface clean EOF.
                     init_err = Some(e);
-                    TeeStream::new(Box::pin(ArrayStreamAdapter::new(
-                        source.schema().clone(),
-                        futures::stream::empty(),
-                    )))
+                    TeeStream::new(
+                        Box::pin(ArrayStreamAdapter::new(
+                            dtype_for_empty,
+                            futures::stream::empty(),
+                        )),
+                        handle.clone(),
+                    )
                 }
             }
         });
@@ -387,51 +387,10 @@ impl LayoutPlan for UsePlan {
         // ScanCtx slot map.
         drop(registry);
 
-        let mut subscriber = tee.subscribe();
-        let dtype = self.output_dtype.clone();
-        let target_start = row_range.start;
-        let target_end = row_range.end;
-
-        // Per-subscriber row cursor: each chunk we pull from the tee
-        // covers some consecutive rows starting at `cursor`. We
-        // skip chunks entirely below `target_start`, slice chunks
-        // straddling the range boundaries, and stop when we've
-        // covered `target_end`.
-        let stream = try_stream! {
-            let mut cursor: u64 = 0;
-            while let Some(chunk_res) = subscriber.next().await {
-                let chunk = chunk_res?;
-                let chunk_len = chunk.len() as u64;
-                let chunk_start = cursor;
-                let chunk_end = cursor + chunk_len;
-                cursor = chunk_end;
-
-                // Entirely before target — drop and continue.
-                if chunk_end <= target_start {
-                    continue;
-                }
-                // Entirely after target — stop pulling.
-                if chunk_start >= target_end {
-                    break;
-                }
-                // Overlap. Slice if needed; otherwise pass through.
-                let slice_start = target_start.saturating_sub(chunk_start);
-                let slice_end = (target_end - chunk_start).min(chunk_len);
-                let sliced: ArrayRef = if slice_start == 0 && slice_end == chunk_len {
-                    chunk
-                } else {
-                    let s = usize::try_from(slice_start)?;
-                    let e = usize::try_from(slice_end)?;
-                    chunk.slice(s..e)?
-                };
-                yield sliced;
-
-                if chunk_end >= target_end {
-                    break;
-                }
-            }
-        };
-        Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))
+        // The tee handles row-range filtering: we receive only chunks
+        // intersecting `row_range`, already sliced. No post-loop
+        // walk required.
+        Ok(tee.subscribe(row_range))
     }
 }
 
@@ -456,11 +415,13 @@ mod tests {
     use vortex_error::VortexError;
     use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSessionExt;
 
     use super::LetId;
     use super::LetPlan;
     use super::LetRegistry;
     use super::UsePlan;
+    use crate::test::SESSION;
     use crate::v2::plan::LayoutPlan;
     use crate::v2::plan::LayoutPlanRef;
     use crate::v2::plan::PartitionStats;
@@ -569,8 +530,8 @@ mod tests {
 
     #[test]
     fn streaming_let_runs_source_once_for_two_uses() -> VortexResult<()> {
-        block_on(|_| async move {
-            let ctx = ScanCtx::empty();
+        block_on(|handle| async move {
+            let ctx = ScanCtx::new(SESSION.clone().with_handle(handle));
             let (source, executes) = CountingPlan::new(vec![vec![1, 2], vec![3, 4]]);
 
             let id = LetId::fresh();
@@ -580,8 +541,9 @@ mod tests {
             // and pull two subscribers directly via publish_stream.
             let plan = LetPlan::with_id(id, Arc::clone(&source) as _, body_left);
             let tee = plan.publish_stream(&ctx)?;
-            let s1 = tee.subscribe();
-            let s2 = tee.subscribe();
+            let s1 = tee.subscribe(0..4);
+            let s2 = tee.subscribe(0..4);
+            tee.start();
 
             let (r1, r2) = futures::future::join(collect_i32(s1), collect_i32(s2)).await;
             assert_eq!(r1?, vec![1, 2, 3, 4]);
@@ -594,19 +556,21 @@ mod tests {
 
     #[test]
     fn use_plan_slices_to_its_row_range() -> VortexResult<()> {
-        block_on(|_| async move {
-            let ctx = ScanCtx::empty();
+        block_on(|handle| async move {
+            let ctx = ScanCtx::new(SESSION.clone().with_handle(handle));
             let (source, _) = CountingPlan::new(vec![vec![1, 2, 3], vec![4, 5], vec![6, 7, 8]]);
             let id = LetId::fresh();
             // Body uses the let; we'll test by executing UsePlan
             // with a subset row range.
             let body: LayoutPlanRef = Arc::new(UsePlan::new(id, dtype(), 8));
-            let plan = LetPlan::with_id(id, Arc::clone(&source) as _, Arc::clone(&body));
-
-            // Trigger publication, then execute Use over rows 2..6
-            // (i.e. values 3,4,5,6).
-            plan.publish_stream(&ctx)?;
-            let stream = body.execute(2..6, &ctx)?;
+            // Run publish + body.execute + start by going through
+            // LetPlan::execute. The Let's body here is the UsePlan
+            // whose row range is 2..6 (values 3,4,5,6).
+            // We achieve that by executing the LetPlan with row
+            // range 2..6 (LetPlan delegates row_range to body).
+            let plan: LayoutPlanRef =
+                Arc::new(LetPlan::with_id(id, Arc::clone(&source) as _, body));
+            let stream = plan.execute(2..6, &ctx)?;
             let values = collect_i32(stream).await?;
             assert_eq!(values, vec![3, 4, 5, 6]);
             Ok::<_, VortexError>(())
@@ -616,8 +580,8 @@ mod tests {
 
     #[test]
     fn execute_delegates_to_body() -> VortexResult<()> {
-        block_on(|_| async move {
-            let ctx = ScanCtx::empty();
+        block_on(|handle| async move {
+            let ctx = ScanCtx::new(SESSION.clone().with_handle(handle));
 
             let (source, source_execs) = CountingPlan::new(vec![vec![1, 2]]);
             let (body, body_execs) = CountingPlan::new(vec![vec![10, 20, 30]]);

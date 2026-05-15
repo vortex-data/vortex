@@ -113,6 +113,23 @@ impl LayoutPlan for ProjectPlan {
         }))
     }
 
+    fn try_pushdown_mask(self: Arc<Self>, mask_plan: LayoutPlanRef) -> Option<LayoutPlanRef> {
+        // Projection is row-preserving: the mask covers our output
+        // row space, which equals our child's row space. Push the
+        // mask straight through to the child; if it absorbs we wrap
+        // the rewritten child back in `ProjectPlan` and the
+        // expression evaluates over the filtered rows.
+        if !matches!(mask_plan.schema(), DType::Bool(_)) {
+            return None;
+        }
+        let new_child = Arc::clone(&self.child).try_pushdown_mask(mask_plan)?;
+        Some(Arc::new(Self {
+            child: new_child,
+            expr: self.expr.clone(),
+            output_dtype: self.output_dtype.clone(),
+        }))
+    }
+
     fn execute(
         &self,
         row_range: std::ops::Range<u64>,

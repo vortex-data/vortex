@@ -165,8 +165,41 @@ pub fn plan_slices_eq(a: &[LayoutPlanRef], b: &[LayoutPlanRef]) -> bool {
 
 /// Hash a [`LayoutPlanRef`]'s structural content. Concrete plan
 /// `Hash` impls should call this when hashing child plans.
+///
+/// When called inside [`with_hash_cache`] (during CSE), the result
+/// is memoised by `Arc` pointer identity. Plans share the same
+/// `Arc` after CSE-driven pushdown (e.g. one mask referenced from N
+/// FilteredFlatPlans), so without this cache CSE would re-hash the
+/// same subtree once per occurrence — quadratic in the number of
+/// shared references.
 pub fn hash_plan<H: Hasher>(plan: &LayoutPlanRef, state: &mut H) {
-    (**plan).hash(state);
+    let ptr = Arc::as_ptr(plan) as *const () as usize;
+
+    // Fast path: cache hit (only when `with_hash_cache` is active).
+    let cached = HASH_CACHE.with(|c| c.borrow().as_ref().and_then(|m| m.get(&ptr).copied()));
+    if let Some(h) = cached {
+        state.write_u64(h);
+        return;
+    }
+
+    // No cache or miss. If a cache is active, compute the hash via
+    // the trait (recursive — but every nested `hash_plan` call
+    // re-enters this function and benefits from the same cache),
+    // store it, then write to the caller's hasher.
+    let cache_active = HASH_CACHE.with(|c| c.borrow().is_some());
+    if cache_active {
+        let mut sub = rustc_hash::FxHasher::default();
+        (**plan).hash(&mut sub);
+        let h = sub.finish();
+        HASH_CACHE.with(|c| {
+            if let Some(m) = c.borrow_mut().as_mut() {
+                m.insert(ptr, h);
+            }
+        });
+        state.write_u64(h);
+    } else {
+        (**plan).hash(state);
+    }
 }
 
 /// `hash_plan` over a `&[LayoutPlanRef]`.
@@ -175,6 +208,31 @@ pub fn hash_plan_slice<H: Hasher>(plans: &[LayoutPlanRef], state: &mut H) {
     for p in plans {
         hash_plan(p, state);
     }
+}
+
+thread_local! {
+    /// Per-Arc structural hash memoisation, used by [`hash_plan`].
+    /// Active inside [`with_hash_cache`] (i.e. during the CSE walk);
+    /// outside it, [`hash_plan`] degrades to the uncached recursive
+    /// hash so non-CSE callers see no behaviour change.
+    static HASH_CACHE: std::cell::RefCell<Option<rustc_hash::FxHashMap<usize, u64>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` with a thread-local hash cache active. `hash_plan` calls
+/// inside `f` are memoised by `Arc` pointer identity; outer
+/// (non-cached) callers are unaffected. Re-entrant calls share the
+/// same cache.
+pub fn with_hash_cache<R>(f: impl FnOnce() -> R) -> R {
+    let outer_active = HASH_CACHE.with(|c| c.borrow().is_some());
+    if !outer_active {
+        HASH_CACHE.with(|c| *c.borrow_mut() = Some(rustc_hash::FxHashMap::default()));
+    }
+    let result = f();
+    if !outer_active {
+        HASH_CACHE.with(|c| *c.borrow_mut() = None);
+    }
+    result
 }
 
 /// Arguments passed to [`crate::Layout::plan`]. Carries the consumer's

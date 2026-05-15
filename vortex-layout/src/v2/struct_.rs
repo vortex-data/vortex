@@ -145,6 +145,38 @@ impl LayoutPlan for StructPlan {
         }))
     }
 
+    fn try_pushdown_mask(self: Arc<Self>, mask_plan: LayoutPlanRef) -> Option<LayoutPlanRef> {
+        // All fields share the struct's row space, so each can
+        // accept the same mask. If any field can't absorb, bail —
+        // a partial pushdown would mean some fields filter and
+        // others don't, breaking AlignedArrayStream's row alignment.
+        //
+        // The same `mask_plan` Arc is cloned once per field. The
+        // CSE pass collapses these N identical references into a
+        // single `LetPlan` + N `UsePlan`s, so the underlying mask
+        // source executes once and chunks fan out via TeeStream.
+        // Without CSE this would re-execute the mask N times — the
+        // regression that caused this pushdown to be reverted on
+        // PR4. CSE + streaming Let make it safe again.
+        if !matches!(mask_plan.schema(), DType::Bool(_)) {
+            return None;
+        }
+        let mut new_children = Vec::with_capacity(self.children.len());
+        for child in &self.children {
+            let absorbed = Arc::clone(child).try_pushdown_mask(Arc::clone(&mask_plan))?;
+            new_children.push(absorbed);
+        }
+        Some(Arc::new(Self {
+            children: new_children,
+            field_names: self.field_names.clone(),
+            output_dtype: self.output_dtype.clone(),
+            // `row_count` stays as the layout's count; partition_stats
+            // is an upper bound and the stream emits ≤ this many rows
+            // post-filter.
+            row_count: self.row_count,
+        }))
+    }
+
     fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
         if self.output_dtype.is_nullable() {
             // Nullable structs need a validity child; that wiring lives in

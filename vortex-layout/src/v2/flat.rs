@@ -8,42 +8,37 @@
 //! decode context, the `SegmentSource`, and the expression — the
 //! plan is fully lowered V2-native.
 //!
-//! Optionally absorbs a `mask_plan` (via [`LayoutPlan::try_pushdown_mask`])
-//! and applies the resulting mask to the read; downstream
-//! `FilterPlan` is dropped on successful pushdown. Today the mask is
-//! awaited as a single `Mask` and applied after decode; the
-//! sub-segment-aware variant lands later (see `FuseFilterIntoFlat` in
-//! `LAYOUT_PLAN.md`).
+//! When [`LayoutPlan::try_pushdown_mask`] is called and a mask
+//! pushes down successfully, this plan node is replaced with a
+//! [`crate::v2::filtered_flat::FilteredFlatPlan`] — keeping the two
+//! shapes as separate types avoids `Option<mask>` branching on
+//! every method.
 //!
-//! See `LAYOUT_PLAN.md` § Per-layout `plan` walkthrough / `FlatLayout::plan`
-//! and § FilterPlan and its pushdown.
+//! See `LAYOUT_PLAN.md` § Per-layout `plan` walkthrough / `FlatLayout::plan`.
 
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
-use async_stream::try_stream;
 use futures::FutureExt;
 use futures::stream;
 use vortex_array::ArrayRef;
-use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::serde::SerializedArray;
 use vortex_array::stream::ArrayStreamAdapter;
-use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 use vortex_scan::selection::Selection;
 use vortex_session::registry::ReadContext;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::filtered_flat::FilteredFlatPlan;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -68,11 +63,6 @@ pub struct FlatPlan {
     expr: Expression,
     selection: Selection,
     output_dtype: DType,
-    /// Optional pushed-down mask. If set, executed at execute-time
-    /// over the same row range and its result is folded into a `Mask`
-    /// that is `filter`'d against the decoded array before the
-    /// expression is applied.
-    mask_plan: Option<LayoutPlanRef>,
 }
 
 impl FlatPlan {
@@ -98,11 +88,10 @@ impl FlatPlan {
             expr,
             selection,
             output_dtype,
-            mask_plan: None,
         }
     }
 
-    /// Identity tag used by future CSE: two `FlatPlan`s with the same
+    /// Identity tag used by CSE: two `FlatPlan`s with the same
     /// segment ID are reading the same on-disk bytes.
     pub fn segment_id(&self) -> SegmentId {
         self.segment_id
@@ -132,7 +121,6 @@ impl PartialEq for FlatPlan {
                 (Selection::All, Selection::All)
             )
             && self.output_dtype == other.output_dtype
-            && self.mask_plan == other.mask_plan
     }
 }
 
@@ -153,7 +141,6 @@ impl Hash for FlatPlan {
             _ => state.write_u8(1),
         }
         self.output_dtype.hash(state);
-        self.mask_plan.hash(state);
     }
 }
 
@@ -203,22 +190,18 @@ impl LayoutPlan for FlatPlan {
         if !matches!(mask_plan.schema(), DType::Bool(_)) {
             return None;
         }
-        if self.mask_plan.is_some() {
-            // Stacked masks would need an AND wrapper; skip for now.
-            return None;
-        }
-        Some(Arc::new(Self {
-            segment_id: self.segment_id,
-            layout_row_count: self.layout_row_count,
-            layout_dtype: self.layout_dtype.clone(),
-            array_ctx: self.array_ctx.clone(),
-            array_tree: self.array_tree.clone(),
-            segment_source: Arc::clone(&self.segment_source),
-            expr: self.expr.clone(),
-            selection: self.selection.clone(),
-            output_dtype: self.output_dtype.clone(),
-            mask_plan: Some(mask_plan),
-        }))
+        Some(Arc::new(FilteredFlatPlan::new(
+            self.segment_id,
+            self.layout_row_count,
+            self.layout_dtype.clone(),
+            self.array_ctx.clone(),
+            self.array_tree.clone(),
+            Arc::clone(&self.segment_source),
+            self.expr.clone(),
+            self.selection.clone(),
+            self.output_dtype.clone(),
+            mask_plan,
+        )))
     }
 
     fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
@@ -243,71 +226,34 @@ impl LayoutPlan for FlatPlan {
         let layout_row_count = self.layout_row_count;
         let expr = self.expr.clone();
         let session = ctx.session().clone();
-        let row_range_for_slice = row_range.clone();
+        let row_range_for_slice = row_range;
 
-        // Fast path: no pushed-down mask. Fetch + decode + slice + apply.
-        let Some(mask_plan) = &self.mask_plan else {
-            let inner = stream::once(
-                async move {
-                    let array = decode_segment(
-                        segment_source,
-                        segment_id,
-                        array_tree,
-                        layout_dtype,
-                        layout_row_count,
-                        array_ctx,
-                        &session,
-                    )
-                    .await?;
-                    let array = slice_to_range(array, &row_range_for_slice)?;
-                    array.apply(&expr)
-                }
-                .map(|res: VortexResult<ArrayRef>| res),
-            );
-            return Ok(Box::pin(ArrayStreamAdapter::new(dtype, inner)));
-        };
-
-        // Slow path: execute the mask plan, fold its bool stream into
-        // a single `Mask`, then decode + slice + filter + apply.
-        let mask_stream = mask_plan.execute(row_range, ctx)?;
-        let stream = try_stream! {
-            // Lockstep contract: await enough mask rows to cover this
-            // flat layout's row range, then issue the read. (Today
-            // the mask plan emits a stream that we collapse into one
-            // `Mask`; the partial-read variant lands later — see
-            // `LAYOUT_PLAN.md` § FilterPlan and its pushdown.)
-            let mask_array = mask_stream.read_all().await?;
-            let mut ctx_exec = session.create_execution_ctx();
-            let mask: Mask = mask_array.execute::<Mask>(&mut ctx_exec)?;
-
-            let array = decode_segment(
-                segment_source,
-                segment_id,
-                array_tree,
-                layout_dtype,
-                layout_row_count,
-                array_ctx,
-                &session,
-            )
-            .await?;
-            let array = slice_to_range(array, &row_range_for_slice)?;
-            // Filter first (consistent with the V1 evaluator); the
-            // expression sees the mask-filtered rows.
-            let array = if mask.all_true() {
-                array
-            } else {
-                array.filter(mask)?
-            };
-            yield array.apply(&expr)?;
-        };
-        Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))
+        let inner = stream::once(
+            async move {
+                let array = decode_segment(
+                    segment_source,
+                    segment_id,
+                    array_tree,
+                    layout_dtype,
+                    layout_row_count,
+                    array_ctx,
+                    &session,
+                )
+                .await?;
+                let array = slice_to_range(array, &row_range_for_slice)?;
+                array.apply(&expr)
+            }
+            .map(|res: VortexResult<ArrayRef>| res),
+        );
+        Ok(Box::pin(ArrayStreamAdapter::new(dtype, inner)))
     }
 }
 
 /// Fetch the segment, parse the array tree (either from layout
 /// metadata or from the segment itself), and decode into an
-/// `ArrayRef` of length `layout_row_count`.
-async fn decode_segment(
+/// `ArrayRef` of length `layout_row_count`. Shared between `FlatPlan`
+/// and `FilteredFlatPlan`.
+pub(crate) async fn decode_segment(
     segment_source: Arc<dyn SegmentSource>,
     segment_id: SegmentId,
     array_tree: Option<ByteBuffer>,
@@ -330,7 +276,7 @@ async fn decode_segment(
 
 /// Slice `array` to `row_range` if it doesn't already cover the full
 /// length. Cheap when called with `0..len`.
-fn slice_to_range(array: ArrayRef, row_range: &Range<u64>) -> VortexResult<ArrayRef> {
+pub(crate) fn slice_to_range(array: ArrayRef, row_range: &Range<u64>) -> VortexResult<ArrayRef> {
     let start = usize::try_from(row_range.start)
         .map_err(|_| vortex_err!("FlatPlan: row range start exceeds usize"))?;
     let end = usize::try_from(row_range.end)

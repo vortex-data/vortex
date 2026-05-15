@@ -40,11 +40,20 @@ use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::hash_plan;
 use crate::v2::plan::plans_eq;
+use crate::v2::plan::with_hash_cache;
 
 /// Run common-subplan elimination on `plan`. Returns either the
 /// original plan (if no sharing opportunities were found) or a
 /// rewritten plan wrapped in one `LetPlan` per shared subtree.
 pub fn cse(plan: LayoutPlanRef) -> VortexResult<LayoutPlanRef> {
+    // The whole pass runs under a hash cache: subtree hashes are
+    // memoised by `Arc` pointer so each unique node is hashed once,
+    // not once per occurrence (pushdown produces N copies of the
+    // same mask reference and without caching CSE is quadratic).
+    with_hash_cache(|| cse_inner(plan))
+}
+
+fn cse_inner(plan: LayoutPlanRef) -> VortexResult<LayoutPlanRef> {
     // Step 1: walk the tree and count how many times each distinct
     // subtree appears. Keys are `LayoutPlanRef`s compared
     // structurally via `dyn LayoutPlan`'s `PartialEq` impl.

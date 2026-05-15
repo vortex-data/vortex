@@ -19,6 +19,7 @@ pub mod demand;
 pub mod dict;
 pub mod empty_struct;
 pub mod filter;
+pub mod filtered_flat;
 pub mod flat;
 pub mod let_use;
 pub mod mask_slice;
