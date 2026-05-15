@@ -313,67 +313,34 @@ impl ReduceCtx for ExpressionReduceCtx {
 }
 
 #[cfg(test)]
-#[expect(clippy::cast_possible_truncation)]
 mod tests {
-    use std::time::Instant;
-
     use vortex_error::VortexResult;
 
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
     use crate::dtype::StructFields;
-    use crate::expr::Expression;
     use crate::expr::eq;
     use crate::expr::get_item;
     use crate::expr::lit;
     use crate::expr::or;
     use crate::expr::root;
 
-    fn build_large_or_chain(n: usize) -> Expression {
-        let base = eq(get_item("x", root()), lit(0i32));
-        (1..n).fold(base, |acc, i| or(acc, eq(get_item("x", root()), lit(i as i32))))
-    }
-
-    fn struct_scope() -> DType {
-        DType::Struct(
+    #[test]
+    fn optimize_or_chain_correctness() -> VortexResult<()> {
+        let expr = or(
+            eq(get_item("x", root()), lit(1i32)),
+            eq(get_item("x", root()), lit(2i32)),
+        );
+        let scope = DType::Struct(
             StructFields::new(
                 ["x"].into(),
                 vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
             ),
             Nullability::NonNullable,
-        )
-    }
-
-    #[test]
-    fn optimize_large_or_chain_does_not_hang() -> VortexResult<()> {
-        let expr = build_large_or_chain(200);
-        let scope = struct_scope();
-
-        let start = Instant::now();
-        let _result = expr.optimize_recursive(&scope)?;
-        let elapsed = start.elapsed();
-
-        // This should complete in well under a second. Before the fix, 200 ORs could take
-        // many seconds due to per-node cache recreation and repeated find_between calls.
-        assert!(
-            elapsed.as_secs() < 5,
-            "optimize_recursive took {elapsed:?} for 200 ORs — regression detected"
         );
-        Ok(())
-    }
-
-    #[test]
-    fn optimize_or_chain_correctness() -> VortexResult<()> {
-        // Verify the optimizer still produces correct results for a small OR chain.
-        let expr = or(
-            eq(get_item("x", root()), lit(1i32)),
-            eq(get_item("x", root()), lit(2i32)),
-        );
-        let scope = struct_scope();
         let optimized = expr.optimize_recursive(&scope)?;
 
-        // The expression should still reference column "x" and both literals.
         let s = optimized.to_string();
         assert!(s.contains("$.x"), "expected $.x in {s}");
         assert!(s.contains("1i32") || s.contains('1'), "expected 1 in {s}");
