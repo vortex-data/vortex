@@ -10,8 +10,8 @@ use enum_iterator::all;
 use num_enum::IntoPrimitive;
 use num_enum::TryFromPrimitive;
 
+use crate::aggregate_fn::fns::is_sorted::IsSortedOptions;
 use crate::dtype::DType;
-use crate::dtype::Nullability::NonNullable;
 
 mod bound;
 mod precision;
@@ -165,30 +165,31 @@ impl Stat {
 
     /// Return the [`DType`] of the statistic scalar assuming the array is of the given [`DType`].
     pub fn dtype(&self, data_type: &DType) -> Option<DType> {
-        Some(match self {
-            Self::IsConstant => DType::Bool(NonNullable),
-            Self::IsSorted => DType::Bool(NonNullable),
-            Self::IsStrictSorted => DType::Bool(NonNullable),
-            Self::Max if matches!(data_type, DType::Null) => return None,
-            Self::Max => data_type.clone(),
-            Self::Min if matches!(data_type, DType::Null) => return None,
-            Self::Min => data_type.clone(),
+        match self {
+            Self::IsConstant => {
+                aggregate_fn::fns::is_constant::IsConstant.return_dtype(&EmptyOptions, data_type)
+            }
+            Self::IsSorted => aggregate_fn::fns::is_sorted::IsSorted
+                .return_dtype(&IsSortedOptions { strict: false }, data_type),
+            Self::IsStrictSorted => aggregate_fn::fns::is_sorted::IsSorted
+                .return_dtype(&IsSortedOptions { strict: true }, data_type),
+            Self::Min | Self::Max => aggregate_fn::fns::min_max::MinMax
+                .return_dtype(&EmptyOptions, data_type)
+                .as_ref()
+                .and_then(|t| t.as_struct_fields_opt())
+                .and_then(|f| f.field_by_index(0)),
             Self::NullCount => {
-                return aggregate_fn::fns::null_count::NullCount
-                    .return_dtype(&EmptyOptions, data_type);
+                aggregate_fn::fns::null_count::NullCount.return_dtype(&EmptyOptions, data_type)
             }
             Self::UncompressedSizeInBytes => {
-                return aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
-                    .return_dtype(&EmptyOptions, data_type);
+                aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes
+                    .return_dtype(&EmptyOptions, data_type)
             }
             Self::NaNCount => {
-                return aggregate_fn::fns::nan_count::NanCount
-                    .return_dtype(&EmptyOptions, data_type);
+                aggregate_fn::fns::nan_count::NanCount.return_dtype(&EmptyOptions, data_type)
             }
-            Self::Sum => {
-                return aggregate_fn::fns::sum::Sum.return_dtype(&EmptyOptions, data_type);
-            }
-        })
+            Self::Sum => aggregate_fn::fns::sum::Sum.return_dtype(&EmptyOptions, data_type),
+        }
     }
 
     /// Return the built-in aggregate function corresponding to this statistic, if one exists.
