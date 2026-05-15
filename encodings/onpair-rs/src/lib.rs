@@ -69,6 +69,7 @@ pub mod parser;
 pub mod prefix_automaton;
 pub mod search;
 pub mod store;
+pub mod token_cursor;
 pub mod tokenize;
 pub mod trainer;
 pub mod types;

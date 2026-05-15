@@ -8,16 +8,70 @@
 // we sanity-check and downcast.
 
 use crate::automaton::TokenAutomaton;
-use crate::bit_unpack::read_bits_lsb;
 use crate::config::{Error, OnPairTrainingConfig};
-use crate::decoder::{decode_all, decompress_row};
 use crate::dict::Dictionary;
+use crate::dispatch_bits;
 use crate::parser::parse;
 use crate::search::{contains_bitmap, empty_bitmap, equals_bitmap, multi_pattern_bitmap,
                     starts_with_bitmap};
 use crate::store::Store;
+use crate::token_cursor::TokenCursor;
 use crate::trainer::{TrainResult, train};
-use crate::types::is_valid_bits;
+use crate::types::{StreamSpan, is_valid_bits};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Const-generic decode and scan inner loops. Each is monomorphised per
+// `BITS ∈ 9..=16` by `dispatch_bits!`, which lets the compiler fold every
+// shift / mask in the cursor to a literal — same effect as the C++
+// `scan_impl<Bits>` template after `dispatch_bits()` resolves it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[inline]
+fn decode_span_into<const BITS: u32>(
+    dict: &Dictionary,
+    packed: &[u64],
+    span: StreamSpan,
+    out: &mut Vec<u8>,
+) {
+    if span.begin == span.end {
+        return;
+    }
+    let mut cursor = TokenCursor::<BITS>::new(packed, span);
+    while cursor.has_more() {
+        let code = cursor.next();
+        let lo = dict.offsets[code as usize] as usize;
+        let hi = dict.offsets[code as usize + 1] as usize;
+        out.extend_from_slice(&dict.bytes[lo..hi]);
+    }
+}
+
+#[inline]
+fn scan_with_bits<const BITS: u32, A, F>(
+    packed: &[u64],
+    boundaries: &[u32],
+    num_rows: usize,
+    aut: &mut A,
+    on_match: &mut F,
+) where
+    A: TokenAutomaton,
+    F: FnMut(usize),
+{
+    let mut cursor = TokenCursor::<BITS>::new_unbound(packed);
+    for row in 0..num_rows {
+        aut.reset();
+        cursor.reset_to(StreamSpan { begin: boundaries[row], end: boundaries[row + 1] });
+        while cursor.has_more() {
+            let t = cursor.next();
+            aut.step(t);
+            if aut.is_dead() {
+                break;
+            }
+        }
+        if aut.is_accepted() {
+            on_match(row);
+        }
+    }
+}
 
 /// Owning compressed column. Built by [`Column::compress`].
 #[derive(Debug, Clone)]
@@ -102,18 +156,37 @@ impl Column {
         self.dict.num_tokens()
     }
 
-    /// Decompress row `row_id` into `out`, clearing it first.
+    /// Decompress row `row_id` into `out`, clearing it first. Hot path uses
+    /// the const-generic [`TokenCursor`] dispatched on `bits`, so every
+    /// shift / mask folds to literals at codegen time.
     pub fn decompress_row(&self, row_id: usize, out: &mut Vec<u8>) -> Result<(), Error> {
         if row_id >= self.num_rows {
             return Err(Error::OutOfRange);
         }
-        decompress_row(&self.dict, &self.store, row_id, out);
+        out.clear();
+        let span = self.store.string_span(row_id);
+        // SAFETY of dispatch: bit_width is validated to 9..=16 in compress().
+        dispatch_bits!(self.store.bit_width as u32, |B| {
+            decode_span_into::<B>(&self.dict, &self.store.packed, span, out);
+        });
         Ok(())
     }
 
     /// Decompress every row into a flat byte buffer + `n + 1` offsets.
+    /// Const-generic dispatched.
     pub fn decode_all(&self) -> (Vec<u8>, Vec<u32>) {
-        decode_all(&self.dict, &self.store)
+        let n = self.num_rows;
+        let mut bytes = Vec::with_capacity(self.store.num_tokens() * 2);
+        let mut offsets = Vec::with_capacity(n + 1);
+        offsets.push(0u32);
+        dispatch_bits!(self.store.bit_width as u32, |B| {
+            for row in 0..n {
+                let span = self.store.string_span(row);
+                decode_span_into::<B>(&self.dict, &self.store.packed, span, &mut bytes);
+                offsets.push(bytes.len() as u32);
+            }
+        });
+        (bytes, offsets)
     }
 
     /// `WHERE col = needle` as an LSB-first packed bitmap of length `(n + 7) / 8`.
@@ -142,23 +215,20 @@ impl Column {
     }
 
     /// Callback form of [`Self::scan`] — no `Vec<usize>` allocation.
+    /// Hot path runs through a monomorphic [`TokenCursor<BITS>`] selected
+    /// once via [`dispatch_bits!`], identical structure to the C++
+    /// `scan_impl<Bits>` template.
     pub fn scan_with<A: TokenAutomaton, F: FnMut(usize)>(&self, mut aut: A, mut on_match: F) {
-        let bits = self.store.bit_width as u32;
-        let bits_us = bits as usize;
-        for row in 0..self.num_rows {
-            aut.reset();
-            let span = self.store.string_span(row);
-            for i in span.begin..span.end {
-                let code = read_bits_lsb(&self.store.packed, (i as usize) * bits_us, bits);
-                aut.step(code);
-                if aut.is_dead() {
-                    break;
-                }
-            }
-            if aut.is_accepted() {
-                on_match(row);
-            }
-        }
+        // SAFETY of dispatch: bit_width is validated to 9..=16 in compress().
+        dispatch_bits!(self.store.bit_width as u32, |B| {
+            scan_with_bits::<B, _, _>(
+                &self.store.packed,
+                &self.store.boundaries,
+                self.num_rows,
+                &mut aut,
+                &mut on_match,
+            );
+        });
     }
 
     /// Run a [`TokenAutomaton`] and collect matches as an LSB-first packed
