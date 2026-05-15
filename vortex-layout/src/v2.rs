@@ -9,6 +9,4 @@
 //! design.
 
 pub mod demand;
-pub mod matcher;
 pub mod plan;
-pub mod pushdown;

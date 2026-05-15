@@ -1430,6 +1430,98 @@ pub fn S::layouts(&self) -> vortex_session::Ref<'_, vortex_layout::session::Layo
 
 pub type vortex_layout::session::LayoutRegistry = vortex_session::registry::Registry<vortex_layout::LayoutEncodingRef>
 
+pub mod vortex_layout::v2
+
+pub mod vortex_layout::v2::demand
+
+pub struct vortex_layout::v2::demand::RowDemand
+
+impl vortex_layout::v2::demand::RowDemand
+
+pub fn vortex_layout::v2::demand::RowDemand::empty() -> Self
+
+pub type vortex_layout::v2::demand::RowRange = core::ops::range::Range<u64>
+
+pub mod vortex_layout::v2::plan
+
+pub struct vortex_layout::v2::plan::PartitionStats
+
+pub vortex_layout::v2::plan::PartitionStats::byte_size_estimate: core::option::Option<u64>
+
+pub vortex_layout::v2::plan::PartitionStats::row_count: core::option::Option<u64>
+
+impl vortex_layout::v2::plan::PartitionStats
+
+pub fn vortex_layout::v2::plan::PartitionStats::unknown() -> Self
+
+pub fn vortex_layout::v2::plan::PartitionStats::with_byte_size_estimate(self, u64) -> Self
+
+pub fn vortex_layout::v2::plan::PartitionStats::with_row_count(self, u64) -> Self
+
+impl core::clone::Clone for vortex_layout::v2::plan::PartitionStats
+
+pub fn vortex_layout::v2::plan::PartitionStats::clone(&self) -> vortex_layout::v2::plan::PartitionStats
+
+impl core::default::Default for vortex_layout::v2::plan::PartitionStats
+
+pub fn vortex_layout::v2::plan::PartitionStats::default() -> vortex_layout::v2::plan::PartitionStats
+
+impl core::fmt::Debug for vortex_layout::v2::plan::PartitionStats
+
+pub fn vortex_layout::v2::plan::PartitionStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_layout::v2::plan::PlanArguments
+
+pub vortex_layout::v2::plan::PlanArguments::ctx: vortex_layout::v2::plan::PlanContext
+
+pub vortex_layout::v2::plan::PlanArguments::expr: vortex_array::expr::expression::Expression
+
+pub vortex_layout::v2::plan::PlanArguments::selection: vortex_scan::selection::Selection
+
+impl vortex_layout::v2::plan::PlanArguments
+
+pub fn vortex_layout::v2::plan::PlanArguments::with_expr(self, vortex_array::expr::expression::Expression) -> Self
+
+impl core::clone::Clone for vortex_layout::v2::plan::PlanArguments
+
+pub fn vortex_layout::v2::plan::PlanArguments::clone(&self) -> vortex_layout::v2::plan::PlanArguments
+
+pub struct vortex_layout::v2::plan::PlanContext
+
+pub vortex_layout::v2::plan::PlanContext::demand: alloc::sync::Arc<vortex_layout::v2::demand::RowDemand>
+
+impl vortex_layout::v2::plan::PlanContext
+
+pub fn vortex_layout::v2::plan::PlanContext::without_demand() -> Self
+
+impl core::clone::Clone for vortex_layout::v2::plan::PlanContext
+
+pub fn vortex_layout::v2::plan::PlanContext::clone(&self) -> vortex_layout::v2::plan::PlanContext
+
+pub trait vortex_layout::v2::plan::LayoutPlan: 'static + core::marker::Send + core::marker::Sync
+
+pub fn vortex_layout::v2::plan::LayoutPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plan::LayoutPlan::execute(&self, usize, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plan::LayoutPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plan::LayoutPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plan::LayoutPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plan::LayoutPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+
+pub fn vortex_layout::v2::plan::LayoutPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plan::LayoutPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plan::LayoutPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plan::LayoutPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+
+pub type vortex_layout::v2::plan::LayoutPlanRef = alloc::sync::Arc<dyn vortex_layout::v2::plan::LayoutPlan>
+
 pub mod vortex_layout::vtable
 
 pub trait vortex_layout::vtable::VTable: 'static + core::marker::Sized + core::marker::Send + core::marker::Sync + core::fmt::Debug
@@ -1684,6 +1776,8 @@ pub fn vortex_layout::LayoutAdapter<V>::nchildren(&self) -> usize
 
 pub fn vortex_layout::LayoutAdapter<V>::new_reader(&self, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
+pub fn vortex_layout::LayoutAdapter<V>::plan(&self, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+
 pub fn vortex_layout::LayoutAdapter<V>::row_count(&self) -> u64
 
 pub fn vortex_layout::LayoutAdapter<V>::segment_ids(&self) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
@@ -1800,6 +1894,8 @@ pub fn vortex_layout::Layout::nchildren(&self) -> usize
 
 pub fn vortex_layout::Layout::new_reader(&self, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
+pub fn vortex_layout::Layout::plan(&self, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+
 pub fn vortex_layout::Layout::row_count(&self) -> u64
 
 pub fn vortex_layout::Layout::segment_ids(&self) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
@@ -1825,6 +1921,8 @@ pub fn vortex_layout::LayoutAdapter<V>::metadata(&self) -> alloc::vec::Vec<u8>
 pub fn vortex_layout::LayoutAdapter<V>::nchildren(&self) -> usize
 
 pub fn vortex_layout::LayoutAdapter<V>::new_reader(&self, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+
+pub fn vortex_layout::LayoutAdapter<V>::plan(&self, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
 
 pub fn vortex_layout::LayoutAdapter<V>::row_count(&self) -> u64
 
