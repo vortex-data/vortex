@@ -72,7 +72,7 @@ pub fn vortex_onpair::skip::DictPresence::build(&vortex_onpair::decode::DecodeVi
 
 pub fn vortex_onpair::skip::DictPresence::byte_size(&self) -> usize
 
-pub fn vortex_onpair::skip::DictPresence::might_contain(&self, &vortex_onpair::decode::DecodeView<'_>, &vortex_onpair::lpm::DictIndex, &[u8]) -> bool
+pub fn vortex_onpair::skip::DictPresence::might_contain(&self, &vortex_onpair::decode::DecodeView<'_>, &[u8]) -> bool
 
 pub fn vortex_onpair::skip::DictPresence::might_eq(&self, &vortex_onpair::decode::DecodeView<'_>, &vortex_onpair::lpm::DictIndex, &[u8]) -> bool
 

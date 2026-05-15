@@ -150,24 +150,23 @@ impl DictPresence {
         reached[n]
     }
 
-    /// Weak necessary condition for `LIKE '%needle%'` using only the
-    /// dictionary bitmap. The needle either lives inside a single dict
-    /// token (case 1, exact) or straddles ≥ 2 adjacent tokens (case 2/3,
-    /// only approximated here by "some present token's bytes contain the
-    /// needle, or every byte of the needle starts at least one present
-    /// token"). [`TrigramBloom`] / [`SeamBloom`] give a much tighter
-    /// answer in the straddling case.
-    pub fn might_contain(
-        &self,
-        dv: &DecodeView<'_>,
-        index: &DictIndex,
-        needle: &[u8],
-    ) -> bool {
+    /// Necessary condition for `LIKE '%needle%'`, using only the
+    /// dictionary bitmap. Sound but very weak: it can only prove
+    /// "this chunk contains the needle" via case 1 (some present
+    /// dict token has the needle as a substring) and **cannot prove
+    /// the negation** without information about token adjacency.
+    /// When the needle would straddle two or more adjacent tokens
+    /// (case 2/3), the bitmap alone has no signal — we conservatively
+    /// return `true` and rely on the caller's `TrigramBloom` /
+    /// `SeamBloom` for tight substring pruning.
+    pub fn might_contain(&self, dv: &DecodeView<'_>, needle: &[u8]) -> bool {
         if needle.is_empty() {
             return true;
         }
-        // Case 1: some present dict token contains the needle as a
-        // substring.
+        // Case 1 is a fast confirmation, not a prune; if it fires we
+        // can return `true` immediately. Without case 1 we still
+        // return `true` because case 2/3 is unprovable from
+        // presence-only data.
         for (id, &entry) in dv.dict_table.iter().enumerate() {
             let len = (entry & 0xffff) as usize;
             if len < needle.len() || !self.is_set(id) {
@@ -176,22 +175,6 @@ impl DictPresence {
             let off = (entry >> 16) as usize;
             if memchr::memmem::find(&dv.dict_bytes[off..off + len], needle).is_some() {
                 return true;
-            }
-        }
-        // Case 2/3: needle straddles two or more present tokens. Cheap
-        // approximation: every byte of the needle must appear as the
-        // first byte of some present token.
-        for &b in needle {
-            let range = index.range_for(b);
-            let mut any = false;
-            for id in range {
-                if self.is_set(id) {
-                    any = true;
-                    break;
-                }
-            }
-            if !any {
-                return false;
             }
         }
         true

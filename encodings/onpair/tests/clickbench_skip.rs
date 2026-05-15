@@ -346,7 +346,7 @@ fn clickbench_url_skip_indexes() {
             let pa = match q {
                 Pred::Eq(s) => presence[c].might_eq(&dv, &index, s.as_bytes()),
                 Pred::StartsWith(s) => presence[c].might_starts_with(&dv, &index, s.as_bytes()),
-                Pred::Contains(s) => presence[c].might_contain(&dv, &index, s.as_bytes()),
+                Pred::Contains(s) => presence[c].might_contain(&dv, s.as_bytes()),
             };
             // Tier-B trigram Bloom: the needle is always a substring of any
             // matching row, so trigram bloom is sound for eq, prefix, and
@@ -507,4 +507,332 @@ fn clickbench_url_skip_indexes() {
         100.0 * (presence_bytes + seam_bytes) as f64 / compressed_bytes as f64,
     );
     println!();
+}
+
+// ===========================================================================
+//        Scaled-up "in practice" workload over the full hits_0 shard
+// ===========================================================================
+//
+// The same skip indexes evaluated at realistic scale and with a realistic
+// workload:
+//
+//   * `N_ROWS_BIG` rows of the URL column (default 100_000 → 100 chunks).
+//   * 200 *random substring* queries: each is a random substring of length
+//     5..=15 sampled from a random row. Selectivity ranges from "matches
+//     dozens of chunks" to "matches one chunk".
+//   * 50 *random prefix* queries: each is a leading `len ∈ 12..=30` prefix
+//     of a random row.
+//   * 50 *rare needle* queries: random ASCII strings unlikely to exist.
+//
+// Reports aggregate Pr[keep], the recall (fraction of empty chunks pruned)
+// distribution, and the implied I/O reduction (a chunk-shaped page is the
+// scan unit, so I/O ≈ Pr[keep]).
+
+const N_ROWS_BIG: usize = 100_000;
+const CHUNK_SIZE_BIG: usize = 1024;
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn clickbench_url_skip_realistic_workload() {
+    let Some(path) = hits_path() else {
+        eprintln!("skipping realistic workload: {} not found", "/tmp/hits_0.parquet");
+        return;
+    };
+
+    let t0 = Instant::now();
+    let n_rows = std::env::var("CLICKBENCH_N_ROWS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(N_ROWS_BIG);
+    let rows = read_url_column(&path, n_rows);
+    let n = rows.len();
+    assert!(n >= 8 * CHUNK_SIZE_BIG, "got only {n} rows, expected ≥ {}", 8 * CHUNK_SIZE_BIG);
+    let num_chunks = n / CHUNK_SIZE_BIG;
+    let n_aligned = num_chunks * CHUNK_SIZE_BIG;
+    let raw_bytes: usize = rows[..n_aligned].iter().map(|s| s.len()).sum();
+    eprintln!(
+        "loaded {} rows in {:?}; using {} chunks × {} rows ({} bytes raw)",
+        n, t0.elapsed(), num_chunks, CHUNK_SIZE_BIG, raw_bytes
+    );
+
+    let varbin = VarBinArray::from_iter(
+        rows[..n_aligned].iter().map(|s| Some(s.as_bytes())),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    let t0 = Instant::now();
+    let arr =
+        onpair_compress(&varbin, varbin.len(), varbin.dtype(), DEFAULT_DICT12_CONFIG).unwrap();
+    let bits = arr.bits();
+    let mut ctx = SESSION.create_execution_ctx();
+    let inputs = OwnedDecodeInputs::collect(arr.as_view(), &mut ctx).expect("decode inputs");
+    let dv = inputs.view();
+    let index = DictIndex::build(&dv);
+    eprintln!(
+        "OnPair-compressed {} rows in {:?}; bits/code={}; dict_size={}",
+        n_aligned,
+        t0.elapsed(),
+        bits,
+        dv.dict_table.len(),
+    );
+
+    // Build indexes.
+    let t0 = Instant::now();
+    let mut presence: Vec<DictPresence> = Vec::with_capacity(num_chunks);
+    let mut trigram: Vec<TrigramBloom> = Vec::with_capacity(num_chunks);
+    for c in 0..num_chunks {
+        let lo = c * CHUNK_SIZE_BIG;
+        let hi = lo + CHUNK_SIZE_BIG;
+        presence.push(DictPresence::build(&dv, lo, hi));
+        trigram.push(TrigramBloom::build(&dv, lo, hi, TRIGRAM_BITS_PER_ROW));
+    }
+    let build_elapsed = t0.elapsed();
+    let presence_bytes: usize = presence.iter().map(DictPresence::byte_size).sum();
+    let trigram_bytes: usize = trigram.iter().map(TrigramBloom::byte_size).sum();
+    eprintln!(
+        "built {} chunks of (A,B) in {:?}; A={} bytes ({:.3} B/row); B={} bytes ({:.3} B/row)",
+        num_chunks,
+        build_elapsed,
+        presence_bytes,
+        presence_bytes as f64 / n_aligned as f64,
+        trigram_bytes,
+        trigram_bytes as f64 / n_aligned as f64,
+    );
+
+    // -------------- generate a realistic workload from the data -------------
+    let mut rng = Splitmix64::new(0x9e37_79b9_7f4a_7c15);
+    let mut workload: Vec<(&'static str, Pred)> = Vec::new();
+
+    // ClickBench's actual string-LIKE predicates on URL (queries.sql, Q21-Q24
+    // in github.com/ClickHouse/ClickBench/blob/main/clickhouse/queries.sql):
+    //   Q21/Q22/Q24: `URL LIKE '%google%'`
+    //   Q23:         `Title LIKE '%Google%' AND URL NOT LIKE '%.google.%'`
+    // We measure the LIKE predicates here (Title is a different column;
+    // its predicate has identical shape so the URL-side measurement is
+    // representative).
+    workload.push(("clickbench/Q21-Q24", Pred::Contains("google".to_string())));
+    workload.push(("clickbench/Q23-neg", Pred::Contains(".google.".to_string())));
+
+    // 200 random-substring queries from real rows.
+    for _ in 0..200 {
+        let i = (rng.next() as usize) % n_aligned;
+        let s = rows[i].as_bytes();
+        if s.len() < 6 {
+            continue;
+        }
+        let max_len = s.len().min(15);
+        let len = 5 + (rng.next() as usize) % (max_len - 4);
+        let start = (rng.next() as usize) % (s.len() - len + 1);
+        let needle = std::str::from_utf8(&s[start..start + len]).unwrap_or("").to_string();
+        if needle.is_empty() {
+            continue;
+        }
+        workload.push(("contains/real", Pred::Contains(needle)));
+    }
+    // 50 random-prefix queries from real rows.
+    for _ in 0..50 {
+        let i = (rng.next() as usize) % n_aligned;
+        let s = rows[i].as_bytes();
+        if s.len() < 12 {
+            continue;
+        }
+        let max_len = s.len().min(30);
+        let len = 12 + (rng.next() as usize) % (max_len - 11);
+        let prefix = std::str::from_utf8(&s[..len]).unwrap_or("").to_string();
+        if prefix.is_empty() {
+            continue;
+        }
+        workload.push(("prefix/real", Pred::StartsWith(prefix)));
+    }
+    // 50 rare random needles (mostly absent).
+    for _ in 0..50 {
+        let len = 6 + (rng.next() as usize) % 7;
+        let mut s = String::with_capacity(len);
+        for _ in 0..len {
+            let c = (rng.next() % 26) as u8 + b'a';
+            s.push(c as char);
+        }
+        // Sprinkle a digit to lower the chance of accidentally matching
+        // real words.
+        s.push_str(&format!("{}", rng.next() % 1000));
+        workload.push(("contains/rare", Pred::Contains(s)));
+    }
+
+    // ------------------------- evaluate each query ---------------------------
+    #[derive(Default)]
+    struct Stats {
+        n_queries: usize,
+        n_chunks: usize,
+        real_total: usize,
+        empty_total: usize,
+        kept_a: usize,
+        kept_b: usize,
+        kept_ab: usize,
+        pruned_a_of_empty: usize,
+        pruned_b_of_empty: usize,
+        pruned_ab_of_empty: usize,
+        keep_a_per_q: Vec<f64>,
+        keep_b_per_q: Vec<f64>,
+        keep_ab_per_q: Vec<f64>,
+    }
+    let mut stats_total = Stats::default();
+    let mut stats_contains = Stats::default();
+    let mut stats_prefix = Stats::default();
+    let mut stats_rare = Stats::default();
+    let mut stats_clickbench = Stats::default();
+
+    for (tag, q) in &workload {
+        let mut real = 0usize;
+        let mut keep_a = 0usize;
+        let mut keep_b = 0usize;
+        let mut keep_ab = 0usize;
+
+        let bytes: &[u8] = match q {
+            Pred::Eq(s) | Pred::StartsWith(s) | Pred::Contains(s) => s.as_bytes(),
+        };
+
+        for c in 0..num_chunks {
+            let lo = c * CHUNK_SIZE_BIG;
+            let hi = lo + CHUNK_SIZE_BIG;
+            let actual = q.truly_matches_chunk(&rows[lo..hi]);
+            if actual {
+                real += 1;
+            }
+            let pa = match q {
+                Pred::Eq(s) => presence[c].might_eq(&dv, &index, s.as_bytes()),
+                Pred::StartsWith(s) => presence[c].might_starts_with(&dv, &index, s.as_bytes()),
+                Pred::Contains(s) => presence[c].might_contain(&dv, s.as_bytes()),
+            };
+            let pb = trigram[c].might_contain(bytes);
+            let pab = pa && pb;
+            // Soundness.
+            assert!(!actual || pa, "A false negative on chunk {c} for {q:?}");
+            assert!(!actual || pb, "B false negative on chunk {c} for {q:?}");
+            assert!(!actual || pab, "AB false negative on chunk {c} for {q:?}");
+            keep_a += pa as usize;
+            keep_b += pb as usize;
+            keep_ab += pab as usize;
+        }
+        let empty = num_chunks - real;
+        let pruned_a = (num_chunks - keep_a).saturating_sub(0);
+        let pruned_b = num_chunks - keep_b;
+        let pruned_ab = num_chunks - keep_ab;
+        // "Of empty" = pruned ∩ empty. Pruned chunks are always a subset of
+        // empty (soundness), so pruned ≤ empty always.
+        let into = |s: &mut Stats| {
+            s.n_queries += 1;
+            s.n_chunks += num_chunks;
+            s.real_total += real;
+            s.empty_total += empty;
+            s.kept_a += keep_a;
+            s.kept_b += keep_b;
+            s.kept_ab += keep_ab;
+            s.pruned_a_of_empty += pruned_a;
+            s.pruned_b_of_empty += pruned_b;
+            s.pruned_ab_of_empty += pruned_ab;
+            s.keep_a_per_q.push(keep_a as f64 / num_chunks as f64);
+            s.keep_b_per_q.push(keep_b as f64 / num_chunks as f64);
+            s.keep_ab_per_q.push(keep_ab as f64 / num_chunks as f64);
+        };
+        into(&mut stats_total);
+        match *tag {
+            "contains/real" => into(&mut stats_contains),
+            "prefix/real" => into(&mut stats_prefix),
+            "contains/rare" => into(&mut stats_rare),
+            "clickbench/Q21-Q24" | "clickbench/Q23-neg" => into(&mut stats_clickbench),
+            _ => {}
+        }
+    }
+
+    // ------------------------------- report ---------------------------------
+    fn pct(num: usize, den: usize) -> f64 {
+        if den == 0 { 0.0 } else { 100.0 * num as f64 / den as f64 }
+    }
+    fn quantile(xs: &mut [f64], q: f64) -> f64 {
+        if xs.is_empty() {
+            return 0.0;
+        }
+        xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let idx = ((xs.len() - 1) as f64 * q).round() as usize;
+        xs[idx]
+    }
+    fn dump(name: &str, s: &mut Stats) {
+        println!(
+            "{:<18}  Q={:>3}  C={:>6}  real={:>6} ({:>5.2}%)  empty={:>6}",
+            name, s.n_queries, s.n_chunks, s.real_total,
+            pct(s.real_total, s.n_chunks), s.empty_total,
+        );
+        println!(
+            "{:>20}  A: Pr[keep]={:>5.2}%  recall={:>5.2}%   B: Pr[keep]={:>5.2}%  recall={:>5.2}%   AB: Pr[keep]={:>5.2}%  recall={:>5.2}%",
+            "",
+            pct(s.kept_a, s.n_chunks), pct(s.pruned_a_of_empty, s.empty_total),
+            pct(s.kept_b, s.n_chunks), pct(s.pruned_b_of_empty, s.empty_total),
+            pct(s.kept_ab, s.n_chunks), pct(s.pruned_ab_of_empty, s.empty_total),
+        );
+        let mut a = s.keep_a_per_q.clone();
+        let mut b = s.keep_b_per_q.clone();
+        let mut ab = s.keep_ab_per_q.clone();
+        println!(
+            "{:>20}  per-query Pr[keep] quantiles  p50/p90/p99:   A {:.2}/{:.2}/{:.2}   B {:.2}/{:.2}/{:.2}   AB {:.2}/{:.2}/{:.2}",
+            "",
+            quantile(&mut a, 0.5), quantile(&mut a, 0.9), quantile(&mut a, 0.99),
+            quantile(&mut b, 0.5), quantile(&mut b, 0.9), quantile(&mut b, 0.99),
+            quantile(&mut ab, 0.5), quantile(&mut ab, 0.9), quantile(&mut ab, 0.99),
+        );
+    }
+
+    println!();
+    println!("=== Realistic workload: {} queries × {} chunks ===", workload.len(), num_chunks);
+    println!("(Q=queries  C=chunk evaluations  real=% of (Q×C) with ≥1 match  empty=Q×C - real)");
+    println!("(Pr[keep] = fraction of (Q×C) we still scan; recall = fraction of empty (Q×C) pruned)");
+    println!();
+    dump("all queries", &mut stats_total);
+    println!();
+    dump("clickbench Q21-Q24", &mut stats_clickbench);
+    println!();
+    dump("contains/real", &mut stats_contains);
+    println!();
+    dump("prefix/real", &mut stats_prefix);
+    println!();
+    dump("contains/rare", &mut stats_rare);
+
+    // ---------- bottom line: implied I/O reduction in this workload --------
+    println!();
+    println!(
+        "Bottom line on this workload (assuming one chunk == one I/O page):"
+    );
+    println!(
+        "  A      reads {:>5.2}% of pages   ({:.2}× speedup over no prefilter)",
+        pct(stats_total.kept_a, stats_total.n_chunks),
+        stats_total.n_chunks as f64 / stats_total.kept_a as f64,
+    );
+    println!(
+        "  B      reads {:>5.2}% of pages   ({:.2}× speedup over no prefilter)",
+        pct(stats_total.kept_b, stats_total.n_chunks),
+        stats_total.n_chunks as f64 / stats_total.kept_b.max(1) as f64,
+    );
+    println!(
+        "  A∧B    reads {:>5.2}% of pages   ({:.2}× speedup over no prefilter)",
+        pct(stats_total.kept_ab, stats_total.n_chunks),
+        stats_total.n_chunks as f64 / stats_total.kept_ab.max(1) as f64,
+    );
+    println!(
+        "  floor  reads {:>5.2}% of pages   (best any sound prefilter can do)",
+        pct(stats_total.real_total, stats_total.n_chunks),
+    );
+    println!();
+}
+
+/// 64-bit splitmix PRNG for deterministic workload generation.
+struct Splitmix64(u64);
+impl Splitmix64 {
+    fn new(seed: u64) -> Self {
+        Self(seed)
+    }
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
 }
