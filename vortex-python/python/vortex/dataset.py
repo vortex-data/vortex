@@ -15,12 +15,11 @@ from typing_extensions import override
 
 from ._lib import dataset as _dataset  # pyright: ignore[reportMissingModuleSource]
 from ._lib import file as _file  # pyright: ignore[reportMissingModuleSource]
+from ._lib.runtime import set_worker_threads as _set_worker_threads  # pyright: ignore[reportMissingModuleSource]
+from ._lib.runtime import worker_threads as _worker_threads  # pyright: ignore[reportMissingModuleSource]
 from .arrays import array
 from .arrow.expression import ensure_vortex_expression
 from .expr import Expr, and_
-from .runtime import set_worker_threads as _set_worker_threads
-from .runtime import set_worker_threads_to_available_parallelism as _set_worker_threads_to_available_parallelism
-from .runtime import worker_count as _worker_count
 
 
 @contextmanager
@@ -29,9 +28,9 @@ def _temporary_worker_threads(use_threads: bool | None) -> Iterator[None]:
         yield
         return
 
-    previous_workers = _worker_count()
+    previous_workers = _worker_threads()
     if use_threads:
-        _set_worker_threads_to_available_parallelism()
+        _set_worker_threads(None)
     else:
         _set_worker_threads(0)
 

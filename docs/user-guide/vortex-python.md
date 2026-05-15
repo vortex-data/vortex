@@ -219,21 +219,21 @@ with ThreadPoolExecutor(max_workers=len(columns)) as threads:
     totals = list(threads.map(lambda column: sum_column("example.vortex", column), columns))
 ```
 
-Applications that want Vortex work to continue on background threads can configure the shared
-runtime through `vortex.runtime`:
+By default Vortex starts a background worker pool sized to `available_parallelism() - 1`.
+Set `VORTEX_MAX_THREADS=n` to pin the pool to a specific size at startup. To adjust the pool
+at runtime, use {func}`vortex.set_worker_threads`; passing `None` resets it to the default:
 
 ```python
 import vortex as vx
-import vortex.runtime as vxrt
 
-previous_workers = vxrt.worker_count()
-vxrt.set_worker_threads_to_available_parallelism()
+previous_workers = vx.worker_threads()
+vx.set_worker_threads(None)  # reset to available_parallelism() - 1
 
 try:
     reader = vx.open("example.vortex").to_arrow(batch_size=64_000)
     table = reader.read_all()
 finally:
-    vxrt.set_worker_threads(previous_workers)
+    vx.set_worker_threads(previous_workers)
 ```
 
 ## Conversion

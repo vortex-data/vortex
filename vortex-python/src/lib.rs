@@ -41,8 +41,21 @@ use vortex::io::runtime::current::CurrentThreadWorkerPool;
 pub(crate) static RUNTIME: LazyLock<CurrentThreadRuntime> =
     LazyLock::new(CurrentThreadRuntime::new);
 
-/// Shared worker pool that can drive [`RUNTIME`]'s executor in the background.
-pub(crate) static POOL: LazyLock<CurrentThreadWorkerPool> = LazyLock::new(|| RUNTIME.new_pool());
+/// Shared worker pool that drives [`RUNTIME`]'s executor in the background.
+///
+/// On first access, the pool is sized to `VORTEX_MAX_THREADS` (if set to a
+/// non-negative integer) or otherwise to `available_parallelism() - 1`.
+pub(crate) static POOL: LazyLock<CurrentThreadWorkerPool> = LazyLock::new(|| {
+    let pool = RUNTIME.new_pool();
+    match std::env::var("VORTEX_MAX_THREADS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+    {
+        Some(n) => pool.set_workers(n),
+        None => pool.set_workers_to_available_parallelism(),
+    }
+    pool
+});
 
 /// Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
 #[cfg(feature = "extension-module")]
