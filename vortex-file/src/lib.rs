@@ -75,6 +75,14 @@
 //! │                            │
 //! ├────────────────────────────┤
 //! │                            │
+//! │ File Statistics Flatbuffer │
+//! │                            │
+//! ├────────────────────────────┤
+//! │                            │
+//! │     Footer Flatbuffer      │
+//! │                            │
+//! ├────────────────────────────┤
+//! │                            │
 //! │    Postscript Flatbuffer   │
 //! │  (Footer Segment Offsets)  │
 //! │                            │

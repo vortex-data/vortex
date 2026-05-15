@@ -186,7 +186,7 @@ pub fn vortex_file::Footer::layout(&self) -> &vortex_layout::layout::LayoutRef
 
 pub fn vortex_file::Footer::metadata_segment(&self, &str) -> core::option::Option<&vortex_buffer::ByteBuffer>
 
-pub fn vortex_file::Footer::metadata_segments(&self) -> &[(alloc::string::String, vortex_buffer::ByteBuffer)]
+pub fn vortex_file::Footer::metadata_segments(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&str, &vortex_buffer::ByteBuffer)>
 
 pub fn vortex_file::Footer::row_count(&self) -> u64
 
@@ -210,9 +210,13 @@ pub fn vortex_file::FooterDeserializer::buffer(&self) -> &vortex_buffer::ByteBuf
 
 pub fn vortex_file::FooterDeserializer::deserialize(&mut self) -> vortex_error::VortexResult<vortex_file::DeserializeStep>
 
+pub fn vortex_file::FooterDeserializer::include_metadata(self) -> Self
+
 pub fn vortex_file::FooterDeserializer::prefix_data(&mut self, vortex_buffer::ByteBuffer)
 
 pub fn vortex_file::FooterDeserializer::with_dtype(self, vortex_array::dtype::DType) -> Self
+
+pub fn vortex_file::FooterDeserializer::with_include_metadata(self, bool) -> Self
 
 pub fn vortex_file::FooterDeserializer::with_size(self, u64) -> Self
 
@@ -282,7 +286,7 @@ pub fn vortex_file::VortexFile::layout_reader(&self) -> vortex_error::VortexResu
 
 pub fn vortex_file::VortexFile::metadata_segment(&self, &str) -> core::option::Option<&vortex_buffer::ByteBuffer>
 
-pub fn vortex_file::VortexFile::metadata_segments(&self) -> &[(alloc::string::String, vortex_buffer::ByteBuffer)]
+pub fn vortex_file::VortexFile::metadata_segments(&self) -> impl core::iter::traits::iterator::Iterator<Item = (&str, &vortex_buffer::ByteBuffer)>
 
 pub fn vortex_file::VortexFile::row_count(&self) -> u64
 
@@ -300,6 +304,8 @@ pub struct vortex_file::VortexOpenOptions
 
 impl vortex_file::VortexOpenOptions
 
+pub fn vortex_file::VortexOpenOptions::include_metadata(self) -> Self
+
 pub async fn vortex_file::VortexOpenOptions::open(self, alloc::sync::Arc<dyn vortex_io::read_at::VortexReadAt>) -> vortex_error::VortexResult<vortex_file::VortexFile>
 
 pub fn vortex_file::VortexOpenOptions::open_buffer<B: core::convert::Into<vortex_buffer::ByteBuffer>>(self, B) -> vortex_error::VortexResult<vortex_file::VortexFile>
@@ -313,6 +319,8 @@ pub fn vortex_file::VortexOpenOptions::with_dtype(self, vortex_array::dtype::DTy
 pub fn vortex_file::VortexOpenOptions::with_file_size(self, u64) -> Self
 
 pub fn vortex_file::VortexOpenOptions::with_footer(self, vortex_file::Footer) -> Self
+
+pub fn vortex_file::VortexOpenOptions::with_include_metadata(self, bool) -> Self
 
 pub fn vortex_file::VortexOpenOptions::with_initial_read_size(self, usize) -> Self
 

@@ -67,12 +67,15 @@ impl FooterSerializer {
     pub fn serialize(mut self) -> VortexResult<Vec<ByteBuffer>> {
         let mut buffers = vec![];
 
-        let mut metadata_segments = Vec::with_capacity(self.footer.metadata_segments().len());
-        for (key, metadata) in self.footer.metadata_segments() {
+        let mut metadata = self.footer.metadata_segments().collect::<Vec<_>>();
+        metadata.sort_unstable_by_key(|(key, _)| *key);
+
+        let mut metadata_segments = Vec::with_capacity(metadata.len());
+        for (key, metadata) in metadata {
             let (metadata_buffers, segment) = write_buffer(&mut self.offset, metadata.clone())?;
             buffers.extend(metadata_buffers);
             metadata_segments.push(PostscriptMetadata {
-                key: key.clone(),
+                key: key.to_string(),
                 segment,
             });
         }

@@ -77,12 +77,12 @@ impl VortexFile {
         self.footer.statistics()
     }
 
-    /// Returns the user-defined metadata segments stored in this file.
-    pub fn metadata_segments(&self) -> &[(String, ByteBuffer)] {
+    /// Returns the user-defined metadata segments loaded for this file.
+    pub fn metadata_segments(&self) -> impl Iterator<Item = (&str, &ByteBuffer)> {
         self.footer.metadata_segments()
     }
 
-    /// Returns the user-defined metadata segment for the given key.
+    /// Returns the loaded user-defined metadata segment for the given key.
     pub fn metadata_segment(&self, key: &str) -> Option<&ByteBuffer> {
         self.footer.metadata_segment(key)
     }

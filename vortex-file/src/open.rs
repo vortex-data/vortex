@@ -54,6 +54,8 @@ pub struct VortexOpenOptions {
     dtype: Option<DType>,
     /// An optional, externally provided, file layout.
     footer: Option<Footer>,
+    /// Whether to include user-defined metadata segments when opening the file.
+    include_metadata: bool,
     /// The segments read during the initial read.
     initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
     /// A metrics registry for the file.
@@ -74,6 +76,7 @@ pub trait OpenOptionsSessionExt:
             file_size: None,
             dtype: None,
             footer: None,
+            include_metadata: false,
             initial_read_segments: Default::default(),
             metrics_registry: None,
             labels: Vec::default(),
@@ -133,6 +136,21 @@ impl VortexOpenOptions {
     pub fn with_footer(mut self, footer: Footer) -> Self {
         self.dtype = Some(footer.layout().dtype().clone());
         self.footer = Some(footer);
+        self
+    }
+
+    /// Include user-defined metadata segments when opening the file.
+    ///
+    /// By default, opening a file reads only the metadata required to interpret the layout.
+    /// Enabling this option includes all postscript metadata segments in the footer read.
+    pub fn include_metadata(mut self) -> Self {
+        self.include_metadata = true;
+        self
+    }
+
+    /// Configure whether user-defined metadata segments are included when opening the file.
+    pub fn with_include_metadata(mut self, include_metadata: bool) -> Self {
+        self.include_metadata = include_metadata;
         self
     }
 
@@ -274,7 +292,8 @@ impl VortexOpenOptions {
 
         let mut deserializer = Footer::deserializer(initial_read, self.session.clone())
             .with_size(file_size)
-            .with_some_dtype(self.dtype.clone());
+            .with_some_dtype(self.dtype.clone())
+            .with_include_metadata(self.include_metadata);
 
         let footer = loop {
             match deserializer.deserialize()? {

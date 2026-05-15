@@ -38,6 +38,7 @@ use vortex_layout::layout_from_flatbuffer_with_options;
 use vortex_layout::session::LayoutSessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
+use vortex_utils::aliases::hash_map::HashMap;
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
@@ -45,7 +46,7 @@ pub struct Footer {
     root_layout: LayoutRef,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
-    metadata: Arc<[(String, ByteBuffer)]>,
+    metadata: Arc<HashMap<String, ByteBuffer>>,
     // The specific arrays used within the file, in the order they were registered.
     array_read_ctx: ReadContext,
     // The approximate size of the footer in bytes, used for caching and memory management.
@@ -57,7 +58,7 @@ impl Footer {
         root_layout: LayoutRef,
         segments: Arc<[SegmentSpec]>,
         statistics: Option<FileStatistics>,
-        metadata: Arc<[(String, ByteBuffer)]>,
+        metadata: Arc<HashMap<String, ByteBuffer>>,
         array_read_ctx: ReadContext,
     ) -> Self {
         Self {
@@ -81,7 +82,7 @@ impl Footer {
         layout_bytes: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
-        metadata: Arc<[(String, ByteBuffer)]>,
+        metadata: Arc<HashMap<String, ByteBuffer>>,
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let approx_byte_size = footer_bytes.len() + layout_bytes.len();
@@ -151,17 +152,16 @@ impl Footer {
         self.statistics.as_ref()
     }
 
-    /// Returns the user-defined metadata segments stored in this file.
-    pub fn metadata_segments(&self) -> &[(String, ByteBuffer)] {
-        self.metadata.as_ref()
-    }
-
-    /// Returns the user-defined metadata segment for the given key.
-    pub fn metadata_segment(&self, key: &str) -> Option<&ByteBuffer> {
+    /// Returns the user-defined metadata segments loaded for this file.
+    pub fn metadata_segments(&self) -> impl Iterator<Item = (&str, &ByteBuffer)> {
         self.metadata
             .iter()
-            .find(|(metadata_key, _)| metadata_key == key)
-            .map(|(_, metadata)| metadata)
+            .map(|(key, metadata)| (key.as_str(), metadata))
+    }
+
+    /// Returns the loaded user-defined metadata segment for the given key.
+    pub fn metadata_segment(&self, key: &str) -> Option<&ByteBuffer> {
+        self.metadata.get(key)
     }
 
     /// Returns the [`DType`] of the file.

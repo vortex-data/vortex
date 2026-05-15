@@ -12,6 +12,7 @@ use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::footer as fb;
+use vortex_utils::aliases::hash_set::HashSet;
 
 /// The postscript captures the locations and compression for the initial segments required for
 /// reading a Vortex file.
@@ -84,12 +85,18 @@ impl ReadFlatBuffer for Postscript {
             .transpose()?
             .unwrap_or_default();
 
-        for (idx, entry) in metadata.iter().enumerate() {
-            if metadata[..idx].iter().any(|prev| prev.key == entry.key) {
-                return Err(vortex_err!(
-                    "Postscript contains duplicate metadata key {}",
-                    entry.key
-                ));
+        {
+            let mut seen_keys = HashSet::with_capacity(metadata.len());
+            for entry in &metadata {
+                if entry.key.is_empty() {
+                    return Err(vortex_err!("Postscript metadata key must not be empty"));
+                }
+                if !seen_keys.insert(&entry.key) {
+                    return Err(vortex_err!(
+                        "Postscript contains duplicate metadata key {}",
+                        entry.key
+                    ));
+                }
             }
         }
 
@@ -148,6 +155,8 @@ impl ReadFlatBuffer for PostscriptMetadata {
     fn read_flatbuffer<'buf>(
         fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
     ) -> Result<Self, Self::Error> {
+        // The FlatBuffers verifier enforces that `key` and `segment` are present before this
+        // accessor can panic on a malformed required field.
         Ok(Self {
             key: fb.key().to_string(),
             segment: PostscriptSegment::read_flatbuffer(&fb.segment())?,
@@ -195,5 +204,67 @@ impl ReadFlatBuffer for PostscriptSegment {
             length: fb.length(),
             alignment: Alignment::from_exponent(fb.alignment_exponent()),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_flatbuffers::ReadFlatBuffer;
+    use vortex_flatbuffers::WriteFlatBufferExt;
+
+    use super::*;
+
+    fn segment(offset: u64) -> PostscriptSegment {
+        PostscriptSegment {
+            offset,
+            length: 1,
+            alignment: Alignment::none(),
+        }
+    }
+
+    fn read_postscript_error(postscript: &Postscript) -> String {
+        let bytes = postscript.write_flatbuffer_bytes().unwrap();
+        match Postscript::read_flatbuffer_bytes(&bytes) {
+            Ok(_) => panic!("expected postscript read to fail"),
+            Err(err) => err.to_string(),
+        }
+    }
+
+    #[test]
+    fn duplicate_metadata_keys_are_rejected() {
+        let err = read_postscript_error(&Postscript {
+            dtype: None,
+            layout: segment(0),
+            statistics: None,
+            footer: segment(1),
+            metadata: vec![
+                PostscriptMetadata {
+                    key: "metadata".to_string(),
+                    segment: segment(2),
+                },
+                PostscriptMetadata {
+                    key: "metadata".to_string(),
+                    segment: segment(3),
+                },
+            ],
+        });
+
+        assert!(err.contains("duplicate metadata key"));
+    }
+
+    #[test]
+    fn empty_metadata_keys_are_rejected() {
+        let err = read_postscript_error(&Postscript {
+            dtype: None,
+            layout: segment(0),
+            statistics: None,
+            footer: segment(1),
+            metadata: vec![PostscriptMetadata {
+                key: String::new(),
+                segment: segment(2),
+            }],
+        });
+
+        assert!(err.contains("metadata key must not be empty"));
     }
 }

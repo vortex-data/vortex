@@ -46,6 +46,7 @@ use vortex_layout::sequence::SequentialStreamExt;
 use vortex_session::SessionExt;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ALLOWED_ENCODINGS;
 use crate::Footer;
@@ -66,7 +67,7 @@ pub struct VortexWriteOptions {
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
-    metadata: Vec<(String, ByteBuffer)>,
+    metadata: HashMap<String, ByteBuffer>,
 }
 
 pub trait WriteOptionsSessionExt: SessionExt {
@@ -79,7 +80,7 @@ pub trait WriteOptionsSessionExt: SessionExt {
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
-            metadata: Vec::new(),
+            metadata: HashMap::default(),
         }
     }
 }
@@ -94,7 +95,7 @@ impl VortexWriteOptions {
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
-            metadata: Vec::new(),
+            metadata: HashMap::default(),
         }
     }
 
@@ -121,22 +122,19 @@ impl VortexWriteOptions {
     /// Add a user-defined metadata segment to the file.
     ///
     /// If the key already exists, the previous segment for that key is replaced.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the key is empty.
     pub fn with_metadata_segment(
         mut self,
         key: impl Into<String>,
         metadata: impl Into<ByteBuffer>,
     ) -> Self {
         let key = key.into();
+        assert!(!key.is_empty(), "metadata key must not be empty");
         let metadata = metadata.into();
-        if let Some((_, existing)) = self
-            .metadata
-            .iter_mut()
-            .find(|(existing_key, _)| existing_key == &key)
-        {
-            *existing = metadata;
-        } else {
-            self.metadata.push((key, metadata));
-        }
+        self.metadata.insert(key, metadata);
         self
     }
 
@@ -259,7 +257,7 @@ impl VortexWriteOptions {
                 &dtype,
             ))
         };
-        let metadata = self.metadata.into();
+        let metadata = Arc::new(self.metadata);
 
         let mut footer = Footer::new(
             Arc::clone(&layout),

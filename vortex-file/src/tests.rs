@@ -1698,7 +1698,7 @@ async fn test_file_metadata_segments_roundtrip() -> VortexResult<()> {
         .write(&mut buf, array.to_array_stream())
         .await?;
 
-    assert_eq!(summary.footer().metadata_segments().len(), 2);
+    assert_eq!(summary.footer().metadata_segments().count(), 2);
     assert_eq!(
         summary
             .footer()
@@ -1707,9 +1707,21 @@ async fn test_file_metadata_segments_roundtrip() -> VortexResult<()> {
         Some(small.as_slice())
     );
 
-    let file = SESSION.open_options().open_buffer(buf)?;
+    let bytes = ByteBuffer::from(buf);
+    let file_without_metadata = SESSION.open_options().open_buffer(bytes.clone())?;
+    assert_eq!(file_without_metadata.metadata_segments().count(), 0);
+    assert!(
+        file_without_metadata
+            .metadata_segment("application/json")
+            .is_none()
+    );
 
-    assert_eq!(file.metadata_segments().len(), 2);
+    let file = SESSION
+        .open_options()
+        .include_metadata()
+        .open_buffer(bytes)?;
+
+    assert_eq!(file.metadata_segments().count(), 2);
     assert_eq!(
         file.metadata_segment("application/json")
             .map(ByteBuffer::as_slice),
@@ -1724,6 +1736,15 @@ async fn test_file_metadata_segments_roundtrip() -> VortexResult<()> {
     assert!(file.metadata_segment("missing").is_none());
 
     Ok(())
+}
+
+#[test]
+#[should_panic(expected = "metadata key must not be empty")]
+fn test_file_metadata_empty_key_rejected() {
+    drop(
+        crate::VortexWriteOptions::new(VortexSession::empty())
+            .with_metadata_segment("", ByteBuffer::empty()),
+    );
 }
 
 #[tokio::test]

@@ -14,6 +14,7 @@ use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::EOF_SIZE;
 use crate::Footer;
@@ -40,6 +41,8 @@ pub struct FooterDeserializer {
 
     // The file size, possibly provided externally.
     file_size: Option<u64>,
+    // Whether to include user-defined metadata segments in the footer read.
+    include_metadata: bool,
     // The postscript, once we've parsed it.
     postscript: Option<Postscript>,
 }
@@ -51,6 +54,7 @@ impl FooterDeserializer {
             session,
             dtype: None,
             file_size: None,
+            include_metadata: false,
             postscript: None,
         }
     }
@@ -72,6 +76,18 @@ impl FooterDeserializer {
 
     pub fn with_some_size(mut self, file_size: Option<u64>) -> Self {
         self.file_size = file_size;
+        self
+    }
+
+    /// Include user-defined metadata segments in footer deserialization.
+    pub fn include_metadata(mut self) -> Self {
+        self.include_metadata = true;
+        self
+    }
+
+    /// Whether to include user-defined metadata segments in footer deserialization.
+    pub fn with_include_metadata(mut self, include_metadata: bool) -> Self {
+        self.include_metadata = include_metadata;
         self
     }
 
@@ -122,8 +138,10 @@ impl FooterDeserializer {
         if let Some(stats_segment) = &postscript.statistics {
             read_more_offset = read_more_offset.min(stats_segment.offset);
         }
-        for metadata in &postscript.metadata {
-            read_more_offset = read_more_offset.min(metadata.segment.offset);
+        if self.include_metadata {
+            for metadata in &postscript.metadata {
+                read_more_offset = read_more_offset.min(metadata.segment.offset);
+            }
         }
         read_more_offset = read_more_offset.min(postscript.layout.offset);
         read_more_offset = read_more_offset.min(postscript.footer.offset);
@@ -157,12 +175,19 @@ impl FooterDeserializer {
                 )
             })
             .transpose()?;
-        let metadata: Arc<[(String, ByteBuffer)]> = postscript
-            .metadata
-            .iter()
-            .map(|metadata| self.parse_metadata_segment(initial_offset, &self.buffer, metadata))
-            .collect::<VortexResult<Vec<_>>>()?
-            .into();
+        let metadata = if self.include_metadata {
+            Arc::new(
+                postscript
+                    .metadata
+                    .iter()
+                    .map(|metadata| {
+                        self.parse_metadata_segment(initial_offset, &self.buffer, metadata)
+                    })
+                    .collect::<VortexResult<HashMap<_, _>>>()?,
+            )
+        } else {
+            Arc::new(HashMap::default())
+        };
 
         Ok(DeserializeStep::Done(self.parse_footer(
             initial_offset,
@@ -287,7 +312,7 @@ impl FooterDeserializer {
         postscript: &Postscript,
         dtype: DType,
         file_stats: Option<FileStatistics>,
-        metadata: Arc<[(String, ByteBuffer)]>,
+        metadata: Arc<HashMap<String, ByteBuffer>>,
     ) -> VortexResult<Footer> {
         let footer_segment = &postscript.footer;
         let footer_offset = usize::try_from(footer_segment.offset - initial_offset)?;
