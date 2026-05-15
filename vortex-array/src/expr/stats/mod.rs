@@ -28,6 +28,7 @@ use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::AggregateFnVTableExt;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::fns::min_max::MinMax;
 
 #[derive(
     Debug,
@@ -169,10 +170,17 @@ impl Stat {
             Self::IsConstant => DType::Bool(NonNullable),
             Self::IsSorted => DType::Bool(NonNullable),
             Self::IsStrictSorted => DType::Bool(NonNullable),
-            Self::Max if matches!(data_type, DType::Null) => return None,
-            Self::Max => data_type.clone(),
-            Self::Min if matches!(data_type, DType::Null) => return None,
-            Self::Min => data_type.clone(),
+            Self::Max | Self::Min => {
+                let DType::Struct(fields, _) = MinMax.return_dtype(&EmptyOptions, data_type)?
+                else {
+                    return None;
+                };
+                return fields.field_by_index(match self {
+                    Self::Min => 0,
+                    Self::Max => 1,
+                    _ => unreachable!(),
+                });
+            }
             Self::NullCount => {
                 return aggregate_fn::fns::null_count::NullCount
                     .return_dtype(&EmptyOptions, data_type);
@@ -258,6 +266,8 @@ mod test {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::PrimitiveArray;
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
     use crate::expr::stats::Stat;
 
     #[test]
@@ -276,5 +286,20 @@ mod test {
         for stat in all::<Stat>().filter(|s| !matches!(s, Stat::Min | Stat::Max)) {
             assert!(!stat.has_same_dtype_as_array());
         }
+    }
+
+    #[test]
+    fn min_max_dtype_uses_min_max_aggregate_support() {
+        let dtype = DType::Variant(Nullability::Nullable);
+
+        assert_eq!(Stat::Min.dtype(&dtype), None);
+        assert_eq!(Stat::Max.dtype(&dtype), None);
+        assert_eq!(
+            Stat::NullCount.dtype(&dtype),
+            Some(DType::Primitive(
+                crate::dtype::PType::U64,
+                Nullability::NonNullable,
+            ))
+        );
     }
 }

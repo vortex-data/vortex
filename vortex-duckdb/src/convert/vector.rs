@@ -7,12 +7,15 @@ use num_traits::AsPrimitive;
 use vortex::array::ArrayRef;
 use vortex::array::IntoArray;
 use vortex::array::arrays::BoolArray;
+use vortex::array::arrays::ChunkedArray;
+use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
+use vortex::array::arrays::VariantArray;
 use vortex::array::builders::ArrayBuilder;
 use vortex::array::builders::VarBinViewBuilder;
 use vortex::array::validity::Validity;
@@ -30,6 +33,8 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::extension::datetime::TimeUnit;
 use vortex::mask::Mask;
+use vortex::scalar::Scalar;
+use vortex::scalar::ScalarValue;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::duckdb_date;
@@ -344,6 +349,23 @@ pub fn flat_vector_to_vortex(vector: &VectorRef, len: usize) -> VortexResult<Arr
 
             StructArray::try_new(names, children, len, vector.validity_ref(len).to_validity())
                 .map(|a| a.into_array())
+        }
+        DUCKDB_TYPE::DUCKDB_TYPE_VARIANT => {
+            let dtype = DType::Variant(Nullability::Nullable);
+            let chunks = (0..len)
+                .map(|idx| {
+                    let scalar = match vector.get_unwrapped_variant_value(idx)? {
+                        Some(value) => Scalar::try_new(
+                            dtype.clone(),
+                            Some(ScalarValue::Variant(Box::new(Scalar::try_from(value)?))),
+                        )?,
+                        None => Scalar::null(dtype.clone()),
+                    };
+                    Ok(ConstantArray::new(scalar, 1).into_array())
+                })
+                .collect::<VortexResult<Vec<_>>>()?;
+            let core_storage = ChunkedArray::try_new(chunks, dtype)?.into_array();
+            VariantArray::try_new(core_storage, None).map(|array| array.into_array())
         }
         _ => unimplemented!("missing impl for {type_id:?}"),
     }

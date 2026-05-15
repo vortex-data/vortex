@@ -62,12 +62,18 @@ impl VectorRef {
     ///
     /// This is more efficient than `dictionary` when the same dictionary values are
     /// used multiple times with different selection vectors.
-    pub fn reuse_dictionary(&mut self, reusable: &ReusableDict, sel_vec: &SelectionVector) {
+    pub fn reuse_dictionary(
+        &mut self,
+        reusable: &ReusableDict,
+        sel_vec: &SelectionVector,
+        len: usize,
+    ) {
         unsafe {
             cpp::duckdb_vx_vector_dictionary_reusable(
                 self.as_ptr(),
                 reusable.as_ptr(),
                 sel_vec.as_ptr(),
+                len as _,
             )
         }
     }

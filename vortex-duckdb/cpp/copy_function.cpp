@@ -124,6 +124,13 @@ void c_copy_to_sink(ExecutionContext & /*context*/,
     }
 }
 
+void c_copy_to_combine(ExecutionContext & /*context*/,
+                       FunctionData & /*bind_data*/,
+                       GlobalFunctionData & /*gstate*/,
+                       LocalFunctionData & /*lstate*/) {
+    // Vortex writes each chunk during sink; the local state has nothing to merge.
+}
+
 void copy_to_finalize(ClientContext & /*context*/, FunctionData &bind_data, GlobalFunctionData &gstate) {
     auto &bind = bind_data.Cast<CCopyBindData>();
     auto &global = gstate.Cast<CCopyGlobalData>();
@@ -152,6 +159,7 @@ extern "C" duckdb_state duckdb_vx_copy_func_register_vtab_one(duckdb_database ff
     copy_function.copy_to_initialize_local = c_init_local;
 
     copy_function.copy_to_sink = c_copy_to_sink;
+    copy_function.copy_to_combine = c_copy_to_combine;
     copy_function.copy_to_finalize = copy_to_finalize;
     copy_function.extension = copy_vtab_one.extension;
 

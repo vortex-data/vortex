@@ -16,6 +16,11 @@ duckdb_logical_type duckdb_vx_logical_type_copy(duckdb_logical_type ty) {
     return reinterpret_cast<duckdb_logical_type>(copy.release());
 }
 
+duckdb_logical_type duckdb_vx_create_variant_type() {
+    auto type = duckdb::make_uniq<duckdb::LogicalType>(duckdb::LogicalType::VARIANT());
+    return reinterpret_cast<duckdb_logical_type>(type.release());
+}
+
 char *duckdb_vx_logical_type_stringify(duckdb_logical_type c_type) {
     auto type = reinterpret_cast<duckdb::LogicalType *>(c_type);
     auto str = type->ToString();

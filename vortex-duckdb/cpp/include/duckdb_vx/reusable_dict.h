@@ -33,7 +33,8 @@ void duckdb_vx_reusable_dict_set_vector(duckdb_vx_reusable_dict reusable, duckdb
 /// Creates a dictionary vector using a reusable dictionary and a selection vector.
 void duckdb_vx_vector_dictionary_reusable(duckdb_vector vector,
                                           duckdb_vx_reusable_dict reusable,
-                                          duckdb_selection_vector sel_vec);
+                                          duckdb_selection_vector sel_vec,
+                                          idx_t count);
 
 #ifdef __cplusplus /* End C ABI */
 }

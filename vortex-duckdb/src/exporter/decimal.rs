@@ -113,9 +113,8 @@ impl<D: NativeDecimalType> ColumnExporter for DecimalZeroCopyExporter<D> {
         assert!(self.values.len() >= offset + len);
 
         let pos = unsafe { self.values.as_ptr().add(offset) };
-        unsafe { vector.set_vector_buffer(&self.shared_buffer) };
         // While we are setting a *mut T this is an artifact of the C API, this is in fact const.
-        unsafe { vector.set_data_ptr(pos as *mut D) };
+        unsafe { vector.set_data_ptr_with_buffer(&self.shared_buffer, pos as *mut D) };
 
         Ok(())
     }

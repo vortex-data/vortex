@@ -15,6 +15,7 @@ extern "C" {
 
 char *duckdb_vx_logical_type_stringify(duckdb_logical_type ty);
 duckdb_logical_type duckdb_vx_logical_type_copy(duckdb_logical_type ty);
+duckdb_logical_type duckdb_vx_create_variant_type();
 
 #ifdef __cplusplus /* End C ABI */
 }

@@ -480,4 +480,16 @@ mod tests {
             .unwrap();
         assert_eq!(field3_bool.to_bit_buffer(), BitBuffer::from(vec![false]));
     }
+
+    #[test]
+    fn skips_variant_min_max_stats() {
+        let acc = StatsAccumulator::new(
+            &DType::Variant(Nullability::Nullable),
+            &[Stat::Max, Stat::Min, Stat::NullCount],
+            12,
+        );
+
+        assert_eq!(acc.builders.len(), 1);
+        assert_eq!(acc.builders[0].stat(), Stat::NullCount);
+    }
 }

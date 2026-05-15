@@ -203,15 +203,21 @@ fn build_duckdb(version: &DuckDBVersion, duckdb_repo_dir: &Path) {
         DuckDBVersion::Commit(_) => "parquet;jemalloc;httpfs;tpch;tpcds",
     };
 
-    let envs = [
-        ("GEN", "ninja"),
-        ("DISABLE_SANITIZER", asan_option),
-        ("THREADSAN", tsan_option),
-        ("BUILD_SHELL", "false"),
-        ("BUILD_UNITTESTS", "false"),
-        ("ENABLE_UNITTEST_CPP_TESTS", "false"),
-        ("BUILD_EXTENSIONS", static_extensions),
+    let mut envs = vec![
+        ("GEN", "ninja".to_owned()),
+        ("DISABLE_SANITIZER", asan_option.to_owned()),
+        ("THREADSAN", tsan_option.to_owned()),
+        ("BUILD_SHELL", "false".to_owned()),
+        ("BUILD_UNITTESTS", "false".to_owned()),
+        ("ENABLE_UNITTEST_CPP_TESTS", "false".to_owned()),
+        ("BUILD_EXTENSIONS", static_extensions.to_owned()),
     ];
+    if let DuckDBVersion::Commit(commit) = version {
+        envs.push((
+            "OVERRIDE_GIT_DESCRIBE",
+            format!("v1.5.0-0-g{}", &commit[..10.min(commit.len())]),
+        ));
+    }
 
     let output = Command::new("make")
         .current_dir(duckdb_repo_dir)
@@ -327,12 +333,14 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
     }
 }
 
-fn cpp(duckdb_include_dir: &Path) {
+fn cpp(duckdb_include_dir: &Path, parquet_include_dir: &Path, yyjson_include_dir: &Path) {
     cc::Build::new()
         .std("c++20")
         .flags(["-Wall", "-Wextra", "-Wpedantic"])
         .cpp(true)
         .include(duckdb_include_dir)
+        .include(parquet_include_dir)
+        .include(yyjson_include_dir)
         .include("cpp/include")
         .files(SOURCE_FILES)
         .compile("vortex-duckdb-extras");
@@ -382,7 +390,7 @@ fn main() {
     // e.g. reordering fields in C++ structs.
     let version = env::var("DUCKDB_VERSION")
         // You can also change this version to a commit hash
-        .unwrap_or_else(|_| "1.5.2".to_owned());
+        .unwrap_or_else(|_| "60e81d3a94a8b4b1429a1182f4787e1ef1244053".to_owned());
     let version = DuckDBVersion::from(&version);
     match &version {
         DuckDBVersion::Release(v) => println!("cargo:info=Using DuckDB release version: {v}"),
@@ -447,7 +455,13 @@ fn main() {
     };
 
     let duckdb_include_dir = inner_dir.join("src").join("include");
+    let parquet_include_dir = inner_dir.join("extension").join("parquet").join("include");
+    let yyjson_include_dir = inner_dir.join("third_party").join("yyjson").join("include");
     c2rust(&crate_dir, &duckdb_include_dir);
-    cpp(&duckdb_include_dir);
+    cpp(
+        &duckdb_include_dir,
+        &parquet_include_dir,
+        &yyjson_include_dir,
+    );
     rust2c(&crate_dir);
 }

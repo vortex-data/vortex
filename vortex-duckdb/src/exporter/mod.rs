@@ -17,6 +17,7 @@ mod struct_;
 mod temporal;
 mod validity;
 mod varbinview;
+mod variant;
 mod vector;
 
 pub use cache::ConversionCache;
@@ -36,6 +37,7 @@ use vortex::encodings::sequence::Sequence;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
+use vortex_parquet_variant::ParquetVariant;
 
 use crate::duckdb::DataChunkRef;
 use crate::duckdb::VectorRef;
@@ -205,6 +207,11 @@ fn new_array_exporter_with_flatten(
         Err(array) => array,
     };
 
+    let array = match array.try_downcast::<ParquetVariant>() {
+        Ok(array) => return variant::new_parquet_exporter(array, cache, ctx),
+        Err(array) => array,
+    };
+
     // Otherwise, we fall back to canonical
     match array.execute::<Canonical>(ctx)? {
         Canonical::Null(_) => Ok(all_invalid::new_exporter()),
@@ -221,9 +228,7 @@ fn new_array_exporter_with_flatten(
             }
             vortex_bail!("no non-temporal extension exporter")
         }
-        Canonical::Variant(_) => {
-            vortex_bail!("Variant arrays can't be exported to DuckDB")
-        }
+        Canonical::Variant(array) => variant::new_exporter(array, cache, ctx),
     }
 }
 

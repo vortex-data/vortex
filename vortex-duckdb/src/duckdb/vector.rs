@@ -162,6 +162,16 @@ impl VectorRef {
         unsafe { cpp::duckdb_vx_vector_set_data_ptr(self.as_ptr(), ptr as *mut c_void) }
     }
 
+    pub unsafe fn set_data_ptr_with_buffer<T>(&self, buffer: &VectorBufferRef, ptr: *mut T) {
+        unsafe {
+            cpp::duckdb_vx_vector_set_data_buffer_and_ptr(
+                self.as_ptr(),
+                buffer.as_ptr(),
+                ptr as *mut c_void,
+            )
+        }
+    }
+
     /// Sets the validity data for the vector from a [`ValidityData`]. The buffer is
     /// attached purely as a keep-alive, and the data pointer is used as the validity data
     /// at the given `u64_offset`.
@@ -281,6 +291,79 @@ impl VectorRef {
         let string = unsafe { CStr::from_ptr(debug).to_string_lossy() }.to_string();
         unsafe { cpp::duckdb_free(debug.cast_mut().cast()) };
         Ok(string)
+    }
+
+    pub(crate) fn set_value(&mut self, idx: usize, value: &ValueRef) -> VortexResult<()> {
+        let mut err: duckdb_vx_error = ptr::null_mut();
+        unsafe {
+            cpp::duckdb_vx_vector_set_value(
+                self.as_ptr(),
+                idx as idx_t,
+                value.as_ptr(),
+                &raw mut err,
+            )
+        };
+        if !err.is_null() {
+            let message = unsafe { CStr::from_ptr(cpp::duckdb_vx_error_value(err)) }
+                .to_string_lossy()
+                .to_string();
+            unsafe { cpp::duckdb_vx_error_free(err) };
+            vortex_bail!("{message}");
+        }
+        Ok(())
+    }
+
+    pub(crate) fn get_unwrapped_variant_value(&self, idx: usize) -> VortexResult<Option<Value>> {
+        let mut outer_null = false;
+        let mut err: duckdb_vx_error = ptr::null_mut();
+        let value = unsafe {
+            cpp::duckdb_vx_variant_vector_get_unwrapped_value(
+                self.as_ptr(),
+                idx as idx_t,
+                &raw mut outer_null,
+                &raw mut err,
+            )
+        };
+        if !err.is_null() {
+            let message = unsafe { CStr::from_ptr(cpp::duckdb_vx_error_value(err)) }
+                .to_string_lossy()
+                .to_string();
+            unsafe { cpp::duckdb_vx_error_free(err) };
+            vortex_bail!("{message}");
+        }
+        if outer_null {
+            Ok(None)
+        } else {
+            Ok(Some(unsafe { Value::own(value) }))
+        }
+    }
+
+    pub(crate) fn parquet_variant_to_variant(
+        &mut self,
+        metadata: &VectorRef,
+        value: &VectorRef,
+        typed_value: Option<&VectorRef>,
+        count: usize,
+    ) -> VortexResult<()> {
+        let mut err: duckdb_vx_error = ptr::null_mut();
+        unsafe {
+            cpp::duckdb_vx_parquet_variant_to_variant(
+                metadata.as_ptr(),
+                value.as_ptr(),
+                typed_value.map_or(ptr::null_mut(), VectorRef::as_ptr),
+                self.as_ptr(),
+                count as idx_t,
+                &raw mut err,
+            )
+        };
+        if !err.is_null() {
+            let message = unsafe { CStr::from_ptr(cpp::duckdb_vx_error_value(err)) }
+                .to_string_lossy()
+                .to_string();
+            unsafe { cpp::duckdb_vx_error_free(err) };
+            vortex_bail!("{message}");
+        }
+        Ok(())
     }
 
     pub fn list_vector_reserve(&self, required_capacity: u64) -> VortexResult<()> {

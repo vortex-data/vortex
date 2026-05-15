@@ -4,6 +4,7 @@
 #include "duckdb_vx/duckdb_diagnostics.h"
 DUCKDB_INCLUDES_BEGIN
 #include "duckdb/common/types/vector.hpp"
+#include "duckdb/common/vector/dictionary_vector.hpp"
 DUCKDB_INCLUDES_END
 #include "duckdb_vx.h"
 
@@ -11,7 +12,7 @@ using namespace duckdb;
 
 // buffer_ptr is shared_ptr, two pointers long, but duckdb_vx_reusable_dict is
 // one pointer long, so we need a wrapper.
-using Buffer = buffer_ptr<VectorChildBuffer>;
+using Buffer = buffer_ptr<DictionaryEntry>;
 struct ReusableDict {
     Buffer buffer;
     ReusableDict(Buffer buffer) : buffer(std::move(buffer)) {
@@ -45,9 +46,10 @@ extern "C" void duckdb_vx_reusable_dict_set_vector(duckdb_vx_reusable_dict reusa
 
 extern "C" void duckdb_vx_vector_dictionary_reusable(duckdb_vector ffi_vector,
                                                      duckdb_vx_reusable_dict reusable,
-                                                     duckdb_selection_vector ffi_sel_vec) {
+                                                     duckdb_selection_vector ffi_sel_vec,
+                                                     idx_t count) {
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
     auto *wrapper = reinterpret_cast<ReusableDict *>(reusable);
     auto sel_vec = reinterpret_cast<SelectionVector *>(ffi_sel_vec);
-    vector->Dictionary(wrapper->buffer, *sel_vec);
+    vector->Dictionary(wrapper->buffer, *sel_vec, count);
 }

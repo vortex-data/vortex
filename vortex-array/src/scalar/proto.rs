@@ -441,17 +441,32 @@ fn list_from_proto(
     dtype: &DType,
     session: &VortexSession,
 ) -> VortexResult<ScalarValue> {
-    let element_dtype = dtype
-        .as_list_element_opt()
-        .ok_or_else(|| vortex_err!(Serde: "expected List dtype for ListValue, got {dtype}"))?;
+    if let Some(element_dtype) = dtype.as_list_element_opt() {
+        let mut values = Vec::with_capacity(v.values.len());
+        for elem in v.values.iter() {
+            values.push(ScalarValue::from_proto(
+                elem,
+                element_dtype.as_ref(),
+                session,
+            )?);
+        }
+
+        return Ok(ScalarValue::Tuple(values));
+    }
+
+    let Some(struct_fields) = dtype.as_struct_fields_opt() else {
+        vortex_bail!(Serde: "expected List or Struct dtype for ListValue, got {dtype}");
+    };
+    vortex_ensure!(
+        v.values.len() == struct_fields.nfields(),
+        Serde: "Struct ListValue field count mismatch: expected {}, got {}",
+        struct_fields.nfields(),
+        v.values.len()
+    );
 
     let mut values = Vec::with_capacity(v.values.len());
-    for elem in v.values.iter() {
-        values.push(ScalarValue::from_proto(
-            elem,
-            element_dtype.as_ref(),
-            session,
-        )?);
+    for (elem, field_dtype) in v.values.iter().zip(struct_fields.fields()) {
+        values.push(ScalarValue::from_proto(elem, &field_dtype, session)?);
     }
 
     Ok(ScalarValue::Tuple(values))
@@ -471,6 +486,7 @@ mod tests {
     use crate::dtype::DecimalDType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::dtype::StructFields;
     use crate::dtype::half::f16;
     use crate::scalar::DecimalValue;
     use crate::scalar::Scalar;
@@ -636,6 +652,29 @@ mod tests {
         );
 
         round_trip(Scalar::variant(nested));
+    }
+
+    #[test]
+    fn test_variant_struct_scalar_roundtrip() {
+        let dtype = DType::Struct(
+            StructFields::new(
+                ["name", "age"].into(),
+                vec![
+                    DType::Utf8(Nullability::Nullable),
+                    DType::Primitive(PType::I32, Nullability::Nullable),
+                ],
+            ),
+            Nullability::Nullable,
+        );
+        let value = Scalar::struct_(
+            dtype,
+            vec![
+                Scalar::utf8("alice", Nullability::Nullable),
+                Scalar::primitive(30i32, Nullability::Nullable),
+            ],
+        );
+
+        round_trip(Scalar::variant(value));
     }
 
     #[test]

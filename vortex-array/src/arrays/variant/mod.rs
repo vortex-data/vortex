@@ -82,6 +82,7 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::Canonical;
+    use crate::CanonicalValidity;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -370,6 +371,23 @@ mod tests {
         let masked = execute_variant(variant.into_array().mask(mask)?)?;
 
         assert_variant_core_rows(&masked, &[Some(1), None, None, Some(4)])
+    }
+
+    #[test]
+    fn canonical_validity_preserves_chunked_core_storage() -> VortexResult<()> {
+        let core_storage = row_storage([1, 2, 3])?;
+        let variant = VariantArray::try_new(core_storage, None)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        let CanonicalValidity(Canonical::Variant(canonical)) =
+            variant
+                .into_array()
+                .execute::<CanonicalValidity>(&mut ctx)?
+        else {
+            return Err(vortex_err!("expected canonical variant array"));
+        };
+
+        assert_variant_core_rows(&canonical, &[Some(1), Some(2), Some(3)])
     }
 
     #[test]

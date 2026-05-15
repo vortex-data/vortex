@@ -17,6 +17,8 @@
 //! | `Decimal` | `DECIMAL` |
 //! | `Utf8` | `VARCHAR` |
 //! | `Binary` | `BLOB` |
+//! | `List`/`FixedSizeList`/`Struct` | `LIST`/`ARRAY`/`STRUCT` |
+//! | `Variant` | `VARIANT` |
 //! | `ExtScalar` (temporal) | `DATE`/`TIME`/`TIMESTAMP` |
 
 use vortex::array::match_each_native_simd_ptype;
@@ -61,9 +63,6 @@ pub trait ToDuckDBScalar {
 impl ToDuckDBScalar for Scalar {
     /// Converts a generic Vortex scalar to a DuckDB value.
     ///
-    /// # Note
-    ///
-    /// Struct and List scalars are not yet implemented and cause a panic.
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         if self.is_null() {
             let lt = LogicalType::try_from(self.dtype())?;
@@ -77,10 +76,52 @@ impl ToDuckDBScalar for Scalar {
             DType::Decimal(..) => self.as_decimal().try_to_duckdb_scalar(),
             DType::Utf8(_) => self.as_utf8().try_to_duckdb_scalar(),
             DType::Binary(_) => self.as_binary().try_to_duckdb_scalar(),
-            DType::List(..) | DType::FixedSizeList(..) | DType::Struct(..) => todo!(),
+            DType::List(element_dtype, _) => {
+                let elements = self
+                    .as_list()
+                    .elements()
+                    .ok_or_else(|| vortex_err!("null list should be handled before conversion"))?;
+                let element_type = LogicalType::try_from(element_dtype.as_ref())?;
+                Value::new_list(
+                    &element_type,
+                    elements
+                        .iter()
+                        .map(ToDuckDBScalar::try_to_duckdb_scalar)
+                        .collect::<VortexResult<_>>()?,
+                )
+            }
+            DType::FixedSizeList(element_dtype, ..) => {
+                let elements = self.as_list().elements().ok_or_else(|| {
+                    vortex_err!("null fixed-size list should be handled before conversion")
+                })?;
+                let element_type = LogicalType::try_from(element_dtype.as_ref())?;
+                Value::new_array(
+                    &element_type,
+                    elements
+                        .iter()
+                        .map(ToDuckDBScalar::try_to_duckdb_scalar)
+                        .collect::<VortexResult<_>>()?,
+                )
+            }
+            DType::Struct(..) => {
+                let struct_scalar = self.as_struct();
+                let fields = struct_scalar.fields_iter().ok_or_else(|| {
+                    vortex_err!("null struct should be handled before conversion")
+                })?;
+                let struct_type = LogicalType::try_from(self.dtype())?;
+                Value::new_struct(
+                    &struct_type,
+                    fields
+                        .map(|field| field.try_to_duckdb_scalar())
+                        .collect::<VortexResult<_>>()?,
+                )
+            }
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
             DType::Variant(_) => {
-                vortex_bail!("Vortex Variant scalars aren't supported in DuckDB")
+                let Some(value) = self.as_variant().value() else {
+                    return Ok(Value::null(&LogicalType::variant()));
+                };
+                value.try_to_duckdb_scalar()
             }
             DType::Extension(..) => self.as_extension().try_to_duckdb_scalar(),
         }
@@ -247,6 +288,15 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
     fn try_from(value: &'a ValueRef) -> Result<Self, Self::Error> {
         use crate::duckdb::ExtractedValue;
         let dtype = DType::from_logical_type(value.logical_type(), Nullable)?;
+        if matches!(dtype, DType::Variant(_)) {
+            return match value.unwrap_variant()? {
+                Some(value) => Ok(Scalar::try_new(
+                    dtype,
+                    Some(ScalarValue::Variant(Box::new(Scalar::try_from(value)?))),
+                )?),
+                None => Ok(Scalar::null(dtype)),
+            };
+        }
         match value.extract() {
             ExtractedValue::Null => Ok(Scalar::null(dtype)),
             ExtractedValue::Boolean(b) => Ok(Scalar::bool(b, Nullable)),

@@ -66,11 +66,18 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::Constant;
+    use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::List;
     use vortex_array::arrays::ListView;
     use vortex_array::arrays::ListViewArray;
+    use vortex_array::arrays::Variant;
+    use vortex_array::arrays::VariantArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
+    use vortex_array::dtype::Nullability;
+    use vortex_array::scalar::Scalar;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
@@ -172,6 +179,30 @@ mod tests {
             &mut SESSION.create_execution_ctx(),
         )?;
         assert!(!compressed.is::<Constant>());
+        assert_arrays_eq!(compressed, array);
+        Ok(())
+    }
+
+    #[test]
+    fn test_variant_not_compressed() -> VortexResult<()> {
+        let dtype = DType::Variant(Nullability::NonNullable);
+        let chunks = [1i32, 2, 3]
+            .into_iter()
+            .map(|value| {
+                ConstantArray::new(
+                    Scalar::variant(Scalar::primitive(value, Nullability::NonNullable)),
+                    1,
+                )
+                .into_array()
+            })
+            .collect();
+        let core_storage = ChunkedArray::try_new(chunks, dtype)?.into_array();
+        let array = VariantArray::try_new(core_storage, None)?.into_array();
+
+        let compressed =
+            BtrBlocksCompressor::default().compress(&array, &mut SESSION.create_execution_ctx())?;
+
+        assert!(compressed.is::<Variant>());
         assert_arrays_eq!(compressed, array);
         Ok(())
     }

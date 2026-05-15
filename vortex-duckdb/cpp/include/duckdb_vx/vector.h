@@ -47,6 +47,10 @@ void duckdb_vx_string_vector_add_vector_data_buffer(duckdb_vector ffi_vector, du
 // valid.
 void duckdb_vx_vector_set_vector_data_buffer(duckdb_vector ffi_vector, duckdb_vx_vector_buffer buffer);
 
+void duckdb_vx_vector_set_data_buffer_and_ptr(duckdb_vector ffi_vector,
+                                              duckdb_vx_vector_buffer buffer,
+                                              void *ptr);
+
 // Reset vector's validity mask to nullptr, making all vector's elements valid.
 // vector must not be a DictionaryVector or a SequenceVector
 void duckdb_vx_vector_set_all_valid(duckdb_vector ffi_vector);
@@ -71,6 +75,23 @@ void duckdb_vector_flatten(duckdb_vector vector, unsigned long len);
 const char *duckdb_vector_to_string(duckdb_vector vector, unsigned long len, duckdb_vx_error *err);
 
 duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index);
+
+void duckdb_vx_vector_set_value(duckdb_vector ffi_vector,
+                                idx_t index,
+                                duckdb_value value,
+                                duckdb_vx_error *err);
+
+duckdb_value duckdb_vx_variant_vector_get_unwrapped_value(duckdb_vector ffi_vector,
+                                                          idx_t index,
+                                                          bool *outer_null,
+                                                          duckdb_vx_error *err);
+
+void duckdb_vx_parquet_variant_to_variant(duckdb_vector metadata,
+                                          duckdb_vector value,
+                                          duckdb_vector typed_value,
+                                          duckdb_vector result,
+                                          idx_t count,
+                                          duckdb_vx_error *err);
 
 #ifdef __cplusplus /* End C ABI */
 }

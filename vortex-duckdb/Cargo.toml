@@ -39,6 +39,7 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
+vortex-parquet-variant = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]

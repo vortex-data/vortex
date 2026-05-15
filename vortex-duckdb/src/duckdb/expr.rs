@@ -45,6 +45,9 @@ impl ExpressionRef {
 
                     ExpressionClass::BoundColumnRef(BoundColumnRef { name })
                 }
+                cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_REF => {
+                    ExpressionClass::BoundReference
+                }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CONSTANT => {
                     let value = unsafe {
                         Value::borrow(cpp::duckdb_vx_expr_bound_constant_get_value(self.as_ptr()))
@@ -149,6 +152,7 @@ impl ExpressionRef {
 
 pub enum ExpressionClass<'a> {
     BoundColumnRef(BoundColumnRef),
+    BoundReference,
     BoundConstant(BoundConstant<'a>),
     BoundComparison(BoundComparison<'a>),
     BoundConjunction(BoundConjunction<'a>),

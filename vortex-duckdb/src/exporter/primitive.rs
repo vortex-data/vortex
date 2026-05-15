@@ -57,9 +57,8 @@ impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
         assert!(self.len >= offset + len);
 
         let pos = unsafe { self.start.add(offset) };
-        unsafe { vector.set_vector_buffer(&self.shared_buffer) };
         // While we are setting a *mut T this is an artifact of the C API, this is in fact const.
-        unsafe { vector.set_data_ptr(pos as *mut T) };
+        unsafe { vector.set_data_ptr_with_buffer(&self.shared_buffer, pos as *mut T) };
 
         Ok(())
     }

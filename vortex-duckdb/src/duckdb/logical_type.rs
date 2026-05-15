@@ -127,6 +127,10 @@ impl LogicalType {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_BLOB)
     }
 
+    pub(crate) fn variant() -> Self {
+        unsafe { Self::own(duckdb_vx_create_variant_type()) }
+    }
+
     pub fn uint32() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_UINTEGER)
     }

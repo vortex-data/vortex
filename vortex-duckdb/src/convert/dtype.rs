@@ -24,6 +24,7 @@
 //! | `Struct` | `STRUCT` |
 //! | `Decimal` | `DECIMAL` |
 //! | `List` | `LIST` |
+//! | `Variant` | `VARIANT` |
 //! | `Date` | `DATE` |
 //! | `Time` | `TIME` |
 //! | `Timestamp` | `TIMESTAMP` |
@@ -126,6 +127,10 @@ impl FromLogicalType for DType {
             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS => {
                 DType::Extension(Timestamp::new(TimeUnit::Nanoseconds, nullability).erased())
             }
+            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ_NS => DType::Extension(
+                Timestamp::new_with_tz(TimeUnit::Nanoseconds, Some("UTC".into()), nullability)
+                    .erased(),
+            ),
             DUCKDB_TYPE::DUCKDB_TYPE_ARRAY => {
                 let child_type = logical_type.array_child_type();
                 DType::FixedSizeList(
@@ -160,6 +165,7 @@ impl FromLogicalType for DType {
                     .collect::<VortexResult<_>>()?,
                 nullability,
             ),
+            DUCKDB_TYPE::DUCKDB_TYPE_VARIANT => DType::Variant(nullability),
             DUCKDB_TYPE::DUCKDB_TYPE_TIME_TZ => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_INTERVAL => todo!(),
             DUCKDB_TYPE::DUCKDB_TYPE_ENUM => todo!(),
@@ -238,9 +244,7 @@ impl TryFrom<&DType> for LogicalType {
                 return LogicalType::try_from(struct_type);
             }
             DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-            DType::Variant(_) => {
-                vortex_bail!("Vortex Variant array aren't supported in DuckDB")
-            }
+            DType::Variant(_) => return Ok(LogicalType::variant()),
             DType::Extension(ext_dtype) => {
                 let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() else {
                     vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());

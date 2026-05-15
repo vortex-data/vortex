@@ -9,6 +9,7 @@ mod vector;
 
 pub use dtype::from_duckdb_table;
 pub use expr::try_from_bound_expression;
+pub use expr::try_from_bound_expression_with_root;
 pub use scalar::*;
 pub use table_filter::try_from_table_filter;
 pub use table_filter::try_from_virtual_column_filter;

@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+# VORTEX
+
+include ../setup.slt.no
+
+query I
+COPY (
+    SELECT *
+    FROM (VALUES
+        (1, {'name': 'alice', 'age': 30, 'active': true}::VARIANT),
+        (2, {'name': 'bob', 'age': 25, 'active': false}::VARIANT),
+        (3, [10, 20, 30]::VARIANT)
+    ) AS t(id, v)
+) TO '$__TEST_DIR__/variant.vortex';
+----
+3
+
+query I
+SELECT COUNT(*) FROM '$__TEST_DIR__/variant.vortex';
+----
+3
+
+query TIB
+SELECT variant_extract(v, 'name')::VARCHAR,
+       variant_extract(v, 'age')::INTEGER,
+       variant_extract(v, 'active')::BOOLEAN
+FROM '$__TEST_DIR__/variant.vortex'
+WHERE id = 1;
+----
+alice 30 true
+
+query I
+SELECT variant_extract(v, 2::UINTEGER)::INTEGER
+FROM '$__TEST_DIR__/variant.vortex'
+WHERE id = 3;
+----
+20
+
+# PARQUET
+
+query I
+COPY (
+    SELECT *
+    FROM (VALUES
+        (1, {'name': 'alice', 'age': 30, 'active': true}::VARIANT),
+        (2, {'name': 'bob', 'age': 25, 'active': false}::VARIANT),
+        (3, [10, 20, 30]::VARIANT)
+    ) AS t(id, v)
+) TO '$__TEST_DIR__/variant.parquet';
+----
+3
+
+query I
+SELECT COUNT(*) FROM '$__TEST_DIR__/variant.parquet';
+----
+3
+
+query TIB
+SELECT variant_extract(v, 'name')::VARCHAR,
+       variant_extract(v, 'age')::INTEGER,
+       variant_extract(v, 'active')::BOOLEAN
+FROM '$__TEST_DIR__/variant.parquet'
+WHERE id = 1;
+----
+alice 30 true
+
+query I
+SELECT variant_extract(v, 2::UINTEGER)::INTEGER
+FROM '$__TEST_DIR__/variant.parquet'
+WHERE id = 3;
+----
+20

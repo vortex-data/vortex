@@ -7,12 +7,15 @@
 
 DUCKDB_INCLUDES_BEGIN
 #include "duckdb/planner/table_filter.hpp"
+#include "duckdb/planner/table_filter_set.hpp"
+#include "duckdb/planner/filter/constant_filter.hpp"
 #include "duckdb/planner/filter/conjunction_filter.hpp"
 #include "duckdb/planner/filter/dynamic_filter.hpp"
 #include "duckdb/planner/filter/optional_filter.hpp"
 #include "duckdb/planner/filter/expression_filter.hpp"
 #include "duckdb/planner/filter/struct_filter.hpp"
 #include "duckdb/planner/filter/in_filter.hpp"
+#include "duckdb/planner/filter/table_filter_functions.hpp"
 DUCKDB_INCLUDES_END
 
 using namespace duckdb;
@@ -20,19 +23,23 @@ using namespace duckdb;
 extern "C" idx_t duckdb_vx_table_filter_set_get(duckdb_vx_table_filter_set ffi_filter_set,
                                                 size_t index,
                                                 duckdb_vx_table_filter *table_filter_out) {
-    auto &filters = reinterpret_cast<TableFilterSet *>(ffi_filter_set)->filters;
-    if (filters.size() <= index) {
+    auto filter_set = reinterpret_cast<TableFilterSet *>(ffi_filter_set);
+    if (filter_set->FilterCount() <= index) {
         *table_filter_out = nullptr;
         return 0;
     }
-    auto &[column_idx, filter] = *std::next(filters.begin(), index);
-    *table_filter_out = reinterpret_cast<duckdb_vx_table_filter>(filter.get());
-    return column_idx;
+    auto it = filter_set->begin();
+    for (size_t i = 0; i < index; i++) {
+        ++it;
+    }
+    auto &entry = *it;
+    *table_filter_out = reinterpret_cast<duckdb_vx_table_filter>(&entry.Filter());
+    return entry.GetIndex();
 }
 
 extern "C" idx_t duckdb_vx_table_filter_set_size(duckdb_vx_table_filter_set ffi_filter_set) {
     auto filter_set = reinterpret_cast<TableFilterSet *>(ffi_filter_set);
-    return filter_set->filters.size();
+    return filter_set->FilterCount();
 }
 
 extern "C" duckdb_vx_table_filter_type duckdb_vx_table_filter_get_type(duckdb_vx_table_filter ffi_filter) {
@@ -42,7 +49,7 @@ extern "C" duckdb_vx_table_filter_type duckdb_vx_table_filter_get_type(duckdb_vx
 
 extern "C" const char *duckdb_vx_table_filter_to_debug_string(duckdb_vx_table_filter ffi_filter) {
     auto filter = reinterpret_cast<TableFilter *>(ffi_filter);
-    auto str = filter->DebugToString();
+    auto str = std::to_string(static_cast<uint8_t>(filter->filter_type));
     auto result = static_cast<char *>(duckdb_malloc(str.size() + 1));
     memcpy(result, str.c_str(), str.size() + 1);
     return result;
@@ -53,7 +60,7 @@ extern "C" void duckdb_vx_table_filter_get_constant(duckdb_vx_table_filter ffi_f
     if (!ffi_filter || !out) {
         return;
     }
-    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<ConstantFilter>();
+    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<LegacyConstantFilter>();
     out->value = reinterpret_cast<duckdb_value>(&filter.constant);
     out->comparison_type = static_cast<duckdb_vx_expr_type>(filter.comparison_type);
 }
@@ -63,7 +70,7 @@ extern "C" void duckdb_vx_table_filter_get_conjunction_or(duckdb_vx_table_filter
     if (!ffi_filter || !out) {
         return;
     }
-    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<ConjunctionOrFilter>();
+    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<LegacyConjunctionOrFilter>();
     out->children = reinterpret_cast<duckdb_vx_table_filter *>(filter.child_filters.data());
     out->children_count = filter.child_filters.size();
 }
@@ -73,7 +80,7 @@ extern "C" void duckdb_vx_table_filter_get_conjunction_and(duckdb_vx_table_filte
     if (!ffi_filter || !out) {
         return;
     }
-    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<ConjunctionAndFilter>();
+    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<LegacyConjunctionAndFilter>();
     out->children = reinterpret_cast<duckdb_vx_table_filter *>(filter.child_filters.data());
     out->children_count = filter.child_filters.size();
 }
@@ -91,14 +98,14 @@ extern "C" void duckdb_vx_table_filter_get_dynamic(duckdb_vx_table_filter ffi_fi
     if (!ffi_filter || !out) {
         return;
     }
-    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<DynamicFilter>();
+    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<LegacyDynamicFilter>();
 
     // Hold the lock while accessing the filter data.
     std::lock_guard<std::mutex> lock(filter.filter_data->lock);
 
     auto data_wrapper = duckdb::make_uniq<DynamicFilterDataWrapper>(filter.filter_data);
     out->data = reinterpret_cast<duckdb_vx_dynamic_filter_data>(data_wrapper.release());
-    out->comparison_type = static_cast<duckdb_vx_expr_type>(filter.filter_data->filter->comparison_type);
+    out->comparison_type = static_cast<duckdb_vx_expr_type>(filter.filter_data->comparison_type);
 }
 
 extern "C" void duckdb_vx_dynamic_filter_data_free(duckdb_vx_dynamic_filter_data *ffi_data) {
@@ -121,19 +128,19 @@ extern "C" duckdb_value duckdb_vx_dynamic_filter_data_get_value(duckdb_vx_dynami
     // Hold the lock while accessing the filter data.
     std::lock_guard<std::mutex> lock(data_wrapper->data->lock);
 
-    if (!data_wrapper->data->filter || !data_wrapper->data->initialized) {
+    if (!data_wrapper->data->initialized) {
         return nullptr;
     }
 
     // Return a heap allocated copy of the value.
-    return reinterpret_cast<duckdb_value>(new Value(data_wrapper->data->filter->constant));
+    return reinterpret_cast<duckdb_value>(new Value(data_wrapper->data->constant));
 }
 
 extern "C" duckdb_vx_table_filter duckdb_vx_table_filter_get_optional(duckdb_vx_table_filter ffi_filter) {
     if (!ffi_filter) {
         return nullptr;
     }
-    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<OptionalFilter>();
+    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<LegacyOptionalFilter>();
     return reinterpret_cast<duckdb_vx_table_filter>(filter.child_filter.get());
 }
 
@@ -150,7 +157,7 @@ extern "C" void duckdb_vx_table_filter_get_struct_extract(duckdb_vx_table_filter
     if (!ffi_filter || !out) {
         return;
     }
-    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<StructFilter>();
+    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<LegacyStructFilter>();
 
     out->child_filter = reinterpret_cast<duckdb_vx_table_filter>(filter.child_filter.get());
     out->child_name_len = filter.child_name.size();
@@ -162,7 +169,7 @@ extern "C" void duckdb_vx_table_filter_get_in_filter(duckdb_vx_table_filter ffi_
     if (!ffi_filter || !out) {
         return;
     }
-    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<InFilter>();
+    auto &filter = reinterpret_cast<TableFilter *>(ffi_filter)->Cast<LegacyInFilter>();
 
     out->values_count = filter.values.size();
     out->values = reinterpret_cast<duckdb_vx_values_vec>(&filter.values);

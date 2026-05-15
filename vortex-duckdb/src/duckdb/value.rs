@@ -5,6 +5,7 @@ use std::ffi::CStr;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::ptr;
 
 use num_traits::AsPrimitive;
 use vortex::buffer::BufferString;
@@ -12,6 +13,8 @@ use vortex::buffer::ByteBuffer;
 use vortex::dtype::NativeDType;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
+use vortex::error::VortexResult;
+use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 
@@ -160,6 +163,26 @@ impl ValueRef {
             other => vortex_panic!("Unsupported DuckDB value type {other:?}"),
         }
     }
+
+    pub(crate) fn unwrap_variant(&self) -> VortexResult<Option<Value>> {
+        let mut outer_null = false;
+        let mut err: cpp::duckdb_vx_error = ptr::null_mut();
+        let value = unsafe {
+            cpp::duckdb_vx_variant_value_unwrap(self.as_ptr(), &raw mut outer_null, &raw mut err)
+        };
+        if !err.is_null() {
+            let message = unsafe { CStr::from_ptr(cpp::duckdb_vx_error_value(err)) }
+                .to_string_lossy()
+                .to_string();
+            unsafe { cpp::duckdb_vx_error_free(err) };
+            vortex_bail!("{message}");
+        }
+        if outer_null {
+            Ok(None)
+        } else {
+            Ok(Some(unsafe { Value::own(value) }))
+        }
+    }
 }
 
 impl Debug for ValueRef {
@@ -249,6 +272,65 @@ impl Value {
 
     pub fn new_date(days: i32) -> Self {
         unsafe { Self::own(cpp::duckdb_create_date(cpp::duckdb_date { days })) }
+    }
+
+    pub(crate) fn new_list(
+        element_type: &LogicalTypeRef,
+        values: Vec<Value>,
+    ) -> VortexResult<Self> {
+        let value_ptrs = values
+            .iter()
+            .map(|value| value.as_ptr())
+            .collect::<Vec<_>>();
+        let ptr = unsafe {
+            cpp::duckdb_create_list_value(
+                element_type.as_ptr(),
+                value_ptrs.as_ptr().cast_mut(),
+                value_ptrs.len() as idx_t,
+            )
+        };
+        if ptr.is_null() {
+            vortex_bail!("Failed to create DuckDB list value");
+        }
+        Ok(unsafe { Self::own(ptr) })
+    }
+
+    pub(crate) fn new_array(
+        element_type: &LogicalTypeRef,
+        values: Vec<Value>,
+    ) -> VortexResult<Self> {
+        let value_ptrs = values
+            .iter()
+            .map(|value| value.as_ptr())
+            .collect::<Vec<_>>();
+        let ptr = unsafe {
+            cpp::duckdb_create_array_value(
+                element_type.as_ptr(),
+                value_ptrs.as_ptr().cast_mut(),
+                value_ptrs.len() as idx_t,
+            )
+        };
+        if ptr.is_null() {
+            vortex_bail!("Failed to create DuckDB array value");
+        }
+        Ok(unsafe { Self::own(ptr) })
+    }
+
+    pub(crate) fn new_struct(
+        struct_type: &LogicalTypeRef,
+        values: Vec<Value>,
+    ) -> VortexResult<Self> {
+        let value_ptrs = values
+            .iter()
+            .map(|value| value.as_ptr())
+            .collect::<Vec<_>>();
+        let ptr = unsafe {
+            cpp::duckdb_create_struct_value(struct_type.as_ptr(), value_ptrs.as_ptr().cast_mut())
+        };
+        if ptr.is_null() {
+            vortex_bail!("Failed to create DuckDB struct value");
+        }
+        Ok(unsafe { Self::own(ptr) })
     }
 }
 

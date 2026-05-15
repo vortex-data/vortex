@@ -288,6 +288,7 @@ vortex-io = { version = "0.1.0", path = "./vortex-io", default-features = false 
 vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = false }
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
+vortex-parquet-variant = { version = "0.1.0", path = "./encodings/parquet-variant", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
