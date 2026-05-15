@@ -167,7 +167,7 @@ impl LayoutPlan for DictDecodePlan {
             .partition_stats(0)
             .map(|s| s.row_count())
             .unwrap_or(0);
-        let values_demand = RowDemand::detached(values_total);
+        let values_demand = RowDemand::empty(values_total);
         let values_stream = self
             .values_plan
             .execute(0..values_total, &values_demand, ctx)?;

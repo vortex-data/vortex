@@ -124,7 +124,7 @@ pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {
     /// plans that translate (`ChunkedPlan`, etc.) call
     /// [`RowDemand::scope`] before delegating. Subtrees in unrelated
     /// row spaces (e.g. a stats child) should pass
-    /// [`RowDemand::detached`] instead.
+    /// [`RowDemand::empty`] instead.
     ///
     /// `ctx` is the per-scan execution context (see
     /// [`crate::v2::scan_ctx::ScanCtx`]). It carries the

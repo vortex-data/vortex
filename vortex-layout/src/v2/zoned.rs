@@ -36,11 +36,9 @@ use vortex_array::expr::Expression;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
-use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 
 use crate::layouts::zoned::zone_map::ZoneMap;
 use crate::v2::demand::RowDemand;
@@ -189,13 +187,13 @@ impl LayoutPlan for ZonedPruningPlan {
         }
 
         // Zones plan operates in zone-coords (one row per zone) — an
-        // unrelated row space, so pass detached.
+        // unrelated row space, so pass empty demand.
         let zones_row_count = self
             .zones_plan
             .partition_stats(0)
             .map(|s| s.row_count())
             .unwrap_or_default();
-        let zones_demand = RowDemand::detached(zones_row_count);
+        let zones_demand = RowDemand::empty(zones_row_count);
         let zones_stream = self
             .zones_plan
             .execute(0..zones_row_count, &zones_demand, ctx)?;
@@ -209,13 +207,7 @@ impl LayoutPlan for ZonedPruningPlan {
         let ctx_for_stream = ctx.clone();
         let demand_for_stream = demand.clone();
 
-        // Acquire a producer guard so consumers waiting on demand
-        // know we're an active publisher; the guard is owned by the
-        // async block and decrements on stream end.
-        let guard = demand.producer_guard();
-
         let stream = try_stream! {
-            let _guard = guard;
             // Materialise the zones table into one ArrayRef. For a
             // typical Flat zones layout this is a single chunk.
             let zones_array = zones_stream.read_all().await?;
@@ -230,26 +222,10 @@ impl LayoutPlan for ZonedPruningPlan {
             };
             let prune_mask = zone_map.prune(&pruning_predicate, &session)?;
 
-            // Publish the pruning result to RowDemand. Pruned zones
-            // → demand 0 for their row range. We build one BitBuffer
-            // of `row_count` bits with bits SET for kept zones, UNSET
-            // for pruned zones, then publish in one call.
-            let row_count_usize = usize::try_from(row_count)?;
-            let mut demand_bits = BitBufferMut::new_set(row_count_usize);
-            let nzones = usize::try_from(row_count.div_ceil(zone_len))?;
-            for z in 0..nzones {
-                if prune_mask.value(z) {
-                    let zr_start = (z as u64) * zone_len;
-                    let zr_end = (zr_start + zone_len).min(row_count);
-                    let s = usize::try_from(zr_start)?;
-                    let e = usize::try_from(zr_end)?;
-                    for i in s..e {
-                        demand_bits.set_to(i, false);
-                    }
-                }
-            }
-            let publish_mask = Mask::from_buffer(demand_bits.freeze());
-            demand_for_stream.publish(0..row_count, &publish_mask);
+            // (Demand publishing has moved to a future ZoneMapResource
+            // pulled at execute-start. Until that lands the prune mask
+            // here is consumed locally only — kept zones are read,
+            // pruned zones emit constant-false bool chunks.)
 
             // Iterate intersecting zones, emit per-zone bool chunks.
             let zone_start_idx = row_range.start / zone_len;

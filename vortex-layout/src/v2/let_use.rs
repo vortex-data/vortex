@@ -267,7 +267,7 @@ impl LetPlan {
         let mut init_err: Option<VortexError> = None;
         // Source operates in its full row space, decoupled from any
         // particular caller's row_range — pass detached demand.
-        let source_demand = RowDemand::detached(total_rows);
+        let source_demand = RowDemand::empty(total_rows);
         let mut registry = ctx.get_mut::<MaskRegistry>();
         drop(registry.get_or_init(self.id, || {
             match source.execute(0..total_rows, &source_demand, &ctx_for_init) {
@@ -309,7 +309,7 @@ impl LetPlan {
         let mut init_err: Option<VortexError> = None;
         // Source operates in its full row space, decoupled from any
         // particular caller's row_range — pass detached demand.
-        let source_demand = RowDemand::detached(total_rows);
+        let source_demand = RowDemand::empty(total_rows);
         let mut registry = ctx.get_mut::<LetRegistry>();
         let arc = registry.get_or_init_stream(self.id, || {
             match source.execute(0..total_rows, &source_demand, &ctx_for_init) {
@@ -677,7 +677,7 @@ mod tests {
             // range 2..6 (LetPlan delegates row_range to body).
             let plan: LayoutPlanRef =
                 Arc::new(LetPlan::with_id(id, Arc::clone(&source) as _, body));
-            let demand = RowDemand::detached(8);
+            let demand = RowDemand::empty(8);
             let stream = plan.execute(2..6, &demand, &ctx)?;
             let values = collect_i32(stream).await?;
             assert_eq!(values, vec![3, 4, 5, 6]);
@@ -695,7 +695,7 @@ mod tests {
             let (body, body_execs) = CountingPlan::new(vec![vec![10, 20, 30]]);
             let plan = LetPlan::new(Arc::clone(&source) as _, Arc::clone(&body) as _);
 
-            let demand = RowDemand::detached(3);
+            let demand = RowDemand::empty(3);
             let mut stream = plan.execute(0..3, &demand, &ctx)?;
             let mut total = 0;
             while let Some(item) = stream.next().await {

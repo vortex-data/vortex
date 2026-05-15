@@ -1552,79 +1552,21 @@ pub fn vortex_layout::v2::cse::cse(vortex_layout::v2::plan::LayoutPlanRef) -> vo
 
 pub mod vortex_layout::v2::demand
 
-pub enum vortex_layout::v2::demand::WaitPredicate
-
-pub vortex_layout::v2::demand::WaitPredicate::Below(u64)
-
-pub vortex_layout::v2::demand::WaitPredicate::Zero
-
-impl core::clone::Clone for vortex_layout::v2::demand::WaitPredicate
-
-pub fn vortex_layout::v2::demand::WaitPredicate::clone(&self) -> vortex_layout::v2::demand::WaitPredicate
-
-impl core::fmt::Debug for vortex_layout::v2::demand::WaitPredicate
-
-pub fn vortex_layout::v2::demand::WaitPredicate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::marker::Copy for vortex_layout::v2::demand::WaitPredicate
-
-pub enum vortex_layout::v2::demand::WaitResult
-
-pub vortex_layout::v2::demand::WaitResult::AllProducersDone
-
-pub vortex_layout::v2::demand::WaitResult::PredicateFired
-
-impl core::clone::Clone for vortex_layout::v2::demand::WaitResult
-
-pub fn vortex_layout::v2::demand::WaitResult::clone(&self) -> vortex_layout::v2::demand::WaitResult
-
-impl core::cmp::Eq for vortex_layout::v2::demand::WaitResult
-
-impl core::cmp::PartialEq for vortex_layout::v2::demand::WaitResult
-
-pub fn vortex_layout::v2::demand::WaitResult::eq(&self, &vortex_layout::v2::demand::WaitResult) -> bool
-
-impl core::fmt::Debug for vortex_layout::v2::demand::WaitResult
-
-pub fn vortex_layout::v2::demand::WaitResult::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::marker::Copy for vortex_layout::v2::demand::WaitResult
-
-impl core::marker::StructuralPartialEq for vortex_layout::v2::demand::WaitResult
-
-pub struct vortex_layout::v2::demand::ProducerGuard
-
-impl core::ops::drop::Drop for vortex_layout::v2::demand::ProducerGuard
-
-pub fn vortex_layout::v2::demand::ProducerGuard::drop(&mut self)
-
 pub struct vortex_layout::v2::demand::RowDemand
 
 impl vortex_layout::v2::demand::RowDemand
 
-pub const vortex_layout::v2::demand::RowDemand::WINDOW_ROWS: u64
+pub fn vortex_layout::v2::demand::RowDemand::cardinality(&self, vortex_layout::v2::demand::RowRange) -> vortex_error::VortexResult<u64>
 
-pub fn vortex_layout::v2::demand::RowDemand::cardinality(&self, vortex_layout::v2::demand::RowRange) -> u64
+pub fn vortex_layout::v2::demand::RowDemand::empty(u64) -> Self
 
-pub fn vortex_layout::v2::demand::RowDemand::cardinality_exact(&self, vortex_layout::v2::demand::RowRange) -> u64
+pub fn vortex_layout::v2::demand::RowDemand::mask_for(&self, vortex_layout::v2::demand::RowRange) -> vortex_error::VortexResult<vortex_mask::Mask>
 
-pub fn vortex_layout::v2::demand::RowDemand::detached(u64) -> Self
-
-pub fn vortex_layout::v2::demand::RowDemand::is_eof(&self) -> bool
-
-pub fn vortex_layout::v2::demand::RowDemand::new(u64) -> Self
-
-pub fn vortex_layout::v2::demand::RowDemand::producer_guard(&self) -> vortex_layout::v2::demand::ProducerGuard
-
-pub fn vortex_layout::v2::demand::RowDemand::publish(&self, vortex_layout::v2::demand::RowRange, &vortex_mask::Mask)
+pub fn vortex_layout::v2::demand::RowDemand::new(alloc::vec::Vec<alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>>, u64) -> Self
 
 pub fn vortex_layout::v2::demand::RowDemand::scope(&self, vortex_layout::v2::demand::RowRange) -> Self
 
-pub fn vortex_layout::v2::demand::RowDemand::spawn_producer<F, Fut>(&self, &vortex_io::runtime::handle::Handle, F) where F: core::ops::function::FnOnce(vortex_layout::v2::demand::RowDemand) -> Fut + core::marker::Send + 'static, Fut: core::future::future::Future<Output = vortex_error::VortexResult<()>> + core::marker::Send + 'static
-
 pub fn vortex_layout::v2::demand::RowDemand::total_rows(&self) -> u64
-
-pub fn vortex_layout::v2::demand::RowDemand::wait_for(&self, vortex_layout::v2::demand::RowRange, vortex_layout::v2::demand::WaitPredicate) -> vortex_layout::v2::demand::WaitFuture
 
 impl core::clone::Clone for vortex_layout::v2::demand::RowDemand
 
@@ -1634,13 +1576,15 @@ impl core::fmt::Debug for vortex_layout::v2::demand::RowDemand
 
 pub fn vortex_layout::v2::demand::RowDemand::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub struct vortex_layout::v2::demand::WaitFuture
+pub trait vortex_layout::v2::demand::DemandSource: vortex_layout::v2::demand::Resource
 
-impl core::future::future::Future for vortex_layout::v2::demand::WaitFuture
+pub fn vortex_layout::v2::demand::DemandSource::mask_for(&self, vortex_layout::v2::demand::RowRange) -> vortex_error::VortexResult<vortex_mask::Mask>
 
-pub type vortex_layout::v2::demand::WaitFuture::Output = vortex_layout::v2::demand::WaitResult
+pub trait vortex_layout::v2::demand::Resource: core::marker::Send + core::marker::Sync + 'static
 
-pub fn vortex_layout::v2::demand::WaitFuture::poll(core::pin::Pin<&mut Self>, &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<Self::Output>
+pub fn vortex_layout::v2::demand::Resource::ensure_ready(&self) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<()>>
+
+pub fn vortex_layout::v2::demand::Resource::version(&self) -> u64
 
 pub type vortex_layout::v2::demand::RowRange = core::ops::range::Range<u64>
 
@@ -2707,6 +2651,10 @@ pub struct vortex_layout::v2::scan::ScanPlan
 impl vortex_layout::v2::scan::ScanPlan
 
 pub fn vortex_layout::v2::scan::ScanPlan::new(vortex_layout::v2::plan::LayoutPlanRef, u64) -> Self
+
+pub fn vortex_layout::v2::scan::ScanPlan::with_demand_source(self, alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>) -> Self
+
+pub fn vortex_layout::v2::scan::ScanPlan::with_resource(self, alloc::sync::Arc<dyn vortex_layout::v2::demand::Resource>) -> Self
 
 impl core::cmp::Eq for vortex_layout::v2::scan::ScanPlan
 

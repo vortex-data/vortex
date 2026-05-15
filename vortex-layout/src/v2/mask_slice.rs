@@ -139,7 +139,7 @@ impl LayoutPlan for MaskSlicePlan {
         // Inner plan operates in a wider coord system (full mask
         // range) than what we received; pass detached so it doesn't
         // mis-attribute publishes against our parent's narrow scope.
-        let inner_demand = RowDemand::detached(abs_end);
+        let inner_demand = RowDemand::empty(abs_end);
         self.inner.execute(abs_start..abs_end, &inner_demand, ctx)
     }
 }

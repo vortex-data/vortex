@@ -11,9 +11,12 @@
 
 use std::sync::Arc;
 
+use async_stream::try_stream;
+use futures::StreamExt;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::split_conjunction;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -25,6 +28,8 @@ use crate::LayoutRef;
 use crate::segments::SegmentSource;
 use crate::v2::and_bool::AndBoolStreamsPlan;
 use crate::v2::cse::cse;
+use crate::v2::demand::DemandSource;
+use crate::v2::demand::Resource;
 use crate::v2::demand::RowDemand;
 use crate::v2::filter::FilterPlan;
 use crate::v2::plan::LayoutPlan;
@@ -129,28 +134,77 @@ impl Scan {
 }
 
 /// Top-level wrapper installed by [`Scan::build`] for filtered scans.
-/// At execute time it allocates a fresh [`RowDemand`] for the
-/// partition and threads it into the body via the `demand` parameter.
-/// The demand inherited from the parent (typically `RowDemand::detached`,
-/// since `ScanPlan` is the top-level entry point) is dropped — `ScanPlan`
-/// is the boundary at which a new per-scan demand is introduced.
+/// At execute time it awaits all declared [`Resource`]s, then
+/// constructs a fresh [`RowDemand`] from `demand_sources` and threads
+/// it into the body via the `demand` parameter. The demand inherited
+/// from the parent (typically `RowDemand::empty`, since `ScanPlan` is
+/// the top-level entry point) is dropped — `ScanPlan` is the boundary
+/// at which a new per-scan demand is introduced.
 ///
 /// Pure passthrough otherwise — schema, partition stats, children,
 /// pushdown all delegate to the body.
 pub struct ScanPlan {
     body: LayoutPlanRef,
     total_rows: u64,
+    /// Resources whose `ensure_ready` is awaited before the body
+    /// executes. Includes (but is not limited to) any resources that
+    /// also appear in `demand_sources`. Currently always empty;
+    /// resource construction is wired by a follow-up that decomposes
+    /// `ZonedPruningPlan` into a `ZoneMapResource`.
+    resources: Vec<Arc<dyn Resource>>,
+    /// Subset of resources whose pulled mask contributes to the
+    /// per-partition `RowDemand`. Currently always empty.
+    demand_sources: Vec<Arc<dyn DemandSource>>,
 }
 
 impl ScanPlan {
     pub fn new(body: LayoutPlanRef, total_rows: u64) -> Self {
-        Self { body, total_rows }
+        Self {
+            body,
+            total_rows,
+            resources: Vec::new(),
+            demand_sources: Vec::new(),
+        }
+    }
+
+    /// Add a resource that must be awaited before the body runs.
+    pub fn with_resource(mut self, resource: Arc<dyn Resource>) -> Self {
+        self.resources.push(resource);
+        self
+    }
+
+    /// Register a [`DemandSource`] whose mask is intersected into the
+    /// per-partition `RowDemand`. The source is also implicitly added
+    /// to `resources` so its `ensure_ready` is awaited.
+    pub fn with_demand_source(mut self, source: Arc<dyn DemandSource>) -> Self {
+        self.resources
+            .push(Arc::clone(&source) as Arc<dyn Resource>);
+        self.demand_sources.push(source);
+        self
     }
 }
 
 impl PartialEq for ScanPlan {
     fn eq(&self, other: &Self) -> bool {
-        crate::v2::plan::plans_eq(&self.body, &other.body) && self.total_rows == other.total_rows
+        // Resources / demand_sources participate by `Arc::ptr_eq` —
+        // two `ScanPlan`s built from different `Scan::build` calls
+        // never share resource Arcs, so they compare unequal even
+        // if their bodies match. Plan-level equality is mostly used
+        // for CSE inside one `Scan::build`, so this is fine.
+        crate::v2::plan::plans_eq(&self.body, &other.body)
+            && self.total_rows == other.total_rows
+            && self.resources.len() == other.resources.len()
+            && self
+                .resources
+                .iter()
+                .zip(&other.resources)
+                .all(|(a, b)| Arc::ptr_eq(a, b))
+            && self.demand_sources.len() == other.demand_sources.len()
+            && self
+                .demand_sources
+                .iter()
+                .zip(&other.demand_sources)
+                .all(|(a, b)| Arc::ptr_eq(a, b))
     }
 }
 
@@ -160,6 +214,14 @@ impl std::hash::Hash for ScanPlan {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         crate::v2::plan::hash_plan(&self.body, state);
         self.total_rows.hash(state);
+        // Hash resource Arcs by pointer identity (matches the
+        // PartialEq above).
+        for r in &self.resources {
+            (Arc::as_ptr(r) as *const () as usize).hash(state);
+        }
+        for s in &self.demand_sources {
+            (Arc::as_ptr(s) as *const () as usize).hash(state);
+        }
     }
 }
 
@@ -209,6 +271,8 @@ impl LayoutPlan for ScanPlan {
         Ok(Arc::new(Self {
             body,
             total_rows: self.total_rows,
+            resources: self.resources.clone(),
+            demand_sources: self.demand_sources.clone(),
         }))
     }
 
@@ -218,13 +282,32 @@ impl LayoutPlan for ScanPlan {
         _demand: &RowDemand,
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
-        // Allocate a fresh per-partition RowDemand and thread it into
-        // the body. The inherited `_demand` (from whoever called us)
-        // is intentionally ignored — `ScanPlan` is the boundary that
-        // introduces a fresh demand. Falsifier spawning is wired in a
-        // follow-up.
-        let demand = RowDemand::new(self.total_rows);
-        self.body.execute(row_range, &demand, ctx)
+        // Construct the per-partition RowDemand from our declared
+        // sources; the inherited `_demand` (from whoever called us) is
+        // intentionally ignored — `ScanPlan` is the boundary that
+        // introduces a fresh demand.
+        let demand = RowDemand::new(self.demand_sources.clone(), self.total_rows);
+
+        // If we have no async resources to wait on, we can return the
+        // body stream directly without an async wrapper.
+        if self.resources.is_empty() {
+            return self.body.execute(row_range, &demand, ctx);
+        }
+
+        // Otherwise, wrap in a stream whose first poll awaits all
+        // resources, then forwards from the body.
+        let resources = self.resources.clone();
+        let body = Arc::clone(&self.body);
+        let ctx_owned = ctx.clone();
+        let dtype = self.body.schema().clone();
+        let stream = try_stream! {
+            futures::future::try_join_all(resources.iter().map(|r| r.ensure_ready())).await?;
+            let mut body_stream = body.execute(row_range, &demand, &ctx_owned)?;
+            while let Some(item) = body_stream.next().await {
+                yield item?;
+            }
+        };
+        Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))
     }
 }
 
@@ -387,7 +470,7 @@ mod tests {
             // range. The plan internally handles whatever
             // chunking/slicing it needs. ScanPlan installs a fresh
             // demand internally; the parent demand we pass is detached.
-            let parent_demand = crate::v2::demand::RowDemand::detached(row_count);
+            let parent_demand = crate::v2::demand::RowDemand::empty(row_count);
             let mut stream = plan.execute(0..row_count, &parent_demand, &scan_ctx)?;
             while let Some(chunk) = stream.next().await {
                 chunks.push(chunk?);

@@ -169,7 +169,7 @@ impl LayoutPlan for MaskCollectPlan {
         // scan (CSE+Let), so its demand is a separate per-execute
         // concern; pass detached.
         let total = self.row_count;
-        let child_demand = RowDemand::detached(total);
+        let child_demand = RowDemand::empty(total);
         let child_stream = self.child.execute(0..total, &child_demand, ctx)?;
         let session = ctx.session().clone();
         let dtype = self.output_dtype.clone();
@@ -328,7 +328,7 @@ mod tests {
                 vec![true, true, false],
             ]);
             let plan = MaskCollectPlan::try_new(child as _)?;
-            let demand = RowDemand::detached(8);
+            let demand = RowDemand::empty(8);
             let stream = plan.execute(0..8, &demand, &ctx)?;
             let bits = collect_bools(stream).await?;
             assert_eq!(
@@ -351,7 +351,7 @@ mod tests {
             ]);
             let plan = MaskCollectPlan::try_new(child as _)?;
             // Slice rows 2..6 — bits [true, false, false, true]
-            let demand = RowDemand::detached(8);
+            let demand = RowDemand::empty(8);
             let stream = plan.execute(2..6, &demand, &ctx)?;
             let bits = collect_bools(stream).await?;
             assert_eq!(bits, vec![true, false, false, true]);

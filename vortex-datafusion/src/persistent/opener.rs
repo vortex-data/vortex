@@ -493,7 +493,7 @@ impl FileOpener for VortexOpener {
                 // Top-level call into the plan tree. ScanPlan installs
                 // a fresh per-scan RowDemand internally; pass detached
                 // here to satisfy the parameter shape.
-                let parent_demand = vortex::layout::v2::demand::RowDemand::detached(v2_range.end);
+                let parent_demand = vortex::layout::v2::demand::RowDemand::empty(v2_range.end);
                 let chunk_stream = plan
                     .execute(v2_range, &parent_demand, &scan_ctx)
                     .map_err(|e| exec_datafusion_err!("Failed to execute LayoutPlan v2: {e}"))?;
