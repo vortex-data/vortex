@@ -62,6 +62,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::Layout;
@@ -69,6 +70,7 @@ use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 
+use crate::DeserializeStep;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::OpenOptionsSessionExt;
 use crate::V1_FOOTER_FBS_SIZE;
@@ -1719,7 +1721,7 @@ async fn test_file_metadata_segments_roundtrip() -> VortexResult<()> {
     let file = SESSION
         .open_options()
         .include_metadata()
-        .open_buffer(bytes)?;
+        .open_buffer(bytes.clone())?;
 
     assert_eq!(file.metadata_segments().count(), 2);
     assert_eq!(
@@ -1734,6 +1736,23 @@ async fn test_file_metadata_segments_roundtrip() -> VortexResult<()> {
         Some(large.as_slice())
     );
     assert!(file.metadata_segment("missing").is_none());
+
+    let mut deserializer = crate::Footer::deserializer(bytes.clone(), SESSION.clone())
+        .with_size(bytes.len() as u64)
+        .include_metadata();
+    let footer = match deserializer.deserialize()? {
+        DeserializeStep::Done(footer) => footer,
+        _ => panic!("full file buffer should include all footer segments"),
+    };
+    let json_metadata = footer
+        .metadata_segment("application/json")
+        .vortex_expect("metadata segment");
+    let file_start = bytes.as_slice().as_ptr() as usize;
+    let file_end = file_start + bytes.len();
+    let metadata_start = json_metadata.as_slice().as_ptr() as usize;
+    let metadata_end = metadata_start + json_metadata.len();
+    assert!(metadata_start >= file_start);
+    assert!(metadata_end <= file_end);
 
     Ok(())
 }

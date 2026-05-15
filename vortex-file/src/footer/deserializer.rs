@@ -279,7 +279,7 @@ impl FooterDeserializer {
     fn parse_metadata_segment(
         &self,
         initial_offset: u64,
-        initial_read: &[u8],
+        initial_read: &ByteBuffer,
         metadata: &PostscriptMetadata,
     ) -> VortexResult<(String, ByteBuffer)> {
         let offset = usize::try_from(metadata.segment.offset - initial_offset)?;
@@ -300,7 +300,9 @@ impl FooterDeserializer {
 
         Ok((
             metadata.key.clone(),
-            ByteBuffer::copy_from(&initial_read[offset..end]).aligned(metadata.segment.alignment),
+            initial_read
+                .slice_unaligned(offset..end)
+                .aligned(metadata.segment.alignment),
         ))
     }
 
