@@ -46,3 +46,7 @@ harness = false
 [[example]]
 name = "skip_bench"
 path = "examples/skip_bench.rs"
+
+[[example]]
+name = "skip_sweep"
+path = "examples/skip_sweep.rs"
