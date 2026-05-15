@@ -579,10 +579,10 @@ impl ArrayRef {
             }
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {
+                use crate::arrays::struct_::StructArrayExt;
                 #[expect(deprecated)]
                 use crate::canonical::ToCanonical as _;
                 use crate::dtype::DType;
-                use crate::arrays::struct_::StructArrayExt;
 
                 let mut builder = tabled::builder::Builder::default();
 
