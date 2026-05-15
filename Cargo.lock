@@ -10969,7 +10969,9 @@ dependencies = [
 name = "vortex-onpair"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arrow-array 58.2.0",
+ "clap",
  "codspeed-divan-compat",
  "memchr",
  "parking_lot",

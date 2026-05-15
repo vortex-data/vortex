@@ -300,6 +300,25 @@ impl TrigramBloom {
         Self { bloom }
     }
 
+    /// Build a trigram Bloom from raw row bytes. Compression-agnostic:
+    /// the caller supplies an iterator over each row's decoded bytes
+    /// (which can come from any encoding, or from a raw Utf8 / Binary
+    /// column with no compression at all).
+    pub fn build_from_strings<I, S>(rows: I, n_rows: usize, bits_per_row: usize) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<[u8]>,
+    {
+        let mut bloom = Bloom::new(bits_per_row * n_rows.max(1), 3);
+        for row in rows {
+            for win in row.as_ref().windows(3) {
+                let (h1, h2) = hash_pair(win);
+                bloom.insert(h1, h2);
+            }
+        }
+        Self { bloom }
+    }
+
     pub fn byte_size(&self) -> usize {
         self.bloom.byte_size()
     }

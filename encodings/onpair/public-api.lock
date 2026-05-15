@@ -98,6 +98,8 @@ impl vortex_onpair::skip::TrigramBloom
 
 pub fn vortex_onpair::skip::TrigramBloom::build(&vortex_onpair::decode::DecodeView<'_>, usize, usize, usize) -> Self
 
+pub fn vortex_onpair::skip::TrigramBloom::build_from_strings<I, S>(I, usize, usize) -> Self where I: core::iter::traits::collect::IntoIterator<Item = S>, S: core::convert::AsRef<[u8]>
+
 pub fn vortex_onpair::skip::TrigramBloom::byte_size(&self) -> usize
 
 pub fn vortex_onpair::skip::TrigramBloom::might_contain(&self, &[u8]) -> bool
