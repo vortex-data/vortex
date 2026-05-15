@@ -53,6 +53,7 @@
 //! waiter lists. Locks are per-window so unrelated producer
 //! publishes don't contend.
 
+use std::any::Any;
 use std::ops::Range;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -71,6 +72,9 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_mask::Mask;
 
+use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scan_ctx::ScanCtxValue;
+
 /// A row range within a partition's row space. Half-open: `[start, end)`.
 pub type RowRange = Range<u64>;
 
@@ -82,6 +86,7 @@ const WINDOW_ROWS: u64 = 4096;
 /// Partition-local demand state. Created with [`RowDemand::new`] for
 /// a fixed total row count; producers publish reductions, consumers
 /// register threshold-based waits.
+#[derive(Debug)]
 pub struct RowDemand {
     total_rows: u64,
     /// One per [`WINDOW_ROWS`] slice of the partition's row space.
@@ -95,17 +100,19 @@ pub struct RowDemand {
     eof_state: Mutex<EofState>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct EofState {
     waiters: Vec<Waker>,
 }
 
+#[derive(Debug)]
 struct Window {
     state: Mutex<WindowState>,
     /// Cached popcount of `state.bits` — readable without locking.
     cardinality: AtomicU64,
 }
 
+#[derive(Debug)]
 struct WindowState {
     bits: BitBuffer,
     /// Wake when cardinality drops to 0.
@@ -511,6 +518,53 @@ fn slice_true_count(bits: &BitBuffer, start: usize, end: usize) -> usize {
         }
     }
     count
+}
+
+/// Typed [`ScanCtx`] slot holding the partition's [`RowDemand`].
+///
+/// The "right" SIP plumbing pattern: a top-level [`crate::v2::scan::ScanPlan`]
+/// installs the demand at execute-start; producer/consumer plans
+/// (anywhere lower in the tree) resolve it via [`Self::resolve`] when
+/// they need handles.
+///
+/// If no `ScanPlan` has installed a demand (e.g. unfiltered scan, or
+/// a layout running outside a wrapping `ScanPlan`), `resolve` returns
+/// an [`RowDemand::empty`] — producers publish into a no-op,
+/// consumers see immediate EOF and proceed without demand-driven
+/// optimisation. Callers don't need to special-case absence.
+#[derive(Default, Debug)]
+pub struct RowDemandSlot {
+    demand: Option<Arc<RowDemand>>,
+}
+
+impl ScanCtxValue for RowDemandSlot {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+}
+
+impl RowDemandSlot {
+    /// Install a fresh `RowDemand` for the partition. Called by
+    /// `ScanPlan::execute` at the top of a partition's execution.
+    /// Replaces any previous installation (subsequent re-executes
+    /// of the same plan get a fresh demand state).
+    pub fn install(ctx: &ScanCtx, demand: Arc<RowDemand>) {
+        let mut slot = ctx.get_mut::<RowDemandSlot>();
+        slot.demand = Some(demand);
+    }
+
+    /// Resolve the partition's `RowDemand`. Returns the installed
+    /// instance if a `ScanPlan` has set one, otherwise an empty
+    /// no-op demand.
+    pub fn resolve(ctx: &ScanCtx) -> Arc<RowDemand> {
+        ctx.get::<RowDemandSlot>()
+            .demand
+            .clone()
+            .unwrap_or_else(RowDemand::empty)
+    }
 }
 
 #[cfg(test)]

@@ -23,7 +23,6 @@ use vortex_utils::dyn_traits::DynEq;
 use vortex_utils::dyn_traits::DynHash;
 
 use crate::segments::SegmentSource;
-use crate::v2::demand::RowDemand;
 use crate::v2::scan_ctx::ScanCtx;
 
 pub type LayoutPlanRef = Arc<dyn LayoutPlan>;
@@ -261,41 +260,27 @@ impl PlanArguments {
 
 /// Cross-cutting context threaded through [`crate::Layout::plan`].
 ///
-/// Carries:
-/// - the [`RowDemand`] SIP resource for layout-emitted publishers and
-///   downstream consumers,
-/// - the [`SegmentSource`] used to fetch on-disk bytes at execute time,
-/// - the [`VortexSession`] used for plan-time setup that touches the
-///   array context (e.g. constructing `LayoutReader`s while we still
-///   bridge to the v1 read path).
+/// Carries the [`SegmentSource`] used to fetch on-disk bytes at
+/// execute time and the [`VortexSession`] used for plan-time setup
+/// that touches the array context.
+///
+/// Notably does *not* carry [`RowDemand`] — that's an execute-time
+/// concept, late-bound by `ScanPlan` into a `RowDemandSlot` on the
+/// per-execute [`crate::v2::scan_ctx::ScanCtx`]. Plan nodes resolve
+/// it via [`crate::v2::demand::RowDemandSlot::resolve`] when they
+/// need a producer or consumer handle.
 #[derive(Clone)]
 pub struct PlanCtx {
-    pub demand: Arc<RowDemand>,
     pub segment_source: Arc<dyn SegmentSource>,
     pub session: VortexSession,
 }
 
 impl PlanCtx {
-    /// Construct a context with the given segment source and session, and
-    /// an empty (no-op) [`RowDemand`]. Useful as a default for layouts
-    /// that don't need to participate in demand publication.
+    /// Construct a plan context with the given segment source and session.
     pub fn new(segment_source: Arc<dyn SegmentSource>, session: VortexSession) -> Self {
         Self {
-            demand: RowDemand::empty(),
             segment_source,
             session,
-        }
-    }
-
-    /// Replace this context's demand with a freshly-allocated, empty
-    /// one. Useful for layouts that recurse into a sub-plan that
-    /// shouldn't share demand with the parent (e.g., evaluating a
-    /// pruning expression over a zone-map child).
-    pub fn without_demand(&self) -> Self {
-        Self {
-            demand: RowDemand::empty(),
-            segment_source: Arc::clone(&self.segment_source),
-            session: self.session.clone(),
         }
     }
 }

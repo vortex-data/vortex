@@ -11,10 +11,13 @@
 
 use std::sync::Arc;
 
+use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::split_conjunction;
+use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
 
@@ -23,10 +26,14 @@ use crate::segments::SegmentSource;
 use crate::v2::and_bool::AndBoolStreamsPlan;
 use crate::v2::cse::cse;
 use crate::v2::demand::RowDemand;
+use crate::v2::demand::RowDemandSlot;
 use crate::v2::filter::FilterPlan;
+use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plan::PartitionStats;
 use crate::v2::plan::PlanArguments;
 use crate::v2::plan::PlanCtx;
+use crate::v2::scan_ctx::ScanCtx;
 
 /// Scan request for the LayoutPlan v2 path. Mirrors the inputs to
 /// `vortex_layout::scan::scan_builder::ScanBuilder` but produces a
@@ -68,9 +75,7 @@ impl Scan {
             );
         }
 
-        let demand = RowDemand::empty();
         let ctx = PlanCtx {
-            demand,
             segment_source: Arc::clone(&self.segment_source),
             session: self.session.clone(),
         };
@@ -81,10 +86,13 @@ impl Scan {
             ctx: ctx.clone(),
         })?;
 
+        let row_count = self.layout.row_count();
+
         let Some(filter) = self.filter.as_ref() else {
             // Projection-only — still worth CSE in case the projection
             // expression itself produced duplicate subtrees (e.g. a
             // pack referring to the same field twice).
+            // No filter → no demand machinery needed; skip ScanPlan.
             return cse(projection_plan);
         };
 
@@ -93,7 +101,6 @@ impl Scan {
         // and wrap projection with FilterPlan. See `LAYOUT_PLAN.md`
         // § Scan construction.
         let conjuncts = split_conjunction(filter);
-        let row_count = self.layout.row_count();
         let conjunct_plans: Vec<LayoutPlanRef> = conjuncts
             .into_iter()
             .map(|expr| {
@@ -110,16 +117,111 @@ impl Scan {
             1 => conjunct_plans
                 .into_iter()
                 .next()
-                .ok_or_else(|| vortex_error::vortex_err!("len-1 conjunct_plans was empty"))?,
+                .ok_or_else(|| vortex_err!("len-1 conjunct_plans was empty"))?,
             _ => Arc::new(AndBoolStreamsPlan::new(conjunct_plans, row_count)),
         };
 
-        // Run CSE over the combined (filter + projection) tree. The
-        // common case is a filter referencing a column that the
-        // projection also reads — both subtrees descend to the same
-        // field's layout plan, and CSE collapses them so the column
-        // is read once and shared.
-        cse(FilterPlan::new_or_pushdown(projection_plan, mask_plan))
+        // Wrap projection with FilterPlan (or pushed-down equivalent),
+        // CSE-collapse, then wrap the whole thing in ScanPlan so the
+        // partition's RowDemand gets installed at execute-start.
+        let body = cse(FilterPlan::new_or_pushdown(projection_plan, mask_plan))?;
+        Ok(Arc::new(ScanPlan::new(body, row_count)))
+    }
+}
+
+/// Top-level wrapper installed by [`Scan::build`] for filtered scans.
+/// At execute time it allocates a fresh [`RowDemand`] for the
+/// partition and installs it into the [`ScanCtx`] via
+/// [`RowDemandSlot::install`]. Producer / consumer plan nodes lower
+/// in the tree resolve it via [`RowDemandSlot::resolve`].
+///
+/// Pure passthrough otherwise — schema, partition stats, children,
+/// pushdown all delegate to the body.
+pub struct ScanPlan {
+    body: LayoutPlanRef,
+    total_rows: u64,
+}
+
+impl ScanPlan {
+    pub fn new(body: LayoutPlanRef, total_rows: u64) -> Self {
+        Self { body, total_rows }
+    }
+}
+
+impl PartialEq for ScanPlan {
+    fn eq(&self, other: &Self) -> bool {
+        crate::v2::plan::plans_eq(&self.body, &other.body) && self.total_rows == other.total_rows
+    }
+}
+
+impl Eq for ScanPlan {}
+
+impl std::hash::Hash for ScanPlan {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        crate::v2::plan::hash_plan(&self.body, state);
+        self.total_rows.hash(state);
+    }
+}
+
+impl LayoutPlan for ScanPlan {
+    fn schema(&self) -> &DType {
+        self.body.schema()
+    }
+
+    fn partition_count(&self) -> usize {
+        self.body.partition_count()
+    }
+
+    fn partition_stats(&self, partition: usize) -> VortexResult<PartitionStats> {
+        self.body.partition_stats(partition)
+    }
+
+    fn output_ordered(&self) -> bool {
+        self.body.output_ordered()
+    }
+
+    fn required_input_ordered(&self) -> Vec<bool> {
+        self.body.required_input_ordered()
+    }
+
+    fn maintains_input_order(&self) -> Vec<bool> {
+        self.body.maintains_input_order()
+    }
+
+    fn children(&self) -> &[LayoutPlanRef] {
+        std::slice::from_ref(&self.body)
+    }
+
+    fn with_new_children(
+        self: Arc<Self>,
+        children: Vec<LayoutPlanRef>,
+    ) -> VortexResult<LayoutPlanRef> {
+        if children.len() != 1 {
+            vortex_bail!(
+                "ScanPlan::with_new_children expected 1 child (body), got {}",
+                children.len()
+            );
+        }
+        let body = children
+            .into_iter()
+            .next()
+            .ok_or_else(|| vortex_err!("ScanPlan::with_new_children: empty vec"))?;
+        Ok(Arc::new(Self {
+            body,
+            total_rows: self.total_rows,
+        }))
+    }
+
+    fn execute(
+        &self,
+        row_range: std::ops::Range<u64>,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
+        // Install a fresh per-partition RowDemand. Producer/consumer
+        // plans lower in the body resolve it via
+        // `RowDemandSlot::resolve`.
+        RowDemandSlot::install(ctx, RowDemand::new(self.total_rows));
+        self.body.execute(row_range, ctx)
     }
 }
 

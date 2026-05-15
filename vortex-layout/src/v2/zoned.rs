@@ -36,11 +36,14 @@ use vortex_array::expr::Expression;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
+use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::v2::demand::RowDemandSlot;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -195,7 +198,16 @@ impl LayoutPlan for ZonedPruningPlan {
         let data_plan = Arc::clone(&self.data_plan);
         let ctx_for_stream = ctx.clone();
 
+        // Resolve the partition's RowDemand and allocate a producer
+        // handle. The producer is owned by the async block below, so
+        // it drops with the stream — Drop decrements the active
+        // producer count, contributing to EOF when the last drops.
+        let demand = RowDemandSlot::resolve(ctx);
+        let producer = demand.producer();
+
         let stream = try_stream! {
+            // Keep the producer alive across awaits.
+            let producer = producer;
             // Materialise the zones table into one ArrayRef. For a
             // typical Flat zones layout this is a single chunk.
             let zones_array = zones_stream.read_all().await?;
@@ -209,6 +221,32 @@ impl LayoutPlan for ZonedPruningPlan {
                 ZoneMap::new_unchecked(zones_struct, zone_len, row_count)
             };
             let prune_mask = zone_map.prune(&pruning_predicate, &session)?;
+
+            // Publish the pruning result to RowDemand. Pruned zones
+            // → demand 0 for their row range. This is a single
+            // partition-wide publish; downstream consumers (e.g.
+            // FilteredFlatPlan looking at the projection columns) can
+            // skip whole chunks they'd otherwise have decoded.
+            //
+            // We build one BitBuffer of `row_count` bits for the
+            // whole partition, with bits SET for kept zones, UNSET
+            // for pruned zones. Then publish in one call.
+            let row_count_usize = usize::try_from(row_count)?;
+            let mut demand_bits = BitBufferMut::new_set(row_count_usize);
+            let nzones = usize::try_from(row_count.div_ceil(zone_len))?;
+            for z in 0..nzones {
+                if prune_mask.value(z) {
+                    let zr_start = (z as u64) * zone_len;
+                    let zr_end = (zr_start + zone_len).min(row_count);
+                    let s = usize::try_from(zr_start)?;
+                    let e = usize::try_from(zr_end)?;
+                    for i in s..e {
+                        demand_bits.set_to(i, false);
+                    }
+                }
+            }
+            let publish_mask = Mask::from_buffer(demand_bits.freeze());
+            producer.publish(0..row_count, &publish_mask);
 
             // Iterate intersecting zones, emit per-zone bool chunks.
             let zone_start_idx = row_range.start / zone_len;
@@ -238,6 +276,7 @@ impl LayoutPlan for ZonedPruningPlan {
                     }
                 }
             }
+            drop(producer);
         };
 
         Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))
