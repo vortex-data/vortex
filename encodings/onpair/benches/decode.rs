@@ -63,6 +63,12 @@ enum Shape {
     Long,
     /// High cardinality — every row unique.
     HighCard,
+    /// FineWeb-shape — long natural-language paragraphs (~800 B each)
+    /// stitched from common web-text fragments, with occasional URLs and
+    /// brand names so `LIKE '%google%'` / `'%espn%'` actually match a
+    /// realistic fraction of rows. Models the data shape that regressed
+    /// in CI (FineWeb NVMe q3/q6/q7).
+    FineWebText,
 }
 
 fn corpus(n: usize, shape: Shape) -> Vec<String> {
@@ -117,6 +123,49 @@ fn corpus(n: usize, shape: Shape) -> Vec<String> {
                 out.push(format!("row-{i:010x}-{rand:016x}", rand = next()));
             }
         }
+        Shape::FineWebText => {
+            // Pool of natural-language fragments + a few brand/domain
+            // names that the LIKE benches will search for. Each row is
+            // stitched from 12–24 randomly-picked fragments.
+            let fragments: &[&str] = &[
+                "The quick brown fox jumps over the lazy dog. ",
+                "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ",
+                "In recent years researchers have observed that ",
+                "According to a recent study published in Nature, ",
+                "It has been widely reported that the new policy ",
+                "On the other hand, critics have argued that ",
+                "https://www.example.com/article/2024/spring/ ",
+                "Visit our website at https://blog.example.org for more ",
+                "See related coverage at https://news.example.net/world. ",
+                "Click here to read the full article on google.com. ",
+                "The latest update from espn.com confirms that ",
+                "She mentioned that the vortex of activity surrounding ",
+                "The CEO declined to comment when asked about ",
+                "Meanwhile, in a separate development, sources close to ",
+                "Industry analysts predict significant growth over the next quarter, ",
+                "The conference, which took place last week in Berlin, ",
+                "He went on to say that the project would require ",
+                "Many users have noted that the new interface is ",
+                "By contrast, the previous version did not support ",
+                "Critics of the proposal have raised concerns regarding ",
+                "Despite the challenges, the team managed to deliver ",
+                "From a technical perspective the change introduces a ",
+                "The repository on github.com/example/repo provides ",
+                "youtube.com/watch?v=example shows the demonstration. ",
+            ];
+            for _ in 0..n {
+                let s = next();
+                let n_frags = 12 + ((s as usize) % 13); // 12-24
+                let mut buf = String::with_capacity(n_frags * 50);
+                for k in 0..n_frags {
+                    let pick = ((s.wrapping_mul(0x9e37_79b9) ^ (k as u64 * 0xbf58_476d_1ce4_e5b9))
+                        as usize)
+                        % fragments.len();
+                    buf.push_str(fragments[pick]);
+                }
+                out.push(buf);
+            }
+        }
     }
     out
 }
@@ -151,6 +200,7 @@ const CASES: &[(Shape, usize)] = &[
     (Shape::Short, 100_000),
     (Shape::Long, 100_000),
     (Shape::HighCard, 100_000),
+    (Shape::FineWebText, 50_000),
 ];
 
 /// Raw decode loop time, excluding `OwnedDecodeInputs::collect` and the
@@ -192,6 +242,11 @@ fn canonicalize_to_varbinview(bencher: Bencher, case: (Shape, usize)) {
 
 const COMPUTE_CASES: &[(Shape, usize)] = &[(Shape::UrlLog, 100_000), (Shape::UrlLog, 1_000_000)];
 
+/// LIKE workload that targets the CI regression. FineWebText rows
+/// are ~800 B each; 50_000 rows is ~40 MB of decoded text — close to
+/// the per-shard scan size on FineWeb NVMe.
+const LIKE_FINEWEB_CASES: &[(Shape, usize)] = &[(Shape::FineWebText, 50_000)];
+
 /// `Eq` against a literal (token-aware fast path: no row decode, just
 /// `&[u16]` comparison).
 #[divan::bench(args = COMPUTE_CASES)]
@@ -232,9 +287,12 @@ fn like_prefix(bencher: Bencher, case: (Shape, usize)) {
     });
 }
 
-/// `LIKE '%substring%'` — `memchr::memmem::Finder` over decoded rows.
+/// `LIKE '%substring%'` — calls the kernel; with `%contains%` push
+/// disabled this falls through to canonicalize + scalar memmem.
+/// Returns `None` from the kernel today; we measure the kernel-dispatch
+/// cost only (a no-op fallback signal).
 #[divan::bench(args = COMPUTE_CASES)]
-fn like_contains(bencher: Bencher, case: (Shape, usize)) {
+fn like_contains_kernel_dispatch(bencher: Bencher, case: (Shape, usize)) {
     let (shape, n) = case;
     let arr = compress(n, shape);
     bencher.bench_local(|| {
@@ -242,10 +300,76 @@ fn like_contains(bencher: Bencher, case: (Shape, usize)) {
         let pattern = ConstantArray::new("%example.com%", n).into_array();
         let result =
             <OnPair as LikeKernel>::like(arr.as_view(), &pattern, LikeOptions::default(), &mut ctx)
-                .unwrap()
                 .unwrap();
         divan::black_box(result);
     });
+}
+
+/// What the system actually does for `LIKE '%sub%'` today on OnPair:
+///   1. canonicalize into a VarBinViewArray
+///   2. run the scalar (SIMD) `Like` function on it.
+/// This is the "fallback path" cost when pushdown returns `None`.
+#[divan::bench(args = LIKE_FINEWEB_CASES)]
+fn like_contains_via_canonical(bencher: Bencher, case: (Shape, usize)) {
+    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
+    use vortex_array::scalar_fn::fns::like::Like;
+    let (shape, n) = case;
+    let arr = compress(n, shape);
+    bencher
+        .with_inputs(|| arr.clone().into_array())
+        .bench_local_values(|arr| {
+            let mut ctx = SESSION.create_execution_ctx();
+            let pat = ConstantArray::new("google", n).into_array();
+            // The actual fallback the engine runs: canonicalize first,
+            // then run scalar LIKE on the canonical buffer.
+            let canonical = arr
+                .execute::<VarBinViewArray>(&mut ctx)
+                .unwrap()
+                .into_array();
+            let result = Like
+                .try_new_array(n, LikeOptions::default(), [canonical, pat])
+                .unwrap()
+                .into_array()
+                .execute::<vortex_array::Canonical>(&mut ctx)
+                .unwrap();
+            divan::black_box(result);
+        });
+}
+
+/// Equivalent baseline: how long does scalar `LIKE` take on a
+/// VarBinView of the SAME decoded bytes (no encoding/decoding at all)?
+/// This is what develop ran for non-FSST string columns.
+#[divan::bench(args = LIKE_FINEWEB_CASES)]
+fn like_contains_no_encoding_baseline(bencher: Bencher, case: (Shape, usize)) {
+    use vortex_array::arrays::scalar_fn::ScalarFnFactoryExt;
+    use vortex_array::scalar_fn::fns::like::Like;
+    let (shape, n) = case;
+    let strings = corpus(n, shape);
+    let varbin = VarBinArray::from_iter(
+        strings.iter().map(|s| Some(s.as_bytes())),
+        DType::Utf8(Nullability::NonNullable),
+    );
+    bencher
+        .with_inputs(|| {
+            let mut ctx = SESSION.create_execution_ctx();
+            varbin
+                .clone()
+                .into_array()
+                .execute::<VarBinViewArray>(&mut ctx)
+                .unwrap()
+                .into_array()
+        })
+        .bench_local_values(|view| {
+            let mut ctx = SESSION.create_execution_ctx();
+            let pat = ConstantArray::new("google", n).into_array();
+            let result = Like
+                .try_new_array(n, LikeOptions::default(), [view, pat])
+                .unwrap()
+                .into_array()
+                .execute::<vortex_array::Canonical>(&mut ctx)
+                .unwrap();
+            divan::black_box(result);
+        });
 }
 
 /// Filter — share-dict path. Builds a 1-in-7 mask so we keep ~14 % of
