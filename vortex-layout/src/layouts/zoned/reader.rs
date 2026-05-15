@@ -224,6 +224,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::arrays::ChunkedArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
@@ -245,6 +246,7 @@ mod test {
     use crate::LayoutStrategy;
     use crate::VTable;
     use crate::children::OwnedLayoutChildren;
+    use crate::layouts::chunked::Chunked;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::Zoned;
@@ -267,9 +269,10 @@ mod test {
             .with_handle(handle)
     }
 
-    #[fixture]
-    /// Create a stats layout with three chunks of primitive arrays.
-    fn stats_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
+    fn write_stats_layout(
+        chunks: Vec<Vec<i32>>,
+        block_size: usize,
+    ) -> (Arc<dyn SegmentSource>, LayoutRef) {
         let ctx = ArrayContext::empty();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
@@ -277,15 +280,15 @@ mod test {
             ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
             FlatLayoutStrategy::default(),
             ZonedLayoutOptions {
-                block_size: 3,
+                block_size,
                 ..Default::default()
             },
         );
-        let array_stream = ChunkedArray::from_iter([
-            buffer![1, 2, 3].into_array(),
-            buffer![4, 5, 6].into_array(),
-            buffer![7, 8, 9].into_array(),
-        ])
+        let array_stream = ChunkedArray::from_iter(
+            chunks
+                .into_iter()
+                .map(|chunk| PrimitiveArray::from_iter(chunk).into_array()),
+        )
         .into_array()
         .to_array_stream()
         .sequenced(ptr);
@@ -298,6 +301,12 @@ mod test {
         })
         .unwrap();
         (segments, layout)
+    }
+
+    #[fixture]
+    /// Create a stats layout with three chunks of primitive arrays.
+    fn stats_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
+        write_stats_layout(vec![vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]], 3)
     }
 
     #[rstest]
@@ -349,6 +358,52 @@ mod test {
                 result,
                 Mask::from_iter([false, false, false, false, false, false, true, true, true])
             );
+        })
+    }
+
+    #[rstest]
+    #[case::smaller_chunks(vec![vec![1, 2], vec![3, 4], vec![5, 6], vec![7, 8], vec![9]])]
+    #[case::larger_chunks(vec![vec![1, 2, 3, 4, 5], vec![6, 7, 8, 9]])]
+    #[case::unaligned_chunks(vec![vec![1, 2, 3, 4], vec![5, 6], vec![7, 8, 9]])]
+    fn test_writer_partitions_fixed_zones_independent_of_input_chunks(
+        #[case] chunks: Vec<Vec<i32>>,
+    ) -> VortexResult<()> {
+        let chunk_lengths = chunks.iter().map(Vec::len).collect::<Vec<_>>();
+        let (segments, layout) = write_stats_layout(chunks, 3);
+
+        let zoned_layout = layout.as_::<Zoned>();
+        assert_eq!(zoned_layout.zone_len(), 3);
+        assert_eq!(zoned_layout.nzones(), 3);
+
+        let data_layout = layout.child(0)?;
+        assert!(data_layout.is::<Chunked>());
+        assert_eq!(data_layout.nchildren(), chunk_lengths.len());
+
+        let mut offset = 0;
+        for (idx, chunk_len) in chunk_lengths.into_iter().enumerate() {
+            assert_eq!(data_layout.child_type(idx).row_offset(), Some(offset));
+            assert_eq!(data_layout.child(idx)?.row_count(), chunk_len as u64);
+            offset += chunk_len as u64;
+        }
+
+        block_on(|handle| async {
+            let row_count = layout.row_count();
+            let session = session_with_handle(handle);
+            let reader = layout.new_reader("".into(), segments, &session)?;
+
+            let result = reader
+                .pruning_evaluation(
+                    &(0..row_count),
+                    &gt(root(), lit(7)),
+                    Mask::new_true(row_count.try_into().unwrap()),
+                )?
+                .await?;
+
+            assert_eq!(
+                result,
+                Mask::from_iter([false, false, false, false, false, false, true, true, true])
+            );
+            Ok(())
         })
     }
 

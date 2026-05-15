@@ -25,7 +25,6 @@ use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
-use vortex_array::expr::stats::StatsProvider;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarTruncation;
 use vortex_array::scalar::lower_bound;
@@ -65,18 +64,6 @@ impl StatsAccumulator {
             builders,
             length: 0,
         }
-    }
-
-    pub fn push_chunk_without_compute(&mut self, array: &ArrayRef) -> VortexResult<()> {
-        for builder in &mut self.builders {
-            if let Some(Precision::Exact(value)) = array.statistics().get(builder.stat()) {
-                builder.append_scalar(value.cast(&value.dtype().as_nullable())?)?;
-            } else {
-                builder.append_null();
-            }
-        }
-        self.length += 1;
-        Ok(())
     }
 
     pub fn push_chunk(&mut self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {

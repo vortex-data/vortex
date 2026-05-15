@@ -272,7 +272,7 @@ impl WriteStrategyBuilder {
             Default::default(),
         );
 
-        // 2. calculate stats for each row group
+        // 2. calculate fixed-size zone stats while leaving data chunking to the child strategy.
         let stats = ZonedStrategy::new(
             dict,
             compress_then_flat.clone(),
@@ -282,24 +282,11 @@ impl WriteStrategyBuilder {
             },
         );
 
-        // 1. repartition each column to fixed row counts
-        let repartition = RepartitionStrategy::new(
-            stats,
-            RepartitionWriterOptions {
-                // No minimum block size in bytes
-                block_size_minimum: 0,
-                // Always repartition into 8K row blocks
-                block_len_multiple: self.row_block_size,
-                block_size_target: None,
-                canonicalize: false,
-            },
-        );
-
         // 0. start with splitting columns
         let validity_strategy = CollectStrategy::new(compress_then_flat);
 
         // Take any field overrides from the builder and apply them to the final strategy.
-        let table_strategy = TableStrategy::new(Arc::new(validity_strategy), Arc::new(repartition))
+        let table_strategy = TableStrategy::new(Arc::new(validity_strategy), Arc::new(stats))
             .with_field_writers(self.field_writers);
 
         Arc::new(table_strategy)

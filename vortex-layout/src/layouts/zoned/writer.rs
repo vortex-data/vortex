@@ -9,13 +9,18 @@ use async_trait::async_trait;
 use futures::StreamExt as _;
 use parking_lot::Mutex;
 use vortex_array::ArrayContext;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ChunkedArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::dtype::DType;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stats::PRUNING_STATS;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_io::session::RuntimeSessionExt;
 use vortex_session::VortexSession;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -32,17 +37,14 @@ use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
 /// Configuration for building zoned layouts.
-///
-/// The input stream is assumed to already be partitioned into one chunk per zone, except
-/// possibly the final partial zone.
 pub struct ZonedLayoutOptions {
-    /// The size of a statistics block
+    /// The fixed number of rows covered by each zone map entry.
     pub block_size: usize,
     /// The statistics to collect for each block.
     pub stats: Arc<[Stat]>,
     /// Maximum length of a variable length statistics
     pub max_variable_length_statistics_size: usize,
-    /// Number of chunks to compute in parallel.
+    /// Reserved for future parallel zone-statistics computation.
     pub concurrency: usize,
 }
 
@@ -78,6 +80,82 @@ impl ZonedStrategy {
     }
 }
 
+struct FixedZoneStatsAccumulator {
+    stats: StatsAccumulator,
+    dtype: DType,
+    zone_len: usize,
+    pending: Vec<ArrayRef>,
+    pending_len: usize,
+}
+
+impl FixedZoneStatsAccumulator {
+    fn new(
+        dtype: DType,
+        stats: &[Stat],
+        max_variable_length_statistics_size: usize,
+        zone_len: usize,
+    ) -> Self {
+        Self {
+            stats: StatsAccumulator::new(&dtype, stats, max_variable_length_statistics_size),
+            dtype,
+            zone_len,
+            pending: Vec::new(),
+            pending_len: 0,
+        }
+    }
+
+    fn push_chunk(&mut self, chunk: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        let mut offset = 0;
+        while offset < chunk.len() {
+            let zone_remaining = self.zone_len - self.pending_len;
+            let take = zone_remaining.min(chunk.len() - offset);
+            let end = offset + take;
+            let slice = chunk.slice(offset..end)?;
+
+            if self.pending.is_empty() && take == self.zone_len {
+                self.stats.push_chunk(&slice, ctx)?;
+            } else {
+                self.pending_len += slice.len();
+                self.pending.push(slice);
+
+                if self.pending_len == self.zone_len {
+                    self.flush_pending(ctx)?;
+                }
+            }
+
+            offset = end;
+        }
+
+        Ok(())
+    }
+
+    fn finish(&mut self, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        self.flush_pending(ctx)
+    }
+
+    fn as_array(&mut self) -> VortexResult<Option<(StructArray, Arc<[Stat]>)>> {
+        self.stats.as_array()
+    }
+
+    fn flush_pending(&mut self, ctx: &mut ExecutionCtx) -> VortexResult<()> {
+        if self.pending_len == 0 {
+            return Ok(());
+        }
+
+        let zone = if self.pending.len() == 1 {
+            self.pending
+                .pop()
+                .vortex_expect("pending zone is non-empty")
+        } else {
+            ChunkedArray::try_new(std::mem::take(&mut self.pending), self.dtype.clone())?
+                .into_array()
+        };
+
+        self.pending_len = 0;
+        self.stats.push_chunk(&zone, ctx)
+    }
+}
+
 #[async_trait]
 impl LayoutStrategy for ZonedStrategy {
     async fn write_stream(
@@ -95,46 +173,21 @@ impl LayoutStrategy for ZonedStrategy {
 
         let stats = Arc::clone(&self.options.stats);
         let session = session.clone();
-        let compute_session = session.clone();
-        let handle = session.handle();
-        let handle2 = handle.clone();
-
-        let stats_accumulator = Arc::new(Mutex::new(StatsAccumulator::new(
-            stream.dtype(),
+        let stats_session = session.clone();
+        let stats_accumulator = Arc::new(Mutex::new(FixedZoneStatsAccumulator::new(
+            stream.dtype().clone(),
             &stats,
             self.options.max_variable_length_statistics_size,
+            self.options.block_size,
         )));
 
-        // We can compute per-chunk statistics in parallel, so we spawn tasks for each chunk
-        let stream = SequentialStreamAdapter::new(
-            stream.dtype().clone(),
-            stream
-                .map(move |chunk| {
-                    let stats = Arc::clone(&stats);
-                    let session = compute_session.clone();
-                    handle2.spawn_cpu(move || {
-                        let (sequence_id, chunk) = chunk?;
-                        chunk
-                            .statistics()
-                            .compute_all(&stats, &mut session.create_execution_ctx())?;
-                        Ok((sequence_id, chunk))
-                    })
-                })
-                .buffered(self.options.concurrency),
-        )
-        .sendable();
-
-        // Now we accumulate the stats we computed above, this time we cannot spawn because we
-        // need to feed the accumulator an ordered stream.
         let stats_accumulator2 = Arc::clone(&stats_accumulator);
         let stream = SequentialStreamAdapter::new(
             stream.dtype().clone(),
             stream.map(move |item| {
                 let (sequence_id, chunk) = item?;
-                // We have already computed per-chunk statistics, so avoid trying again for any that failed.
-                stats_accumulator2
-                    .lock()
-                    .push_chunk_without_compute(&chunk)?;
+                let mut ctx = stats_session.create_execution_ctx();
+                stats_accumulator2.lock().push_chunk(&chunk, &mut ctx)?;
                 Ok((sequence_id, chunk))
             }),
         )
@@ -155,7 +208,12 @@ impl LayoutStrategy for ZonedStrategy {
             )
             .await?;
 
-        let Some((stats_array, stats)) = stats_accumulator.lock().as_array()? else {
+        let mut stats_ctx = session.create_execution_ctx();
+        let Some((stats_array, stats)) = ({
+            let mut stats_accumulator = stats_accumulator.lock();
+            stats_accumulator.finish(&mut stats_ctx)?;
+            stats_accumulator.as_array()?
+        }) else {
             // If we have no stats (e.g. the DType doesn't support them), then we just return the
             // child layout.
             return Ok(data_layout);
