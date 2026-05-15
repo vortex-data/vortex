@@ -130,16 +130,18 @@ impl SelectBit for Bmi2 {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "bmi2")]
 unsafe fn pdep_bmi2(source: u64, mask: u64) -> u64 {
-    core::arch::x86_64::_pdep_u64(source, mask)
+    use std::arch::x86_64;
+    x86_64::_pdep_u64(source, mask)
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "bmi2")]
 unsafe fn select_bit_position_bmi2(word: u64, rank: usize) -> usize {
+    use std::arch::x86_64;
     debug_assert!(rank < word.count_ones() as usize);
     // PDEP places the rank-th bit of source into the rank-th set bit of mask, returning a single
     // bit at the desired position.
-    let bit = core::arch::x86_64::_pdep_u64(1u64 << rank, word);
+    let bit = x86_64::_pdep_u64(1u64 << rank, word);
     bit.trailing_zeros() as usize
 }
 
