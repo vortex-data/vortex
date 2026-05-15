@@ -54,6 +54,8 @@ use crate::MAGIC_BYTES;
 use crate::WriteStrategyBuilder;
 use crate::counting::CountingVortexWrite;
 use crate::footer::FileStatistics;
+use crate::footer::MAX_METADATA_KEY_CHARS;
+use crate::footer::MAX_METADATA_SEGMENTS;
 use crate::segments::writer::BufferedSegmentSink;
 
 /// Configure a new writer, which can eventually be used to write an [`ArrayStream`] into a sink
@@ -123,16 +125,16 @@ impl VortexWriteOptions {
     ///
     /// If the key already exists, the previous segment for that key is replaced.
     ///
-    /// ## Panics
-    ///
-    /// Panics if the key is empty.
+    /// Metadata limits are validated when writing: keys must be non-empty and at most
+    /// 32 characters, and a file may contain at most 16 user-defined metadata segments. These
+    /// limits keep metadata bookkeeping small because keys and segment locations are stored in the
+    /// fixed-size postscript.
     pub fn with_metadata_segment(
         mut self,
         key: impl Into<String>,
         metadata: impl Into<ByteBuffer>,
     ) -> Self {
         let key = key.into();
-        assert!(!key.is_empty(), "metadata key must not be empty");
         let metadata = metadata.into();
         self.metadata.insert(key, metadata);
         self
@@ -181,6 +183,8 @@ impl VortexWriteOptions {
         mut write: W,
         stream: SendableArrayStream,
     ) -> VortexResult<WriteSummary> {
+        validate_metadata_segments(&self.metadata)?;
+
         // NOTE(os): Setup an array context that already has all known encodings pre-populated.
         // This is preferred for now over having an empty context here, because only the
         // serialised array order is deterministic. The serialisation of arrays are done
@@ -312,6 +316,38 @@ impl VortexWriteOptions {
             strategy,
         }
     }
+}
+
+fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexResult<()> {
+    if metadata.len() > MAX_METADATA_SEGMENTS {
+        vortex_bail!(
+            "Vortex files may contain at most {} metadata segments with keys at most {} characters; got {} metadata segments",
+            MAX_METADATA_SEGMENTS,
+            MAX_METADATA_KEY_CHARS,
+            metadata.len()
+        );
+    }
+
+    for key in metadata.keys() {
+        if key.is_empty() {
+            vortex_bail!(
+                "Vortex metadata keys must be non-empty and at most {} characters, and files may contain at most {} metadata segments",
+                MAX_METADATA_KEY_CHARS,
+                MAX_METADATA_SEGMENTS
+            );
+        }
+
+        let key_chars = key.chars().count();
+        if key_chars > MAX_METADATA_KEY_CHARS {
+            vortex_bail!(
+                "Vortex metadata key {key:?} is {key_chars} characters, but keys must be at most {} characters and files may contain at most {} metadata segments",
+                MAX_METADATA_KEY_CHARS,
+                MAX_METADATA_SEGMENTS
+            );
+        }
+    }
+
+    Ok(())
 }
 
 /// An async API for writing Vortex files.

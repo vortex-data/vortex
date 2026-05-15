@@ -14,6 +14,9 @@ use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::footer as fb;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use super::MAX_METADATA_KEY_CHARS;
+use super::MAX_METADATA_SEGMENTS;
+
 /// The postscript captures the locations and compression for the initial segments required for
 /// reading a Vortex file.
 pub(crate) struct Postscript {
@@ -85,20 +88,7 @@ impl ReadFlatBuffer for Postscript {
             .transpose()?
             .unwrap_or_default();
 
-        {
-            let mut seen_keys = HashSet::with_capacity(metadata.len());
-            for entry in &metadata {
-                if entry.key.is_empty() {
-                    return Err(vortex_err!("Postscript metadata key must not be empty"));
-                }
-                if !seen_keys.insert(&entry.key) {
-                    return Err(vortex_err!(
-                        "Postscript contains duplicate metadata key {}",
-                        entry.key
-                    ));
-                }
-            }
-        }
+        validate_metadata_entries(&metadata)?;
 
         Ok(Self {
             dtype: fb
@@ -120,6 +110,51 @@ impl ReadFlatBuffer for Postscript {
             metadata,
         })
     }
+}
+
+fn validate_metadata_entries(metadata: &[PostscriptMetadata]) -> VortexResult<()> {
+    if metadata.len() > MAX_METADATA_SEGMENTS {
+        return Err(vortex_err!(
+            "Postscript contains {} metadata segments, but Vortex supports at most {} metadata segments and at most {} characters per metadata key",
+            metadata.len(),
+            MAX_METADATA_SEGMENTS,
+            MAX_METADATA_KEY_CHARS
+        ));
+    }
+
+    let mut seen_keys = HashSet::with_capacity(metadata.len());
+    for entry in metadata {
+        validate_metadata_key(&entry.key)?;
+        if !seen_keys.insert(&entry.key) {
+            return Err(vortex_err!(
+                "Postscript contains duplicate metadata key {}",
+                entry.key
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_metadata_key(key: &str) -> VortexResult<()> {
+    if key.is_empty() {
+        return Err(vortex_err!(
+            "Postscript metadata key must not be empty; Vortex supports at most {} metadata segments and metadata keys must be at most {} characters",
+            MAX_METADATA_SEGMENTS,
+            MAX_METADATA_KEY_CHARS
+        ));
+    }
+
+    let key_chars = key.chars().count();
+    if key_chars > MAX_METADATA_KEY_CHARS {
+        return Err(vortex_err!(
+            "Postscript metadata key {key:?} is {key_chars} characters, but Vortex supports at most {} metadata segments and metadata keys must be at most {} characters",
+            MAX_METADATA_SEGMENTS,
+            MAX_METADATA_KEY_CHARS
+        ));
+    }
+
+    Ok(())
 }
 
 pub(crate) struct PostscriptMetadata {
@@ -266,5 +301,41 @@ mod tests {
         });
 
         assert!(err.contains("metadata key must not be empty"));
+    }
+
+    #[test]
+    fn long_metadata_keys_are_rejected() {
+        let err = read_postscript_error(&Postscript {
+            dtype: None,
+            layout: segment(0),
+            statistics: None,
+            footer: segment(1),
+            metadata: vec![PostscriptMetadata {
+                key: "a".repeat(MAX_METADATA_KEY_CHARS + 1),
+                segment: segment(2),
+            }],
+        });
+
+        assert!(err.contains("at most 32 characters"));
+        assert!(err.contains("at most 16 metadata segments"));
+    }
+
+    #[test]
+    fn too_many_metadata_segments_are_rejected() {
+        let err = read_postscript_error(&Postscript {
+            dtype: None,
+            layout: segment(0),
+            statistics: None,
+            footer: segment(1),
+            metadata: (0..=MAX_METADATA_SEGMENTS)
+                .map(|idx| PostscriptMetadata {
+                    key: format!("metadata-{idx}"),
+                    segment: segment(2 + idx as u64),
+                })
+                .collect(),
+        });
+
+        assert!(err.contains("at most 16 metadata segments"));
+        assert!(err.contains("at most 32 characters"));
     }
 }

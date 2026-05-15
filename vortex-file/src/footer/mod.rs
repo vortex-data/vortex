@@ -40,6 +40,20 @@ use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 use vortex_utils::aliases::hash_map::HashMap;
 
+/// Maximum number of user-defined metadata segments stored in the postscript.
+///
+/// The postscript has a fixed 64 KiB budget and must remain small enough for readers to discover
+/// the footer and required segment locations from the initial read. Sixteen entries keeps metadata
+/// bookkeeping well under 2 KiB for typical key lengths while leaving almost all of the postscript
+/// budget available for the required file segments.
+pub(crate) const MAX_METADATA_SEGMENTS: usize = 16;
+
+/// Maximum length, in Unicode scalar values, of a user-defined metadata key.
+///
+/// Metadata keys are stored directly in the fixed-size postscript. Keeping keys short prevents
+/// user-defined labels from consuming a disproportionate share of the postscript budget.
+pub(crate) const MAX_METADATA_KEY_CHARS: usize = 32;
+
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]
 pub struct Footer {

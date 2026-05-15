@@ -1684,6 +1684,25 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
     Ok(())
 }
 
+async fn metadata_write_error<I>(metadata: I) -> VortexResult<String>
+where
+    I: IntoIterator<Item = (String, ByteBuffer)>,
+{
+    let array =
+        StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
+    let mut buf = ByteBufferMut::empty();
+
+    match SESSION
+        .write_options()
+        .with_metadata_segments(metadata)
+        .write(&mut buf, array.to_array_stream())
+        .await
+    {
+        Ok(_) => panic!("expected metadata write to fail"),
+        Err(err) => Ok(err.to_string()),
+    }
+}
+
 #[tokio::test]
 async fn test_file_metadata_segments_roundtrip() -> VortexResult<()> {
     let array =
@@ -1757,13 +1776,46 @@ async fn test_file_metadata_segments_roundtrip() -> VortexResult<()> {
     Ok(())
 }
 
-#[test]
-#[should_panic(expected = "metadata key must not be empty")]
-fn test_file_metadata_empty_key_rejected() {
-    drop(
-        crate::VortexWriteOptions::new(VortexSession::empty())
-            .with_metadata_segment("", ByteBuffer::empty()),
-    );
+#[tokio::test]
+async fn test_file_metadata_empty_key_rejected() -> VortexResult<()> {
+    let err = metadata_write_error([(String::new(), ByteBuffer::empty())]).await?;
+
+    assert!(err.contains("non-empty"));
+    assert!(err.contains("at most 32 characters"));
+    assert!(err.contains("at most 16 metadata segments"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_file_metadata_long_key_rejected() -> VortexResult<()> {
+    let err = metadata_write_error([(
+        "a".repeat(crate::footer::MAX_METADATA_KEY_CHARS + 1),
+        ByteBuffer::empty(),
+    )])
+    .await?;
+
+    assert!(err.contains("33 characters"));
+    assert!(err.contains("at most 32 characters"));
+    assert!(err.contains("at most 16 metadata segments"));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_file_metadata_too_many_segments_rejected() -> VortexResult<()> {
+    let err = metadata_write_error(
+        (0..=crate::footer::MAX_METADATA_SEGMENTS)
+            .map(|idx| (format!("metadata-{idx}"), ByteBuffer::empty()))
+            .collect::<Vec<_>>(),
+    )
+    .await?;
+
+    assert!(err.contains("got 17 metadata segments"));
+    assert!(err.contains("at most 16 metadata segments"));
+    assert!(err.contains("at most 32 characters"));
+
+    Ok(())
 }
 
 #[tokio::test]
