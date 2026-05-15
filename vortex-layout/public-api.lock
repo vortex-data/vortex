@@ -1556,7 +1556,29 @@ pub struct vortex_layout::v2::demand::RowDemand
 
 impl vortex_layout::v2::demand::RowDemand
 
+pub fn vortex_layout::v2::demand::RowDemand::consumer(&alloc::sync::Arc<Self>) -> vortex_layout::v2::demand::RowDemandConsumer
+
 pub fn vortex_layout::v2::demand::RowDemand::empty() -> Self
+
+pub fn vortex_layout::v2::demand::RowDemand::producer(&alloc::sync::Arc<Self>) -> vortex_layout::v2::demand::RowDemandProducer
+
+pub struct vortex_layout::v2::demand::RowDemandConsumer
+
+impl vortex_layout::v2::demand::RowDemandConsumer
+
+pub fn vortex_layout::v2::demand::RowDemandConsumer::cardinality(&self, vortex_layout::v2::demand::RowRange) -> u64
+
+pub fn vortex_layout::v2::demand::RowDemandConsumer::is_empty(&self, vortex_layout::v2::demand::RowRange) -> bool
+
+pub fn vortex_layout::v2::demand::RowDemandConsumer::snapshot(&self, vortex_layout::v2::demand::RowRange) -> (u64, alloc::sync::Arc<vortex_mask::Mask>)
+
+pub async fn vortex_layout::v2::demand::RowDemandConsumer::wait_for_newer(&self, vortex_layout::v2::demand::RowRange, u64)
+
+pub struct vortex_layout::v2::demand::RowDemandProducer
+
+impl vortex_layout::v2::demand::RowDemandProducer
+
+pub fn vortex_layout::v2::demand::RowDemandProducer::publish(&self, vortex_layout::v2::demand::RowRange, vortex_mask::Mask) -> vortex_error::VortexResult<()>
 
 pub type vortex_layout::v2::demand::RowRange = core::ops::range::Range<u64>
 
@@ -1923,6 +1945,38 @@ pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::schema(&self) -> &vortex_ar
 pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
 
 pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+
+pub mod vortex_layout::v2::matcher
+
+pub struct vortex_layout::v2::matcher::AnyPlan
+
+impl core::fmt::Debug for vortex_layout::v2::matcher::AnyPlan
+
+pub fn vortex_layout::v2::matcher::AnyPlan::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_layout::v2::matcher::Matcher for vortex_layout::v2::matcher::AnyPlan
+
+pub type vortex_layout::v2::matcher::AnyPlan::Match<'a> = &'a alloc::sync::Arc<dyn vortex_layout::v2::plan::LayoutPlan>
+
+pub fn vortex_layout::v2::matcher::AnyPlan::matches(&vortex_layout::v2::plan::LayoutPlanRef) -> bool
+
+pub fn vortex_layout::v2::matcher::AnyPlan::try_match(&vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<Self::Match>
+
+pub trait vortex_layout::v2::matcher::Matcher
+
+pub type vortex_layout::v2::matcher::Matcher::Match<'a>
+
+pub fn vortex_layout::v2::matcher::Matcher::matches(&vortex_layout::v2::plan::LayoutPlanRef) -> bool
+
+pub fn vortex_layout::v2::matcher::Matcher::try_match(&vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<Self::Match>
+
+impl vortex_layout::v2::matcher::Matcher for vortex_layout::v2::matcher::AnyPlan
+
+pub type vortex_layout::v2::matcher::AnyPlan::Match<'a> = &'a alloc::sync::Arc<dyn vortex_layout::v2::plan::LayoutPlan>
+
+pub fn vortex_layout::v2::matcher::AnyPlan::matches(&vortex_layout::v2::plan::LayoutPlanRef) -> bool
+
+pub fn vortex_layout::v2::matcher::AnyPlan::try_match(&vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<Self::Match>
 
 pub mod vortex_layout::v2::plan
 
@@ -2345,6 +2399,20 @@ pub fn vortex_layout::v2::project::ProjectPlan::schema(&self) -> &vortex_array::
 pub fn vortex_layout::v2::project::ProjectPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
 
 pub fn vortex_layout::v2::project::ProjectPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+
+pub mod vortex_layout::v2::pushdown
+
+pub enum vortex_layout::v2::pushdown::RewriteResult
+
+pub vortex_layout::v2::pushdown::RewriteResult::Rewritten(vortex_layout::v2::plan::LayoutPlanRef)
+
+pub vortex_layout::v2::pushdown::RewriteResult::Unchanged
+
+pub trait vortex_layout::v2::pushdown::PlanPushdownRule
+
+pub type vortex_layout::v2::pushdown::PlanPushdownRule::Parent: vortex_layout::v2::matcher::Matcher
+
+pub fn vortex_layout::v2::pushdown::PlanPushdownRule::rewrite(&self, vortex_layout::v2::plan::LayoutPlanRef) -> vortex_error::VortexResult<vortex_layout::v2::pushdown::RewriteResult>
 
 pub mod vortex_layout::v2::scan
 
