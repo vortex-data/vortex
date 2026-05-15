@@ -110,7 +110,7 @@ impl Scan {
             _ => Arc::new(AndBoolStreamsPlan::new(conjunct_plans, row_count)),
         };
 
-        Ok(Arc::new(FilterPlan::new(projection_plan, mask_plan)))
+        Ok(FilterPlan::new_or_pushdown(projection_plan, mask_plan))
     }
 }
 

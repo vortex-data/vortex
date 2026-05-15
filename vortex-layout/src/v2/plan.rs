@@ -85,6 +85,33 @@ pub trait LayoutPlan: 'static + Send + Sync {
         children: Vec<LayoutPlanRef>,
     ) -> VortexResult<LayoutPlanRef>;
 
+    /// Try to absorb `mask_plan` (a Bool-stream plan covering this
+    /// plan's row coordinate space) into a rewritten version of self.
+    ///
+    /// Returns `Some(new_plan)` when the rewrite is possible. The
+    /// caller (`FilterPlan` or a future pushdown rule) drops its
+    /// wrapping mask and uses `new_plan` directly. Returns `None`
+    /// when the plan can't absorb a mask itself; the caller must
+    /// fall back to the wrapping `FilterPlan`.
+    ///
+    /// `mask_plan`'s row space must match `self`'s row space and its
+    /// schema must be `DType::Bool(_)`. The rewritten plan must emit
+    /// the *filtered* rows — same observable result as
+    /// `FilterPlan(self, mask_plan)`.
+    ///
+    /// Default returns `None` so most plan nodes opt out; nodes that
+    /// can usefully exploit the mask (`FlatPlan` reading with a
+    /// selective mask, `ChunkedPlan` slicing the mask per chunk and
+    /// pushing further down, etc.) override.
+    ///
+    /// See `LAYOUT_PLAN.md` § FilterPlan and its pushdown.
+    fn try_pushdown_mask(
+        self: Arc<Self>,
+        _mask_plan: LayoutPlanRef,
+    ) -> Option<LayoutPlanRef> {
+        None
+    }
+
     /// Read the rows in `row_range` from this plan, in this plan's
     /// row coordinate space. Returns a stream of arrays whose total
     /// row count is `row_range.len()`.

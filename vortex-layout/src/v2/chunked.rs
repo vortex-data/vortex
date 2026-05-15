@@ -17,6 +17,7 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::v2::mask_slice::MaskSlicePlan;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -117,6 +118,40 @@ impl LayoutPlan for ChunkedPlan {
         }
         Ok(Arc::new(Self {
             children,
+            chunk_offsets: self.chunk_offsets.clone(),
+            output_dtype: self.output_dtype.clone(),
+            preserve_order: self.preserve_order,
+        }))
+    }
+
+    fn try_pushdown_mask(self: Arc<Self>, mask_plan: LayoutPlanRef) -> Option<LayoutPlanRef> {
+        if !matches!(mask_plan.schema(), DType::Bool(_)) {
+            return None;
+        }
+        // Push the chunk's slice of the mask into each child. Each
+        // child sees the mask in its own (chunk-local) row coordinate
+        // space via `MaskSlicePlan`. If any child rejects the push,
+        // we bail and let the caller wrap with `FilterPlan`.
+        //
+        // FIXME: each child's `MaskSlicePlan` independently re-executes
+        // the upstream mask plan over its slice. For mask plans that
+        // do real work (e.g. `ZonedPruningPlan` reads the zones table
+        // each call) this is redundant — the right fix is the CSE
+        // pass + `Let` / `Use` to share the mask evaluation across
+        // chunks. For now the redundancy is honest.
+        let mut new_children = Vec::with_capacity(self.children.len());
+        for idx in 0..self.children.len() {
+            let chunk_start = self.chunk_offsets[idx];
+            let chunk_end = self.chunk_offsets[idx + 1];
+            let sliced: LayoutPlanRef = Arc::new(MaskSlicePlan::new(
+                Arc::clone(&mask_plan),
+                chunk_start..chunk_end,
+            ));
+            let pushed = Arc::clone(&self.children[idx]).try_pushdown_mask(sliced)?;
+            new_children.push(pushed);
+        }
+        Some(Arc::new(Self {
+            children: new_children,
             chunk_offsets: self.chunk_offsets.clone(),
             output_dtype: self.output_dtype.clone(),
             preserve_order: self.preserve_order,

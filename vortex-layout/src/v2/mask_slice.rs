@@ -1,0 +1,117 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! [`MaskSlicePlan`] — adapter that re-bases a mask plan into a
+//! sub-range's local row coordinates.
+//!
+//! Used by [`crate::v2::chunked::ChunkedPlan::try_pushdown_mask`] when
+//! it needs to give each chunk's child plan only the chunk's slice of
+//! a parent mask. The wrapped child sees a plan in its own
+//! coordinate space; at execute time the wrapper translates back to
+//! the parent's absolute coordinates and calls the original mask.
+//!
+//! This is the simple, redundant version: each chunk's mask read is
+//! independent. Shared evaluation across chunks waits for the CSE
+//! pass + `Let` / `Use` (see `LAYOUT_PLAN.md` § Tee and CSE).
+
+use std::ops::Range;
+use std::sync::Arc;
+
+use vortex_array::dtype::DType;
+use vortex_array::stream::SendableArrayStream;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+
+use crate::v2::plan::LayoutPlan;
+use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plan::PartitionStats;
+use crate::v2::scan_ctx::ScanCtx;
+
+/// Re-bases an inner mask plan into a sub-range's local coordinates.
+/// The wrapped plan's row space is `0..slice_len`; `execute` adds
+/// `slice_offset` and forwards to the inner plan.
+pub struct MaskSlicePlan {
+    inner: LayoutPlanRef,
+    slice_offset: u64,
+    slice_len: u64,
+}
+
+impl MaskSlicePlan {
+    /// Build an adapter exposing `inner` as a plan over the local
+    /// range `0..(abs_range.end - abs_range.start)`. `inner` must
+    /// already cover at least `abs_range`.
+    pub fn new(inner: LayoutPlanRef, abs_range: Range<u64>) -> Self {
+        debug_assert!(abs_range.end >= abs_range.start);
+        Self {
+            inner,
+            slice_offset: abs_range.start,
+            slice_len: abs_range.end - abs_range.start,
+        }
+    }
+}
+
+impl LayoutPlan for MaskSlicePlan {
+    fn schema(&self) -> &DType {
+        self.inner.schema()
+    }
+
+    fn partition_count(&self) -> usize {
+        1
+    }
+
+    fn partition_stats(&self, partition: usize) -> VortexResult<PartitionStats> {
+        if partition >= 1 {
+            vortex_bail!("MaskSlicePlan partition out of range: {partition}");
+        }
+        Ok(PartitionStats::for_range(0..self.slice_len))
+    }
+
+    fn output_ordered(&self) -> bool {
+        self.inner.output_ordered()
+    }
+
+    fn required_input_ordered(&self) -> Vec<bool> {
+        self.inner.required_input_ordered()
+    }
+
+    fn maintains_input_order(&self) -> Vec<bool> {
+        self.inner.maintains_input_order()
+    }
+
+    fn children(&self) -> &[LayoutPlanRef] {
+        std::slice::from_ref(&self.inner)
+    }
+
+    fn with_new_children(
+        self: Arc<Self>,
+        children: Vec<LayoutPlanRef>,
+    ) -> VortexResult<LayoutPlanRef> {
+        if children.len() != 1 {
+            vortex_bail!(
+                "MaskSlicePlan::with_new_children expected 1 child, got {}",
+                children.len()
+            );
+        }
+        let inner = children
+            .into_iter()
+            .next()
+            .ok_or_else(|| vortex_error::vortex_err!("MaskSlicePlan: empty children vec"))?;
+        Ok(Arc::new(Self {
+            inner,
+            slice_offset: self.slice_offset,
+            slice_len: self.slice_len,
+        }))
+    }
+
+    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
+        if row_range.end > self.slice_len {
+            vortex_bail!(
+                "MaskSlicePlan::execute row range {row_range:?} exceeds slice len {}",
+                self.slice_len
+            );
+        }
+        let abs_start = self.slice_offset + row_range.start;
+        let abs_end = self.slice_offset + row_range.end;
+        self.inner.execute(abs_start..abs_end, ctx)
+    }
+}

@@ -45,6 +45,9 @@ pub struct FilterPlan {
 }
 
 impl FilterPlan {
+    /// Construct a `FilterPlan` over `values` and `mask`. Always
+    /// returns a real `FilterPlan`; use [`Self::new_or_pushdown`] to
+    /// give the values plan a chance to absorb the mask first.
     pub fn new(values: LayoutPlanRef, mask: LayoutPlanRef) -> Self {
         debug_assert!(
             matches!(mask.schema(), DType::Bool(_)),
@@ -56,6 +59,21 @@ impl FilterPlan {
             mask,
             output_dtype,
         }
+    }
+
+    /// Try to push `mask` into `values` via
+    /// [`LayoutPlan::try_pushdown_mask`]. If the values plan absorbs
+    /// it, return the rewrite directly (no `FilterPlan` wrapper). If
+    /// not, fall back to wrapping with `FilterPlan::new`.
+    pub fn new_or_pushdown(values: LayoutPlanRef, mask: LayoutPlanRef) -> LayoutPlanRef {
+        debug_assert!(
+            matches!(mask.schema(), DType::Bool(_)),
+            "FilterPlan: mask plan must produce a Bool stream",
+        );
+        if let Some(pushed) = Arc::clone(&values).try_pushdown_mask(Arc::clone(&mask)) {
+            return pushed;
+        }
+        Arc::new(Self::new(values, mask))
     }
 }
 
