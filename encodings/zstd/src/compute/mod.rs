@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod cast;
+pub(crate) mod uncompressed_size;
 
 #[cfg(test)]
 mod tests {

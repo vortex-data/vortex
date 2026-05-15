@@ -23,6 +23,10 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ExecutionResult;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::FixedWidthUncompressedSizeInBytesKernel;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::Primitive;
@@ -42,6 +46,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::serde::ArrayChildren;
+use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -68,14 +73,13 @@ mod ops;
 mod rules;
 mod slice;
 
-use vortex_array::aggregate_fn::AggregateFnVTable as _;
+
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::min_max::MinMax;
 use vortex_array::aggregate_fn::fns::nan_count::NanCount;
 use vortex_array::aggregate_fn::fns::null_count::NullCount;
 use vortex_array::aggregate_fn::fns::sum::Sum;
-use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
-use vortex_array::session::ArraySessionExt;
+
 
 /// Initialize Sparse encoding in the given session.
 ///
@@ -110,6 +114,12 @@ pub fn initialize(session: &VortexSession) {
         Sparse.id(),
         Some(NanCount.id()),
         &compute::nan_count::SparseNanCountKernel,
+    );
+
+    session.aggregate_fns().register_aggregate_kernel(
+        Sparse.id(),
+        Some(UncompressedSizeInBytes.id()),
+        &FixedWidthUncompressedSizeInBytesKernel,
     );
 }
 

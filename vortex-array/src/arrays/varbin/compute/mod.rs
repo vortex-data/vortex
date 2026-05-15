@@ -9,6 +9,7 @@ mod compare;
 mod filter;
 mod mask;
 mod take;
+pub(crate) mod uncompressed_size;
 
 #[cfg(test)]
 mod tests {

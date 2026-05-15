@@ -14,6 +14,8 @@ mod timestamp;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::FixedWidthUncompressedSizeInBytesKernel;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
@@ -26,6 +28,11 @@ pub fn initialize(session: &VortexSession) {
         DateTimeParts.id(),
         Some(IsConstant.id()),
         &compute::is_constant::DateTimePartsIsConstantKernel,
+    );
+    session.aggregate_fns().register_aggregate_kernel(
+        DateTimeParts.id(),
+        Some(UncompressedSizeInBytes.id()),
+        &FixedWidthUncompressedSizeInBytesKernel,
     );
 }
 

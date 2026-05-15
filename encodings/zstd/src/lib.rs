@@ -2,6 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub use array::*;
+use vortex_array::ArrayVTable;
+use vortex_array::aggregate_fn::AggregateFnVTable;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
+use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
+use vortex_array::session::ArraySessionExt;
+use vortex_session::VortexSession;
 #[cfg(feature = "unstable_encodings")]
 pub use zstd_buffers::*;
 
@@ -14,6 +20,28 @@ mod zstd_buffers;
 
 #[cfg(test)]
 mod test;
+
+/// Initialize Zstd encodings in the given session.
+pub fn initialize(session: &VortexSession) {
+    session.arrays().register(Zstd);
+    session.aggregate_fns().register_aggregate_kernel(
+        Zstd.id(),
+        Some(UncompressedSizeInBytes.id()),
+        &compute::uncompressed_size::ZstdUncompressedSizeInBytesKernel,
+    );
+
+    #[cfg(feature = "unstable_encodings")]
+    {
+        use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::FixedWidthUncompressedSizeInBytesKernel;
+
+        session.arrays().register(ZstdBuffers);
+        session.aggregate_fns().register_aggregate_kernel(
+            ZstdBuffers.id(),
+            Some(UncompressedSizeInBytes.id()),
+            &FixedWidthUncompressedSizeInBytesKernel,
+        );
+    }
+}
 
 #[derive(Clone, prost::Message)]
 pub struct ZstdFrameMetadata {

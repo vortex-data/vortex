@@ -5,6 +5,7 @@ mod bool;
 mod decimal;
 mod extension;
 mod fixed_size_list;
+mod kernel;
 mod list_view;
 mod null;
 mod primitive;
@@ -17,6 +18,7 @@ use bool::bool_uncompressed_size_in_bytes;
 use decimal::decimal_uncompressed_size_in_bytes;
 use extension::extension_uncompressed_size_in_bytes;
 use fixed_size_list::fixed_size_list_uncompressed_size_in_bytes;
+pub use kernel::FixedWidthUncompressedSizeInBytesKernel;
 use list_view::list_view_uncompressed_size_in_bytes;
 use null::null_uncompressed_size_in_bytes;
 use primitive::primitive_uncompressed_size_in_bytes;
@@ -62,7 +64,7 @@ pub fn uncompressed_size_in_bytes(array: &ArrayRef, ctx: &mut ExecutionCtx) -> V
         .map_err(|e| vortex_err!("Failed to convert uncompressed size to usize: {e}"))
 }
 
-fn uncompressed_size_in_bytes_u64(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
+pub fn uncompressed_size_in_bytes_u64(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<u64> {
     if let Precision::Exact(size_scalar) = array.statistics().get(Stat::UncompressedSizeInBytes) {
         return u64::try_from(&size_scalar)
             .map_err(|e| vortex_err!("Failed to convert uncompressed size stat to u64: {e}"));
@@ -166,6 +168,22 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
         Ok(())
     }
 
+    fn try_accumulate(
+        &self,
+        partial: &mut Self::Partial,
+        batch: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<bool> {
+        let Some(size) = kernel::fixed_width_uncompressed_size_in_bytes(batch, ctx)? else {
+            return Ok(false);
+        };
+
+        *partial = partial
+            .checked_add(size)
+            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
+        Ok(true)
+    }
+
     fn finalize(&self, partials: ArrayRef) -> VortexResult<ArrayRef> {
         Ok(partials)
     }
@@ -254,7 +272,7 @@ fn constant_validity_size(
     validity_uncompressed_size_in_bytes(validity)
 }
 
-fn checked_len_mul(len: usize, width: usize, name: &str) -> VortexResult<u64> {
+pub(crate) fn checked_len_mul(len: usize, width: usize, name: &str) -> VortexResult<u64> {
     let len = u64::try_from(len)
         .map_err(|e| vortex_err!("Failed to convert {name} length to u64: {e}"))?;
     let width = u64::try_from(width)
@@ -321,10 +339,12 @@ mod tests {
     use crate::arrays::DecimalArray;
     use crate::arrays::ExtensionArray;
     use crate::arrays::FixedSizeListArray;
+    use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::arrays::VariantArray;
     use crate::builders::builder_with_capacity;
@@ -471,6 +491,27 @@ mod tests {
     }
 
     #[test]
+    fn varbin_matches_materialized_size() -> VortexResult<()> {
+        let array = VarBinArray::from_iter(
+            [
+                Some("prefix"),
+                Some("short"),
+                None,
+                Some("this string is longer than twelve bytes"),
+            ],
+            DType::Utf8(Nullability::Nullable),
+        )
+        .into_array()
+        .slice(1..4)?;
+
+        assert_eq!(
+            aggregate(&array)?,
+            materialized_uncompressed_size_in_bytes(&array)
+        );
+        Ok(())
+    }
+
+    #[test]
     fn list_matches_materialized_size() -> VortexResult<()> {
         let elements =
             PrimitiveArray::new(buffer![1i32, 2, 3, 4], Validity::NonNullable).into_array();
@@ -478,6 +519,22 @@ mod tests {
         let sizes = buffer![2u32, 1].into_array();
         let array =
             ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).into_array();
+
+        assert_eq!(
+            aggregate(&array)?,
+            materialized_uncompressed_size_in_bytes(&array)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn list_array_matches_materialized_size() -> VortexResult<()> {
+        let elements =
+            PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable).into_array();
+        let offsets = buffer![0u32, 2, 4, 5].into_array();
+        let array = ListArray::try_new(elements, offsets, Validity::NonNullable)?
+            .into_array()
+            .slice(1..3)?;
 
         assert_eq!(
             aggregate(&array)?,

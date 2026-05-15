@@ -8,6 +8,7 @@ mod mask;
 pub(crate) mod rules;
 mod slice;
 mod take;
+pub(crate) mod uncompressed_size;
 
 pub(crate) use kernels::PARENT_KERNELS;
 

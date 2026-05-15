@@ -1043,6 +1043,10 @@ impl ZstdData {
     pub(crate) fn unsliced_n_rows(&self) -> usize {
         self.unsliced_n_rows
     }
+
+    pub(crate) fn metadata(&self) -> &ZstdMetadata {
+        &self.metadata
+    }
 }
 
 impl ValidityVTable<Zstd> for Zstd {

@@ -5,6 +5,8 @@
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes;
+use vortex_array::aggregate_fn::session::AggregateFnSession;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -12,12 +14,19 @@ use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 use crate::Zstd;
+use crate::ZstdData;
+use crate::ZstdFrameMetadata;
+use crate::ZstdMetadata;
 
 #[test]
 fn test_zstd_compress_decompress() {
@@ -43,6 +52,34 @@ fn test_zstd_compress_decompress() {
 
     let slice = compressed.slice(200..200).unwrap();
     assert_arrays_eq!(slice, PrimitiveArray::from_iter(Vec::<i32>::new()));
+}
+
+#[test]
+fn test_uncompressed_size_does_not_decompress_primitive_frames() {
+    let session = VortexSession::empty()
+        .with::<ArraySession>()
+        .with::<AggregateFnSession>();
+    crate::initialize(&session);
+    let metadata = ZstdMetadata {
+        dictionary_size: 0,
+        frames: vec![ZstdFrameMetadata {
+            uncompressed_size: 16,
+            n_values: 4,
+        }],
+    };
+    let data = ZstdData::new(None, vec![ByteBuffer::from(vec![0xff])], metadata, 4);
+    let array = Zstd::try_new(
+        DType::Primitive(PType::I32, Nullability::NonNullable),
+        data,
+        Validity::NonNullable,
+    )
+    .unwrap()
+    .into_array();
+    let mut ctx = session.create_execution_ctx();
+
+    let size = uncompressed_size_in_bytes(&array, &mut ctx).unwrap();
+
+    assert_eq!(size, 16);
 }
 
 #[test]

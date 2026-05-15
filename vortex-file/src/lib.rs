@@ -161,7 +161,6 @@ mod forever_constant {
 pub fn register_default_encodings(session: &VortexSession) {
     {
         let arrays = session.arrays();
-        arrays.register(ByteBool);
         arrays.register(Dict);
         arrays.register(FSST);
         #[cfg(feature = "unstable_encodings")]
@@ -177,12 +176,14 @@ pub fn register_default_encodings(session: &VortexSession) {
         }
     }
 
-    // Eventually all encodings crates should expose an initialize function. For now it's only
-    // a few of them.
+    // Register encoding-specific array plugins and aggregate kernels.
     vortex_alp::initialize(session);
+    vortex_bytebool::initialize(session);
     vortex_datetime_parts::initialize(session);
     vortex_decimal_byte_parts::initialize(session);
     vortex_fastlanes::initialize(session);
+    vortex_fsst::initialize(session);
+    vortex_pco::initialize(session);
     vortex_runend::initialize(session);
     vortex_sequence::initialize(session);
     vortex_sparse::initialize(session);

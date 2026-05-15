@@ -16,6 +16,8 @@ pub use decimal_byte_parts::*;
 use vortex_array::ArrayVTable;
 use vortex_array::aggregate_fn::AggregateFnVTable;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::FixedWidthUncompressedSizeInBytesKernel;
+use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::session::AggregateFnSessionExt;
 use vortex_array::session::ArraySessionExt;
 use vortex_session::VortexSession;
@@ -28,5 +30,10 @@ pub fn initialize(session: &VortexSession) {
         DecimalByteParts.id(),
         Some(IsConstant.id()),
         &DecimalBytePartsIsConstantKernel,
+    );
+    session.aggregate_fns().register_aggregate_kernel(
+        DecimalByteParts.id(),
+        Some(UncompressedSizeInBytes.id()),
+        &FixedWidthUncompressedSizeInBytesKernel,
     );
 }
