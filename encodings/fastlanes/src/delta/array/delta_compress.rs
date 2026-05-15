@@ -32,7 +32,8 @@ pub fn delta_compress(
         // TODO(robert): This can be avoided if we add TransposedBoolArray that performs index translation when necessary.
         let validity = transpose_validity(&validity, ctx)?;
         (
-            PrimitiveArray::new(bases, array.dtype().nullability().into()),PrimitiveArray::new(deltas, validity),
+            PrimitiveArray::new(bases, array.dtype().nullability().into()),
+            PrimitiveArray::new(deltas, validity),
         )
     });
 
