@@ -118,4 +118,3 @@ impl DeltaData {
 pub(crate) fn lane_count(ptype: PType) -> usize {
     match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| { T::LANES })
 }
-
