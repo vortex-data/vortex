@@ -168,7 +168,7 @@ impl RowDemand {
         })
     }
 
-    /// Empty demand state — covers zero rows. Used by `PlanContext`
+    /// Empty demand state — covers zero rows. Used by `PlanCtx`
     /// constructors that haven't decided on a real `RowDemand` yet.
     /// `consumer().cardinality()` returns 0; predicate waits resolve
     /// immediately as `AllProducersDone`.

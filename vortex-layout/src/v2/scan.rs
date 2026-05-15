@@ -26,7 +26,7 @@ use crate::v2::demand::RowDemand;
 use crate::v2::filter::FilterPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PlanArguments;
-use crate::v2::plan::PlanContext;
+use crate::v2::plan::PlanCtx;
 
 /// Scan request for the LayoutPlan v2 path. Mirrors the inputs to
 /// `vortex_layout::scan::scan_builder::ScanBuilder` but produces a
@@ -69,7 +69,7 @@ impl Scan {
         }
 
         let demand = RowDemand::empty();
-        let ctx = PlanContext {
+        let ctx = PlanCtx {
             demand,
             segment_source: Arc::clone(&self.segment_source),
             session: self.session.clone(),
@@ -347,12 +347,12 @@ mod tests {
 
         use crate::segments::SegmentSource;
         use crate::v2::plan::PlanArguments;
-        use crate::v2::plan::PlanContext;
+        use crate::v2::plan::PlanCtx;
 
         let (segments, layout, _) = build_chunked_struct_layout();
         let session = SESSION.clone();
         let segment_source: Arc<dyn SegmentSource> = Arc::clone(&segments) as _;
-        let ctx = PlanContext::new(segment_source, session);
+        let ctx = PlanCtx::new(segment_source, session);
         let args = PlanArguments {
             selection: Selection::All,
             expr: root(),

@@ -2202,7 +2202,7 @@ pub fn vortex_layout::v2::plan::PartitionStats::fmt(&self, &mut core::fmt::Forma
 
 pub struct vortex_layout::v2::plan::PlanArguments
 
-pub vortex_layout::v2::plan::PlanArguments::ctx: vortex_layout::v2::plan::PlanContext
+pub vortex_layout::v2::plan::PlanArguments::ctx: vortex_layout::v2::plan::PlanCtx
 
 pub vortex_layout::v2::plan::PlanArguments::expr: vortex_array::expr::expression::Expression
 
@@ -2216,23 +2216,23 @@ impl core::clone::Clone for vortex_layout::v2::plan::PlanArguments
 
 pub fn vortex_layout::v2::plan::PlanArguments::clone(&self) -> vortex_layout::v2::plan::PlanArguments
 
-pub struct vortex_layout::v2::plan::PlanContext
+pub struct vortex_layout::v2::plan::PlanCtx
 
-pub vortex_layout::v2::plan::PlanContext::demand: alloc::sync::Arc<vortex_layout::v2::demand::RowDemand>
+pub vortex_layout::v2::plan::PlanCtx::demand: alloc::sync::Arc<vortex_layout::v2::demand::RowDemand>
 
-pub vortex_layout::v2::plan::PlanContext::segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>
+pub vortex_layout::v2::plan::PlanCtx::segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>
 
-pub vortex_layout::v2::plan::PlanContext::session: vortex_session::VortexSession
+pub vortex_layout::v2::plan::PlanCtx::session: vortex_session::VortexSession
 
-impl vortex_layout::v2::plan::PlanContext
+impl vortex_layout::v2::plan::PlanCtx
 
-pub fn vortex_layout::v2::plan::PlanContext::new(alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, vortex_session::VortexSession) -> Self
+pub fn vortex_layout::v2::plan::PlanCtx::new(alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, vortex_session::VortexSession) -> Self
 
-pub fn vortex_layout::v2::plan::PlanContext::without_demand(&self) -> Self
+pub fn vortex_layout::v2::plan::PlanCtx::without_demand(&self) -> Self
 
-impl core::clone::Clone for vortex_layout::v2::plan::PlanContext
+impl core::clone::Clone for vortex_layout::v2::plan::PlanCtx
 
-pub fn vortex_layout::v2::plan::PlanContext::clone(&self) -> vortex_layout::v2::plan::PlanContext
+pub fn vortex_layout::v2::plan::PlanCtx::clone(&self) -> vortex_layout::v2::plan::PlanCtx
 
 pub trait vortex_layout::v2::plan::LayoutPlan: vortex_utils::dyn_traits::DynEq + vortex_utils::dyn_traits::DynHash + core::marker::Send + core::marker::Sync + 'static
 

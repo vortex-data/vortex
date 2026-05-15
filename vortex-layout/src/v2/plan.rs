@@ -237,7 +237,7 @@ pub fn with_hash_cache<R>(f: impl FnOnce() -> R) -> R {
 
 /// Arguments passed to [`crate::Layout::plan`]. Carries the consumer's
 /// row selection, the expression to evaluate against the layout, and
-/// a [`PlanContext`] with cross-cutting handles.
+/// a [`PlanCtx`] with cross-cutting handles.
 ///
 /// Note: there is intentionally no `row_range` field. Engines express
 /// partial scans via partition selection (FileOpener) or
@@ -247,7 +247,7 @@ pub fn with_hash_cache<R>(f: impl FnOnce() -> R) -> R {
 pub struct PlanArguments {
     pub selection: Selection,
     pub expr: Expression,
-    pub ctx: PlanContext,
+    pub ctx: PlanCtx,
 }
 
 impl PlanArguments {
@@ -269,13 +269,13 @@ impl PlanArguments {
 ///   array context (e.g. constructing `LayoutReader`s while we still
 ///   bridge to the v1 read path).
 #[derive(Clone)]
-pub struct PlanContext {
+pub struct PlanCtx {
     pub demand: Arc<RowDemand>,
     pub segment_source: Arc<dyn SegmentSource>,
     pub session: VortexSession,
 }
 
-impl PlanContext {
+impl PlanCtx {
     /// Construct a context with the given segment source and session, and
     /// an empty (no-op) [`RowDemand`]. Useful as a default for layouts
     /// that don't need to participate in demand publication.
