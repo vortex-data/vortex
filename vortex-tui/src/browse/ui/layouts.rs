@@ -88,11 +88,10 @@ fn render_layout_header(app: &AppState, area: Rect, buf: &mut Buffer) {
     }
 
     if let Some(layout) = cursor.layout().as_opt::<Zoned>() {
-        // Push any zone stats.
         let mut line = String::new();
-        line.push_str("Statistics: ");
-        for stat in layout.present_stats().as_ref() {
-            line.push_str(stat.to_string().as_str());
+        line.push_str("Aggregates: ");
+        for aggregate in layout.present_aggregates().as_ref() {
+            line.push_str(aggregate.as_str());
             line.push(' ');
         }
 

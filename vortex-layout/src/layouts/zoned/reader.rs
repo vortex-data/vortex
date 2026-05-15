@@ -26,7 +26,6 @@ use crate::LazyReaderChildren;
 use crate::SplitRange;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::pruning::PruningState;
-use crate::layouts::zoned::schema::stats_table_dtype;
 use crate::segments::SegmentSource;
 
 pub struct ZonedReader {
@@ -43,10 +42,7 @@ impl ZonedReader {
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
     ) -> VortexResult<Self> {
-        let dtypes = vec![
-            layout.dtype.clone(),
-            stats_table_dtype(layout.dtype(), layout.present_stats()),
-        ];
+        let dtypes = vec![layout.dtype.clone(), layout.stats_table_dtype()];
         let names = vec![Arc::clone(&name), format!("{}.zones", name).into()];
         let lazy_children = Arc::new(LazyReaderChildren::new(
             Arc::clone(&layout.children),
@@ -365,7 +361,8 @@ mod test {
             layout.row_count(),
             &ZonedMetadata {
                 zone_len: 0,
-                present_stats: Arc::clone(zoned_layout.present_stats()),
+                present_aggregates: Arc::clone(zoned_layout.present_aggregates()),
+                legacy_present_stats: None,
             },
             vec![],
             children.as_ref(),

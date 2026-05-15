@@ -149,7 +149,7 @@ impl PruningState {
                     let mut ctx = session.create_execution_ctx();
                     let zones_array = zones_eval.await?.execute::<StructArray>(&mut ctx)?;
                     // SAFETY: zoned layout validation checked that this zones child was
-                    // written from the same column dtype and stats-table schema.
+                    // written from the same column dtype and aggregate stats-table schema.
                     Ok(unsafe { ZoneMap::new_unchecked(dtype, zones_array, zone_len, row_count) })
                 }
                 .map_err(Arc::new)

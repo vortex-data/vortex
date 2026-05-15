@@ -4,9 +4,9 @@
 //! - a transparent `data` child containing the underlying column data
 //! - an auxiliary `zones` child containing one row of aggregate statistics per zone
 //!
-//! Metadata stores the logical zone length in rows plus the sorted list of statistics present in
-//! the auxiliary table. During scans, pruning first evaluates a falsification predicate against
-//! the `zones` child and only forwards surviving rows to the underlying `data` child.
+//! Metadata stores the logical zone length in rows plus the aggregate descriptors present in the
+//! auxiliary table. During scans, pruning first evaluates a falsification predicate against the
+//! `zones` child and only forwards surviving rows to the underlying `data` child.
 
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
@@ -20,15 +20,18 @@ pub mod zone_map;
 
 use std::sync::Arc;
 
+pub(crate) use builder::AggregateStatsAccumulator;
 pub(crate) use builder::StatsAccumulator;
+pub(crate) use builder::aggregate_partials;
+use prost::Message;
 pub use schema::MAX_IS_TRUNCATED;
 pub use schema::MIN_IS_TRUNCATED;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::TryFromBytes;
 use vortex_array::expr::stats::Stat;
-use vortex_array::stats::as_stat_bitset_bytes;
 use vortex_array::stats::stats_from_bitset_bytes;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -48,7 +51,11 @@ use crate::VTable;
 use crate::children::LayoutChildren;
 use crate::children::OwnedLayoutChildren;
 use crate::layouts::zoned::reader::ZonedReader;
-use crate::layouts::zoned::schema::stats_table_dtype;
+use crate::layouts::zoned::schema::aggregate_descriptor;
+use crate::layouts::zoned::schema::aggregate_stats_table_dtype;
+use crate::layouts::zoned::schema::descriptor_stats_table_dtype;
+use crate::layouts::zoned::schema::descriptors_from_legacy_stats;
+use crate::layouts::zoned::schema::legacy_stats_table_dtype;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::vtable;
@@ -80,7 +87,8 @@ impl VTable for Zoned {
     fn metadata(layout: &Self::Layout) -> Self::Metadata {
         ZonedMetadata {
             zone_len: u32::try_from(layout.zone_len).vortex_expect("Invalid zone length"),
-            present_stats: Arc::clone(&layout.present_stats),
+            present_aggregates: Arc::clone(&layout.present_aggregates),
+            legacy_present_stats: None,
         }
     }
 
@@ -95,9 +103,7 @@ impl VTable for Zoned {
     fn child(layout: &Self::Layout, idx: usize) -> VortexResult<LayoutRef> {
         match idx {
             0 => layout.children.child(0, layout.dtype()),
-            1 => layout
-                .children
-                .child(1, &stats_table_dtype(layout.dtype(), &layout.present_stats)),
+            1 => layout.children.child(1, &layout.stats_table_dtype()),
             _ => vortex_bail!("Invalid child index: {}", idx),
         }
     }
@@ -142,7 +148,9 @@ impl VTable for Zoned {
             dtype: dtype.clone(),
             children: children.to_arc(),
             zone_len: metadata.zone_len as usize,
-            present_stats: Arc::clone(&metadata.present_stats),
+            present_aggregates: Arc::clone(&metadata.present_aggregates),
+            aggregate_fns: None,
+            legacy_present_stats: metadata.legacy_present_stats.clone(),
         })
     }
 
@@ -172,7 +180,9 @@ pub struct ZonedLayout {
     dtype: DType,
     children: Arc<dyn LayoutChildren>,
     zone_len: usize,
-    present_stats: Arc<[Stat]>,
+    present_aggregates: Arc<[String]>,
+    aggregate_fns: Option<Arc<[AggregateFnRef]>>,
+    legacy_present_stats: Option<Arc<[Stat]>>,
 }
 
 impl ZonedLayout {
@@ -180,20 +190,27 @@ impl ZonedLayout {
         data: LayoutRef,
         zones: LayoutRef,
         zone_len: usize,
-        present_stats: Arc<[Stat]>,
+        aggregate_fns: Arc<[AggregateFnRef]>,
     ) -> Self {
         if zone_len == 0 {
             vortex_panic!("Zone length must be greater than 0");
         }
-        let expected_dtype = stats_table_dtype(data.dtype(), &present_stats);
+        let expected_dtype = aggregate_stats_table_dtype(data.dtype(), &aggregate_fns);
         if zones.dtype() != &expected_dtype {
             vortex_panic!("Invalid zone map layout: zones dtype does not match expected dtype");
         }
+        let present_aggregates = aggregate_fns
+            .iter()
+            .map(aggregate_descriptor)
+            .collect::<Vec<_>>()
+            .into();
         Self {
             dtype: data.dtype().clone(),
             children: OwnedLayoutChildren::layout_children(vec![data, zones]),
             zone_len,
-            present_stats,
+            present_aggregates,
+            aggregate_fns: Some(aggregate_fns),
+            legacy_present_stats: None,
         }
     }
 
@@ -205,26 +222,58 @@ impl ZonedLayout {
         self.zone_len
     }
 
-    /// Returns an array of stats that exist in the layout's data, must be sorted.
-    pub fn present_stats(&self) -> &Arc<[Stat]> {
-        &self.present_stats
+    /// Returns aggregate descriptors for zone stats stored by this layout.
+    pub fn present_aggregates(&self) -> &Arc<[String]> {
+        &self.present_aggregates
+    }
+
+    pub(super) fn stats_table_dtype(&self) -> DType {
+        if let Some(legacy_present_stats) = &self.legacy_present_stats {
+            return legacy_stats_table_dtype(&self.dtype, legacy_present_stats);
+        }
+
+        if let Some(aggregate_fns) = &self.aggregate_fns {
+            return aggregate_stats_table_dtype(&self.dtype, aggregate_fns);
+        }
+
+        descriptor_stats_table_dtype(&self.dtype, &self.present_aggregates)
     }
 }
 
 /// Serialized zoned-layout metadata.
 ///
-/// `zone_len` is the logical row length of each zone. `present_stats` is the sorted list of
-/// statistics stored in the auxiliary stats-table child.
+/// `zone_len` is the logical row length of each zone. `present_aggregates` is the ordered list of
+/// aggregate descriptors stored in the auxiliary stats-table child.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ZonedMetadata {
     pub(super) zone_len: u32,
-    pub(super) present_stats: Arc<[Stat]>,
+    pub(super) present_aggregates: Arc<[String]>,
+    pub(super) legacy_present_stats: Option<Arc<[Stat]>>,
+}
+
+const ZONED_METADATA_PROTO_MAGIC: &[u8] = b"VZONED\x01";
+
+#[derive(Clone, PartialEq, Message)]
+struct ZonedMetadataProto {
+    #[prost(uint32, tag = "1")]
+    zone_len: u32,
+    #[prost(string, repeated, tag = "2")]
+    present_aggregates: Vec<String>,
 }
 
 impl DeserializeMetadata for ZonedMetadata {
     type Output = Self;
 
     fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
+        if let Some(proto_bytes) = metadata.strip_prefix(ZONED_METADATA_PROTO_MAGIC) {
+            let proto = ZonedMetadataProto::decode(proto_bytes)?;
+            return Ok(Self {
+                zone_len: proto.zone_len,
+                present_aggregates: proto.present_aggregates.into(),
+                legacy_present_stats: None,
+            });
+        }
+
         vortex_ensure!(
             metadata.len() >= 4,
             "Zoned metadata must contain at least 4 bytes for zone length, got {}",
@@ -236,21 +285,24 @@ impl DeserializeMetadata for ZonedMetadata {
         // deserialization outright.
         let zone_len = u32::try_from_le_bytes(&metadata[0..4])?;
         let present_stats: Arc<[Stat]> = stats_from_bitset_bytes(&metadata[4..]).into();
+        let present_aggregates = descriptors_from_legacy_stats(&present_stats);
 
         Ok(Self {
             zone_len,
-            present_stats,
+            present_aggregates,
+            legacy_present_stats: Some(present_stats),
         })
     }
 }
 
 impl SerializeMetadata for ZonedMetadata {
     fn serialize(self) -> Vec<u8> {
-        let mut metadata = vec![];
-        // First, write the block size to the metadata.
-        metadata.extend_from_slice(&self.zone_len.to_le_bytes());
-        // Then write the bit-set of statistics.
-        metadata.extend_from_slice(&as_stat_bitset_bytes(&self.present_stats));
+        let proto = ZonedMetadataProto {
+            zone_len: self.zone_len,
+            present_aggregates: self.present_aggregates.iter().cloned().collect(),
+        };
+        let mut metadata = ZONED_METADATA_PROTO_MAGIC.to_vec();
+        metadata.extend(proto.encode_to_vec());
         metadata
     }
 }
@@ -260,9 +312,14 @@ mod tests {
     use std::panic;
 
     use rstest::rstest;
+    use vortex_array::aggregate_fn::AggregateFnVTableExt;
+    use vortex_array::aggregate_fn::EmptyOptions;
+    use vortex_array::aggregate_fn::fns::max::Max;
+    use vortex_array::aggregate_fn::fns::min::Min;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::stats::as_stat_bitset_bytes;
     use vortex_session::registry::ReadContext;
 
     use super::*;
@@ -274,15 +331,13 @@ mod tests {
     #[rstest]
     #[case(ZonedMetadata {
             zone_len: u32::MAX,
-            present_stats: Arc::new([]),
+            present_aggregates: Arc::new([]),
+            legacy_present_stats: None,
         })]
-    #[case::all_sorted(ZonedMetadata {
+    #[case::min_max(ZonedMetadata {
             zone_len: 314,
-            present_stats: Arc::new([Stat::IsConstant, Stat::IsSorted, Stat::IsStrictSorted, Stat::Max, Stat::Min, Stat::Sum, Stat::NullCount, Stat::UncompressedSizeInBytes, Stat::NaNCount]),
-        })]
-    #[case::some_sorted(ZonedMetadata {
-            zone_len: 314,
-            present_stats: Arc::new([Stat::IsSorted, Stat::IsStrictSorted, Stat::Max, Stat::Min, Stat::Sum, Stat::NullCount, Stat::UncompressedSizeInBytes, Stat::NaNCount]),
+            present_aggregates: Arc::new([Max.bind(EmptyOptions).to_string(), Min.bind(EmptyOptions).to_string()]),
+            legacy_present_stats: None,
         })]
     fn test_metadata_serialization(#[case] metadata: ZonedMetadata) {
         let serialized = metadata.clone().serialize();
@@ -291,19 +346,25 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_unsorted_stats() {
-        let metadata = ZonedMetadata {
-            zone_len: u32::MAX,
-            present_stats: Arc::new([Stat::IsStrictSorted, Stat::IsSorted]),
-        };
-        let serialized = metadata.clone().serialize();
+    fn test_deserialize_legacy_stat_bitset_as_aggregate_descriptors() {
+        let mut serialized = u32::MAX.to_le_bytes().to_vec();
+        serialized.extend(as_stat_bitset_bytes(&[
+            Stat::IsStrictSorted,
+            Stat::IsSorted,
+            Stat::Max,
+        ]));
         let deserialized = ZonedMetadata::deserialize(&serialized).unwrap();
-        assert!(deserialized.present_stats.is_sorted());
+        let legacy_stats = deserialized.legacy_present_stats.unwrap();
+
+        assert!(legacy_stats.is_sorted());
         assert_eq!(
-            deserialized.present_stats.len(),
-            metadata.present_stats.len()
+            legacy_stats.as_ref(),
+            &[Stat::IsSorted, Stat::IsStrictSorted, Stat::Max]
         );
-        assert_ne!(deserialized.present_stats, metadata.present_stats);
+        assert_eq!(
+            deserialized.present_aggregates.as_ref(),
+            &[Max.bind(EmptyOptions).to_string()]
+        );
     }
 
     #[rstest]
@@ -330,7 +391,8 @@ mod tests {
         let metadata = 0u32.to_le_bytes();
         let deserialized = ZonedMetadata::deserialize(&metadata).unwrap();
         assert_eq!(deserialized.zone_len, 0);
-        assert!(deserialized.present_stats.is_empty());
+        assert!(deserialized.present_aggregates.is_empty());
+        assert!(deserialized.legacy_present_stats.unwrap().is_empty());
     }
 
     #[test]
@@ -341,7 +403,7 @@ mod tests {
             FlatLayout::new(0, dtype.clone(), SegmentId::from(0), read_ctx.clone()).into_layout(),
             FlatLayout::new(
                 0,
-                stats_table_dtype(&dtype, &[]),
+                legacy_stats_table_dtype(&dtype, &[]),
                 SegmentId::from(1),
                 read_ctx,
             )
@@ -354,7 +416,8 @@ mod tests {
             0,
             &ZonedMetadata {
                 zone_len: 0,
-                present_stats: Arc::new([]),
+                present_aggregates: Arc::new([]),
+                legacy_present_stats: Some(Arc::new([])),
             },
             vec![],
             children.as_ref(),
@@ -369,7 +432,8 @@ mod tests {
     fn test_build_rejects_invalid_child_count() {
         let metadata = ZonedMetadata {
             zone_len: 3,
-            present_stats: Arc::new([]),
+            present_aggregates: Arc::new([]),
+            legacy_present_stats: None,
         };
         let children = OwnedLayoutChildren::layout_children(vec![]);
 
