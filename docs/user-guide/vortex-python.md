@@ -221,7 +221,7 @@ with ThreadPoolExecutor(max_workers=len(columns)) as threads:
 
 By default Vortex starts a background worker pool sized to `available_parallelism() - 1`.
 Set `VORTEX_MAX_THREADS=n` to pin the pool to a specific size at startup. To adjust the pool
-at runtime, use {func}`vortex.set_worker_threads`; passing `None` resets it to the default:
+at runtime, use {func}`~vortex.set_worker_threads`; passing `None` resets it to the default:
 
 ```python
 import vortex as vx

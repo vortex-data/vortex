@@ -66,4 +66,5 @@ API Reference
    io
    store
    dataset
+   runtime
    type_aliases
