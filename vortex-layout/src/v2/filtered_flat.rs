@@ -231,7 +231,18 @@ impl LayoutPlan for FilteredFlatPlan {
         let row_range_for_slice = row_range.clone();
 
         let mask_stream = self.mask_plan.execute(row_range, demand, ctx)?;
+        let demand_for_skip = demand.clone();
+        let demand_range = row_range_for_slice.clone();
         let stream = try_stream! {
+            // Demand short-circuit: if any registered DemandSource
+            // (e.g. ZoneMapResource for an upstream conjunct) has
+            // already zeroed every row in our range via falsification,
+            // skip the mask read AND segment IO. This is the path
+            // that pays off cross-conjunct pruning — the zone falsifier
+            // for column A lets us skip IO on column B.
+            if demand_for_skip.cardinality(demand_range)? == 0 {
+                return;
+            }
             // Lockstep contract: await enough mask rows to cover this
             // flat layout's row range, then issue the read. The
             // partial-read variant lands later (see
