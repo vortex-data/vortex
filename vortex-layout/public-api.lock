@@ -1546,6 +1546,10 @@ pub fn vortex_layout::v2::chunked::ChunkedPlan::try_pushdown_mask(alloc::sync::A
 
 pub fn vortex_layout::v2::chunked::ChunkedPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
 
+pub mod vortex_layout::v2::cse
+
+pub fn vortex_layout::v2::cse::cse(vortex_layout::v2::plan::LayoutPlanRef) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+
 pub mod vortex_layout::v2::demand
 
 pub struct vortex_layout::v2::demand::RowDemand

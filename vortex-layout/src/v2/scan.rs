@@ -21,6 +21,7 @@ use vortex_session::VortexSession;
 use crate::LayoutRef;
 use crate::segments::SegmentSource;
 use crate::v2::and_bool::AndBoolStreamsPlan;
+use crate::v2::cse::cse;
 use crate::v2::demand::RowDemand;
 use crate::v2::filter::FilterPlan;
 use crate::v2::plan::LayoutPlanRef;
@@ -81,7 +82,10 @@ impl Scan {
         })?;
 
         let Some(filter) = self.filter.as_ref() else {
-            return Ok(projection_plan);
+            // Projection-only — still worth CSE in case the projection
+            // expression itself produced duplicate subtrees (e.g. a
+            // pack referring to the same field twice).
+            return cse(projection_plan);
         };
 
         // Decompose the filter into top-level AND conjuncts, plan
@@ -102,7 +106,7 @@ impl Scan {
             .collect::<VortexResult<_>>()?;
 
         let mask_plan: LayoutPlanRef = match conjunct_plans.len() {
-            0 => return Ok(projection_plan),
+            0 => return cse(projection_plan),
             1 => conjunct_plans
                 .into_iter()
                 .next()
@@ -110,7 +114,12 @@ impl Scan {
             _ => Arc::new(AndBoolStreamsPlan::new(conjunct_plans, row_count)),
         };
 
-        Ok(FilterPlan::new_or_pushdown(projection_plan, mask_plan))
+        // Run CSE over the combined (filter + projection) tree. The
+        // common case is a filter referencing a column that the
+        // projection also reads — both subtrees descend to the same
+        // field's layout plan, and CSE collapses them so the column
+        // is read once and shared.
+        cse(FilterPlan::new_or_pushdown(projection_plan, mask_plan))
     }
 }
 
@@ -553,10 +562,11 @@ mod tests {
     /// rows each, with min/max stats per zone. Used to exercise
     /// `ZonedPruningPlan`.
     fn build_zoned_chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef, ArrayRef) {
+        use vortex_array::arrays::ChunkedArray as ChunkedArrayInner;
+
         use crate::layouts::zoned::writer::ZonedLayoutOptions;
         use crate::layouts::zoned::writer::ZonedStrategy;
         use crate::sequence::SequentialArrayStreamExt;
-        use vortex_array::arrays::ChunkedArray as ChunkedArrayInner;
 
         let chunks = vec![
             buffer![1i32, 2, 3].into_array(),

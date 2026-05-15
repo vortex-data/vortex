@@ -14,6 +14,7 @@
 pub mod aligned;
 pub mod and_bool;
 pub mod chunked;
+pub mod cse;
 pub mod demand;
 pub mod dict;
 pub mod empty_struct;
