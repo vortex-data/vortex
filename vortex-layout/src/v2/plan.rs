@@ -25,7 +25,6 @@ use vortex_utils::dyn_traits::DynHash;
 
 use crate::segments::SegmentSource;
 use crate::v2::demand::DemandSource;
-use crate::v2::demand::Resource;
 use crate::v2::demand::RowDemand;
 use crate::v2::scan_ctx::ScanCtx;
 
@@ -311,15 +310,15 @@ impl PlanCtx {
     }
 }
 
-/// Plan-time accumulator for [`Resource`] / [`DemandSource`] handles.
+/// Plan-time accumulator for [`DemandSource`] handles.
 ///
-/// Layouts that need a per-scan [`Resource`] (e.g. a stats fetch
-/// pipeline behind a `ZoneMapResource`) call [`Self::push_resource`]
-/// (or [`Self::push_demand_source`]) during their `Layout::plan`
-/// implementation. The same `Arc` is also held by whatever plan node
-/// consumes it. After planning, [`crate::v2::scan::Scan::build`]
-/// drains the collector via [`Self::take`] and registers the contents
-/// on the resulting `ScanPlan` for `ensure_ready` orchestration.
+/// Layouts that need a per-scan [`DemandSource`] (e.g. a
+/// `ZoneMapResource`) call [`Self::push_demand_source`] during their
+/// `Layout::plan` implementation. The same `Arc` is also held by
+/// whatever plan node consumes it. After planning,
+/// [`crate::v2::scan::Scan::build`] drains the collector via
+/// [`Self::take`] and registers the contents on the resulting
+/// `ScanPlan` so they appear in the per-partition `RowDemand`.
 #[derive(Clone, Default)]
 pub struct ResourceCollector {
     inner: Arc<Mutex<ResourceCollectorInner>>,
@@ -327,31 +326,21 @@ pub struct ResourceCollector {
 
 #[derive(Default)]
 struct ResourceCollectorInner {
-    resources: Vec<Arc<dyn Resource>>,
     demand_sources: Vec<Arc<dyn DemandSource>>,
 }
 
 impl ResourceCollector {
-    /// Register a resource that must be `ensure_ready`-awaited before
-    /// the scan body executes.
-    pub fn push_resource(&self, resource: Arc<dyn Resource>) {
-        self.inner.lock().resources.push(resource);
-    }
-
-    /// Register a demand source. The collector tracks it in the
-    /// demand-source list only; `Scan::build` later passes it to
-    /// `ScanPlan::with_demand_source`, which adds it to both the
-    /// resource and demand-source lists on the plan so its
-    /// `ensure_ready` is awaited *and* it contributes to `RowDemand`.
+    /// Register a demand source. The source's `ensure_ready` is
+    /// awaited lazily on first pull (consumers that never query
+    /// demand pay no init cost).
     pub fn push_demand_source(&self, source: Arc<dyn DemandSource>) {
         self.inner.lock().demand_sources.push(source);
     }
 
-    /// Drain the collector and return the accumulated lists.
+    /// Drain the collector and return the accumulated demand sources.
     pub fn take(&self) -> CollectedResources {
         let mut inner = self.inner.lock();
         CollectedResources {
-            resources: std::mem::take(&mut inner.resources),
             demand_sources: std::mem::take(&mut inner.demand_sources),
         }
     }
@@ -359,7 +348,6 @@ impl ResourceCollector {
 
 /// Result of [`ResourceCollector::take`].
 pub struct CollectedResources {
-    pub resources: Vec<Arc<dyn Resource>>,
     pub demand_sources: Vec<Arc<dyn DemandSource>>,
 }
 

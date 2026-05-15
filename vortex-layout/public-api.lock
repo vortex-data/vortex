@@ -830,11 +830,11 @@ pub fn vortex_layout::layouts::zoned::ZoneMapResource::zone_prune_mask(&self) ->
 
 impl vortex_layout::v2::demand::DemandSource for vortex_layout::layouts::zoned::ZoneMapResource
 
-pub fn vortex_layout::layouts::zoned::ZoneMapResource::mask_for(&self, core::ops::range::Range<u64>) -> vortex_error::VortexResult<vortex_mask::Mask>
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::mask_for(&self, core::ops::range::Range<u64>) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<vortex_mask::Mask>>
 
 impl vortex_layout::v2::demand::Resource for vortex_layout::layouts::zoned::ZoneMapResource
 
-pub fn vortex_layout::layouts::zoned::ZoneMapResource::ensure_ready(&self, vortex_layout::v2::scan_ctx::ScanCtx) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<()>>
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::ensure_ready(&self) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<()>>
 
 pub fn vortex_layout::layouts::zoned::ZoneMapResource::version(&self) -> u64
 
@@ -1578,11 +1578,11 @@ pub struct vortex_layout::v2::demand::RowDemand
 
 impl vortex_layout::v2::demand::RowDemand
 
-pub fn vortex_layout::v2::demand::RowDemand::cardinality(&self, vortex_layout::v2::demand::RowRange) -> vortex_error::VortexResult<u64>
+pub async fn vortex_layout::v2::demand::RowDemand::cardinality(&self, vortex_layout::v2::demand::RowRange) -> vortex_error::VortexResult<u64>
 
 pub fn vortex_layout::v2::demand::RowDemand::empty(u64) -> Self
 
-pub fn vortex_layout::v2::demand::RowDemand::mask_for(&self, vortex_layout::v2::demand::RowRange) -> vortex_error::VortexResult<vortex_mask::Mask>
+pub async fn vortex_layout::v2::demand::RowDemand::mask_for(&self, vortex_layout::v2::demand::RowRange) -> vortex_error::VortexResult<vortex_mask::Mask>
 
 pub fn vortex_layout::v2::demand::RowDemand::new(alloc::vec::Vec<alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>>, u64) -> Self
 
@@ -1600,21 +1600,21 @@ pub fn vortex_layout::v2::demand::RowDemand::fmt(&self, &mut core::fmt::Formatte
 
 pub trait vortex_layout::v2::demand::DemandSource: vortex_layout::v2::demand::Resource
 
-pub fn vortex_layout::v2::demand::DemandSource::mask_for(&self, vortex_layout::v2::demand::RowRange) -> vortex_error::VortexResult<vortex_mask::Mask>
+pub fn vortex_layout::v2::demand::DemandSource::mask_for(&self, vortex_layout::v2::demand::RowRange) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<vortex_mask::Mask>>
 
 impl vortex_layout::v2::demand::DemandSource for vortex_layout::layouts::zoned::ZoneMapResource
 
-pub fn vortex_layout::layouts::zoned::ZoneMapResource::mask_for(&self, core::ops::range::Range<u64>) -> vortex_error::VortexResult<vortex_mask::Mask>
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::mask_for(&self, core::ops::range::Range<u64>) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<vortex_mask::Mask>>
 
 pub trait vortex_layout::v2::demand::Resource: core::marker::Send + core::marker::Sync + 'static
 
-pub fn vortex_layout::v2::demand::Resource::ensure_ready(&self, vortex_layout::v2::scan_ctx::ScanCtx) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<()>>
+pub fn vortex_layout::v2::demand::Resource::ensure_ready(&self) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<()>>
 
 pub fn vortex_layout::v2::demand::Resource::version(&self) -> u64
 
 impl vortex_layout::v2::demand::Resource for vortex_layout::layouts::zoned::ZoneMapResource
 
-pub fn vortex_layout::layouts::zoned::ZoneMapResource::ensure_ready(&self, vortex_layout::v2::scan_ctx::ScanCtx) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<()>>
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::ensure_ready(&self) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<()>>
 
 pub fn vortex_layout::layouts::zoned::ZoneMapResource::version(&self) -> u64
 
@@ -2154,6 +2154,10 @@ pub fn vortex_layout::v2::materialised_mask::slice_to_array(&vortex_layout::v2::
 
 pub mod vortex_layout::v2::plan
 
+pub struct vortex_layout::v2::plan::CollectedResources
+
+pub vortex_layout::v2::plan::CollectedResources::demand_sources: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>>
+
 pub struct vortex_layout::v2::plan::PartitionStats
 
 pub vortex_layout::v2::plan::PartitionStats::byte_size_estimate: core::option::Option<u64>
@@ -2214,9 +2218,7 @@ impl vortex_layout::v2::plan::ResourceCollector
 
 pub fn vortex_layout::v2::plan::ResourceCollector::push_demand_source(&self, alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>)
 
-pub fn vortex_layout::v2::plan::ResourceCollector::push_resource(&self, alloc::sync::Arc<dyn vortex_layout::v2::demand::Resource>)
-
-pub fn vortex_layout::v2::plan::ResourceCollector::take(&self) -> (alloc::vec::Vec<alloc::sync::Arc<dyn vortex_layout::v2::demand::Resource>>, alloc::vec::Vec<alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>>)
+pub fn vortex_layout::v2::plan::ResourceCollector::take(&self) -> vortex_layout::v2::plan::CollectedResources
 
 impl core::clone::Clone for vortex_layout::v2::plan::ResourceCollector
 
@@ -2705,8 +2707,6 @@ impl vortex_layout::v2::scan::ScanPlan
 pub fn vortex_layout::v2::scan::ScanPlan::new(vortex_layout::v2::plan::LayoutPlanRef, u64) -> Self
 
 pub fn vortex_layout::v2::scan::ScanPlan::with_demand_source(self, alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>) -> Self
-
-pub fn vortex_layout::v2::scan::ScanPlan::with_resource(self, alloc::sync::Arc<dyn vortex_layout::v2::demand::Resource>) -> Self
 
 impl core::cmp::Eq for vortex_layout::v2::scan::ScanPlan
 

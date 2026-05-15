@@ -134,7 +134,7 @@ impl Resource for ZoneMapResource {
         self.version.load(Ordering::Acquire)
     }
 
-    fn ensure_ready(&self, ctx: ScanCtx) -> BoxFuture<'_, VortexResult<()>> {
+    fn ensure_ready(&self) -> BoxFuture<'_, VortexResult<()>> {
         async move {
             // Fast path: already populated.
             if self.computed.get().is_some() {
@@ -143,16 +143,21 @@ impl Resource for ZoneMapResource {
 
             // Read the zones table. The zones plan is in zone-coords
             // (one row per zone), unrelated to the partition row
-            // space — pass an empty demand.
+            // space — pass an empty demand. The scratch `ScanCtx` we
+            // construct here is sufficient for the typical Auxiliary
+            // zones-leaf reads; if a zones plan ever needed shared
+            // per-scan state (LetRegistry, etc.) this would need to
+            // be plumbed differently.
             let zones_row_count = self
                 .zones_plan
                 .partition_stats(0)
                 .map(|s| s.row_count())
                 .unwrap_or(0);
             let zones_demand = RowDemand::empty(zones_row_count);
-            let zones_stream = self
-                .zones_plan
-                .execute(0..zones_row_count, &zones_demand, &ctx)?;
+            let scratch_ctx = ScanCtx::new(self.session.clone());
+            let zones_stream =
+                self.zones_plan
+                    .execute(0..zones_row_count, &zones_demand, &scratch_ctx)?;
             let zones_array = zones_stream.read_all().await?;
             let mut ctx_exec = self.session.create_execution_ctx();
             let zones_struct = zones_array.execute::<StructArray>(&mut ctx_exec)?;
@@ -171,12 +176,20 @@ impl Resource for ZoneMapResource {
 
             // We don't serialise concurrent `ensure_ready` callers —
             // the work is idempotent. Race losers compute the same
-            // answer; only the first `set` wins, the rest is dropped.
-            drop(self.computed.set(Computed {
-                zone_prune_mask,
-                row_demand_mask,
-            }));
-            self.version.fetch_add(1, Ordering::AcqRel);
+            // answer; only the first `set` wins. Crucially, only the
+            // winner bumps `version` — race losers must not, or
+            // downstream `RowDemand` caches keyed by version would
+            // invalidate on every ensure_ready call.
+            if self
+                .computed
+                .set(Computed {
+                    zone_prune_mask,
+                    row_demand_mask,
+                })
+                .is_ok()
+            {
+                self.version.fetch_add(1, Ordering::AcqRel);
+            }
             Ok(())
         }
         .boxed()
@@ -184,14 +197,20 @@ impl Resource for ZoneMapResource {
 }
 
 impl DemandSource for ZoneMapResource {
-    fn mask_for(&self, range: Range<u64>) -> VortexResult<Mask> {
-        let computed = self
-            .computed
-            .get()
-            .ok_or_else(|| vortex_err!("ZoneMapResource not ready"))?;
-        let start = usize::try_from(range.start)?;
-        let end = usize::try_from(range.end)?;
-        Ok(computed.row_demand_mask.slice(start..end))
+    fn mask_for(&self, range: Range<u64>) -> BoxFuture<'_, VortexResult<Mask>> {
+        async move {
+            // Lazy-init: if no one has triggered the zones read yet,
+            // do it now.
+            self.ensure_ready().await?;
+            let computed = self
+                .computed
+                .get()
+                .ok_or_else(|| vortex_err!("ZoneMapResource ensure_ready did not populate"))?;
+            let start = usize::try_from(range.start)?;
+            let end = usize::try_from(range.end)?;
+            Ok(computed.row_demand_mask.slice(start..end))
+        }
+        .boxed()
     }
 }
 

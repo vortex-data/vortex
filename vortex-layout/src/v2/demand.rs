@@ -27,9 +27,16 @@
 //! ## Resource lifecycle
 //!
 //! [`Resource::ensure_ready`] populates the resource's initial state
-//! (typically by reading a stats array). [`crate::v2::scan::ScanPlan`]
-//! awaits all its declared resources at the top of `execute` so that
-//! pulls inside the body run synchronously.
+//! (typically by reading a stats array). It is `async` and idempotent;
+//! the first caller pays the cost, subsequent callers are no-ops.
+//! Resources are self-contained — they capture everything they need
+//! (sessions, segment sources, etc.) at construction time.
+//!
+//! Pulls (`RowDemand::mask_for`, `RowDemand::cardinality`) are also
+//! `async`: they internally await each registered source's
+//! `ensure_ready` before slicing. This means scans that don't pull
+//! (projection-only, or filtered scans whose body never queries
+//! demand) pay nothing — there is no up-front init.
 //!
 //! ## What this is not
 //!
@@ -45,8 +52,6 @@ use futures::future::BoxFuture;
 use parking_lot::Mutex;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-
-use crate::v2::scan_ctx::ScanCtx;
 
 /// A row range. Half-open: `[start, end)`.
 pub type RowRange = Range<u64>;
@@ -69,9 +74,9 @@ pub trait Resource: Send + Sync + 'static {
 
     /// Resolve the resource's initial-fetch pipeline. Idempotent —
     /// multiple awaits resolve immediately after the first completes.
-    /// `ctx` is cloned in by the caller (typically [`crate::v2::scan::ScanPlan`])
-    /// so the resource can drive its own sub-plan execute calls.
-    fn ensure_ready(&self, ctx: ScanCtx) -> BoxFuture<'_, VortexResult<()>>;
+    /// Implementations capture whatever context they need (sessions,
+    /// segment sources) at construction time.
+    fn ensure_ready(&self) -> BoxFuture<'_, VortexResult<()>>;
 }
 
 /// A [`Resource`] whose observable value is a per-row bool over the
@@ -79,13 +84,14 @@ pub trait Resource: Send + Sync + 'static {
 /// perspective. The result is intersected with other sources by
 /// [`RowDemand`] at pull time.
 ///
-/// `mask_for` is synchronous and called frequently. Implementations
-/// must cache the per-version mask internally; the trait surface
-/// returns a slice of the cached value.
+/// `mask_for` is async because it lazily ensures the resource is
+/// ready on first pull. Subsequent pulls hit the cached state and
+/// resolve immediately without yielding.
 pub trait DemandSource: Resource {
     /// Mask covering `range` in the partition's full row coordinate
     /// space. Same `version()` ⇒ same answer for the same range.
-    fn mask_for(&self, range: RowRange) -> VortexResult<Mask>;
+    /// Awaits `ensure_ready` internally on first call.
+    fn mask_for(&self, range: RowRange) -> BoxFuture<'_, VortexResult<Mask>>;
 }
 
 /// Coordinate-aware aggregator over [`DemandSource`]s.
@@ -184,54 +190,74 @@ impl RowDemand {
     /// Pull the AND of all sources' masks over `range` (local coords).
     /// Recomputes only when at least one source has advanced since the
     /// last pull. With no sources, returns an all-true mask.
-    pub fn mask_for(&self, range: RowRange) -> VortexResult<Mask> {
+    ///
+    /// Async: awaits each source's `ensure_ready` on first pull.
+    /// Cache-hit pulls do not yield.
+    pub async fn mask_for(&self, range: RowRange) -> VortexResult<Mask> {
         let global = self.to_global(&range);
         if global.start >= global.end {
             return Ok(Mask::new_true(0));
         }
-        let combined = self.combined_mask()?;
+        let combined = self.combined_mask().await?;
         let start = usize::try_from(global.start)?;
         let end = usize::try_from(global.end)?;
         Ok(combined.slice(start..end))
     }
 
     /// Cardinality (true-count) over `range` (local coords).
-    pub fn cardinality(&self, range: RowRange) -> VortexResult<u64> {
-        Ok(self.mask_for(range)?.true_count() as u64)
+    pub async fn cardinality(&self, range: RowRange) -> VortexResult<u64> {
+        Ok(self.mask_for(range).await?.true_count() as u64)
     }
 
     /// Returns the cached AND over `0..total_rows`, recomputing if any
-    /// source's version has advanced.
-    fn combined_mask(&self) -> VortexResult<Mask> {
-        let mut cache = self.inner.cache.lock();
-        let current: Vec<u64> = self.inner.sources.iter().map(|s| s.version()).collect();
-        let stale = cache.as_ref().is_none_or(|c| c.source_versions != current);
-        if stale {
-            let total = usize::try_from(self.inner.total_rows)?;
-            let combined = if self.inner.sources.is_empty() {
-                Mask::new_true(total)
-            } else {
-                let mut acc = self.inner.sources[0].mask_for(0..self.inner.total_rows)?;
-                for src in &self.inner.sources[1..] {
-                    let next = src.mask_for(0..self.inner.total_rows)?;
-                    acc = (&acc).bitand(&next);
-                }
-                acc
-            };
-            *cache = Some(DemandCache {
-                source_versions: current,
-                combined,
-            });
+    /// source's version has advanced. Race-tolerant: concurrent first-
+    /// pullers each compute, the last write wins. Wasted work is
+    /// bounded by the number of concurrent first-pullers (typically 1).
+    async fn combined_mask(&self) -> VortexResult<Mask> {
+        let total = usize::try_from(self.inner.total_rows)?;
+        if self.inner.sources.is_empty() {
+            return Ok(Mask::new_true(total));
         }
-        Ok(cache
+
+        // Snapshot versions; cache-hit fast path returns without yielding.
+        let current: Vec<u64> = self.inner.sources.iter().map(|s| s.version()).collect();
+        if let Some(cached) = self
+            .inner
+            .cache
+            .lock()
             .as_ref()
+            .filter(|c| c.source_versions == current)
             .map(|c| c.combined.clone())
-            .unwrap_or_else(|| Mask::new_true(0)))
+        {
+            return Ok(cached);
+        }
+
+        // Cache miss — pull from sources (which await their own
+        // `ensure_ready`). No lock held across the await.
+        let mut acc = self.inner.sources[0]
+            .mask_for(0..self.inner.total_rows)
+            .await?;
+        for src in &self.inner.sources[1..] {
+            let next = src.mask_for(0..self.inner.total_rows).await?;
+            acc = (&acc).bitand(&next);
+        }
+
+        // Re-snapshot versions: while we awaited, sources advanced
+        // (notably from `ensure_ready` itself bumping version on
+        // completion). Cache against post-pull versions to avoid an
+        // immediate re-invalidation on the next call.
+        let post_versions: Vec<u64> = self.inner.sources.iter().map(|s| s.version()).collect();
+        *self.inner.cache.lock() = Some(DemandCache {
+            source_versions: post_versions,
+            combined: acc.clone(),
+        });
+        Ok(acc)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::future::Future;
     use std::sync::atomic::AtomicU64;
     use std::sync::atomic::Ordering;
 
@@ -265,17 +291,20 @@ mod tests {
             self.version.load(Ordering::Acquire)
         }
 
-        fn ensure_ready(&self, _ctx: ScanCtx) -> BoxFuture<'_, VortexResult<()>> {
+        fn ensure_ready(&self) -> BoxFuture<'_, VortexResult<()>> {
             async move { Ok(()) }.boxed()
         }
     }
 
     impl DemandSource for FixedSource {
-        fn mask_for(&self, range: RowRange) -> VortexResult<Mask> {
-            let m = self.mask.lock().clone();
-            let start = usize::try_from(range.start)?;
-            let end = usize::try_from(range.end)?;
-            Ok(m.slice(start..end))
+        fn mask_for(&self, range: RowRange) -> BoxFuture<'_, VortexResult<Mask>> {
+            async move {
+                let m = self.mask.lock().clone();
+                let start = usize::try_from(range.start)?;
+                let end = usize::try_from(range.end)?;
+                Ok(m.slice(start..end))
+            }
+            .boxed()
         }
     }
 
@@ -287,11 +316,15 @@ mod tests {
         Mask::from_buffer(bits.freeze())
     }
 
+    fn block_on<F: Future>(f: F) -> F::Output {
+        futures::executor::block_on(f)
+    }
+
     #[test]
     fn empty_demand_is_all_true() -> VortexResult<()> {
         let demand = RowDemand::empty(100);
-        assert_eq!(demand.cardinality(0..100)?, 100);
-        let mask = demand.mask_for(0..100)?;
+        assert_eq!(block_on(demand.cardinality(0..100))?, 100);
+        let mask = block_on(demand.mask_for(0..100))?;
         assert!(mask.all_true());
         Ok(())
     }
@@ -300,7 +333,7 @@ mod tests {
     fn single_source_passes_through() -> VortexResult<()> {
         let src = FixedSource::new(mask_with_zeros(100, &[3, 7, 42]));
         let demand = RowDemand::new(vec![src as _], 100);
-        assert_eq!(demand.cardinality(0..100)?, 97);
+        assert_eq!(block_on(demand.cardinality(0..100))?, 97);
         Ok(())
     }
 
@@ -310,7 +343,7 @@ mod tests {
         let src_b = FixedSource::new(mask_with_zeros(10, &[2, 3, 4]));
         let demand = RowDemand::new(vec![src_a as _, src_b as _], 10);
         // Combined zeros: 0,1,2,3,4 → cardinality 5.
-        assert_eq!(demand.cardinality(0..10)?, 5);
+        assert_eq!(block_on(demand.cardinality(0..10))?, 5);
         Ok(())
     }
 
@@ -318,10 +351,10 @@ mod tests {
     fn cache_invalidates_on_version_bump() -> VortexResult<()> {
         let src = FixedSource::new(mask_with_zeros(10, &[]));
         let demand = RowDemand::new(vec![Arc::clone(&src) as _], 10);
-        assert_eq!(demand.cardinality(0..10)?, 10);
+        assert_eq!(block_on(demand.cardinality(0..10))?, 10);
         // Bump source: zero out everything.
         src.replace(mask_with_zeros(10, &(0..10).collect::<Vec<_>>()));
-        assert_eq!(demand.cardinality(0..10)?, 0);
+        assert_eq!(block_on(demand.cardinality(0..10))?, 0);
         Ok(())
     }
 
@@ -333,9 +366,9 @@ mod tests {
         assert_eq!(scoped.total_rows(), 500);
         // In scoped local coords, zeros are at 0 (= global 200) and
         // 150 (= global 350). Global 700 is outside scope.
-        assert_eq!(scoped.cardinality(0..500)?, 498);
-        assert_eq!(scoped.cardinality(0..1)?, 0);
-        assert_eq!(scoped.cardinality(150..151)?, 0);
+        assert_eq!(block_on(scoped.cardinality(0..500))?, 498);
+        assert_eq!(block_on(scoped.cardinality(0..1))?, 0);
+        assert_eq!(block_on(scoped.cardinality(150..151))?, 0);
         Ok(())
     }
 
@@ -347,7 +380,7 @@ mod tests {
         let inner = outer.scope(50..150); // local 50..150 of outer = global 150..250
         assert_eq!(inner.total_rows(), 100);
         // Both zeros (150, 175) fall inside inner, at local 0 and 25.
-        assert_eq!(inner.cardinality(0..100)?, 98);
+        assert_eq!(block_on(inner.cardinality(0..100))?, 98);
         Ok(())
     }
 }

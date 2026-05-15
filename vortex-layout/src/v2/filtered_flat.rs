@@ -240,7 +240,7 @@ impl LayoutPlan for FilteredFlatPlan {
             // skip the mask read AND segment IO. This is the path
             // that pays off cross-conjunct pruning — the zone falsifier
             // for column A lets us skip IO on column B.
-            if demand_for_skip.cardinality(demand_range)? == 0 {
+            if demand_for_skip.cardinality(demand_range).await? == 0 {
                 return;
             }
             // Lockstep contract: await enough mask rows to cover this

@@ -37,6 +37,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::layouts::zoned::ZoneMapResource;
+use crate::v2::demand::Resource;
 use crate::v2::demand::RowDemand;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
@@ -162,17 +163,20 @@ impl LayoutPlan for ZonedPruningPlan {
             );
         }
 
-        // Pull the per-zone prune mask from the resource. ScanPlan
-        // has already awaited `ensure_ready`, so this is guaranteed
-        // populated.
-        let zone_prune = self.resource.zone_prune_mask()?;
         let zone_len = self.resource.zone_len();
         let dtype = self.output_dtype.clone();
         let data_plan = Arc::clone(&self.data_plan);
         let ctx_for_stream = ctx.clone();
         let demand_for_stream = demand.clone();
+        let resource = Arc::clone(&self.resource);
 
         let stream = try_stream! {
+            // Lazy init: drive the resource's ensure_ready ourselves
+            // (we directly read its per-zone mask, not via the demand
+            // pull that would otherwise lazy-init).
+            resource.ensure_ready().await?;
+            let zone_prune = resource.zone_prune_mask()?;
+
             // Iterate intersecting zones, emit per-zone bool chunks.
             let zone_start_idx = row_range.start / zone_len;
             let zone_end_idx = row_range.end.div_ceil(zone_len);
