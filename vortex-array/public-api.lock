@@ -23004,8 +23004,6 @@ pub fn vortex_array::Array<vortex_array::arrays::VarBinView>::try_new(vortex_buf
 
 impl vortex_array::Array<vortex_array::arrays::Variant>
 
-pub fn vortex_array::Array<vortex_array::arrays::Variant>::new(vortex_array::ArrayRef) -> Self
-
 pub fn vortex_array::Array<vortex_array::arrays::Variant>::try_new(vortex_array::ArrayRef, core::option::Option<vortex_array::ArrayRef>) -> vortex_error::VortexResult<Self>
 
 impl vortex_array::Array<vortex_array::arrays::dict::Dict>

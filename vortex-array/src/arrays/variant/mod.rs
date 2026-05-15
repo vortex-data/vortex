@@ -51,6 +51,12 @@ impl<T: TypedArrayRef<Variant>> VariantArrayExt for T {}
 
 impl Array<Variant> {
     /// Creates a new `VariantArray` with logical variant core storage and optional shredded storage.
+    ///
+    /// `core_storage` must have `DType::Variant`, but it may use any Variant-typed physical
+    /// encoding. See [`VariantArrayExt`] for the higher-level storage contract.
+    ///
+    /// `shredded`, when present, must be row-aligned with `core_storage` and stores typed values for
+    /// selected variant paths.
     pub fn try_new(core_storage: ArrayRef, shredded: Option<ArrayRef>) -> VortexResult<Self> {
         let dtype = core_storage.dtype().clone();
         vortex_ensure!(
@@ -64,11 +70,6 @@ impl Array<Variant> {
                 .with_slots(vec![Some(core_storage), shredded].into()),
         )?
         .with_stats_set(stats))
-    }
-
-    /// Creates a new `VariantArray`.
-    pub fn new(core_storage: ArrayRef) -> Self {
-        Self::try_new(core_storage, None).vortex_expect("invalid VariantArray core_storage")
     }
 }
 

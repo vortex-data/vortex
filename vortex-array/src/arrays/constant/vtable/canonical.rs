@@ -165,9 +165,10 @@ pub(crate) fn constant_canonicalize(
             })
         }
         DType::Union(..) => todo!("TODO(connor)[Union]: unimplemented"),
-        DType::Variant(_) => {
-            Canonical::Variant(VariantArray::new(array.array().clone().into_array()))
-        }
+        DType::Variant(_) => Canonical::Variant(VariantArray::try_new(
+            array.array().clone().into_array(),
+            None,
+        )?),
         DType::Extension(ext_dtype) => {
             let s = scalar.as_extension();
 
