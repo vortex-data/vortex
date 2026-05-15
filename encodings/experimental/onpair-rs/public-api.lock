@@ -1,0 +1,1375 @@
+pub mod onpair_lib
+
+pub mod onpair_lib::aho_corasick
+
+pub struct onpair_lib::aho_corasick::AhoCorasickAutomaton
+
+impl onpair_lib::aho_corasick::AhoCorasickAutomaton
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::from_trie(&onpair_lib::aho_corasick::AhoCorasickTrie, &onpair_lib::dict::Dictionary) -> Self
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::new(&[&[u8]], &onpair_lib::dict::Dictionary) -> Self
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::aho_corasick::AhoCorasickAutomaton
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::reset(&mut self)
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::step(&mut self, onpair_lib::types::Token)
+
+pub struct onpair_lib::aho_corasick::AhoCorasickTrie
+
+impl onpair_lib::aho_corasick::AhoCorasickTrie
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::advance(&self, onpair_lib::aho_corasick::AcState, u8) -> onpair_lib::aho_corasick::AcState
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::edge_labels(&self, onpair_lib::aho_corasick::AcState) -> &[u8]
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::fail_link(&self, onpair_lib::aho_corasick::AcState) -> onpair_lib::aho_corasick::AcState
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::is_accepting(&self, onpair_lib::aho_corasick::AcState) -> bool
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::new(&[&[u8]]) -> Self
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::num_patterns(&self) -> usize
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::num_states(&self) -> usize
+
+pub type onpair_lib::aho_corasick::AcState = u16
+
+pub mod onpair_lib::automaton
+
+pub struct onpair_lib::automaton::And<A, B>(pub A, pub B)
+
+impl<A: onpair_lib::automaton::TokenAutomaton, B: onpair_lib::automaton::TokenAutomaton> onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::And<A, B>
+
+pub fn onpair_lib::automaton::And<A, B>::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::And<A, B>::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::And<A, B>::reset(&mut self)
+
+pub fn onpair_lib::automaton::And<A, B>::step(&mut self, onpair_lib::types::Token)
+
+pub struct onpair_lib::automaton::EqAutomaton
+
+impl onpair_lib::automaton::EqAutomaton
+
+pub fn onpair_lib::automaton::EqAutomaton::new(&[u8], &onpair_lib::dict::Dictionary) -> Self
+
+pub fn onpair_lib::automaton::EqAutomaton::query_length(&self) -> usize
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::EqAutomaton
+
+pub fn onpair_lib::automaton::EqAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::EqAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::EqAutomaton::reset(&mut self)
+
+pub fn onpair_lib::automaton::EqAutomaton::step(&mut self, onpair_lib::types::Token)
+
+pub struct onpair_lib::automaton::Negated<A>(pub A)
+
+impl<A: onpair_lib::automaton::TokenAutomaton> onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::Negated<A>
+
+pub fn onpair_lib::automaton::Negated<A>::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::Negated<A>::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::Negated<A>::reset(&mut self)
+
+pub fn onpair_lib::automaton::Negated<A>::step(&mut self, onpair_lib::types::Token)
+
+pub struct onpair_lib::automaton::Or<A, B>(pub A, pub B)
+
+impl<A: onpair_lib::automaton::TokenAutomaton, B: onpair_lib::automaton::TokenAutomaton> onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::Or<A, B>
+
+pub fn onpair_lib::automaton::Or<A, B>::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::Or<A, B>::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::Or<A, B>::reset(&mut self)
+
+pub fn onpair_lib::automaton::Or<A, B>::step(&mut self, onpair_lib::types::Token)
+
+pub struct onpair_lib::automaton::PrefixAutomaton
+
+impl onpair_lib::automaton::PrefixAutomaton
+
+pub fn onpair_lib::automaton::PrefixAutomaton::new(&[u8], &onpair_lib::dict::Dictionary) -> Self
+
+pub fn onpair_lib::automaton::PrefixAutomaton::query_length(&self) -> usize
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::PrefixAutomaton
+
+pub fn onpair_lib::automaton::PrefixAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::PrefixAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::PrefixAutomaton::reset(&mut self)
+
+pub fn onpair_lib::automaton::PrefixAutomaton::step(&mut self, onpair_lib::types::Token)
+
+pub trait onpair_lib::automaton::TokenAutomaton
+
+pub fn onpair_lib::automaton::TokenAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::TokenAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::TokenAutomaton::reset(&mut self)
+
+pub fn onpair_lib::automaton::TokenAutomaton::step(&mut self, onpair_lib::types::Token)
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::aho_corasick::AhoCorasickAutomaton
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::reset(&mut self)
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::step(&mut self, onpair_lib::types::Token)
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::EqAutomaton
+
+pub fn onpair_lib::automaton::EqAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::EqAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::EqAutomaton::reset(&mut self)
+
+pub fn onpair_lib::automaton::EqAutomaton::step(&mut self, onpair_lib::types::Token)
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::PrefixAutomaton
+
+pub fn onpair_lib::automaton::PrefixAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::PrefixAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::PrefixAutomaton::reset(&mut self)
+
+pub fn onpair_lib::automaton::PrefixAutomaton::step(&mut self, onpair_lib::types::Token)
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::kmp::KmpAutomaton
+
+pub fn onpair_lib::kmp::KmpAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::kmp::KmpAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::kmp::KmpAutomaton::reset(&mut self)
+
+pub fn onpair_lib::kmp::KmpAutomaton::step(&mut self, onpair_lib::types::Token)
+
+impl<A: onpair_lib::automaton::TokenAutomaton + ?core::marker::Sized> onpair_lib::automaton::TokenAutomaton for &mut A
+
+pub fn &mut A::is_accepted(&self) -> bool
+
+pub fn &mut A::is_dead(&self) -> bool
+
+pub fn &mut A::reset(&mut self)
+
+pub fn &mut A::step(&mut self, onpair_lib::types::Token)
+
+impl<A: onpair_lib::automaton::TokenAutomaton, B: onpair_lib::automaton::TokenAutomaton> onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::And<A, B>
+
+pub fn onpair_lib::automaton::And<A, B>::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::And<A, B>::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::And<A, B>::reset(&mut self)
+
+pub fn onpair_lib::automaton::And<A, B>::step(&mut self, onpair_lib::types::Token)
+
+impl<A: onpair_lib::automaton::TokenAutomaton, B: onpair_lib::automaton::TokenAutomaton> onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::Or<A, B>
+
+pub fn onpair_lib::automaton::Or<A, B>::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::Or<A, B>::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::Or<A, B>::reset(&mut self)
+
+pub fn onpair_lib::automaton::Or<A, B>::step(&mut self, onpair_lib::types::Token)
+
+impl<A: onpair_lib::automaton::TokenAutomaton> onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::Negated<A>
+
+pub fn onpair_lib::automaton::Negated<A>::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::Negated<A>::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::Negated<A>::reset(&mut self)
+
+pub fn onpair_lib::automaton::Negated<A>::step(&mut self, onpair_lib::types::Token)
+
+pub fn onpair_lib::automaton::and<A: onpair_lib::automaton::TokenAutomaton, B: onpair_lib::automaton::TokenAutomaton>(A, B) -> onpair_lib::automaton::And<A, B>
+
+pub fn onpair_lib::automaton::not<A: onpair_lib::automaton::TokenAutomaton>(A) -> onpair_lib::automaton::Negated<A>
+
+pub fn onpair_lib::automaton::or<A: onpair_lib::automaton::TokenAutomaton, B: onpair_lib::automaton::TokenAutomaton>(A, B) -> onpair_lib::automaton::Or<A, B>
+
+pub mod onpair_lib::bits
+
+pub struct onpair_lib::bits::BitWriter<'a>
+
+impl<'a> onpair_lib::bits::BitWriter<'a>
+
+pub fn onpair_lib::bits::BitWriter<'a>::flush(&mut self)
+
+pub fn onpair_lib::bits::BitWriter<'a>::new(&'a mut onpair_lib::store::Store) -> Self
+
+pub fn onpair_lib::bits::BitWriter<'a>::tokens_written(&self) -> usize
+
+pub fn onpair_lib::bits::BitWriter<'a>::write(&mut self, onpair_lib::types::Token)
+
+impl core::ops::drop::Drop for onpair_lib::bits::BitWriter<'_>
+
+pub fn onpair_lib::bits::BitWriter<'_>::drop(&mut self)
+
+pub struct onpair_lib::bits::TokenCursor<'a, const BITS: u32>
+
+impl<'a, const BITS: u32> onpair_lib::bits::TokenCursor<'a, BITS>
+
+pub fn onpair_lib::bits::TokenCursor<'a, BITS>::has_more(&self) -> bool
+
+pub fn onpair_lib::bits::TokenCursor<'a, BITS>::new(&'a [u64], onpair_lib::types::StreamSpan) -> Self
+
+pub fn onpair_lib::bits::TokenCursor<'a, BITS>::new_unbound(&'a [u64]) -> Self
+
+pub fn onpair_lib::bits::TokenCursor<'a, BITS>::next(&mut self) -> onpair_lib::types::Token
+
+pub fn onpair_lib::bits::TokenCursor<'a, BITS>::remaining(&self) -> u32
+
+pub fn onpair_lib::bits::TokenCursor<'a, BITS>::reset_to(&mut self, onpair_lib::types::StreamSpan)
+
+pub fn onpair_lib::bits::read_bits_lsb(&[u64], usize, u32) -> u16
+
+pub fn onpair_lib::bits::unpack_codes_to_u16(&[u64], usize, u32) -> alloc::vec::Vec<u16>
+
+pub mod onpair_lib::column
+
+pub struct onpair_lib::column::Column
+
+impl onpair_lib::column::Column
+
+pub fn onpair_lib::column::Column::bits(&self) -> u32
+
+pub fn onpair_lib::column::Column::compress(&[u8], &[u64], onpair_lib::config::OnPairTrainingConfig) -> core::result::Result<Self, onpair_lib::config::Error>
+
+pub fn onpair_lib::column::Column::contains_bitmap(&self, &[u8]) -> alloc::vec::Vec<u8>
+
+pub fn onpair_lib::column::Column::decode_all(&self) -> (alloc::vec::Vec<u8>, alloc::vec::Vec<u32>)
+
+pub fn onpair_lib::column::Column::decompress_row(&self, usize, &mut alloc::vec::Vec<u8>) -> core::result::Result<(), onpair_lib::config::Error>
+
+pub fn onpair_lib::column::Column::dict_size(&self) -> usize
+
+pub fn onpair_lib::column::Column::dictionary(&self) -> &onpair_lib::dict::Dictionary
+
+pub fn onpair_lib::column::Column::equals_bitmap(&self, &[u8]) -> alloc::vec::Vec<u8>
+
+pub fn onpair_lib::column::Column::is_empty(&self) -> bool
+
+pub fn onpair_lib::column::Column::len(&self) -> usize
+
+pub fn onpair_lib::column::Column::multi_pattern_bitmap(&self, &[&[u8]]) -> alloc::vec::Vec<u8>
+
+pub fn onpair_lib::column::Column::parts(&self) -> core::result::Result<onpair_lib::column::Parts<'_>, onpair_lib::config::Error>
+
+pub fn onpair_lib::column::Column::scan<A: onpair_lib::automaton::TokenAutomaton>(&self, A) -> alloc::vec::Vec<usize>
+
+pub fn onpair_lib::column::Column::scan_bitmap<A: onpair_lib::automaton::TokenAutomaton>(&self, A) -> alloc::vec::Vec<u8>
+
+pub fn onpair_lib::column::Column::scan_with<A: onpair_lib::automaton::TokenAutomaton, F: core::ops::function::FnMut(usize)>(&self, A, F)
+
+pub fn onpair_lib::column::Column::starts_with_bitmap(&self, &[u8]) -> alloc::vec::Vec<u8>
+
+impl core::clone::Clone for onpair_lib::column::Column
+
+pub fn onpair_lib::column::Column::clone(&self) -> onpair_lib::column::Column
+
+impl core::fmt::Debug for onpair_lib::column::Column
+
+pub fn onpair_lib::column::Column::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct onpair_lib::column::Parts<'a>
+
+pub onpair_lib::column::Parts::bits: u32
+
+pub onpair_lib::column::Parts::codes_boundaries: &'a [u32]
+
+pub onpair_lib::column::Parts::codes_packed: &'a [u64]
+
+pub onpair_lib::column::Parts::dict_bytes: &'a [u8]
+
+pub onpair_lib::column::Parts::dict_offsets: &'a [u32]
+
+pub onpair_lib::column::Parts::num_rows: usize
+
+impl<'a> core::clone::Clone for onpair_lib::column::Parts<'a>
+
+pub fn onpair_lib::column::Parts<'a>::clone(&self) -> onpair_lib::column::Parts<'a>
+
+impl<'a> core::marker::Copy for onpair_lib::column::Parts<'a>
+
+pub mod onpair_lib::config
+
+pub enum onpair_lib::config::Error
+
+pub onpair_lib::config::Error::BadFormat
+
+pub onpair_lib::config::Error::Internal
+
+pub onpair_lib::config::Error::InvalidArg
+
+pub onpair_lib::config::Error::Oom
+
+pub onpair_lib::config::Error::OutOfRange
+
+impl core::clone::Clone for onpair_lib::config::Error
+
+pub fn onpair_lib::config::Error::clone(&self) -> onpair_lib::config::Error
+
+impl core::cmp::Eq for onpair_lib::config::Error
+
+impl core::cmp::PartialEq for onpair_lib::config::Error
+
+pub fn onpair_lib::config::Error::eq(&self, &onpair_lib::config::Error) -> bool
+
+impl core::error::Error for onpair_lib::config::Error
+
+impl core::fmt::Debug for onpair_lib::config::Error
+
+pub fn onpair_lib::config::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for onpair_lib::config::Error
+
+pub fn onpair_lib::config::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::config::Error
+
+impl core::marker::StructuralPartialEq for onpair_lib::config::Error
+
+pub enum onpair_lib::config::ThresholdSpec
+
+pub onpair_lib::config::ThresholdSpec::Dynamic(onpair_lib::config::DynamicThreshold)
+
+pub onpair_lib::config::ThresholdSpec::Fixed(onpair_lib::config::FixedThreshold)
+
+impl core::clone::Clone for onpair_lib::config::ThresholdSpec
+
+pub fn onpair_lib::config::ThresholdSpec::clone(&self) -> onpair_lib::config::ThresholdSpec
+
+impl core::default::Default for onpair_lib::config::ThresholdSpec
+
+pub fn onpair_lib::config::ThresholdSpec::default() -> Self
+
+impl core::fmt::Debug for onpair_lib::config::ThresholdSpec
+
+pub fn onpair_lib::config::ThresholdSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::config::ThresholdSpec
+
+pub struct onpair_lib::config::DynamicThreshold
+
+pub onpair_lib::config::DynamicThreshold::sample_fraction: f64
+
+impl core::clone::Clone for onpair_lib::config::DynamicThreshold
+
+pub fn onpair_lib::config::DynamicThreshold::clone(&self) -> onpair_lib::config::DynamicThreshold
+
+impl core::cmp::PartialEq for onpair_lib::config::DynamicThreshold
+
+pub fn onpair_lib::config::DynamicThreshold::eq(&self, &onpair_lib::config::DynamicThreshold) -> bool
+
+impl core::default::Default for onpair_lib::config::DynamicThreshold
+
+pub fn onpair_lib::config::DynamicThreshold::default() -> Self
+
+impl core::fmt::Debug for onpair_lib::config::DynamicThreshold
+
+pub fn onpair_lib::config::DynamicThreshold::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::config::DynamicThreshold
+
+impl core::marker::StructuralPartialEq for onpair_lib::config::DynamicThreshold
+
+pub struct onpair_lib::config::FixedThreshold
+
+pub onpair_lib::config::FixedThreshold::value: u8
+
+impl core::clone::Clone for onpair_lib::config::FixedThreshold
+
+pub fn onpair_lib::config::FixedThreshold::clone(&self) -> onpair_lib::config::FixedThreshold
+
+impl core::cmp::Eq for onpair_lib::config::FixedThreshold
+
+impl core::cmp::PartialEq for onpair_lib::config::FixedThreshold
+
+pub fn onpair_lib::config::FixedThreshold::eq(&self, &onpair_lib::config::FixedThreshold) -> bool
+
+impl core::fmt::Debug for onpair_lib::config::FixedThreshold
+
+pub fn onpair_lib::config::FixedThreshold::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::config::FixedThreshold
+
+impl core::marker::StructuralPartialEq for onpair_lib::config::FixedThreshold
+
+#[repr(C)] pub struct onpair_lib::config::OnPairTrainingConfig
+
+pub onpair_lib::config::OnPairTrainingConfig::bits: u32
+
+pub onpair_lib::config::OnPairTrainingConfig::seed: u64
+
+pub onpair_lib::config::OnPairTrainingConfig::threshold: f64
+
+impl core::clone::Clone for onpair_lib::config::OnPairTrainingConfig
+
+pub fn onpair_lib::config::OnPairTrainingConfig::clone(&self) -> onpair_lib::config::OnPairTrainingConfig
+
+impl core::convert::From<onpair_lib::config::OnPairTrainingConfig> for onpair_lib::config::TrainingConfig
+
+pub fn onpair_lib::config::TrainingConfig::from(onpair_lib::config::OnPairTrainingConfig) -> Self
+
+impl core::fmt::Debug for onpair_lib::config::OnPairTrainingConfig
+
+pub fn onpair_lib::config::OnPairTrainingConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::config::OnPairTrainingConfig
+
+pub struct onpair_lib::config::TrainingConfig
+
+pub onpair_lib::config::TrainingConfig::bits: onpair_lib::types::BitWidth
+
+pub onpair_lib::config::TrainingConfig::seed: core::option::Option<u64>
+
+pub onpair_lib::config::TrainingConfig::threshold: onpair_lib::config::ThresholdSpec
+
+impl core::clone::Clone for onpair_lib::config::TrainingConfig
+
+pub fn onpair_lib::config::TrainingConfig::clone(&self) -> onpair_lib::config::TrainingConfig
+
+impl core::convert::From<onpair_lib::config::OnPairTrainingConfig> for onpair_lib::config::TrainingConfig
+
+pub fn onpair_lib::config::TrainingConfig::from(onpair_lib::config::OnPairTrainingConfig) -> Self
+
+impl core::default::Default for onpair_lib::config::TrainingConfig
+
+pub fn onpair_lib::config::TrainingConfig::default() -> Self
+
+impl core::fmt::Debug for onpair_lib::config::TrainingConfig
+
+pub fn onpair_lib::config::TrainingConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub const onpair_lib::config::DEFAULT_DICT12_CONFIG: onpair_lib::config::OnPairTrainingConfig
+
+pub mod onpair_lib::dict
+
+pub struct onpair_lib::dict::Dictionary
+
+pub onpair_lib::dict::Dictionary::bytes: alloc::vec::Vec<u8>
+
+pub onpair_lib::dict::Dictionary::offsets: alloc::vec::Vec<u32>
+
+impl onpair_lib::dict::Dictionary
+
+pub fn onpair_lib::dict::Dictionary::bytes_used(&self) -> usize
+
+pub fn onpair_lib::dict::Dictionary::data(&self, onpair_lib::types::Token) -> &[u8]
+
+pub fn onpair_lib::dict::Dictionary::num_tokens(&self) -> usize
+
+pub fn onpair_lib::dict::Dictionary::pad_for_decoder(&mut self)
+
+pub fn onpair_lib::dict::Dictionary::prefix_range(&self, &[u8]) -> onpair_lib::types::TokenRange
+
+pub fn onpair_lib::dict::Dictionary::span(&self, onpair_lib::types::Token) -> onpair_lib::types::ByteSpan
+
+pub fn onpair_lib::dict::Dictionary::token_size(&self, onpair_lib::types::Token) -> usize
+
+impl core::clone::Clone for onpair_lib::dict::Dictionary
+
+pub fn onpair_lib::dict::Dictionary::clone(&self) -> onpair_lib::dict::Dictionary
+
+impl core::default::Default for onpair_lib::dict::Dictionary
+
+pub fn onpair_lib::dict::Dictionary::default() -> onpair_lib::dict::Dictionary
+
+impl core::fmt::Debug for onpair_lib::dict::Dictionary
+
+pub fn onpair_lib::dict::Dictionary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub mod onpair_lib::kmp
+
+pub struct onpair_lib::kmp::KmpAutomaton
+
+impl onpair_lib::kmp::KmpAutomaton
+
+pub fn onpair_lib::kmp::KmpAutomaton::new(&[u8], &onpair_lib::dict::Dictionary) -> Self
+
+pub fn onpair_lib::kmp::KmpAutomaton::pattern_length(&self) -> usize
+
+pub fn onpair_lib::kmp::KmpAutomaton::sparse_range_count(&self) -> usize
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::kmp::KmpAutomaton
+
+pub fn onpair_lib::kmp::KmpAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::kmp::KmpAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::kmp::KmpAutomaton::reset(&mut self)
+
+pub fn onpair_lib::kmp::KmpAutomaton::step(&mut self, onpair_lib::types::Token)
+
+pub mod onpair_lib::lpm
+
+pub struct onpair_lib::lpm::LongestPrefixMatcher
+
+impl onpair_lib::lpm::LongestPrefixMatcher
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::find_longest_match(&self, &[u8]) -> (onpair_lib::types::Token, usize)
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::from_dictionary(&onpair_lib::dict::Dictionary) -> Self
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::insert(&mut self, &[u8]) -> onpair_lib::types::Token
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::new() -> Self
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::size(&self) -> usize
+
+impl core::clone::Clone for onpair_lib::lpm::LongestPrefixMatcher
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::clone(&self) -> onpair_lib::lpm::LongestPrefixMatcher
+
+impl core::default::Default for onpair_lib::lpm::LongestPrefixMatcher
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::default() -> onpair_lib::lpm::LongestPrefixMatcher
+
+impl core::fmt::Debug for onpair_lib::lpm::LongestPrefixMatcher
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub mod onpair_lib::parser
+
+pub fn onpair_lib::parser::parse(&[u8], &[u32], usize, &onpair_lib::lpm::LongestPrefixMatcher, onpair_lib::types::BitWidth, &mut onpair_lib::store::Store)
+
+pub mod onpair_lib::store
+
+pub struct onpair_lib::store::Store
+
+pub onpair_lib::store::Store::bit_width: onpair_lib::types::BitWidth
+
+pub onpair_lib::store::Store::boundaries: alloc::vec::Vec<u32>
+
+pub onpair_lib::store::Store::packed: alloc::vec::Vec<u64>
+
+impl onpair_lib::store::Store
+
+pub fn onpair_lib::store::Store::bytes_used(&self) -> usize
+
+pub fn onpair_lib::store::Store::num_strings(&self) -> usize
+
+pub fn onpair_lib::store::Store::num_tokens(&self) -> usize
+
+pub fn onpair_lib::store::Store::string_span(&self, usize) -> onpair_lib::types::StreamSpan
+
+impl core::clone::Clone for onpair_lib::store::Store
+
+pub fn onpair_lib::store::Store::clone(&self) -> onpair_lib::store::Store
+
+impl core::default::Default for onpair_lib::store::Store
+
+pub fn onpair_lib::store::Store::default() -> onpair_lib::store::Store
+
+impl core::fmt::Debug for onpair_lib::store::Store
+
+pub fn onpair_lib::store::Store::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub mod onpair_lib::tokenize
+
+pub fn onpair_lib::tokenize::tokenize(&[u8], &onpair_lib::dict::Dictionary) -> alloc::vec::Vec<onpair_lib::types::Token>
+
+pub fn onpair_lib::tokenize::tokenize_with(&[u8], &onpair_lib::lpm::LongestPrefixMatcher) -> alloc::vec::Vec<onpair_lib::types::Token>
+
+pub mod onpair_lib::trainer
+
+pub struct onpair_lib::trainer::TrainResult
+
+pub onpair_lib::trainer::TrainResult::dict: onpair_lib::dict::Dictionary
+
+pub onpair_lib::trainer::TrainResult::lpm: onpair_lib::lpm::LongestPrefixMatcher
+
+impl core::clone::Clone for onpair_lib::trainer::TrainResult
+
+pub fn onpair_lib::trainer::TrainResult::clone(&self) -> onpair_lib::trainer::TrainResult
+
+impl core::fmt::Debug for onpair_lib::trainer::TrainResult
+
+pub fn onpair_lib::trainer::TrainResult::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn onpair_lib::trainer::train(&[u8], &[u32], usize, &onpair_lib::config::TrainingConfig) -> onpair_lib::trainer::TrainResult
+
+pub mod onpair_lib::types
+
+pub struct onpair_lib::types::ByteSpan
+
+pub onpair_lib::types::ByteSpan::begin: u32
+
+pub onpair_lib::types::ByteSpan::end: u32
+
+impl onpair_lib::types::ByteSpan
+
+pub const fn onpair_lib::types::ByteSpan::size(self) -> u32
+
+impl core::clone::Clone for onpair_lib::types::ByteSpan
+
+pub fn onpair_lib::types::ByteSpan::clone(&self) -> onpair_lib::types::ByteSpan
+
+impl core::cmp::Eq for onpair_lib::types::ByteSpan
+
+impl core::cmp::PartialEq for onpair_lib::types::ByteSpan
+
+pub fn onpair_lib::types::ByteSpan::eq(&self, &onpair_lib::types::ByteSpan) -> bool
+
+impl core::fmt::Debug for onpair_lib::types::ByteSpan
+
+pub fn onpair_lib::types::ByteSpan::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::types::ByteSpan
+
+impl core::marker::StructuralPartialEq for onpair_lib::types::ByteSpan
+
+pub struct onpair_lib::types::StreamSpan
+
+pub onpair_lib::types::StreamSpan::begin: u32
+
+pub onpair_lib::types::StreamSpan::end: u32
+
+impl onpair_lib::types::StreamSpan
+
+pub const fn onpair_lib::types::StreamSpan::size(self) -> u32
+
+impl core::clone::Clone for onpair_lib::types::StreamSpan
+
+pub fn onpair_lib::types::StreamSpan::clone(&self) -> onpair_lib::types::StreamSpan
+
+impl core::cmp::Eq for onpair_lib::types::StreamSpan
+
+impl core::cmp::PartialEq for onpair_lib::types::StreamSpan
+
+pub fn onpair_lib::types::StreamSpan::eq(&self, &onpair_lib::types::StreamSpan) -> bool
+
+impl core::fmt::Debug for onpair_lib::types::StreamSpan
+
+pub fn onpair_lib::types::StreamSpan::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::types::StreamSpan
+
+impl core::marker::StructuralPartialEq for onpair_lib::types::StreamSpan
+
+pub struct onpair_lib::types::TokenRange
+
+pub onpair_lib::types::TokenRange::begin: onpair_lib::types::Token
+
+pub onpair_lib::types::TokenRange::last: onpair_lib::types::Token
+
+impl onpair_lib::types::TokenRange
+
+pub const fn onpair_lib::types::TokenRange::contains(self, onpair_lib::types::Token) -> bool
+
+pub const fn onpair_lib::types::TokenRange::empty(self) -> bool
+
+pub const fn onpair_lib::types::TokenRange::size(self) -> u32
+
+impl core::clone::Clone for onpair_lib::types::TokenRange
+
+pub fn onpair_lib::types::TokenRange::clone(&self) -> onpair_lib::types::TokenRange
+
+impl core::cmp::Eq for onpair_lib::types::TokenRange
+
+impl core::cmp::PartialEq for onpair_lib::types::TokenRange
+
+pub fn onpair_lib::types::TokenRange::eq(&self, &onpair_lib::types::TokenRange) -> bool
+
+impl core::default::Default for onpair_lib::types::TokenRange
+
+pub fn onpair_lib::types::TokenRange::default() -> Self
+
+impl core::fmt::Debug for onpair_lib::types::TokenRange
+
+pub fn onpair_lib::types::TokenRange::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::types::TokenRange
+
+impl core::marker::StructuralPartialEq for onpair_lib::types::TokenRange
+
+pub const onpair_lib::types::MAX_TOKEN_SIZE: usize
+
+pub const fn onpair_lib::types::is_valid_bits(onpair_lib::types::BitWidth) -> bool
+
+pub const fn onpair_lib::types::max_dict_size(onpair_lib::types::BitWidth) -> usize
+
+pub type onpair_lib::types::BitWidth = u8
+
+pub type onpair_lib::types::Token = u16
+
+pub macro onpair_lib::dispatch_bits!
+
+pub enum onpair_lib::Error
+
+pub onpair_lib::Error::BadFormat
+
+pub onpair_lib::Error::Internal
+
+pub onpair_lib::Error::InvalidArg
+
+pub onpair_lib::Error::Oom
+
+pub onpair_lib::Error::OutOfRange
+
+impl core::clone::Clone for onpair_lib::config::Error
+
+pub fn onpair_lib::config::Error::clone(&self) -> onpair_lib::config::Error
+
+impl core::cmp::Eq for onpair_lib::config::Error
+
+impl core::cmp::PartialEq for onpair_lib::config::Error
+
+pub fn onpair_lib::config::Error::eq(&self, &onpair_lib::config::Error) -> bool
+
+impl core::error::Error for onpair_lib::config::Error
+
+impl core::fmt::Debug for onpair_lib::config::Error
+
+pub fn onpair_lib::config::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for onpair_lib::config::Error
+
+pub fn onpair_lib::config::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::config::Error
+
+impl core::marker::StructuralPartialEq for onpair_lib::config::Error
+
+pub enum onpair_lib::ThresholdSpec
+
+pub onpair_lib::ThresholdSpec::Dynamic(onpair_lib::config::DynamicThreshold)
+
+pub onpair_lib::ThresholdSpec::Fixed(onpair_lib::config::FixedThreshold)
+
+impl core::clone::Clone for onpair_lib::config::ThresholdSpec
+
+pub fn onpair_lib::config::ThresholdSpec::clone(&self) -> onpair_lib::config::ThresholdSpec
+
+impl core::default::Default for onpair_lib::config::ThresholdSpec
+
+pub fn onpair_lib::config::ThresholdSpec::default() -> Self
+
+impl core::fmt::Debug for onpair_lib::config::ThresholdSpec
+
+pub fn onpair_lib::config::ThresholdSpec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::config::ThresholdSpec
+
+pub struct onpair_lib::AhoCorasickAutomaton
+
+impl onpair_lib::aho_corasick::AhoCorasickAutomaton
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::from_trie(&onpair_lib::aho_corasick::AhoCorasickTrie, &onpair_lib::dict::Dictionary) -> Self
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::new(&[&[u8]], &onpair_lib::dict::Dictionary) -> Self
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::aho_corasick::AhoCorasickAutomaton
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::reset(&mut self)
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::step(&mut self, onpair_lib::types::Token)
+
+pub struct onpair_lib::AhoCorasickTrie
+
+impl onpair_lib::aho_corasick::AhoCorasickTrie
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::advance(&self, onpair_lib::aho_corasick::AcState, u8) -> onpair_lib::aho_corasick::AcState
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::edge_labels(&self, onpair_lib::aho_corasick::AcState) -> &[u8]
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::fail_link(&self, onpair_lib::aho_corasick::AcState) -> onpair_lib::aho_corasick::AcState
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::is_accepting(&self, onpair_lib::aho_corasick::AcState) -> bool
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::new(&[&[u8]]) -> Self
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::num_patterns(&self) -> usize
+
+pub fn onpair_lib::aho_corasick::AhoCorasickTrie::num_states(&self) -> usize
+
+pub struct onpair_lib::And<A, B>(pub A, pub B)
+
+impl<A: onpair_lib::automaton::TokenAutomaton, B: onpair_lib::automaton::TokenAutomaton> onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::And<A, B>
+
+pub fn onpair_lib::automaton::And<A, B>::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::And<A, B>::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::And<A, B>::reset(&mut self)
+
+pub fn onpair_lib::automaton::And<A, B>::step(&mut self, onpair_lib::types::Token)
+
+pub struct onpair_lib::ByteSpan
+
+pub onpair_lib::ByteSpan::begin: u32
+
+pub onpair_lib::ByteSpan::end: u32
+
+impl onpair_lib::types::ByteSpan
+
+pub const fn onpair_lib::types::ByteSpan::size(self) -> u32
+
+impl core::clone::Clone for onpair_lib::types::ByteSpan
+
+pub fn onpair_lib::types::ByteSpan::clone(&self) -> onpair_lib::types::ByteSpan
+
+impl core::cmp::Eq for onpair_lib::types::ByteSpan
+
+impl core::cmp::PartialEq for onpair_lib::types::ByteSpan
+
+pub fn onpair_lib::types::ByteSpan::eq(&self, &onpair_lib::types::ByteSpan) -> bool
+
+impl core::fmt::Debug for onpair_lib::types::ByteSpan
+
+pub fn onpair_lib::types::ByteSpan::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::types::ByteSpan
+
+impl core::marker::StructuralPartialEq for onpair_lib::types::ByteSpan
+
+pub struct onpair_lib::Column
+
+impl onpair_lib::column::Column
+
+pub fn onpair_lib::column::Column::bits(&self) -> u32
+
+pub fn onpair_lib::column::Column::compress(&[u8], &[u64], onpair_lib::config::OnPairTrainingConfig) -> core::result::Result<Self, onpair_lib::config::Error>
+
+pub fn onpair_lib::column::Column::contains_bitmap(&self, &[u8]) -> alloc::vec::Vec<u8>
+
+pub fn onpair_lib::column::Column::decode_all(&self) -> (alloc::vec::Vec<u8>, alloc::vec::Vec<u32>)
+
+pub fn onpair_lib::column::Column::decompress_row(&self, usize, &mut alloc::vec::Vec<u8>) -> core::result::Result<(), onpair_lib::config::Error>
+
+pub fn onpair_lib::column::Column::dict_size(&self) -> usize
+
+pub fn onpair_lib::column::Column::dictionary(&self) -> &onpair_lib::dict::Dictionary
+
+pub fn onpair_lib::column::Column::equals_bitmap(&self, &[u8]) -> alloc::vec::Vec<u8>
+
+pub fn onpair_lib::column::Column::is_empty(&self) -> bool
+
+pub fn onpair_lib::column::Column::len(&self) -> usize
+
+pub fn onpair_lib::column::Column::multi_pattern_bitmap(&self, &[&[u8]]) -> alloc::vec::Vec<u8>
+
+pub fn onpair_lib::column::Column::parts(&self) -> core::result::Result<onpair_lib::column::Parts<'_>, onpair_lib::config::Error>
+
+pub fn onpair_lib::column::Column::scan<A: onpair_lib::automaton::TokenAutomaton>(&self, A) -> alloc::vec::Vec<usize>
+
+pub fn onpair_lib::column::Column::scan_bitmap<A: onpair_lib::automaton::TokenAutomaton>(&self, A) -> alloc::vec::Vec<u8>
+
+pub fn onpair_lib::column::Column::scan_with<A: onpair_lib::automaton::TokenAutomaton, F: core::ops::function::FnMut(usize)>(&self, A, F)
+
+pub fn onpair_lib::column::Column::starts_with_bitmap(&self, &[u8]) -> alloc::vec::Vec<u8>
+
+impl core::clone::Clone for onpair_lib::column::Column
+
+pub fn onpair_lib::column::Column::clone(&self) -> onpair_lib::column::Column
+
+impl core::fmt::Debug for onpair_lib::column::Column
+
+pub fn onpair_lib::column::Column::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct onpair_lib::Dictionary
+
+pub onpair_lib::Dictionary::bytes: alloc::vec::Vec<u8>
+
+pub onpair_lib::Dictionary::offsets: alloc::vec::Vec<u32>
+
+impl onpair_lib::dict::Dictionary
+
+pub fn onpair_lib::dict::Dictionary::bytes_used(&self) -> usize
+
+pub fn onpair_lib::dict::Dictionary::data(&self, onpair_lib::types::Token) -> &[u8]
+
+pub fn onpair_lib::dict::Dictionary::num_tokens(&self) -> usize
+
+pub fn onpair_lib::dict::Dictionary::pad_for_decoder(&mut self)
+
+pub fn onpair_lib::dict::Dictionary::prefix_range(&self, &[u8]) -> onpair_lib::types::TokenRange
+
+pub fn onpair_lib::dict::Dictionary::span(&self, onpair_lib::types::Token) -> onpair_lib::types::ByteSpan
+
+pub fn onpair_lib::dict::Dictionary::token_size(&self, onpair_lib::types::Token) -> usize
+
+impl core::clone::Clone for onpair_lib::dict::Dictionary
+
+pub fn onpair_lib::dict::Dictionary::clone(&self) -> onpair_lib::dict::Dictionary
+
+impl core::default::Default for onpair_lib::dict::Dictionary
+
+pub fn onpair_lib::dict::Dictionary::default() -> onpair_lib::dict::Dictionary
+
+impl core::fmt::Debug for onpair_lib::dict::Dictionary
+
+pub fn onpair_lib::dict::Dictionary::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct onpair_lib::DynamicThreshold
+
+pub onpair_lib::DynamicThreshold::sample_fraction: f64
+
+impl core::clone::Clone for onpair_lib::config::DynamicThreshold
+
+pub fn onpair_lib::config::DynamicThreshold::clone(&self) -> onpair_lib::config::DynamicThreshold
+
+impl core::cmp::PartialEq for onpair_lib::config::DynamicThreshold
+
+pub fn onpair_lib::config::DynamicThreshold::eq(&self, &onpair_lib::config::DynamicThreshold) -> bool
+
+impl core::default::Default for onpair_lib::config::DynamicThreshold
+
+pub fn onpair_lib::config::DynamicThreshold::default() -> Self
+
+impl core::fmt::Debug for onpair_lib::config::DynamicThreshold
+
+pub fn onpair_lib::config::DynamicThreshold::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::config::DynamicThreshold
+
+impl core::marker::StructuralPartialEq for onpair_lib::config::DynamicThreshold
+
+pub struct onpair_lib::EqAutomaton
+
+impl onpair_lib::automaton::EqAutomaton
+
+pub fn onpair_lib::automaton::EqAutomaton::new(&[u8], &onpair_lib::dict::Dictionary) -> Self
+
+pub fn onpair_lib::automaton::EqAutomaton::query_length(&self) -> usize
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::EqAutomaton
+
+pub fn onpair_lib::automaton::EqAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::EqAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::EqAutomaton::reset(&mut self)
+
+pub fn onpair_lib::automaton::EqAutomaton::step(&mut self, onpair_lib::types::Token)
+
+pub struct onpair_lib::FixedThreshold
+
+pub onpair_lib::FixedThreshold::value: u8
+
+impl core::clone::Clone for onpair_lib::config::FixedThreshold
+
+pub fn onpair_lib::config::FixedThreshold::clone(&self) -> onpair_lib::config::FixedThreshold
+
+impl core::cmp::Eq for onpair_lib::config::FixedThreshold
+
+impl core::cmp::PartialEq for onpair_lib::config::FixedThreshold
+
+pub fn onpair_lib::config::FixedThreshold::eq(&self, &onpair_lib::config::FixedThreshold) -> bool
+
+impl core::fmt::Debug for onpair_lib::config::FixedThreshold
+
+pub fn onpair_lib::config::FixedThreshold::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::config::FixedThreshold
+
+impl core::marker::StructuralPartialEq for onpair_lib::config::FixedThreshold
+
+pub struct onpair_lib::KmpAutomaton
+
+impl onpair_lib::kmp::KmpAutomaton
+
+pub fn onpair_lib::kmp::KmpAutomaton::new(&[u8], &onpair_lib::dict::Dictionary) -> Self
+
+pub fn onpair_lib::kmp::KmpAutomaton::pattern_length(&self) -> usize
+
+pub fn onpair_lib::kmp::KmpAutomaton::sparse_range_count(&self) -> usize
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::kmp::KmpAutomaton
+
+pub fn onpair_lib::kmp::KmpAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::kmp::KmpAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::kmp::KmpAutomaton::reset(&mut self)
+
+pub fn onpair_lib::kmp::KmpAutomaton::step(&mut self, onpair_lib::types::Token)
+
+pub struct onpair_lib::LongestPrefixMatcher
+
+impl onpair_lib::lpm::LongestPrefixMatcher
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::find_longest_match(&self, &[u8]) -> (onpair_lib::types::Token, usize)
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::from_dictionary(&onpair_lib::dict::Dictionary) -> Self
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::insert(&mut self, &[u8]) -> onpair_lib::types::Token
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::new() -> Self
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::size(&self) -> usize
+
+impl core::clone::Clone for onpair_lib::lpm::LongestPrefixMatcher
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::clone(&self) -> onpair_lib::lpm::LongestPrefixMatcher
+
+impl core::default::Default for onpair_lib::lpm::LongestPrefixMatcher
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::default() -> onpair_lib::lpm::LongestPrefixMatcher
+
+impl core::fmt::Debug for onpair_lib::lpm::LongestPrefixMatcher
+
+pub fn onpair_lib::lpm::LongestPrefixMatcher::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct onpair_lib::Negated<A>(pub A)
+
+impl<A: onpair_lib::automaton::TokenAutomaton> onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::Negated<A>
+
+pub fn onpair_lib::automaton::Negated<A>::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::Negated<A>::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::Negated<A>::reset(&mut self)
+
+pub fn onpair_lib::automaton::Negated<A>::step(&mut self, onpair_lib::types::Token)
+
+#[repr(C)] pub struct onpair_lib::OnPairTrainingConfig
+
+pub onpair_lib::OnPairTrainingConfig::bits: u32
+
+pub onpair_lib::OnPairTrainingConfig::seed: u64
+
+pub onpair_lib::OnPairTrainingConfig::threshold: f64
+
+impl core::clone::Clone for onpair_lib::config::OnPairTrainingConfig
+
+pub fn onpair_lib::config::OnPairTrainingConfig::clone(&self) -> onpair_lib::config::OnPairTrainingConfig
+
+impl core::convert::From<onpair_lib::config::OnPairTrainingConfig> for onpair_lib::config::TrainingConfig
+
+pub fn onpair_lib::config::TrainingConfig::from(onpair_lib::config::OnPairTrainingConfig) -> Self
+
+impl core::fmt::Debug for onpair_lib::config::OnPairTrainingConfig
+
+pub fn onpair_lib::config::OnPairTrainingConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::config::OnPairTrainingConfig
+
+pub struct onpair_lib::Or<A, B>(pub A, pub B)
+
+impl<A: onpair_lib::automaton::TokenAutomaton, B: onpair_lib::automaton::TokenAutomaton> onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::Or<A, B>
+
+pub fn onpair_lib::automaton::Or<A, B>::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::Or<A, B>::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::Or<A, B>::reset(&mut self)
+
+pub fn onpair_lib::automaton::Or<A, B>::step(&mut self, onpair_lib::types::Token)
+
+pub struct onpair_lib::Parts<'a>
+
+pub onpair_lib::Parts::bits: u32
+
+pub onpair_lib::Parts::codes_boundaries: &'a [u32]
+
+pub onpair_lib::Parts::codes_packed: &'a [u64]
+
+pub onpair_lib::Parts::dict_bytes: &'a [u8]
+
+pub onpair_lib::Parts::dict_offsets: &'a [u32]
+
+pub onpair_lib::Parts::num_rows: usize
+
+impl<'a> core::clone::Clone for onpair_lib::column::Parts<'a>
+
+pub fn onpair_lib::column::Parts<'a>::clone(&self) -> onpair_lib::column::Parts<'a>
+
+impl<'a> core::marker::Copy for onpair_lib::column::Parts<'a>
+
+pub struct onpair_lib::PrefixAutomaton
+
+impl onpair_lib::automaton::PrefixAutomaton
+
+pub fn onpair_lib::automaton::PrefixAutomaton::new(&[u8], &onpair_lib::dict::Dictionary) -> Self
+
+pub fn onpair_lib::automaton::PrefixAutomaton::query_length(&self) -> usize
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::PrefixAutomaton
+
+pub fn onpair_lib::automaton::PrefixAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::PrefixAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::PrefixAutomaton::reset(&mut self)
+
+pub fn onpair_lib::automaton::PrefixAutomaton::step(&mut self, onpair_lib::types::Token)
+
+pub struct onpair_lib::Store
+
+pub onpair_lib::Store::bit_width: onpair_lib::types::BitWidth
+
+pub onpair_lib::Store::boundaries: alloc::vec::Vec<u32>
+
+pub onpair_lib::Store::packed: alloc::vec::Vec<u64>
+
+impl onpair_lib::store::Store
+
+pub fn onpair_lib::store::Store::bytes_used(&self) -> usize
+
+pub fn onpair_lib::store::Store::num_strings(&self) -> usize
+
+pub fn onpair_lib::store::Store::num_tokens(&self) -> usize
+
+pub fn onpair_lib::store::Store::string_span(&self, usize) -> onpair_lib::types::StreamSpan
+
+impl core::clone::Clone for onpair_lib::store::Store
+
+pub fn onpair_lib::store::Store::clone(&self) -> onpair_lib::store::Store
+
+impl core::default::Default for onpair_lib::store::Store
+
+pub fn onpair_lib::store::Store::default() -> onpair_lib::store::Store
+
+impl core::fmt::Debug for onpair_lib::store::Store
+
+pub fn onpair_lib::store::Store::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct onpair_lib::StreamSpan
+
+pub onpair_lib::StreamSpan::begin: u32
+
+pub onpair_lib::StreamSpan::end: u32
+
+impl onpair_lib::types::StreamSpan
+
+pub const fn onpair_lib::types::StreamSpan::size(self) -> u32
+
+impl core::clone::Clone for onpair_lib::types::StreamSpan
+
+pub fn onpair_lib::types::StreamSpan::clone(&self) -> onpair_lib::types::StreamSpan
+
+impl core::cmp::Eq for onpair_lib::types::StreamSpan
+
+impl core::cmp::PartialEq for onpair_lib::types::StreamSpan
+
+pub fn onpair_lib::types::StreamSpan::eq(&self, &onpair_lib::types::StreamSpan) -> bool
+
+impl core::fmt::Debug for onpair_lib::types::StreamSpan
+
+pub fn onpair_lib::types::StreamSpan::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::types::StreamSpan
+
+impl core::marker::StructuralPartialEq for onpair_lib::types::StreamSpan
+
+pub struct onpair_lib::TokenRange
+
+pub onpair_lib::TokenRange::begin: onpair_lib::types::Token
+
+pub onpair_lib::TokenRange::last: onpair_lib::types::Token
+
+impl onpair_lib::types::TokenRange
+
+pub const fn onpair_lib::types::TokenRange::contains(self, onpair_lib::types::Token) -> bool
+
+pub const fn onpair_lib::types::TokenRange::empty(self) -> bool
+
+pub const fn onpair_lib::types::TokenRange::size(self) -> u32
+
+impl core::clone::Clone for onpair_lib::types::TokenRange
+
+pub fn onpair_lib::types::TokenRange::clone(&self) -> onpair_lib::types::TokenRange
+
+impl core::cmp::Eq for onpair_lib::types::TokenRange
+
+impl core::cmp::PartialEq for onpair_lib::types::TokenRange
+
+pub fn onpair_lib::types::TokenRange::eq(&self, &onpair_lib::types::TokenRange) -> bool
+
+impl core::default::Default for onpair_lib::types::TokenRange
+
+pub fn onpair_lib::types::TokenRange::default() -> Self
+
+impl core::fmt::Debug for onpair_lib::types::TokenRange
+
+pub fn onpair_lib::types::TokenRange::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for onpair_lib::types::TokenRange
+
+impl core::marker::StructuralPartialEq for onpair_lib::types::TokenRange
+
+pub struct onpair_lib::TrainResult
+
+pub onpair_lib::TrainResult::dict: onpair_lib::dict::Dictionary
+
+pub onpair_lib::TrainResult::lpm: onpair_lib::lpm::LongestPrefixMatcher
+
+impl core::clone::Clone for onpair_lib::trainer::TrainResult
+
+pub fn onpair_lib::trainer::TrainResult::clone(&self) -> onpair_lib::trainer::TrainResult
+
+impl core::fmt::Debug for onpair_lib::trainer::TrainResult
+
+pub fn onpair_lib::trainer::TrainResult::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct onpair_lib::TrainingConfig
+
+pub onpair_lib::TrainingConfig::bits: onpair_lib::types::BitWidth
+
+pub onpair_lib::TrainingConfig::seed: core::option::Option<u64>
+
+pub onpair_lib::TrainingConfig::threshold: onpair_lib::config::ThresholdSpec
+
+impl core::clone::Clone for onpair_lib::config::TrainingConfig
+
+pub fn onpair_lib::config::TrainingConfig::clone(&self) -> onpair_lib::config::TrainingConfig
+
+impl core::convert::From<onpair_lib::config::OnPairTrainingConfig> for onpair_lib::config::TrainingConfig
+
+pub fn onpair_lib::config::TrainingConfig::from(onpair_lib::config::OnPairTrainingConfig) -> Self
+
+impl core::default::Default for onpair_lib::config::TrainingConfig
+
+pub fn onpair_lib::config::TrainingConfig::default() -> Self
+
+impl core::fmt::Debug for onpair_lib::config::TrainingConfig
+
+pub fn onpair_lib::config::TrainingConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub const onpair_lib::DEFAULT_DICT12_CONFIG: onpair_lib::config::OnPairTrainingConfig
+
+pub const onpair_lib::MAX_TOKEN_SIZE: usize
+
+pub trait onpair_lib::TokenAutomaton
+
+pub fn onpair_lib::TokenAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::TokenAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::TokenAutomaton::reset(&mut self)
+
+pub fn onpair_lib::TokenAutomaton::step(&mut self, onpair_lib::types::Token)
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::aho_corasick::AhoCorasickAutomaton
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::reset(&mut self)
+
+pub fn onpair_lib::aho_corasick::AhoCorasickAutomaton::step(&mut self, onpair_lib::types::Token)
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::EqAutomaton
+
+pub fn onpair_lib::automaton::EqAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::EqAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::EqAutomaton::reset(&mut self)
+
+pub fn onpair_lib::automaton::EqAutomaton::step(&mut self, onpair_lib::types::Token)
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::PrefixAutomaton
+
+pub fn onpair_lib::automaton::PrefixAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::PrefixAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::PrefixAutomaton::reset(&mut self)
+
+pub fn onpair_lib::automaton::PrefixAutomaton::step(&mut self, onpair_lib::types::Token)
+
+impl onpair_lib::automaton::TokenAutomaton for onpair_lib::kmp::KmpAutomaton
+
+pub fn onpair_lib::kmp::KmpAutomaton::is_accepted(&self) -> bool
+
+pub fn onpair_lib::kmp::KmpAutomaton::is_dead(&self) -> bool
+
+pub fn onpair_lib::kmp::KmpAutomaton::reset(&mut self)
+
+pub fn onpair_lib::kmp::KmpAutomaton::step(&mut self, onpair_lib::types::Token)
+
+impl<A: onpair_lib::automaton::TokenAutomaton + ?core::marker::Sized> onpair_lib::automaton::TokenAutomaton for &mut A
+
+pub fn &mut A::is_accepted(&self) -> bool
+
+pub fn &mut A::is_dead(&self) -> bool
+
+pub fn &mut A::reset(&mut self)
+
+pub fn &mut A::step(&mut self, onpair_lib::types::Token)
+
+impl<A: onpair_lib::automaton::TokenAutomaton, B: onpair_lib::automaton::TokenAutomaton> onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::And<A, B>
+
+pub fn onpair_lib::automaton::And<A, B>::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::And<A, B>::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::And<A, B>::reset(&mut self)
+
+pub fn onpair_lib::automaton::And<A, B>::step(&mut self, onpair_lib::types::Token)
+
+impl<A: onpair_lib::automaton::TokenAutomaton, B: onpair_lib::automaton::TokenAutomaton> onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::Or<A, B>
+
+pub fn onpair_lib::automaton::Or<A, B>::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::Or<A, B>::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::Or<A, B>::reset(&mut self)
+
+pub fn onpair_lib::automaton::Or<A, B>::step(&mut self, onpair_lib::types::Token)
+
+impl<A: onpair_lib::automaton::TokenAutomaton> onpair_lib::automaton::TokenAutomaton for onpair_lib::automaton::Negated<A>
+
+pub fn onpair_lib::automaton::Negated<A>::is_accepted(&self) -> bool
+
+pub fn onpair_lib::automaton::Negated<A>::is_dead(&self) -> bool
+
+pub fn onpair_lib::automaton::Negated<A>::reset(&mut self)
+
+pub fn onpair_lib::automaton::Negated<A>::step(&mut self, onpair_lib::types::Token)
+
+pub fn onpair_lib::and<A: onpair_lib::automaton::TokenAutomaton, B: onpair_lib::automaton::TokenAutomaton>(A, B) -> onpair_lib::automaton::And<A, B>
+
+pub const fn onpair_lib::is_valid_bits(onpair_lib::types::BitWidth) -> bool
+
+pub const fn onpair_lib::max_dict_size(onpair_lib::types::BitWidth) -> usize
+
+pub fn onpair_lib::not<A: onpair_lib::automaton::TokenAutomaton>(A) -> onpair_lib::automaton::Negated<A>
+
+pub fn onpair_lib::or<A: onpair_lib::automaton::TokenAutomaton, B: onpair_lib::automaton::TokenAutomaton>(A, B) -> onpair_lib::automaton::Or<A, B>
+
+pub fn onpair_lib::parse(&[u8], &[u32], usize, &onpair_lib::lpm::LongestPrefixMatcher, onpair_lib::types::BitWidth, &mut onpair_lib::store::Store)
+
+pub fn onpair_lib::read_bits_lsb(&[u64], usize, u32) -> u16
+
+pub fn onpair_lib::tokenize(&[u8], &onpair_lib::dict::Dictionary) -> alloc::vec::Vec<onpair_lib::types::Token>
+
+pub fn onpair_lib::tokenize_with(&[u8], &onpair_lib::lpm::LongestPrefixMatcher) -> alloc::vec::Vec<onpair_lib::types::Token>
+
+pub fn onpair_lib::train(&[u8], &[u32], usize, &onpair_lib::config::TrainingConfig) -> onpair_lib::trainer::TrainResult
+
+pub fn onpair_lib::unpack_codes_to_u16(&[u64], usize, u32) -> alloc::vec::Vec<u16>
+
+pub type onpair_lib::BitWidth = u8
+
+pub type onpair_lib::Token = u16

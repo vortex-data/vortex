@@ -1,0 +1,351 @@
+pub mod vortex_onpair_sys
+
+pub mod vortex_onpair_sys::ffi
+
+#[repr(u32)] pub enum vortex_onpair_sys::ffi::OnPairStatus
+
+pub vortex_onpair_sys::ffi::OnPairStatus::BadFormat = 2
+
+pub vortex_onpair_sys::ffi::OnPairStatus::Internal = 99
+
+pub vortex_onpair_sys::ffi::OnPairStatus::InvalidArg = 1
+
+pub vortex_onpair_sys::ffi::OnPairStatus::Ok = 0
+
+pub vortex_onpair_sys::ffi::OnPairStatus::Oom = 4
+
+pub vortex_onpair_sys::ffi::OnPairStatus::OutOfRange = 3
+
+impl vortex_onpair_sys::OnPairStatus
+
+pub fn vortex_onpair_sys::OnPairStatus::from_raw(u32) -> Self
+
+impl core::clone::Clone for vortex_onpair_sys::OnPairStatus
+
+pub fn vortex_onpair_sys::OnPairStatus::clone(&self) -> vortex_onpair_sys::OnPairStatus
+
+impl core::cmp::Eq for vortex_onpair_sys::OnPairStatus
+
+impl core::cmp::PartialEq for vortex_onpair_sys::OnPairStatus
+
+pub fn vortex_onpair_sys::OnPairStatus::eq(&self, &vortex_onpair_sys::OnPairStatus) -> bool
+
+impl core::fmt::Debug for vortex_onpair_sys::OnPairStatus
+
+pub fn vortex_onpair_sys::OnPairStatus::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_onpair_sys::OnPairStatus
+
+impl core::marker::StructuralPartialEq for vortex_onpair_sys::OnPairStatus
+
+#[repr(C)] pub struct vortex_onpair_sys::ffi::OnPairColumnHandle
+
+#[repr(C)] pub struct vortex_onpair_sys::ffi::OnPairColumnParts
+
+pub vortex_onpair_sys::ffi::OnPairColumnParts::bits: u32
+
+pub vortex_onpair_sys::ffi::OnPairColumnParts::codes_boundaries: *const u32
+
+pub vortex_onpair_sys::ffi::OnPairColumnParts::codes_boundaries_len: usize
+
+pub vortex_onpair_sys::ffi::OnPairColumnParts::codes_packed: *const u64
+
+pub vortex_onpair_sys::ffi::OnPairColumnParts::codes_packed_u64_len: usize
+
+pub vortex_onpair_sys::ffi::OnPairColumnParts::dict_bytes: *const u8
+
+pub vortex_onpair_sys::ffi::OnPairColumnParts::dict_bytes_len: usize
+
+pub vortex_onpair_sys::ffi::OnPairColumnParts::dict_offsets: *const u32
+
+pub vortex_onpair_sys::ffi::OnPairColumnParts::dict_offsets_len: usize
+
+pub vortex_onpair_sys::ffi::OnPairColumnParts::num_rows: usize
+
+impl core::clone::Clone for vortex_onpair_sys::OnPairColumnParts
+
+pub fn vortex_onpair_sys::OnPairColumnParts::clone(&self) -> vortex_onpair_sys::OnPairColumnParts
+
+impl core::fmt::Debug for vortex_onpair_sys::OnPairColumnParts
+
+pub fn vortex_onpair_sys::OnPairColumnParts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_onpair_sys::OnPairColumnParts
+
+#[repr(C)] pub struct vortex_onpair_sys::ffi::OnPairTrainingConfig
+
+pub vortex_onpair_sys::ffi::OnPairTrainingConfig::bits: u32
+
+pub vortex_onpair_sys::ffi::OnPairTrainingConfig::seed: u64
+
+pub vortex_onpair_sys::ffi::OnPairTrainingConfig::threshold: f64
+
+impl core::clone::Clone for vortex_onpair_sys::OnPairTrainingConfig
+
+pub fn vortex_onpair_sys::OnPairTrainingConfig::clone(&self) -> vortex_onpair_sys::OnPairTrainingConfig
+
+impl core::fmt::Debug for vortex_onpair_sys::OnPairTrainingConfig
+
+pub fn vortex_onpair_sys::OnPairTrainingConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_onpair_sys::OnPairTrainingConfig
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_buffer_free(*mut u8, usize)
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_bits(*const vortex_onpair_sys::OnPairColumnHandle) -> u32
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_compress(*const u8, *const u64, usize, vortex_onpair_sys::OnPairTrainingConfig, *mut *mut vortex_onpair_sys::OnPairColumnHandle) -> u32
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_contains_into(*const vortex_onpair_sys::OnPairColumnHandle, *const u8, usize, *mut u8) -> u32
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_decompress(*const vortex_onpair_sys::OnPairColumnHandle, usize, *mut u8, usize, *mut usize) -> u32
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_decompress_capacity(*const vortex_onpair_sys::OnPairColumnHandle) -> usize
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_deserialize(*const u8, usize, *mut *mut vortex_onpair_sys::OnPairColumnHandle) -> u32
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_dict_bytes(*const vortex_onpair_sys::OnPairColumnHandle) -> usize
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_dict_copy(*const vortex_onpair_sys::OnPairColumnHandle, *mut u8, usize, *mut u64) -> u32
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_dict_size(*const vortex_onpair_sys::OnPairColumnHandle) -> usize
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_equals_into(*const vortex_onpair_sys::OnPairColumnHandle, *const u8, usize, *mut u8) -> u32
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_free(*mut vortex_onpair_sys::OnPairColumnHandle)
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_len(*const vortex_onpair_sys::OnPairColumnHandle) -> usize
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_parts(*const vortex_onpair_sys::OnPairColumnHandle, *mut vortex_onpair_sys::OnPairColumnParts) -> u32
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_serialize(*const vortex_onpair_sys::OnPairColumnHandle, *mut *mut u8, *mut usize) -> u32
+
+pub unsafe c fn vortex_onpair_sys::ffi::onpair_column_starts_with_into(*const vortex_onpair_sys::OnPairColumnHandle, *const u8, usize, *mut u8) -> u32
+
+pub enum vortex_onpair_sys::Error
+
+pub vortex_onpair_sys::Error::BadFormat
+
+pub vortex_onpair_sys::Error::Internal
+
+pub vortex_onpair_sys::Error::InvalidArg
+
+pub vortex_onpair_sys::Error::Oom
+
+pub vortex_onpair_sys::Error::OutOfRange
+
+impl core::clone::Clone for vortex_onpair_sys::Error
+
+pub fn vortex_onpair_sys::Error::clone(&self) -> vortex_onpair_sys::Error
+
+impl core::cmp::Eq for vortex_onpair_sys::Error
+
+impl core::cmp::PartialEq for vortex_onpair_sys::Error
+
+pub fn vortex_onpair_sys::Error::eq(&self, &vortex_onpair_sys::Error) -> bool
+
+impl core::error::Error for vortex_onpair_sys::Error
+
+impl core::fmt::Debug for vortex_onpair_sys::Error
+
+pub fn vortex_onpair_sys::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_onpair_sys::Error
+
+pub fn vortex_onpair_sys::Error::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_onpair_sys::Error
+
+impl core::marker::StructuralPartialEq for vortex_onpair_sys::Error
+
+#[repr(u32)] pub enum vortex_onpair_sys::OnPairStatus
+
+pub vortex_onpair_sys::OnPairStatus::BadFormat = 2
+
+pub vortex_onpair_sys::OnPairStatus::Internal = 99
+
+pub vortex_onpair_sys::OnPairStatus::InvalidArg = 1
+
+pub vortex_onpair_sys::OnPairStatus::Ok = 0
+
+pub vortex_onpair_sys::OnPairStatus::Oom = 4
+
+pub vortex_onpair_sys::OnPairStatus::OutOfRange = 3
+
+impl vortex_onpair_sys::OnPairStatus
+
+pub fn vortex_onpair_sys::OnPairStatus::from_raw(u32) -> Self
+
+impl core::clone::Clone for vortex_onpair_sys::OnPairStatus
+
+pub fn vortex_onpair_sys::OnPairStatus::clone(&self) -> vortex_onpair_sys::OnPairStatus
+
+impl core::cmp::Eq for vortex_onpair_sys::OnPairStatus
+
+impl core::cmp::PartialEq for vortex_onpair_sys::OnPairStatus
+
+pub fn vortex_onpair_sys::OnPairStatus::eq(&self, &vortex_onpair_sys::OnPairStatus) -> bool
+
+impl core::fmt::Debug for vortex_onpair_sys::OnPairStatus
+
+pub fn vortex_onpair_sys::OnPairStatus::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_onpair_sys::OnPairStatus
+
+impl core::marker::StructuralPartialEq for vortex_onpair_sys::OnPairStatus
+
+pub struct vortex_onpair_sys::Column
+
+impl vortex_onpair_sys::Column
+
+pub fn vortex_onpair_sys::Column::bits(&self) -> u32
+
+pub fn vortex_onpair_sys::Column::compress(&[u8], &[u64], vortex_onpair_sys::OnPairTrainingConfig) -> core::result::Result<Self, vortex_onpair_sys::Error>
+
+pub fn vortex_onpair_sys::Column::contains_bitmap(&self, &[u8]) -> core::result::Result<alloc::vec::Vec<u8>, vortex_onpair_sys::Error>
+
+pub fn vortex_onpair_sys::Column::decompress_row(&self, usize, &mut alloc::vec::Vec<u8>) -> core::result::Result<(), vortex_onpair_sys::Error>
+
+pub fn vortex_onpair_sys::Column::dict(&self) -> core::result::Result<(alloc::vec::Vec<u8>, alloc::vec::Vec<u64>), vortex_onpair_sys::Error>
+
+pub fn vortex_onpair_sys::Column::dict_bytes(&self) -> usize
+
+pub fn vortex_onpair_sys::Column::dict_size(&self) -> usize
+
+pub fn vortex_onpair_sys::Column::equals_bitmap(&self, &[u8]) -> core::result::Result<alloc::vec::Vec<u8>, vortex_onpair_sys::Error>
+
+pub fn vortex_onpair_sys::Column::from_bytes(&[u8]) -> core::result::Result<Self, vortex_onpair_sys::Error>
+
+pub fn vortex_onpair_sys::Column::is_empty(&self) -> bool
+
+pub fn vortex_onpair_sys::Column::len(&self) -> usize
+
+pub fn vortex_onpair_sys::Column::max_decompress_capacity(&self) -> usize
+
+pub unsafe fn vortex_onpair_sys::Column::raw(&self) -> *const core::ffi::c_void
+
+pub fn vortex_onpair_sys::Column::starts_with_bitmap(&self, &[u8]) -> core::result::Result<alloc::vec::Vec<u8>, vortex_onpair_sys::Error>
+
+pub fn vortex_onpair_sys::Column::to_bytes(&self) -> core::result::Result<alloc::vec::Vec<u8>, vortex_onpair_sys::Error>
+
+impl vortex_onpair_sys::Column
+
+pub fn vortex_onpair_sys::Column::parts(&self) -> core::result::Result<vortex_onpair_sys::Parts<'_>, vortex_onpair_sys::Error>
+
+impl core::marker::Send for vortex_onpair_sys::Column
+
+impl core::marker::Sync for vortex_onpair_sys::Column
+
+impl core::ops::drop::Drop for vortex_onpair_sys::Column
+
+pub fn vortex_onpair_sys::Column::drop(&mut self)
+
+#[repr(C)] pub struct vortex_onpair_sys::OnPairColumnHandle
+
+#[repr(C)] pub struct vortex_onpair_sys::OnPairColumnParts
+
+pub vortex_onpair_sys::OnPairColumnParts::bits: u32
+
+pub vortex_onpair_sys::OnPairColumnParts::codes_boundaries: *const u32
+
+pub vortex_onpair_sys::OnPairColumnParts::codes_boundaries_len: usize
+
+pub vortex_onpair_sys::OnPairColumnParts::codes_packed: *const u64
+
+pub vortex_onpair_sys::OnPairColumnParts::codes_packed_u64_len: usize
+
+pub vortex_onpair_sys::OnPairColumnParts::dict_bytes: *const u8
+
+pub vortex_onpair_sys::OnPairColumnParts::dict_bytes_len: usize
+
+pub vortex_onpair_sys::OnPairColumnParts::dict_offsets: *const u32
+
+pub vortex_onpair_sys::OnPairColumnParts::dict_offsets_len: usize
+
+pub vortex_onpair_sys::OnPairColumnParts::num_rows: usize
+
+impl core::clone::Clone for vortex_onpair_sys::OnPairColumnParts
+
+pub fn vortex_onpair_sys::OnPairColumnParts::clone(&self) -> vortex_onpair_sys::OnPairColumnParts
+
+impl core::fmt::Debug for vortex_onpair_sys::OnPairColumnParts
+
+pub fn vortex_onpair_sys::OnPairColumnParts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_onpair_sys::OnPairColumnParts
+
+#[repr(C)] pub struct vortex_onpair_sys::OnPairTrainingConfig
+
+pub vortex_onpair_sys::OnPairTrainingConfig::bits: u32
+
+pub vortex_onpair_sys::OnPairTrainingConfig::seed: u64
+
+pub vortex_onpair_sys::OnPairTrainingConfig::threshold: f64
+
+impl core::clone::Clone for vortex_onpair_sys::OnPairTrainingConfig
+
+pub fn vortex_onpair_sys::OnPairTrainingConfig::clone(&self) -> vortex_onpair_sys::OnPairTrainingConfig
+
+impl core::fmt::Debug for vortex_onpair_sys::OnPairTrainingConfig
+
+pub fn vortex_onpair_sys::OnPairTrainingConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_onpair_sys::OnPairTrainingConfig
+
+pub struct vortex_onpair_sys::Parts<'a>
+
+pub vortex_onpair_sys::Parts::bits: u32
+
+pub vortex_onpair_sys::Parts::codes_boundaries: &'a [u32]
+
+pub vortex_onpair_sys::Parts::codes_packed: &'a [u64]
+
+pub vortex_onpair_sys::Parts::dict_bytes: &'a [u8]
+
+pub vortex_onpair_sys::Parts::dict_offsets: &'a [u32]
+
+pub vortex_onpair_sys::Parts::num_rows: usize
+
+impl<'a> core::clone::Clone for vortex_onpair_sys::Parts<'a>
+
+pub fn vortex_onpair_sys::Parts<'a>::clone(&self) -> vortex_onpair_sys::Parts<'a>
+
+impl<'a> core::marker::Copy for vortex_onpair_sys::Parts<'a>
+
+pub const vortex_onpair_sys::DEFAULT_DICT12_CONFIG: vortex_onpair_sys::OnPairTrainingConfig
+
+pub unsafe c fn vortex_onpair_sys::onpair_buffer_free(*mut u8, usize)
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_bits(*const vortex_onpair_sys::OnPairColumnHandle) -> u32
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_compress(*const u8, *const u64, usize, vortex_onpair_sys::OnPairTrainingConfig, *mut *mut vortex_onpair_sys::OnPairColumnHandle) -> u32
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_contains_into(*const vortex_onpair_sys::OnPairColumnHandle, *const u8, usize, *mut u8) -> u32
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_decompress(*const vortex_onpair_sys::OnPairColumnHandle, usize, *mut u8, usize, *mut usize) -> u32
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_decompress_capacity(*const vortex_onpair_sys::OnPairColumnHandle) -> usize
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_deserialize(*const u8, usize, *mut *mut vortex_onpair_sys::OnPairColumnHandle) -> u32
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_dict_bytes(*const vortex_onpair_sys::OnPairColumnHandle) -> usize
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_dict_copy(*const vortex_onpair_sys::OnPairColumnHandle, *mut u8, usize, *mut u64) -> u32
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_dict_size(*const vortex_onpair_sys::OnPairColumnHandle) -> usize
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_equals_into(*const vortex_onpair_sys::OnPairColumnHandle, *const u8, usize, *mut u8) -> u32
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_free(*mut vortex_onpair_sys::OnPairColumnHandle)
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_len(*const vortex_onpair_sys::OnPairColumnHandle) -> usize
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_parts(*const vortex_onpair_sys::OnPairColumnHandle, *mut vortex_onpair_sys::OnPairColumnParts) -> u32
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_serialize(*const vortex_onpair_sys::OnPairColumnHandle, *mut *mut u8, *mut usize) -> u32
+
+pub unsafe c fn vortex_onpair_sys::onpair_column_starts_with_into(*const vortex_onpair_sys::OnPairColumnHandle, *const u8, usize, *mut u8) -> u32
+
+pub fn vortex_onpair_sys::read_bits_lsb(&[u64], usize, u32) -> u16
+
+pub fn vortex_onpair_sys::unpack_codes_to_u16(&[u64], usize, u32) -> alloc::vec::Vec<u16>

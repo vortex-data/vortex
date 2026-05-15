@@ -21,6 +21,14 @@ use vortex_fsst::FSST;
 use vortex_fsst::FSSTArrayExt;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
+#[cfg(feature = "unstable_encodings")]
+use vortex_onpair::DEFAULT_DICT12_CONFIG;
+#[cfg(feature = "unstable_encodings")]
+use vortex_onpair::OnPair;
+#[cfg(feature = "unstable_encodings")]
+use vortex_onpair::OnPairArrayExt;
+#[cfg(feature = "unstable_encodings")]
+use vortex_onpair::onpair_compress;
 use vortex_sparse::Sparse;
 use vortex_sparse::SparseExt as _;
 
@@ -33,8 +41,25 @@ use crate::Scheme;
 use crate::SchemeExt;
 
 /// FSST (Fast Static Symbol Table) compression.
+///
+/// Retained for callers that want to opt back in via
+/// [`BtrBlocksCompressorBuilder::with_new_scheme`]; it is **not** part of the
+/// default [`ALL_SCHEMES`] anymore — the default string-fragmentation slot is
+/// filled by [`OnPairScheme`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct FSSTScheme;
+
+/// OnPair short-string compression (dict-12).
+///
+/// The default string-fragmentation scheme — targets large columns of
+/// short-to-medium strings with high lexical overlap, like URLs or log lines.
+/// Uses a learned dictionary of frequent adjacent substrings (built by the
+/// OnPair C++ trainer at compress time) and 12-bit token codes stored as a
+/// u16 child, with offsets / uncompressed-lengths flowing through the
+/// cascading compressor like any other primitive children.
+#[cfg(feature = "unstable_encodings")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct OnPairScheme;
 
 /// Sparse encoding for null-dominated arrays.
 ///
@@ -136,6 +161,114 @@ impl Scheme for FSSTScheme {
 
         Ok(fsst.into_array())
     }
+}
+
+#[cfg(feature = "unstable_encodings")]
+impl Scheme for OnPairScheme {
+    fn scheme_name(&self) -> &'static str {
+        "vortex.string.onpair"
+    }
+
+    fn matches(&self, canonical: &Canonical) -> bool {
+        is_utf8_string(canonical)
+    }
+
+    /// One slot child: `uncompressed_lengths`. The dictionary blob, dictionary
+    /// offsets, codes (u16), and codes offsets all live as raw byte buffers
+    /// on the OnPair array — they're not primitive slot children, so the
+    /// cascading compressor doesn't recompress them. Codes intentionally
+    /// 4 primitive slot children flow through the cascading compressor:
+    /// `dict_offsets` (u32 → typically `FoR`/`BitPacked`), `codes` (u16 →
+    /// `FastLanes::BitPacked` to exactly `bits` = 12 by default),
+    /// `codes_offsets` (u32 → `FoR`), `uncompressed_lengths` (i32 → narrow
+    /// + `FoR`). Validity stays untouched.
+    fn num_children(&self) -> usize {
+        4
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        _data: &ArrayAndStats,
+        _compress_ctx: CompressorContext,
+        _exec_ctx: &mut ExecutionCtx,
+    ) -> CompressionEstimate {
+        CompressionEstimate::Deferred(DeferredEstimate::Sample)
+    }
+
+    fn compress(
+        &self,
+        compressor: &CascadingCompressor,
+        data: &ArrayAndStats,
+        compress_ctx: CompressorContext,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let utf8 = data.array_as_utf8().into_owned();
+        let onpair_array = onpair_compress(&utf8, utf8.len(), utf8.dtype(), DEFAULT_DICT12_CONFIG)?;
+
+        let dict_offsets = compress_primitive_child(
+            compressor,
+            onpair_array.dict_offsets(),
+            &compress_ctx,
+            self.id(),
+            0,
+            exec_ctx,
+        )?;
+        let codes = compress_primitive_child(
+            compressor,
+            onpair_array.codes(),
+            &compress_ctx,
+            self.id(),
+            1,
+            exec_ctx,
+        )?;
+        let codes_offsets = compress_primitive_child(
+            compressor,
+            onpair_array.codes_offsets(),
+            &compress_ctx,
+            self.id(),
+            2,
+            exec_ctx,
+        )?;
+        let uncompressed_lengths = compress_primitive_child(
+            compressor,
+            onpair_array.uncompressed_lengths(),
+            &compress_ctx,
+            self.id(),
+            3,
+            exec_ctx,
+        )?;
+
+        Ok(OnPair::try_new(
+            onpair_array.dtype().clone(),
+            onpair_array.dict_bytes_handle().clone(),
+            dict_offsets,
+            codes,
+            codes_offsets,
+            uncompressed_lengths,
+            onpair_array.array_validity(),
+            onpair_array.bits(),
+        )?
+        .into_array())
+    }
+}
+
+/// Narrow a primitive child to its tightest int type, then forward it to
+/// the cascading compressor.
+#[cfg(feature = "unstable_encodings")]
+fn compress_primitive_child(
+    compressor: &CascadingCompressor,
+    child: &ArrayRef,
+    compress_ctx: &CompressorContext,
+    scheme_id: vortex_compressor::scheme::SchemeId,
+    child_idx: usize,
+    exec_ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let narrowed = child
+        .clone()
+        .execute::<PrimitiveArray>(exec_ctx)?
+        .narrow()?
+        .into_array();
+    compressor.compress_child(&narrowed, compress_ctx, scheme_id, child_idx, exec_ctx)
 }
 
 impl Scheme for NullDominatedSparseScheme {
@@ -411,8 +544,25 @@ mod scheme_selection_tests {
         Ok(())
     }
 
+    #[cfg(feature = "unstable_encodings")]
     #[test]
-    fn test_fsst_compressed() -> VortexResult<()> {
+    fn test_onpair_in_default_scheme_list() {
+        use crate::SchemeExt;
+        use crate::schemes::string::OnPairScheme;
+
+        let ids: Vec<_> = crate::ALL_SCHEMES.iter().map(|s| s.id()).collect();
+        assert!(
+            ids.contains(&OnPairScheme.id()),
+            "OnPairScheme not registered in ALL_SCHEMES"
+        );
+    }
+
+    #[cfg(feature = "unstable_encodings")]
+    #[test]
+    fn test_onpair_compressed() -> VortexResult<()> {
+        // Dictionary-style string corpus: high lexical overlap, short rows.
+        // OnPair is the only string-fragmentation scheme in the default
+        // builder, so it should win the sample-based comparison.
         let mut strings = Vec::with_capacity(1000);
         for i in 0..1000 {
             strings.push(Some(format!(
@@ -423,7 +573,49 @@ mod scheme_selection_tests {
         let array_ref = array.into_array();
         let compressed = BtrBlocksCompressor::default()
             .compress(&array_ref, &mut SESSION.create_execution_ctx())?;
-        assert!(compressed.is::<FSST>());
+        assert!(
+            compressed.is::<vortex_onpair::OnPair>(),
+            "expected OnPair, got {}",
+            compressed.encoding_id()
+        );
+        Ok(())
+    }
+
+    /// FSST is no longer in the default scheme list, but `with_new_scheme`
+    /// still lets callers opt it back in.
+    #[test]
+    fn test_fsst_opt_in_still_works() -> VortexResult<()> {
+        use crate::BtrBlocksCompressorBuilder;
+        use crate::SchemeExt;
+        use crate::schemes::string::FSSTScheme;
+
+        // FSST must not be registered by default.
+        assert!(
+            !crate::ALL_SCHEMES.iter().any(|s| s.id() == FSSTScheme.id()),
+            "FSSTScheme should not be in ALL_SCHEMES anymore",
+        );
+
+        // ...but explicitly adding it back should still produce a compressor
+        // that returns an FSST array for FSST-favourable input. Start from an
+        // empty builder so the sample-based comparison can't pick OnPair.
+        let mut strings = Vec::with_capacity(1000);
+        for i in 0..1000 {
+            strings.push(Some(format!(
+                "this_is_a_common_prefix_with_some_variation_{i}_and_a_common_suffix_pattern"
+            )));
+        }
+        let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
+        let array_ref = array.into_array();
+
+        let compressor = BtrBlocksCompressorBuilder::empty()
+            .with_new_scheme(&FSSTScheme)
+            .build();
+        let compressed = compressor.compress(&array_ref, &mut SESSION.create_execution_ctx())?;
+        assert!(
+            compressed.is::<FSST>(),
+            "expected FSST when only FSSTScheme is registered, got {}",
+            compressed.encoding_id()
+        );
         Ok(())
     }
 }

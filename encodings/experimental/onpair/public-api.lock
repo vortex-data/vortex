@@ -1,0 +1,263 @@
+pub mod vortex_onpair
+
+pub mod vortex_onpair::decode
+
+pub struct vortex_onpair::decode::DecodeView<'a>
+
+pub vortex_onpair::decode::DecodeView::codes: &'a [u16]
+
+pub vortex_onpair::decode::DecodeView::codes_offsets: &'a [u32]
+
+pub vortex_onpair::decode::DecodeView::dict_bytes: &'a [u8]
+
+pub vortex_onpair::decode::DecodeView::dict_table: &'a [u64]
+
+impl<'a> vortex_onpair::decode::DecodeView<'a>
+
+pub fn vortex_onpair::decode::DecodeView<'a>::decode_row_into(&self, usize, &mut alloc::vec::Vec<u8>)
+
+pub fn vortex_onpair::decode::DecodeView<'a>::decode_rows_into(&self, usize, usize, &mut alloc::vec::Vec<u8>)
+
+pub unsafe fn vortex_onpair::decode::DecodeView<'a>::decode_rows_into_with_size(&self, usize, usize, usize, &mut alloc::vec::Vec<u8>)
+
+pub unsafe fn vortex_onpair::decode::DecodeView<'a>::decode_rows_unchecked(&self, usize, usize, *mut u8) -> usize
+
+pub fn vortex_onpair::decode::DecodeView<'a>::decoded_len(&self, usize) -> usize
+
+pub fn vortex_onpair::decode::DecodeView<'a>::decoded_len_rows(&self, usize, usize) -> usize
+
+pub fn vortex_onpair::decode::DecodeView<'a>::for_each_dict_slice<F: core::ops::function::FnMut(&'a [u8]) -> bool>(&self, usize, F) -> bool
+
+impl<'a> core::clone::Clone for vortex_onpair::decode::DecodeView<'a>
+
+pub fn vortex_onpair::decode::DecodeView<'a>::clone(&self) -> vortex_onpair::decode::DecodeView<'a>
+
+impl<'a> core::marker::Copy for vortex_onpair::decode::DecodeView<'a>
+
+pub struct vortex_onpair::decode::OwnedDecodeInputs
+
+pub vortex_onpair::decode::OwnedDecodeInputs::codes: vortex_buffer::buffer::Buffer<u16>
+
+pub vortex_onpair::decode::OwnedDecodeInputs::codes_offsets: vortex_buffer::buffer::Buffer<u32>
+
+pub vortex_onpair::decode::OwnedDecodeInputs::dict_bytes: vortex_buffer::ByteBuffer
+
+pub vortex_onpair::decode::OwnedDecodeInputs::dict_table: vortex_buffer::buffer::Buffer<u64>
+
+impl vortex_onpair::decode::OwnedDecodeInputs
+
+pub fn vortex_onpair::decode::OwnedDecodeInputs::collect(vortex_array::array::view::ArrayView<'_, vortex_onpair::OnPair>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_onpair::decode::OwnedDecodeInputs::view(&self) -> vortex_onpair::decode::DecodeView<'_>
+
+pub struct vortex_onpair::OnPair
+
+impl vortex_onpair::OnPair
+
+pub fn vortex_onpair::OnPair::try_new(vortex_array::dtype::DType, vortex_array::buffer::BufferHandle, vortex_array::array::erased::ArrayRef, vortex_array::array::erased::ArrayRef, vortex_array::array::erased::ArrayRef, vortex_array::array::erased::ArrayRef, vortex_array::validity::Validity, u32) -> vortex_error::VortexResult<vortex_onpair::OnPairArray>
+
+impl core::clone::Clone for vortex_onpair::OnPair
+
+pub fn vortex_onpair::OnPair::clone(&self) -> vortex_onpair::OnPair
+
+impl core::fmt::Debug for vortex_onpair::OnPair
+
+pub fn vortex_onpair::OnPair::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::array::vtable::VTable for vortex_onpair::OnPair
+
+pub type vortex_onpair::OnPair::OperationsVTable = vortex_onpair::OnPair
+
+pub type vortex_onpair::OnPair::TypedArrayData = vortex_onpair::OnPairData
+
+pub type vortex_onpair::OnPair::ValidityVTable = vortex_onpair::OnPair
+
+pub fn vortex_onpair::OnPair::append_to_builder(vortex_array::array::view::ArrayView<'_, Self>, &mut dyn vortex_array::builders::ArrayBuilder, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_onpair::OnPair::buffer(vortex_array::array::view::ArrayView<'_, Self>, usize) -> vortex_array::buffer::BufferHandle
+
+pub fn vortex_onpair::OnPair::buffer_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> core::option::Option<alloc::string::String>
+
+pub fn vortex_onpair::OnPair::deserialize(&self, &vortex_array::dtype::DType, usize, &[u8], &[vortex_array::buffer::BufferHandle], &dyn vortex_array::serde::ArrayChildren, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::array::typed::ArrayParts<Self>>
+
+pub fn vortex_onpair::OnPair::execute(vortex_array::array::typed::Array<Self>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::executor::ExecutionResult>
+
+pub fn vortex_onpair::OnPair::execute_parent(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::array::erased::ArrayRef, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
+pub fn vortex_onpair::OnPair::id(&self) -> vortex_array::array::ArrayId
+
+pub fn vortex_onpair::OnPair::nbuffers(vortex_array::array::view::ArrayView<'_, Self>) -> usize
+
+pub fn vortex_onpair::OnPair::reduce_parent(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::array::erased::ArrayRef, usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
+pub fn vortex_onpair::OnPair::serialize(vortex_array::array::view::ArrayView<'_, Self>, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub fn vortex_onpair::OnPair::slot_name(vortex_array::array::view::ArrayView<'_, Self>, usize) -> alloc::string::String
+
+pub fn vortex_onpair::OnPair::validate(&self, &Self::TypedArrayData, &vortex_array::dtype::DType, usize, &[core::option::Option<vortex_array::array::erased::ArrayRef>]) -> vortex_error::VortexResult<()>
+
+impl vortex_array::array::vtable::operations::OperationsVTable<vortex_onpair::OnPair> for vortex_onpair::OnPair
+
+pub fn vortex_onpair::OnPair::scalar_at(vortex_array::array::view::ArrayView<'_, vortex_onpair::OnPair>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+impl vortex_array::array::vtable::validity::ValidityVTable<vortex_onpair::OnPair> for vortex_onpair::OnPair
+
+pub fn vortex_onpair::OnPair::validity(vortex_array::array::view::ArrayView<'_, vortex_onpair::OnPair>) -> vortex_error::VortexResult<vortex_array::validity::Validity>
+
+impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_onpair::OnPair
+
+pub fn vortex_onpair::OnPair::filter(vortex_array::array::view::ArrayView<'_, Self>, &vortex_mask::Mask, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
+impl vortex_array::arrays::slice::SliceReduce for vortex_onpair::OnPair
+
+pub fn vortex_onpair::OnPair::slice(vortex_array::array::view::ArrayView<'_, Self>, core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
+impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_onpair::OnPair
+
+pub fn vortex_onpair::OnPair::compare(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::array::erased::ArrayRef, vortex_array::scalar_fn::fns::operators::CompareOperator, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
+impl vortex_array::scalar_fn::fns::cast::kernel::CastKernel for vortex_onpair::OnPair
+
+pub fn vortex_onpair::OnPair::cast(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::dtype::DType, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
+impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_onpair::OnPair
+
+pub fn vortex_onpair::OnPair::cast(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
+impl vortex_array::scalar_fn::fns::like::kernel::LikeKernel for vortex_onpair::OnPair
+
+pub fn vortex_onpair::OnPair::like(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::array::erased::ArrayRef, vortex_array::scalar_fn::fns::like::LikeOptions, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
+pub struct vortex_onpair::OnPairData
+
+impl vortex_onpair::OnPairData
+
+pub fn vortex_onpair::OnPairData::bits(&self) -> u32
+
+pub fn vortex_onpair::OnPairData::dict_bytes(&self) -> &vortex_buffer::ByteBuffer
+
+pub fn vortex_onpair::OnPairData::dict_bytes_handle(&self) -> &vortex_array::buffer::BufferHandle
+
+pub fn vortex_onpair::OnPairData::is_empty(&self) -> bool
+
+pub fn vortex_onpair::OnPairData::len(&self) -> usize
+
+pub fn vortex_onpair::OnPairData::new(vortex_array::buffer::BufferHandle, u32, usize) -> Self
+
+impl core::clone::Clone for vortex_onpair::OnPairData
+
+pub fn vortex_onpair::OnPairData::clone(&self) -> vortex_onpair::OnPairData
+
+impl core::fmt::Debug for vortex_onpair::OnPairData
+
+pub fn vortex_onpair::OnPairData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_onpair::OnPairData
+
+pub fn vortex_onpair::OnPairData::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::hash::ArrayEq for vortex_onpair::OnPairData
+
+pub fn vortex_onpair::OnPairData::array_eq(&self, &Self, vortex_array::hash::Precision) -> bool
+
+impl vortex_array::hash::ArrayHash for vortex_onpair::OnPairData
+
+pub fn vortex_onpair::OnPairData::array_hash<H: core::hash::Hasher>(&self, &mut H, vortex_array::hash::Precision)
+
+pub struct vortex_onpair::OnPairMetadata
+
+pub vortex_onpair::OnPairMetadata::bits: u32
+
+pub vortex_onpair::OnPairMetadata::codes_offsets_ptype: i32
+
+pub vortex_onpair::OnPairMetadata::codes_ptype: i32
+
+pub vortex_onpair::OnPairMetadata::dict_offsets_ptype: i32
+
+pub vortex_onpair::OnPairMetadata::dict_size: u64
+
+pub vortex_onpair::OnPairMetadata::total_tokens: u64
+
+pub vortex_onpair::OnPairMetadata::uncompressed_lengths_ptype: i32
+
+impl vortex_onpair::OnPairMetadata
+
+pub fn vortex_onpair::OnPairMetadata::codes_offsets_ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub fn vortex_onpair::OnPairMetadata::codes_ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub fn vortex_onpair::OnPairMetadata::dict_offsets_ptype(&self) -> vortex_array::dtype::ptype::PType
+
+pub fn vortex_onpair::OnPairMetadata::set_codes_offsets_ptype(&mut self, vortex_array::dtype::ptype::PType)
+
+pub fn vortex_onpair::OnPairMetadata::set_codes_ptype(&mut self, vortex_array::dtype::ptype::PType)
+
+pub fn vortex_onpair::OnPairMetadata::set_dict_offsets_ptype(&mut self, vortex_array::dtype::ptype::PType)
+
+pub fn vortex_onpair::OnPairMetadata::set_uncompressed_lengths_ptype(&mut self, vortex_array::dtype::ptype::PType)
+
+pub fn vortex_onpair::OnPairMetadata::uncompressed_lengths_ptype(&self) -> vortex_array::dtype::ptype::PType
+
+impl vortex_onpair::OnPairMetadata
+
+pub fn vortex_onpair::OnPairMetadata::get_uncompressed_lengths_ptype(&self) -> vortex_error::VortexResult<vortex_array::dtype::ptype::PType>
+
+impl core::clone::Clone for vortex_onpair::OnPairMetadata
+
+pub fn vortex_onpair::OnPairMetadata::clone(&self) -> vortex_onpair::OnPairMetadata
+
+impl core::default::Default for vortex_onpair::OnPairMetadata
+
+pub fn vortex_onpair::OnPairMetadata::default() -> Self
+
+impl core::fmt::Debug for vortex_onpair::OnPairMetadata
+
+pub fn vortex_onpair::OnPairMetadata::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl prost::message::Message for vortex_onpair::OnPairMetadata
+
+pub fn vortex_onpair::OnPairMetadata::clear(&mut self)
+
+pub fn vortex_onpair::OnPairMetadata::encoded_len(&self) -> usize
+
+pub const vortex_onpair::DEFAULT_BITS: u32
+
+pub const vortex_onpair::DEFAULT_DICT12_CONFIG: vortex_onpair_sys::ffi::OnPairTrainingConfig
+
+pub const vortex_onpair::MAX_TOKEN_SIZE: usize
+
+pub trait vortex_onpair::OnPairArrayExt: vortex_array::array::typed::TypedArrayRef<vortex_onpair::OnPair>
+
+pub fn vortex_onpair::OnPairArrayExt::array_validity(&self) -> vortex_array::validity::Validity
+
+pub fn vortex_onpair::OnPairArrayExt::codes(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_onpair::OnPairArrayExt::codes_offsets(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_onpair::OnPairArrayExt::dict_offsets(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_onpair::OnPairArrayExt::uncompressed_lengths(&self) -> &vortex_array::array::erased::ArrayRef
+
+impl<T: vortex_array::array::typed::TypedArrayRef<vortex_onpair::OnPair>> vortex_onpair::OnPairArrayExt for T
+
+pub fn T::array_validity(&self) -> vortex_array::validity::Validity
+
+pub fn T::codes(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::codes_offsets(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::dict_offsets(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn T::uncompressed_lengths(&self) -> &vortex_array::array::erased::ArrayRef
+
+pub fn vortex_onpair::config_with_bits(u32) -> vortex_onpair_sys::ffi::OnPairTrainingConfig
+
+pub fn vortex_onpair::onpair_compress<A: vortex_array::accessor::ArrayAccessor<[u8]>>(A, usize, &vortex_array::dtype::DType, vortex_onpair_sys::ffi::OnPairTrainingConfig) -> vortex_error::VortexResult<vortex_onpair::OnPairArray>
+
+pub fn vortex_onpair::onpair_compress_array(&vortex_array::array::erased::ArrayRef, vortex_onpair_sys::ffi::OnPairTrainingConfig, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_onpair::OnPairArray>
+
+pub fn vortex_onpair::onpair_compress_array_default(&vortex_array::array::erased::ArrayRef, vortex_onpair_sys::ffi::OnPairTrainingConfig) -> vortex_error::VortexResult<vortex_onpair::OnPairArray>
+
+pub fn vortex_onpair::onpair_compress_iter<'a, I>(I, usize, vortex_array::dtype::DType, vortex_onpair_sys::ffi::OnPairTrainingConfig) -> vortex_error::VortexResult<vortex_onpair::OnPairArray> where I: core::iter::traits::iterator::Iterator<Item = core::option::Option<&'a [u8]>>
+
+pub type vortex_onpair::OnPairArray = vortex_array::array::typed::Array<vortex_onpair::OnPair>
