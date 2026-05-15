@@ -30,14 +30,18 @@
 //!   and per-row boundaries — feeds directly into `vortex-onpair`'s
 //!   SIMD-friendly decode and predicate kernels.
 //!
-//! ## Deliberately not ported
+//! ## Compressed-domain automata
 //!
-//! The compressed-domain `TokenAutomaton` (`KmpAutomaton` / `PrefixAutomaton`
-//! / `EqAutomaton` / `AhoCorasickAutomaton`) from `onpair_cpp/search/`.
-//! The predicate APIs here decompress each row and run a byte-level match.
-//! Same observable result; the C++ design is faster on very large columns
-//! because it scans the bit-packed stream directly and composes
-//! `A && !B` in one pass over the tokens.
+//! In addition to the byte-level `*_bitmap` predicates, this crate ports
+//! the full C++ token-automaton machinery — [`EqAutomaton`],
+//! [`PrefixAutomaton`], [`KmpAutomaton`], and
+//! [`AhoCorasickAutomaton`] — all implementing the [`TokenAutomaton`]
+//! trait. They scan the bit-packed token stream directly without
+//! decompressing rows, and compose via [`and`], [`or`], [`not`] into a
+//! single scan that evaluates `A && !B` etc. in lockstep.
+//!
+//! Use [`Column::scan`] (returns matching row ids) or
+//! [`Column::scan_bitmap`] (returns the LSB-packed selection bitmap).
 //!
 //! ## Layout produced by `Column::parts`
 //!
@@ -49,6 +53,8 @@
 //! bits:              9..=16
 //! ```
 
+pub mod aho_corasick;
+pub mod automaton;
 pub mod bit_unpack;
 pub mod bit_writer;
 pub mod column;
@@ -56,18 +62,28 @@ pub mod combinators;
 pub mod config;
 pub mod decoder;
 pub mod dict;
+pub mod eq_automaton;
+pub mod kmp_automaton;
 pub mod lpm;
 pub mod parser;
+pub mod prefix_automaton;
 pub mod search;
 pub mod store;
+pub mod tokenize;
 pub mod trainer;
 pub mod types;
 
 #[cfg(test)]
 mod test_corpus;
 
+pub use aho_corasick::{AhoCorasickAutomaton, AhoCorasickTrie};
+pub use automaton::{And, Negated, Or, TokenAutomaton, and, not, or};
 pub use bit_unpack::{read_bits_lsb, unpack_codes_to_u16};
 pub use column::{Column, Parts};
+pub use eq_automaton::EqAutomaton;
+pub use kmp_automaton::KmpAutomaton;
+pub use prefix_automaton::PrefixAutomaton;
+pub use tokenize::{tokenize, tokenize_with};
 pub use combinators::{
     bitmap_and, bitmap_and_in_place, bitmap_len, bitmap_not, bitmap_not_in_place, bitmap_or,
     bitmap_or_in_place, bitmap_popcount,

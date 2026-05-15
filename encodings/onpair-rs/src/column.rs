@@ -7,11 +7,14 @@
 // `&[u64]` row offsets so callers don't need to truncate to u32; internally
 // we sanity-check and downcast.
 
+use crate::automaton::TokenAutomaton;
+use crate::bit_unpack::read_bits_lsb;
 use crate::config::{Error, OnPairTrainingConfig};
 use crate::decoder::{decode_all, decompress_row};
 use crate::dict::Dictionary;
 use crate::parser::parse;
-use crate::search::{contains_bitmap, equals_bitmap, multi_pattern_bitmap, starts_with_bitmap};
+use crate::search::{contains_bitmap, empty_bitmap, equals_bitmap, multi_pattern_bitmap,
+                    starts_with_bitmap};
 use crate::store::Store;
 use crate::trainer::{TrainResult, train};
 use crate::types::is_valid_bits;
@@ -126,6 +129,60 @@ impl Column {
     /// `col LIKE '%needle%'` as an LSB-first packed bitmap.
     pub fn contains_bitmap(&self, needle: &[u8]) -> Vec<u8> {
         contains_bitmap(&self.dict, &self.store, needle)
+    }
+
+    /// Run a [`TokenAutomaton`] over every row's compressed token stream
+    /// and collect matching row ids. The automaton is reset at the start of
+    /// each row and stepped on every token; the loop breaks early when
+    /// `is_dead()` returns true.
+    pub fn scan<A: TokenAutomaton>(&self, mut aut: A) -> Vec<usize> {
+        let mut out = Vec::new();
+        self.scan_with(&mut aut, |i| out.push(i));
+        out
+    }
+
+    /// Callback form of [`Self::scan`] — no `Vec<usize>` allocation.
+    pub fn scan_with<A: TokenAutomaton, F: FnMut(usize)>(&self, mut aut: A, mut on_match: F) {
+        let bits = self.store.bit_width as u32;
+        let bits_us = bits as usize;
+        for row in 0..self.num_rows {
+            aut.reset();
+            let span = self.store.string_span(row);
+            for i in span.begin..span.end {
+                let code = read_bits_lsb(&self.store.packed, (i as usize) * bits_us, bits);
+                aut.step(code);
+                if aut.is_dead() {
+                    break;
+                }
+            }
+            if aut.is_accepted() {
+                on_match(row);
+            }
+        }
+    }
+
+    /// Run a [`TokenAutomaton`] and collect matches as an LSB-first packed
+    /// bitmap. Same shape as the byte-level `*_bitmap` APIs.
+    pub fn scan_bitmap<A: TokenAutomaton>(&self, aut: A) -> Vec<u8> {
+        let mut bits = empty_bitmap(self.num_rows);
+        self.scan_with(aut, |i| bits[i / 8] |= 1u8 << (i % 8));
+        bits
+    }
+
+    /// Access the column's dictionary. Required to construct
+    /// [`crate::eq_automaton::EqAutomaton`] / [`crate::prefix_automaton::PrefixAutomaton`]
+    /// / [`crate::kmp_automaton::KmpAutomaton`] /
+    /// [`crate::aho_corasick::AhoCorasickAutomaton`].
+    pub fn dictionary(&self) -> &Dictionary {
+        &self.dict
+    }
+
+    /// Test-only accessor: returns a cheap clone of the dictionary so the
+    /// automaton constructors (`new(needle, &dict)`) can take it by value
+    /// when needed.
+    #[cfg(test)]
+    pub(crate) fn dict_for_test(&self) -> Dictionary {
+        self.dict.clone()
     }
 
     /// `col LIKE '%a%' OR '%b%' OR ...` via Aho-Corasick. One bitmap pass

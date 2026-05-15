@@ -571,3 +571,151 @@ mod combinators {
         }
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Token-automaton equivalence.
+//
+// Verify the compressed-domain automata (EqAutomaton, PrefixAutomaton,
+// KmpAutomaton, AhoCorasickAutomaton) produce results identical to the
+// C++-FFI bitmap implementations and to the in-crate byte-level bitmaps.
+// ─────────────────────────────────────────────────────────────────────────────
+
+mod token_automata {
+    use super::*;
+    use onpair_lib::{AhoCorasickAutomaton, EqAutomaton, KmpAutomaton, PrefixAutomaton, and, not};
+
+    fn row_ids_from_bitmap(bits: &[u8], n: usize) -> Vec<usize> {
+        (0..n).filter(|&i| (bits[i / 8] >> (i % 8)) & 1 == 1).collect()
+    }
+
+    fn corpus() -> Vec<&'static [u8]> {
+        vec![
+            b"user_admin_001",
+            b"user_001",
+            b"user_002",
+            b"admin_001",
+            b"admin_002",
+            b"guest_001",
+            b"https://www.example.com/page",
+            b"https://docs.example.com/spec",
+            b"ftp://files.example.com/x",
+            b"prefix_user_777",
+        ]
+    }
+
+    #[test]
+    fn eq_automaton_matches_cpp_equals_bitmap() {
+        let strings = corpus();
+        let (bytes, offsets) = pack(&strings);
+        let cpp = CppColumn::compress(&bytes, &offsets, cpp_cfg(12, 0.5, 42)).expect("cpp");
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+        let dict = rs.dictionary().clone();
+        for needle in [&b"admin_001"[..], b"user_001", b"missing"] {
+            let cpp_bitmap = cpp.equals_bitmap(needle).expect("cpp eq");
+            let cpp_ids = row_ids_from_bitmap(&cpp_bitmap, strings.len());
+
+            let eq = EqAutomaton::new(needle, &dict);
+            let rs_ids = rs.scan(eq);
+            assert_eq!(rs_ids, cpp_ids, "needle={needle:?}");
+        }
+    }
+
+    #[test]
+    fn prefix_automaton_matches_cpp_starts_with_bitmap() {
+        let strings = corpus();
+        let (bytes, offsets) = pack(&strings);
+        let cpp = CppColumn::compress(&bytes, &offsets, cpp_cfg(12, 0.5, 42)).expect("cpp");
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+        let dict = rs.dictionary().clone();
+        for needle in [&b"user_"[..], b"admin", b"https://", b"zzz"] {
+            let cpp_bitmap = cpp.starts_with_bitmap(needle).expect("cpp sw");
+            let cpp_ids = row_ids_from_bitmap(&cpp_bitmap, strings.len());
+
+            let pa = PrefixAutomaton::new(needle, &dict);
+            let rs_ids = rs.scan(pa);
+            assert_eq!(rs_ids, cpp_ids, "needle={needle:?}");
+        }
+    }
+
+    #[test]
+    fn kmp_automaton_matches_cpp_contains_bitmap() {
+        let strings = corpus();
+        let (bytes, offsets) = pack(&strings);
+        let cpp = CppColumn::compress(&bytes, &offsets, cpp_cfg(12, 0.5, 42)).expect("cpp");
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+        let dict = rs.dictionary().clone();
+        for needle in [&b"admin"[..], b"example", b"_001", b"missing", b"://"] {
+            let cpp_bitmap = cpp.contains_bitmap(needle).expect("cpp ct");
+            let cpp_ids = row_ids_from_bitmap(&cpp_bitmap, strings.len());
+
+            let kmp = KmpAutomaton::new(needle, &dict);
+            let rs_ids = rs.scan(kmp);
+            assert_eq!(rs_ids, cpp_ids, "needle={needle:?}");
+        }
+    }
+
+    #[test]
+    fn aho_corasick_automaton_matches_naive_union() {
+        let strings = corpus();
+        let (bytes, offsets) = pack(&strings);
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+        let dict = rs.dictionary().clone();
+        let needles: &[&[u8]] = &[b"admin", b"guest"];
+        let ac = AhoCorasickAutomaton::new(needles, &dict);
+        let rs_ids = rs.scan(ac);
+
+        let expected: Vec<usize> = strings
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| {
+                needles
+                    .iter()
+                    .any(|n| s.windows(n.len()).any(|w| &w == n))
+            })
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(rs_ids, expected);
+    }
+
+    #[test]
+    fn combinator_and_not_compressed_domain_matches_bitmap_algebra() {
+        // Single-pass `KMP(user) && !KMP(admin)` over the compressed token
+        // stream — compare with the bitmap-level equivalent.
+        let strings = corpus();
+        let (bytes, offsets) = pack(&strings);
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+        let dict = rs.dictionary().clone();
+
+        let mut kmp_user = KmpAutomaton::new(b"user", &dict);
+        let mut kmp_admin = KmpAutomaton::new(b"admin", &dict);
+        let token_ids = rs.scan(and(&mut kmp_user, not(&mut kmp_admin)));
+
+        // Bitmap equivalent.
+        let users = rs.contains_bitmap(b"user");
+        let admins = rs.contains_bitmap(b"admin");
+        let not_admins = onpair_lib::bitmap_not(&admins, strings.len());
+        let combined = onpair_lib::bitmap_and(&users, &not_admins);
+        let bitmap_ids = row_ids_from_bitmap(&combined, strings.len());
+
+        assert_eq!(token_ids, bitmap_ids);
+    }
+
+    #[test]
+    fn combinator_eq_or_kmp_matches_bitmap_algebra() {
+        let strings = corpus();
+        let (bytes, offsets) = pack(&strings);
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+        let dict = rs.dictionary().clone();
+
+        let mut eq = EqAutomaton::new(b"guest_001", &dict);
+        let mut kmp = KmpAutomaton::new(b"admin", &dict);
+        let token_ids = rs.scan(onpair_lib::or(&mut eq, &mut kmp));
+
+        let eq_bits = rs.equals_bitmap(b"guest_001");
+        let kmp_bits = rs.contains_bitmap(b"admin");
+        let combined = onpair_lib::bitmap_or(&eq_bits, &kmp_bits);
+        let bitmap_ids = row_ids_from_bitmap(&combined, strings.len());
+
+        assert_eq!(token_ids, bitmap_ids);
+    }
+}
