@@ -59,6 +59,7 @@ use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;
@@ -68,6 +69,7 @@ use vortex_layout::scan::scan_builder::ScanBuilder;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
 
+use crate::MAX_POSTSCRIPT_SIZE;
 use crate::OpenOptionsSessionExt;
 use crate::V1_FOOTER_FBS_SIZE;
 use crate::VERSION;
@@ -1676,6 +1678,50 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
 
     assert!(summary.footer().statistics().is_some());
     assert_eq!(summary.row_count(), 5);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_file_metadata_segments_roundtrip() -> VortexResult<()> {
+    let array =
+        StructArray::from_fields(&[("numbers", buffer![1u32, 2, 3].into_array())])?.into_array();
+    let small = ByteBuffer::copy_from(b"{\"source\":\"test\"}");
+    let large = ByteBuffer::copy_from(vec![7u8; usize::from(MAX_POSTSCRIPT_SIZE) + 1024]);
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .with_metadata_segment("application/json", ByteBuffer::copy_from(b"old"))
+        .with_metadata_segment("application/json", small.clone())
+        .with_metadata_segment("large", large.clone())
+        .write(&mut buf, array.to_array_stream())
+        .await?;
+
+    assert_eq!(summary.footer().metadata_segments().len(), 2);
+    assert_eq!(
+        summary
+            .footer()
+            .metadata_segment("application/json")
+            .map(ByteBuffer::as_slice),
+        Some(small.as_slice())
+    );
+
+    let file = SESSION.open_options().open_buffer(buf)?;
+
+    assert_eq!(file.metadata_segments().len(), 2);
+    assert_eq!(
+        file.metadata_segment("application/json")
+            .map(ByteBuffer::as_slice),
+        Some(small.as_slice())
+    );
+    assert_eq!(
+        file.footer()
+            .metadata_segment("large")
+            .map(ByteBuffer::as_slice),
+        Some(large.as_slice())
+    );
+    assert!(file.metadata_segment("missing").is_none());
 
     Ok(())
 }

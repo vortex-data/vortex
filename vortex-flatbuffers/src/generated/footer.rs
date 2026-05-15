@@ -359,6 +359,7 @@ impl<'a> Postscript<'a> {
   pub const VT_LAYOUT: ::flatbuffers::VOffsetT = 6;
   pub const VT_STATISTICS: ::flatbuffers::VOffsetT = 8;
   pub const VT_FOOTER: ::flatbuffers::VOffsetT = 10;
+  pub const VT_METADATA: ::flatbuffers::VOffsetT = 12;
 
   #[inline]
   pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
@@ -370,6 +371,7 @@ impl<'a> Postscript<'a> {
     args: &'args PostscriptArgs<'args>
   ) -> ::flatbuffers::WIPOffset<Postscript<'bldr>> {
     let mut builder = PostscriptBuilder::new(_fbb);
+    if let Some(x) = args.metadata { builder.add_metadata(x); }
     if let Some(x) = args.footer { builder.add_footer(x); }
     if let Some(x) = args.statistics { builder.add_statistics(x); }
     if let Some(x) = args.layout { builder.add_layout(x); }
@@ -410,6 +412,14 @@ impl<'a> Postscript<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_FOOTER, None)}
   }
+  /// User-defined metadata segments keyed by string.
+  #[inline]
+  pub fn metadata(&self) -> Option<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PostscriptMetadata<'a>>>> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PostscriptMetadata>>>>(Postscript::VT_METADATA, None)}
+  }
 }
 
 impl ::flatbuffers::Verifiable for Postscript<'_> {
@@ -422,6 +432,7 @@ impl ::flatbuffers::Verifiable for Postscript<'_> {
      .visit_field::<::flatbuffers::ForwardsUOffset<PostscriptSegment>>("layout", Self::VT_LAYOUT, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<PostscriptSegment>>("statistics", Self::VT_STATISTICS, false)?
      .visit_field::<::flatbuffers::ForwardsUOffset<PostscriptSegment>>("footer", Self::VT_FOOTER, false)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<::flatbuffers::Vector<'_, ::flatbuffers::ForwardsUOffset<PostscriptMetadata>>>>("metadata", Self::VT_METADATA, false)?
      .finish();
     Ok(())
   }
@@ -431,6 +442,7 @@ pub struct PostscriptArgs<'a> {
     pub layout: Option<::flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
     pub statistics: Option<::flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
     pub footer: Option<::flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
+    pub metadata: Option<::flatbuffers::WIPOffset<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PostscriptMetadata<'a>>>>>,
 }
 impl<'a> Default for PostscriptArgs<'a> {
   #[inline]
@@ -440,6 +452,7 @@ impl<'a> Default for PostscriptArgs<'a> {
       layout: None,
       statistics: None,
       footer: None,
+      metadata: None,
     }
   }
 }
@@ -466,6 +479,10 @@ impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PostscriptBuilder<'a, 'b, A> 
     self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<PostscriptSegment>>(Postscript::VT_FOOTER, footer);
   }
   #[inline]
+  pub fn add_metadata(&mut self, metadata: ::flatbuffers::WIPOffset<::flatbuffers::Vector<'b , ::flatbuffers::ForwardsUOffset<PostscriptMetadata<'b >>>>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(Postscript::VT_METADATA, metadata);
+  }
+  #[inline]
   pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> PostscriptBuilder<'a, 'b, A> {
     let start = _fbb.start_table();
     PostscriptBuilder {
@@ -487,6 +504,123 @@ impl ::core::fmt::Debug for Postscript<'_> {
       ds.field("layout", &self.layout());
       ds.field("statistics", &self.statistics());
       ds.field("footer", &self.footer());
+      ds.field("metadata", &self.metadata());
+      ds.finish()
+  }
+}
+pub enum PostscriptMetadataOffset {}
+#[derive(Copy, Clone, PartialEq)]
+
+/// A keyed user-defined metadata segment.
+pub struct PostscriptMetadata<'a> {
+  pub _tab: ::flatbuffers::Table<'a>,
+}
+
+impl<'a> ::flatbuffers::Follow<'a> for PostscriptMetadata<'a> {
+  type Inner = PostscriptMetadata<'a>;
+  #[inline]
+  unsafe fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    Self { _tab: unsafe { ::flatbuffers::Table::new(buf, loc) } }
+  }
+}
+
+impl<'a> PostscriptMetadata<'a> {
+  pub const VT_KEY: ::flatbuffers::VOffsetT = 4;
+  pub const VT_SEGMENT: ::flatbuffers::VOffsetT = 6;
+
+  #[inline]
+  pub unsafe fn init_from_table(table: ::flatbuffers::Table<'a>) -> Self {
+    PostscriptMetadata { _tab: table }
+  }
+  #[allow(unused_mut)]
+  pub fn create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: ::flatbuffers::Allocator + 'bldr>(
+    _fbb: &'mut_bldr mut ::flatbuffers::FlatBufferBuilder<'bldr, A>,
+    args: &'args PostscriptMetadataArgs<'args>
+  ) -> ::flatbuffers::WIPOffset<PostscriptMetadata<'bldr>> {
+    let mut builder = PostscriptMetadataBuilder::new(_fbb);
+    if let Some(x) = args.segment { builder.add_segment(x); }
+    if let Some(x) = args.key { builder.add_key(x); }
+    builder.finish()
+  }
+
+
+  #[inline]
+  pub fn key(&self) -> &'a str {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<&str>>(PostscriptMetadata::VT_KEY, None).unwrap()}
+  }
+  #[inline]
+  pub fn segment(&self) -> PostscriptSegment<'a> {
+    // Safety:
+    // Created from valid Table for this object
+    // which contains a valid value in this slot
+    unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<PostscriptSegment>>(PostscriptMetadata::VT_SEGMENT, None).unwrap()}
+  }
+}
+
+impl ::flatbuffers::Verifiable for PostscriptMetadata<'_> {
+  #[inline]
+  fn run_verifier(
+    v: &mut ::flatbuffers::Verifier, pos: usize
+  ) -> Result<(), ::flatbuffers::InvalidFlatbuffer> {
+    v.visit_table(pos)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<&str>>("key", Self::VT_KEY, true)?
+     .visit_field::<::flatbuffers::ForwardsUOffset<PostscriptSegment>>("segment", Self::VT_SEGMENT, true)?
+     .finish();
+    Ok(())
+  }
+}
+pub struct PostscriptMetadataArgs<'a> {
+    pub key: Option<::flatbuffers::WIPOffset<&'a str>>,
+    pub segment: Option<::flatbuffers::WIPOffset<PostscriptSegment<'a>>>,
+}
+impl<'a> Default for PostscriptMetadataArgs<'a> {
+  #[inline]
+  fn default() -> Self {
+    PostscriptMetadataArgs {
+      key: None, // required field
+      segment: None, // required field
+    }
+  }
+}
+
+pub struct PostscriptMetadataBuilder<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> {
+  fbb_: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>,
+  start_: ::flatbuffers::WIPOffset<::flatbuffers::TableUnfinishedWIPOffset>,
+}
+impl<'a: 'b, 'b, A: ::flatbuffers::Allocator + 'a> PostscriptMetadataBuilder<'a, 'b, A> {
+  #[inline]
+  pub fn add_key(&mut self, key: ::flatbuffers::WIPOffset<&'b  str>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<_>>(PostscriptMetadata::VT_KEY, key);
+  }
+  #[inline]
+  pub fn add_segment(&mut self, segment: ::flatbuffers::WIPOffset<PostscriptSegment<'b >>) {
+    self.fbb_.push_slot_always::<::flatbuffers::WIPOffset<PostscriptSegment>>(PostscriptMetadata::VT_SEGMENT, segment);
+  }
+  #[inline]
+  pub fn new(_fbb: &'b mut ::flatbuffers::FlatBufferBuilder<'a, A>) -> PostscriptMetadataBuilder<'a, 'b, A> {
+    let start = _fbb.start_table();
+    PostscriptMetadataBuilder {
+      fbb_: _fbb,
+      start_: start,
+    }
+  }
+  #[inline]
+  pub fn finish(self) -> ::flatbuffers::WIPOffset<PostscriptMetadata<'a>> {
+    let o = self.fbb_.end_table(self.start_);
+    self.fbb_.required(o, PostscriptMetadata::VT_KEY,"key");
+    self.fbb_.required(o, PostscriptMetadata::VT_SEGMENT,"segment");
+    ::flatbuffers::WIPOffset::new(o.value())
+  }
+}
+
+impl ::core::fmt::Debug for PostscriptMetadata<'_> {
+  fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+    let mut ds = f.debug_struct("PostscriptMetadata");
+      ds.field("key", &self.key());
+      ds.field("segment", &self.segment());
       ds.finish()
   }
 }

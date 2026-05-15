@@ -29,6 +29,14 @@ table Postscript {
     statistics: PostscriptSegment;
     /// Segment containing the 'Footer' flatbuffer (required)
     footer: PostscriptSegment;
+    /// User-defined metadata segments keyed by string.
+    metadata: [PostscriptMetadata];
+}
+
+/// A keyed user-defined metadata segment.
+table PostscriptMetadata {
+    key: string (required);
+    segment: PostscriptSegment (required);
 }
 
 /// A `PostscriptSegment` describes the location of a segment in the file without referencing any

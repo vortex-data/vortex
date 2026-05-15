@@ -45,6 +45,7 @@ pub struct Footer {
     root_layout: LayoutRef,
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
+    metadata: Arc<[(String, ByteBuffer)]>,
     // The specific arrays used within the file, in the order they were registered.
     array_read_ctx: ReadContext,
     // The approximate size of the footer in bytes, used for caching and memory management.
@@ -56,12 +57,14 @@ impl Footer {
         root_layout: LayoutRef,
         segments: Arc<[SegmentSpec]>,
         statistics: Option<FileStatistics>,
+        metadata: Arc<[(String, ByteBuffer)]>,
         array_read_ctx: ReadContext,
     ) -> Self {
         Self {
             root_layout,
             segments,
             statistics,
+            metadata,
             array_read_ctx,
             approx_byte_size: None,
         }
@@ -78,6 +81,7 @@ impl Footer {
         layout_bytes: FlatBuffer,
         dtype: DType,
         statistics: Option<FileStatistics>,
+        metadata: Arc<[(String, ByteBuffer)]>,
         session: &VortexSession,
     ) -> VortexResult<Self> {
         let approx_byte_size = footer_bytes.len() + layout_bytes.len();
@@ -126,6 +130,7 @@ impl Footer {
             root_layout,
             segments,
             statistics,
+            metadata,
             array_read_ctx,
             approx_byte_size: Some(approx_byte_size),
         })
@@ -144,6 +149,19 @@ impl Footer {
     /// Returns the statistics of the file.
     pub fn statistics(&self) -> Option<&FileStatistics> {
         self.statistics.as_ref()
+    }
+
+    /// Returns the user-defined metadata segments stored in this file.
+    pub fn metadata_segments(&self) -> &[(String, ByteBuffer)] {
+        self.metadata.as_ref()
+    }
+
+    /// Returns the user-defined metadata segment for the given key.
+    pub fn metadata_segment(&self, key: &str) -> Option<&ByteBuffer> {
+        self.metadata
+            .iter()
+            .find(|(metadata_key, _)| metadata_key == key)
+            .map(|(_, metadata)| metadata)
     }
 
     /// Returns the [`DType`] of the file.

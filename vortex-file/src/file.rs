@@ -23,6 +23,7 @@ use vortex_array::dtype::FieldPathSet;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
 use vortex_array::scalar_fn::internal::row_count::substitute_row_count;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::scan::layout::LayoutReaderDataSource;
@@ -74,6 +75,16 @@ impl VortexFile {
     /// Statistics can be used for query optimization and data exploration.
     pub fn file_stats(&self) -> Option<&FileStatistics> {
         self.footer.statistics()
+    }
+
+    /// Returns the user-defined metadata segments stored in this file.
+    pub fn metadata_segments(&self) -> &[(String, ByteBuffer)] {
+        self.footer.metadata_segments()
+    }
+
+    /// Returns the user-defined metadata segment for the given key.
+    pub fn metadata_segment(&self, key: &str) -> Option<&ByteBuffer> {
+        self.footer.metadata_segment(key)
     }
 
     /// Create a new segment source for reading from the file.

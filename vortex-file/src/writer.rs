@@ -66,6 +66,7 @@ pub struct VortexWriteOptions {
     exclude_dtype: bool,
     max_variable_length_statistics_size: usize,
     file_statistics: Vec<Stat>,
+    metadata: Vec<(String, ByteBuffer)>,
 }
 
 pub trait WriteOptionsSessionExt: SessionExt {
@@ -78,6 +79,7 @@ pub trait WriteOptionsSessionExt: SessionExt {
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
+            metadata: Vec::new(),
         }
     }
 }
@@ -92,6 +94,7 @@ impl VortexWriteOptions {
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
+            metadata: Vec::new(),
         }
     }
 
@@ -112,6 +115,43 @@ impl VortexWriteOptions {
     /// Configure which statistics to compute at the file-level.
     pub fn with_file_statistics(mut self, file_statistics: Vec<Stat>) -> Self {
         self.file_statistics = file_statistics;
+        self
+    }
+
+    /// Add a user-defined metadata segment to the file.
+    ///
+    /// If the key already exists, the previous segment for that key is replaced.
+    pub fn with_metadata_segment(
+        mut self,
+        key: impl Into<String>,
+        metadata: impl Into<ByteBuffer>,
+    ) -> Self {
+        let key = key.into();
+        let metadata = metadata.into();
+        if let Some((_, existing)) = self
+            .metadata
+            .iter_mut()
+            .find(|(existing_key, _)| existing_key == &key)
+        {
+            *existing = metadata;
+        } else {
+            self.metadata.push((key, metadata));
+        }
+        self
+    }
+
+    /// Add user-defined metadata segments to the file.
+    ///
+    /// If a key already exists, the previous segment for that key is replaced.
+    pub fn with_metadata_segments<I, K, B>(mut self, metadata: I) -> Self
+    where
+        I: IntoIterator<Item = (K, B)>,
+        K: Into<String>,
+        B: Into<ByteBuffer>,
+    {
+        for (key, metadata) in metadata {
+            self = self.with_metadata_segment(key, metadata);
+        }
         self
     }
 }
@@ -211,17 +251,21 @@ impl VortexWriteOptions {
         let (layout, segment_specs) = layout_fut.await?;
 
         // Assemble the Footer object now that we have all the segments.
+        let statistics = if self.file_statistics.is_empty() {
+            None
+        } else {
+            Some(FileStatistics::new_with_dtype(
+                file_stats.stats_sets().into(),
+                &dtype,
+            ))
+        };
+        let metadata = self.metadata.into();
+
         let mut footer = Footer::new(
             Arc::clone(&layout),
             segment_specs,
-            if self.file_statistics.is_empty() {
-                None
-            } else {
-                Some(FileStatistics::new_with_dtype(
-                    file_stats.stats_sets().into(),
-                    &dtype,
-                ))
-            },
+            statistics,
+            metadata,
             ReadContext::new(ctx.to_ids()),
         );
 

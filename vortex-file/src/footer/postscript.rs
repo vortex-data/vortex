@@ -20,6 +20,7 @@ pub(crate) struct Postscript {
     pub(crate) layout: PostscriptSegment,
     pub(crate) statistics: Option<PostscriptSegment>,
     pub(crate) footer: PostscriptSegment,
+    pub(crate) metadata: Vec<PostscriptMetadata>,
 }
 
 impl FlatBufferRoot for Postscript {}
@@ -43,6 +44,15 @@ impl WriteFlatBuffer for Postscript {
             .map(|ps| ps.write_flatbuffer(fbb))
             .transpose()?;
         let footer = self.footer.write_flatbuffer(fbb)?;
+        let metadata = if self.metadata.is_empty() {
+            None
+        } else {
+            let mut metadata = Vec::with_capacity(self.metadata.len());
+            for entry in &self.metadata {
+                metadata.push(entry.write_flatbuffer(fbb)?);
+            }
+            Some(fbb.create_vector(metadata.as_slice()))
+        };
         Ok(fb::Postscript::create(
             fbb,
             &fb::PostscriptArgs {
@@ -50,6 +60,7 @@ impl WriteFlatBuffer for Postscript {
                 layout: Some(layout),
                 statistics,
                 footer: Some(footer),
+                metadata,
             },
         ))
     }
@@ -62,6 +73,26 @@ impl ReadFlatBuffer for Postscript {
     fn read_flatbuffer<'buf>(
         fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
     ) -> Result<Self, Self::Error> {
+        let metadata = fb
+            .metadata()
+            .map(|metadata| {
+                metadata
+                    .iter()
+                    .map(|entry| PostscriptMetadata::read_flatbuffer(&entry))
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?
+            .unwrap_or_default();
+
+        for (idx, entry) in metadata.iter().enumerate() {
+            if metadata[..idx].iter().any(|prev| prev.key == entry.key) {
+                return Err(vortex_err!(
+                    "Postscript contains duplicate metadata key {}",
+                    entry.key
+                ));
+            }
+        }
+
         Ok(Self {
             dtype: fb
                 .dtype()
@@ -79,6 +110,47 @@ impl ReadFlatBuffer for Postscript {
                 &fb.footer()
                     .ok_or_else(|| vortex_err!("Postscript missing footer segment"))?,
             )?,
+            metadata,
+        })
+    }
+}
+
+pub(crate) struct PostscriptMetadata {
+    pub(crate) key: String,
+    pub(crate) segment: PostscriptSegment,
+}
+
+impl FlatBufferRoot for PostscriptMetadata {}
+
+impl WriteFlatBuffer for PostscriptMetadata {
+    type Target<'a> = fb::PostscriptMetadata<'a>;
+
+    fn write_flatbuffer<'fb>(
+        &self,
+        fbb: &mut FlatBufferBuilder<'fb>,
+    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
+        let key = fbb.create_string(&self.key);
+        let segment = self.segment.write_flatbuffer(fbb)?;
+        Ok(fb::PostscriptMetadata::create(
+            fbb,
+            &fb::PostscriptMetadataArgs {
+                key: Some(key),
+                segment: Some(segment),
+            },
+        ))
+    }
+}
+
+impl ReadFlatBuffer for PostscriptMetadata {
+    type Source<'a> = fb::PostscriptMetadata<'a>;
+    type Error = VortexError;
+
+    fn read_flatbuffer<'buf>(
+        fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            key: fb.key().to_string(),
+            segment: PostscriptSegment::read_flatbuffer(&fb.segment())?,
         })
     }
 }

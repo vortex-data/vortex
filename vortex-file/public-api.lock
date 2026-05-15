@@ -184,6 +184,10 @@ pub fn vortex_file::Footer::into_serializer(self) -> vortex_file::FooterSerializ
 
 pub fn vortex_file::Footer::layout(&self) -> &vortex_layout::layout::LayoutRef
 
+pub fn vortex_file::Footer::metadata_segment(&self, &str) -> core::option::Option<&vortex_buffer::ByteBuffer>
+
+pub fn vortex_file::Footer::metadata_segments(&self) -> &[(alloc::string::String, vortex_buffer::ByteBuffer)]
+
 pub fn vortex_file::Footer::row_count(&self) -> u64
 
 pub fn vortex_file::Footer::segment_map(&self) -> &alloc::sync::Arc<[vortex_file::SegmentSpec]>
@@ -276,6 +280,10 @@ pub fn vortex_file::VortexFile::footer(&self) -> &vortex_file::Footer
 
 pub fn vortex_file::VortexFile::layout_reader(&self) -> vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_layout::reader::LayoutReader>>
 
+pub fn vortex_file::VortexFile::metadata_segment(&self, &str) -> core::option::Option<&vortex_buffer::ByteBuffer>
+
+pub fn vortex_file::VortexFile::metadata_segments(&self) -> &[(alloc::string::String, vortex_buffer::ByteBuffer)]
+
 pub fn vortex_file::VortexFile::row_count(&self) -> u64
 
 pub fn vortex_file::VortexFile::scan(&self) -> vortex_error::VortexResult<vortex_layout::scan::scan_builder::ScanBuilder<vortex_array::array::erased::ArrayRef>>
@@ -337,6 +345,10 @@ pub fn vortex_file::VortexWriteOptions::exclude_dtype(self) -> Self
 pub fn vortex_file::VortexWriteOptions::new(vortex_session::VortexSession) -> Self
 
 pub fn vortex_file::VortexWriteOptions::with_file_statistics(self, alloc::vec::Vec<vortex_array::expr::stats::Stat>) -> Self
+
+pub fn vortex_file::VortexWriteOptions::with_metadata_segment(self, impl core::convert::Into<alloc::string::String>, impl core::convert::Into<vortex_buffer::ByteBuffer>) -> Self
+
+pub fn vortex_file::VortexWriteOptions::with_metadata_segments<I, K, B>(self, I) -> Self where I: core::iter::traits::collect::IntoIterator<Item = (K, B)>, K: core::convert::Into<alloc::string::String>, B: core::convert::Into<vortex_buffer::ByteBuffer>
 
 pub fn vortex_file::VortexWriteOptions::with_strategy(self, alloc::sync::Arc<dyn vortex_layout::strategy::LayoutStrategy>) -> Self
 

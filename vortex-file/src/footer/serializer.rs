@@ -21,6 +21,7 @@ use crate::MAX_POSTSCRIPT_SIZE;
 use crate::VERSION;
 use crate::footer::file_layout::FooterFlatBufferWriter;
 use crate::footer::postscript::Postscript;
+use crate::footer::postscript::PostscriptMetadata;
 use crate::footer::postscript::PostscriptSegment;
 
 pub struct FooterSerializer {
@@ -66,6 +67,16 @@ impl FooterSerializer {
     pub fn serialize(mut self) -> VortexResult<Vec<ByteBuffer>> {
         let mut buffers = vec![];
 
+        let mut metadata_segments = Vec::with_capacity(self.footer.metadata_segments().len());
+        for (key, metadata) in self.footer.metadata_segments() {
+            let (metadata_buffers, segment) = write_buffer(&mut self.offset, metadata.clone())?;
+            buffers.extend(metadata_buffers);
+            metadata_segments.push(PostscriptMetadata {
+                key: key.clone(),
+                segment,
+            });
+        }
+
         let dtype_segment = if self.exclude_dtype {
             None
         } else {
@@ -110,6 +121,7 @@ impl FooterSerializer {
             layout: layout_segment,
             statistics: statistics_segment,
             footer: footer_segment,
+            metadata: metadata_segments,
         };
         let postscript_buffer = postscript.write_flatbuffer_bytes()?;
         if postscript_buffer.len() > MAX_POSTSCRIPT_SIZE as usize {
@@ -152,4 +164,32 @@ fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
     *offset += u64::from(length);
 
     Ok((buffer.into_inner(), segment))
+}
+
+fn write_buffer(
+    offset: &mut u64,
+    buffer: ByteBuffer,
+) -> VortexResult<(Vec<ByteBuffer>, PostscriptSegment)> {
+    let length = u32::try_from(buffer.len())
+        .map_err(|_| vortex_err!("metadata segment length exceeds maximum u32"))?;
+    let alignment = buffer.alignment();
+
+    let padding = offset.next_multiple_of(*alignment as u64) - *offset;
+    let segment_offset = *offset + padding;
+
+    let segment = PostscriptSegment {
+        offset: segment_offset,
+        length,
+        alignment,
+    };
+
+    *offset += padding + u64::from(length);
+
+    let mut buffers = Vec::with_capacity(if padding == 0 { 1 } else { 2 });
+    if padding > 0 {
+        buffers.push(ByteBuffer::zeroed(padding as usize));
+    }
+    buffers.push(buffer);
+
+    Ok((buffers, segment))
 }

@@ -45,9 +45,10 @@
 //!    1. An optional Schema, which if present is a valid flatbuffer representing a message::Schema
 //!    2. The Layout, which is a valid footer::Layout flatbuffer, and describes the physical byte ranges & relationships amongst
 //!       the those byte ranges that we wrote in part 1.
-//!    3. The Postscript, which is a valid footer::Postscript flatbuffer, containing the absolute start offsets of the Schema & Layout
-//!       flatbuffers within the file.
-//!    4. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 postscript length, and 4 magic bytes.
+//!    3. Optional user-defined metadata segments, keyed by strings in the Postscript.
+//!    4. The Postscript, which is a valid footer::Postscript flatbuffer, containing the absolute start offsets of the Schema,
+//!       Layout, Footer, Statistics, and user-defined metadata segments within the file.
+//!    5. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 postscript length, and 4 magic bytes.
 //!
 //! ## Illustrated File Format
 //! ```text
@@ -62,6 +63,10 @@
 //! │                            │
 //! ├────────────────────────────┤
 //! │                            │
+//! │  User Metadata Segments    │
+//! │                            │
+//! ├────────────────────────────┤
+//! │                            │
 //! │     Schema Flatbuffer      │
 //! │                            │
 //! ├────────────────────────────┤
@@ -71,7 +76,7 @@
 //! ├────────────────────────────┤
 //! │                            │
 //! │    Postscript Flatbuffer   │
-//! │  (Schema & Layout Offsets) │
+//! │  (Footer Segment Offsets)  │
 //! │                            │
 //! ├────────────────────────────┤
 //! │     8-byte End of File     │

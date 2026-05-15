@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use flatbuffers::root;
 use vortex_array::dtype::DType;
 use vortex_buffer::ByteBuffer;
@@ -19,6 +21,7 @@ use crate::MAGIC_BYTES;
 use crate::VERSION;
 use crate::footer::FileStatistics;
 use crate::footer::postscript::Postscript;
+use crate::footer::postscript::PostscriptMetadata;
 use crate::footer::postscript::PostscriptSegment;
 
 /// Deserialize a footer from the end of a Vortex file or created from a
@@ -119,6 +122,9 @@ impl FooterDeserializer {
         if let Some(stats_segment) = &postscript.statistics {
             read_more_offset = read_more_offset.min(stats_segment.offset);
         }
+        for metadata in &postscript.metadata {
+            read_more_offset = read_more_offset.min(metadata.segment.offset);
+        }
         read_more_offset = read_more_offset.min(postscript.layout.offset);
         read_more_offset = read_more_offset.min(postscript.footer.offset);
 
@@ -151,14 +157,20 @@ impl FooterDeserializer {
                 )
             })
             .transpose()?;
+        let metadata: Arc<[(String, ByteBuffer)]> = postscript
+            .metadata
+            .iter()
+            .map(|metadata| self.parse_metadata_segment(initial_offset, &self.buffer, metadata))
+            .collect::<VortexResult<Vec<_>>>()?
+            .into();
 
         Ok(DeserializeStep::Done(self.parse_footer(
             initial_offset,
             &self.buffer,
-            &postscript.footer,
-            &postscript.layout,
+            postscript,
             dtype,
             file_stats,
+            metadata,
         )?))
     }
 
@@ -238,27 +250,65 @@ impl FooterDeserializer {
         FileStatistics::from_flatbuffer(&fb, dtype, session)
     }
 
+    /// Parse a user-defined metadata segment from the initial read buffer.
+    fn parse_metadata_segment(
+        &self,
+        initial_offset: u64,
+        initial_read: &[u8],
+        metadata: &PostscriptMetadata,
+    ) -> VortexResult<(String, ByteBuffer)> {
+        let offset = usize::try_from(metadata.segment.offset - initial_offset)?;
+        let length = metadata.segment.length as usize;
+        let end = offset
+            .checked_add(length)
+            .ok_or_else(|| vortex_err!("Metadata segment range overflowed usize"))?;
+
+        if end > initial_read.len() {
+            vortex_bail!(
+                "Metadata segment {} range {}..{} out of bounds for initial read of length {}",
+                metadata.key,
+                offset,
+                end,
+                initial_read.len()
+            );
+        }
+
+        Ok((
+            metadata.key.clone(),
+            ByteBuffer::copy_from(&initial_read[offset..end]).aligned(metadata.segment.alignment),
+        ))
+    }
+
     /// Parse the rest of the footer from the initial read.
     fn parse_footer(
         &self,
         initial_offset: u64,
         initial_read: &[u8],
-        footer_segment: &PostscriptSegment,
-        layout_segment: &PostscriptSegment,
+        postscript: &Postscript,
         dtype: DType,
         file_stats: Option<FileStatistics>,
+        metadata: Arc<[(String, ByteBuffer)]>,
     ) -> VortexResult<Footer> {
+        let footer_segment = &postscript.footer;
         let footer_offset = usize::try_from(footer_segment.offset - initial_offset)?;
         let footer_bytes = FlatBuffer::copy_from(
             &initial_read[footer_offset..footer_offset + (footer_segment.length as usize)],
         );
 
+        let layout_segment = &postscript.layout;
         let layout_offset = usize::try_from(layout_segment.offset - initial_offset)?;
         let layout_bytes = FlatBuffer::copy_from(
             &initial_read[layout_offset..layout_offset + (layout_segment.length as usize)],
         );
 
-        Footer::from_flatbuffer(footer_bytes, layout_bytes, dtype, file_stats, &self.session)
+        Footer::from_flatbuffer(
+            footer_bytes,
+            layout_bytes,
+            dtype,
+            file_stats,
+            metadata,
+            &self.session,
+        )
     }
 }
 

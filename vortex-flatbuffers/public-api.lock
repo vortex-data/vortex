@@ -1672,6 +1672,8 @@ pub enum vortex_flatbuffers::footer::FooterOffset
 
 pub enum vortex_flatbuffers::footer::LayoutSpecOffset
 
+pub enum vortex_flatbuffers::footer::PostscriptMetadataOffset
+
 pub enum vortex_flatbuffers::footer::PostscriptOffset
 
 pub enum vortex_flatbuffers::footer::PostscriptSegmentOffset
@@ -2140,6 +2142,8 @@ pub const vortex_flatbuffers::footer::Postscript<'a>::VT_FOOTER: flatbuffers::pr
 
 pub const vortex_flatbuffers::footer::Postscript<'a>::VT_LAYOUT: flatbuffers::primitives::VOffsetT
 
+pub const vortex_flatbuffers::footer::Postscript<'a>::VT_METADATA: flatbuffers::primitives::VOffsetT
+
 pub const vortex_flatbuffers::footer::Postscript<'a>::VT_STATISTICS: flatbuffers::primitives::VOffsetT
 
 pub fn vortex_flatbuffers::footer::Postscript<'a>::create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::builder::Allocator + 'bldr>(&'mut_bldr mut flatbuffers::builder::FlatBufferBuilder<'bldr, A>, &'args vortex_flatbuffers::footer::PostscriptArgs<'args>) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::footer::Postscript<'bldr>>
@@ -2151,6 +2155,8 @@ pub fn vortex_flatbuffers::footer::Postscript<'a>::footer(&self) -> core::option
 pub unsafe fn vortex_flatbuffers::footer::Postscript<'a>::init_from_table(flatbuffers::table::Table<'a>) -> Self
 
 pub fn vortex_flatbuffers::footer::Postscript<'a>::layout(&self) -> core::option::Option<vortex_flatbuffers::footer::PostscriptSegment<'a>>
+
+pub fn vortex_flatbuffers::footer::Postscript<'a>::metadata(&self) -> core::option::Option<flatbuffers::vector::Vector<'a, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::footer::PostscriptMetadata<'a>>>>
 
 pub fn vortex_flatbuffers::footer::Postscript<'a>::statistics(&self) -> core::option::Option<vortex_flatbuffers::footer::PostscriptSegment<'a>>
 
@@ -2188,6 +2194,8 @@ pub vortex_flatbuffers::footer::PostscriptArgs::footer: core::option::Option<fla
 
 pub vortex_flatbuffers::footer::PostscriptArgs::layout: core::option::Option<flatbuffers::primitives::WIPOffset<vortex_flatbuffers::footer::PostscriptSegment<'a>>>
 
+pub vortex_flatbuffers::footer::PostscriptArgs::metadata: core::option::Option<flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'a, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::footer::PostscriptMetadata<'a>>>>>
+
 pub vortex_flatbuffers::footer::PostscriptArgs::statistics: core::option::Option<flatbuffers::primitives::WIPOffset<vortex_flatbuffers::footer::PostscriptSegment<'a>>>
 
 impl<'a> core::default::Default for vortex_flatbuffers::footer::PostscriptArgs<'a>
@@ -2204,11 +2212,79 @@ pub fn vortex_flatbuffers::footer::PostscriptBuilder<'a, 'b, A>::add_footer(&mut
 
 pub fn vortex_flatbuffers::footer::PostscriptBuilder<'a, 'b, A>::add_layout(&mut self, flatbuffers::primitives::WIPOffset<vortex_flatbuffers::footer::PostscriptSegment<'b>>)
 
+pub fn vortex_flatbuffers::footer::PostscriptBuilder<'a, 'b, A>::add_metadata(&mut self, flatbuffers::primitives::WIPOffset<flatbuffers::vector::Vector<'b, flatbuffers::primitives::ForwardsUOffset<vortex_flatbuffers::footer::PostscriptMetadata<'b>>>>)
+
 pub fn vortex_flatbuffers::footer::PostscriptBuilder<'a, 'b, A>::add_statistics(&mut self, flatbuffers::primitives::WIPOffset<vortex_flatbuffers::footer::PostscriptSegment<'b>>)
 
 pub fn vortex_flatbuffers::footer::PostscriptBuilder<'a, 'b, A>::finish(self) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::footer::Postscript<'a>>
 
 pub fn vortex_flatbuffers::footer::PostscriptBuilder<'a, 'b, A>::new(&'b mut flatbuffers::builder::FlatBufferBuilder<'a, A>) -> vortex_flatbuffers::footer::PostscriptBuilder<'a, 'b, A>
+
+pub struct vortex_flatbuffers::footer::PostscriptMetadata<'a>
+
+pub vortex_flatbuffers::footer::PostscriptMetadata::_tab: flatbuffers::table::Table<'a>
+
+impl<'a> vortex_flatbuffers::footer::PostscriptMetadata<'a>
+
+pub const vortex_flatbuffers::footer::PostscriptMetadata<'a>::VT_KEY: flatbuffers::primitives::VOffsetT
+
+pub const vortex_flatbuffers::footer::PostscriptMetadata<'a>::VT_SEGMENT: flatbuffers::primitives::VOffsetT
+
+pub fn vortex_flatbuffers::footer::PostscriptMetadata<'a>::create<'bldr: 'args, 'args: 'mut_bldr, 'mut_bldr, A: flatbuffers::builder::Allocator + 'bldr>(&'mut_bldr mut flatbuffers::builder::FlatBufferBuilder<'bldr, A>, &'args vortex_flatbuffers::footer::PostscriptMetadataArgs<'args>) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::footer::PostscriptMetadata<'bldr>>
+
+pub unsafe fn vortex_flatbuffers::footer::PostscriptMetadata<'a>::init_from_table(flatbuffers::table::Table<'a>) -> Self
+
+pub fn vortex_flatbuffers::footer::PostscriptMetadata<'a>::key(&self) -> &'a str
+
+pub fn vortex_flatbuffers::footer::PostscriptMetadata<'a>::segment(&self) -> vortex_flatbuffers::footer::PostscriptSegment<'a>
+
+impl core::fmt::Debug for vortex_flatbuffers::footer::PostscriptMetadata<'_>
+
+pub fn vortex_flatbuffers::footer::PostscriptMetadata<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl flatbuffers::verifier::Verifiable for vortex_flatbuffers::footer::PostscriptMetadata<'_>
+
+pub fn vortex_flatbuffers::footer::PostscriptMetadata<'_>::run_verifier(&mut flatbuffers::verifier::Verifier<'_, '_>, usize) -> core::result::Result<(), flatbuffers::verifier::InvalidFlatbuffer>
+
+impl<'a> core::clone::Clone for vortex_flatbuffers::footer::PostscriptMetadata<'a>
+
+pub fn vortex_flatbuffers::footer::PostscriptMetadata<'a>::clone(&self) -> vortex_flatbuffers::footer::PostscriptMetadata<'a>
+
+impl<'a> core::cmp::PartialEq for vortex_flatbuffers::footer::PostscriptMetadata<'a>
+
+pub fn vortex_flatbuffers::footer::PostscriptMetadata<'a>::eq(&self, &vortex_flatbuffers::footer::PostscriptMetadata<'a>) -> bool
+
+impl<'a> core::marker::Copy for vortex_flatbuffers::footer::PostscriptMetadata<'a>
+
+impl<'a> core::marker::StructuralPartialEq for vortex_flatbuffers::footer::PostscriptMetadata<'a>
+
+impl<'a> flatbuffers::follow::Follow<'a> for vortex_flatbuffers::footer::PostscriptMetadata<'a>
+
+pub type vortex_flatbuffers::footer::PostscriptMetadata<'a>::Inner = vortex_flatbuffers::footer::PostscriptMetadata<'a>
+
+pub unsafe fn vortex_flatbuffers::footer::PostscriptMetadata<'a>::follow(&'a [u8], usize) -> Self::Inner
+
+pub struct vortex_flatbuffers::footer::PostscriptMetadataArgs<'a>
+
+pub vortex_flatbuffers::footer::PostscriptMetadataArgs::key: core::option::Option<flatbuffers::primitives::WIPOffset<&'a str>>
+
+pub vortex_flatbuffers::footer::PostscriptMetadataArgs::segment: core::option::Option<flatbuffers::primitives::WIPOffset<vortex_flatbuffers::footer::PostscriptSegment<'a>>>
+
+impl<'a> core::default::Default for vortex_flatbuffers::footer::PostscriptMetadataArgs<'a>
+
+pub fn vortex_flatbuffers::footer::PostscriptMetadataArgs<'a>::default() -> Self
+
+pub struct vortex_flatbuffers::footer::PostscriptMetadataBuilder<'a: 'b, 'b, A: flatbuffers::builder::Allocator + 'a>
+
+impl<'a: 'b, 'b, A: flatbuffers::builder::Allocator + 'a> vortex_flatbuffers::footer::PostscriptMetadataBuilder<'a, 'b, A>
+
+pub fn vortex_flatbuffers::footer::PostscriptMetadataBuilder<'a, 'b, A>::add_key(&mut self, flatbuffers::primitives::WIPOffset<&'b str>)
+
+pub fn vortex_flatbuffers::footer::PostscriptMetadataBuilder<'a, 'b, A>::add_segment(&mut self, flatbuffers::primitives::WIPOffset<vortex_flatbuffers::footer::PostscriptSegment<'b>>)
+
+pub fn vortex_flatbuffers::footer::PostscriptMetadataBuilder<'a, 'b, A>::finish(self) -> flatbuffers::primitives::WIPOffset<vortex_flatbuffers::footer::PostscriptMetadata<'a>>
+
+pub fn vortex_flatbuffers::footer::PostscriptMetadataBuilder<'a, 'b, A>::new(&'b mut flatbuffers::builder::FlatBufferBuilder<'a, A>) -> vortex_flatbuffers::footer::PostscriptMetadataBuilder<'a, 'b, A>
 
 pub struct vortex_flatbuffers::footer::PostscriptSegment<'a>
 
