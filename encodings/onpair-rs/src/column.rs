@@ -49,22 +49,54 @@ fn fill_bitmap(n: usize) -> Vec<u8> {
 // `scan_impl<Bits>` template after `dispatch_bits()` resolves it.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Sum decoded-byte lengths for a token-id span in one pass over the cursor.
 #[inline]
-fn decode_span_into<const BITS: u32>(
-    dict: &Dictionary,
+fn span_decoded_len<const BITS: u32>(
+    dict_table: &[u64],
     packed: &[u64],
     span: StreamSpan,
-    out: &mut Vec<u8>,
-) {
-    if span.begin == span.end {
-        return;
-    }
+) -> usize {
+    let mut total = 0usize;
     let mut cursor = TokenCursor::<BITS>::new(packed, span);
     while cursor.has_more() {
-        let code = cursor.next();
-        let lo = dict.offsets[code as usize] as usize;
-        let hi = dict.offsets[code as usize + 1] as usize;
-        out.extend_from_slice(&dict.bytes[lo..hi]);
+        let code = cursor.next() as usize;
+        // SAFETY: every code is < dict_size, validated at compress time.
+        total += unsafe { (*dict_table.get_unchecked(code) & 0xffff) as usize };
+    }
+    total
+}
+
+/// Decode a token span into `out`. Uses a fixed 16-byte over-copy per token
+/// (the trainer pads `dict_bytes` with MAX_TOKEN_SIZE trailing zeros so this
+/// never reads past the end) and advances the cursor by the token's true
+/// length. The compiler lowers `copy_nonoverlapping` of MAX_TOKEN_SIZE to a
+/// single unaligned SIMD store on x86_64 / aarch64.
+///
+/// `out` must have at least `decoded_len + MAX_TOKEN_SIZE` reserved
+/// capacity at call time; we always set the final length to the *true* total
+/// (no over-copy bytes are visible).
+#[inline]
+unsafe fn decode_span_unchecked<const BITS: u32>(
+    dict_bytes: *const u8,
+    dict_table: &[u64],
+    packed: &[u64],
+    span: StreamSpan,
+    dst: *mut u8,
+) -> usize {
+    let mut cursor = TokenCursor::<BITS>::new(packed, span);
+    let mut cur = dst;
+    // SAFETY: caller invariants — dict_table indices are bounded by
+    // dict_size; dst has decoded_len + MAX_TOKEN_SIZE capacity.
+    unsafe {
+        while cursor.has_more() {
+            let code = cursor.next() as usize;
+            let entry = *dict_table.get_unchecked(code);
+            let off = (entry >> 16) as usize;
+            let len = (entry & 0xffff) as usize;
+            std::ptr::copy_nonoverlapping(dict_bytes.add(off), cur, crate::MAX_TOKEN_SIZE);
+            cur = cur.add(len);
+        }
+        cur.offset_from(dst) as usize
     }
 }
 
@@ -96,12 +128,31 @@ fn scan_with_bits<const BITS: u32, A, F>(
     }
 }
 
+/// Pack `Dictionary` into a per-token `(offset << 16) | length` table.
+/// Token length is bounded by `MAX_TOKEN_SIZE = 16`, so 16 bits suffice.
+fn build_dict_table(dict: &Dictionary) -> Vec<u64> {
+    let n = dict.num_tokens();
+    let mut table = Vec::with_capacity(n);
+    for i in 0..n {
+        let off = dict.offsets[i] as u64;
+        let len = (dict.offsets[i + 1] - dict.offsets[i]) as u64;
+        debug_assert!(len <= crate::MAX_TOKEN_SIZE as u64);
+        table.push((off << 16) | len);
+    }
+    table
+}
+
 /// Owning compressed column. Built by [`Column::compress`].
 #[derive(Debug, Clone)]
 pub struct Column {
     dict: Dictionary,
     store: Store,
     num_rows: usize,
+    /// Per-token `(offset << 16) | length` packed into a `u64`. Built once
+    /// at compress / from_parts time so the decode and predicate hot loops
+    /// do one indexed load per token instead of two indexed offset reads.
+    /// Length = `dict.num_tokens()`.
+    dict_table: Vec<u64>,
 }
 
 /// Borrowed raw arrays of a column. Mirrors `vortex-onpair-sys::Parts`.
@@ -155,8 +206,9 @@ impl Column {
         let TrainResult { dict, lpm } = train(bytes, &off32, n, &cfg);
         let mut store = Store::default();
         parse(bytes, &off32, n, &lpm, config.bits as u8, &mut store);
+        let dict_table = build_dict_table(&dict);
 
-        Ok(Self { dict, store, num_rows: n })
+        Ok(Self { dict, store, num_rows: n, dict_table })
     }
 
     #[inline]
@@ -179,9 +231,11 @@ impl Column {
         self.dict.num_tokens()
     }
 
-    /// Decompress row `row_id` into `out`, clearing it first. Hot path uses
-    /// the const-generic [`TokenCursor`] dispatched on `bits`, so every
-    /// shift / mask folds to literals at codegen time.
+    /// Decompress row `row_id` into `out`, clearing it first. The hot path
+    /// uses the const-generic [`TokenCursor`] dispatched on `bits` plus a
+    /// fixed-width 16-byte over-copy per token (`MAX_TOKEN_SIZE`). LLVM
+    /// lowers each copy to one unaligned 128-bit SIMD store on x86_64 and
+    /// aarch64.
     pub fn decompress_row(&self, row_id: usize, out: &mut Vec<u8>) -> Result<(), Error> {
         if row_id >= self.num_rows {
             return Err(Error::OutOfRange);
@@ -190,26 +244,84 @@ impl Column {
         let span = self.store.string_span(row_id);
         // SAFETY of dispatch: bit_width is validated to 9..=16 in compress().
         dispatch_bits!(self.store.bit_width as u32, |B| {
-            decode_span_into::<B>(&self.dict, &self.store.packed, span, out);
+            self.decode_one_span_into::<B>(span, out);
         });
         Ok(())
     }
 
     /// Decompress every row into a flat byte buffer + `n + 1` offsets.
-    /// Const-generic dispatched.
     pub fn decode_all(&self) -> (Vec<u8>, Vec<u32>) {
         let n = self.num_rows;
-        let mut bytes = Vec::with_capacity(self.store.num_tokens() * 2);
         let mut offsets = Vec::with_capacity(n + 1);
         offsets.push(0u32);
-        dispatch_bits!(self.store.bit_width as u32, |B| {
-            for row in 0..n {
-                let span = self.store.string_span(row);
-                decode_span_into::<B>(&self.dict, &self.store.packed, span, &mut bytes);
-                offsets.push(bytes.len() as u32);
-            }
+        if n == 0 {
+            return (Vec::new(), offsets);
+        }
+        let bytes = dispatch_bits!(self.store.bit_width as u32, |B| {
+            self.decode_all_inner::<B>(&mut offsets)
         });
         (bytes, offsets)
+    }
+
+    /// Inner monomorphic body of [`Self::decode_all`].
+    #[inline]
+    fn decode_all_inner<const BITS: u32>(&self, offsets: &mut Vec<u32>) -> Vec<u8> {
+        // Pre-compute the total decoded length: one cursor pass over every
+        // row in token-id space, summing each token's length from
+        // `dict_table[code] & 0xffff`. Lets us reserve `bytes` once and
+        // skip per-row capacity grow checks in the hot loop.
+        let last = *self.store.boundaries.last().unwrap_or(&0);
+        let total = span_decoded_len::<BITS>(
+            &self.dict_table,
+            &self.store.packed,
+            StreamSpan { begin: 0, end: last },
+        );
+        let mut bytes: Vec<u8> = Vec::with_capacity(total + crate::MAX_TOKEN_SIZE);
+        let dst = bytes.as_mut_ptr();
+        let dict_bytes = self.dict.bytes.as_ptr();
+        let dict_table = self.dict_table.as_slice();
+        let mut cur_off = 0usize;
+        for row in 0..self.num_rows {
+            let span = self.store.string_span(row);
+            // SAFETY: `dst` has `total + MAX_TOKEN_SIZE` reserved
+            // capacity; each token's over-copy stays within `dict_bytes`
+            // (padded by `pad_for_decoder`).
+            let written = unsafe {
+                decode_span_unchecked::<BITS>(
+                    dict_bytes,
+                    dict_table,
+                    &self.store.packed,
+                    span,
+                    dst.add(cur_off),
+                )
+            };
+            cur_off += written;
+            offsets.push(cur_off as u32);
+        }
+        // SAFETY: cur_off == total ≤ reserved capacity.
+        unsafe { bytes.set_len(cur_off); }
+        bytes
+    }
+
+    /// Internal helper: decode one span into `out` with the SIMD-friendly
+    /// over-copy loop. Used by `decompress_row` and `run_byte_predicate`.
+    #[inline]
+    fn decode_one_span_into<const BITS: u32>(&self, span: StreamSpan, out: &mut Vec<u8>) {
+        let len = span_decoded_len::<BITS>(&self.dict_table, &self.store.packed, span);
+        let start = out.len();
+        out.reserve(len + crate::MAX_TOKEN_SIZE);
+        // SAFETY: capacity reserved above; over-copy stays within dict pad.
+        unsafe {
+            let written = decode_span_unchecked::<BITS>(
+                self.dict.bytes.as_ptr(),
+                &self.dict_table,
+                &self.store.packed,
+                span,
+                out.as_mut_ptr().add(start),
+            );
+            debug_assert_eq!(written, len);
+            out.set_len(start + written);
+        }
     }
 
     /// `WHERE col = needle` as an LSB-first packed bitmap of length `(n + 7) / 8`.
@@ -248,17 +360,21 @@ impl Column {
     /// `*_bitmap` methods.
     fn run_byte_predicate<F: FnMut(&[u8]) -> bool>(&self, mut pred: F) -> Vec<u8> {
         let mut bits = empty_bitmap(self.num_rows);
-        let mut buf = Vec::with_capacity(64);
-        for i in 0..self.num_rows {
-            buf.clear();
-            let span = self.store.string_span(i);
-            dispatch_bits!(self.store.bit_width as u32, |B| {
-                decode_span_into::<B>(&self.dict, &self.store.packed, span, &mut buf);
-            });
-            if pred(&buf) {
-                set_bit(&mut bits, i);
+        // One reusable scratch buffer; the over-copy in
+        // `decode_one_span_into` extends the spare capacity by
+        // MAX_TOKEN_SIZE each call.
+        let mut buf: Vec<u8> = Vec::with_capacity(128);
+        // SAFETY of dispatch: bit_width validated 9..=16 in compress().
+        dispatch_bits!(self.store.bit_width as u32, |B| {
+            for i in 0..self.num_rows {
+                buf.clear();
+                let span = self.store.string_span(i);
+                self.decode_one_span_into::<B>(span, &mut buf);
+                if pred(&buf) {
+                    set_bit(&mut bits, i);
+                }
             }
-        }
+        });
         bits
     }
 

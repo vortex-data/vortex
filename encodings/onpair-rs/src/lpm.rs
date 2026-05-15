@@ -3,59 +3,70 @@
 //
 // Port of `include/onpair/encoding/lpm.h`.
 //
-// The C++ original splits storage into a short-pattern hash map (lengths
-// 1..=8) and a long-pattern map (lengths 9..=16) bucketed by 8-byte prefix,
-// where a long bucket can be promoted from a sorted vector to a trie above a
-// threshold. The behaviour exposed by `find_longest_match` does not depend
-// on the bucket implementation — every existing test in the C++ suite is
-// observational — so this port uses a single flat hash map keyed by the
-// little-endian packed byte sequence and its length. That keeps the data
-// structure to one allocation and `find_longest_match` to at most
-// `MAX_TOKEN_SIZE` u128-keyed lookups.
+// Two-tier storage mirroring the C++ design:
+//   * **short map** — tokens of length 1..=8 keyed by their bytes packed
+//     into a `u64` plus the length. Almost all dictionary entries land here
+//     (256 single-byte base tokens + the BPE merges, which tend to stay
+//     short on real data).
+//   * **long map** — tokens of length 9..=16 keyed by `(u128, u8)`.
+//
+// `find_longest_match` reads up to 16 bytes from the input as a `u128`, then
+// probes the long map for lengths `min(max_len, 16) .. 9` (only if at least
+// 9 bytes are available) and falls through to the short map for lengths
+// `min(max_len, 8) .. 1`. Most calls return after one or two short-map
+// hits; the long map is only consulted for inputs with a multi-byte token
+// match.
 
 use hashbrown::HashMap;
 
 use crate::dict::Dictionary;
 use crate::types::{MAX_TOKEN_SIZE, Token};
 
+const SHORT_LEN: usize = 8;
+
+/// Load up to 16 bytes from `data` as a little-endian `u128`. Bytes beyond
+/// `data.len()` are read as zero.
+#[inline]
+fn load_le_u128(data: &[u8]) -> u128 {
+    let mut buf = [0u8; 16];
+    let n = data.len().min(16);
+    buf[..n].copy_from_slice(&data[..n]);
+    u128::from_le_bytes(buf)
+}
+
+/// Mask of the low `len * 8` bits in a `u128`.
+#[inline]
+fn mask_u128(len: usize) -> u128 {
+    if len >= 16 { u128::MAX } else { (1u128 << (len * 8)) - 1 }
+}
+
+#[inline]
+fn mask_u64(len: usize) -> u64 {
+    if len >= 8 { u64::MAX } else { (1u64 << (len * 8)) - 1 }
+}
+
 /// Maps byte sequences (1..=`MAX_TOKEN_SIZE` bytes) to `Token` IDs. Always
 /// holds the 256 single-byte tokens after construction so
 /// `find_longest_match` is total.
 #[derive(Default, Debug, Clone)]
 pub struct LongestPrefixMatcher {
-    map: HashMap<TokenKey, Token>,
+    /// Length 1..=8 tokens keyed by (low-8-byte u64, length).
+    short_map: HashMap<(u64, u8), Token>,
+    /// Length 9..=16 tokens keyed by (full u128, length).
+    long_map: HashMap<(u128, u8), Token>,
     /// Next ID to assign. Stored as u32 so we can represent the full 16-bit
     /// token space (65 536 entries) without overflow.
     next_id: u32,
 }
 
-#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
-struct TokenKey {
-    /// Little-endian packed bytes. Positions `>= len` are zero.
-    bytes: u128,
-    /// Length of the token in bytes (1..=`MAX_TOKEN_SIZE`).
-    len: u8,
-}
-
-#[inline]
-fn make_key(data: &[u8]) -> TokenKey {
-    debug_assert!(!data.is_empty() && data.len() <= MAX_TOKEN_SIZE);
-    let mut bytes = 0u128;
-    let mut buf = [0u8; 16];
-    buf[..data.len()].copy_from_slice(data);
-    bytes |= u128::from_le_bytes(buf);
-    TokenKey { bytes, len: data.len() as u8 }
-}
-
 impl LongestPrefixMatcher {
     /// Pre-inserts the 256 single-byte tokens with IDs 0..=255.
     pub fn new() -> Self {
-        let mut map = HashMap::with_capacity(256);
+        let mut short_map = HashMap::with_capacity(256);
         for i in 0u16..=255 {
-            let key = make_key(&[i as u8]);
-            map.insert(key, i);
+            short_map.insert((i as u64, 1u8), i);
         }
-        Self { map, next_id: 256 }
+        Self { short_map, long_map: HashMap::new(), next_id: 256 }
     }
 
     /// Build a matcher from a complete dictionary: token at index `i`
@@ -63,13 +74,16 @@ impl LongestPrefixMatcher {
     /// single-byte token so `find_longest_match` remains total.
     pub fn from_dictionary(dict: &Dictionary) -> Self {
         let n = dict.num_tokens();
-        let mut map = HashMap::with_capacity(n);
+        let mut me = Self {
+            short_map: HashMap::with_capacity(n.min(SHORT_LEN * 256)),
+            long_map: HashMap::new(),
+            next_id: n as u32,
+        };
         for i in 0..n {
             let id = i as Token;
-            let key = make_key(dict.data(id));
-            map.insert(key, id);
+            me.insert_internal(dict.data(id), id);
         }
-        Self { map, next_id: n as u32 }
+        me
     }
 
     /// Insert `data` and assign it the next available token id.
@@ -79,8 +93,21 @@ impl LongestPrefixMatcher {
     pub fn insert(&mut self, data: &[u8]) -> Token {
         let id = self.next_id as Token;
         self.next_id += 1;
-        self.map.insert(make_key(data), id);
+        self.insert_internal(data, id);
         id
+    }
+
+    #[inline]
+    fn insert_internal(&mut self, data: &[u8], id: Token) {
+        debug_assert!(!data.is_empty() && data.len() <= MAX_TOKEN_SIZE);
+        let len = data.len();
+        if len <= SHORT_LEN {
+            let key = (load_le_u128(data) as u64) & mask_u64(len);
+            self.short_map.insert((key, len as u8), id);
+        } else {
+            let key = load_le_u128(data) & mask_u128(len);
+            self.long_map.insert((key, len as u8), id);
+        }
     }
 
     /// Longest token whose bytes are a prefix of `data`, together with that
@@ -92,9 +119,22 @@ impl LongestPrefixMatcher {
     #[inline]
     pub fn find_longest_match(&self, data: &[u8]) -> (Token, usize) {
         let max_len = data.len().min(MAX_TOKEN_SIZE);
-        for len in (1..=max_len).rev() {
-            let key = make_key(&data[..len]);
-            if let Some(&t) = self.map.get(&key) {
+        let packed = load_le_u128(data);
+        // Long map: only relevant when at least 9 bytes of input are available.
+        if max_len > SHORT_LEN && !self.long_map.is_empty() {
+            for len in (SHORT_LEN + 1..=max_len).rev() {
+                let key = packed & mask_u128(len);
+                if let Some(&t) = self.long_map.get(&(key, len as u8)) {
+                    return (t, len);
+                }
+            }
+        }
+        // Short map: lengths min(max_len, 8) down to 1.
+        let short_max = max_len.min(SHORT_LEN);
+        let low64 = packed as u64;
+        for len in (1..=short_max).rev() {
+            let key = low64 & mask_u64(len);
+            if let Some(&t) = self.short_map.get(&(key, len as u8)) {
                 return (t, len);
             }
         }
