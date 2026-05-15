@@ -17,6 +17,7 @@ use crate::LayoutChildren;
 use crate::LayoutEncoding;
 use crate::LayoutEncodingId;
 use crate::LayoutEncodingRef;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::segments::SegmentId;
@@ -166,11 +167,12 @@ impl Layout for ForeignLayout {
         self.segment_ids.clone()
     }
 
-    fn new_reader(
+    fn new_reader_in_ctx(
         &self,
         _name: Arc<str>,
         _segment_source: Arc<dyn SegmentSource>,
         _session: &VortexSession,
+        _ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         vortex_bail!(
             "Cannot read unknown layout encoding '{}'",

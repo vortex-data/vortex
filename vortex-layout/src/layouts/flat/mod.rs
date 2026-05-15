@@ -4,9 +4,7 @@
 mod reader;
 pub mod writer;
 
-use std::env;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use vortex_array::DeserializeMetadata;
 use vortex_array::ProstMetadata;
@@ -21,6 +19,7 @@ use vortex_session::registry::ReadContext;
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
 use crate::LayoutId;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::VTable;
@@ -29,13 +28,6 @@ use crate::layouts::flat::reader::FlatReader;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::vtable;
-
-/// Check if inline array node is enabled.
-pub(super) fn flat_layout_inline_array_node() -> bool {
-    static FLAT_LAYOUT_INLINE_ARRAY_NODE: LazyLock<bool> =
-        LazyLock::new(|| env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok_and(|v| v == "1"));
-    *FLAT_LAYOUT_INLINE_ARRAY_NODE
-}
 
 vtable!(Flat);
 
@@ -87,6 +79,7 @@ impl VTable for Flat {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        _ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(FlatReader::new(
             layout.clone(),

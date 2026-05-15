@@ -19,6 +19,7 @@ use crate::LayoutChildType;
 use crate::LayoutEncoding;
 use crate::LayoutEncodingRef;
 use crate::LayoutId;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::children::LayoutChildren;
@@ -58,11 +59,17 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType;
 
     /// Create a new reader for the layout.
+    ///
+    /// `ctx` is the dependency context for the reader-tree being constructed. Implementations
+    /// that recursively construct child readers must pass `ctx` (or a derived context) through
+    /// to those calls; see [`LayoutReaderContext::with_override`] for how parents inject
+    /// dependencies into descendant reader construction.
     fn new_reader(
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef>;
 
     /// Construct a new [`Layout`] from the provided parts.

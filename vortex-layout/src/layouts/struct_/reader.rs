@@ -41,6 +41,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::ArrayFuture;
 use crate::LayoutReader;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::SplitRange;
@@ -68,6 +69,7 @@ impl StructReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        ctx: LayoutReaderContext,
     ) -> VortexResult<Self> {
         let struct_dt = layout.struct_fields();
 
@@ -99,6 +101,7 @@ impl StructReader {
             names,
             Arc::clone(&segment_source),
             session.clone(),
+            ctx,
         );
 
         // Create an expanded root expression that contains all fields of the struct.

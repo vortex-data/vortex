@@ -20,7 +20,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::Layout;
+use crate::LayoutId;
 use crate::children::LayoutChildren;
 use crate::segments::SegmentSource;
 
@@ -181,6 +184,7 @@ pub struct LazyReaderChildren {
     names: Vec<Arc<str>>,
     segment_source: Arc<dyn SegmentSource>,
     session: VortexSession,
+    ctx: LayoutReaderContext,
     // TODO(ngates): we may want a hash map of some sort here?
     cache: Vec<OnceCell<LayoutReaderRef>>,
 }
@@ -192,6 +196,7 @@ impl LazyReaderChildren {
         names: Vec<Arc<str>>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        ctx: LayoutReaderContext,
     ) -> Self {
         let nchildren = children.nchildren();
         let cache = (0..nchildren).map(|_| OnceCell::new()).collect();
@@ -201,6 +206,7 @@ impl LazyReaderChildren {
             names,
             segment_source,
             session,
+            ctx,
             cache,
         }
     }
@@ -213,11 +219,103 @@ impl LazyReaderChildren {
         self.cache[idx].get_or_try_init(|| {
             let dtype = &self.dtypes[idx];
             let child = self.children.child(idx, dtype)?;
-            child.new_reader(
+            child.new_reader_in_ctx(
                 Arc::clone(&self.names[idx]),
                 Arc::clone(&self.segment_source),
                 &self.session,
+                &self.ctx,
             )
         })
+    }
+}
+
+/// A function that constructs a [`LayoutReader`] for a layout, given the same arguments as
+/// [`crate::VTable::new_reader`].
+///
+/// Used as a value in [`LayoutReaderContext`] to override how readers are constructed for a
+/// particular [`LayoutId`], allowing parent layouts to inject dependencies (such as shared
+/// sources) into the reader construction of descendant leaves without each descendant having
+/// to know about the parent's data.
+pub type ReaderBuilder = Arc<
+    dyn Fn(
+            &dyn Layout,
+            Arc<str>,
+            Arc<dyn SegmentSource>,
+            &VortexSession,
+            &LayoutReaderContext,
+        ) -> VortexResult<LayoutReaderRef>
+        + Send
+        + Sync,
+>;
+
+/// Per-reader-tree dependency context, threaded through [`crate::VTable::new_reader`].
+///
+/// Holds a registry of [`ReaderBuilder`] overrides keyed by [`LayoutId`]. When a layout
+/// reader is being constructed, the dispatcher checks this context first — if an override
+/// is registered for the layout's encoding ID, the override is invoked instead of the
+/// default [`crate::VTable::new_reader`] implementation.
+///
+/// Contexts are layered: [`Self::with_override`] returns a derived context that overlays the
+/// original. The original is unchanged, allowing concurrent reader-tree constructions to
+/// each have their own derived context without races.
+///
+/// Contexts are cheap to clone (shared via `Arc`), so they can be captured by lazy children
+/// helpers and survive any single stack frame.
+#[derive(Clone, Default)]
+pub struct LayoutReaderContext {
+    inner: Arc<ContextInner>,
+}
+
+#[derive(Default)]
+struct ContextInner {
+    overrides: HashMap<LayoutId, ReaderBuilder>,
+    parent: Option<Arc<ContextInner>>,
+}
+
+impl LayoutReaderContext {
+    /// Creates a new, empty context.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns a new context that overlays this one with an override for `id`.
+    ///
+    /// The original context is unchanged; descendants constructed via the returned context
+    /// will see the override. Lookups in the returned context check the new override first,
+    /// then fall through to the parent chain.
+    pub fn with_override(&self, id: LayoutId, builder: ReaderBuilder) -> Self {
+        let mut overrides = HashMap::new();
+        overrides.insert(id, builder);
+        Self {
+            inner: Arc::new(ContextInner {
+                overrides,
+                parent: Some(Arc::clone(&self.inner)),
+            }),
+        }
+    }
+
+    /// Returns the most-recently-overridden [`ReaderBuilder`] for `id`, or `None` if no
+    /// override is registered for that ID anywhere in the chain.
+    pub fn get_override(&self, id: &LayoutId) -> Option<ReaderBuilder> {
+        let mut current = Some(&*self.inner);
+        while let Some(c) = current {
+            if let Some(builder) = c.overrides.get(id) {
+                return Some(Arc::clone(builder));
+            }
+            current = c.parent.as_deref();
+        }
+        None
+    }
+}
+
+impl std::fmt::Debug for LayoutReaderContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LayoutReaderContext")
+            .field(
+                "overrides",
+                &self.inner.overrides.keys().collect::<Vec<_>>(),
+            )
+            .field("has_parent", &self.inner.parent.is_some())
+            .finish()
     }
 }

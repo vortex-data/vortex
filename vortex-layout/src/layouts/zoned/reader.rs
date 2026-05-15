@@ -21,6 +21,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::LayoutReader;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::SplitRange;
@@ -42,6 +43,7 @@ impl ZonedReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        ctx: LayoutReaderContext,
     ) -> VortexResult<Self> {
         let dtypes = vec![
             layout.dtype.clone(),
@@ -54,6 +56,7 @@ impl ZonedReader {
             names,
             Arc::clone(&segment_source),
             session.clone(),
+            ctx,
         ));
 
         Ok(Self {

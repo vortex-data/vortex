@@ -19,6 +19,7 @@ use vortex_session::registry::Id;
 
 use crate::LayoutEncodingId;
 use crate::LayoutEncodingRef;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::VTable;
 use crate::display::DisplayLayoutTree;
@@ -63,12 +64,30 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
     /// Get the segment IDs for this layout.
     fn segment_ids(&self) -> Vec<SegmentId>;
 
+    /// Construct a new reader for this layout, using the given dependency context.
+    ///
+    /// Implementations check `ctx` for an override registered against this layout's encoding
+    /// ID before dispatching to the layout's default [`crate::VTable::new_reader`].
+    fn new_reader_in_ctx(
+        &self,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
+        ctx: &LayoutReaderContext,
+    ) -> VortexResult<LayoutReaderRef>;
+
+    /// Convenience: construct a new reader for this layout using a fresh, empty context.
+    ///
+    /// Top-level callers (file open, tests) typically use this. Recursive calls inside
+    /// layout implementations should use [`Self::new_reader_in_ctx`] to propagate `ctx`.
     fn new_reader(
         &self,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
-    ) -> VortexResult<LayoutReaderRef>;
+    ) -> VortexResult<LayoutReaderRef> {
+        self.new_reader_in_ctx(name, segment_source, session, &LayoutReaderContext::new())
+    }
 }
 
 pub trait IntoLayout {
@@ -306,13 +325,18 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         V::segment_ids(&self.0)
     }
 
-    fn new_reader(
+    fn new_reader_in_ctx(
         &self,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
-        V::new_reader(&self.0, name, segment_source, session)
+        let id = V::encoding(&self.0).id();
+        if let Some(builder) = ctx.get_override(&id) {
+            return builder(self, name, segment_source, session, ctx);
+        }
+        V::new_reader(&self.0, name, segment_source, session, ctx)
     }
 }
 

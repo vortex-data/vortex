@@ -80,7 +80,7 @@ pub fn vortex_layout::layouts::array_tree::ArrayTree::metadata(&Self::Layout) ->
 
 pub fn vortex_layout::layouts::array_tree::ArrayTree::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::array_tree::ArrayTree::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::array_tree::ArrayTree::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::array_tree::ArrayTree::row_count(&Self::Layout) -> u64
 
@@ -92,17 +92,11 @@ pub struct vortex_layout::layouts::array_tree::ArrayTreeFlatLayout
 
 impl vortex_layout::layouts::array_tree::ArrayTreeFlatLayout
 
-pub fn vortex_layout::layouts::array_tree::ArrayTreeFlatLayout::chunk_idx(&self) -> usize
-
 pub fn vortex_layout::layouts::array_tree::ArrayTreeFlatLayout::compact_tree(&self) -> core::option::Option<&vortex_buffer::ByteBuffer>
 
 pub fn vortex_layout::layouts::array_tree::ArrayTreeFlatLayout::inner(&self) -> &vortex_layout::layouts::flat::FlatLayout
 
-pub fn vortex_layout::layouts::array_tree::ArrayTreeFlatLayout::new(vortex_layout::layouts::flat::FlatLayout, usize, vortex_buffer::ByteBuffer) -> Self
-
-pub fn vortex_layout::layouts::array_tree::ArrayTreeFlatLayout::set_source(&self, alloc::sync::Arc<vortex_layout::layouts::array_tree::ArrayTreesSource>)
-
-pub fn vortex_layout::layouts::array_tree::ArrayTreeFlatLayout::source(&self) -> core::option::Option<&alloc::sync::Arc<vortex_layout::layouts::array_tree::ArrayTreesSource>>
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlatLayout::new(vortex_layout::layouts::flat::FlatLayout, vortex_buffer::ByteBuffer) -> Self
 
 impl core::clone::Clone for vortex_layout::layouts::array_tree::ArrayTreeFlatLayout
 
@@ -149,6 +143,8 @@ pub fn vortex_layout::layouts::array_tree::ArrayTreeFlatLayoutEncoding::deref(&s
 pub struct vortex_layout::layouts::array_tree::ArrayTreeLayout
 
 impl vortex_layout::layouts::array_tree::ArrayTreeLayout
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeLayout::array_trees_dtype() -> vortex_array::dtype::DType
 
 pub fn vortex_layout::layouts::array_tree::ArrayTreeLayout::new(vortex_layout::LayoutRef, vortex_layout::LayoutRef) -> Self
 
@@ -198,13 +194,15 @@ pub struct vortex_layout::layouts::array_tree::ArrayTreesSource
 
 impl vortex_layout::layouts::array_tree::ArrayTreesSource
 
-pub fn vortex_layout::layouts::array_tree::ArrayTreesSource::array_future(&self) -> vortex_layout::layouts::SharedArrayFuture
+pub fn vortex_layout::layouts::array_tree::ArrayTreesSource::get_for_segment(&self, vortex_layout::segments::SegmentId) -> vortex_layout::layouts::array_tree::SharedSegmentBufferFuture
 
 pub fn vortex_layout::layouts::array_tree::ArrayTreesSource::new(vortex_layout::LayoutReaderRef) -> Self
 
 impl core::fmt::Debug for vortex_layout::layouts::array_tree::ArrayTreesSource
 
 pub fn vortex_layout::layouts::array_tree::ArrayTreesSource::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub type vortex_layout::layouts::array_tree::SharedSegmentBufferFuture = futures_util::future::future::shared::Shared<futures_core::future::BoxFuture<'static, vortex_error::SharedVortexResult<vortex_buffer::ByteBuffer>>>
 
 pub mod vortex_layout::layouts::buffered
 
@@ -276,7 +274,7 @@ pub fn vortex_layout::layouts::chunked::Chunked::metadata(&Self::Layout) -> Self
 
 pub fn vortex_layout::layouts::chunked::Chunked::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::chunked::Chunked::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::chunked::Chunked::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::chunked::Chunked::row_count(&Self::Layout) -> u64
 
@@ -494,7 +492,7 @@ pub fn vortex_layout::layouts::dict::Dict::metadata(&Self::Layout) -> Self::Meta
 
 pub fn vortex_layout::layouts::dict::Dict::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::dict::Dict::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::dict::Dict::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::dict::Dict::row_count(&Self::Layout) -> u64
 
@@ -660,7 +658,7 @@ pub fn vortex_layout::layouts::flat::Flat::metadata(&Self::Layout) -> Self::Meta
 
 pub fn vortex_layout::layouts::flat::Flat::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::flat::Flat::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::flat::Flat::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::flat::Flat::row_count(&Self::Layout) -> u64
 
@@ -860,7 +858,7 @@ pub fn vortex_layout::layouts::struct_::Struct::metadata(&Self::Layout) -> Self:
 
 pub fn vortex_layout::layouts::struct_::Struct::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::struct_::Struct::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::struct_::Struct::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::struct_::Struct::row_count(&Self::Layout) -> u64
 
@@ -1024,7 +1022,7 @@ pub fn vortex_layout::layouts::zoned::Zoned::metadata(&Self::Layout) -> Self::Me
 
 pub fn vortex_layout::layouts::zoned::Zoned::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::zoned::Zoned::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::zoned::Zoned::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::zoned::Zoned::row_count(&Self::Layout) -> u64
 
@@ -1642,7 +1640,7 @@ pub fn vortex_layout::vtable::VTable::metadata(&Self::Layout) -> Self::Metadata
 
 pub fn vortex_layout::vtable::VTable::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::vtable::VTable::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::vtable::VTable::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::vtable::VTable::row_count(&Self::Layout) -> u64
 
@@ -1674,7 +1672,7 @@ pub fn vortex_layout::layouts::array_tree::ArrayTree::metadata(&Self::Layout) ->
 
 pub fn vortex_layout::layouts::array_tree::ArrayTree::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::array_tree::ArrayTree::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::array_tree::ArrayTree::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::array_tree::ArrayTree::row_count(&Self::Layout) -> u64
 
@@ -1706,7 +1704,7 @@ pub fn vortex_layout::layouts::chunked::Chunked::metadata(&Self::Layout) -> Self
 
 pub fn vortex_layout::layouts::chunked::Chunked::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::chunked::Chunked::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::chunked::Chunked::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::chunked::Chunked::row_count(&Self::Layout) -> u64
 
@@ -1738,7 +1736,7 @@ pub fn vortex_layout::layouts::dict::Dict::metadata(&Self::Layout) -> Self::Meta
 
 pub fn vortex_layout::layouts::dict::Dict::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::dict::Dict::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::dict::Dict::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::dict::Dict::row_count(&Self::Layout) -> u64
 
@@ -1770,7 +1768,7 @@ pub fn vortex_layout::layouts::flat::Flat::metadata(&Self::Layout) -> Self::Meta
 
 pub fn vortex_layout::layouts::flat::Flat::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::flat::Flat::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::flat::Flat::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::flat::Flat::row_count(&Self::Layout) -> u64
 
@@ -1802,7 +1800,7 @@ pub fn vortex_layout::layouts::struct_::Struct::metadata(&Self::Layout) -> Self:
 
 pub fn vortex_layout::layouts::struct_::Struct::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::struct_::Struct::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::struct_::Struct::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::struct_::Struct::row_count(&Self::Layout) -> u64
 
@@ -1834,7 +1832,7 @@ pub fn vortex_layout::layouts::zoned::Zoned::metadata(&Self::Layout) -> Self::Me
 
 pub fn vortex_layout::layouts::zoned::Zoned::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::zoned::Zoned::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::zoned::Zoned::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::zoned::Zoned::row_count(&Self::Layout) -> u64
 
@@ -1902,6 +1900,8 @@ pub fn vortex_layout::LayoutAdapter<V>::nchildren(&self) -> usize
 
 pub fn vortex_layout::LayoutAdapter<V>::new_reader(&self, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
+pub fn vortex_layout::LayoutAdapter<V>::new_reader_in_ctx(&self, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+
 pub fn vortex_layout::LayoutAdapter<V>::row_count(&self) -> u64
 
 pub fn vortex_layout::LayoutAdapter<V>::segment_ids(&self) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
@@ -1922,13 +1922,35 @@ pub fn vortex_layout::LayoutEncodingAdapter<V>::build(&self, &vortex_array::dtyp
 
 pub fn vortex_layout::LayoutEncodingAdapter<V>::id(&self) -> vortex_layout::LayoutEncodingId
 
+pub struct vortex_layout::LayoutReaderContext
+
+impl vortex_layout::LayoutReaderContext
+
+pub fn vortex_layout::LayoutReaderContext::get_override(&self, &vortex_layout::LayoutId) -> core::option::Option<vortex_layout::ReaderBuilder>
+
+pub fn vortex_layout::LayoutReaderContext::new() -> Self
+
+pub fn vortex_layout::LayoutReaderContext::with_override(&self, vortex_layout::LayoutId, vortex_layout::ReaderBuilder) -> Self
+
+impl core::clone::Clone for vortex_layout::LayoutReaderContext
+
+pub fn vortex_layout::LayoutReaderContext::clone(&self) -> vortex_layout::LayoutReaderContext
+
+impl core::default::Default for vortex_layout::LayoutReaderContext
+
+pub fn vortex_layout::LayoutReaderContext::default() -> vortex_layout::LayoutReaderContext
+
+impl core::fmt::Debug for vortex_layout::LayoutReaderContext
+
+pub fn vortex_layout::LayoutReaderContext::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub struct vortex_layout::LazyReaderChildren
 
 impl vortex_layout::LazyReaderChildren
 
 pub fn vortex_layout::LazyReaderChildren::get(&self, usize) -> vortex_error::VortexResult<&vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::LazyReaderChildren::new(alloc::sync::Arc<dyn vortex_layout::LayoutChildren>, alloc::vec::Vec<vortex_array::dtype::DType>, alloc::vec::Vec<alloc::sync::Arc<str>>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, vortex_session::VortexSession) -> Self
+pub fn vortex_layout::LazyReaderChildren::new(alloc::sync::Arc<dyn vortex_layout::LayoutChildren>, alloc::vec::Vec<vortex_array::dtype::DType>, alloc::vec::Vec<alloc::sync::Arc<str>>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, vortex_session::VortexSession, vortex_layout::LayoutReaderContext) -> Self
 
 pub struct vortex_layout::SplitRange
 
@@ -2026,6 +2048,8 @@ pub fn vortex_layout::Layout::nchildren(&self) -> usize
 
 pub fn vortex_layout::Layout::new_reader(&self, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
+pub fn vortex_layout::Layout::new_reader_in_ctx(&self, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+
 pub fn vortex_layout::Layout::row_count(&self) -> u64
 
 pub fn vortex_layout::Layout::segment_ids(&self) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
@@ -2051,6 +2075,8 @@ pub fn vortex_layout::LayoutAdapter<V>::metadata(&self) -> alloc::vec::Vec<u8>
 pub fn vortex_layout::LayoutAdapter<V>::nchildren(&self) -> usize
 
 pub fn vortex_layout::LayoutAdapter<V>::new_reader(&self, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+
+pub fn vortex_layout::LayoutAdapter<V>::new_reader_in_ctx(&self, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::LayoutAdapter<V>::row_count(&self) -> u64
 
@@ -2232,7 +2258,7 @@ pub fn vortex_layout::VTable::metadata(&Self::Layout) -> Self::Metadata
 
 pub fn vortex_layout::VTable::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::VTable::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::VTable::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::VTable::row_count(&Self::Layout) -> u64
 
@@ -2264,7 +2290,7 @@ pub fn vortex_layout::layouts::array_tree::ArrayTree::metadata(&Self::Layout) ->
 
 pub fn vortex_layout::layouts::array_tree::ArrayTree::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::array_tree::ArrayTree::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::array_tree::ArrayTree::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::array_tree::ArrayTree::row_count(&Self::Layout) -> u64
 
@@ -2296,7 +2322,7 @@ pub fn vortex_layout::layouts::chunked::Chunked::metadata(&Self::Layout) -> Self
 
 pub fn vortex_layout::layouts::chunked::Chunked::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::chunked::Chunked::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::chunked::Chunked::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::chunked::Chunked::row_count(&Self::Layout) -> u64
 
@@ -2328,7 +2354,7 @@ pub fn vortex_layout::layouts::dict::Dict::metadata(&Self::Layout) -> Self::Meta
 
 pub fn vortex_layout::layouts::dict::Dict::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::dict::Dict::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::dict::Dict::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::dict::Dict::row_count(&Self::Layout) -> u64
 
@@ -2360,7 +2386,7 @@ pub fn vortex_layout::layouts::flat::Flat::metadata(&Self::Layout) -> Self::Meta
 
 pub fn vortex_layout::layouts::flat::Flat::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::flat::Flat::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::flat::Flat::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::flat::Flat::row_count(&Self::Layout) -> u64
 
@@ -2392,7 +2418,7 @@ pub fn vortex_layout::layouts::struct_::Struct::metadata(&Self::Layout) -> Self:
 
 pub fn vortex_layout::layouts::struct_::Struct::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::struct_::Struct::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::struct_::Struct::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::struct_::Struct::row_count(&Self::Layout) -> u64
 
@@ -2424,7 +2450,7 @@ pub fn vortex_layout::layouts::zoned::Zoned::metadata(&Self::Layout) -> Self::Me
 
 pub fn vortex_layout::layouts::zoned::Zoned::nchildren(&Self::Layout) -> usize
 
-pub fn vortex_layout::layouts::zoned::Zoned::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+pub fn vortex_layout::layouts::zoned::Zoned::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
 pub fn vortex_layout::layouts::zoned::Zoned::row_count(&Self::Layout) -> u64
 
@@ -2449,3 +2475,5 @@ pub type vortex_layout::LayoutId = vortex_session::registry::Id
 pub type vortex_layout::LayoutReaderRef = alloc::sync::Arc<dyn vortex_layout::LayoutReader>
 
 pub type vortex_layout::LayoutRef = alloc::sync::Arc<dyn vortex_layout::Layout>
+
+pub type vortex_layout::ReaderBuilder = alloc::sync::Arc<(dyn core::ops::function::Fn(&dyn vortex_layout::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef> + core::marker::Send + core::marker::Sync)>

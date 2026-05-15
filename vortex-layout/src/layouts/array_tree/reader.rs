@@ -9,7 +9,6 @@ use std::sync::Arc;
 use futures::FutureExt;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::VarBinView;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
@@ -22,6 +21,7 @@ use vortex_session::VortexSession;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::layouts::SharedArrayFuture;
+use crate::layouts::array_tree::ArrayTreesSource;
 use crate::layouts::array_tree::flat::ArrayTreeFlatLayout;
 use crate::reader::ArrayFuture;
 use crate::reader::SplitRange;
@@ -29,9 +29,10 @@ use crate::segments::SegmentSource;
 
 /// Transparent reader for [`super::ArrayTreeLayout`].
 ///
-/// Delegates all operations to the data child reader. The array_trees auxiliary child
-/// is consumed at construction time (by [`super::ArrayTreeLayout::new_reader`]) to inject
-/// compact flatbuffers into [`ArrayTreeFlatLayout`] descendants.
+/// Delegates all operations to the data child reader. The array_trees auxiliary child is
+/// consumed at construction time (by `ArrayTreeLayout`'s `new_reader`) to register a
+/// reader-builder override that injects the shared source into all
+/// [`ArrayTreeFlatLayout`] descendants.
 pub struct ArrayTreeReader {
     name: Arc<str>,
     data_reader: LayoutReaderRef,
@@ -105,14 +106,16 @@ const EXPR_EVAL_THRESHOLD: f64 = 0.2;
 
 /// Reader for [`ArrayTreeFlatLayout`].
 ///
-/// Similar to [`super::super::flat::reader::FlatReader`] but obtains its compact encoding tree
-/// from the shared [`super::ArrayTreesSource`] rather than from inline layout metadata or
-/// the data segment.
+/// Constructed only via the reader-builder override registered by an ancestor
+/// [`super::ArrayTreeLayout`]. Looks up its compact encoding tree from the shared
+/// [`ArrayTreesSource`] keyed by its own segment ID, then concurrently fetches the data
+/// segment to produce a decoded array.
 pub struct ArrayTreeFlatReader {
     layout: ArrayTreeFlatLayout,
     name: Arc<str>,
     segment_source: Arc<dyn SegmentSource>,
     session: VortexSession,
+    source: Arc<ArrayTreesSource>,
 }
 
 impl ArrayTreeFlatReader {
@@ -121,51 +124,36 @@ impl ArrayTreeFlatReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        source: Arc<ArrayTreesSource>,
     ) -> Self {
         Self {
             layout,
             name,
             segment_source,
             session,
+            source,
         }
     }
 
-    /// Register the segment request and return a future that resolves to the deserialized array.
-    ///
-    /// If a shared [`super::ArrayTreesSource`] has been injected, the compact flatbuffer is
-    /// obtained from there (concurrently with the data segment fetch). Otherwise falls back
-    /// to parsing from the segment (like FlatReader).
+    /// Resolve the compact tree from the shared source and the data segment from the segment
+    /// source concurrently, then combine them into a decoded array.
     fn array_future(&self) -> SharedArrayFuture {
         let row_count = usize::try_from(self.layout.inner().row_count())
             .vortex_expect("row count must fit in usize");
 
-        let segment_fut = self
-            .segment_source
-            .request(self.layout.inner().segment_id());
+        let segment_id = self.layout.inner().segment_id();
+        let segment_fut = self.segment_source.request(segment_id);
+        let compact_tree_fut = self.source.get_for_segment(segment_id);
+
         let ctx = self.layout.inner().array_ctx().clone();
         let session = self.session.clone();
         let dtype = self.layout.inner().dtype().clone();
 
-        // If a source has been injected, resolve the compact tree from it.
-        // Otherwise, fall back to parsing from the segment (like FlatReader).
-        let source_future = self.layout.source().map(|s| s.array_future());
-        let chunk_idx = self.layout.chunk_idx();
-
         async move {
-            let segment = segment_fut.await?;
-            let parts = if let Some(source_future) = source_future {
-                // Resolve the VarBin array of compact trees (shared, read once).
-                let trees_array = source_future.await?;
-                let trees = trees_array.try_downcast::<VarBinView>().map_err(|_| {
-                    Arc::new(vortex_error::vortex_err!(
-                        "array_trees child is not a VarBinView array"
-                    ))
-                })?;
-                let compact_tree = trees.bytes_at(chunk_idx);
-                SerializedArray::from_flatbuffer_and_segment(compact_tree, segment)?
-            } else {
-                SerializedArray::try_from(segment)?
-            };
+            let segment_fut = async move { segment_fut.await.map_err(Arc::new) };
+            let (segment, compact_tree) = futures::try_join!(segment_fut, compact_tree_fut)?;
+            let parts = SerializedArray::from_flatbuffer_and_segment(compact_tree, segment)
+                .map_err(Arc::new)?;
             parts
                 .decode(&dtype, row_count, &ctx, &session)
                 .map_err(Arc::new)

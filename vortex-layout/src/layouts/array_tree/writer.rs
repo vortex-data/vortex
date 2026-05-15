@@ -2,18 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
-use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::FieldName;
 use vortex_array::dtype::Nullability;
 use vortex_array::serde::SerializeOptions;
+use vortex_array::validity::Validity;
+use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -28,6 +31,7 @@ use crate::layouts::array_tree::flat::ArrayTreeFlat;
 use crate::layouts::array_tree::flat::ArrayTreeFlatLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
+use crate::segments::SegmentId;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
@@ -37,18 +41,15 @@ use crate::sequence::SequentialArrayStreamExt;
 ///
 /// Returns `(collector, leaf)` where:
 /// - `leaf` replaces [`FlatLayoutStrategy`] in the data pipeline — it serializes chunks and
-///   produces compact flatbuffers.
-/// - `collector` wraps the data pipeline — after data is written, it collects compact flatbuffers
-///   from the layout tree and writes them as a VarBin array.
+///   produces compact flatbuffers attached to [`ArrayTreeFlatLayout`].
+/// - `collector` wraps the data pipeline — after data is written, it walks the layout tree to
+///   collect compact flatbuffers from all [`ArrayTreeFlatLayout`] leaves and writes them as a
+///   struct array (`{segment_id, compact_tree}`) via the configured `array_trees_strategy`.
 pub fn writer(
     flat: FlatLayoutStrategy,
     array_trees_strategy: Arc<dyn LayoutStrategy>,
 ) -> (ArrayTreeCollectorStrategy, ArrayTreeFlatStrategy) {
-    let chunk_counter = Arc::new(AtomicUsize::new(0));
-    let leaf = ArrayTreeFlatStrategy {
-        flat,
-        chunk_counter,
-    };
+    let leaf = ArrayTreeFlatStrategy { flat };
     let collector = ArrayTreeCollectorStrategy {
         child: None,
         array_trees_strategy,
@@ -58,13 +59,12 @@ pub fn writer(
 
 /// Leaf strategy (TX) that replaces [`FlatLayoutStrategy`].
 ///
-/// For each chunk, it delegates serialization to the inner [`FlatLayoutStrategy`], also produces
-/// a compact flatbuffer (encoding tree + buffer descriptors, no stats), and returns an
-/// [`ArrayTreeFlatLayout`] with the compact tree attached.
+/// For each chunk, it produces both the compact flatbuffer (encoding tree + buffer
+/// descriptors, no stats) and the full data segment, and returns an [`ArrayTreeFlatLayout`]
+/// with the compact tree attached for later collection.
 #[derive(Clone)]
 pub struct ArrayTreeFlatStrategy {
     flat: FlatLayoutStrategy,
-    chunk_counter: Arc<AtomicUsize>,
 }
 
 #[async_trait]
@@ -107,7 +107,7 @@ impl LayoutStrategy for ArrayTreeFlatStrategy {
             },
         )?;
 
-        // Full serialization (with stats) for the data segment.
+        // Full serialization for the data segment.
         let buffers = chunk.serialize(
             &ctx,
             session,
@@ -123,8 +123,6 @@ impl LayoutStrategy for ArrayTreeFlatStrategy {
             vortex_bail!("array tree flat layout received stream with more than a single chunk");
         };
 
-        let chunk_idx = self.chunk_counter.fetch_add(1, Ordering::Relaxed);
-
         Ok(ArrayTreeFlatLayout::new(
             FlatLayout::new(
                 row_count,
@@ -132,7 +130,6 @@ impl LayoutStrategy for ArrayTreeFlatStrategy {
                 segment_id,
                 ReadContext::new(ctx.to_ids()),
             ),
-            chunk_idx,
             compact_tree,
         )
         .into_layout())
@@ -145,9 +142,10 @@ impl LayoutStrategy for ArrayTreeFlatStrategy {
 
 /// Collector strategy (RX) that wraps the data pipeline.
 ///
-/// After the data child completes, walks the returned layout tree to extract compact flatbuffers
-/// from all [`ArrayTreeFlatLayout`] leaves, builds a VarBin array, and writes it as an
-/// auxiliary child.
+/// After the data child completes, walks the returned layout tree to extract compact
+/// flatbuffers and segment IDs from all [`ArrayTreeFlatLayout`] leaves, builds a struct
+/// array of `{segment_id, compact_tree}`, and writes it as an auxiliary child via the
+/// configured `array_trees_strategy`.
 pub struct ArrayTreeCollectorStrategy {
     child: Option<Arc<dyn LayoutStrategy>>,
     array_trees_strategy: Arc<dyn LayoutStrategy>,
@@ -188,29 +186,48 @@ impl LayoutStrategy for ArrayTreeCollectorStrategy {
             )
             .await?;
 
-        // Walk the layout tree to collect compact flatbuffers from ArrayTreeFlatLayout leaves.
-        let mut compact_trees: Vec<(usize, ByteBuffer)> = Vec::new();
+        // Walk the layout tree to collect (segment_id, compact_tree) pairs from
+        // ArrayTreeFlatLayout leaves.
+        let mut entries: Vec<(SegmentId, ByteBuffer)> = Vec::new();
         for layout_ref in data_layout.depth_first_traversal() {
             let layout_ref = layout_ref?;
             if let Some(atf) = layout_ref.as_opt::<ArrayTreeFlat>()
                 && let Some(tree) = atf.compact_tree()
             {
-                compact_trees.push((atf.chunk_idx(), tree.clone()));
+                entries.push((atf.inner().segment_id(), tree.clone()));
             }
         }
 
-        // Sort by chunk index to ensure deterministic order.
-        compact_trees.sort_by_key(|(idx, _)| *idx);
+        // Sort by segment ID so the on-disk order matches segment-write order — this gives
+        // good locality and predictable lookup-table layout.
+        entries.sort_by_key(|(seg, _)| *seg);
 
-        // Build a VarBin array of compact flatbuffers.
-        let dtype = DType::Binary(Nullability::NonNullable);
-        let mut builder = VarBinViewBuilder::with_capacity(dtype.clone(), compact_trees.len());
-        for (_, tree) in &compact_trees {
-            builder.append_value(tree.as_slice());
+        // Build a struct array of {segment_id: u32, compact_tree: bytes}.
+        let nrows = entries.len();
+        let segment_ids: Buffer<u32> = entries.iter().map(|(seg, _)| **seg).collect();
+        let segment_ids_array =
+            PrimitiveArray::new(segment_ids, Validity::NonNullable).into_array();
+
+        let mut tree_builder =
+            VarBinViewBuilder::with_capacity(DType::Binary(Nullability::NonNullable), nrows);
+        for (_, tree) in &entries {
+            tree_builder.append_value(tree.as_slice());
         }
-        let array_trees_array = builder.finish().into_array();
+        let trees_array = tree_builder.finish().into_array();
 
-        // Write the VarBin array via the array_trees strategy.
+        let array_trees_array = StructArray::try_new(
+            vec![
+                FieldName::from("segment_id"),
+                FieldName::from("compact_tree"),
+            ]
+            .into(),
+            vec![segment_ids_array, trees_array],
+            nrows,
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        // Write the struct array via the array_trees strategy.
         let trees_stream = array_trees_array
             .to_array_stream()
             .sequenced(eof.split_off());

@@ -180,6 +180,7 @@ impl VTable for CudaFlat {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        _ctx: &vortex::layout::LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(CudaFlatReader {
             layout: layout.clone(),
