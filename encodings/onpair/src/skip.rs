@@ -474,6 +474,318 @@ impl SeamBloom {
     }
 }
 
+// ---------------------------------------------------------------------------
+//                             TokenPairBloom
+// ---------------------------------------------------------------------------
+
+/// Bloom filter over **consecutive code pairs** `(c_i, c_{i+1})` in the
+/// chunk's OnPair code stream. The OnPair-structural alternative to a
+/// byte-level [`TrigramBloom`].
+///
+/// What it catches that [`DictPresence`] does not: **adjacency**. Two
+/// dict ids can both appear in a chunk without ever occurring next to
+/// each other; the pair Bloom remembers the actual pairs that did.
+///
+/// Per-row build cost is O(tokens_in_row). Insertion count is roughly
+/// `n_tokens - n_rows` per chunk, which for OnPair-encoded URLs is a
+/// few thousand — typically smaller than the chunk's distinct trigram
+/// set, giving slightly better FPR at the same byte budget.
+///
+/// Per-query cost is `O(|needle| × candidate_pairs)` because the
+/// contains check enumerates dict-pair candidates per split position
+/// of the needle. For URL-shaped data and short needles (≤ 16 bytes)
+/// this is a few hundred dict-pair probes per chunk, which amortises
+/// well across all chunks for a single query.
+pub struct TokenPairBloom {
+    bloom: Bloom,
+}
+
+impl TokenPairBloom {
+    /// Build the pair Bloom for rows `lo..hi`.
+    pub fn build(dv: &DecodeView<'_>, lo: usize, hi: usize, bits_per_row: usize) -> Self {
+        let n_rows = hi - lo;
+        let mut bloom = Bloom::new(bits_per_row * n_rows.max(1), 3);
+        let mut rstart = dv.codes_offsets[lo] as usize;
+        for r in lo..hi {
+            let rend = dv.codes_offsets[r + 1] as usize;
+            let toks = &dv.codes[rstart..rend];
+            for w in toks.windows(2) {
+                let (h1, h2) = pair_hash(w[0], w[1]);
+                bloom.insert(h1, h2);
+            }
+            rstart = rend;
+        }
+        Self { bloom }
+    }
+
+    pub fn byte_size(&self) -> usize {
+        self.bloom.byte_size()
+    }
+
+    /// Sound necessary condition for `col = needle` when paired with a
+    /// [`DictPresence`]. Greedy-LPM tokenises the needle and requires
+    /// every consecutive `(tᵢ, tᵢ₊₁)` to be present in the pair Bloom
+    /// (and every `tᵢ` to be present in `presence`).
+    pub fn might_eq(
+        &self,
+        dv: &DecodeView<'_>,
+        index: &DictIndex,
+        presence: &DictPresence,
+        needle: &[u8],
+    ) -> bool {
+        let Some(toks) = tokenize_needle(dv, index, needle) else {
+            return false;
+        };
+        if !toks.iter().all(|&t| presence.is_set(t as usize)) {
+            return false;
+        }
+        for w in toks.windows(2) {
+            let (h1, h2) = pair_hash(w[0], w[1]);
+            if !self.bloom.contains(h1, h2) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Sound necessary condition for `LIKE '%needle%'` when paired
+    /// with a [`DictPresence`]. Covers:
+    ///
+    /// * Case 1 — the needle lies wholly inside a single present dict
+    ///   token. Verified via the presence bitmap and the dictionary.
+    /// * Case 2 — the needle straddles exactly two tokens `(a, b)`
+    ///   such that `decode(a) · decode(b)` contains the needle. We
+    ///   enumerate all `(s1, s2)` splits of the needle (`|s1|, |s2|
+    ///   ≥ 1`); for each split we look up dict tokens whose bytes end
+    ///   with `s1` and whose bytes start with `s2` (using the sorted
+    ///   first-byte index), then probe the pair Bloom for each
+    ///   `(a, b)` candidate.
+    /// * Case 3+ — the needle spans three or more tokens. We do not
+    ///   currently rule this out; the function returns `true`
+    ///   conservatively after exhausting cases 1 and 2. For URL-
+    ///   shaped data this case is rare because dict tokens are
+    ///   typically longer than 2-3 bytes.
+    pub fn might_contain(
+        &self,
+        dv: &DecodeView<'_>,
+        index: &DictIndex,
+        presence: &DictPresence,
+        needle: &[u8],
+    ) -> bool {
+        if needle.is_empty() {
+            return true;
+        }
+        // Case 1.
+        for (id, &entry) in dv.dict_table.iter().enumerate() {
+            let len = (entry & 0xffff) as usize;
+            if len < needle.len() || !presence.is_set(id) {
+                continue;
+            }
+            let off = (entry >> 16) as usize;
+            if memchr::memmem::find(&dv.dict_bytes[off..off + len], needle).is_some() {
+                return true;
+            }
+        }
+        // Case 2: enumerate all (s1, s2) splits.
+        for split in 1..needle.len() {
+            let s1 = &needle[..split];
+            let s2 = &needle[split..];
+            // Tokens b candidates whose first byte is s2[0].
+            let b_range = index.range_for(s2[0]);
+            if b_range.is_empty() {
+                continue;
+            }
+            // Linear scan dict for tokens ending with s1.
+            for (a, &a_entry) in dv.dict_table.iter().enumerate() {
+                let a_len = (a_entry & 0xffff) as usize;
+                if a_len < s1.len() {
+                    continue;
+                }
+                let a_off = (a_entry >> 16) as usize;
+                let a_bytes = &dv.dict_bytes[a_off..a_off + a_len];
+                if &a_bytes[a_len - s1.len()..] != s1 {
+                    continue;
+                }
+                for b in b_range.clone() {
+                    let b_entry = dv.dict_table[b];
+                    let b_len = (b_entry & 0xffff) as usize;
+                    if b_len < s2.len() {
+                        continue;
+                    }
+                    let b_off = (b_entry >> 16) as usize;
+                    let b_bytes = &dv.dict_bytes[b_off..b_off + b_len];
+                    if !b_bytes.starts_with(s2) {
+                        continue;
+                    }
+                    let (h1, h2) = pair_hash(a as u16, b as u16);
+                    if self.bloom.contains(h1, h2) {
+                        return true;
+                    }
+                }
+            }
+        }
+        // Case 3+: needle spans ≥ 3 tokens. Reduce to a trigram check
+        // that uses the pair Bloom as a *seam-trigram oracle*: every
+        // 3-byte window of `needle` must be reachable in the chunk
+        // either as an interior trigram of a present dict token or as
+        // a seam trigram of a present token pair. If any trigram is
+        // unaccounted for, the chunk cannot contain the needle.
+        if needle.len() < 3 {
+            return true;
+        }
+        for win in needle.windows(3) {
+            if self.trigram_reachable(dv, index, presence, win) {
+                continue;
+            }
+            return false;
+        }
+        true
+    }
+
+    /// True iff trigram `tri` (3 bytes) can appear in this chunk via
+    /// either the interior of a present dict token or the seam of a
+    /// present token pair.
+    fn trigram_reachable(
+        &self,
+        dv: &DecodeView<'_>,
+        index: &DictIndex,
+        presence: &DictPresence,
+        tri: &[u8],
+    ) -> bool {
+        debug_assert_eq!(tri.len(), 3);
+        // (a) interior: any present dict token contains `tri` as a
+        // substring.
+        for (id, &entry) in dv.dict_table.iter().enumerate() {
+            let len = (entry & 0xffff) as usize;
+            if len < 3 || !presence.is_set(id) {
+                continue;
+            }
+            let off = (entry >> 16) as usize;
+            if memchr::memmem::find(&dv.dict_bytes[off..off + len], tri).is_some() {
+                return true;
+            }
+        }
+        // (b) seam, 2 tokens: try splits (1+2) and (2+1).
+        for split in 1..3 {
+            let s1 = &tri[..split];
+            let s2 = &tri[split..];
+            if self.has_pair_with(dv, index, s1, s2) {
+                return true;
+            }
+        }
+        // (c) seam, 3 tokens: the only fit for a 3-byte trigram is
+        // 1+1+1 (a one-byte middle token). OnPair training guarantees
+        // every single-byte token exists in the dictionary, so we can
+        // look up `m = single-byte-token(tri[1])` directly.
+        if let Some(m) = single_byte_token(dv, index, tri[1]) {
+            // a ends with tri[0]; pair (a, m) in Bloom.
+            // b starts with tri[2]; pair (m, b) in Bloom.
+            let mut left_ok = false;
+            for (a, &a_entry) in dv.dict_table.iter().enumerate() {
+                let a_len = (a_entry & 0xffff) as usize;
+                if a_len == 0 {
+                    continue;
+                }
+                let a_off = (a_entry >> 16) as usize;
+                if dv.dict_bytes[a_off + a_len - 1] != tri[0] {
+                    continue;
+                }
+                let (h1, h2) = pair_hash(a as u16, m);
+                if self.bloom.contains(h1, h2) {
+                    left_ok = true;
+                    break;
+                }
+            }
+            if left_ok {
+                let b_range = index.range_for(tri[2]);
+                for b in b_range {
+                    let (h1, h2) = pair_hash(m, b as u16);
+                    if self.bloom.contains(h1, h2) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// True iff some dict pair `(a, b)` is in the Bloom with `a`'s
+    /// bytes ending in `s1` and `b`'s bytes starting with `s2`.
+    fn has_pair_with(
+        &self,
+        dv: &DecodeView<'_>,
+        index: &DictIndex,
+        s1: &[u8],
+        s2: &[u8],
+    ) -> bool {
+        if s2.is_empty() {
+            return false;
+        }
+        let b_range = index.range_for(s2[0]);
+        if b_range.is_empty() {
+            return false;
+        }
+        for (a, &a_entry) in dv.dict_table.iter().enumerate() {
+            let a_len = (a_entry & 0xffff) as usize;
+            if a_len < s1.len() {
+                continue;
+            }
+            let a_off = (a_entry >> 16) as usize;
+            let a_bytes = &dv.dict_bytes[a_off..a_off + a_len];
+            if &a_bytes[a_len - s1.len()..] != s1 {
+                continue;
+            }
+            for b in b_range.clone() {
+                let b_entry = dv.dict_table[b];
+                let b_len = (b_entry & 0xffff) as usize;
+                if b_len < s2.len() {
+                    continue;
+                }
+                let b_off = (b_entry >> 16) as usize;
+                let b_bytes = &dv.dict_bytes[b_off..b_off + b_len];
+                if !b_bytes.starts_with(s2) {
+                    continue;
+                }
+                let (h1, h2) = pair_hash(a as u16, b as u16);
+                if self.bloom.contains(h1, h2) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
+/// Find the single-byte dictionary token for byte `b`, if any. OnPair
+/// training always includes the 256 single-byte tokens, so this is
+/// `Some(_)` for any non-degenerate dictionary.
+fn single_byte_token(dv: &DecodeView<'_>, index: &DictIndex, b: u8) -> Option<u16> {
+    for id in index.range_for(b) {
+        let entry = dv.dict_table[id];
+        let len = (entry & 0xffff) as usize;
+        if len == 1 {
+            return Some(id as u16);
+        }
+    }
+    None
+}
+
+#[inline]
+fn pair_hash(a: u16, b: u16) -> (u32, u32) {
+    let key = ((a as u32) << 16) | (b as u32);
+    let h1 = splitmix32(key);
+    let h2 = splitmix32(key ^ 0x27d4_eb2f);
+    (h1, h2)
+}
+
+#[inline]
+fn splitmix32(mut x: u32) -> u32 {
+    x = x.wrapping_add(0x9e37_79b9);
+    x = (x ^ (x >> 16)).wrapping_mul(0x85eb_ca6b);
+    x = (x ^ (x >> 13)).wrapping_mul(0xc2b2_ae35);
+    x ^ (x >> 16)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

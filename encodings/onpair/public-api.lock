@@ -92,6 +92,18 @@ pub fn vortex_onpair::skip::SeamBloom::byte_size(&self) -> usize
 
 pub fn vortex_onpair::skip::SeamBloom::might_contain(&self, &vortex_onpair::decode::DecodeView<'_>, &vortex_onpair::skip::DictPresence, &[u8]) -> bool
 
+pub struct vortex_onpair::skip::TokenPairBloom
+
+impl vortex_onpair::skip::TokenPairBloom
+
+pub fn vortex_onpair::skip::TokenPairBloom::build(&vortex_onpair::decode::DecodeView<'_>, usize, usize, usize) -> Self
+
+pub fn vortex_onpair::skip::TokenPairBloom::byte_size(&self) -> usize
+
+pub fn vortex_onpair::skip::TokenPairBloom::might_contain(&self, &vortex_onpair::decode::DecodeView<'_>, &vortex_onpair::lpm::DictIndex, &vortex_onpair::skip::DictPresence, &[u8]) -> bool
+
+pub fn vortex_onpair::skip::TokenPairBloom::might_eq(&self, &vortex_onpair::decode::DecodeView<'_>, &vortex_onpair::lpm::DictIndex, &vortex_onpair::skip::DictPresence, &[u8]) -> bool
+
 pub struct vortex_onpair::skip::TrigramBloom
 
 impl vortex_onpair::skip::TrigramBloom

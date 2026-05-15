@@ -56,6 +56,7 @@ use vortex_onpair::lpm::DictIndex;
 use vortex_onpair::onpair_compress;
 use vortex_onpair::skip::DictPresence;
 use vortex_onpair::skip::SeamBloom;
+use vortex_onpair::skip::TokenPairBloom;
 use vortex_onpair::skip::TrigramBloom;
 use vortex_session::VortexSession;
 
@@ -579,23 +580,28 @@ fn clickbench_url_skip_realistic_workload() {
     let t0 = Instant::now();
     let mut presence: Vec<DictPresence> = Vec::with_capacity(num_chunks);
     let mut trigram: Vec<TrigramBloom> = Vec::with_capacity(num_chunks);
+    let mut pairs: Vec<TokenPairBloom> = Vec::with_capacity(num_chunks);
     for c in 0..num_chunks {
         let lo = c * CHUNK_SIZE_BIG;
         let hi = lo + CHUNK_SIZE_BIG;
         presence.push(DictPresence::build(&dv, lo, hi));
         trigram.push(TrigramBloom::build(&dv, lo, hi, TRIGRAM_BITS_PER_ROW));
+        pairs.push(TokenPairBloom::build(&dv, lo, hi, TRIGRAM_BITS_PER_ROW));
     }
     let build_elapsed = t0.elapsed();
     let presence_bytes: usize = presence.iter().map(DictPresence::byte_size).sum();
     let trigram_bytes: usize = trigram.iter().map(TrigramBloom::byte_size).sum();
+    let pairs_bytes: usize = pairs.iter().map(TokenPairBloom::byte_size).sum();
     eprintln!(
-        "built {} chunks of (A,B) in {:?}; A={} bytes ({:.3} B/row); B={} bytes ({:.3} B/row)",
+        "built {} chunks of (A,B,D) in {:?}; A={} bytes ({:.3} B/row); B={} bytes ({:.3} B/row); D={} bytes ({:.3} B/row)",
         num_chunks,
         build_elapsed,
         presence_bytes,
         presence_bytes as f64 / n_aligned as f64,
         trigram_bytes,
         trigram_bytes as f64 / n_aligned as f64,
+        pairs_bytes,
+        pairs_bytes as f64 / n_aligned as f64,
     );
 
     // -------------- generate a realistic workload from the data -------------
@@ -666,12 +672,15 @@ fn clickbench_url_skip_realistic_workload() {
         empty_total: usize,
         kept_a: usize,
         kept_b: usize,
+        kept_d: usize,
         kept_ab: usize,
         pruned_a_of_empty: usize,
         pruned_b_of_empty: usize,
+        pruned_d_of_empty: usize,
         pruned_ab_of_empty: usize,
         keep_a_per_q: Vec<f64>,
         keep_b_per_q: Vec<f64>,
+        keep_d_per_q: Vec<f64>,
         keep_ab_per_q: Vec<f64>,
     }
     let mut stats_total = Stats::default();
@@ -684,6 +693,7 @@ fn clickbench_url_skip_realistic_workload() {
         let mut real = 0usize;
         let mut keep_a = 0usize;
         let mut keep_b = 0usize;
+        let mut keep_d = 0usize;
         let mut keep_ab = 0usize;
 
         let bytes: &[u8] = match q {
@@ -703,18 +713,31 @@ fn clickbench_url_skip_realistic_workload() {
                 Pred::Contains(s) => presence[c].might_contain(&dv, s.as_bytes()),
             };
             let pb = trigram[c].might_contain(bytes);
+            // D=TokenPairBloom — OnPair-structural: paired with presence,
+            // catches contains-via-adjacent-token-pair cases by enumerating
+            // dict-pair candidates per needle and probing the pair Bloom.
+            let pd = match q {
+                Pred::Eq(s) => pairs[c].might_eq(&dv, &index, &presence[c], s.as_bytes()),
+                Pred::StartsWith(_) => pa, // pair Bloom doesn't add over A for prefix in this impl
+                Pred::Contains(s) => {
+                    pairs[c].might_contain(&dv, &index, &presence[c], s.as_bytes())
+                }
+            };
             let pab = pa && pb;
             // Soundness.
             assert!(!actual || pa, "A false negative on chunk {c} for {q:?}");
             assert!(!actual || pb, "B false negative on chunk {c} for {q:?}");
+            assert!(!actual || pd, "D false negative on chunk {c} for {q:?}");
             assert!(!actual || pab, "AB false negative on chunk {c} for {q:?}");
             keep_a += pa as usize;
             keep_b += pb as usize;
+            keep_d += pd as usize;
             keep_ab += pab as usize;
         }
         let empty = num_chunks - real;
-        let pruned_a = (num_chunks - keep_a).saturating_sub(0);
+        let pruned_a = num_chunks - keep_a;
         let pruned_b = num_chunks - keep_b;
+        let pruned_d = num_chunks - keep_d;
         let pruned_ab = num_chunks - keep_ab;
         // "Of empty" = pruned ∩ empty. Pruned chunks are always a subset of
         // empty (soundness), so pruned ≤ empty always.
@@ -725,12 +748,15 @@ fn clickbench_url_skip_realistic_workload() {
             s.empty_total += empty;
             s.kept_a += keep_a;
             s.kept_b += keep_b;
+            s.kept_d += keep_d;
             s.kept_ab += keep_ab;
             s.pruned_a_of_empty += pruned_a;
             s.pruned_b_of_empty += pruned_b;
+            s.pruned_d_of_empty += pruned_d;
             s.pruned_ab_of_empty += pruned_ab;
             s.keep_a_per_q.push(keep_a as f64 / num_chunks as f64);
             s.keep_b_per_q.push(keep_b as f64 / num_chunks as f64);
+            s.keep_d_per_q.push(keep_d as f64 / num_chunks as f64);
             s.keep_ab_per_q.push(keep_ab as f64 / num_chunks as f64);
         };
         into(&mut stats_total);
@@ -762,10 +788,11 @@ fn clickbench_url_skip_realistic_workload() {
             pct(s.real_total, s.n_chunks), s.empty_total,
         );
         println!(
-            "{:>20}  A: Pr[keep]={:>5.2}%  recall={:>5.2}%   B: Pr[keep]={:>5.2}%  recall={:>5.2}%   AB: Pr[keep]={:>5.2}%  recall={:>5.2}%",
+            "{:>20}  A: Pr[keep]={:>5.2}%  recall={:>5.2}%   B: Pr[keep]={:>5.2}%  recall={:>5.2}%   D: Pr[keep]={:>5.2}%  recall={:>5.2}%   AB: Pr[keep]={:>5.2}%  recall={:>5.2}%",
             "",
             pct(s.kept_a, s.n_chunks), pct(s.pruned_a_of_empty, s.empty_total),
             pct(s.kept_b, s.n_chunks), pct(s.pruned_b_of_empty, s.empty_total),
+            pct(s.kept_d, s.n_chunks), pct(s.pruned_d_of_empty, s.empty_total),
             pct(s.kept_ab, s.n_chunks), pct(s.pruned_ab_of_empty, s.empty_total),
         );
         let mut a = s.keep_a_per_q.clone();
