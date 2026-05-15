@@ -27,6 +27,7 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 
 use crate::v2::aligned::AlignedArrayStream;
@@ -154,7 +155,8 @@ impl LayoutPlan for FilterPlan {
 
         let session = ctx.session().clone();
         let dtype = self.output_dtype.clone();
-        let aligned = AlignedArrayStream::new(vec![values_stream, mask_stream]);
+        let aligned =
+            AlignedArrayStream::new(vec![values_stream, mask_stream], ctx.session().handle());
         let mapped = aligned.map(move |result| {
             let mut arrays = result?.into_iter();
             let values = arrays

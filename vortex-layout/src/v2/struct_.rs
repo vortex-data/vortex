@@ -22,6 +22,7 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_io::session::RuntimeSessionExt;
 
 use crate::v2::aligned::AlignedArrayStream;
 use crate::v2::plan::LayoutPlan;
@@ -200,7 +201,7 @@ impl LayoutPlan for StructPlan {
         let names: FieldNames = FieldNames::from(self.field_names.as_slice());
         let dtype = self.output_dtype.clone();
 
-        let aligned = AlignedArrayStream::new(child_streams);
+        let aligned = AlignedArrayStream::new(child_streams, ctx.session().handle());
         let zipped = aligned.map(move |result| {
             let arrays = result?;
             let len = arrays.first().map_or(0, |a| a.len());

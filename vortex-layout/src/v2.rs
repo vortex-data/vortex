@@ -22,6 +22,7 @@ pub mod filter;
 pub mod filtered_flat;
 pub mod flat;
 pub mod let_use;
+pub mod mask_collect;
 pub mod mask_slice;
 pub mod matcher;
 pub mod plan;

@@ -23,6 +23,7 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 
 use crate::v2::aligned::AlignedArrayStream;
@@ -140,7 +141,7 @@ impl LayoutPlan for AndBoolStreamsPlan {
 
         let dtype = self.output_dtype.clone();
         let session = ctx.session().clone();
-        let aligned = AlignedArrayStream::new(child_streams);
+        let aligned = AlignedArrayStream::new(child_streams, ctx.session().handle());
         let mapped = aligned.map(move |result| {
             let arrays = result?;
             // Convert each bool-array chunk to a `Mask`, AND them
