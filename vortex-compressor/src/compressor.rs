@@ -4,6 +4,7 @@
 //! Cascading array compression implementation.
 
 use vortex_array::ArrayRef;
+use vortex_array::ArraySlots;
 use vortex_array::Canonical;
 use vortex_array::CanonicalValidity;
 use vortex_array::ExecutionCtx;
@@ -252,11 +253,13 @@ impl CascadingCompressor {
                 )
             }
             Canonical::Variant(variant_array) => {
-                let core_storage = self.compress(variant_array.core_storage(), exec_ctx)?;
+                let core_storage =
+                    self.compress_physical_slots(variant_array.core_storage(), exec_ctx)?;
                 let shredded = variant_array
                     .shredded()
-                    .map(|arr| self.compress(arr, exec_ctx))
+                    .map(|arr| self.compress_physical_slots(arr, exec_ctx))
                     .transpose()?;
+
                 Ok(VariantArray::try_new(core_storage, shredded)?.into_array())
             }
         }
@@ -562,6 +565,24 @@ impl CascadingCompressor {
             list_view.validity()?,
         )?
         .into_array())
+    }
+
+    fn compress_physical_slots(
+        &self,
+        array: &ArrayRef,
+        exec_ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
+        let slots = array
+            .slots()
+            .iter()
+            .map(|slot| {
+                slot.as_ref()
+                    .map(|child| self.compress(child, exec_ctx))
+                    .transpose()
+            })
+            .collect::<VortexResult<ArraySlots>>()?;
+
+        array.clone().with_slots(slots)
     }
 }
 
