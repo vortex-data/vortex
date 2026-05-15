@@ -1781,7 +1781,7 @@ async fn test_file_metadata_empty_key_rejected() -> VortexResult<()> {
     let err = metadata_write_error([(String::new(), ByteBuffer::empty())]).await?;
 
     assert!(err.contains("non-empty"));
-    assert!(err.contains("at most 32 characters"));
+    assert!(err.contains("at most 32 bytes"));
     assert!(err.contains("at most 16 metadata segments"));
 
     Ok(())
@@ -1790,13 +1790,13 @@ async fn test_file_metadata_empty_key_rejected() -> VortexResult<()> {
 #[tokio::test]
 async fn test_file_metadata_long_key_rejected() -> VortexResult<()> {
     let err = metadata_write_error([(
-        "a".repeat(crate::footer::MAX_METADATA_KEY_CHARS + 1),
+        "é".repeat((crate::footer::MAX_METADATA_KEY_BYTES / "é".len()) + 1),
         ByteBuffer::empty(),
     )])
     .await?;
 
-    assert!(err.contains("33 characters"));
-    assert!(err.contains("at most 32 characters"));
+    assert!(err.contains("34 bytes"));
+    assert!(err.contains("at most 32 bytes"));
     assert!(err.contains("at most 16 metadata segments"));
 
     Ok(())
@@ -1813,7 +1813,7 @@ async fn test_file_metadata_too_many_segments_rejected() -> VortexResult<()> {
 
     assert!(err.contains("got 17 metadata segments"));
     assert!(err.contains("at most 16 metadata segments"));
-    assert!(err.contains("at most 32 characters"));
+    assert!(err.contains("at most 32 bytes"));
 
     Ok(())
 }

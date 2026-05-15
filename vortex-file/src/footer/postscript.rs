@@ -14,7 +14,7 @@ use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::footer as fb;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use super::MAX_METADATA_KEY_CHARS;
+use super::MAX_METADATA_KEY_BYTES;
 use super::MAX_METADATA_SEGMENTS;
 
 /// The postscript captures the locations and compression for the initial segments required for
@@ -115,10 +115,10 @@ impl ReadFlatBuffer for Postscript {
 fn validate_metadata_entries(metadata: &[PostscriptMetadata]) -> VortexResult<()> {
     if metadata.len() > MAX_METADATA_SEGMENTS {
         return Err(vortex_err!(
-            "Postscript contains {} metadata segments, but Vortex supports at most {} metadata segments and at most {} characters per metadata key",
+            "Postscript contains {} metadata segments, but Vortex supports at most {} metadata segments and at most {} bytes per metadata key",
             metadata.len(),
             MAX_METADATA_SEGMENTS,
-            MAX_METADATA_KEY_CHARS
+            MAX_METADATA_KEY_BYTES
         ));
     }
 
@@ -139,18 +139,18 @@ fn validate_metadata_entries(metadata: &[PostscriptMetadata]) -> VortexResult<()
 fn validate_metadata_key(key: &str) -> VortexResult<()> {
     if key.is_empty() {
         return Err(vortex_err!(
-            "Postscript metadata key must not be empty; Vortex supports at most {} metadata segments and metadata keys must be at most {} characters",
+            "Postscript metadata key must not be empty; Vortex supports at most {} metadata segments and metadata keys must be at most {} bytes",
             MAX_METADATA_SEGMENTS,
-            MAX_METADATA_KEY_CHARS
+            MAX_METADATA_KEY_BYTES
         ));
     }
 
-    let key_chars = key.chars().count();
-    if key_chars > MAX_METADATA_KEY_CHARS {
+    let key_bytes = key.len();
+    if key_bytes > MAX_METADATA_KEY_BYTES {
         return Err(vortex_err!(
-            "Postscript metadata key {key:?} is {key_chars} characters, but Vortex supports at most {} metadata segments and metadata keys must be at most {} characters",
+            "Postscript metadata key {key:?} is {key_bytes} bytes, but Vortex supports at most {} metadata segments and metadata keys must be at most {} bytes",
             MAX_METADATA_SEGMENTS,
-            MAX_METADATA_KEY_CHARS
+            MAX_METADATA_KEY_BYTES
         ));
     }
 
@@ -311,12 +311,13 @@ mod tests {
             statistics: None,
             footer: segment(1),
             metadata: vec![PostscriptMetadata {
-                key: "a".repeat(MAX_METADATA_KEY_CHARS + 1),
+                key: "é".repeat((MAX_METADATA_KEY_BYTES / "é".len()) + 1),
                 segment: segment(2),
             }],
         });
 
-        assert!(err.contains("at most 32 characters"));
+        assert!(err.contains("34 bytes"));
+        assert!(err.contains("at most 32 bytes"));
         assert!(err.contains("at most 16 metadata segments"));
     }
 
@@ -336,6 +337,6 @@ mod tests {
         });
 
         assert!(err.contains("at most 16 metadata segments"));
-        assert!(err.contains("at most 32 characters"));
+        assert!(err.contains("at most 32 bytes"));
     }
 }

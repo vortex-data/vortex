@@ -48,11 +48,11 @@ use vortex_utils::aliases::hash_map::HashMap;
 /// budget available for the required file segments.
 pub(crate) const MAX_METADATA_SEGMENTS: usize = 16;
 
-/// Maximum length, in Unicode scalar values, of a user-defined metadata key.
+/// Maximum length, in UTF-8 bytes, of a user-defined metadata key.
 ///
 /// Metadata keys are stored directly in the fixed-size postscript. Keeping keys short prevents
 /// user-defined labels from consuming a disproportionate share of the postscript budget.
-pub(crate) const MAX_METADATA_KEY_CHARS: usize = 32;
+pub(crate) const MAX_METADATA_KEY_BYTES: usize = 32;
 
 /// Captures the layout information of a Vortex file.
 #[derive(Debug, Clone)]

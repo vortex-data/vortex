@@ -54,7 +54,7 @@ use crate::MAGIC_BYTES;
 use crate::WriteStrategyBuilder;
 use crate::counting::CountingVortexWrite;
 use crate::footer::FileStatistics;
-use crate::footer::MAX_METADATA_KEY_CHARS;
+use crate::footer::MAX_METADATA_KEY_BYTES;
 use crate::footer::MAX_METADATA_SEGMENTS;
 use crate::segments::writer::BufferedSegmentSink;
 
@@ -125,10 +125,10 @@ impl VortexWriteOptions {
     ///
     /// If the key already exists, the previous segment for that key is replaced.
     ///
-    /// Metadata limits are validated when writing: keys must be non-empty and at most
-    /// 32 characters, and a file may contain at most 16 user-defined metadata segments. These
-    /// limits keep metadata bookkeeping small because keys and segment locations are stored in the
-    /// fixed-size postscript.
+    /// Metadata limits are validated when writing: keys must be non-empty and at most 32 UTF-8
+    /// bytes, and a file may contain at most 16 user-defined metadata segments. These limits keep
+    /// metadata bookkeeping small because keys and segment locations are stored in the fixed-size
+    /// postscript.
     pub fn with_metadata_segment(
         mut self,
         key: impl Into<String>,
@@ -321,9 +321,9 @@ impl VortexWriteOptions {
 fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexResult<()> {
     if metadata.len() > MAX_METADATA_SEGMENTS {
         vortex_bail!(
-            "Vortex files may contain at most {} metadata segments with keys at most {} characters; got {} metadata segments",
+            "Vortex files may contain at most {} metadata segments with keys at most {} bytes; got {} metadata segments",
             MAX_METADATA_SEGMENTS,
-            MAX_METADATA_KEY_CHARS,
+            MAX_METADATA_KEY_BYTES,
             metadata.len()
         );
     }
@@ -331,17 +331,17 @@ fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexR
     for key in metadata.keys() {
         if key.is_empty() {
             vortex_bail!(
-                "Vortex metadata keys must be non-empty and at most {} characters, and files may contain at most {} metadata segments",
-                MAX_METADATA_KEY_CHARS,
+                "Vortex metadata keys must be non-empty and at most {} bytes, and files may contain at most {} metadata segments",
+                MAX_METADATA_KEY_BYTES,
                 MAX_METADATA_SEGMENTS
             );
         }
 
-        let key_chars = key.chars().count();
-        if key_chars > MAX_METADATA_KEY_CHARS {
+        let key_bytes = key.len();
+        if key_bytes > MAX_METADATA_KEY_BYTES {
             vortex_bail!(
-                "Vortex metadata key {key:?} is {key_chars} characters, but keys must be at most {} characters and files may contain at most {} metadata segments",
-                MAX_METADATA_KEY_CHARS,
+                "Vortex metadata key {key:?} is {key_bytes} bytes, but keys must be at most {} bytes and files may contain at most {} metadata segments",
+                MAX_METADATA_KEY_BYTES,
                 MAX_METADATA_SEGMENTS
             );
         }
