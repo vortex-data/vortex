@@ -197,11 +197,49 @@ jobs:
       - uses: ./.github/actions/setup-prebuild
       - run: cargo minimal-versions check --direct --workspace --ignore-private
 
-  rust-lint:
-    name: "Rust (lint)"
-    timeout-minutes: 30
+  rust-fmt:
+    name: "Rust (fmt)"
+    timeout-minutes: 10
     outputs:
       fmt-failed: ${{ steps.fmt.outcome == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+      - name: Install nightly for fmt
+        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
+      - name: Rust Lint - Format
+        id: fmt
+        continue-on-error: true
+        run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
+      - name: Fail if fmt failed
+        if: steps.fmt.outcome == 'failure'
+        run: exit 1
+
+  dispatch-fmt-fix:
+    name: "Dispatch fmt-fix"
+    needs: rust-fmt
+    if: always() && needs.rust-fmt.outputs.fmt-failed == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              ...context.repo,
+              workflow_id: 'fmt-fix.yml',
+              ref: context.payload.pull_request.head.ref,
+              inputs: {
+                'pr-head-sha': context.payload.pull_request.head.sha,
+                'pr-head-ref': context.payload.pull_request.head.ref,
+              },
+            });
+
+  rust-lint:
+    name: "Rust (lint)"
+    needs: rust-fmt
+    if: always()
+    timeout-minutes: 30
     runs-on: >-
       ${{ github.repository == 'vortex-data/vortex'
           && format('runs-on={0}/runner=amd64-large/image=ubuntu24-full-x64-pre-v2/tag=rust-lint', github.run_id)
@@ -213,12 +251,6 @@ jobs:
           sccache: s3
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
       - uses: ./.github/actions/setup-prebuild
-      - name: Install nightly for fmt
-        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
-      - name: Rust Lint - Format
-        id: fmt
-        continue-on-error: true
-        run: cargo +$NIGHTLY_TOOLCHAIN fmt --all --check
       - name: Rustc check
         id: check
         continue-on-error: true
@@ -241,7 +273,7 @@ jobs:
         with:
           script: |
             const failed = Object.entries({
-              fmt: '${{ steps.fmt.outcome }}',
+              fmt: '${{ needs.rust-fmt.outputs.fmt-failed == 'true' && 'failure' || 'success' }}',
               check: '${{ steps.check.outcome }}',
               'check-release': '${{ steps.check-release.outcome }}',
               'clippy-all': '${{ steps.clippy-all.outcome }}',
@@ -262,25 +294,6 @@ jobs:
             }
             core.setFailed(`Lint failed: ${failed.join(', ')}`);
 
-  dispatch-fmt-fix:
-    name: "Dispatch fmt-fix"
-    needs: rust-lint
-    if: always() && needs.rust-lint.outputs.fmt-failed == 'true' && github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9
-        with:
-          script: |
-            await github.rest.actions.createWorkflowDispatch({
-              ...context.repo,
-              workflow_id: 'fmt-fix.yml',
-              ref: context.payload.pull_request.head.ref,
-              inputs: {
-                'pr-head-sha': context.payload.pull_request.head.sha,
-                'pr-head-ref': context.payload.pull_request.head.ref,
-              },
-            });
 
   cpp-lint:
     name: "C/C++ (lint)"
