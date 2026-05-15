@@ -10,7 +10,7 @@ pub vortex_onpair::decode::DecodeView::codes_offsets: &'a [u32]
 
 pub vortex_onpair::decode::DecodeView::dict_bytes: &'a [u8]
 
-pub vortex_onpair::decode::DecodeView::dict_offsets: &'a [u32]
+pub vortex_onpair::decode::DecodeView::dict_table: &'a [u64]
 
 impl<'a> vortex_onpair::decode::DecodeView<'a>
 
@@ -23,6 +23,8 @@ pub unsafe fn vortex_onpair::decode::DecodeView<'a>::decode_rows_into_with_size(
 pub unsafe fn vortex_onpair::decode::DecodeView<'a>::decode_rows_unchecked(&self, usize, usize, *mut u8) -> usize
 
 pub fn vortex_onpair::decode::DecodeView<'a>::decoded_len(&self, usize) -> usize
+
+pub fn vortex_onpair::decode::DecodeView<'a>::decoded_len_rows(&self, usize, usize) -> usize
 
 pub fn vortex_onpair::decode::DecodeView<'a>::for_each_dict_slice<F: core::ops::function::FnMut(&'a [u8]) -> bool>(&self, usize, F) -> bool
 
@@ -40,7 +42,7 @@ pub vortex_onpair::decode::OwnedDecodeInputs::codes_offsets: vortex_buffer::buff
 
 pub vortex_onpair::decode::OwnedDecodeInputs::dict_bytes: vortex_buffer::ByteBuffer
 
-pub vortex_onpair::decode::OwnedDecodeInputs::dict_offsets: vortex_buffer::buffer::Buffer<u32>
+pub vortex_onpair::decode::OwnedDecodeInputs::dict_table: vortex_buffer::buffer::Buffer<u64>
 
 impl vortex_onpair::decode::OwnedDecodeInputs
 

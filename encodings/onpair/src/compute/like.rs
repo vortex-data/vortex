@@ -1,29 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 //
-//! `LIKE` pushdown for OnPair. Three pattern shapes are accelerated;
-//! everything else returns `None` so the caller decompresses + runs the
-//! scalar `LIKE` on the canonical bytes.
-//!
-//! * `'literal'` — token-aware equality (LPM-tokenise the literal once
-//!   and compare the row's `codes[lo..hi]` against the tokenised needle
-//!   as `&[u16]`). No row decode.
-//! * `'prefix%'` — OnPair-style [`PrefixAutomaton`][crate::dfa::PrefixAutomaton]:
-//!   tokenise the prefix and precompute valid-divergence intervals for
-//!   each query position. Per-row scan is `≤ q + 1` `u16` comparisons
-//!   plus one interval check; no decode at all in the hot path.
-//! * `'%substring%'` — dict-bloom skip + `memchr::memmem` over the
-//!   decoded row only when needed.
-//!   [`ContainsBloom`][crate::dfa::ContainsBloom] precomputes "this
-//!   dict entry contains the substring" and "some suffix of this entry
-//!   could start a cross-token match". Most rows resolve via the bloom
-//!   without touching `dict_bytes`; the rest fall through to a
-//!   scratch-buffer decode + memmem.
+//! `LIKE` pushdown for OnPair. Only the two **decode-free** shapes
+//! `'literal'` (token equality) and `'prefix%'` (interval-checked
+//! token-aware automaton) are pushed. `'%contains%'` falls through to
+//! canonicalize + scalar `LIKE` — that path runs the bulk 4×-unrolled
+//! decoder and a single SIMD `memmem` over the whole buffer, which
+//! outperforms any per-row decode-then-search loop on long-string
+//! corpora (verified on FineWeb NVMe q3/q6/q7).
 //!
 //! Escapes (`\\`), single-character wildcards (`_`), mid-pattern
 //! wildcards, and `case_insensitive: true` all bail out with `None`.
 
-use memchr::memmem;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -36,9 +24,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
 use crate::OnPair;
-use crate::decode::DecodeView;
 use crate::decode::OwnedDecodeInputs;
-use crate::dfa::ContainsBloom;
 use crate::dfa::PrefixAutomaton;
 use crate::lpm::DictIndex;
 use crate::lpm::tokenize_needle;
@@ -47,9 +33,20 @@ use crate::lpm::tokenize_needle;
 enum PatternShape<'a> {
     Equals(&'a [u8]),
     StartsWith(&'a [u8]),
-    Contains(&'a [u8]),
 }
 
+/// Recognise the LIKE pattern shapes OnPair can resolve **without
+/// decoding the row**:
+///
+/// * `'literal'`  — exact equality. LPM-tokenise once, compare `&[u16]`.
+/// * `'prefix%'`  — `PrefixAutomaton` (interval check per row token).
+///
+/// `'%contains%'` deliberately returns `None`: bench on FineWeb NVMe
+/// (q3/q6/q7) showed the per-row "decode + memmem" pushdown is ~2×
+/// slower than canonicalize + scalar `LIKE`, because canonical decode
+/// hits the 4×-unrolled bulk decode loop and the scalar `LIKE` runs a
+/// single SIMD `memmem` over the whole buffer. Falling through is the
+/// minimum-work option for contains.
 fn classify(pattern: &[u8]) -> Option<PatternShape<'_>> {
     if pattern.contains(&b'_') || pattern.contains(&b'\\') {
         return None;
@@ -58,14 +55,6 @@ fn classify(pattern: &[u8]) -> Option<PatternShape<'_>> {
     let last_pct = pattern.iter().rposition(|&b| b == b'%');
     match (first_pct, last_pct) {
         (None, None) => Some(PatternShape::Equals(pattern)),
-        (Some(0), Some(end)) if end == pattern.len() - 1 && pattern.len() >= 2 => {
-            let inner = &pattern[1..pattern.len() - 1];
-            if inner.contains(&b'%') {
-                None
-            } else {
-                Some(PatternShape::Contains(inner))
-            }
-        }
         (Some(p), Some(q)) if p == q && q == pattern.len() - 1 => {
             Some(PatternShape::StartsWith(&pattern[..pattern.len() - 1]))
         }
@@ -141,13 +130,6 @@ impl LikeKernel for OnPair {
                 }
                 // Else: prefix has a byte not in the dict ⇒ no row matches.
             }
-            PatternShape::Contains(sub) => {
-                if sub.is_empty() {
-                    fill_all(&mut bytes, n);
-                } else {
-                    contains_into_bitmap(&dv, sub, n, &mut bytes);
-                }
-            }
         }
 
         let mut bool_buf = BitBuffer::new(ByteBuffer::from(bytes), n);
@@ -159,32 +141,6 @@ impl LikeKernel for OnPair {
             .validity()?
             .union_nullability(scalar.dtype().nullability());
         Ok(Some(BoolArray::new(bool_buf, validity).into_array()))
-    }
-}
-
-/// `%substring%` pushdown: dict-bloom skip + per-row decode + memmem.
-fn contains_into_bitmap(dv: &DecodeView<'_>, sub: &[u8], n: usize, out: &mut [u8]) {
-    let bloom = ContainsBloom::build(dv, sub);
-    let finder = memmem::Finder::new(sub);
-    let mut scratch: Vec<u8> = Vec::with_capacity(64);
-    let codes = dv.codes;
-    let codes_offsets = dv.codes_offsets;
-    for r in 0..n {
-        let lo = codes_offsets[r] as usize;
-        let hi = codes_offsets[r + 1] as usize;
-        // SAFETY: codes_offsets validated at construction.
-        let row_toks = unsafe { codes.get_unchecked(lo..hi) };
-        let hit = match bloom.classify(row_toks) {
-            Some(b) => b,
-            None => {
-                scratch.clear();
-                dv.decode_row_into(r, &mut scratch);
-                finder.find(&scratch).is_some()
-            }
-        };
-        if hit {
-            out[r / 8] |= 1u8 << (r % 8);
-        }
     }
 }
 

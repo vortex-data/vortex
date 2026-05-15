@@ -29,6 +29,19 @@ use crate::OnPair;
 use crate::OnPairArrayExt;
 
 impl FilterKernel for OnPair {
+    // `match_each_integer_ptype!` expands to a `match` over every supported
+    // integer ptype (u8/u16/u32/u64/i8…), so every numeric cast in the body
+    // is `cast_possible_truncation` / `cast_sign_loss` from clippy's point
+    // of view. The OnPair invariants (validated at construction) keep the
+    // values in range: codes_offsets ≥ 0 and fits in u32, code segments fit
+    // in u32. The nested macro expansion also pushes the cyclomatic
+    // complexity past clippy's default cognitive-complexity threshold.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_lossless,
+        clippy::cognitive_complexity
+    )]
     fn filter(
         array: ArrayView<'_, Self>,
         mask: &Mask,

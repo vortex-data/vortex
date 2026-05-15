@@ -322,6 +322,12 @@ fn test_onpair_filter_shares_dict() {
 /// Rebuild an OnPair array, swapping `codes_offsets` for a narrowed
 /// (smaller-ptype) primitive copy. Used by the narrowed-child
 /// regression tests below.
+///
+/// The nested `match_each_integer_ptype!` over two ptypes (source +
+/// target) crosses clippy's default cognitive-complexity threshold,
+/// but is the standard pattern for ptype-generic conversion; allow it
+/// at the function level.
+#[allow(clippy::cognitive_complexity, clippy::unnecessary_cast)]
 fn narrow_codes_offsets(
     arr: &crate::OnPairArray,
     target: PType,
@@ -339,6 +345,9 @@ fn narrow_codes_offsets(
         match_each_integer_ptype!(target, |DST| {
             let mut buf = BufferMut::<DST>::with_capacity(src.len());
             for &v in src {
+                // `v` is one of u8/u16/u32/u64/i8…; widen to u64 first so
+                // the same expression compiles for every SRC ptype. The
+                // `as u64` is a no-op when SRC is already u64.
                 buf.push(DST::try_from(v as u64).expect("value must fit in target ptype"));
             }
             PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array()

@@ -150,7 +150,13 @@ impl PrefixAutomaton {
         for &tok in &query {
             let remaining = &prefix[byte_pos..];
             let range = prefix_range(dv, remaining);
-            intervals.push(range.start as u32..range.end as u32);
+            // Dict size is capped at 2^16 by OnPair training; `range.start`
+            // and `range.end` are dict ids that comfortably fit in u32.
+            let start = u32::try_from(range.start)
+                .unwrap_or_else(|_| vortex_error::vortex_panic!("dict id > u32::MAX"));
+            let end = u32::try_from(range.end)
+                .unwrap_or_else(|_| vortex_error::vortex_panic!("dict id > u32::MAX"));
+            intervals.push(start..end);
             // Advance by the token's true length.
             let entry = dv.dict_table[tok as usize];
             byte_pos += (entry & 0xffff) as usize;
@@ -163,92 +169,30 @@ impl PrefixAutomaton {
     /// literal prefix.
     #[inline]
     pub(crate) fn matches(&self, codes: &[u16]) -> bool {
-        let q = self.query.len();
-        if q == 0 {
+        let q_len = self.query.len();
+        if q_len == 0 {
             return true;
         }
-        let mut i = 0usize;
-        // SAFETY: indexing bounded by `i < q`.
+        let mut pos = 0usize;
+        // SAFETY: indexing bounded by `pos < q_len`.
         unsafe {
-            for &c in codes {
-                let want = *self.query.get_unchecked(i);
-                if c == want {
-                    i += 1;
-                    if i == q {
+            for &code in codes {
+                let want = *self.query.get_unchecked(pos);
+                if code == want {
+                    pos += 1;
+                    if pos == q_len {
                         return true;
                     }
                 } else {
-                    let r = self.intervals.get_unchecked(i);
-                    let cu = c as u32;
-                    return cu >= r.start && cu < r.end;
+                    let range = self.intervals.get_unchecked(pos);
+                    let code_u32 = u32::from(code);
+                    return code_u32 >= range.start && code_u32 < range.end;
                 }
             }
         }
         // Ran out of row tokens before finishing the query → mismatch
         // unless we'd already returned `true` above.
         false
-    }
-}
-
-// ─── Contains: dict-bloom + memmem ──────────────────────────────────
-
-pub(crate) struct ContainsBloom {
-    /// `dict_contains[c]` — dict entry `c` contains `needle` as a
-    /// substring.
-    dict_contains: Vec<bool>,
-    /// `dict_could_extend[c]` — some non-empty suffix of `c`'s bytes
-    /// is a non-empty prefix of `needle`.
-    dict_could_extend: Vec<bool>,
-}
-
-impl ContainsBloom {
-    pub(crate) fn build(dv: &DecodeView<'_>, needle: &[u8]) -> Self {
-        let n = dv.dict_table.len();
-        let mut dict_contains = vec![false; n];
-        let mut dict_could_extend = vec![false; n];
-        for id in 0..n {
-            let bytes = dict_token_bytes(dv, id);
-            if bytes.len() >= needle.len() && memchr::memmem::find(bytes, needle).is_some() {
-                dict_contains[id] = true;
-                continue;
-            }
-            // Suffix-of-token is a prefix-of-needle: walk possible
-            // suffix lengths up to min(len, needle.len()-1).
-            let max_overlap = bytes.len().min(needle.len() - 1);
-            for k in 1..=max_overlap {
-                if bytes[bytes.len() - k..] == needle[..k] {
-                    dict_could_extend[id] = true;
-                    break;
-                }
-            }
-        }
-        Self {
-            dict_contains,
-            dict_could_extend,
-        }
-    }
-
-    /// Quick row-level pre-filter:
-    /// * `Some(true)`  — at least one code is in `dict_contains` ⇒
-    ///                   row matches without decoding.
-    /// * `Some(false)` — no codes are in `dict_could_extend` either ⇒
-    ///                   row cannot match, no decode needed.
-    /// * `None`        — uncertain; caller must decode + memmem.
-    #[inline]
-    pub(crate) fn classify(&self, codes: &[u16]) -> Option<bool> {
-        let mut any_extend = false;
-        // SAFETY: codes are validated `< dict_table.len()` at array
-        // construction, and the bloom vectors have that length.
-        unsafe {
-            for &c in codes {
-                if *self.dict_contains.get_unchecked(c as usize) {
-                    return Some(true);
-                }
-                any_extend |=
-                    *self.dict_could_extend.get_unchecked(c as usize);
-            }
-        }
-        if any_extend { None } else { Some(false) }
     }
 }
 
@@ -276,7 +220,7 @@ mod tests {
         OwnedDecodeInputs::collect(arr.as_view(), &mut ctx).unwrap()
     }
 
-    fn row_codes<'a>(inputs: &'a OwnedDecodeInputs, r: usize) -> &'a [u16] {
+    fn row_codes(inputs: &OwnedDecodeInputs, r: usize) -> &[u16] {
         let lo = inputs.codes_offsets[r] as usize;
         let hi = inputs.codes_offsets[r + 1] as usize;
         &inputs.codes[lo..hi]
@@ -324,54 +268,4 @@ mod tests {
         }
     }
 
-    #[test]
-    fn contains_bloom_classifies_correctly() {
-        let strings: &[&str] = &[
-            "https://example.com/items/0001",
-            "https://example.com/users/abc",
-            "ftp://other.example.com/x",
-            "no overlap",
-            "googlegoogle",
-            "preg",
-        ];
-        let inputs = build_inputs(strings);
-        let dv = inputs.view();
-
-        for &needle in &[
-            &b"example"[..],
-            b"google",
-            b"reg",
-            b"://",
-            b"missing",
-            b"e",
-        ] {
-            let bloom = ContainsBloom::build(&dv, needle);
-            for (r, s) in strings.iter().enumerate() {
-                let want = memchr::memmem::find(s.as_bytes(), needle).is_some();
-                let codes = row_codes(&inputs, r);
-                let mut row_bytes = Vec::new();
-                dv.decode_row_into(r, &mut row_bytes);
-                match bloom.classify(codes) {
-                    Some(true) => {
-                        assert!(want, "false +ve: needle={:?} row={s:?}", std::str::from_utf8(needle));
-                    }
-                    Some(false) => {
-                        assert!(
-                            !want,
-                            "false -ve: needle={:?} row={s:?}",
-                            std::str::from_utf8(needle)
-                        );
-                    }
-                    None => {
-                        // Unknown — that's fine; just check the decoded
-                        // memmem agrees with `want`.
-                        assert_eq!(
-                            memchr::memmem::find(&row_bytes, needle).is_some(),
-                            want
-                        );
-                    }
-                }
-            }
-        }
-    }
 }
