@@ -1552,33 +1552,95 @@ pub fn vortex_layout::v2::cse::cse(vortex_layout::v2::plan::LayoutPlanRef) -> vo
 
 pub mod vortex_layout::v2::demand
 
+pub enum vortex_layout::v2::demand::WaitPredicate
+
+pub vortex_layout::v2::demand::WaitPredicate::Below(u64)
+
+pub vortex_layout::v2::demand::WaitPredicate::Zero
+
+impl core::clone::Clone for vortex_layout::v2::demand::WaitPredicate
+
+pub fn vortex_layout::v2::demand::WaitPredicate::clone(&self) -> vortex_layout::v2::demand::WaitPredicate
+
+impl core::fmt::Debug for vortex_layout::v2::demand::WaitPredicate
+
+pub fn vortex_layout::v2::demand::WaitPredicate::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_layout::v2::demand::WaitPredicate
+
+pub enum vortex_layout::v2::demand::WaitResult
+
+pub vortex_layout::v2::demand::WaitResult::AllProducersDone
+
+pub vortex_layout::v2::demand::WaitResult::PredicateFired
+
+impl core::clone::Clone for vortex_layout::v2::demand::WaitResult
+
+pub fn vortex_layout::v2::demand::WaitResult::clone(&self) -> vortex_layout::v2::demand::WaitResult
+
+impl core::cmp::Eq for vortex_layout::v2::demand::WaitResult
+
+impl core::cmp::PartialEq for vortex_layout::v2::demand::WaitResult
+
+pub fn vortex_layout::v2::demand::WaitResult::eq(&self, &vortex_layout::v2::demand::WaitResult) -> bool
+
+impl core::fmt::Debug for vortex_layout::v2::demand::WaitResult
+
+pub fn vortex_layout::v2::demand::WaitResult::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_layout::v2::demand::WaitResult
+
+impl core::marker::StructuralPartialEq for vortex_layout::v2::demand::WaitResult
+
+pub struct vortex_layout::v2::demand::Consumer
+
+impl vortex_layout::v2::demand::Consumer
+
+pub fn vortex_layout::v2::demand::Consumer::cardinality(&self, vortex_layout::v2::demand::RowRange) -> u64
+
+pub fn vortex_layout::v2::demand::Consumer::cardinality_exact(&self, vortex_layout::v2::demand::RowRange) -> u64
+
+pub fn vortex_layout::v2::demand::Consumer::is_eof(&self) -> bool
+
+pub fn vortex_layout::v2::demand::Consumer::wait_for(&self, vortex_layout::v2::demand::RowRange, vortex_layout::v2::demand::WaitPredicate) -> vortex_layout::v2::demand::WaitFuture
+
+impl core::clone::Clone for vortex_layout::v2::demand::Consumer
+
+pub fn vortex_layout::v2::demand::Consumer::clone(&self) -> vortex_layout::v2::demand::Consumer
+
+pub struct vortex_layout::v2::demand::Producer
+
+impl vortex_layout::v2::demand::Producer
+
+pub fn vortex_layout::v2::demand::Producer::publish(&self, vortex_layout::v2::demand::RowRange, &vortex_mask::Mask)
+
+impl core::ops::drop::Drop for vortex_layout::v2::demand::Producer
+
+pub fn vortex_layout::v2::demand::Producer::drop(&mut self)
+
 pub struct vortex_layout::v2::demand::RowDemand
 
 impl vortex_layout::v2::demand::RowDemand
 
-pub fn vortex_layout::v2::demand::RowDemand::consumer(&alloc::sync::Arc<Self>) -> vortex_layout::v2::demand::RowDemandConsumer
+pub const vortex_layout::v2::demand::RowDemand::WINDOW_ROWS: u64
 
-pub fn vortex_layout::v2::demand::RowDemand::empty() -> Self
+pub fn vortex_layout::v2::demand::RowDemand::consumer(&alloc::sync::Arc<Self>) -> vortex_layout::v2::demand::Consumer
 
-pub fn vortex_layout::v2::demand::RowDemand::producer(&alloc::sync::Arc<Self>) -> vortex_layout::v2::demand::RowDemandProducer
+pub fn vortex_layout::v2::demand::RowDemand::empty() -> alloc::sync::Arc<Self>
 
-pub struct vortex_layout::v2::demand::RowDemandConsumer
+pub fn vortex_layout::v2::demand::RowDemand::new(u64) -> alloc::sync::Arc<Self>
 
-impl vortex_layout::v2::demand::RowDemandConsumer
+pub fn vortex_layout::v2::demand::RowDemand::producer(&alloc::sync::Arc<Self>) -> vortex_layout::v2::demand::Producer
 
-pub fn vortex_layout::v2::demand::RowDemandConsumer::cardinality(&self, vortex_layout::v2::demand::RowRange) -> u64
+pub fn vortex_layout::v2::demand::RowDemand::total_rows(&self) -> u64
 
-pub fn vortex_layout::v2::demand::RowDemandConsumer::is_empty(&self, vortex_layout::v2::demand::RowRange) -> bool
+pub struct vortex_layout::v2::demand::WaitFuture
 
-pub fn vortex_layout::v2::demand::RowDemandConsumer::snapshot(&self, vortex_layout::v2::demand::RowRange) -> (u64, alloc::sync::Arc<vortex_mask::Mask>)
+impl core::future::future::Future for vortex_layout::v2::demand::WaitFuture
 
-pub async fn vortex_layout::v2::demand::RowDemandConsumer::wait_for_newer(&self, vortex_layout::v2::demand::RowRange, u64)
+pub type vortex_layout::v2::demand::WaitFuture::Output = vortex_layout::v2::demand::WaitResult
 
-pub struct vortex_layout::v2::demand::RowDemandProducer
-
-impl vortex_layout::v2::demand::RowDemandProducer
-
-pub fn vortex_layout::v2::demand::RowDemandProducer::publish(&self, vortex_layout::v2::demand::RowRange, vortex_mask::Mask) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::v2::demand::WaitFuture::poll(core::pin::Pin<&mut Self>, &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<Self::Output>
 
 pub type vortex_layout::v2::demand::RowRange = core::ops::range::Range<u64>
 

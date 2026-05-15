@@ -281,7 +281,7 @@ impl PlanContext {
     /// that don't need to participate in demand publication.
     pub fn new(segment_source: Arc<dyn SegmentSource>, session: VortexSession) -> Self {
         Self {
-            demand: Arc::new(RowDemand::empty()),
+            demand: RowDemand::empty(),
             segment_source,
             session,
         }
@@ -293,7 +293,7 @@ impl PlanContext {
     /// pruning expression over a zone-map child).
     pub fn without_demand(&self) -> Self {
         Self {
-            demand: Arc::new(RowDemand::empty()),
+            demand: RowDemand::empty(),
             segment_source: Arc::clone(&self.segment_source),
             session: self.session.clone(),
         }

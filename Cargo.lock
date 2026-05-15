@@ -10913,6 +10913,7 @@ dependencies = [
  "rstest",
  "rustc-hash",
  "sketches-ddsketch 0.4.0",
+ "smallvec",
  "temp-env",
  "termtree",
  "tokio",

@@ -68,7 +68,7 @@ impl Scan {
             );
         }
 
-        let demand = Arc::new(RowDemand::empty());
+        let demand = RowDemand::empty();
         let ctx = PlanContext {
             demand,
             segment_source: Arc::clone(&self.segment_source),
