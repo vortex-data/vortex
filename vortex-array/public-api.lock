@@ -12778,9 +12778,13 @@ pub fn vortex_array::expr::Expression::children(&self) -> &alloc::sync::Arc<allo
 
 pub fn vortex_array::expr::Expression::display_tree(&self) -> impl core::fmt::Display
 
+pub fn vortex_array::expr::Expression::falsify(&self, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+
 pub fn vortex_array::expr::Expression::fmt_sql(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::expr::Expression::return_dtype(&self, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_array::expr::Expression::satisfy(&self, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 pub fn vortex_array::expr::Expression::scalar_fn(&self) -> &vortex_array::scalar_fn::ScalarFnRef
 
@@ -19774,6 +19778,24 @@ pub fn vortex_array::stats::expr::sum(vortex_array::expr::Expression) -> vortex_
 
 pub mod vortex_array::stats::flatbuffers
 
+pub mod vortex_array::stats::session
+
+pub struct vortex_array::stats::session::StatsRewriteSession
+
+impl core::default::Default for vortex_array::stats::StatsRewriteSession
+
+pub fn vortex_array::stats::StatsRewriteSession::default() -> vortex_array::stats::StatsRewriteSession
+
+impl core::fmt::Debug for vortex_array::stats::StatsRewriteSession
+
+pub fn vortex_array::stats::StatsRewriteSession::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_session::SessionVar for vortex_array::stats::StatsRewriteSession
+
+pub fn vortex_array::stats::StatsRewriteSession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::stats::StatsRewriteSession::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
 pub struct vortex_array::stats::ArrayStats
 
 impl vortex_array::stats::ArrayStats
@@ -19833,6 +19855,22 @@ pub fn vortex_array::stats::MutTypedStatsSetRef<'_, '_>::get(&self, vortex_array
 pub fn vortex_array::stats::MutTypedStatsSetRef<'_, '_>::is_empty(&self) -> bool
 
 pub fn vortex_array::stats::MutTypedStatsSetRef<'_, '_>::len(&self) -> usize
+
+pub struct vortex_array::stats::StatsRewriteSession
+
+impl core::default::Default for vortex_array::stats::StatsRewriteSession
+
+pub fn vortex_array::stats::StatsRewriteSession::default() -> vortex_array::stats::StatsRewriteSession
+
+impl core::fmt::Debug for vortex_array::stats::StatsRewriteSession
+
+pub fn vortex_array::stats::StatsRewriteSession::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_session::SessionVar for vortex_array::stats::StatsRewriteSession
+
+pub fn vortex_array::stats::StatsRewriteSession::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_array::stats::StatsRewriteSession::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub struct vortex_array::stats::StatsSet
 

@@ -16,6 +16,7 @@ use vortex_array::optimizer::kernels::ArrayKernels;
 pub use vortex_array::scalar_fn;
 use vortex_array::scalar_fn::session::ScalarFnSession;
 use vortex_array::session::ArraySession;
+use vortex_array::stats::session::StatsRewriteSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_session::VortexSession;
@@ -167,6 +168,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<ArraySession>()
             .with::<LayoutSession>()
             .with::<ScalarFnSession>()
+            .with::<StatsRewriteSession>()
             .with::<ArrayKernels>()
             .with::<AggregateFnSession>()
             .with::<RuntimeSession>();
