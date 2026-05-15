@@ -189,6 +189,7 @@ mod tests {
     use datafusion::logical_expr::LogicalPlan;
     use datafusion::logical_expr::LogicalPlanBuilder;
     use datafusion::logical_expr::Values;
+    use datafusion::logical_expr::dml::InsertOp;
     use datafusion_common::ScalarValue;
     use datafusion_datasource::file_format::format_as_file_type;
     use futures::TryStreamExt;
@@ -268,7 +269,7 @@ mod tests {
             LogicalPlan::Values(values.clone()),
             "my_tbl",
             Arc::new(DefaultTableSource::new(Arc::clone(&tbl_provider))),
-            datafusion::logical_expr::dml::InsertOp::Append,
+            InsertOp::Append,
         )?
         .build()?;
 

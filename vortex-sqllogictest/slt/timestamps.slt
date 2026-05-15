@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-include ./setup.slt
+include ./setup.slt.no
 
 # Write timestamp with timezone
 query I

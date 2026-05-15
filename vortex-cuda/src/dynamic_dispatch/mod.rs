@@ -14,6 +14,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
+#![allow(clippy::absolute_paths)]
 #![allow(clippy::cast_possible_truncation)]
 
 use std::borrow::Borrow;

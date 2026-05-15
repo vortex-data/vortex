@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use datafusion::arrow::array::Int32Array;
+use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
@@ -29,6 +30,7 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::object_store::ObjectStoreWrite;
+use vortex::io::runtime::Handle;
 use vortex::layout::LayoutStrategy;
 use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -80,7 +82,7 @@ async fn count_query_partitions(ctx: &SessionContext, sql: &str) -> anyhow::Resu
     Ok(partitions.parse()?)
 }
 
-fn batch_values(batches: &[datafusion::arrow::array::RecordBatch]) -> Vec<i32> {
+fn batch_values(batches: &[RecordBatch]) -> Vec<i32> {
     let mut values = Vec::with_capacity(batches.iter().map(|batch| batch.num_rows()).sum());
 
     for batch in batches {
@@ -383,7 +385,7 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -
     let reader = Arc::new(ObjectStoreReadAt::new(
         Arc::clone(&store),
         path.clone(),
-        vortex::io::runtime::Handle::find().expect("tokio runtime should be available in tests"),
+        Handle::find().expect("tokio runtime should be available in tests"),
     ));
     let vxf = session
         .open_options()

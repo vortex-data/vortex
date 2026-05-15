@@ -3,7 +3,7 @@
 
 # NULL handling tests - derived from vortex-datafusion and vortex-duckdb tests
 
-include ./setup.slt
+include ./setup.slt.no
 
 # Create test data with NULL values
 query I

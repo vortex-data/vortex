@@ -23,12 +23,10 @@ use vortex::expr::root;
 use vortex::expr::select;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
+use vortex::io::runtime::BlockingRuntime;
 use vortex::layout::scan::split_by::SplitBy;
-use vortex::session::VortexSession;
 
 use crate::RUNTIME;
-use crate::SESSION;
-use crate::TOKIO_RUNTIME;
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::arrow::ToPyArrow;
@@ -37,6 +35,7 @@ use crate::expr::PyExpr;
 use crate::install_module;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
+use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;
@@ -108,33 +107,50 @@ fn filter_from_python(row_filter: Option<&Bound<PyExpr>>) -> Option<Expression> 
 pub struct PyVortexDataset {
     vxf: VortexFile,
     schema: SchemaRef,
-    session: VortexSession,
 }
 
 impl PyVortexDataset {
-    pub fn try_new(vxf: VortexFile, session: VortexSession) -> VortexResult<Self> {
+    pub fn try_new(vxf: VortexFile) -> VortexResult<Self> {
         let schema = Arc::new(vxf.dtype().to_arrow_schema()?);
-        Ok(Self {
-            vxf,
-            schema,
-            session,
-        })
+        Ok(Self { vxf, schema })
     }
 
     pub async fn from_url(
         url: &str,
         store: Option<Arc<dyn object_store::ObjectStore>>,
     ) -> VortexResult<Self> {
+        let session = session();
         let vxf = match resolve_store(url, store)? {
             ResolvedStore::ObjectStore(store, path) => {
-                SESSION
+                session
                     .open_options()
                     .open_object_store(&store, path.as_ref())
                     .await?
             }
-            ResolvedStore::Path(path) => SESSION.open_options().open_path(path).await?,
+            ResolvedStore::Path(path) => session.open_options().open_path(path).await?,
         };
-        PyVortexDataset::try_new(vxf, SESSION.clone())
+        PyVortexDataset::try_new(vxf)
+    }
+
+    pub(crate) fn to_array_inner<'py>(
+        &self,
+        py: Python<'py>,
+        columns: Option<Vec<Bound<'py, PyAny>>>,
+        row_filter: Option<&Bound<'py, PyExpr>>,
+        indices: Option<PyArrayRef>,
+        row_range: Option<(u64, u64)>,
+    ) -> PyVortexResult<PyArrayRef> {
+        let vxf = self.vxf.clone();
+        let projection = projection_from_python(columns)?;
+        let filter = filter_from_python(row_filter);
+        let indices = indices.map(|i| i.into_inner());
+
+        let array = py.detach(move || {
+            let session = session();
+            let mut ctx = session.create_execution_ctx();
+            read_array_from_reader(&vxf, projection, filter, indices, row_range, &mut ctx)
+        })?;
+        Ok(PyArrayRef::from(array))
     }
 }
 
@@ -146,22 +162,13 @@ impl PyVortexDataset {
 
     #[pyo3(signature = (*, columns = None, row_filter = None, indices = None, row_range = None))]
     pub fn to_array<'py>(
-        &self,
+        self_: PyRef<'py, Self>,
         columns: Option<Vec<Bound<'py, PyAny>>>,
         row_filter: Option<&Bound<'py, PyExpr>>,
         indices: Option<PyArrayRef>,
         row_range: Option<(u64, u64)>,
     ) -> PyVortexResult<PyArrayRef> {
-        let mut ctx = self.session.create_execution_ctx();
-        let array = read_array_from_reader(
-            &self.vxf,
-            projection_from_python(columns)?,
-            filter_from_python(row_filter),
-            indices.map(|i| i.into_inner()),
-            row_range,
-            &mut ctx,
-        )?;
-        Ok(PyArrayRef::from(array))
+        self_.to_array_inner(self_.py(), columns, row_filter, indices, row_range)
     }
 
     #[pyo3(signature = (*, columns = None, row_filter = None, split_by = None, row_range = None))]
@@ -172,20 +179,25 @@ impl PyVortexDataset {
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
     ) -> PyVortexResult<Py<PyAny>> {
-        let mut scan = self_
-            .vxf
-            .scan()?
-            .with_projection(projection_from_python(columns)?)
-            .with_some_filter(filter_from_python(row_filter))
-            .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
-        if let Some((l, r)) = row_range {
-            scan = scan.with_row_range(l..r);
-        }
+        let vxf = self_.vxf.clone();
+        let projection = projection_from_python(columns)?;
+        let filter = filter_from_python(row_filter);
 
-        // TODO(ngates): should we use multi-threaded read or not?
-        let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
-        let reader: Box<dyn RecordBatchReader + Send> =
-            Box::new(scan.into_record_batch_reader(schema, &*RUNTIME)?);
+        let reader = self_.py().detach(move || {
+            let mut scan = vxf
+                .scan()?
+                .with_projection(projection)
+                .with_some_filter(filter)
+                .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
+            if let Some((l, r)) = row_range {
+                scan = scan.with_row_range(l..r);
+            }
+
+            let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
+            let reader: Box<dyn RecordBatchReader + Send> =
+                Box::new(scan.into_record_batch_reader(schema, &*RUNTIME)?);
+            VortexResult::Ok(reader)
+        })?;
 
         Ok(reader.into_pyarrow(self_.py())?)
     }
@@ -208,21 +220,22 @@ impl PyVortexDataset {
                 .map_err(|e| PyValueError::new_err(e).into());
         }
 
-        let mut scan = self_
-            .vxf
-            .scan()?
-            .with_projection(select(FieldNames::empty(), root()))
-            .with_some_filter(filter_from_python(row_filter))
-            .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
-        if let Some((l, r)) = row_range {
-            scan = scan.with_row_range(l..r);
-        }
+        let vxf = self_.vxf.clone();
+        let filter = filter_from_python(row_filter);
+        let n_rows: usize = self_.py().detach(move || {
+            let mut scan = vxf
+                .scan()?
+                .with_projection(select(FieldNames::empty(), root()))
+                .with_some_filter(filter)
+                .with_split_by(split_by.map(SplitBy::RowCount).unwrap_or(SplitBy::Layout));
+            if let Some((l, r)) = row_range {
+                scan = scan.with_row_range(l..r);
+            }
 
-        // TODO(ngates): should we use multi-threaded read or not?
-        let n_rows: usize = scan
-            .into_array_iter(&*RUNTIME)?
-            .map_ok(|array| array.len())
-            .process_results(|iter| iter.sum())?;
+            scan.into_array_iter(&*RUNTIME)?
+                .map_ok(|array| array.len())
+                .process_results(|iter| iter.sum())
+        })?;
 
         Ok(n_rows)
     }
@@ -253,5 +266,5 @@ pub fn dataset_from_url(
         None
     };
 
-    Ok(py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?)
+    Ok(py.detach(move || RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?)
 }

@@ -13,6 +13,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
+use crate::ArraySlots;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -655,14 +656,19 @@ impl Executable for CanonicalValidity {
                 ),
             ))),
             Canonical::Variant(variant) => {
-                Ok(CanonicalValidity(Canonical::Variant(VariantArray::new(
-                    variant
-                        .child()
-                        .clone()
-                        .execute::<CanonicalValidity>(ctx)?
-                        .0
-                        .into_array(),
-                ))))
+                let core_storage = recursively_canonicalize_slots(variant.core_storage(), ctx)?;
+                let shredded = variant
+                    .shredded()
+                    .map(|shredded| {
+                        shredded
+                            .clone()
+                            .execute::<CanonicalValidity>(ctx)
+                            .map(|canonical| canonical.0.into_array())
+                    })
+                    .transpose()?;
+                Ok(CanonicalValidity(Canonical::Variant(
+                    VariantArray::try_new(core_storage, shredded)?,
+                )))
             }
         }
     }
@@ -673,6 +679,29 @@ impl Executable for CanonicalValidity {
 /// This method is useful to guarantee that all operators are fully executed,
 /// callers should prefer an execution target that's suitable for their use case instead of this one.
 pub struct RecursiveCanonical(pub Canonical);
+
+// TODO: Currently only used for Variant, in the future
+// can probably be used for more canonical types like Struct.
+fn recursively_canonicalize_slots(
+    array: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    let slots = array
+        .slots()
+        .iter()
+        .map(|slot| {
+            slot.as_ref()
+                .map(|child| {
+                    child
+                        .clone()
+                        .execute::<RecursiveCanonical>(ctx)
+                        .map(|canonical| canonical.0.into_array())
+                })
+                .transpose()
+        })
+        .collect::<VortexResult<ArraySlots>>()?;
+    array.clone().with_slots(slots)
+}
 
 impl Executable for RecursiveCanonical {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
@@ -794,14 +823,19 @@ impl Executable for RecursiveCanonical {
                 ),
             ))),
             Canonical::Variant(variant) => {
-                Ok(RecursiveCanonical(Canonical::Variant(VariantArray::new(
-                    variant
-                        .child()
-                        .clone()
-                        .execute::<RecursiveCanonical>(ctx)?
-                        .0
-                        .into_array(),
-                ))))
+                let core_storage = recursively_canonicalize_slots(variant.core_storage(), ctx)?;
+                let shredded = variant
+                    .shredded()
+                    .map(|shredded| {
+                        shredded
+                            .clone()
+                            .execute::<RecursiveCanonical>(ctx)
+                            .map(|canonical| canonical.0.into_array())
+                    })
+                    .transpose()?;
+                Ok(RecursiveCanonical(Canonical::Variant(
+                    VariantArray::try_new(core_storage, shredded)?,
+                )))
             }
         }
     }
@@ -948,6 +982,21 @@ impl Executable for StructArray {
     }
 }
 
+/// Execute the array to canonical form and unwrap as a [`VariantArray`].
+///
+/// This will panic if the array's dtype is not variant.
+impl Executable for VariantArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_downcast::<Variant>() {
+            Ok(variant_array) => Ok(variant_array),
+            Err(array) => match Canonical::execute(array, ctx)? {
+                Canonical::Variant(variant_array) => Ok(variant_array),
+                canonical => vortex_panic!("Cannot unwrap VariantArray from {:?}", canonical),
+            },
+        }
+    }
+}
+
 /// A view into a canonical array type.
 ///
 /// Uses `ArrayView<V>` because these are obtained by
@@ -1017,7 +1066,6 @@ impl Matcher for AnyCanonical {
             || array.is::<VarBinView>()
             || array.is::<Variant>()
             || array.is::<Extension>()
-            || array.is::<Variant>()
     }
 
     fn try_match(array: &ArrayRef) -> Option<Self::Match<'_>> {

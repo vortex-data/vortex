@@ -17,9 +17,12 @@ pub use stats_set::*;
 mod array;
 pub mod expr;
 pub mod flatbuffers;
+pub(crate) mod rewrite;
+pub mod session;
 mod stats_set;
 
 pub use array::*;
+pub use session::*;
 use vortex_error::VortexExpect;
 
 use crate::expr::stats::Stat;

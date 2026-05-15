@@ -18,6 +18,7 @@ use vortex::array::Precision;
 use vortex::array::VTable;
 use vortex::array::ValidityVTable;
 use vortex::array::buffer::BufferHandle;
+use vortex::array::serde::ArrayChildren;
 use vortex::array::validity::Validity;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
@@ -107,7 +108,7 @@ impl VTable for PythonVTable {
         _len: usize,
         bytes: &[u8],
         _buffers: &[BufferHandle],
-        _children: &dyn vortex::array::serde::ArrayChildren,
+        _children: &dyn ArrayChildren,
         _session: &VortexSession,
     ) -> VortexResult<ArrayParts<Self>> {
         _ = bytes;

@@ -5,6 +5,7 @@
 
 #[cfg(test)]
 mod tests {
+    use std::f32;
     use std::sync::Arc;
 
     use vortex_error::VortexExpect;
@@ -124,7 +125,7 @@ mod tests {
     #[test]
     fn test_struct_field_coercion() {
         let f16_value = f16::from_f32(0.42);
-        let f32_value = std::f32::consts::PI;
+        let f32_value = f32::consts::PI;
 
         let struct_dtype = DType::Struct(
             StructFields::from_iter([

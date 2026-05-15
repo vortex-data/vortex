@@ -26,7 +26,10 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewData;
+use crate::arrays::listview::array::ELEMENTS_SLOT;
 use crate::arrays::listview::array::NUM_SLOTS;
+use crate::arrays::listview::array::OFFSETS_SLOT;
+use crate::arrays::listview::array::SIZES_SLOT;
 use crate::arrays::listview::array::SLOT_NAMES;
 use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::arrays::listview::vtable::kernel::PARENT_KERNELS;
@@ -115,13 +118,13 @@ impl VTable for ListView {
             "ListViewArray expected {NUM_SLOTS} slots, found {}",
             slots.len()
         );
-        let elements = slots[crate::arrays::listview::array::ELEMENTS_SLOT]
+        let elements = slots[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray elements slot");
-        let offsets = slots[crate::arrays::listview::array::OFFSETS_SLOT]
+        let offsets = slots[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray offsets slot");
-        let sizes = slots[crate::arrays::listview::array::SIZES_SLOT]
+        let sizes = slots[SIZES_SLOT]
             .as_ref()
             .vortex_expect("ListViewArray sizes slot");
         vortex_ensure!(

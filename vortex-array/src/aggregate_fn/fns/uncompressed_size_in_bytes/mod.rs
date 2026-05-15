@@ -537,7 +537,7 @@ mod tests {
     #[test]
     fn variant_stat_is_unsupported() -> VortexResult<()> {
         let child = ConstantArray::new(Scalar::variant(Scalar::from(42i32)), 3).into_array();
-        let array = VariantArray::new(child).into_array();
+        let array = VariantArray::try_new(child, None)?.into_array();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         assert_eq!(

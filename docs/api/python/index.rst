@@ -62,7 +62,9 @@ API Reference
    arrays
    expr
    compress
+   registry
    io
    store
    dataset
+   runtime
    type_aliases

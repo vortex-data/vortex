@@ -46,8 +46,10 @@ impl Handle {
         #[cfg(feature = "tokio")]
         {
             use tokio::runtime::Handle as TokioHandle;
+
+            use crate::runtime::tokio::TokioRuntime;
             if TokioHandle::try_current().is_ok() {
-                return Some(crate::runtime::tokio::TokioRuntime::current());
+                return Some(TokioRuntime::current());
             }
         }
 

@@ -15,6 +15,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::LEGACY_SESSION;
 use vortex::array::VortexSessionExecute;
+use vortex::array::arrays::Chunked;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -120,7 +121,7 @@ impl Dataset for StructListOfInts {
             let array = self.to_vortex_array(&mut ctx).await?;
 
             // Convert to Arrow RecordBatches and write to parquet
-            let chunked = array.as_::<vortex::array::arrays::Chunked>();
+            let chunked = array.as_::<Chunked>();
 
             let file = File::create(&temp_path)?;
             let mut writer: Option<ArrowWriter<File>> = None;

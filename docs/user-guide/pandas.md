@@ -10,6 +10,7 @@ convert:
 ```{doctest} pycon
 >>> import vortex as vx
 >>> import pyarrow.parquet as pq
+>>>
 >>> vx.io.write(pq.read_table("_static/example.parquet"), 'example.vortex')
 >>>
 >>> f = vx.open('example.vortex')
@@ -48,6 +49,7 @@ convert:
 
 ```{doctest} pycon
 >>> import pandas as pd
+>>>
 >>> df = pd.DataFrame({'age': [25, 31, 33, 57], 'name': ['Joseph', 'Narendra', 'Angela', 'Mikhail']})
 >>> vx.array(df).to_arrow_table()
 pyarrow.Table

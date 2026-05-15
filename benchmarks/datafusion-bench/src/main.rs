@@ -9,6 +9,7 @@ use clap::Parser;
 use clap::value_parser;
 use custom_labels::asynchronous::Label;
 use datafusion::arrow::array::RecordBatch;
+use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::common::runtime::set_join_set_tracer;
 use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
@@ -26,6 +27,7 @@ use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
+use vortex::io::filesystem::FileSystemRef;
 use vortex::scan::DataSourceRef;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
@@ -318,7 +320,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             .runtime_env()
             .object_store(table_url.object_store())?;
 
-        let fs: vortex::io::filesystem::FileSystemRef = Arc::new(ObjectStoreFileSystem::new(
+        let fs: FileSystemRef = Arc::new(ObjectStoreFileSystem::new(
             Arc::clone(&store),
             SESSION.handle(),
         ));
@@ -411,7 +413,7 @@ impl BenchmarkQueryResult for DataFusionQueryResult {
     }
 
     fn display(self) -> String {
-        datafusion::arrow::util::pretty::pretty_format_batches(&self.0)
+        pretty_format_batches(&self.0)
             .map(|d| d.to_string())
             .unwrap_or_else(|e| format!("<error: {e}>"))
     }

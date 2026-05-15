@@ -5,6 +5,7 @@ use std::io;
 use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
 use futures::StreamExt;
@@ -355,8 +356,7 @@ impl Writer<'_> {
 
     /// Returns the number of bytes written to the file so far.
     pub fn bytes_written(&self) -> u64 {
-        self.bytes_written
-            .load(std::sync::atomic::Ordering::Relaxed)
+        self.bytes_written.load(Ordering::Relaxed)
     }
 
     /// Returns the number of bytes currently buffered by the layout writers.

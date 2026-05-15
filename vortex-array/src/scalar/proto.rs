@@ -459,6 +459,8 @@ fn list_from_proto(
 
 #[cfg(test)]
 mod tests {
+    use std::f32;
+    use std::f64;
     use std::sync::Arc;
 
     use vortex_buffer::BufferString;
@@ -722,7 +724,7 @@ mod tests {
             f16::from_f32(-1.0),
             f16::from_f32(0.42),
             f16::from_f32(5.722046e-6),
-            f16::from_f32(std::f32::consts::PI),
+            f16::from_f32(f32::consts::PI),
             f16::INFINITY,
             f16::NEG_INFINITY,
             f16::NAN,
@@ -791,12 +793,12 @@ mod tests {
             ),
             (
                 "f32",
-                Some(ScalarValue::Primitive(PValue::F32(std::f32::consts::E))),
+                Some(ScalarValue::Primitive(PValue::F32(f32::consts::E))),
                 DType::Primitive(PType::F32, Nullability::Nullable),
             ),
             (
                 "f64",
-                Some(ScalarValue::Primitive(PValue::F64(std::f64::consts::PI))),
+                Some(ScalarValue::Primitive(PValue::F64(f64::consts::PI))),
                 DType::Primitive(PType::F64, Nullability::Nullable),
             ),
             (

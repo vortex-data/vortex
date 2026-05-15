@@ -126,6 +126,8 @@ mod test {
 
 #[cfg(test)]
 mod tests {
+    use std::f32;
+
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -164,7 +166,7 @@ mod tests {
     ).unwrap())]
     #[case::sparse_f32(Sparse::try_new(
         buffer![2u64, 6].into_array(),
-        buffer![std::f32::consts::PI, std::f32::consts::E].into_array(),
+        buffer![f32::consts::PI, f32::consts::E].into_array(),
         8,
         Scalar::from(0.0f32)
     ).unwrap())]

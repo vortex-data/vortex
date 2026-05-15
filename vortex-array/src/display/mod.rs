@@ -579,6 +579,7 @@ impl ArrayRef {
             }
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {
+                use crate::arrays::struct_::StructArrayExt;
                 #[expect(deprecated)]
                 use crate::canonical::ToCanonical as _;
                 use crate::dtype::DType;
@@ -614,9 +615,7 @@ impl ArrayRef {
                         builder.push_record(null_row);
                     } else {
                         let mut row = Vec::new();
-                        for field_array in
-                            crate::arrays::struct_::StructArrayExt::iter_unmasked_fields(&struct_)
-                        {
+                        for field_array in StructArrayExt::iter_unmasked_fields(&struct_) {
                             let value = field_array
                                 .execute_scalar(row_idx, &mut LEGACY_SESSION.create_execution_ctx())
                                 .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());

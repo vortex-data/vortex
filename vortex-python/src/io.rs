@@ -3,11 +3,11 @@
 
 use arrow_array::RecordBatchReader;
 use arrow_array::ffi_stream::ArrowArrayStreamReader;
+use async_fs::File;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
 use pyo3_object_store::PyObjectStore;
-use tokio::fs::File;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -24,10 +24,10 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreWrite;
+use vortex::io::runtime::BlockingRuntime;
 
 use crate::PyVortex;
-use crate::SESSION;
-use crate::TOKIO_RUNTIME;
+use crate::RUNTIME;
 use crate::arrays::PyArray;
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
@@ -40,6 +40,7 @@ use crate::install_module;
 use crate::iter::PyArrayIterator;
 use crate::object_store::resolve::ResolvedStore;
 use crate::object_store::resolve::resolve_store;
+use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;
@@ -80,44 +81,31 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///
 /// Read an array from an HTTPS URL:
 ///
-/// ```python
 /// >>> import vortex as vx
 /// >>> a = vx.io.read_url("https://example.com/dataset.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// Read an array from an S3 URL:
 ///
-/// ```python
 /// >>> a = vx.io.read_url("s3://bucket/path/to/dataset.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// Read an array from an Azure Blob File System URL:
 ///
-/// ```python
 /// >>> a = vx.io.read_url("abfss://my_file_system@my_account.dfs.core.windows.net/path/to/dataset.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// Read an array from an Azure Blob Storage URL:
 ///
-/// ```python
 /// >>> a = vx.io.read_url("https://my_account.blob.core.windows.net/my_container/path/to/dataset.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// Read an array from a Google Storage URL:
 ///
-/// ```python
 /// >>> a = vx.io.read_url("gs://bucket/path/to/dataset.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// Read an array from a local file URL:
 ///
-/// ```python
 /// >>> a = vx.io.read_url("file:///path/to/dataset.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// Read from S3 with explicit credentials:
 ///
-/// ```python
 /// >>> from vortex import store as S
 /// >>> store = S.S3Store(
 /// ...     bucket="my-bucket",
@@ -126,7 +114,6 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ...     secret_access_key="..."
 /// ... )
 /// >>> a = vx.io.read_url("s3://my-bucket/data.vortex", store=store)  # doctest: +SKIP
-/// ```
 ///
 #[pyfunction]
 #[pyo3(signature = (url, *, store = None, projection = None, row_filter = None, indices = None, row_range = None))]
@@ -146,9 +133,8 @@ pub fn read_url<'py>(
         None
     };
 
-    let dataset =
-        py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?;
-    dataset.to_array(projection, row_filter, indices, row_range)
+    let dataset = py.detach(move || RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?;
+    dataset.to_array_inner(py, projection, row_filter, indices, row_range)
 }
 
 /// Write an array to a Vortex file.
@@ -170,7 +156,6 @@ pub fn read_url<'py>(
 ///
 /// Write a single Vortex array `a` to the local file `a.vortex`.
 ///
-/// ```python
 /// >>> import vortex as vx
 /// >>> a = vx.array([
 /// ...     {'x': 1},
@@ -180,25 +165,20 @@ pub fn read_url<'py>(
 /// ...     {'x': None},
 /// ... ])
 /// >>> vx.io.write(a, "a.vortex") # doctest: +SKIP
-/// ```
 ///
 /// Stream a PyArrow Table directly to Vortex without loading into memory:
 ///
-/// ```python
 /// >>> import pyarrow as pa
 /// >>> import vortex as vx
 /// >>> table = pa.table({'x': [1, 2, 3, 4, 5]})
 /// >>> vx.io.write(table, "streamed.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// Stream from a PyArrow RecordBatchReader:
 ///
-/// ```python
 /// >>> import pyarrow as pa
 /// >>> import vortex as vx
 /// >>> reader = pa.RecordBatchReader.from_batches(schema, batches) # doctest: +SKIP
 /// >>> vx.io.write(reader, "streamed.vortex")  # doctest: +SKIP
-/// ```
 ///
 /// See also
 /// --------
@@ -212,12 +192,13 @@ pub fn write(
     path: &str,
     store: Option<PyObjectStore>,
 ) -> PyVortexResult<()> {
+    let session = session();
     py.detach(|| {
-        TOKIO_RUNTIME.block_on(async move {
+        RUNTIME.block_on(async move {
             match resolve_store(path, store.map(|x| x.into_inner()))? {
                 ResolvedStore::ObjectStore(store, path) => {
                     let mut store = ObjectStoreWrite::new(store, &path).await?;
-                    SESSION
+                    session
                         .write_options()
                         .write(&mut store, iter.into_inner().into_array_stream())
                         .await?;
@@ -226,7 +207,7 @@ pub fn write(
                 }
                 ResolvedStore::Path(path) => {
                     let mut w = File::create(path).await?;
-                    SESSION
+                    session
                         .write_options()
                         .write(&mut w, iter.into_inner().into_array_stream())
                         .await?;
@@ -266,22 +247,18 @@ impl PyVortexWriteOptions {
     /// Let's model some stock ticker data. As you may know, the stock market always (noisly) goes
     /// up:
     ///
-    /// ```python
     /// >>> import os
     /// >>> import random
     /// >>> sprl = vx.array([random.randint(i, i + 10) for i in range(100_000)])
-    /// ```
     ///
     /// If we naively wrote 4-bytes for each of these integers to a file we'd have 400,000 bytes!
     /// Let's see how small this is when we write with the default Vortex write options (which are
     /// also used by :func:`vortex.io.write`):
     ///
-    /// ```python
     /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
     /// >>> import os
     /// >>> os.path.getsize('chonky.vortex')
     /// 215972
-    /// ```
     ///
     /// Wow, Vortex manages to use about two bytes per integer! So advanced. So tiny.
     ///
@@ -289,11 +266,9 @@ impl PyVortexWriteOptions {
     ///
     /// We sure can.
     ///
-    /// ```python
     /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
     /// >>> os.path.getsize('tiny.vortex')
     /// 55088
-    /// ```
     ///
     /// Random numbers are not (usually) composed of random bytes!
     #[staticmethod]
@@ -323,20 +298,16 @@ impl PyVortexWriteOptions {
     ///
     /// Write a single Vortex array `a` to the local file `a.vortex` using the default settings:
     ///
-    /// ```python
     /// >>> import vortex as vx
     /// >>> import random
     /// >>> a = vx.array([0, 1, 2, 3, None, 4])
     /// >>> vx.io.VortexWriteOptions.default().write(a, "a.vortex") # doctest: +SKIP
-    /// ```
     ///
     /// Write the same array while preferring small file sizes over read-throughput and
     /// read-latency:
     ///
-    /// ```python
     /// >>> import vortex as vx
     /// >>> vx.io.VortexWriteOptions.compact().write(a, "a.vortex") # doctest: +SKIP
-    /// ```
     ///
     /// See also
     /// --------
@@ -350,6 +321,7 @@ impl PyVortexWriteOptions {
         path: &str,
         store: Option<PyObjectStore>,
     ) -> PyVortexResult<()> {
+        let session = session();
         py.detach(|| {
             let mut strategy = WriteStrategyBuilder::default();
             if self.use_compact_encodings {
@@ -357,11 +329,11 @@ impl PyVortexWriteOptions {
                     .with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
             }
             let strategy = strategy.build();
-            TOKIO_RUNTIME.block_on(async move {
+            RUNTIME.block_on(async move {
                 match resolve_store(path, store.map(|x| x.into_inner()))? {
                     ResolvedStore::ObjectStore(store, path) => {
                         let mut store = ObjectStoreWrite::new(store, &path).await?;
-                        SESSION
+                        session
                             .write_options()
                             .with_strategy(strategy)
                             .write(&mut store, iter.into_inner().into_array_stream())
@@ -371,7 +343,7 @@ impl PyVortexWriteOptions {
                     }
                     ResolvedStore::Path(path) => {
                         let mut w = File::create(path).await?;
-                        SESSION
+                        session
                             .write_options()
                             .with_strategy(strategy)
                             .write(&mut w, iter.into_inner().into_array_stream())
