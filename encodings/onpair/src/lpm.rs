@@ -32,7 +32,7 @@ use crate::decode::DecodeView;
 ///
 /// Stored as 257 `u32` so `range_for(b) = lo..hi` reads two adjacent
 /// entries with no branch.
-pub(crate) struct DictIndex {
+pub struct DictIndex {
     by_first_byte: [u32; 257],
 }
 
@@ -80,7 +80,7 @@ impl DictIndex {
 /// Tokenise `needle` via greedy longest-prefix-match against the
 /// OnPair dict. Returns `None` if any byte of the needle has no
 /// matching dict entry.
-pub(crate) fn tokenize_needle(
+pub fn tokenize_needle(
     dv: &DecodeView<'_>,
     index: &DictIndex,
     needle: &[u8],

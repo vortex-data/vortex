@@ -10,7 +10,7 @@ pub vortex_onpair::decode::DecodeView::codes_offsets: &'a [u32]
 
 pub vortex_onpair::decode::DecodeView::dict_bytes: &'a [u8]
 
-pub vortex_onpair::decode::DecodeView::dict_offsets: &'a [u32]
+pub vortex_onpair::decode::DecodeView::dict_table: &'a [u64]
 
 impl<'a> vortex_onpair::decode::DecodeView<'a>
 
@@ -23,6 +23,8 @@ pub unsafe fn vortex_onpair::decode::DecodeView<'a>::decode_rows_into_with_size(
 pub unsafe fn vortex_onpair::decode::DecodeView<'a>::decode_rows_unchecked(&self, usize, usize, *mut u8) -> usize
 
 pub fn vortex_onpair::decode::DecodeView<'a>::decoded_len(&self, usize) -> usize
+
+pub fn vortex_onpair::decode::DecodeView<'a>::decoded_len_rows(&self, usize, usize) -> usize
 
 pub fn vortex_onpair::decode::DecodeView<'a>::for_each_dict_slice<F: core::ops::function::FnMut(&'a [u8]) -> bool>(&self, usize, F) -> bool
 
@@ -40,13 +42,65 @@ pub vortex_onpair::decode::OwnedDecodeInputs::codes_offsets: vortex_buffer::buff
 
 pub vortex_onpair::decode::OwnedDecodeInputs::dict_bytes: vortex_buffer::ByteBuffer
 
-pub vortex_onpair::decode::OwnedDecodeInputs::dict_offsets: vortex_buffer::buffer::Buffer<u32>
+pub vortex_onpair::decode::OwnedDecodeInputs::dict_table: vortex_buffer::buffer::Buffer<u64>
 
 impl vortex_onpair::decode::OwnedDecodeInputs
 
 pub fn vortex_onpair::decode::OwnedDecodeInputs::collect(vortex_array::array::view::ArrayView<'_, vortex_onpair::OnPair>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<Self>
 
 pub fn vortex_onpair::decode::OwnedDecodeInputs::view(&self) -> vortex_onpair::decode::DecodeView<'_>
+
+pub mod vortex_onpair::lpm
+
+pub struct vortex_onpair::lpm::DictIndex
+
+impl vortex_onpair::lpm::DictIndex
+
+pub fn vortex_onpair::lpm::DictIndex::build(&vortex_onpair::decode::DecodeView<'_>) -> Self
+
+pub fn vortex_onpair::lpm::DictIndex::range_for(&self, u8) -> core::ops::range::Range<usize>
+
+pub fn vortex_onpair::lpm::tokenize_needle(&vortex_onpair::decode::DecodeView<'_>, &vortex_onpair::lpm::DictIndex, &[u8]) -> core::option::Option<alloc::vec::Vec<u16>>
+
+pub mod vortex_onpair::skip
+
+pub struct vortex_onpair::skip::DictPresence
+
+impl vortex_onpair::skip::DictPresence
+
+pub fn vortex_onpair::skip::DictPresence::build(&vortex_onpair::decode::DecodeView<'_>, usize, usize) -> Self
+
+pub fn vortex_onpair::skip::DictPresence::byte_size(&self) -> usize
+
+pub fn vortex_onpair::skip::DictPresence::might_contain(&self, &vortex_onpair::decode::DecodeView<'_>, &vortex_onpair::lpm::DictIndex, &[u8]) -> bool
+
+pub fn vortex_onpair::skip::DictPresence::might_eq(&self, &vortex_onpair::decode::DecodeView<'_>, &vortex_onpair::lpm::DictIndex, &[u8]) -> bool
+
+pub fn vortex_onpair::skip::DictPresence::might_starts_with(&self, &vortex_onpair::decode::DecodeView<'_>, &vortex_onpair::lpm::DictIndex, &[u8]) -> bool
+
+impl core::clone::Clone for vortex_onpair::skip::DictPresence
+
+pub fn vortex_onpair::skip::DictPresence::clone(&self) -> vortex_onpair::skip::DictPresence
+
+pub struct vortex_onpair::skip::SeamBloom
+
+impl vortex_onpair::skip::SeamBloom
+
+pub fn vortex_onpair::skip::SeamBloom::build(&vortex_onpair::decode::DecodeView<'_>, usize, usize, usize) -> Self
+
+pub fn vortex_onpair::skip::SeamBloom::byte_size(&self) -> usize
+
+pub fn vortex_onpair::skip::SeamBloom::might_contain(&self, &vortex_onpair::decode::DecodeView<'_>, &vortex_onpair::skip::DictPresence, &[u8]) -> bool
+
+pub struct vortex_onpair::skip::TrigramBloom
+
+impl vortex_onpair::skip::TrigramBloom
+
+pub fn vortex_onpair::skip::TrigramBloom::build(&vortex_onpair::decode::DecodeView<'_>, usize, usize, usize) -> Self
+
+pub fn vortex_onpair::skip::TrigramBloom::byte_size(&self) -> usize
+
+pub fn vortex_onpair::skip::TrigramBloom::might_contain(&self, &[u8]) -> bool
 
 pub struct vortex_onpair::OnPair
 

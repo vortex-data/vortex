@@ -17,9 +17,10 @@ mod compute;
 pub mod decode;
 mod dfa;
 mod kernel;
-mod lpm;
+pub mod lpm;
 mod ops;
 mod rules;
+pub mod skip;
 mod slice;
 
 /// Fixed token-byte over-copy width. Matches OnPair C++'s `MAX_TOKEN_SIZE`:
