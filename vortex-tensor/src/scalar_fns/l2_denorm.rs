@@ -3,8 +3,6 @@
 
 //! L2 denormalization expression for tensor-like types.
 
-use std::fmt::Formatter;
-
 use num_traits::Float;
 use num_traits::ToPrimitive;
 use num_traits::Zero;
@@ -164,19 +162,6 @@ impl ScalarFnVTable for L2Denorm {
             1 => ChildName::from("norms"),
             _ => unreachable!("L2Denorm must have exactly two children"),
         }
-    }
-
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
-        write!(f, "l2_denorm(")?;
-        expr.child(0).fmt_sql(f)?;
-        write!(f, ", ")?;
-        expr.child(1).fmt_sql(f)?;
-        write!(f, ")")
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {

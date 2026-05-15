@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod kernel;
-use std::fmt::Formatter;
 
 pub use kernel::*;
 use vortex_error::VortexExpect;
@@ -70,19 +69,6 @@ impl ScalarFnVTable for Mask {
             1 => ChildName::from("mask"),
             _ => unreachable!("Invalid child index {} for Mask expression", child_idx),
         }
-    }
-
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
-        write!(f, "mask(")?;
-        expr.child(0).fmt_sql(f)?;
-        write!(f, ", ")?;
-        expr.child(1).fmt_sql(f)?;
-        write!(f, ")")
     }
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {

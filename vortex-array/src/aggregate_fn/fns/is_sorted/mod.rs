@@ -242,22 +242,34 @@ impl AggregateFnVTable for IsSorted {
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
             DType::Null
-            | DType::Struct(..)
             | DType::List(..)
             | DType::FixedSizeList(..)
-            | DType::Variant(..) => None,
-            _ => Some(DType::Bool(Nullability::NonNullable)),
+            | DType::Struct(..)
+            | DType::Union(_)
+            | DType::Variant(..)
+            | DType::Extension(_) => None,
+            DType::Bool(_)
+            | DType::Primitive(..)
+            | DType::Decimal(..)
+            | DType::Utf8(_)
+            | DType::Binary(_) => Some(DType::Bool(Nullability::NonNullable)),
         }
     }
 
     fn partial_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         match input_dtype {
             DType::Null
-            | DType::Struct(..)
             | DType::List(..)
             | DType::FixedSizeList(..)
-            | DType::Variant(..) => None,
-            _ => Some(make_is_sorted_partial_dtype(input_dtype)),
+            | DType::Struct(..)
+            | DType::Union(_)
+            | DType::Variant(..)
+            | DType::Extension(_) => None,
+            DType::Bool(_)
+            | DType::Primitive(..)
+            | DType::Decimal(..)
+            | DType::Utf8(_)
+            | DType::Binary(_) => Some(make_is_sorted_partial_dtype(input_dtype)),
         }
     }
 

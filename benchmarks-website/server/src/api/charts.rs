@@ -9,6 +9,7 @@
 //! returns a [`ChartResponse`].
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use anyhow::Context as _;
 use anyhow::Result;
@@ -16,6 +17,7 @@ use duckdb::Connection;
 use duckdb::ToSql;
 use duckdb::params_from_iter;
 
+use super::dto::ChartHistory;
 use super::dto::ChartResponse;
 use super::dto::CommitPoint;
 use super::dto::GroupChartsResponse;
@@ -100,7 +102,7 @@ pub(crate) fn collect_group_charts(
         charts.push(NamedChartResponse {
             name: link.name,
             slug: link.slug,
-            chart,
+            chart: Arc::new(chart),
         });
     }
     if charts.is_empty() {
@@ -192,7 +194,12 @@ impl SeriesAccumulator {
         }
     }
 
-    fn finish(self, display_name: String, unit_kind: UnitKind) -> ChartResponse {
+    fn finish(
+        self,
+        display_name: String,
+        unit_kind: UnitKind,
+        history: ChartHistory,
+    ) -> ChartResponse {
         let total = self.commits.len();
         let mut series_map = serde_json::Map::new();
         for (k, mut v) in self.series {
@@ -204,11 +211,17 @@ impl SeriesAccumulator {
         ChartResponse {
             display_name,
             unit_kind,
+            history,
             commits: self.commits,
             series: series_map,
             series_meta: self.tags,
         }
     }
+}
+
+struct SeededCommits {
+    commits: Vec<CommitPoint>,
+    history: ChartHistory,
 }
 
 /// Resolve a chart's x-axis: every commit in the requested commit-window
@@ -233,32 +246,65 @@ fn seeded_commits_in_window(
     earliest_subquery: &str,
     subquery_binds: Vec<Box<dyn ToSql>>,
     window: &CommitWindow,
-) -> Result<Vec<CommitPoint>> {
+) -> Result<SeededCommits> {
+    let window_filter = match window {
+        CommitWindow::All => "",
+        CommitWindow::Last(_) => "WHERE rn > total_commits - ?",
+    };
     let sql = format!(
         r#"
-        SELECT c.commit_sha,
-               CAST(c.timestamp AS VARCHAR),
-               COALESCE(c.message, ''),
-               c.url
-          FROM commits c
-         WHERE c.timestamp >= ({earliest_subquery}){window_filter}
-         ORDER BY c.timestamp ASC
+        WITH eligible AS (
+            SELECT c.commit_sha,
+                   c.timestamp,
+                   COALESCE(c.message, '') AS message,
+                   c.url,
+                   row_number() OVER (ORDER BY c.timestamp ASC, c.commit_sha ASC) AS rn,
+                   count(*) OVER () AS total_commits
+              FROM commits c
+             WHERE c.timestamp >= ({earliest_subquery})
+        )
+        SELECT commit_sha,
+               CAST(timestamp AS VARCHAR),
+               message,
+               url,
+               total_commits
+          FROM eligible
+         {window_filter}
+         ORDER BY timestamp ASC, commit_sha ASC
         "#,
-        window_filter = window.sql_filter(),
     );
     let mut stmt = conn.prepare(&sql)?;
     let mut binds = subquery_binds;
     push_window_limit(&mut binds, window);
     let rows = stmt.query_map(params_from_iter(binds.iter()), |row| {
-        Ok(CommitPoint {
-            sha: row.get(0)?,
-            timestamp: row.get(1)?,
-            message: row.get(2)?,
-            url: row.get(3)?,
-        })
+        Ok((
+            CommitPoint {
+                sha: row.get(0)?,
+                timestamp: row.get(1)?,
+                message: row.get(2)?,
+                url: row.get(3)?,
+            },
+            row.get::<_, i64>(4)?,
+        ))
     })?;
-    let out: Vec<CommitPoint> = rows.collect::<Result<_, _>>()?;
-    Ok(out)
+    let rows: Vec<(CommitPoint, i64)> = rows.collect::<Result<_, _>>()?;
+    let total_commits = rows
+        .first()
+        .map(|(_, total)| usize::try_from(*total))
+        .transpose()?
+        .unwrap_or_default();
+    let commits: Vec<CommitPoint> = rows.into_iter().map(|(commit, _)| commit).collect();
+    let loaded_commits = commits.len();
+    let start_index = total_commits.saturating_sub(loaded_commits);
+    Ok(SeededCommits {
+        commits,
+        history: ChartHistory {
+            total_commits,
+            start_index,
+            loaded_commits,
+            complete: loaded_commits == total_commits,
+        },
+    })
 }
 
 /// Append the commit-window `LIMIT` bind value to a parameter list, when the
@@ -301,11 +347,12 @@ fn collect_query_chart(
         ],
         window,
     )?;
-    if seeded.is_empty() {
+    if seeded.commits.is_empty() {
         return Ok(None);
     }
+    let history = seeded.history;
     let mut acc = SeriesAccumulator::new();
-    acc.seed_commits(seeded);
+    acc.seed_commits(seeded.commits);
 
     let sql = format!(
         r#"
@@ -358,7 +405,7 @@ fn collect_query_chart(
         name.push_str(sf);
     }
     name.push_str(&format!(" Q{query_idx} [{storage}]"));
-    Ok(Some(acc.finish(name, UnitKind::TimeNs)))
+    Ok(Some(acc.finish(name, UnitKind::TimeNs, history)))
 }
 
 fn collect_compression_time_chart(
@@ -380,11 +427,12 @@ fn collect_compression_time_chart(
         ],
         window,
     )?;
-    if seeded.is_empty() {
+    if seeded.commits.is_empty() {
         return Ok(None);
     }
+    let history = seeded.history;
     let mut acc = SeriesAccumulator::new();
-    acc.seed_commits(seeded);
+    acc.seed_commits(seeded.commits);
 
     let sql = format!(
         r#"
@@ -426,7 +474,7 @@ fn collect_compression_time_chart(
         name.push('/');
         name.push_str(v);
     }
-    Ok(Some(acc.finish(name, UnitKind::TimeNs)))
+    Ok(Some(acc.finish(name, UnitKind::TimeNs, history)))
 }
 
 fn collect_compression_size_chart(
@@ -448,11 +496,12 @@ fn collect_compression_size_chart(
         ],
         window,
     )?;
-    if seeded.is_empty() {
+    if seeded.commits.is_empty() {
         return Ok(None);
     }
+    let history = seeded.history;
     let mut acc = SeriesAccumulator::new();
-    acc.seed_commits(seeded);
+    acc.seed_commits(seeded.commits);
 
     let sql = format!(
         r#"
@@ -492,7 +541,7 @@ fn collect_compression_size_chart(
         name.push('/');
         name.push_str(v);
     }
-    Ok(Some(acc.finish(name, UnitKind::Bytes)))
+    Ok(Some(acc.finish(name, UnitKind::Bytes, history)))
 }
 
 fn collect_random_access_chart(
@@ -509,11 +558,12 @@ fn collect_random_access_chart(
         vec![Box::new(dataset.to_string())],
         window,
     )?;
-    if seeded.is_empty() {
+    if seeded.commits.is_empty() {
         return Ok(None);
     }
+    let history = seeded.history;
     let mut acc = SeriesAccumulator::new();
-    acc.seed_commits(seeded);
+    acc.seed_commits(seeded.commits);
 
     let sql = format!(
         r#"
@@ -544,7 +594,11 @@ fn collect_random_access_chart(
         acc.record(&format, idx, value_ns as f64);
         acc.tag(&format, None, Some(&format));
     }
-    Ok(Some(acc.finish(dataset.to_string(), UnitKind::TimeNs)))
+    Ok(Some(acc.finish(
+        dataset.to_string(),
+        UnitKind::TimeNs,
+        history,
+    )))
 }
 
 fn collect_vector_search_chart(
@@ -569,11 +623,12 @@ fn collect_vector_search_chart(
         ],
         window,
     )?;
-    if seeded.is_empty() {
+    if seeded.commits.is_empty() {
         return Ok(None);
     }
+    let history = seeded.history;
     let mut acc = SeriesAccumulator::new();
-    acc.seed_commits(seeded);
+    acc.seed_commits(seeded.commits);
 
     let sql = format!(
         r#"
@@ -612,5 +667,6 @@ fn collect_vector_search_chart(
     Ok(Some(acc.finish(
         format!("{dataset} / {layout} (threshold={threshold})"),
         UnitKind::TimeNs,
+        history,
     )))
 }

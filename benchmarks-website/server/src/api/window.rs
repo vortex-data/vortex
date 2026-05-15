@@ -17,7 +17,7 @@ use super::dto::DEFAULT_COMMIT_WINDOW;
 ///
 /// `Last(n)` keeps the most recent `n` commits by `commits.timestamp`; `All`
 /// returns every commit ever ingested.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CommitWindow {
     /// Keep the most recent `n` commits.
     Last(NonZeroU32),
@@ -65,7 +65,7 @@ impl CommitWindow {
             Self::All => "",
             Self::Last(_) => {
                 " AND c.commit_sha IN \
-                 (SELECT commit_sha FROM commits ORDER BY timestamp DESC LIMIT ?)"
+                 (SELECT commit_sha FROM commits ORDER BY timestamp DESC, commit_sha DESC LIMIT ?)"
             }
         }
     }

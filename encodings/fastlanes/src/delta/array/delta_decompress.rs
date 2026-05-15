@@ -10,6 +10,7 @@ use fastlanes::Transpose;
 use itertools::Itertools;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_buffer::Buffer;
@@ -33,14 +34,22 @@ pub fn delta_decompress(
     let validity = untranspose_validity(&deltas.validity()?, ctx)?;
     let validity = validity.slice(start..end)?;
 
-    Ok(match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {
+    let original_ptype = deltas.ptype();
+    // Signed inputs are processed through their unsigned counterpart; `wrapping_add` on the
+    // raw bytes inverts the `wrapping_sub` done at compress time regardless of signedness.
+    let bases = bases.reinterpret_cast(original_ptype.to_unsigned());
+    let deltas = deltas.reinterpret_cast(original_ptype.to_unsigned());
+
+    let decoded = match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {
         const LANES: usize = T::LANES;
 
         let buffer = decompress_primitive::<T, LANES>(bases.as_slice(), deltas.as_slice());
         let buffer = buffer.slice(start..end);
 
         PrimitiveArray::new(buffer, validity)
-    }))
+    });
+
+    Ok(decoded.reinterpret_cast(original_ptype))
 }
 
 /// Performs the low-level delta decompression on primitive values.

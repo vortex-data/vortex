@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 using FFI_ArrowArrayStream = ArrowArrayStream;
+using FFI_ArrowArray = ArrowArray;
 using FFI_ArrowSchema = ArrowSchema;
 #define USE_OWN_ARROW 1
 #include <vortex.h>

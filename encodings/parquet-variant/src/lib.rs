@@ -31,6 +31,5 @@ mod validity;
 mod vtable;
 
 pub use array::ParquetVariantArrayExt;
-pub use array::ParquetVariantData;
 pub use vtable::ParquetVariant;
 pub use vtable::ParquetVariantArray;

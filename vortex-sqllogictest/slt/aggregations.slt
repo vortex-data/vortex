@@ -3,7 +3,7 @@
 
 # Aggregation tests - derived from vortex-duckdb tests
 
-include ./setup.slt
+include ./setup.slt.no
 
 # Create test data for aggregations
 query I

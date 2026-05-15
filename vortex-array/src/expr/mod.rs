@@ -207,7 +207,7 @@ mod tests {
             "(($.col1 < $.col2) or ($.col1 != $.col2))"
         );
 
-        assert_eq!(not(col1).to_string(), "not($.col1)");
+        assert_eq!(not(col1).to_string(), "vortex.not($.col1)");
 
         assert_eq!(
             select(vec![FieldName::from("col1")], root()).to_string(),

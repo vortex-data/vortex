@@ -10,7 +10,6 @@ use futures::FutureExt;
 use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
-use itertools::Itertools;
 use tracing::trace;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -30,6 +29,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
+use crate::reader::SplitRange;
 use crate::segments::SegmentSource;
 
 /// A [`LayoutReader`] for chunked layouts.
@@ -107,10 +107,11 @@ impl ChunkedReader {
     fn ranges<'a>(
         &'a self,
         row_range: &'a Range<u64>,
-    ) -> impl Iterator<Item = (usize, Range<u64>, Range<usize>)> + 'a {
+    ) -> impl Iterator<Item = (usize, u64, Range<u64>, Range<usize>)> + 'a {
         self.chunk_range(row_range).map(move |chunk_idx| {
             // Figure out the chunk row range relative to the mask's row range.
             let chunk_row_range = self.chunk_offset(chunk_idx)..self.chunk_offset(chunk_idx + 1);
+            let chunk_start = chunk_row_range.start;
 
             // Find the intersection of the mask and the chunk row ranges.
             let intersecting_row_range =
@@ -146,7 +147,7 @@ impl ChunkedReader {
                 .vortex_expect("Chunk range calculation overflow");
             let chunk_range = chunk_relative_start..chunk_relative_end;
 
-            (chunk_idx, chunk_range, mask_range)
+            (chunk_idx, chunk_start, chunk_range, mask_range)
         })
     }
 }
@@ -167,37 +168,32 @@ impl LayoutReader for ChunkedReader {
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
-        row_range: &Range<u64>,
+        split_range: &SplitRange,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        if row_range.is_empty() {
+        split_range.check_bounds(self.layout.row_count())?;
+
+        if split_range.is_empty() {
             return Ok(());
         }
 
-        for (index, (&start, &end)) in self
-            .chunk_offsets
-            .iter()
-            .tuple_windows::<(_, _)>()
-            .enumerate()
-        {
-            if end < row_range.start {
-                continue;
-            }
+        for (chunk_idx, chunk_start, child_range, _) in self.ranges(split_range.row_range()) {
+            let child = self.chunk_reader(chunk_idx)?;
+            let child_row_offset = split_range
+                .row_offset()
+                .checked_add(chunk_start)
+                .vortex_expect("Chunked layout split offset overflow");
+            let child_split_range = SplitRange::try_new(child_row_offset, child_range)?;
 
-            if start >= row_range.end {
-                break;
-            }
-
-            // Child overlaps in whole or in part with split
-            let child = self.chunk_reader(index)?;
-            let child_range =
-                std::cmp::max(row_range.start, start)..std::cmp::min(row_range.end, end);
-
-            // Register any splits from the child
-            child.register_splits(field_mask, &child_range, splits)?;
+            child.register_splits(field_mask, &child_split_range, splits)?;
 
             // Register the split indicating the end of this chunk
-            splits.insert(child_range.end);
+            splits.insert(
+                split_range
+                    .row_offset()
+                    .checked_add(chunk_start + child_split_range.row_range().end)
+                    .vortex_expect("Chunked layout split offset overflow"),
+            );
         }
 
         Ok(())
@@ -215,7 +211,7 @@ impl LayoutReader for ChunkedReader {
 
         let mut chunk_evals = vec![];
 
-        for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
+        for (chunk_idx, _, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
             let chunk_eval = chunk_reader
                 .pruning_evaluation(&chunk_range, expr, mask.slice(mask_range))
@@ -261,7 +257,7 @@ impl LayoutReader for ChunkedReader {
 
         let mut chunk_evals = vec![];
 
-        for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
+        for (chunk_idx, _, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
             let chunk_eval = chunk_reader
                 .filter_evaluation(&chunk_range, expr, mask.slice(mask_range))
@@ -301,7 +297,7 @@ impl LayoutReader for ChunkedReader {
 
         let mut chunk_evals = vec![];
 
-        for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
+        for (chunk_idx, _, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
             let chunk_eval = chunk_reader
                 .projection_evaluation(&chunk_range, expr, mask.slice(mask_range))
@@ -343,17 +339,25 @@ mod test {
     use vortex_array::MaskFuture;
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::FieldMask;
     use vortex_array::dtype::Nullability::NonNullable;
     use vortex_array::dtype::PType;
     use vortex_array::expr::root;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_session::registry::ReadContext;
 
+    use crate::IntoLayout;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
+    use crate::OwnedLayoutChildren;
+    use crate::layouts::chunked::ChunkedLayout;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::flat::FlatLayout;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::scan::split_by::SplitBy;
+    use crate::segments::SegmentId;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
@@ -393,6 +397,52 @@ mod test {
         .unwrap();
 
         (segments, layout)
+    }
+
+    fn nested_chunked_layout() -> LayoutRef {
+        let dtype = DType::Primitive(PType::U8, NonNullable);
+        let ctx = ReadContext::new([]);
+        let flat = |segment_id| {
+            FlatLayout::new(5, dtype.clone(), SegmentId::from(segment_id), ctx.clone())
+                .into_layout()
+        };
+        let nested = |first_segment_id| {
+            ChunkedLayout::new(
+                10,
+                dtype.clone(),
+                OwnedLayoutChildren::layout_children(vec![
+                    flat(first_segment_id),
+                    flat(first_segment_id + 1),
+                ]),
+            )
+            .into_layout()
+        };
+
+        ChunkedLayout::new(
+            30,
+            dtype.clone(),
+            OwnedLayoutChildren::layout_children(vec![nested(0), nested(2), nested(4)]),
+        )
+        .into_layout()
+    }
+
+    #[rstest]
+    #[case(0..30, [0, 5, 10, 15, 20, 25, 30])]
+    #[case(7..23, [7, 10, 15, 20, 23])]
+    fn test_nested_chunked_layout_splits(
+        #[case] row_range: std::ops::Range<u64>,
+        #[case] expected: impl IntoIterator<Item = u64>,
+    ) {
+        let layout = nested_chunked_layout();
+        let reader = layout
+            .new_reader("".into(), Arc::new(TestSegments::default()), &SESSION)
+            .unwrap();
+
+        let splits = SplitBy::Layout
+            .splits(reader.as_ref(), &row_range, &[FieldMask::All])
+            .unwrap();
+
+        assert_eq!(splits, expected.into_iter().collect());
     }
 
     #[rstest]

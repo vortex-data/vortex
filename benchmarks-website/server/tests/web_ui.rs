@@ -24,6 +24,7 @@ use self::common::TOKEN;
 use self::common::pick_chart_slug;
 use self::common::pick_group_slug;
 use self::common::seed;
+use self::common::wait_for_materialized_first_chart_commits;
 
 // =============================================================================
 // Task A — per-group hover descriptions
@@ -262,6 +263,7 @@ async fn chart_includes_commits_with_partial_series_coverage() -> Result<()> {
             resp.status()
         );
     }
+    wait_for_materialized_first_chart_commits(&server, 3).await?;
 
     let slug = pick_chart_slug(&server, |s| s == "Random Access").await?;
     let chart: Value = client
@@ -378,6 +380,7 @@ async fn chart_includes_commits_with_zero_rows_in_fact_table() -> Result<()> {
             resp.status()
         );
     }
+    wait_for_materialized_first_chart_commits(&server, 3).await?;
 
     let slug = pick_chart_slug(&server, |s| s == "Random Access").await?;
     let chart: Value = client
@@ -478,6 +481,7 @@ async fn chart_excludes_commits_before_first_fact_row() -> Result<()> {
             resp.status()
         );
     }
+    wait_for_materialized_first_chart_commits(&server, 1).await?;
 
     let slug = pick_chart_slug(&server, |s| s == "Random Access").await?;
     let chart: Value = client

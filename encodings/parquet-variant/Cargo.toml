@@ -34,5 +34,8 @@ vortex-session = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
-
+vortex-file = { workspace = true, features = ["tokio"] }
+vortex-io = { workspace = true, features = ["tokio"] }
+vortex-layout = { workspace = true }

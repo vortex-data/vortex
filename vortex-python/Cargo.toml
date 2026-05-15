@@ -27,12 +27,13 @@ default = ["extension-module", "tui"]
 # Disable it when using vortex-python as a library dependency to avoid
 # duplicate PyInit__lib symbols.
 extension-module = []
-tui = ["dep:vortex-tui"]
+tui = ["dep:tokio", "dep:vortex-tui"]
 
 [dependencies]
 arrow-array = { workspace = true }
 arrow-data = { workspace = true }
 arrow-schema = { workspace = true }
+async-fs = { workspace = true }
 bytes = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
@@ -48,9 +49,9 @@ pyo3 = { workspace = true, features = ["abi3", "abi3-py311"] }
 pyo3-bytes = { workspace = true }
 pyo3-log = { workspace = true }
 pyo3-object_store = { workspace = true }
-tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt-multi-thread"], optional = true }
 url = { workspace = true }
-vortex = { workspace = true, features = ["object_store", "tokio"] }
+vortex = { workspace = true, features = ["object_store"] }
 vortex-tui = { workspace = true, optional = true }
 
 [dev-dependencies]

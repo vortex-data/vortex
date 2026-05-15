@@ -12,10 +12,12 @@ use serde_json::Value;
 
 use self::common::Server;
 use self::common::assert_close;
+use self::common::attr_value;
 use self::common::group_by_name;
 use self::common::insta_settings;
 use self::common::pick_group_slug;
 use self::common::seed;
+use self::common::seed_long_history;
 
 #[tokio::test]
 async fn group_page_snapshot() -> Result<()> {
@@ -32,8 +34,14 @@ async fn group_page_snapshot() -> Result<()> {
     assert_eq!(resp.status(), 200);
     let body = resp.text().await?;
     assert!(
-        body.contains(r#"id="chart-data-0""#),
-        "group page must embed at least one chart payload inline"
+        !body.contains(r#"id="chart-data-0""#),
+        "group page should hydrate through materialized shards, not inline chart payloads"
+    );
+    assert!(
+        body.contains(r#"data-artifact-generation="#)
+            && body.contains(r#"data-group-shard-prefix="#)
+            && body.contains(r#"open"#),
+        "group page should render an open shard-hydrated group shell"
     );
     assert!(
         body.contains(r#"class="toolbar toolbar--card""#),
@@ -77,6 +85,140 @@ async fn group_api_returns_charts() -> Result<()> {
         Some("queryBenchmark"),
         "group API should include the server-computed summary"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn group_api_respects_commit_window() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let slug = pick_group_slug(&server, |s| s.starts_with("TPC-H")).await?;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(server.url(&format!("/api/group/{slug}?n=1")))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    let charts = body["charts"].as_array().context("charts is array")?;
+    assert!(!charts.is_empty(), "group must have at least one chart");
+    for chart in charts {
+        let commits = chart["commits"].as_array().context("commits is array")?;
+        assert!(
+            commits.len() <= 1,
+            "group hydration should honor the requested commit window"
+        );
+        assert!(chart["series"].as_object().is_some(), "series is present");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn group_shard_artifact_returns_bounded_chart_payloads() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let landing = client.get(server.url("/")).send().await?.text().await?;
+    let generation = attr_value(&landing, "data-artifact-generation")
+        .context("landing exposes artifact generation")?;
+    let group_slug =
+        attr_value(&landing, "data-group-slug").context("landing exposes group slug")?;
+
+    let resp = client
+        .get(server.url(&format!(
+            "/api/artifacts/{generation}/groups/{group_slug}/shards/0"
+        )))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let etag = resp
+        .headers()
+        .get(reqwest::header::ETAG)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(!etag.is_empty(), "artifact response should carry an ETag");
+    let vary = resp
+        .headers()
+        .get(reqwest::header::VARY)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    assert!(
+        vary.contains("accept-encoding"),
+        "artifact response should vary on Accept-Encoding"
+    );
+
+    let body: Value = resp.json().await?;
+    assert_eq!(body["window"].as_u64(), Some(100));
+    assert_eq!(body["shard_index"].as_u64(), Some(0));
+    assert!(
+        body["shard_count"].as_u64().unwrap_or_default() >= 1,
+        "shard count should be present"
+    );
+    let charts = body["charts"].as_array().context("charts is array")?;
+    assert!(!charts.is_empty(), "first shard should include charts");
+    assert!(charts.len() <= 8, "shards should carry at most 8 charts");
+    for chart in charts {
+        let commits = chart["commits"].as_array().context("commits is array")?;
+        assert!(
+            commits.len() <= 100,
+            "artifact hydration should use the latest-100 window"
+        );
+        assert!(chart["series"].as_object().is_some(), "series is present");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn group_shard_artifact_carries_chart_history_metadata() -> Result<()> {
+    let server = Server::start().await?;
+    seed_long_history(&server, 125).await?;
+
+    let client = reqwest::Client::new();
+    let landing = client.get(server.url("/")).send().await?.text().await?;
+    let generation = attr_value(&landing, "data-artifact-generation")
+        .context("landing exposes artifact generation")?;
+    let group_slug =
+        attr_value(&landing, "data-group-slug").context("landing exposes group slug")?;
+
+    let body: Value = client
+        .get(server.url(&format!(
+            "/api/artifacts/{generation}/groups/{group_slug}/shards/0"
+        )))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let first_chart = body["charts"][0]
+        .as_object()
+        .context("first chart in shard")?;
+    assert_eq!(
+        first_chart["commits"].as_array().map(Vec::len),
+        Some(100),
+        "group shard remains a latest-100 payload"
+    );
+    assert_eq!(first_chart["history"]["total_commits"].as_u64(), Some(125));
+    assert_eq!(first_chart["history"]["start_index"].as_u64(), Some(25));
+    assert_eq!(first_chart["history"]["loaded_commits"].as_u64(), Some(100));
+    assert_eq!(first_chart["history"]["complete"].as_bool(), Some(false));
+    Ok(())
+}
+
+#[tokio::test]
+async fn unknown_group_shard_artifact_returns_404() -> Result<()> {
+    let server = Server::start().await?;
+    seed(&server).await?;
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(server.url("/api/artifacts/not-a-generation/groups/not-a-group/shards/0"))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 404);
     Ok(())
 }
 

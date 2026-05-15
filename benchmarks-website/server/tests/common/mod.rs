@@ -19,6 +19,7 @@ use serde_json::json;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+use tokio::time::Duration;
 use vortex_bench_server::app::AppState;
 use vortex_bench_server::app::router;
 
@@ -247,6 +248,7 @@ pub(crate) async fn seed(server: &Server) -> Result<()> {
             resp.status()
         );
     }
+    wait_for_materialized_first_chart_commits(server, commits().len()).await?;
     Ok(())
 }
 
@@ -320,7 +322,76 @@ pub(crate) async fn seed_long_history(server: &Server, n: usize) -> Result<()> {
             resp.status()
         );
     }
+    wait_for_materialized_first_chart_commits(server, n).await?;
     Ok(())
+}
+
+/// Wait until the background read-model rebuild has made the first group's
+/// first shard visible with at least `min_commits` commits on its first chart.
+pub(crate) async fn wait_for_materialized_first_chart_commits(
+    server: &Server,
+    min_commits: usize,
+) -> Result<()> {
+    wait_for_materialized_group_chart_commits(server, "Random Access", min_commits).await
+}
+
+/// Wait until a named group is visible in the active read generation and its
+/// first shard's first chart has at least `min_commits` commits.
+pub(crate) async fn wait_for_materialized_group_chart_commits(
+    server: &Server,
+    group_name: &str,
+    min_commits: usize,
+) -> Result<()> {
+    let client = reqwest::Client::new();
+    let mut last_count = 0usize;
+    for _ in 0..100 {
+        let landing = client.get(server.url("/")).send().await?.text().await?;
+        let Some(generation) = attr_value(&landing, "data-artifact-generation") else {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            continue;
+        };
+        let groups: Value = client
+            .get(server.url("/api/groups"))
+            .send()
+            .await?
+            .json()
+            .await?;
+        let Some(group_slug) = groups["groups"]
+            .as_array()
+            .and_then(|groups| {
+                groups
+                    .iter()
+                    .find(|group| group["name"].as_str() == Some(group_name))
+            })
+            .and_then(|group| group["slug"].as_str())
+            .map(str::to_string)
+        else {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            continue;
+        };
+        let resp = client
+            .get(server.url(&format!(
+                "/api/artifacts/{generation}/groups/{group_slug}/shards/0"
+            )))
+            .send()
+            .await?;
+        if resp.status().is_success() {
+            let body: Value = resp.json().await?;
+            let chart = &body["charts"][0];
+            last_count = chart["history"]["total_commits"]
+                .as_u64()
+                .and_then(|n| usize::try_from(n).ok())
+                .or_else(|| chart["commits"].as_array().map(Vec::len))
+                .unwrap_or_default();
+            if last_count >= min_commits {
+                return Ok(());
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    anyhow::bail!(
+        "read model did not reach {min_commits} commits on {group_name:?}; last count {last_count}"
+    )
 }
 
 /// Pull the inline `<script id="chart-data-N">…</script>` JSON out of an
@@ -332,6 +403,14 @@ pub(crate) fn extract_chart_data(body: &str, idx: usize) -> Option<Value> {
     // Reverse the `</` neutralisation done by `escape_json_for_script`.
     let json = body[start..end].replace(r"<\/", "</");
     serde_json::from_str(&json).ok()
+}
+
+/// Pull a simple double-quoted HTML attribute value from `body`.
+pub(crate) fn attr_value(body: &str, attr: &str) -> Option<String> {
+    let needle = format!(r#"{attr}=""#);
+    let start = body.find(&needle)? + needle.len();
+    let end = body[start..].find('"')? + start;
+    Some(body[start..end].to_string())
 }
 
 /// Configure `insta` to look for snapshots in `tests/snapshots/` keyed by

@@ -39,6 +39,29 @@ pub struct GetItemOpts {
     #[prost(string, tag = "1")]
     pub path: ::prost::alloc::string::String,
 }
+/// Options for `vortex.variant_get`
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct VariantGetOpts {
+    #[prost(message, repeated, tag = "1")]
+    pub path: ::prost::alloc::vec::Vec<VariantPathElement>,
+    #[prost(message, optional, tag = "2")]
+    pub dtype: ::core::option::Option<super::dtype::DType>,
+}
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct VariantPathElement {
+    #[prost(oneof = "variant_path_element::Element", tags = "1, 2")]
+    pub element: ::core::option::Option<variant_path_element::Element>,
+}
+/// Nested message and enum types in `VariantPathElement`.
+pub mod variant_path_element {
+    #[derive(Clone, PartialEq, Eq, Hash, ::prost::Oneof)]
+    pub enum Element {
+        #[prost(string, tag = "1")]
+        Field(::prost::alloc::string::String),
+        #[prost(uint64, tag = "2")]
+        Index(u64),
+    }
+}
 /// Options for `vortex.binary`
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct BinaryOpts {

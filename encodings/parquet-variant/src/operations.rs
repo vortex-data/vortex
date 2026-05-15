@@ -24,20 +24,18 @@ use vortex_array::scalar::ScalarValue;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ParquetVariantArrayExt;
 use crate::vtable::ParquetVariant;
 
 impl OperationsVTable<ParquetVariant> for ParquetVariant {
-    /// Resolves a single variant value according to the Parquet Variant shredding spec:
+    /// Resolves one row according to the Parquet Variant shredding rules.
     ///
-    /// | value    | typed_value | Meaning                                              |
-    /// |----------|-------------|------------------------------------------------------|
-    /// | NULL     | NULL        | Missing (only valid for shredded object fields)       |
-    /// | non-NULL | NULL        | Un-shredded: decode from metadata + value bytes       |
-    /// | NULL     | non-NULL    | Perfectly shredded: use typed_value directly           |
-    /// | non-NULL | non-NULL    | Partially shredded object (typed_value takes priority) |
+    /// For valid data, a row with both `value` and struct `typed_value` is a partially
+    /// shredded object: recursively reconstruct shredded fields and merge them with the
+    /// raw-only fields from `value`.
     fn scalar_at(
         array: ArrayView<'_, ParquetVariant>,
         index: usize,
@@ -76,6 +74,9 @@ fn scalar_from_variant_storage(
     index: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Scalar> {
+    // A valid typed row owns the logical value except for partially shredded
+    // objects, where the raw `value` may carry object fields that were not
+    // represented in `typed_value`.
     if let Some(typed_value) = typed_value
         && typed_value.is_valid(index, ctx)?
     {
@@ -98,15 +99,15 @@ fn scalar_from_typed_value_array(
     index: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Scalar> {
-    let value_scalar = match value {
-        Some(value) if value.is_valid(index, ctx)? => Some(value.execute_scalar(index, ctx)?),
+    let typed_value_scalar = typed_value.execute_scalar(index, ctx)?;
+    let value_scalar = match typed_value_scalar.dtype() {
+        DType::Struct(..) => match value {
+            Some(value) if value.is_valid(index, ctx)? => Some(value.execute_scalar(index, ctx)?),
+            _ => None,
+        },
         _ => None,
     };
-    scalar_from_typed_value_scalar(
-        metadata,
-        value_scalar,
-        typed_value.execute_scalar(index, ctx)?,
-    )
+    scalar_from_typed_value_scalar(metadata, value_scalar, typed_value_scalar)
 }
 
 fn scalar_from_typed_value_scalar(
@@ -132,6 +133,8 @@ fn scalar_from_typed_value_scalar(
                 Nullability::NonNullable,
             ))
         }
+        // A struct `typed_value` represents object shredding. It may be paired
+        // with a raw object containing only fields absent from the typed struct.
         DType::Struct(..) => scalar_from_shredded_object_scalar(metadata, value, typed_value),
         _ => Ok(typed_value),
     }
@@ -147,6 +150,26 @@ fn scalar_from_shredded_field_scalar(
 
     let field = field_scalar.as_struct();
     scalar_from_field_scalars(metadata, field.field("value"), field.field("typed_value"))
+}
+
+fn scalar_from_shredded_object_field_scalar(
+    metadata: &[u8],
+    field_scalar: Scalar,
+) -> VortexResult<Option<Scalar>> {
+    if field_scalar.is_null() {
+        return Ok(None);
+    }
+
+    let field = field_scalar.as_struct();
+    let value = field.field("value");
+    let typed_value = field.field("typed_value");
+    let has_value = value.as_ref().is_some_and(|scalar| !scalar.is_null());
+    let has_typed_value = typed_value.as_ref().is_some_and(|scalar| !scalar.is_null());
+    if !has_value && !has_typed_value {
+        return Ok(None);
+    }
+
+    scalar_from_field_scalars(metadata, value, typed_value).map(Some)
 }
 
 fn scalar_from_field_scalars(
@@ -180,12 +203,15 @@ fn scalar_from_shredded_object_scalar(
     let mut field_values = Vec::new();
 
     for name in typed_value.names().iter() {
-        let nested = scalar_from_shredded_field_scalar(
+        let Some(nested) = scalar_from_shredded_object_field_scalar(
             metadata,
             typed_value
                 .field(name.as_ref())
                 .vortex_expect("typed struct field must exist"),
-        )?;
+        )?
+        else {
+            continue;
+        };
         names.push(FieldName::from(name.as_ref()));
         dtypes.push(DType::Variant(Nullability::NonNullable));
         field_values.push(Scalar::variant(nested).into_value());
@@ -196,9 +222,16 @@ fn scalar_from_shredded_object_scalar(
     {
         let unshredded = scalar_from_unshredded_value(metadata, &value)?;
         if !unshredded.is_null() {
-            let unshredded = unshredded.as_struct();
+            let Some(unshredded) = unshredded.as_struct_opt() else {
+                vortex_bail!("Variant typed_value must be object if typed_value is a struct");
+            };
             for name in unshredded.names().iter() {
-                if typed_value.field(name.as_ref()).is_some() {
+                if names
+                    .iter()
+                    .any(|typed_name| typed_name.as_ref() == name.as_ref())
+                {
+                    // Invalid writers may duplicate a shredded field in `value`.
+                    // Keep the typed field so field reads remain consistent.
                     continue;
                 }
                 let field = unshredded
@@ -356,8 +389,6 @@ mod tests {
     use parquet_variant_compute::VariantArrayBuilder;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
-    use vortex_array::arrays::Variant;
-    use vortex_array::arrays::variant::VariantArrayExt;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
     use vortex_array::scalar::Scalar;
@@ -366,7 +397,6 @@ mod tests {
 
     use crate::ParquetVariant;
     use crate::ParquetVariantArrayExt;
-    use crate::ParquetVariantData;
     use crate::operations::parquet_variant_to_scalar;
 
     fn binary_view_array(values: &[&[u8]]) -> ArrowArrayRef {
@@ -381,7 +411,7 @@ mod tests {
         arrow_variant: &ArrowVariantArray,
         rows: impl IntoIterator<Item = usize>,
     ) -> VortexResult<()> {
-        let vortex_arr = ParquetVariantData::from_arrow_variant(arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(arrow_variant)?;
 
         for index in rows {
             let expected_inner = parquet_variant_to_scalar(arrow_variant.try_value(index)?)?;
@@ -413,12 +443,12 @@ mod tests {
         )?;
 
         let arrow_variant = ArrowVariantArray::try_new(&null_struct)?;
-        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::Nullable));
 
-        let variant = vortex_arr.as_opt::<Variant>().unwrap();
-        assert!(variant.dtype().is_nullable());
+        let parquet_variant = vortex_arr.as_opt::<ParquetVariant>().unwrap();
+        assert!(parquet_variant.dtype().is_nullable());
 
         assert!(
             vortex_arr
@@ -440,6 +470,44 @@ mod tests {
     }
 
     #[test]
+    fn test_outer_null_and_variant_null_are_distinct() -> VortexResult<()> {
+        let mut builder = VariantArrayBuilder::new(3);
+        builder.append_variant(PqVariant::Null);
+        builder.append_variant(PqVariant::from(42i32));
+        builder.append_variant(PqVariant::from("present"));
+        let inner = builder.build().into_inner();
+
+        let null_struct = StructArray::try_new(
+            inner.fields().clone(),
+            inner.columns().to_vec(),
+            Some(NullBuffer::from(vec![true, false, true])),
+        )?;
+
+        let arrow_variant = ArrowVariantArray::try_new(&null_struct)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
+
+        let present_variant_null =
+            vortex_arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert!(!present_variant_null.is_null());
+        assert_eq!(
+            present_variant_null.as_variant().is_variant_null(),
+            Some(true)
+        );
+
+        let outer_null =
+            vortex_arr.execute_scalar(1, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert!(outer_null.is_null());
+        assert_eq!(outer_null.as_variant().is_variant_null(), None);
+
+        let present_value =
+            vortex_arr.execute_scalar(2, &mut LEGACY_SESSION.create_execution_ctx())?;
+        assert!(!present_value.is_null());
+        assert_eq!(present_value.as_variant().is_variant_null(), Some(false));
+
+        Ok(())
+    }
+
+    #[test]
     fn test_from_arrow_variant_all_nulls() -> VortexResult<()> {
         let mut builder = VariantArrayBuilder::new(2);
         builder.append_variant(PqVariant::from(1i32));
@@ -453,7 +521,7 @@ mod tests {
         )?;
 
         let arrow_variant = ArrowVariantArray::try_new(&null_struct)?;
-        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(vortex_arr.dtype(), &DType::Variant(Nullability::Nullable));
         assert!(
@@ -467,9 +535,7 @@ mod tests {
                 .is_null()
         );
 
-        let variant_view = vortex_arr.as_opt::<Variant>().unwrap();
-        let child = variant_view.child();
-        let inner_pv = child.as_opt::<ParquetVariant>().unwrap();
+        let inner_pv = vortex_arr.as_opt::<ParquetVariant>().unwrap();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let roundtripped = inner_pv.to_arrow(&mut ctx)?;
         assert_eq!(roundtripped.inner().null_count(), 2);
@@ -484,7 +550,7 @@ mod tests {
         builder.append_variant(PqVariant::from(2i32));
         let arrow_variant = builder.build();
 
-        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
 
         assert_eq!(
             vortex_arr.dtype(),
@@ -605,7 +671,7 @@ mod tests {
         )?;
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
-        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
 
         let row0 = vortex_arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
         let row0 = row0.as_variant().value().unwrap().as_list();
@@ -697,7 +763,7 @@ mod tests {
         )?;
 
         let arrow_variant = ArrowVariantArray::try_new(&struct_array)?;
-        let vortex_arr = ParquetVariantData::from_arrow_variant(&arrow_variant)?;
+        let vortex_arr = ParquetVariant::from_arrow_variant(&arrow_variant)?;
         let object = vortex_arr.execute_scalar(0, &mut LEGACY_SESSION.create_execution_ctx())?;
         let object = object.as_variant().value().unwrap().as_struct();
 

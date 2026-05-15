@@ -472,13 +472,9 @@ class PyArray(Array, metaclass=abc.ABCMeta):
         """
 
 
-def _unpickle_array(array_buffers: Sequence[bytes | memoryview], dtype_buffers: Sequence[bytes | memoryview]) -> Array:  # pyright: ignore[reportUnusedFunction]
-    """Unpickle a Vortex array from IPC-encoded buffer lists.
-
-    This is an internal function used by the pickle module for both protocol 4 and 5.
-
-    For protocol 4, receives list[bytes] from __reduce__.
-    For protocol 5, receives list[PickleBuffer/memoryview] from __reduce_ex__.
-    Both use decode_ipc_array_buffers which concatenates the buffers during deserialization.
-    """
+def _unpickle_array(  # pyright: ignore[reportUnusedFunction]
+    array_buffers: Sequence[bytes | memoryview],
+    dtype_buffers: Sequence[bytes | memoryview],
+) -> Array:
+    """Unpickle a Vortex array from IPC-encoded buffer lists."""
     return decode_ipc_array_buffers(array_buffers, dtype_buffers)

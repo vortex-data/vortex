@@ -14,6 +14,7 @@
 // #include "nanoarrow/common/inline_types.h"
 // #define USE_OWN_ARROW
 // typedef struct ArrowSchema FFI_ArrowSchema;
+// typedef struct ArrowArray FFI_ArrowArray;
 // typedef struct ArrowArrayStream FFI_ArrowArrayStream;
 // #include "vortex.h"
 //
@@ -49,6 +50,7 @@ struct ArrowArrayStream {
     void *private_data;
 };
 typedef struct ArrowSchema FFI_ArrowSchema;
+typedef struct ArrowArray FFI_ArrowArray;
 typedef struct ArrowArrayStream FFI_ArrowArrayStream;
 #endif
 
@@ -787,6 +789,34 @@ const vx_array *vx_array_new_primitive(vx_ptype ptype,
                                        const vx_validity *validity,
                                        vx_error **error);
 
+/**
+ * Create a Vortex array by importing an Arrow array via the Arrow C Data Interface.
+ *
+ * `array` and `schema` together describe a single Arrow array (the standard Arrow C Data
+ * Interface pair, e.g. as produced by exporting a record batch). Both are *consumed*: their
+ * `release` callbacks are invoked by this function and the caller must not use or release them
+ * afterwards.
+ *
+ * `nullable` controls the top-level nullability of the resulting array's dtype. For an Arrow
+ * record batch (which has no top-level validity) pass `false`.
+ *
+ * The imported buffers are referenced zero-copy where possible; the returned array keeps the
+ * Arrow data alive until it is freed with [`vx_array_free`].
+ *
+ * On error, returns NULL and sets `error_out`.
+ *
+ * Example:
+ *
+ * // export an Arrow record batch into (array, schema), then:
+ * vx_error* error = NULL;
+ * const vx_array* vx = vx_array_from_arrow(&array, &schema, false, &error);
+ * // ... push it to a sink or write it ...
+ * vx_array_free(vx);
+ *
+ */
+const vx_array *
+vx_array_from_arrow(FFI_ArrowArray *array, FFI_ArrowSchema *schema, bool nullable, vx_error **error_out);
+
 uint8_t vx_array_get_u8(const vx_array *array, size_t index);
 
 uint8_t vx_array_get_storage_u8(const vx_array *array, size_t index);
@@ -1077,6 +1107,18 @@ const vx_string *vx_dtype_time_zone(const DType *dtype);
  * On success, returns 0. On error, sets err and returns 1.
  */
 int vx_dtype_to_arrow_schema(const vx_dtype *dtype, FFI_ArrowSchema *schema, vx_error **err);
+
+/**
+ * Create a Vortex dtype from an Arrow C Data Interface schema.
+ *
+ * `schema` must point to a valid `ArrowSchema` describing a struct (record-batch) schema. It is
+ * *consumed*: its `release` callback is invoked by this function and the caller must not use or
+ * release it afterwards. The returned dtype is a non-nullable struct, mirroring how Arrow record
+ * batches map to Vortex arrays.
+ *
+ * On error, returns NULL and sets `err`.
+ */
+const vx_dtype *vx_dtype_from_arrow_schema(FFI_ArrowSchema *schema, vx_error **err);
 
 /**
  * Free an owned [`vx_error`] object.

@@ -10,6 +10,7 @@
 //! ingest side, see [`crate::records`]).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -54,17 +55,21 @@ pub fn group_sort_key(name: &str) -> (usize, &str) {
 }
 
 /// Body of `GET /api/groups`: every group with its chart links and summary.
+///
+/// The inner [`Vec`] is held in an [`Arc`] so [`crate::query_cache::QueryCache`]
+/// can serve the same allocation to every concurrent reader without cloning.
+/// `Arc<T>` serialises through to `T`, so the wire shape is unchanged.
 #[derive(Debug, Serialize)]
 pub struct GroupsResponse {
     /// Every group surfaced by the discovery passes, in canonical order.
-    pub groups: Vec<Group>,
+    pub groups: Arc<Vec<Group>>,
 }
 
 /// One group: a display name, a slug for the group permalink, and the chart
 /// links inside it. Optionally carries a v2-compatible rollup summary and a
 /// short editorial description (rendered as a hover tooltip on the
 /// disclosure title).
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Group {
     /// Human-readable group label rendered in the disclosure header.
     pub name: String,
@@ -83,7 +88,7 @@ pub struct Group {
 }
 
 /// All charts in one group, returned by `GET /api/group/{slug}`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct GroupChartsResponse {
     /// Group display name, matching the `name` field on [`Group`].
     pub name: String,
@@ -98,7 +103,7 @@ pub struct GroupChartsResponse {
 }
 
 /// Server-computed group summary, matching the v2 metadata contract.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum Summary {
     /// Random-access format ranking for the latest populated random-access chart.
@@ -161,7 +166,7 @@ pub enum Summary {
 }
 
 /// One random-access summary row.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct RandomAccessRanking {
     /// Series name, normally the physical format.
     pub name: String,
@@ -172,7 +177,7 @@ pub struct RandomAccessRanking {
 }
 
 /// One query benchmark summary row.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct QueryRanking {
     /// Series name, normally `engine:format`.
     pub name: String,
@@ -186,7 +191,11 @@ pub struct QueryRanking {
 /// A single chart inside a [`GroupChartsResponse`]. `name` is the chart's
 /// short label inside the group (e.g. `Q1`); `slug` round-trips through
 /// `/api/chart/{slug}`.
-#[derive(Debug, Serialize)]
+///
+/// `chart` is held in an [`Arc`] so the cache and the landing-page builder
+/// share the same allocation; `Arc<T>` serialises as `T`, so the wire shape
+/// is identical to a plain `ChartResponse`.
+#[derive(Debug, Clone, Serialize)]
 pub struct NamedChartResponse {
     /// Chart label rendered in the chart-card title (e.g. `Q1`).
     pub name: String,
@@ -194,12 +203,12 @@ pub struct NamedChartResponse {
     pub slug: String,
     /// Inlined chart payload — same shape as `/api/chart/{slug}`.
     #[serde(flatten)]
-    pub chart: ChartResponse,
+    pub chart: Arc<ChartResponse>,
 }
 
 /// One chart's short label inside a group (e.g. `Q1`) plus the slug that
 /// resolves to its `/api/chart/{slug}` payload.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ChartLink {
     /// Chart label rendered in the chart-card title (e.g. `Q1`).
     pub name: String,
@@ -219,7 +228,9 @@ pub struct ChartResponse {
     /// time values around 1e6 ns) so the rendered axis stays readable. The
     /// taxonomy is small on purpose — see [`UnitKind`].
     pub unit_kind: UnitKind,
-    /// Every commit that has at least one rendered data point, oldest first.
+    /// Full-history placement of this payload's bounded `commits` window.
+    pub history: ChartHistory,
+    /// Every loaded commit in this payload, oldest first.
     pub commits: Vec<CommitPoint>,
     /// Per-series value arrays, indexed in lockstep with `commits`.
     pub series: serde_json::Map<String, JsonValue>,
@@ -230,6 +241,20 @@ pub struct ChartResponse {
     /// vector-search flavors) are simply absent from this map.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub series_meta: BTreeMap<String, SeriesTag>,
+}
+
+/// Placement metadata for a possibly bounded chart payload.
+#[derive(Debug, Clone, Serialize)]
+pub struct ChartHistory {
+    /// Number of commits in this chart's full x-axis after the benchmark's
+    /// first data point.
+    pub total_commits: usize,
+    /// Index in the full x-axis where `commits[0]` belongs.
+    pub start_index: usize,
+    /// Number of commits loaded into this payload.
+    pub loaded_commits: usize,
+    /// True when this payload covers the full x-axis.
+    pub complete: bool,
 }
 
 /// Structured y-axis unit taxonomy carried on every [`ChartResponse`]. The

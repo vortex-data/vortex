@@ -5,12 +5,12 @@
 //!
 //! Three pages, all backed by the same per-chart UX:
 //! - `GET /` — landing page. Every group is a collapsible `<details>`,
-//!   all collapsed by default; the user picks which to expand. The
-//!   *first* group's chart payloads are still pre-inlined in the HTML
-//!   so opening it skips the JS fetch round-trip; every other group
-//!   ships only chart-card shells and is fetched on first toggle.
+//!   all collapsed by default; the user picks which to expand. Every group
+//!   ships chart-card shells plus versioned shard metadata, and JS hydrates
+//!   the latest-100 payloads from materialized artifacts on intent/open.
 //! - `GET /chart/{slug}` — single chart page; permalink for sharing.
-//! - `GET /group/{slug}` — every chart in one group on a single page.
+//! - `GET /group/{slug}` — every chart shell in one group on a single page,
+//!   opened by default and hydrated through the same shard path.
 //!
 //! Each chart card owns its own compact toolbar (scope slider + Y-axis). There
 //! is no page-level toolbar — every chart is independent. Scope is
@@ -18,12 +18,10 @@
 //! toolbar manipulates `chart.options.scales.x.min`/`max` to set the visible
 //! window. No refetches on scope change.
 //!
-//! Every HTML route defaults to the unbounded commit window
-//! ([`CommitWindow::All`]) so users can pan/zoom all the way back to the
-//! very first commit. The chart payload is sent **raw** — any visual
-//! downsampling happens client-side in `chart-init.js`, applied only to
-//! the currently visible commit range. The common case (a chart zoomed in
-//! to the last ~100 commits) renders raw with no LTTB at all.
+//! HTML routes default to the latest-100 materialized window. Users who
+//! pan/zoom beyond that window trigger an explicit `?n=all` chart fetch.
+//! Visual downsampling happens client-side in `chart-init.js`, applied only
+//! to the currently visible commit range.
 //!
 //! URL query param `?n=` is accepted as a power-user override on the
 //! initial fetch but is not written back from the toolbar. Per-chart UI
@@ -58,7 +56,6 @@ mod static_assets;
 mod summary;
 mod toolbar;
 
-use anyhow::Result;
 use axum::Router;
 use axum::extract::Path;
 use axum::extract::Query;
@@ -67,11 +64,9 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::response::Response;
 use axum::routing::get;
-use duckdb::Connection;
 use serde::Deserialize;
 
 use self::chart::chart_body;
-use self::chart::group_body;
 use self::landing::LandingGroup;
 use self::landing::landing_body;
 use self::render::PageScripts;
@@ -85,16 +80,11 @@ use self::static_assets::serve_vortex_black_png;
 use self::static_assets::serve_vortex_white_png;
 use crate::api;
 use crate::api::CommitWindow;
+use crate::api::Group;
 use crate::app::AppState;
-use crate::db;
+use crate::read_model::ReadGeneration;
 use crate::slug::ChartKey;
 use crate::slug::GroupKey;
-
-/// Commits to inline for the first group's pre-fetched chart payloads.
-/// The chart's initial visible window is ~100 commits; bigger windows
-/// just bloat the cold-page HTML. Users who zoom out trigger a refetch
-/// with `?n=all` via `chart-init.js`.
-const LANDING_INLINE_N: u32 = 100;
 
 /// HTML routes mounted under `/`.
 pub fn router() -> Router<AppState> {
@@ -133,14 +123,13 @@ pub struct UiQuery {
 }
 
 impl UiQuery {
-    /// Resolve the [`CommitWindow`] for HTML routes. Defaults to
-    /// [`CommitWindow::All`] so users can pan/zoom all the way back to
-    /// the very first commit on every chart. Visual downsampling
-    /// happens client-side on the visible commit range only.
+    /// Resolve the [`CommitWindow`] for HTML routes. Defaults to the
+    /// materialized latest-100 window; `?n=all` opts into the slower
+    /// full-history fallback.
     fn fetch_window(&self) -> CommitWindow {
         match self.n.as_deref() {
             Some(_) => CommitWindow::parse(self.n.as_deref()),
-            None => CommitWindow::All,
+            None => CommitWindow::default(),
         }
     }
 
@@ -179,27 +168,16 @@ fn parse_csv(raw: Option<&str>) -> Vec<String> {
 }
 
 async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Response {
-    // The landing page intentionally ignores `?n=` for the inline payloads —
-    // they are always capped at [`LANDING_INLINE_N`] commits (see
-    // [`collect_landing_groups`]) so the cold HTML stays small. Power users
-    // with `?n=all` in the URL still get the unbounded view: `chart-init.js`
-    // refetches via `/api/chart/{slug}?n=all` when they zoom past the
-    // inlined range.
+    // The landing page intentionally ignores `?n=` for group hydration. It
+    // always starts from the materialized latest-100 shards, and
+    // `chart-init.js` fetches `/api/chart/{slug}?n=all` only after a user asks
+    // for history beyond that loaded window.
     let filter = ui.filter_state();
-    let result = db::run_blocking(&state.db, move |conn| {
-        let groups = collect_landing_groups(conn)?;
-        let universe = api::collect_filter_universe(conn)?;
-        Ok::<_, anyhow::Error>((groups, universe))
-    })
-    .await;
-    let (groups, universe) = match result {
-        Ok(g) => g,
-        Err(err) => {
-            tracing::error!(error = ?err, "landing: collect_landing_groups failed");
-            return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
-        }
-    };
-    let scripts = if groups.is_empty() {
+    let generation = state.read_store.active();
+    let groups = generation.groups();
+    let universe = generation.filter_universe();
+    let landing_groups = collect_landing_groups(&generation, &groups, None);
+    let scripts = if landing_groups.is_empty() {
         PageScripts::Empty
     } else {
         PageScripts::Chart
@@ -207,64 +185,41 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
     render_page(
         "bench.vortex.dev",
         "Vortex benchmarks (v3 alpha)",
-        landing_body(&groups, &universe),
+        landing_body(&landing_groups, universe.as_ref()),
         scripts,
-        Some(&universe),
+        Some(universe.as_ref()),
         &filter,
     )
     .into_response()
 }
 
-/// Build a landing-page view: every group, with the first group's payloads
-/// inlined and the rest left as shells. Groups whose discovery query
-/// returns no data are dropped, but a group whose charts simply have no data
-/// inside the inlined window is preserved as a shell so the user can see
-/// it (and the lazy-fetch retry path can populate it on toggle).
-///
-/// Inline payloads are always capped at [`LANDING_INLINE_N`] commits — the
-/// chart's initial visible range is ~100 commits anyway, and the bytes
-/// saved on the cold-page HTML matter much more than a slightly different
-/// fully-zoomed view that the user only sees if they zoom out (at which
-/// point `chart-init.js` refetches `?n=all` from the API).
-fn collect_landing_groups(conn: &Connection) -> Result<Vec<LandingGroup>> {
-    let groups = api::collect_groups(conn)?;
-    if groups.is_empty() {
-        return Ok(Vec::new());
-    }
-    let inline_window = CommitWindow::Last(
-        std::num::NonZeroU32::new(LANDING_INLINE_N).expect("LANDING_INLINE_N is non-zero"),
-    );
+/// Build a landing/group-page shell view. Each group carries the active
+/// generation id and shard prefix; no chart payload JSON is inlined.
+fn collect_landing_groups(
+    generation: &ReadGeneration,
+    groups: &[Group],
+    open_slug: Option<&str>,
+) -> Vec<LandingGroup> {
     let mut out = Vec::with_capacity(groups.len());
-    for (i, group) in groups.into_iter().enumerate() {
-        let inlined = if i == 0 {
-            // First group in canonical order: pre-fetch every chart so
-            // the moment the user expands it the chart hydrates from
-            // the inline JSON without a JS round-trip.
-            let mut v = Vec::with_capacity(group.charts.len());
-            for link in &group.charts {
-                let key = ChartKey::from_slug(&link.slug)?;
-                let payload = api::chart_payload(conn, &key, &inline_window)?;
-                v.push(payload.map(|chart| api::NamedChartResponse {
-                    name: link.name.clone(),
-                    slug: link.slug.clone(),
-                    chart,
-                }));
-            }
-            v
-        } else {
-            // Other groups: ship only the shells. The client fetches on
-            // first `details.toggle`.
-            (0..group.charts.len()).map(|_| None).collect()
-        };
+    for group in groups {
+        let shard_prefix = format!(
+            "/api/artifacts/{}/groups/{}/shards/",
+            generation.id(),
+            group.slug
+        );
         out.push(LandingGroup {
-            name: group.name,
-            description: group.description,
-            summary: group.summary,
-            chart_links: group.charts,
-            inlined,
+            name: group.name.clone(),
+            slug: group.slug.clone(),
+            generation: generation.id().to_string(),
+            shard_count: generation.group_shard_count(&group.slug),
+            shard_prefix,
+            open: open_slug == Some(group.slug.as_str()),
+            description: group.description.clone(),
+            summary: group.summary.clone(),
+            chart_links: group.charts.clone(),
         });
     }
-    Ok(out)
+    out
 }
 
 async fn chart_page(
@@ -281,39 +236,57 @@ async fn chart_page(
     };
 
     let window = ui.fetch_window();
-    let result = db::run_blocking(&state.db, move |conn| {
-        api::chart_payload(conn, &key, &window)
-    })
-    .await;
-    let chart = match result {
-        Ok(Some(c)) => c,
-        Ok(None) => return error_page(StatusCode::NOT_FOUND, "chart not found").into_response(),
-        Err(err) => {
-            tracing::error!(error = ?err, "chart_page: chart_payload failed");
-            return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
-        }
-    };
+    let (chart, payload_json) = if is_materialized_window(&window) {
+        let generation = state.read_store.active();
+        let Some(chart) = generation.chart_payload(&slug) else {
+            return error_page(StatusCode::NOT_FOUND, "chart not found").into_response();
+        };
+        let Some(artifact) = generation.chart_artifact(&slug) else {
+            return error_page(StatusCode::NOT_FOUND, "chart not found").into_response();
+        };
+        let payload_json = match std::str::from_utf8(artifact.identity()) {
+            Ok(s) => s.to_string(),
+            Err(err) => {
+                tracing::error!(error = ?err, "chart_page: artifact utf8 failed");
+                return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
+                    .into_response();
+            }
+        };
+        (chart, payload_json)
+    } else {
+        let chart = match api::cached_chart_payload(&state, &slug, &key, &window).await {
+            Ok(Some(c)) => c,
+            Ok(None) => {
+                return error_page(StatusCode::NOT_FOUND, "chart not found").into_response();
+            }
+            Err(err) => {
+                tracing::error!(error = ?err, "chart_page: chart_payload failed");
+                return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
+                    .into_response();
+            }
+        };
 
-    let payload_json = match serde_json::to_string(&chart) {
-        Ok(s) => s,
-        Err(err) => {
-            tracing::error!(error = ?err, "chart_page: serialize failed");
-            return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
-        }
+        let payload_json = match serde_json::to_string(&*chart) {
+            Ok(s) => s,
+            Err(err) => {
+                tracing::error!(error = ?err, "chart_page: serialize failed");
+                return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error")
+                    .into_response();
+            }
+        };
+        (chart, payload_json)
     };
 
     let title = format!("{} — bench.vortex.dev", chart.display_name);
     let subtitle = chart.display_name.clone();
     let filter = ui.filter_state();
-    let universe_result =
-        db::run_blocking(&state.db, |conn| api::collect_filter_universe(conn)).await;
-    let universe = universe_result.ok();
+    let universe = api::cached_filter_universe(&state).await.ok();
     render_page(
         &title,
         &subtitle,
-        chart_body(&chart, &slug, &payload_json),
+        chart_body(&chart, &slug, &payload_json, &window),
         PageScripts::Chart,
-        universe.as_ref(),
+        universe.as_deref(),
         &filter,
     )
     .into_response()
@@ -331,34 +304,31 @@ async fn group_page(
             return error_page(StatusCode::NOT_FOUND, "group not found").into_response();
         }
     };
-    let window = ui.fetch_window();
-    let result = db::run_blocking(&state.db, move |conn| {
-        api::collect_group_charts(conn, &key, &window)
-    })
-    .await;
-    let group = match result {
-        Ok(Some(g)) => g,
-        Ok(None) => return error_page(StatusCode::NOT_FOUND, "group not found").into_response(),
-        Err(err) => {
-            tracing::error!(error = ?err, "group_page: collect_group_charts failed");
-            return error_page(StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
-        }
+    let group_slug = key.to_slug();
+    let generation = state.read_store.active();
+    let groups = generation.groups();
+    let Some(group) = groups.iter().find(|group| group.slug == group_slug) else {
+        return error_page(StatusCode::NOT_FOUND, "group not found").into_response();
     };
     let title = format!("{} — bench.vortex.dev", group.name);
     let subtitle = group.name.clone();
     let filter = ui.filter_state();
-    let universe_result =
-        db::run_blocking(&state.db, |conn| api::collect_filter_universe(conn)).await;
-    let universe = universe_result.ok();
+    let universe = generation.filter_universe();
+    let group_shell =
+        collect_landing_groups(&generation, std::slice::from_ref(group), Some(&group_slug));
     render_page(
         &title,
         &subtitle,
-        group_body(&group),
+        landing_body(&group_shell, universe.as_ref()),
         PageScripts::Chart,
-        universe.as_ref(),
+        Some(universe.as_ref()),
         &filter,
     )
     .into_response()
+}
+
+fn is_materialized_window(window: &CommitWindow) -> bool {
+    matches!(window, CommitWindow::Last(n) if n.get() == api::DEFAULT_COMMIT_WINDOW)
 }
 
 #[cfg(test)]
@@ -366,9 +336,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fetch_window_default_is_all() {
+    fn fetch_window_default_is_latest_100() {
         let ui = UiQuery::default();
-        assert!(matches!(ui.fetch_window(), CommitWindow::All));
+        match ui.fetch_window() {
+            CommitWindow::Last(n) => assert_eq!(n.get(), api::DEFAULT_COMMIT_WINDOW),
+            CommitWindow::All => panic!(),
+        }
     }
 
     #[test]

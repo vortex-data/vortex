@@ -806,6 +806,42 @@ pub fn vortex_proto::expr::select_opts::Opts::hash<__H: core::hash::Hasher>(&sel
 
 impl core::marker::StructuralPartialEq for vortex_proto::expr::select_opts::Opts
 
+pub mod vortex_proto::expr::variant_path_element
+
+pub enum vortex_proto::expr::variant_path_element::Element
+
+pub vortex_proto::expr::variant_path_element::Element::Field(alloc::string::String)
+
+pub vortex_proto::expr::variant_path_element::Element::Index(u64)
+
+impl vortex_proto::expr::variant_path_element::Element
+
+pub fn vortex_proto::expr::variant_path_element::Element::encode(&self, &mut impl bytes::buf::buf_mut::BufMut)
+
+pub fn vortex_proto::expr::variant_path_element::Element::encoded_len(&self) -> usize
+
+pub fn vortex_proto::expr::variant_path_element::Element::merge(&mut core::option::Option<vortex_proto::expr::variant_path_element::Element>, u32, prost::encoding::wire_type::WireType, &mut impl bytes::buf::buf_impl::Buf, prost::encoding::DecodeContext) -> core::result::Result<(), prost::error::DecodeError>
+
+impl core::clone::Clone for vortex_proto::expr::variant_path_element::Element
+
+pub fn vortex_proto::expr::variant_path_element::Element::clone(&self) -> vortex_proto::expr::variant_path_element::Element
+
+impl core::cmp::Eq for vortex_proto::expr::variant_path_element::Element
+
+impl core::cmp::PartialEq for vortex_proto::expr::variant_path_element::Element
+
+pub fn vortex_proto::expr::variant_path_element::Element::eq(&self, &vortex_proto::expr::variant_path_element::Element) -> bool
+
+impl core::fmt::Debug for vortex_proto::expr::variant_path_element::Element
+
+pub fn vortex_proto::expr::variant_path_element::Element::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_proto::expr::variant_path_element::Element
+
+pub fn vortex_proto::expr::variant_path_element::Element::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_proto::expr::variant_path_element::Element
+
 pub struct vortex_proto::expr::AggregateFn
 
 pub vortex_proto::expr::AggregateFn::id: alloc::string::String
@@ -1229,6 +1265,70 @@ impl prost::message::Message for vortex_proto::expr::SelectOpts
 pub fn vortex_proto::expr::SelectOpts::clear(&mut self)
 
 pub fn vortex_proto::expr::SelectOpts::encoded_len(&self) -> usize
+
+pub struct vortex_proto::expr::VariantGetOpts
+
+pub vortex_proto::expr::VariantGetOpts::dtype: core::option::Option<vortex_proto::dtype::DType>
+
+pub vortex_proto::expr::VariantGetOpts::path: alloc::vec::Vec<vortex_proto::expr::VariantPathElement>
+
+impl core::clone::Clone for vortex_proto::expr::VariantGetOpts
+
+pub fn vortex_proto::expr::VariantGetOpts::clone(&self) -> vortex_proto::expr::VariantGetOpts
+
+impl core::cmp::PartialEq for vortex_proto::expr::VariantGetOpts
+
+pub fn vortex_proto::expr::VariantGetOpts::eq(&self, &vortex_proto::expr::VariantGetOpts) -> bool
+
+impl core::default::Default for vortex_proto::expr::VariantGetOpts
+
+pub fn vortex_proto::expr::VariantGetOpts::default() -> Self
+
+impl core::fmt::Debug for vortex_proto::expr::VariantGetOpts
+
+pub fn vortex_proto::expr::VariantGetOpts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_proto::expr::VariantGetOpts
+
+impl prost::message::Message for vortex_proto::expr::VariantGetOpts
+
+pub fn vortex_proto::expr::VariantGetOpts::clear(&mut self)
+
+pub fn vortex_proto::expr::VariantGetOpts::encoded_len(&self) -> usize
+
+pub struct vortex_proto::expr::VariantPathElement
+
+pub vortex_proto::expr::VariantPathElement::element: core::option::Option<vortex_proto::expr::variant_path_element::Element>
+
+impl core::clone::Clone for vortex_proto::expr::VariantPathElement
+
+pub fn vortex_proto::expr::VariantPathElement::clone(&self) -> vortex_proto::expr::VariantPathElement
+
+impl core::cmp::Eq for vortex_proto::expr::VariantPathElement
+
+impl core::cmp::PartialEq for vortex_proto::expr::VariantPathElement
+
+pub fn vortex_proto::expr::VariantPathElement::eq(&self, &vortex_proto::expr::VariantPathElement) -> bool
+
+impl core::default::Default for vortex_proto::expr::VariantPathElement
+
+pub fn vortex_proto::expr::VariantPathElement::default() -> Self
+
+impl core::fmt::Debug for vortex_proto::expr::VariantPathElement
+
+pub fn vortex_proto::expr::VariantPathElement::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_proto::expr::VariantPathElement
+
+pub fn vortex_proto::expr::VariantPathElement::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_proto::expr::VariantPathElement
+
+impl prost::message::Message for vortex_proto::expr::VariantPathElement
+
+pub fn vortex_proto::expr::VariantPathElement::clear(&mut self)
+
+pub fn vortex_proto::expr::VariantPathElement::encoded_len(&self) -> usize
 
 pub mod vortex_proto::scalar
 

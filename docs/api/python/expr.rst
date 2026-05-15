@@ -64,4 +64,3 @@ the following expression represents the set of rows for which the `age` column l
       ...    .to_pylist()
       ... )
       [{'x': 1, 'y': {'yy': 'a'}}]
-

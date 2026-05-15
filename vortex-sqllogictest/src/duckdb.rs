@@ -11,6 +11,7 @@ use bigdecimal::BigDecimal;
 use datafusion_sqllogictest::DFColumnType;
 use indicatif::ProgressBar;
 use sqllogictest::DBOutput;
+use sqllogictest::Normalizer;
 use sqllogictest::runner::AsyncDB;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
@@ -96,6 +97,22 @@ impl DuckDB {
             DFColumnType::Another
         }
     }
+}
+
+pub fn duckdb_validator(
+    normalizer: Normalizer,
+    actual: &[Vec<String>],
+    expected: &[String],
+) -> bool {
+    let actual = actual.iter().flat_map(|strings| {
+        strings
+            .join(" ")
+            .trim_end()
+            .split('\n')
+            .map(|line| line.trim_end().to_string())
+            .collect::<Vec<_>>()
+    });
+    Iterator::eq(actual, expected.iter().map(normalizer))
 }
 
 #[async_trait]

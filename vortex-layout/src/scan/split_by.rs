@@ -9,6 +9,7 @@ use vortex_array::dtype::FieldMask;
 use vortex_error::VortexResult;
 
 use crate::LayoutReader;
+use crate::SplitRange;
 
 /// Defines how the Vortex file is split into batches for reading.
 ///
@@ -39,7 +40,11 @@ impl SplitBy {
 
                 // Register all splits in the row range for all layouts that are needed
                 // to read the field mask.
-                layout_reader.register_splits(field_mask, row_range, &mut row_splits)?;
+                layout_reader.register_splits(
+                    field_mask,
+                    &SplitRange::root(row_range.clone())?,
+                    &mut row_splits,
+                )?;
                 row_splits
             }
             SplitBy::RowCount(n) => row_range

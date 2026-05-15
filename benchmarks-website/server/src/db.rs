@@ -3,9 +3,10 @@
 
 //! DuckDB connection management plus the deterministic `measurement_id` hash.
 //!
-//! The server holds a single [`duckdb::Connection`] inside an async
-//! [`tokio::sync::Mutex`]. All DB work runs inside `spawn_blocking` so the
-//! Tokio runtime is never blocked on synchronous DuckDB calls.
+//! The server keeps one root [`duckdb::Connection`] and clones a fresh
+//! connection from it for each blocking DB task. All DB work runs inside
+//! `spawn_blocking` so the Tokio runtime is never blocked on synchronous
+//! DuckDB calls.
 //!
 //! `measurement_id` is a server-internal xxhash64 over `commit_sha` plus
 //! each table's dimensional tuple. Including `commit_sha` makes every
@@ -21,7 +22,9 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use anyhow::Result;
 use duckdb::Connection;
-use tokio::sync::Mutex;
+use parking_lot::Mutex;
+use tokio::sync::OwnedSemaphorePermit;
+use tokio::sync::Semaphore;
 use twox_hash::XxHash64;
 
 use crate::records::CompressionSize;
@@ -31,8 +34,29 @@ use crate::records::RandomAccessTime;
 use crate::records::VectorSearchRun;
 use crate::schema::SCHEMA_DDL;
 
-/// A connection guard the rest of the crate hands around.
-pub type DbHandle = Arc<Mutex<Connection>>;
+const READ_CONCURRENCY_LIMIT: usize = 4;
+
+/// Shared DuckDB handle. Cloning the handle is cheap; each DB task clones a
+/// task-local [`Connection`] before doing work.
+#[derive(Clone)]
+pub struct DbHandle {
+    root: Arc<Mutex<Connection>>,
+    read_permits: Arc<Semaphore>,
+}
+
+impl DbHandle {
+    fn new(root: Connection) -> Self {
+        Self {
+            root: Arc::new(Mutex::new(root)),
+            read_permits: Arc::new(Semaphore::new(READ_CONCURRENCY_LIMIT)),
+        }
+    }
+
+    pub(crate) fn connection(&self) -> Result<Connection> {
+        let root = self.root.lock();
+        root.try_clone().context("cloning DuckDB connection")
+    }
+}
 
 /// Open the DuckDB file at `path` (creating it if absent) and apply the
 /// schema DDL. Returns a handle ready to be cloned into the Axum state.
@@ -41,20 +65,50 @@ pub fn open<P: AsRef<Path>>(path: P) -> Result<DbHandle> {
         .with_context(|| format!("opening DuckDB at {}", path.as_ref().display()))?;
     conn.execute_batch(SCHEMA_DDL)
         .context("applying schema DDL")?;
-    Ok(Arc::new(Mutex::new(conn)))
+    Ok(DbHandle::new(conn))
 }
 
-/// Run a synchronous DB operation on the blocking pool, holding the connection
-/// mutex for the duration of the call.
+/// Run a synchronous DB operation on the blocking pool using a task-local
+/// DuckDB connection cloned from the shared database handle.
 pub async fn run_blocking<F, T>(handle: &DbHandle, f: F) -> Result<T>
+where
+    F: FnOnce(&mut Connection) -> Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    run_blocking_inner(handle, None, f).await
+}
+
+/// Run a read-side DB operation on the blocking pool, capped by the read
+/// concurrency semaphore so a hydration burst cannot flood DuckDB with
+/// unbounded concurrent scans.
+pub async fn run_read_blocking<F, T>(handle: &DbHandle, f: F) -> Result<T>
+where
+    F: FnOnce(&mut Connection) -> Result<T> + Send + 'static,
+    T: Send + 'static,
+{
+    let permit = handle
+        .read_permits
+        .clone()
+        .acquire_owned()
+        .await
+        .context("read semaphore closed")?;
+    run_blocking_inner(handle, Some(permit), f).await
+}
+
+async fn run_blocking_inner<F, T>(
+    handle: &DbHandle,
+    permit: Option<OwnedSemaphorePermit>,
+    f: F,
+) -> Result<T>
 where
     F: FnOnce(&mut Connection) -> Result<T> + Send + 'static,
     T: Send + 'static,
 {
     let handle = handle.clone();
     tokio::task::spawn_blocking(move || {
-        let mut guard = handle.blocking_lock();
-        f(&mut guard)
+        let _permit = permit;
+        let mut conn = handle.connection()?;
+        f(&mut conn)
     })
     .await
     .context("DB task panicked")?
@@ -155,4 +209,62 @@ pub fn measurement_id_vector_search(r: &VectorSearchRun) -> i64 {
     write_str(&mut h, &r.flavor);
     write_f64(&mut h, r.threshold);
     finish(h)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    use anyhow::Result;
+    use tempfile::TempDir;
+
+    use super::*;
+
+    fn record_max(max_active: &AtomicUsize, value: usize) {
+        let mut current = max_active.load(Ordering::SeqCst);
+        while value > current {
+            match max_active.compare_exchange(current, value, Ordering::SeqCst, Ordering::SeqCst) {
+                Ok(_) => break,
+                Err(next) => current = next,
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn run_read_blocking_limits_concurrent_db_tasks() -> Result<()> {
+        let tmp = TempDir::new()?;
+        let handle = open(tmp.path().join("bench.duckdb"))?;
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let mut tasks = Vec::new();
+
+        for _ in 0..12 {
+            let active = Arc::clone(&active);
+            let max_active = Arc::clone(&max_active);
+            let handle = handle.clone();
+            tasks.push(tokio::spawn(async move {
+                run_read_blocking(&handle, move |_conn| {
+                    let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    record_max(&max_active, now);
+                    std::thread::sleep(Duration::from_millis(25));
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    Ok(())
+                })
+                .await
+            }));
+        }
+
+        for task in tasks {
+            task.await??;
+        }
+
+        assert!(
+            max_active.load(Ordering::SeqCst) <= 4,
+            "read DB tasks should be capped at four concurrent workers"
+        );
+        Ok(())
+    }
 }

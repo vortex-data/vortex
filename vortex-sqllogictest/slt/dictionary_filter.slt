@@ -4,7 +4,7 @@
 # Dictionary column filter tests - derived from vortex-datafusion schema_evolution.rs
 # These tests filter on columns that would typically be dictionary-encoded
 
-include ./setup.slt
+include ./setup.slt.no
 
 # Create test data simulating dictionary-encoded columns
 query I

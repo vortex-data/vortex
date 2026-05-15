@@ -58,6 +58,57 @@ async fn static_assets_are_served() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+async fn chart_init_uses_bounded_group_hydration() -> Result<()> {
+    let server = Server::start().await?;
+    let client = reqwest::Client::new();
+
+    let js = client
+        .get(server.url("/static/chart-init.js"))
+        .send()
+        .await?
+        .text()
+        .await?;
+
+    assert!(
+        js.contains("data-group-shard-prefix") && js.contains("fetchGroupShard"),
+        "landing hydration should fetch versioned group shard artifacts"
+    );
+    assert!(
+        !js.contains(r#""/api/group/""#),
+        "landing hydration should not put whole-group payloads on the hot path"
+    );
+    assert!(
+        js.contains(r#""/api/chart/""#) && js.contains("ensureFullHistory"),
+        "chart-init should use /api/chart for queued full-history warmup"
+    );
+    assert!(
+        js.contains("HYDRATION_CONCURRENCY") && js.contains("FULL_HISTORY_CONCURRENCY"),
+        "landing hydration and full-history warmup should bound per-tab fanout"
+    );
+    assert!(
+        !js.contains("startBackgroundPrefetch();"),
+        "chart-init must not fan out full-history chart fetches on page load"
+    );
+    assert!(
+        js.contains("normalizeChartPayload"),
+        "chart-init should normalize latest-100 payloads onto a virtual full-history x-axis"
+    );
+    assert!(
+        js.contains("queueGroupFullHistory"),
+        "opening a group should queue full-history fetches for that group"
+    );
+    assert!(
+        !js.contains("function maybeRefetchFullPayload"),
+        "full-history fetches should not depend on the old covers-all interaction gate"
+    );
+    assert!(
+        !js.contains("WIDE_DEFAULT_GROUPS"),
+        "group-open hydration should default every group to the latest-100 window"
+    );
+    Ok(())
+}
+
 /// Every response — landing HTML, chart JSON, bundled JS — flows through
 /// `tower-http`'s `CompressionLayer` so a client advertising
 /// `Accept-Encoding: gzip` gets a gzipped (or brotli) body. The

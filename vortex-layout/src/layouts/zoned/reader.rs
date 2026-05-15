@@ -23,6 +23,7 @@ use vortex_session::VortexSession;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
+use crate::SplitRange;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::pruning::PruningState;
 use crate::layouts::zoned::schema::stats_table_dtype;
@@ -107,11 +108,11 @@ impl LayoutReader for ZonedReader {
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
-        row_range: &Range<u64>,
+        split_range: &SplitRange,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
         self.data_child()?
-            .register_splits(field_mask, row_range, splits)
+            .register_splits(field_mask, split_range, splits)
     }
 
     fn pruning_evaluation(
