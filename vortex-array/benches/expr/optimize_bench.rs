@@ -32,7 +32,9 @@ fn struct_scope() -> DType {
 
 fn build_or_chain(n: usize) -> Expression {
     let base = eq(get_item("x", root()), lit(0i32));
-    (1..n).fold(base, |acc, i| or(acc, eq(get_item("x", root()), lit(i as i32))))
+    (1..n).fold(base, |acc, i| {
+        or(acc, eq(get_item("x", root()), lit(i as i32)))
+    })
 }
 
 #[divan::bench(args = [200])]
