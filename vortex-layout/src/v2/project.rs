@@ -22,6 +22,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::v2::demand::RowDemand;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -133,9 +134,10 @@ impl LayoutPlan for ProjectPlan {
     fn execute(
         &self,
         row_range: std::ops::Range<u64>,
+        demand: &RowDemand,
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
-        let inner = self.child.execute(row_range, ctx)?;
+        let inner = self.child.execute(row_range, demand, ctx)?;
         let expr = self.expr.clone();
         let dtype = self.output_dtype.clone();
         let mapped = inner.map(move |chunk_res| chunk_res.and_then(|chunk| chunk.apply(&expr)));

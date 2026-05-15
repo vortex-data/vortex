@@ -37,7 +37,7 @@ use vortex_session::registry::ReadContext;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
-use crate::v2::demand::RowDemandSlot;
+use crate::v2::demand::RowDemand;
 use crate::v2::flat::decode_segment;
 use crate::v2::flat::slice_to_range;
 use crate::v2::plan::LayoutPlan;
@@ -201,7 +201,12 @@ impl LayoutPlan for FilteredFlatPlan {
         None
     }
 
-    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
+    fn execute(
+        &self,
+        row_range: Range<u64>,
+        demand: &RowDemand,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
         if !matches!(self.selection, Selection::All) {
             vortex_bail!(
                 "FilteredFlatPlan only supports Selection::All — non-All carried by FilterPlan separately"
@@ -225,23 +230,8 @@ impl LayoutPlan for FilteredFlatPlan {
         let session = ctx.session().clone();
         let row_range_for_slice = row_range.clone();
 
-        let mask_stream = self.mask_plan.execute(row_range, ctx)?;
-        // Resolve a demand consumer for this chunk's row range. If a
-        // demand-publishing producer (e.g. ZonedPruningPlan) has
-        // already zeroed out our range, we can skip the segment read
-        // entirely. The check is synchronous + cheap (atomic loads
-        // over the relevant windows).
-        let demand_consumer = RowDemandSlot::resolve(ctx).consumer();
-        let demand_range = row_range_for_slice.clone();
+        let mask_stream = self.mask_plan.execute(row_range, demand, ctx)?;
         let stream = try_stream! {
-            // Demand fast path — if upstream pruning already says
-            // every row in our range is dead, skip the decode and
-            // emit nothing. The mask stream is dropped (closing it),
-            // so the producer task observes the cancel.
-            if demand_consumer.cardinality(demand_range.clone()) == 0 {
-                drop(mask_stream);
-                return;
-            }
             // Lockstep contract: await enough mask rows to cover this
             // flat layout's row range, then issue the read. The
             // partial-read variant lands later (see
@@ -249,6 +239,14 @@ impl LayoutPlan for FilteredFlatPlan {
             let mask_array = mask_stream.read_all().await?;
             let mut ctx_exec = session.create_execution_ctx();
             let mask: Mask = mask_array.execute::<Mask>(&mut ctx_exec)?;
+
+            // Mask-zero short-circuit: if the upstream filter produced
+            // an all-false mask over our range, skip the decode +
+            // segment IO entirely. Mask round-trip is already paid;
+            // the `decode_segment` below is the expensive part.
+            if mask.true_count() == 0 {
+                return;
+            }
 
             let array = decode_segment(
                 segment_source,

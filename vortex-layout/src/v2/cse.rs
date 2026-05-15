@@ -186,6 +186,7 @@ mod tests {
     use vortex_error::vortex_bail;
 
     use super::cse;
+    use crate::v2::demand::RowDemand;
     use crate::v2::let_use::LetPlan;
     use crate::v2::let_use::UsePlan;
     use crate::v2::plan::LayoutPlan;
@@ -268,6 +269,7 @@ mod tests {
         fn execute(
             &self,
             _row_range: std::ops::Range<u64>,
+            _demand: &RowDemand,
             _ctx: &ScanCtx,
         ) -> VortexResult<SendableArrayStream> {
             let arrays: Vec<_> = self
@@ -364,6 +366,7 @@ mod tests {
         fn execute(
             &self,
             _row_range: std::ops::Range<u64>,
+            _demand: &RowDemand,
             _ctx: &ScanCtx,
         ) -> VortexResult<SendableArrayStream> {
             // Only used for structural tests, never executed.

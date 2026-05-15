@@ -31,6 +31,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::v2::demand::RowDemand;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -149,17 +150,27 @@ impl LayoutPlan for DictDecodePlan {
         }))
     }
 
-    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
-        let codes_stream = self.codes_plan.execute(row_range, ctx)?;
+    fn execute(
+        &self,
+        row_range: Range<u64>,
+        demand: &RowDemand,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
+        let codes_stream = self.codes_plan.execute(row_range, demand, ctx)?;
         // Read the entire values table. The values plan covers its
         // own row space (the dict's distinct-value count), not the
-        // codes' row space — execute it over its full range.
+        // codes' row space — execute it over its full range with a
+        // detached demand (the dict-values coord system is unrelated
+        // to ours).
         let values_total = self
             .values_plan
             .partition_stats(0)
             .map(|s| s.row_count())
             .unwrap_or(0);
-        let values_stream = self.values_plan.execute(0..values_total, ctx)?;
+        let values_demand = RowDemand::detached(values_total);
+        let values_stream = self
+            .values_plan
+            .execute(0..values_total, &values_demand, ctx)?;
 
         let expr = self.expr.clone();
         let dtype = self.output_dtype.clone();

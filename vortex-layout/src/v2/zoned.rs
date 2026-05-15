@@ -43,7 +43,7 @@ use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::v2::demand::RowDemandSlot;
+use crate::v2::demand::RowDemand;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -175,7 +175,12 @@ impl LayoutPlan for ZonedPruningPlan {
         }))
     }
 
-    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
+    fn execute(
+        &self,
+        row_range: Range<u64>,
+        demand: &RowDemand,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
         if row_range.start > self.row_count || row_range.end > self.row_count {
             vortex_bail!(
                 "ZonedPruningPlan::execute row range {row_range:?} exceeds total {}",
@@ -183,12 +188,17 @@ impl LayoutPlan for ZonedPruningPlan {
             );
         }
 
+        // Zones plan operates in zone-coords (one row per zone) — an
+        // unrelated row space, so pass detached.
         let zones_row_count = self
             .zones_plan
             .partition_stats(0)
             .map(|s| s.row_count())
             .unwrap_or_default();
-        let zones_stream = self.zones_plan.execute(0..zones_row_count, ctx)?;
+        let zones_demand = RowDemand::detached(zones_row_count);
+        let zones_stream = self
+            .zones_plan
+            .execute(0..zones_row_count, &zones_demand, ctx)?;
 
         let pruning_predicate = self.pruning_predicate.clone();
         let zone_len = self.zone_len;
@@ -197,17 +207,15 @@ impl LayoutPlan for ZonedPruningPlan {
         let dtype = self.output_dtype.clone();
         let data_plan = Arc::clone(&self.data_plan);
         let ctx_for_stream = ctx.clone();
+        let demand_for_stream = demand.clone();
 
-        // Resolve the partition's RowDemand and allocate a producer
-        // handle. The producer is owned by the async block below, so
-        // it drops with the stream — Drop decrements the active
-        // producer count, contributing to EOF when the last drops.
-        let demand = RowDemandSlot::resolve(ctx);
-        let producer = demand.producer();
+        // Acquire a producer guard so consumers waiting on demand
+        // know we're an active publisher; the guard is owned by the
+        // async block and decrements on stream end.
+        let guard = demand.producer_guard();
 
         let stream = try_stream! {
-            // Keep the producer alive across awaits.
-            let producer = producer;
+            let _guard = guard;
             // Materialise the zones table into one ArrayRef. For a
             // typical Flat zones layout this is a single chunk.
             let zones_array = zones_stream.read_all().await?;
@@ -223,14 +231,9 @@ impl LayoutPlan for ZonedPruningPlan {
             let prune_mask = zone_map.prune(&pruning_predicate, &session)?;
 
             // Publish the pruning result to RowDemand. Pruned zones
-            // → demand 0 for their row range. This is a single
-            // partition-wide publish; downstream consumers (e.g.
-            // FilteredFlatPlan looking at the projection columns) can
-            // skip whole chunks they'd otherwise have decoded.
-            //
-            // We build one BitBuffer of `row_count` bits for the
-            // whole partition, with bits SET for kept zones, UNSET
-            // for pruned zones. Then publish in one call.
+            // → demand 0 for their row range. We build one BitBuffer
+            // of `row_count` bits with bits SET for kept zones, UNSET
+            // for pruned zones, then publish in one call.
             let row_count_usize = usize::try_from(row_count)?;
             let mut demand_bits = BitBufferMut::new_set(row_count_usize);
             let nzones = usize::try_from(row_count.div_ceil(zone_len))?;
@@ -246,7 +249,7 @@ impl LayoutPlan for ZonedPruningPlan {
                 }
             }
             let publish_mask = Mask::from_buffer(demand_bits.freeze());
-            producer.publish(0..row_count, &publish_mask);
+            demand_for_stream.publish(0..row_count, &publish_mask);
 
             // Iterate intersecting zones, emit per-zone bool chunks.
             let zone_start_idx = row_range.start / zone_len;
@@ -268,15 +271,17 @@ impl LayoutPlan for ZonedPruningPlan {
                     yield ConstantArray::new(false, intersect_len).into_array();
                 } else {
                     // Kept — invoke the data plan over this zone's
-                    // intersection and forward its bool chunks.
+                    // intersection and forward its bool chunks. The
+                    // data plan shares our row coord system (it's a
+                    // pass-through layout under ZonedLayout), so hand
+                    // demand through unchanged.
                     let intersect = intersect_start..intersect_end;
-                    let mut data_stream = data_plan.execute(intersect, &ctx_for_stream)?;
+                    let mut data_stream = data_plan.execute(intersect, &demand_for_stream, &ctx_for_stream)?;
                     while let Some(item) = data_stream.next().await {
                         yield item?;
                     }
                 }
             }
-            drop(producer);
         };
 
         Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))

@@ -22,6 +22,7 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::v2::demand::RowDemand;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -121,7 +122,12 @@ impl LayoutPlan for MaskSlicePlan {
         }))
     }
 
-    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
+    fn execute(
+        &self,
+        row_range: Range<u64>,
+        _demand: &RowDemand,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
         if row_range.end > self.slice_len {
             vortex_bail!(
                 "MaskSlicePlan::execute row range {row_range:?} exceeds slice len {}",
@@ -130,6 +136,10 @@ impl LayoutPlan for MaskSlicePlan {
         }
         let abs_start = self.slice_offset + row_range.start;
         let abs_end = self.slice_offset + row_range.end;
-        self.inner.execute(abs_start..abs_end, ctx)
+        // Inner plan operates in a wider coord system (full mask
+        // range) than what we received; pass detached so it doesn't
+        // mis-attribute publishes against our parent's narrow scope.
+        let inner_demand = RowDemand::detached(abs_end);
+        self.inner.execute(abs_start..abs_end, &inner_demand, ctx)
     }
 }

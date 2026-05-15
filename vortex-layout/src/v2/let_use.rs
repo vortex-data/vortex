@@ -31,6 +31,7 @@ use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::v2::demand::RowDemand;
 use crate::v2::materialised_mask::MaskRegistry;
 use crate::v2::materialised_mask::build_materialise_future;
 use crate::v2::materialised_mask::slice_to_array;
@@ -214,7 +215,12 @@ impl LayoutPlan for LetPlan {
         }))
     }
 
-    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
+    fn execute(
+        &self,
+        row_range: Range<u64>,
+        demand: &RowDemand,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
         // Dispatch on source schema:
         //   - Bool sources go through `MaskRegistry` — value-based
         //     distribution, no kanal channels per consumer
@@ -222,7 +228,7 @@ impl LayoutPlan for LetPlan {
         //   - Anything else uses `TeeStream` for streaming fan-out.
         if matches!(self.source.schema(), DType::Bool(_)) {
             self.publish_mask(ctx)?;
-            return self.body.execute(row_range, ctx);
+            return self.body.execute(row_range, demand, ctx);
         }
         // Two-phase setup for streaming TeeStream:
         //   1. publish_stream — register the (not-yet-started) tee.
@@ -231,7 +237,7 @@ impl LayoutPlan for LetPlan {
         //   3. tee.start — spawn the producer task now that all
         //      subscribers are registered.
         let tee = self.publish_stream(ctx)?;
-        let body_stream = self.body.execute(row_range, ctx)?;
+        let body_stream = self.body.execute(row_range, demand, ctx)?;
         tee.start();
         Ok(body_stream)
     }
@@ -259,10 +265,12 @@ impl LetPlan {
         let ctx_for_init = ctx.clone();
         let session = ctx.session().clone();
         let mut init_err: Option<VortexError> = None;
+        // Source operates in its full row space, decoupled from any
+        // particular caller's row_range — pass detached demand.
+        let source_demand = RowDemand::detached(total_rows);
         let mut registry = ctx.get_mut::<MaskRegistry>();
-        drop(registry.get_or_init(
-            self.id,
-            || match source.execute(0..total_rows, &ctx_for_init) {
+        drop(registry.get_or_init(self.id, || {
+            match source.execute(0..total_rows, &source_demand, &ctx_for_init) {
                 Ok(stream) => build_materialise_future(stream, session),
                 Err(e) => {
                     init_err = Some(e);
@@ -279,8 +287,8 @@ impl LetPlan {
                     .boxed()
                     .shared()
                 }
-            },
-        ));
+            }
+        }));
         if let Some(e) = init_err {
             return Err(e);
         }
@@ -299,9 +307,12 @@ impl LetPlan {
         let handle = ctx.session().handle();
         let dtype_for_empty = source.schema().clone();
         let mut init_err: Option<VortexError> = None;
+        // Source operates in its full row space, decoupled from any
+        // particular caller's row_range — pass detached demand.
+        let source_demand = RowDemand::detached(total_rows);
         let mut registry = ctx.get_mut::<LetRegistry>();
         let arc = registry.get_or_init_stream(self.id, || {
-            match source.execute(0..total_rows, &ctx_for_init) {
+            match source.execute(0..total_rows, &source_demand, &ctx_for_init) {
                 Ok(stream) => TeeStream::new(stream, handle.clone()),
                 Err(e) => {
                     init_err = Some(e);
@@ -421,7 +432,12 @@ impl LayoutPlan for UsePlan {
         Ok(self)
     }
 
-    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
+    fn execute(
+        &self,
+        row_range: Range<u64>,
+        _demand: &RowDemand,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
         if row_range.end > self.row_count {
             vortex_bail!(
                 "UsePlan::execute row range {row_range:?} exceeds source row count {}",
@@ -511,6 +527,7 @@ mod tests {
     use super::LetRegistry;
     use super::UsePlan;
     use crate::test::SESSION;
+    use crate::v2::demand::RowDemand;
     use crate::v2::plan::LayoutPlan;
     use crate::v2::plan::LayoutPlanRef;
     use crate::v2::plan::PartitionStats;
@@ -592,6 +609,7 @@ mod tests {
         fn execute(
             &self,
             _row_range: std::ops::Range<u64>,
+            _demand: &RowDemand,
             _ctx: &ScanCtx,
         ) -> VortexResult<SendableArrayStream> {
             self.executes.fetch_add(1, Ordering::SeqCst);
@@ -659,7 +677,8 @@ mod tests {
             // range 2..6 (LetPlan delegates row_range to body).
             let plan: LayoutPlanRef =
                 Arc::new(LetPlan::with_id(id, Arc::clone(&source) as _, body));
-            let stream = plan.execute(2..6, &ctx)?;
+            let demand = RowDemand::detached(8);
+            let stream = plan.execute(2..6, &demand, &ctx)?;
             let values = collect_i32(stream).await?;
             assert_eq!(values, vec![3, 4, 5, 6]);
             Ok::<_, VortexError>(())
@@ -676,7 +695,8 @@ mod tests {
             let (body, body_execs) = CountingPlan::new(vec![vec![10, 20, 30]]);
             let plan = LetPlan::new(Arc::clone(&source) as _, Arc::clone(&body) as _);
 
-            let mut stream = plan.execute(0..3, &ctx)?;
+            let demand = RowDemand::detached(3);
+            let mut stream = plan.execute(0..3, &demand, &ctx)?;
             let mut total = 0;
             while let Some(item) = stream.next().await {
                 total += item?.len();

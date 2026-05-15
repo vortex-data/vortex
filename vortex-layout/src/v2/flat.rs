@@ -38,6 +38,7 @@ use vortex_session::registry::ReadContext;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::demand::RowDemand;
 use crate::v2::filtered_flat::FilteredFlatPlan;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
@@ -204,7 +205,12 @@ impl LayoutPlan for FlatPlan {
         )))
     }
 
-    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
+    fn execute(
+        &self,
+        row_range: Range<u64>,
+        _demand: &RowDemand,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
         if !matches!(self.selection, Selection::All) {
             // The V2 entrypoints never hand FlatPlan a non-`All`
             // selection — `FilterPlan` carries masks separately.

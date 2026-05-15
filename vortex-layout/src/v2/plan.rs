@@ -23,6 +23,7 @@ use vortex_utils::dyn_traits::DynEq;
 use vortex_utils::dyn_traits::DynHash;
 
 use crate::segments::SegmentSource;
+use crate::v2::demand::RowDemand;
 use crate::v2::scan_ctx::ScanCtx;
 
 pub type LayoutPlanRef = Arc<dyn LayoutPlan>;
@@ -117,6 +118,14 @@ pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {
     /// row coordinate space. Returns a stream of arrays whose total
     /// row count is `row_range.len()`.
     ///
+    /// `demand` is a coordinate-aware view onto the partition's
+    /// [`RowDemand`] in the *same* coord system as `row_range`. Plans
+    /// that don't change row domain pass it to children unchanged;
+    /// plans that translate (`ChunkedPlan`, etc.) call
+    /// [`RowDemand::scope`] before delegating. Subtrees in unrelated
+    /// row spaces (e.g. a stats child) should pass
+    /// [`RowDemand::detached`] instead.
+    ///
     /// `ctx` is the per-scan execution context (see
     /// [`crate::v2::scan_ctx::ScanCtx`]). It carries the
     /// [`vortex_session::VortexSession`] for this scan plus a typed
@@ -126,7 +135,12 @@ pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {
     /// Cross-execute sharing of derived values (e.g. dict values) is
     /// expressed via [`crate::v2::let_use::LetPlan`], which publishes
     /// the value into `ctx` and consumers look it up by `LetId`.
-    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream>;
+    fn execute(
+        &self,
+        row_range: Range<u64>,
+        demand: &RowDemand,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream>;
 }
 
 // `dyn LayoutPlan` is `PartialEq + Eq + Hash` via the dyn-safe
@@ -264,11 +278,10 @@ impl PlanArguments {
 /// execute time and the [`VortexSession`] used for plan-time setup
 /// that touches the array context.
 ///
-/// Notably does *not* carry [`RowDemand`] — that's an execute-time
-/// concept, late-bound by `ScanPlan` into a `RowDemandSlot` on the
-/// per-execute [`crate::v2::scan_ctx::ScanCtx`]. Plan nodes resolve
-/// it via [`crate::v2::demand::RowDemandSlot::resolve`] when they
-/// need a producer or consumer handle.
+/// Notably does *not* carry [`RowDemand`] — that's positional
+/// (per-row coordinates), so it travels alongside `row_range` as an
+/// explicit parameter to [`LayoutPlan::execute`] rather than as a
+/// shared `ScanCtx` slot.
 #[derive(Clone)]
 pub struct PlanCtx {
     pub segment_source: Arc<dyn SegmentSource>,

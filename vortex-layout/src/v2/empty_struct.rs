@@ -25,6 +25,7 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::v2::demand::RowDemand;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -105,7 +106,12 @@ impl LayoutPlan for EmptyStructPlan {
         Ok(self)
     }
 
-    fn execute(&self, row_range: Range<u64>, _ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
+    fn execute(
+        &self,
+        row_range: Range<u64>,
+        _demand: &RowDemand,
+        _ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
         if row_range.start > self.row_count || row_range.end > self.row_count {
             vortex_bail!(
                 "EmptyStructPlan::execute row range {row_range:?} exceeds row count {}",

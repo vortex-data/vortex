@@ -44,6 +44,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::v2::demand::RowDemand;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -150,7 +151,12 @@ impl LayoutPlan for MaskCollectPlan {
         None
     }
 
-    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
+    fn execute(
+        &self,
+        row_range: Range<u64>,
+        _demand: &RowDemand,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
         if row_range.end > self.row_count {
             vortex_bail!(
                 "MaskCollectPlan::execute row range {row_range:?} exceeds row count {}",
@@ -158,8 +164,13 @@ impl LayoutPlan for MaskCollectPlan {
             );
         }
 
+        // Materialise over the *full* child row space, decoupled from
+        // the caller's row_range slice. The child runs at most once per
+        // scan (CSE+Let), so its demand is a separate per-execute
+        // concern; pass detached.
         let total = self.row_count;
-        let child_stream = self.child.execute(0..total, ctx)?;
+        let child_demand = RowDemand::detached(total);
+        let child_stream = self.child.execute(0..total, &child_demand, ctx)?;
         let session = ctx.session().clone();
         let dtype = self.output_dtype.clone();
         let stream = try_stream! {
@@ -207,6 +218,7 @@ mod tests {
 
     use super::MaskCollectPlan;
     use crate::test::SESSION;
+    use crate::v2::demand::RowDemand;
     use crate::v2::plan::LayoutPlan;
     use crate::v2::plan::LayoutPlanRef;
     use crate::v2::plan::PartitionStats;
@@ -282,6 +294,7 @@ mod tests {
         fn execute(
             &self,
             _row_range: std::ops::Range<u64>,
+            _demand: &RowDemand,
             _ctx: &ScanCtx,
         ) -> VortexResult<SendableArrayStream> {
             let arrays: Vec<_> = self.chunks.iter().map(|c| Ok(bool_array(c))).collect();
@@ -315,7 +328,8 @@ mod tests {
                 vec![true, true, false],
             ]);
             let plan = MaskCollectPlan::try_new(child as _)?;
-            let stream = plan.execute(0..8, &ctx)?;
+            let demand = RowDemand::detached(8);
+            let stream = plan.execute(0..8, &demand, &ctx)?;
             let bits = collect_bools(stream).await?;
             assert_eq!(
                 bits,
@@ -337,7 +351,8 @@ mod tests {
             ]);
             let plan = MaskCollectPlan::try_new(child as _)?;
             // Slice rows 2..6 — bits [true, false, false, true]
-            let stream = plan.execute(2..6, &ctx)?;
+            let demand = RowDemand::detached(8);
+            let stream = plan.execute(2..6, &demand, &ctx)?;
             let bits = collect_bools(stream).await?;
             assert_eq!(bits, vec![true, false, false, true]);
             Ok::<_, VortexError>(())

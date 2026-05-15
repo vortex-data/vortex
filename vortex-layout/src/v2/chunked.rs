@@ -19,6 +19,7 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::v2::demand::RowDemand;
 use crate::v2::mask_slice::MaskSlicePlan;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
@@ -180,7 +181,12 @@ impl LayoutPlan for ChunkedPlan {
         }))
     }
 
-    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
+    fn execute(
+        &self,
+        row_range: Range<u64>,
+        demand: &RowDemand,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
         if row_range.start > self.total_rows() || row_range.end > self.total_rows() {
             vortex_bail!(
                 "ChunkedPlan::execute row range {row_range:?} exceeds total {}",
@@ -193,7 +199,8 @@ impl LayoutPlan for ChunkedPlan {
 
         // Find chunks intersecting the requested range. Walk each
         // intersecting chunk and dispatch a sub-range relative to
-        // the chunk's own row coordinate space.
+        // the chunk's own row coordinate space, scoping demand the
+        // same way.
         //
         // Chunks are ordered and disjoint by construction, so a
         // simple linear scan is fine for typical chunk counts. If a
@@ -210,7 +217,12 @@ impl LayoutPlan for ChunkedPlan {
             let intersect_end = chunk_end.min(row_range.end);
             // Translate to the child's own row coordinates.
             let child_range = (intersect_start - chunk_start)..(intersect_end - chunk_start);
-            child_streams.push(self.children[idx].execute(child_range, ctx)?);
+            // Scope demand to the same window we're handing the
+            // child. `chunk_*` are in our local coords (which match
+            // demand's coord system); the scope's local 0 corresponds
+            // to the child's local 0.
+            let child_demand = demand.scope(intersect_start..intersect_end);
+            child_streams.push(self.children[idx].execute(child_range, &child_demand, ctx)?);
         }
 
         let dtype = self.output_dtype.clone();

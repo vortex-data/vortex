@@ -27,6 +27,7 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 
 use crate::v2::aligned::AlignedArrayStream;
+use crate::v2::demand::RowDemand;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -133,10 +134,15 @@ impl LayoutPlan for AndBoolStreamsPlan {
         }))
     }
 
-    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
+    fn execute(
+        &self,
+        row_range: Range<u64>,
+        demand: &RowDemand,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
         let mut child_streams = Vec::with_capacity(self.children.len());
         for child in &self.children {
-            child_streams.push(child.execute(row_range.clone(), ctx)?);
+            child_streams.push(child.execute(row_range.clone(), demand, ctx)?);
         }
 
         let dtype = self.output_dtype.clone();

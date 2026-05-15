@@ -26,7 +26,6 @@ use crate::segments::SegmentSource;
 use crate::v2::and_bool::AndBoolStreamsPlan;
 use crate::v2::cse::cse;
 use crate::v2::demand::RowDemand;
-use crate::v2::demand::RowDemandSlot;
 use crate::v2::filter::FilterPlan;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
@@ -131,9 +130,10 @@ impl Scan {
 
 /// Top-level wrapper installed by [`Scan::build`] for filtered scans.
 /// At execute time it allocates a fresh [`RowDemand`] for the
-/// partition and installs it into the [`ScanCtx`] via
-/// [`RowDemandSlot::install`]. Producer / consumer plan nodes lower
-/// in the tree resolve it via [`RowDemandSlot::resolve`].
+/// partition and threads it into the body via the `demand` parameter.
+/// The demand inherited from the parent (typically `RowDemand::detached`,
+/// since `ScanPlan` is the top-level entry point) is dropped — `ScanPlan`
+/// is the boundary at which a new per-scan demand is introduced.
 ///
 /// Pure passthrough otherwise — schema, partition stats, children,
 /// pushdown all delegate to the body.
@@ -215,13 +215,16 @@ impl LayoutPlan for ScanPlan {
     fn execute(
         &self,
         row_range: std::ops::Range<u64>,
+        _demand: &RowDemand,
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
-        // Install a fresh per-partition RowDemand. Producer/consumer
-        // plans lower in the body resolve it via
-        // `RowDemandSlot::resolve`.
-        RowDemandSlot::install(ctx, RowDemand::new(self.total_rows));
-        self.body.execute(row_range, ctx)
+        // Allocate a fresh per-partition RowDemand and thread it into
+        // the body. The inherited `_demand` (from whoever called us)
+        // is intentionally ignored — `ScanPlan` is the boundary that
+        // introduces a fresh demand. Falsifier spawning is wired in a
+        // follow-up.
+        let demand = RowDemand::new(self.total_rows);
+        self.body.execute(row_range, &demand, ctx)
     }
 }
 
@@ -382,8 +385,10 @@ mod tests {
             let mut chunks = Vec::new();
             // Single execute call covering the entire layout's row
             // range. The plan internally handles whatever
-            // chunking/slicing it needs.
-            let mut stream = plan.execute(0..row_count, &scan_ctx)?;
+            // chunking/slicing it needs. ScanPlan installs a fresh
+            // demand internally; the parent demand we pass is detached.
+            let parent_demand = crate::v2::demand::RowDemand::detached(row_count);
+            let mut stream = plan.execute(0..row_count, &parent_demand, &scan_ctx)?;
             while let Some(chunk) = stream.next().await {
                 chunks.push(chunk?);
             }

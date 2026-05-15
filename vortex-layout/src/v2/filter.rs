@@ -31,6 +31,7 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 
 use crate::v2::aligned::AlignedArrayStream;
+use crate::v2::demand::RowDemand;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -149,9 +150,14 @@ impl LayoutPlan for FilterPlan {
         Ok(self)
     }
 
-    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
-        let values_stream = self.values.execute(row_range.clone(), ctx)?;
-        let mask_stream = self.mask.execute(row_range, ctx)?;
+    fn execute(
+        &self,
+        row_range: Range<u64>,
+        demand: &RowDemand,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
+        let values_stream = self.values.execute(row_range.clone(), demand, ctx)?;
+        let mask_stream = self.mask.execute(row_range, demand, ctx)?;
 
         let session = ctx.session().clone();
         let dtype = self.output_dtype.clone();
