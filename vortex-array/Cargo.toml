@@ -144,6 +144,11 @@ path = "benches/expr/case_when_bench.rs"
 harness = false
 
 [[bench]]
+name = "expr_optimize"
+path = "benches/expr/optimize_bench.rs"
+harness = false
+
+[[bench]]
 name = "chunked_dict_builder"
 harness = false
 required-features = ["_test-harness"]

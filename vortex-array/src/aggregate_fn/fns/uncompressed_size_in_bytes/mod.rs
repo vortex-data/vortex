@@ -150,17 +150,6 @@ impl AggregateFnVTable for UncompressedSizeInBytes {
         false
     }
 
-    fn try_partial_from_stats(&self, batch: &ArrayRef) -> VortexResult<Option<Scalar>> {
-        let Some(Precision::Exact(size_scalar)) =
-            batch.statistics().get(Stat::UncompressedSizeInBytes)
-        else {
-            return Ok(None);
-        };
-        let size = u64::try_from(&size_scalar)
-            .map_err(|e| vortex_err!("Failed to convert uncompressed size stat to u64: {e}"))?;
-        Ok(Some(Scalar::primitive(size, NonNullable)))
-    }
-
     fn accumulate(
         &self,
         partial: &mut Self::Partial,
@@ -548,7 +537,7 @@ mod tests {
     #[test]
     fn variant_stat_is_unsupported() -> VortexResult<()> {
         let child = ConstantArray::new(Scalar::variant(Scalar::from(42i32)), 3).into_array();
-        let array = VariantArray::new(child).into_array();
+        let array = VariantArray::try_new(child, None)?.into_array();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         assert_eq!(

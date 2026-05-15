@@ -101,11 +101,20 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
         }
         Canonical::Variant(a) => {
-            let filtered_child = a
-                .child()
-                .filter(Mask::Values(Arc::clone(mask)))
-                .vortex_expect("VariantArray child could not be filtered");
-            Canonical::Variant(VariantArray::new(filtered_child))
+            let filter_mask = Mask::Values(Arc::clone(mask));
+            let filtered_core_storage = a
+                .core_storage()
+                .filter(filter_mask.clone())
+                .vortex_expect("VariantArray core_storage could not be filtered");
+            let filtered_shredded = a.shredded().map(|shredded| {
+                shredded
+                    .filter(filter_mask)
+                    .vortex_expect("VariantArray shredded child could not be filtered")
+            });
+            Canonical::Variant(
+                VariantArray::try_new(filtered_core_storage, filtered_shredded)
+                    .vortex_expect("filtered VariantArray children are row-aligned"),
+            )
         }
     }
 }

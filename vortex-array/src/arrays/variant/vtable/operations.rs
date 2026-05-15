@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 
+use super::merge_typed_scalar_as_variant;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
@@ -16,6 +17,20 @@ impl OperationsVTable<Variant> for Variant {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        array.child().execute_scalar(index, ctx)
+        let core_storage = array.core_storage();
+        if core_storage.is_invalid(index, ctx)? {
+            return Ok(Scalar::null(array.dtype().clone()));
+        }
+
+        let Some(shredded) = array.shredded() else {
+            return core_storage.execute_scalar(index, ctx);
+        };
+
+        let typed = shredded.execute_scalar(index, ctx)?;
+        // If the shredded value is null OR we shredded an object we want to merge back together.
+        let fallback = (typed.is_null() || typed.dtype().is_struct())
+            .then(|| core_storage.execute_scalar(index, ctx))
+            .transpose()?;
+        merge_typed_scalar_as_variant(typed, fallback, array.dtype())
     }
 }

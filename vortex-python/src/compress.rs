@@ -5,10 +5,10 @@ use pyo3::prelude::*;
 use vortex::array::VortexSessionExecute;
 use vortex::compressor::BtrBlocksCompressor;
 
-use crate::SESSION;
 use crate::arrays::PyArrayRef;
 use crate::error::PyVortexResult;
 use crate::install_module;
+use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "compress")?;
@@ -52,8 +52,11 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///    >>> str(vx.compress(a))
 ///    'vortex.alp(f64?, len=1000)'
 #[pyfunction]
-pub fn compress(array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
-    let compressed = BtrBlocksCompressor::default()
-        .compress(array.inner(), &mut SESSION.create_execution_ctx())?;
+pub fn compress(py: Python, array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
+    let session = session();
+    let array = array.into_inner();
+    let compressed = py.detach(move || {
+        BtrBlocksCompressor::default().compress(&array, &mut session.create_execution_ctx())
+    })?;
     Ok(PyArrayRef::from(compressed))
 }

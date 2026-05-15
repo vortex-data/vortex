@@ -4,7 +4,6 @@
 use std::hash::Hash;
 use std::hash::Hasher;
 
-use fastlanes::FastLanes;
 use prost::Message;
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -21,7 +20,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::PType;
-use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::smallvec::smallvec;
 use vortex_array::vtable::VTable;
@@ -156,7 +154,7 @@ impl VTable for Delta {
         );
         let metadata = DeltaMetadata::decode(metadata)?;
         let ptype = PType::try_from(dtype)?;
-        let lanes = match_each_unsigned_integer_ptype!(ptype, |T| { <T as FastLanes>::LANES });
+        let lanes = lane_count(ptype);
 
         // Compute the length of the bases array
         let deltas_len = usize::try_from(metadata.deltas_len)
@@ -227,8 +225,8 @@ fn validate_parts(
     );
 
     vortex_ensure!(
-        bases.dtype().is_unsigned_int(),
-        "DeltaArray: dtype must be an unsigned integer, got {}",
+        bases.dtype().is_int(),
+        "DeltaArray: dtype must be an integer, got {}",
         bases.dtype()
     );
 

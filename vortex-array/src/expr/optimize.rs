@@ -29,18 +29,22 @@ impl Expression {
     /// 2. `simplify` - type-aware simplifications
     /// 3. `reduce` - abstract reduction rules via `ReduceNode`/`ReduceCtx`
     pub fn optimize(&self, scope: &DType) -> VortexResult<Expression> {
-        Ok(self
-            .clone()
-            .try_optimize(scope)?
-            .unwrap_or_else(|| self.clone()))
-    }
-
-    /// Try to optimize the root expression node only, returning None if no optimizations applied.
-    pub fn try_optimize(&self, scope: &DType) -> VortexResult<Option<Expression>> {
         let cache = SimplifyCache {
             scope,
             dtype_cache: RefCell::new(HashMap::new()),
         };
+        Ok(self
+            .clone()
+            .try_optimize(scope, &cache)?
+            .unwrap_or_else(|| self.clone()))
+    }
+
+    /// Try to optimize the root expression node only, returning None if no optimizations applied.
+    fn try_optimize(
+        &self,
+        scope: &DType,
+        cache: &SimplifyCache<'_>,
+    ) -> VortexResult<Option<Expression>> {
         let reduce_ctx = ExpressionReduceCtx {
             scope: scope.clone(),
         };
@@ -67,7 +71,7 @@ impl Expression {
             }
 
             // Try simplify (typed)
-            if let Some(simplified) = current.scalar_fn().simplify(&current, &cache)? {
+            if let Some(simplified) = current.scalar_fn().simplify(&current, cache)? {
                 current = simplified;
                 changed = true;
                 any_optimizations = true;
@@ -114,11 +118,28 @@ impl Expression {
 
     /// Try to optimize the entire expression tree recursively.
     pub fn try_optimize_recursive(&self, scope: &DType) -> VortexResult<Option<Expression>> {
+        let cache = SimplifyCache {
+            scope,
+            dtype_cache: RefCell::new(HashMap::new()),
+        };
+        let result = self.try_optimize_recursive_inner(scope, &cache)?;
+
+        // Apply the between optimization once at the top level only.
+        // TODO(ngates): remove the "between" optimization, or rewrite it to not always convert
+        //  to CNF?
+        Ok(Some(find_between(result.unwrap_or_else(|| self.clone()))))
+    }
+
+    fn try_optimize_recursive_inner(
+        &self,
+        scope: &DType,
+        cache: &SimplifyCache<'_>,
+    ) -> VortexResult<Option<Expression>> {
         let mut current = self.clone();
         let mut any_optimizations = false;
 
         // First optimize the root
-        if let Some(optimized) = current.clone().try_optimize(scope)? {
+        if let Some(optimized) = current.clone().try_optimize(scope, cache)? {
             current = optimized;
             any_optimizations = true;
         }
@@ -127,7 +148,7 @@ impl Expression {
         let mut new_children = Vec::with_capacity(current.children().len());
         let mut any_child_optimized = false;
         for child in current.children().iter() {
-            if let Some(optimized) = child.try_optimize_recursive(scope)? {
+            if let Some(optimized) = child.try_optimize_recursive_inner(scope, cache)? {
                 new_children.push(optimized);
                 any_child_optimized = true;
             } else {
@@ -140,14 +161,10 @@ impl Expression {
             any_optimizations = true;
 
             // After updating children, try to optimize root again
-            if let Some(optimized) = current.clone().try_optimize(scope)? {
+            if let Some(optimized) = current.clone().try_optimize(scope, cache)? {
                 current = optimized;
             }
         }
-
-        // TODO(ngates): remove the "between" optimization, or rewrite it to not always convert
-        //  to CNF?
-        let current = find_between(current);
 
         if any_optimizations {
             Ok(Some(current))
@@ -292,5 +309,42 @@ impl ReduceCtx for ExpressionReduceCtx {
             expression,
             scope: self.scope.clone(),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+
+    use crate::dtype::DType;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+    use crate::dtype::StructFields;
+    use crate::expr::eq;
+    use crate::expr::get_item;
+    use crate::expr::lit;
+    use crate::expr::or;
+    use crate::expr::root;
+
+    #[test]
+    fn optimize_or_chain_correctness() -> VortexResult<()> {
+        let expr = or(
+            eq(get_item("x", root()), lit(1i32)),
+            eq(get_item("x", root()), lit(2i32)),
+        );
+        let scope = DType::Struct(
+            StructFields::new(
+                ["x"].into(),
+                vec![DType::Primitive(PType::I32, Nullability::NonNullable)],
+            ),
+            Nullability::NonNullable,
+        );
+        let optimized = expr.optimize_recursive(&scope)?;
+
+        let s = optimized.to_string();
+        assert!(s.contains("$.x"), "expected $.x in {s}");
+        assert!(s.contains("1i32") || s.contains('1'), "expected 1 in {s}");
+        assert!(s.contains("2i32") || s.contains('2'), "expected 2 in {s}");
+        Ok(())
     }
 }

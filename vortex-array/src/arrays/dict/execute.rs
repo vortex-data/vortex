@@ -55,11 +55,13 @@ pub(crate) fn take_canonical(
         Canonical::Struct(a) => Canonical::Struct(take_struct(&a, codes)),
         Canonical::Extension(a) => Canonical::Extension(take_extension(&a, codes, ctx)),
         Canonical::Variant(a) => {
-            let taken_child = a
-                .child()
-                .take(codes.clone().into_array())
-                .vortex_expect("VariantArray child could not be taken");
-            Canonical::Variant(VariantArray::new(taken_child))
+            let indices = codes.clone().into_array();
+            let taken_core_storage = a.core_storage().take(indices.clone())?;
+            let taken_shredded = a
+                .shredded()
+                .map(|shredded| shredded.take(indices.clone()))
+                .transpose()?;
+            Canonical::Variant(VariantArray::try_new(taken_core_storage, taken_shredded)?)
         }
     })
 }

@@ -61,6 +61,8 @@
 - Maintain a clear separation between logical and physical types
 - Keep functions focused and reasonably sized
 - Separate public API from internal implementation details
+- Prefer one public entrypoint for each piece of functionality; keep helper APIs crate-private
+  unless callers need them independently.
 - Use modules to organize related functionality
 - Place tests in a `tests` module or separate test files
 

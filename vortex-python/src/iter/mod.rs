@@ -28,13 +28,13 @@ use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::DType;
 
-use crate::SESSION;
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::iter::python::PythonArrayIterator;
+use crate::session::session;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "iter")?;
@@ -129,7 +129,7 @@ impl PyArrayIterator {
             Box::new(RecordBatchIterator::new(
                 iter.map(move |chunk| {
                     let target = target.clone();
-                    SESSION.arrow().execute_arrow(
+                    session().arrow().execute_arrow(
                         chunk?,
                         Some(&target),
                         &mut LEGACY_SESSION.create_execution_ctx(),

@@ -13,6 +13,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::ExecutionResult;
 use crate::array::Array;
+use crate::array::ArrayParts;
 use crate::array::ArrayView;
 use crate::array::EmptyArrayData;
 use crate::array::VTable;
@@ -134,7 +135,7 @@ impl VTable for Struct {
         _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
         _session: &VortexSession,
-    ) -> VortexResult<crate::array::ArrayParts<Self>> {
+    ) -> VortexResult<ArrayParts<Self>> {
         if !metadata.is_empty() {
             vortex_bail!(
                 "StructArray expects empty metadata, got {} bytes",
@@ -169,10 +170,7 @@ impl VTable for Struct {
             .try_collect()?;
 
         let slots = make_struct_slots(&field_children, &validity, len);
-        Ok(
-            crate::array::ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData)
-                .with_slots(slots),
-        )
+        Ok(ArrayParts::new(self.clone(), dtype.clone(), len, EmptyArrayData).with_slots(slots))
     }
 
     fn slot_name(array: ArrayView<'_, Self>, idx: usize) -> String {

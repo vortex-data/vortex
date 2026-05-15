@@ -199,7 +199,7 @@ impl ParquetVariantData {
             .transpose()?;
 
         let pv = ParquetVariant::try_new(validity, metadata, value, typed_value)?;
-        Ok(VariantArray::new(pv.into_array()).into_array())
+        Ok(VariantArray::try_new(pv.into_array(), None)?.into_array())
     }
 }
 
@@ -319,7 +319,7 @@ mod tests {
         let variant_view = vortex_arr
             .as_opt::<Variant>()
             .ok_or_else(|| vortex_err!("expected variant array"))?;
-        let child = variant_view.child();
+        let child = variant_view.core_storage();
         let inner = child
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
@@ -413,7 +413,7 @@ mod tests {
             .as_opt::<Variant>()
             .ok_or_else(|| vortex_err!("expected variant array"))?;
         let inner = variant_arr
-            .child()
+            .core_storage()
             .as_opt::<ParquetVariant>()
             .ok_or_else(|| vortex_err!("expected parquet variant child"))?;
         assert!(inner.typed_value_array().is_some());

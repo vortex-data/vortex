@@ -7,9 +7,11 @@
 //! to get a blanket [`TableFunction`] implementation covering init, scan, progress, filter
 //! pushdown, cardinality, and partitioning.
 
+use std::cmp::max;
 use std::fmt::Debug;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
@@ -51,6 +53,8 @@ use vortex::layout::scan::multi::MultiLayoutDataSource;
 use vortex::metrics::tracing::get_global_labels;
 use vortex::scalar::Scalar;
 use vortex::scalar::ScalarValue;
+use vortex::scalar_fn::fns::binary::Binary;
+use vortex::scalar_fn::fns::operators::Operator;
 use vortex::scalar_fn::fns::pack::Pack;
 use vortex::scan::DataSource;
 use vortex::scan::ScanRequest;
@@ -74,6 +78,7 @@ use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalType;
 use crate::duckdb::PartitionData;
+use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterSetRef;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
@@ -118,6 +123,9 @@ pub struct DataSourceBindData {
     data_source: Arc<MultiLayoutDataSource>,
     filter_exprs: Vec<Expression>,
     column_fields: Vec<DuckdbField>,
+    // There exists at least one non-optional table filter or at least one
+    // complex filter is pushed down.
+    has_non_optional_filter: AtomicBool,
 }
 
 impl Clone for DataSourceBindData {
@@ -127,6 +135,9 @@ impl Clone for DataSourceBindData {
             // filter_exprs are consumed once in `init_global`.
             filter_exprs: vec![],
             column_fields: self.column_fields.clone(),
+            has_non_optional_filter: AtomicBool::new(
+                self.has_non_optional_filter.load(Ordering::Relaxed),
+            ),
         }
     }
 }
@@ -252,6 +263,26 @@ impl ColumnStatisticsAggregate {
     }
 }
 
+// Duckdb requires post-filter cardinality estimates, otherwise join
+// planner may flip join sides which is a huge regression for some
+// queries i.e. 1000x for tpcds 85.
+//
+// See duckdb/src/optimizer/join_order/relation_statistics_helper.cpp
+// As we don't report distinct values (same as Parquet), the only heuristic
+// duckdb uses is a 0.2 filter if there is any non-optional filter. We mimic
+// it here.
+const DEFAULT_SELECTIVITY: f64 = 0.2;
+fn postfilter_cardinality(initial_cardinality: u64, has_non_optional_filter: bool) -> u64 {
+    if has_non_optional_filter {
+        let post_cardinality = initial_cardinality as f64 * DEFAULT_SELECTIVITY;
+        // Clamp intentionally
+        let post_cardinality: u64 = post_cardinality.as_();
+        max(1, post_cardinality)
+    } else {
+        initial_cardinality
+    }
+}
+
 impl<T: DataSourceTableFunction> TableFunction for T {
     type BindData = DataSourceBindData;
     type GlobalState = DataSourceGlobal;
@@ -275,6 +306,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             data_source: Arc::new(data_source),
             filter_exprs: vec![],
             column_fields,
+            has_non_optional_filter: AtomicBool::new(false),
         })
     }
 
@@ -297,6 +329,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             row_range,
             file_selection,
             file_range,
+            has_non_optional_filter,
         } = extract_table_filter_expr(
             init_input.table_filter_set(),
             column_ids,
@@ -304,6 +337,13 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             &bind_data.filter_exprs,
             bind_data.data_source.dtype(),
         )?;
+
+        if has_non_optional_filter {
+            init_input
+                .bind_data()
+                .has_non_optional_filter
+                .store(true, Ordering::Relaxed);
+        }
 
         debug!(
             %projection,
@@ -502,22 +542,41 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         expr: &ExpressionRef,
     ) -> VortexResult<bool> {
         debug!(%expr, "pushing down expression");
+
         let Some(expr) = try_from_bound_expression(expr)? else {
             debug!(%expr, "failed to push down expression");
             return Ok(false);
         };
-        debug!(%expr, "pushed down expression");
-        bind_data.filter_exprs.push(expr);
 
-        // NOTE(ngates): Vortex does indeed run exact filters, so in theory we should return `true`
-        //  here to tell DuckDB we've handled the filter. However, DuckDB applies some crude
-        //  cardinality estimation heuristics (e.g. an equality filter => 20% selectivity) that
-        //  means by returning false, DuckDB runs an additional filter (a little bit of overhead)
-        //  but tends to end up with a better query plan.
-        //  If we plumb row count estimation into the layout tree, perhaps we could use zone maps
-        //  etc. to return estimates. But this function is probably called too late anyway. Maybe
-        //  we need our own cardinality heuristics.
-        Ok(false)
+        // Duckdb calls pushdown_complex_filter during planning phase.
+        // If all filters are pushed down, duckdb enables a LEFT_DELIM_JOIN ->
+        // COMPARISON_JOIN (HASH_JOIN) optimization:
+        // duckdb/src/optimizer/deliminator.cpp: Deliminator::HasSelection,
+        // Deliminator::Optimize.
+        //
+        // This leads to a massive regression on tpch sf=10 q17 and other
+        // benchmarks.
+        //
+        // This bug is reported to Duckdb
+        // https://github.com/duckdb/duckdb/issues/22669
+        //
+        // As a hack, report equality filters as not pushed.
+        // We can also report only the first filter as not pushed, but this
+        // has a negative performance impact.
+        let report_pushed = !expr
+            .as_opt::<Binary>()
+            .map(|op| *op == Operator::Eq)
+            .unwrap_or(false);
+
+        // Only table filters may be optional, any complex filter is
+        // non-optional by definition.
+        bind_data
+            .has_non_optional_filter
+            .store(true, Ordering::Relaxed);
+
+        debug!(%expr, report_pushed, "pushed down expression");
+        bind_data.filter_exprs.push(expr);
+        Ok(report_pushed)
     }
 
     /// Get column-wise statistics. Available only if we're reading a single
@@ -545,8 +604,12 @@ impl<T: DataSourceTableFunction> TableFunction for T {
 
     fn cardinality(bind_data: &Self::BindData) -> Cardinality {
         match bind_data.data_source.row_count() {
-            Some(Precision::Exact(v)) => Cardinality::Maximum(v),
-            Some(Precision::Inexact(v)) => Cardinality::Estimate(v),
+            Some(Precision::Exact(v) | Precision::Inexact(v)) => {
+                let has_non_optional_filter =
+                    bind_data.has_non_optional_filter.load(Ordering::Relaxed);
+                // Post-filter estimate is always a heuristic.
+                Cardinality::Estimate(postfilter_cardinality(v, has_non_optional_filter))
+            }
             None => Cardinality::Unknown,
         }
     }
@@ -565,8 +628,8 @@ impl<T: DataSourceTableFunction> TableFunction for T {
     fn to_string(bind_data: &Self::BindData, map: &mut DuckdbStringMapRef) {
         map.push("Function", "Vortex Scan");
         if !bind_data.filter_exprs.is_empty() {
-            let mut filters = bind_data.filter_exprs.iter().map(|f| format!("{}", f));
-            map.push("Filters", &filters.join(" /\\\n"));
+            let mut filters = bind_data.filter_exprs.iter().map(|f| format!("{f}"));
+            map.push("Filters", &filters.join("\n"));
         }
     }
 }
@@ -687,6 +750,7 @@ struct FilterWithVirtualColumns {
     row_range: Option<Range<u64>>,
     file_selection: Selection,
     file_range: Option<Range<u64>>,
+    has_non_optional_filter: bool,
 }
 
 /// Creates a table filter expression, row selection, and row range from the table filter set,
@@ -698,6 +762,8 @@ fn extract_table_filter_expr(
     additional_filters: &[Expression],
     dtype: &DType,
 ) -> VortexResult<FilterWithVirtualColumns> {
+    let mut has_non_optional_filter = false;
+
     let mut table_filter_exprs: HashSet<Expression> = if let Some(filter) = table_filter_set {
         filter
             .into_iter()
@@ -706,6 +772,8 @@ fn extract_table_filter_expr(
                 !is_virtual_column(column_ids[idx_u])
             })
             .map(|(idx, ex)| {
+                has_non_optional_filter |= !matches!(ex.as_class(), TableFilterClass::Optional(_));
+
                 let idx_u: usize = idx.as_();
                 let col_idx: usize = column_ids[idx_u].as_();
                 let name = &column_fields.get(col_idx).vortex_expect("exists").name;
@@ -741,6 +809,7 @@ fn extract_table_filter_expr(
         row_range,
         file_selection,
         file_range,
+        has_non_optional_filter,
     };
     Ok(out)
 }

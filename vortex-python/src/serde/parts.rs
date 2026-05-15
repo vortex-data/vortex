@@ -14,11 +14,11 @@ use pyo3::pymethods;
 use vortex::array::serde::SerializedArray;
 use vortex::buffer::ByteBuffer;
 
-use crate::SESSION;
 use crate::arrays::PyArrayRef;
 use crate::dtype::PyDType;
 use crate::error::PyVortexResult;
 use crate::serde::context::PyReadContext;
+use crate::session::session;
 
 /// SerializedArray is a parsed representation of a serialized array.
 ///
@@ -56,17 +56,18 @@ impl PySerializedArray {
     ///
     /// The decoded array.
     fn decode(
-        &self,
+        self_: PyRef<Self>,
+        py: Python,
         ctx: &PyReadContext,
         dtype: PyDType,
         len: usize,
     ) -> PyVortexResult<PyArrayRef> {
-        Ok(PyArrayRef::from(self.0.decode(
-            dtype.inner(),
-            len,
-            ctx,
-            &SESSION,
-        )?))
+        let session = session();
+        let parts = self_.0.clone();
+        let ctx = ctx.clone_inner();
+        let dtype = dtype.into_inner();
+        let array = py.detach(move || parts.decode(&dtype, len, &ctx, session))?;
+        Ok(PyArrayRef::from(array))
     }
 
     /// Fetch the serialized metadata of the array.

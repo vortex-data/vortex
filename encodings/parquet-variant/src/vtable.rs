@@ -213,7 +213,7 @@ impl VTable for ParquetVariant {
 
     fn execute(array: Array<Self>, _ctx: &mut ExecutionCtx) -> VortexResult<ExecutionResult> {
         Ok(ExecutionResult::done(
-            VariantArray::new(array.as_ref().clone().into_array()).into_array(),
+            VariantArray::try_new(array.as_ref().clone().into_array(), None)?.into_array(),
         ))
     }
 
@@ -302,7 +302,9 @@ mod tests {
             None,
         )
         .unwrap();
-        let typed_value = VariantArray::new(inner_pv.into_array()).into_array();
+        let typed_value = VariantArray::try_new(inner_pv.into_array(), None)
+            .unwrap()
+            .into_array();
 
         let outer_pv = ParquetVariant::try_new(
             Validity::NonNullable,

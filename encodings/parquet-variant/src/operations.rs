@@ -468,7 +468,7 @@ mod tests {
         );
 
         let variant_view = vortex_arr.as_opt::<Variant>().unwrap();
-        let child = variant_view.child();
+        let child = variant_view.core_storage();
         let inner_pv = child.as_opt::<ParquetVariant>().unwrap();
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let roundtripped = inner_pv.to_arrow(&mut ctx)?;

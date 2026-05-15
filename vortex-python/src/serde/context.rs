@@ -86,3 +86,9 @@ impl PyReadContext {
         self.ids().len()
     }
 }
+
+impl PyReadContext {
+    pub(crate) fn clone_inner(&self) -> ReadContext {
+        self.0.clone()
+    }
+}

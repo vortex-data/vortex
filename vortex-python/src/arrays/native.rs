@@ -63,13 +63,15 @@ use crate::arrays::fastlanes::PyFastLanesFoRArray;
 use crate::dtype::PyDType;
 
 #[pyclass(name = "NativeArray", module = "vortex", extends=PyArray, sequence, subclass, frozen)]
-pub struct PyNativeArray(ArrayRef);
+pub struct PyNativeArray {
+    array: ArrayRef,
+}
 
 impl Deref for PyNativeArray {
     type Target = ArrayRef;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.array
     }
 }
 
@@ -179,7 +181,7 @@ impl PyNativeArray {
 
         Ok(Bound::new(
             py,
-            PyClassInitializer::from(PyArray).add_subclass(PyNativeArray(array)),
+            PyClassInitializer::from(PyArray).add_subclass(PyNativeArray { array }),
         )?
         .into_any()
         .cast_into::<PyNativeArray>()?)
@@ -193,7 +195,7 @@ impl PyNativeArray {
         Ok(Bound::new(
             py,
             PyClassInitializer::from(PyArray)
-                .add_subclass(PyNativeArray(array))
+                .add_subclass(PyNativeArray { array })
                 .add_subclass(subclass),
         )?
         .into_any()
@@ -201,11 +203,11 @@ impl PyNativeArray {
     }
 
     pub fn inner(&self) -> &ArrayRef {
-        &self.0
+        &self.array
     }
 
     pub fn into_inner(self) -> ArrayRef {
-        self.0
+        self.array
     }
 }
 
@@ -216,24 +218,24 @@ impl PyNativeArray {
     }
 
     fn __str__(&self) -> String {
-        format!("{}", self.0)
+        format!("{}", self.array)
     }
 
     /// Returns the encoding ID of this array.
     #[getter]
     fn id(&self) -> String {
-        self.0.encoding_id().to_string()
+        self.array.encoding_id().to_string()
     }
 
     /// Returns the number of bytes used by this array.
     #[getter]
     fn nbytes(&self) -> u64 {
-        self.0.nbytes()
+        self.array.nbytes()
     }
 
     #[getter]
     fn dtype(self_: PyRef<Self>) -> PyResult<Bound<PyDType>> {
-        PyDType::init(self_.py(), self_.0.dtype().clone())
+        PyDType::init(self_.py(), self_.array.dtype().clone())
     }
 }
 
