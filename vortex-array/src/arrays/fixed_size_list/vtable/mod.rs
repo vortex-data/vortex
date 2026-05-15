@@ -24,6 +24,7 @@ use crate::array::ArrayId;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::fixed_size_list::FixedSizeListData;
+use crate::arrays::fixed_size_list::array::ELEMENTS_SLOT;
 use crate::arrays::fixed_size_list::array::NUM_SLOTS;
 use crate::arrays::fixed_size_list::array::SLOT_NAMES;
 use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
@@ -116,7 +117,7 @@ impl VTable for FixedSizeList {
         let DType::FixedSizeList(_, list_size, nullability) = dtype else {
             vortex_bail!("Expected `DType::FixedSizeList`, got {dtype:?}");
         };
-        let elements = slots[crate::arrays::fixed_size_list::array::ELEMENTS_SLOT]
+        let elements = slots[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("FixedSizeListArray elements slot");
         vortex_ensure!(

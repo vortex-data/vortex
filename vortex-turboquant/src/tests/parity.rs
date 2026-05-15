@@ -4,6 +4,8 @@
 use vortex_array::VortexSessionExecute;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
+use vortex_tensor::encodings::turboquant::TurboQuantConfig as OldTurboQuantConfig;
+use vortex_tensor::encodings::turboquant::turboquant_encode;
 
 use super::execute_tq_decode;
 use super::execute_tq_encode;
@@ -21,14 +23,12 @@ fn encode_decode_matches_old_turboquant_decode() -> VortexResult<()> {
 
     let new_encoded = execute_tq_encode(input.clone(), &config, &mut ctx)?;
     let new_decoded = execute_tq_decode(new_encoded, &mut ctx)?;
-    let old_config = vortex_tensor::encodings::turboquant::TurboQuantConfig {
+    let old_config = OldTurboQuantConfig {
         bit_width: config.bit_width(),
         seed: config.seed(),
         num_rounds: config.num_rounds(),
     };
-    let old_decoded =
-        vortex_tensor::encodings::turboquant::turboquant_encode(input, &old_config, &mut ctx)?
-            .execute(&mut ctx)?;
+    let old_decoded = turboquant_encode(input, &old_config, &mut ctx)?.execute(&mut ctx)?;
 
     let new_values = vector_values_f32(new_decoded, &mut ctx)?;
     let old_values = vector_values_f32(old_decoded, &mut ctx)?;

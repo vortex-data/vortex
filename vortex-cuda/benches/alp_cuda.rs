@@ -9,6 +9,7 @@
 mod bench_config;
 mod timed_launch_strategy;
 
+use std::f64;
 use std::mem::size_of;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -58,7 +59,7 @@ where
     } else {
         usize::MAX
     };
-    let outlier = T::from(std::f64::consts::PI).unwrap();
+    let outlier = T::from(f64::consts::PI).unwrap();
 
     let values: Buffer<T> = (0..len)
         .map(|i| {

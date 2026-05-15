@@ -34,6 +34,7 @@ use vortex_session::registry::CachedId;
 use crate::RLEData;
 use crate::rle::array::INDICES_SLOT;
 use crate::rle::array::RLEArrayExt;
+use crate::rle::array::SLOT_NAMES;
 use crate::rle::array::VALUES_IDX_OFFSETS_SLOT;
 use crate::rle::array::VALUES_SLOT;
 use crate::rle::array::rle_decompress::rle_decompress;
@@ -130,7 +131,7 @@ impl VTable for RLE {
     }
 
     fn slot_name(_array: ArrayView<'_, Self>, idx: usize) -> String {
-        crate::rle::array::SLOT_NAMES[idx].to_string()
+        SLOT_NAMES[idx].to_string()
     }
 
     fn serialize(

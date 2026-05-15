@@ -150,6 +150,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::f32;
+
     use rstest::rstest;
     use vortex_array::ArrayRef;
     use vortex_array::LEGACY_SESSION;
@@ -321,8 +323,7 @@ mod tests {
 
     #[test]
     fn compare_with_patches() {
-        let array =
-            PrimitiveArray::from_iter([1.234f32, 1.5, 19.0, std::f32::consts::E, 1_000_000.9]);
+        let array = PrimitiveArray::from_iter([1.234f32, 1.5, 19.0, f32::consts::E, 1_000_000.9]);
         let encoded = alp_encode(
             array.as_view(),
             None,

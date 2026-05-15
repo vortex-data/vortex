@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::f64;
+
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
@@ -74,7 +76,7 @@ impl FlatLayoutFixture for AlpFixture {
         let f64_patched: PrimitiveArray = (0..N)
             .map(|i| {
                 if i % 100 == 0 {
-                    std::f64::consts::PI * (i as f64 + 1.0)
+                    f64::consts::PI * (i as f64 + 1.0)
                 } else {
                     (i as f64) * 0.01
                 }
@@ -99,8 +101,8 @@ impl FlatLayoutFixture for AlpFixture {
                 3 => -f64::EPSILON,
                 4 => f64::MIN_POSITIVE,
                 5 => -f64::MIN_POSITIVE,
-                6 => std::f64::consts::PI,
-                7 => -std::f64::consts::E,
+                6 => f64::consts::PI,
+                7 => -f64::consts::E,
                 8 => f64::from_bits(1),
                 _ => -f64::from_bits(2),
             })

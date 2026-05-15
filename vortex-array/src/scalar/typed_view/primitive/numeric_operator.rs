@@ -5,6 +5,8 @@
 
 use std::fmt;
 
+use crate::scalar_fn::fns::operators::Operator;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Binary element-wise operations.
 pub enum NumericOperator {
@@ -26,13 +28,13 @@ impl fmt::Display for NumericOperator {
     }
 }
 
-impl From<NumericOperator> for crate::scalar_fn::fns::operators::Operator {
+impl From<NumericOperator> for Operator {
     fn from(op: NumericOperator) -> Self {
         match op {
-            NumericOperator::Add => crate::scalar_fn::fns::operators::Operator::Add,
-            NumericOperator::Sub => crate::scalar_fn::fns::operators::Operator::Sub,
-            NumericOperator::Mul => crate::scalar_fn::fns::operators::Operator::Mul,
-            NumericOperator::Div => crate::scalar_fn::fns::operators::Operator::Div,
+            NumericOperator::Add => Operator::Add,
+            NumericOperator::Sub => Operator::Sub,
+            NumericOperator::Mul => Operator::Mul,
+            NumericOperator::Div => Operator::Div,
         }
     }
 }

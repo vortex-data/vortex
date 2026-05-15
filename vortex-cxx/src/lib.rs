@@ -34,6 +34,7 @@ pub(crate) static SESSION: LazyLock<VortexSession> =
 
 #[cxx::bridge(namespace = "vortex::ffi")]
 #[allow(let_underscore_drop)]
+#[allow(clippy::absolute_paths)]
 mod ffi {
     extern "Rust" {
         type DType;

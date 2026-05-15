@@ -326,6 +326,7 @@ unexpected_cfgs = { level = "deny", check-cfg = [
 warnings = "warn"
 
 [workspace.lints.clippy]
+absolute_paths = "deny"
 all = { level = "deny", priority = -1 }
 as_ptr_cast_mut = "deny"
 borrow_as_ptr = "deny"

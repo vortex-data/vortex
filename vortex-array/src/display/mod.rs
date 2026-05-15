@@ -21,6 +21,7 @@ pub use tree_display::TreeDisplay;
 use crate::ArrayRef;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::arrays::struct_::StructArrayExt;
 
 /// Describe how to convert an array to a string.
 ///
@@ -614,9 +615,7 @@ impl ArrayRef {
                         builder.push_record(null_row);
                     } else {
                         let mut row = Vec::new();
-                        for field_array in
-                            crate::arrays::struct_::StructArrayExt::iter_unmasked_fields(&struct_)
-                        {
+                        for field_array in StructArrayExt::iter_unmasked_fields(&struct_) {
                             let value = field_array
                                 .execute_scalar(row_idx, &mut LEGACY_SESSION.create_execution_ctx())
                                 .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());

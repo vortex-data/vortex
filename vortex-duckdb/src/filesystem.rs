@@ -31,8 +31,10 @@ use vortex::io::compat::Compat;
 use vortex::io::filesystem::FileListing;
 use vortex::io::filesystem::FileSystem;
 use vortex::io::filesystem::FileSystemRef;
+use vortex::io::object_store::DEFAULT_CONCURRENCY as OBJECT_STORE_DEFAULT_CONCURRENCY;
 use vortex::io::object_store::ObjectStoreFileSystem;
 use vortex::io::runtime::BlockingRuntime;
+use vortex::io::std_file::DEFAULT_CONCURRENCY as STD_FILE_DEFAULT_CONCURRENCY;
 
 use crate::RUNTIME;
 use crate::cpp;
@@ -277,9 +279,9 @@ impl VortexReadAt for DuckDbFsReader {
 
     fn concurrency(&self) -> usize {
         if self.is_local {
-            vortex::io::std_file::DEFAULT_CONCURRENCY
+            STD_FILE_DEFAULT_CONCURRENCY
         } else {
-            vortex::io::object_store::DEFAULT_CONCURRENCY
+            OBJECT_STORE_DEFAULT_CONCURRENCY
         }
     }
 

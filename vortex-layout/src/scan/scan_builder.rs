@@ -456,6 +456,7 @@ mod test {
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::sync::mpsc;
     use std::task::Context;
     use std::task::Poll;
     use std::time::Duration;
@@ -483,6 +484,8 @@ mod test {
     use crate::ArrayFuture;
     use crate::LayoutReader;
     use crate::SplitRange;
+    use crate::scan::test::SCAN_SESSION;
+    use crate::scan::test::session_with_handle;
 
     #[derive(Debug)]
     struct CountingLayoutReader {
@@ -566,7 +569,7 @@ mod test {
         let calls = Arc::new(AtomicUsize::new(0));
         let reader = Arc::new(CountingLayoutReader::new(Arc::clone(&calls)));
 
-        let session = crate::scan::test::SCAN_SESSION.clone();
+        let session = SCAN_SESSION.clone();
 
         let _stream = ScanBuilder::new(session, reader).into_stream().unwrap();
 
@@ -667,7 +670,7 @@ mod test {
         let reader = Arc::new(SplittingLayoutReader::new(Arc::clone(&calls)));
 
         let runtime = SingleThreadRuntime::default();
-        let session = crate::scan::test::session_with_handle(runtime.handle());
+        let session = session_with_handle(runtime.handle());
 
         let stream = ScanBuilder::new(session, reader).into_stream()?;
         let mut iter = runtime.block_on_stream(stream);
@@ -776,11 +779,11 @@ mod test {
         ));
 
         let runtime = SingleThreadRuntime::default();
-        let session = crate::scan::test::session_with_handle(runtime.handle());
+        let session = session_with_handle(runtime.handle());
 
         let mut stream = ScanBuilder::new(session, reader).into_stream().unwrap();
 
-        let (send, recv) = std::sync::mpsc::channel::<bool>();
+        let (send, recv) = mpsc::channel::<bool>();
         let join = std::thread::spawn(move || {
             let waker = noop_waker_ref();
             let mut cx = Context::from_waker(waker);

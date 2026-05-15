@@ -131,6 +131,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use core::f32;
     use core::f64;
 
     use f64::consts::E;
@@ -598,8 +599,8 @@ mod tests {
     fn test_large_f32_array_with_patches() {
         let size = 5_000;
         let mut values = vec![1.5f32; size];
-        values[100] = std::f32::consts::PI;
-        values[1500] = std::f32::consts::E;
+        values[100] = f32::consts::PI;
+        values[1500] = f32::consts::E;
         values[3000] = f32::NEG_INFINITY;
         values[4500] = f32::INFINITY;
 

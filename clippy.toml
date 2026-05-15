@@ -2,6 +2,7 @@ allow-dbg-in-tests = true
 allow-expect-in-tests = true
 allow-unwrap-in-tests = true
 allow-panic-in-tests = true
+absolute-paths-max-segments = 3
 single-char-binding-names-threshold = 2
 disallowed-types = [
     { path = "std::collections::HashMap", reason = "Use the HashMap in vortex_utils::aliases for better performance" },

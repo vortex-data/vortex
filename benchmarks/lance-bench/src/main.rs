@@ -10,6 +10,7 @@ use clap::value_parser;
 use lance::datafusion::LanceTableProvider;
 use lance::dataset::Dataset;
 use lance::deps::arrow_array::RecordBatch;
+use lance::deps::datafusion::arrow::util::pretty::pretty_format_batches;
 use lance::deps::datafusion::physical_plan::ExecutionPlan;
 use lance::deps::datafusion::prelude::SessionContext;
 use lance_bench::convert::convert_parquet_to_lance;
@@ -175,7 +176,7 @@ impl BenchmarkQueryResult for LanceQueryResult {
 
     fn display(self) -> String {
         // Lance uses the same Arrow RecordBatch type
-        lance::deps::datafusion::arrow::util::pretty::pretty_format_batches(&self.0)
+        pretty_format_batches(&self.0)
             .map(|d| d.to_string())
             .unwrap_or_else(|e| format!("<error: {e}>"))
     }
