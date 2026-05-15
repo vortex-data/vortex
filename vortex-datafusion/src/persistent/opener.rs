@@ -43,6 +43,7 @@ use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
+use vortex::layout::segments::SegmentSource;
 use vortex::layout::v2::scan::Scan as V2Scan;
 use vortex::layout::v2::toggle as v2_toggle;
 use vortex::metrics::Label;
@@ -96,6 +97,8 @@ pub(crate) struct VortexOpener {
     pub layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     /// Shared full-file natural split ranges keyed by file path.
     pub natural_split_ranges: Arc<DashMap<Path, Arc<[Range<u64>]>>>,
+    /// Shared segment sources keyed by file path.
+    pub segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
     /// Whether the query has output ordering specified
     pub has_output_ordering: bool,
 
@@ -132,6 +135,7 @@ impl FileOpener for VortexOpener {
         let limit = self.limit;
         let layout_reader = Arc::clone(&self.layout_readers);
         let natural_split_ranges = Arc::clone(&self.natural_split_ranges);
+        let segment_sources = Arc::clone(&self.segment_sources);
         let has_output_ordering = self.has_output_ordering;
         let scan_concurrency = self.scan_concurrency;
 
@@ -214,6 +218,26 @@ impl FileOpener for VortexOpener {
             if vxf.row_count() == 0 {
                 return Ok(stream::empty().boxed());
             }
+
+            let segment_source = match segment_sources.entry(file.object_meta.location.clone()) {
+                Entry::Occupied(mut occupied_entry) => {
+                    if let Some(source) = occupied_entry.get().upgrade() {
+                        tracing::trace!("reusing segment source for {}", occupied_entry.key());
+                        source
+                    } else {
+                        tracing::trace!("creating segment source for {}", occupied_entry.key());
+                        let source = vxf.segment_source();
+                        occupied_entry.insert(Arc::downgrade(&source));
+                        source
+                    }
+                }
+                Entry::Vacant(vacant_entry) => {
+                    tracing::trace!("creating segment source for {}", vacant_entry.key());
+                    let source = vxf.segment_source();
+                    vacant_entry.insert(Arc::downgrade(&source));
+                    source
+                }
+            };
 
             // This is the expected arrow types of the actual columns in the file, which might have different types
             // from the unified logical schema or miss
@@ -455,7 +479,7 @@ impl FileOpener for VortexOpener {
             let v2_plan = if v2_eligible {
                 let scan = V2Scan {
                     layout: Arc::clone(vxf.footer().layout()),
-                    segment_source: vxf.segment_source(),
+                    segment_source: Arc::clone(&segment_source),
                     session: session.clone(),
                     projection: scan_projection.clone(),
                     filter: filter.clone(),
@@ -837,6 +861,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
+            segment_sources: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -969,6 +994,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
+            segment_sources: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1056,6 +1082,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
+            segment_sources: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1213,6 +1240,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
+            segment_sources: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1273,6 +1301,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
+            segment_sources: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
@@ -1477,6 +1506,7 @@ mod tests {
             metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             layout_readers: Default::default(),
             natural_split_ranges: Default::default(),
+            segment_sources: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,

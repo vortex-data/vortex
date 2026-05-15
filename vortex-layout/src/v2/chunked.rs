@@ -217,11 +217,11 @@ impl LayoutPlan for ChunkedPlan {
             let intersect_end = chunk_end.min(row_range.end);
             // Translate to the child's own row coordinates.
             let child_range = (intersect_start - chunk_start)..(intersect_end - chunk_start);
-            // Scope demand to the same window we're handing the
-            // child. `chunk_*` are in our local coords (which match
-            // demand's coord system); the scope's local 0 corresponds
-            // to the child's local 0.
-            let child_demand = demand.scope(intersect_start..intersect_end);
+            // Scope demand to the full child chunk so the child's
+            // local row coordinates line up with demand's local row
+            // coordinates, even when the requested parent range
+            // starts in the middle of the chunk.
+            let child_demand = demand.scope(chunk_start..chunk_end);
             child_streams.push(self.children[idx].execute(child_range, &child_demand, ctx)?);
         }
 

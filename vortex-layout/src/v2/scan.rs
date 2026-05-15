@@ -289,6 +289,7 @@ impl LayoutPlan for ScanPlan {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
     use std::sync::Arc;
 
     use futures::StreamExt;
@@ -450,6 +451,42 @@ mod tests {
             let mut stream = plan.execute(0..row_count, &parent_demand, &scan_ctx)?;
             while let Some(chunk) = stream.next().await {
                 chunks.push(chunk?);
+            }
+            VortexResult::Ok((chunks, plan_dtype))
+        })?;
+        Ok(ChunkedArray::try_new(chunks, plan_dtype)?.into_array())
+    }
+
+    fn read_v2_ranges_with(
+        segments: Arc<dyn SegmentSource>,
+        layout: &LayoutRef,
+        projection: vortex_array::expr::Expression,
+        filter: Option<vortex_array::expr::Expression>,
+        ranges: Vec<Range<u64>>,
+    ) -> VortexResult<ArrayRef> {
+        let layout = Arc::clone(layout);
+        let row_count = layout.row_count();
+        let (chunks, plan_dtype) = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            let scan = Scan {
+                layout,
+                segment_source: segments,
+                session: session.clone(),
+                projection,
+                filter,
+                selection: Selection::All,
+            };
+            let plan = scan.build()?;
+            let plan_dtype = plan.schema().clone();
+            let parent_demand = crate::v2::demand::RowDemand::empty(row_count);
+
+            let mut chunks = Vec::new();
+            for range in ranges {
+                let scan_ctx = crate::v2::scan_ctx::ScanCtx::new(session.clone());
+                let mut stream = plan.execute(range, &parent_demand, &scan_ctx)?;
+                while let Some(chunk) = stream.next().await {
+                    chunks.push(chunk?);
+                }
             }
             VortexResult::Ok((chunks, plan_dtype))
         })?;
@@ -802,6 +839,31 @@ mod tests {
             Some(filter.clone()),
         )?;
         let v2 = read_v2_with(Arc::clone(&segments), &layout, projection, Some(filter))?;
+        assert_arrays_eq!(v1, v2);
+        Ok(())
+    }
+
+    #[test]
+    fn diff_v1_v2_zoned_pruning_partitioned_mid_chunk() -> VortexResult<()> {
+        use vortex_array::expr::lit;
+        use vortex_array::expr::lt;
+        let (segments, layout, _) = build_zoned_chunked_layout();
+        let projection = root();
+        let filter = lt(root(), lit(4i32));
+        let v1 = read_v1_with(
+            Arc::clone(&segments),
+            &layout,
+            projection.clone(),
+            Some(filter.clone()),
+        )?;
+        let row_count = layout.row_count();
+        let v2 = read_v2_ranges_with(
+            Arc::clone(&segments),
+            &layout,
+            projection,
+            Some(filter),
+            vec![0..2, 2..row_count],
+        )?;
         assert_arrays_eq!(v1, v2);
         Ok(())
     }

@@ -45,6 +45,7 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_array::validity::Validity;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -57,25 +58,41 @@ use crate::v2::scan_ctx::ScanCtxValue;
 #[derive(Debug)]
 pub struct MaterialisedMask {
     mask: Mask,
+    row_range: Range<u64>,
 }
 
 impl MaterialisedMask {
     /// Build from a raw `ArrayRef` by canonicalising via the
     /// session's executor.
-    pub fn from_array(array: ArrayRef, session: &VortexSession) -> VortexResult<Self> {
+    pub fn from_array(
+        array: ArrayRef,
+        session: &VortexSession,
+        row_range: Range<u64>,
+    ) -> VortexResult<Self> {
         let mut ctx = session.create_execution_ctx();
         let mask: Mask = array.execute::<Mask>(&mut ctx)?;
-        Ok(Self { mask })
+        let expected_len = usize::try_from(row_range.end - row_range.start)?;
+        if mask.len() != expected_len {
+            vortex_bail!(
+                "MaterialisedMask length {} does not match row range {row_range:?}",
+                mask.len()
+            );
+        }
+        Ok(Self { mask, row_range })
     }
 
     /// Slice the materialised mask to a sub-range. Inputs are in
     /// `u64` to match plan-level row coordinates.
-    pub fn slice(&self, range: Range<u64>) -> Mask {
-        let start = usize::try_from(range.start)
-            .unwrap_or_else(|_| unreachable!("MaterialisedMask::slice start fits in usize"));
-        let end = usize::try_from(range.end)
-            .unwrap_or_else(|_| unreachable!("MaterialisedMask::slice end fits in usize"));
-        self.mask.slice(start..end)
+    pub fn slice(&self, range: Range<u64>) -> VortexResult<Mask> {
+        if range.start < self.row_range.start || range.end > self.row_range.end {
+            vortex_bail!(
+                "MaterialisedMask::slice range {range:?} is outside materialised range {:?}",
+                self.row_range
+            );
+        }
+        let start = usize::try_from(range.start - self.row_range.start)?;
+        let end = usize::try_from(range.end - self.row_range.start)?;
+        Ok(self.mask.slice(start..end))
     }
 
     /// Total row count covered by this mask.
@@ -92,6 +109,11 @@ impl MaterialisedMask {
     pub fn mask(&self) -> &Mask {
         &self.mask
     }
+
+    /// Absolute row range covered by this mask.
+    pub fn row_range(&self) -> &Range<u64> {
+        &self.row_range
+    }
 }
 
 /// A future that resolves to the materialised mask once. Multiple
@@ -103,7 +125,12 @@ type SharedMaskFuture = Shared<BoxFuture<'static, Result<Arc<MaterialisedMask>, 
 /// [`LetId`] under which each mask source was published.
 #[derive(Default)]
 pub struct MaskRegistry {
-    cells: HashMap<LetId, SharedMaskFuture>,
+    cells: HashMap<LetId, MaskCell>,
+}
+
+struct MaskCell {
+    row_range: Range<u64>,
+    future: SharedMaskFuture,
 }
 
 impl Debug for MaskRegistry {
@@ -124,22 +151,46 @@ impl ScanCtxValue for MaskRegistry {
 }
 
 impl MaskRegistry {
-    /// Look up the shared materialisation future for `id`.
-    pub fn get(&self, id: LetId) -> Option<SharedMaskFuture> {
-        self.cells.get(&id).cloned()
+    /// Look up the shared materialisation future for `id`, if the
+    /// registered materialisation covers `row_range`.
+    pub fn get(&self, id: LetId, row_range: &Range<u64>) -> Option<SharedMaskFuture> {
+        self.cells
+            .get(&id)
+            .filter(|cell| contains_range(&cell.row_range, row_range))
+            .map(|cell| cell.future.clone())
     }
 
-    /// Register a mask source under `id`. `init` is run at most once
-    /// per scan; subsequent registrations of the same `id` are
-    /// no-ops (idempotent — `LetPlan::execute` may be called more
-    /// than once if the engine drives the body more than once).
+    /// Register a mask source under `id` for `row_range`. If an
+    /// existing materialisation covers the requested range it is
+    /// reused; otherwise it is replaced with a range-specific future.
     pub fn get_or_init(
         &mut self,
         id: LetId,
+        row_range: Range<u64>,
         init: impl FnOnce() -> SharedMaskFuture,
     ) -> SharedMaskFuture {
-        self.cells.entry(id).or_insert_with(init).clone()
+        if let Some(cell) = self
+            .cells
+            .get(&id)
+            .filter(|cell| contains_range(&cell.row_range, &row_range))
+        {
+            return cell.future.clone();
+        }
+
+        let future = init();
+        self.cells.insert(
+            id,
+            MaskCell {
+                row_range,
+                future: future.clone(),
+            },
+        );
+        future
     }
+}
+
+fn contains_range(outer: &Range<u64>, inner: &Range<u64>) -> bool {
+    outer.start <= inner.start && inner.end <= outer.end
 }
 
 /// Build a shared materialisation future from a `LayoutPlan` source
@@ -149,11 +200,13 @@ impl MaskRegistry {
 pub fn build_materialise_future(
     source_stream: SendableArrayStream,
     session: VortexSession,
+    row_range: Range<u64>,
 ) -> SharedMaskFuture {
     use vortex_array::stream::ArrayStreamExt as _;
     async move {
         let array = source_stream.read_all().await.map_err(Arc::new)?;
-        let materialised = MaterialisedMask::from_array(array, &session).map_err(Arc::new)?;
+        let materialised =
+            MaterialisedMask::from_array(array, &session, row_range).map_err(Arc::new)?;
         Ok(Arc::new(materialised))
     }
     .boxed()
@@ -165,7 +218,10 @@ pub fn build_materialise_future(
 /// using their `mask_stream.read_all()` path. The resulting
 /// `BoolArray` shares the underlying `BitBuffer` with the
 /// materialised mask — no copy.
-pub fn slice_to_array(materialised: &MaterialisedMask, row_range: Range<u64>) -> ArrayRef {
-    let sliced = materialised.slice(row_range);
-    BoolArray::new(sliced.to_bit_buffer(), Validity::NonNullable).into_array()
+pub fn slice_to_array(
+    materialised: &MaterialisedMask,
+    row_range: Range<u64>,
+) -> VortexResult<ArrayRef> {
+    let sliced = materialised.slice(row_range)?;
+    Ok(BoolArray::new(sliced.to_bit_buffer(), Validity::NonNullable).into_array())
 }

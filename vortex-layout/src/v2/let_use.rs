@@ -227,7 +227,7 @@ impl LayoutPlan for LetPlan {
         //     (`crate::v2::materialised_mask`).
         //   - Anything else uses `TeeStream` for streaming fan-out.
         if matches!(self.source.schema(), DType::Bool(_)) {
-            self.publish_mask(ctx)?;
+            self.publish_mask(row_range.clone(), ctx)?;
             return self.body.execute(row_range, demand, ctx);
         }
         // Two-phase setup for streaming TeeStream:
@@ -254,24 +254,35 @@ impl LetPlan {
     /// Register the source as a [`MaskRegistry`] entry. Used when
     /// the source schema is `Bool` — value-based distribution
     /// instead of stream-based fan-out.
-    pub fn publish_mask(&self, ctx: &ScanCtx) -> VortexResult<()> {
+    pub fn publish_mask(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<()> {
+        let total_rows = source_total_rows(&self.source);
+        let body_total_rows = source_total_rows(&self.body);
+        let source_row_range = if total_rows == body_total_rows && row_range.end <= total_rows {
+            row_range
+        } else {
+            0..total_rows
+        };
         if let Some(registry) = ctx.get_opt::<MaskRegistry>()
-            && registry.get(self.id).is_some()
+            && registry.get(self.id, &source_row_range).is_some()
         {
             return Ok(());
         }
-        let total_rows = source_total_rows(&self.source);
         let source = Arc::clone(&self.source);
         let ctx_for_init = ctx.clone();
         let session = ctx.session().clone();
         let mut init_err: Option<VortexError> = None;
-        // Source operates in its full row space, decoupled from any
-        // particular caller's row_range — pass detached demand.
+        // When the shared source and the body have the same row
+        // domain, materialise only the current execute range. Some
+        // CSE sources are child-local subtrees wrapped at the root;
+        // those keep their local full range because the root
+        // row_range is in a different coordinate space.
         let source_demand = RowDemand::empty(total_rows);
+        let source_range = source_row_range.clone();
+        let materialised_range = source_row_range.clone();
         let mut registry = ctx.get_mut::<MaskRegistry>();
-        drop(registry.get_or_init(self.id, || {
-            match source.execute(0..total_rows, &source_demand, &ctx_for_init) {
-                Ok(stream) => build_materialise_future(stream, session),
+        drop(registry.get_or_init(self.id, source_row_range, || {
+            match source.execute(source_range, &source_demand, &ctx_for_init) {
+                Ok(stream) => build_materialise_future(stream, session, materialised_range),
                 Err(e) => {
                     init_err = Some(e);
                     // Install a future that resolves to an error matching
@@ -482,17 +493,20 @@ impl UsePlan {
         row_range: Range<u64>,
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
-        let fut = ctx.get::<MaskRegistry>().get(self.id).ok_or_else(|| {
-            vortex_error::vortex_err!(
-                "UsePlan(mask): no LetPlan with id {} has been registered (CSE pass bug — \
+        let fut = ctx
+            .get::<MaskRegistry>()
+            .get(self.id, &row_range)
+            .ok_or_else(|| {
+                vortex_error::vortex_err!(
+                    "UsePlan(mask): no LetPlan with id {} has been registered (CSE pass bug — \
                      every UsePlan must be dominated by a matching LetPlan)",
-                self.id.raw()
-            )
-        })?;
+                    self.id.raw()
+                )
+            })?;
         let dtype = self.output_dtype.clone();
         let stream = async_stream::try_stream! {
             let materialised = fut.await.map_err(VortexError::from)?;
-            let array = slice_to_array(&materialised, row_range);
+            let array = slice_to_array(&materialised, row_range)?;
             yield array;
         };
         Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))
@@ -502,14 +516,17 @@ impl UsePlan {
 #[cfg(test)]
 #[allow(deprecated, reason = "tests use to_primitive() to inspect values")]
 mod tests {
+    use std::ops::Range;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
     use futures::StreamExt;
     use futures::stream;
+    use parking_lot::Mutex;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
@@ -537,6 +554,10 @@ mod tests {
         DType::Primitive(PType::I32, NonNullable)
     }
 
+    fn bool_dtype() -> DType {
+        DType::Bool(NonNullable)
+    }
+
     /// Test plan that produces a fixed sequence of arrays, counting
     /// every `execute` call so we can assert sharing behaviour.
     struct CountingPlan {
@@ -544,6 +565,90 @@ mod tests {
         row_count: u64,
         executes: Arc<AtomicUsize>,
         dtype: DType,
+    }
+
+    /// Bool source that records the exact row ranges it was asked to
+    /// execute. The emitted values are all true; tests care about
+    /// the requested range, not predicate semantics.
+    struct CountingBoolPlan {
+        row_count: u64,
+        executes: Arc<AtomicUsize>,
+        ranges: Arc<Mutex<Vec<Range<u64>>>>,
+        dtype: DType,
+    }
+
+    impl CountingBoolPlan {
+        fn new(row_count: u64) -> (Arc<Self>, Arc<AtomicUsize>, Arc<Mutex<Vec<Range<u64>>>>) {
+            let executes = Arc::new(AtomicUsize::new(0));
+            let ranges = Arc::new(Mutex::new(Vec::new()));
+            let plan = Arc::new(Self {
+                row_count,
+                executes: Arc::clone(&executes),
+                ranges: Arc::clone(&ranges),
+                dtype: bool_dtype(),
+            });
+            (plan, executes, ranges)
+        }
+    }
+
+    impl PartialEq for CountingBoolPlan {
+        fn eq(&self, other: &Self) -> bool {
+            self.row_count == other.row_count && self.dtype == other.dtype
+        }
+    }
+
+    impl Eq for CountingBoolPlan {}
+
+    impl std::hash::Hash for CountingBoolPlan {
+        fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+            self.row_count.hash(state);
+            self.dtype.hash(state);
+        }
+    }
+
+    impl LayoutPlan for CountingBoolPlan {
+        fn schema(&self) -> &DType {
+            &self.dtype
+        }
+        fn partition_count(&self) -> usize {
+            1
+        }
+        fn partition_stats(&self, _partition: usize) -> VortexResult<PartitionStats> {
+            Ok(PartitionStats::for_range(0..self.row_count))
+        }
+        fn output_ordered(&self) -> bool {
+            true
+        }
+        fn required_input_ordered(&self) -> Vec<bool> {
+            vec![]
+        }
+        fn maintains_input_order(&self) -> Vec<bool> {
+            vec![]
+        }
+        fn children(&self) -> &[LayoutPlanRef] {
+            &[]
+        }
+        fn with_new_children(
+            self: Arc<Self>,
+            _children: Vec<LayoutPlanRef>,
+        ) -> VortexResult<LayoutPlanRef> {
+            Ok(self)
+        }
+        fn execute(
+            &self,
+            row_range: Range<u64>,
+            _demand: &RowDemand,
+            _ctx: &ScanCtx,
+        ) -> VortexResult<SendableArrayStream> {
+            self.executes.fetch_add(1, Ordering::SeqCst);
+            self.ranges.lock().push(row_range.clone());
+            let len = usize::try_from(row_range.end - row_range.start)?;
+            let array = BoolArray::from_iter((0..len).map(|_| true)).into_array();
+            Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                self.dtype.clone(),
+                stream::iter([Ok(array)]),
+            )))
+        }
     }
 
     impl CountingPlan {
@@ -608,7 +713,7 @@ mod tests {
         }
         fn execute(
             &self,
-            _row_range: std::ops::Range<u64>,
+            _row_range: Range<u64>,
             _demand: &RowDemand,
             _ctx: &ScanCtx,
         ) -> VortexResult<SendableArrayStream> {
@@ -681,6 +786,29 @@ mod tests {
             let stream = plan.execute(2..6, &demand, &ctx)?;
             let values = collect_i32(stream).await?;
             assert_eq!(values, vec![3, 4, 5, 6]);
+            Ok::<_, VortexError>(())
+        })?;
+        Ok(())
+    }
+
+    #[test]
+    fn bool_let_materialises_only_execute_range() -> VortexResult<()> {
+        block_on(|handle| async move {
+            let ctx = ScanCtx::new(SESSION.clone().with_handle(handle));
+            let (source, executes, ranges) = CountingBoolPlan::new(10);
+
+            let id = LetId::fresh();
+            let body: LayoutPlanRef = Arc::new(UsePlan::new(id, bool_dtype(), 10));
+            let plan: LayoutPlanRef =
+                Arc::new(LetPlan::with_id(id, Arc::clone(&source) as _, body));
+
+            let demand = RowDemand::empty(10);
+            let stream = plan.execute(3..7, &demand, &ctx)?;
+            let array = stream.read_all().await?;
+
+            assert_eq!(array.len(), 4);
+            assert_eq!(executes.load(Ordering::SeqCst), 1);
+            assert_eq!(ranges.lock().as_slice(), &[3..7]);
             Ok::<_, VortexError>(())
         })?;
         Ok(())

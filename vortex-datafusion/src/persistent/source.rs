@@ -30,6 +30,7 @@ use object_store::path::Path;
 use vortex::error::VortexExpect;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
+use vortex::layout::segments::SegmentSource;
 use vortex::metrics::DefaultMetricsRegistry;
 use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
@@ -188,6 +189,9 @@ pub struct VortexSource {
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     /// Shared full-file natural split ranges keyed by path.
     natural_split_ranges: Arc<DashMap<Path, Arc<[Range<u64>]>>>,
+    /// Shared segment sources keyed by path, so partitioned v2 scans can deduplicate in-flight
+    /// segment reads across file ranges.
+    segment_sources: Arc<DashMap<Path, Weak<dyn SegmentSource>>>,
     expression_convertor: Arc<dyn ExpressionConvertor>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
@@ -220,6 +224,7 @@ impl VortexSource {
             _unused_df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
             natural_split_ranges: Arc::new(DashMap::default()),
+            segment_sources: Arc::new(DashMap::default()),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
@@ -336,6 +341,7 @@ impl VortexSource {
             metrics_registry: Arc::clone(&self.vx_metrics_registry),
             layout_readers: Arc::clone(&self.layout_readers),
             natural_split_ranges: Arc::clone(&self.natural_split_ranges),
+            segment_sources: Arc::clone(&self.segment_sources),
             has_output_ordering: !base_config.output_ordering.is_empty(),
             expression_convertor: Arc::clone(&self.expression_convertor),
             file_metadata_cache: self.file_metadata_cache.clone(),
