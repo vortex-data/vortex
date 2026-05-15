@@ -339,6 +339,8 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
 
+    use vortex_error::VortexResult;
+
     use super::*;
     use crate::IntoArray;
     use crate::VortexSessionExecute;
@@ -544,5 +546,71 @@ mod tests {
             between_strict,
             BoolArray::from_iter([true, true, true, false])
         );
+    }
+
+    /// Regression test: between on a decimal array whose storage type is narrower than the
+    /// bound scalars' backing integer type must not crash.
+    ///
+    /// The fuzzer discovered that a DecimalArray with `values_type = I16` (i16 backing) can
+    /// receive bound scalars stored as `DecimalValue::I32` when both share the same precision
+    /// and scale.  The old code called `vortex_bail!` when the cast from i32 to i16 failed,
+    /// propagating an error that the fuzz harness turned into a panic.
+    #[test]
+    fn test_between_decimal_mismatched_storage_types() -> VortexResult<()> {
+        // Array backed by i16, with precision=5 and a negative scale.
+        // DecimalArray allows narrower-than-canonical backing when all values fit.
+        let values = buffer![100i16, 200i16, 300i16, 400i16];
+        let decimal_type = DecimalDType::new(5, -3);
+        let array = DecimalArray::new(values, decimal_type, Validity::NonNullable).into_array();
+
+        // Lower bound stored as I32(100) – fits in i16, but the backing type differs.
+        let lower = ConstantArray::new(
+            Scalar::decimal(DecimalValue::I32(100i32), decimal_type, Nullability::NonNullable),
+            array.len(),
+        )
+        .into_array();
+
+        // Upper bound stored as I32(82246) – does NOT fit in i16 (> i16::MAX = 32767).
+        // All array values are <= 32767 < 82246, so every element satisfies the upper bound.
+        let upper = ConstantArray::new(
+            Scalar::decimal(DecimalValue::I32(82246i32), decimal_type, Nullability::NonNullable),
+            array.len(),
+        )
+        .into_array();
+
+        let result = between_canonical(
+            &array,
+            &lower,
+            &upper,
+            &BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        // 100 <= [100,200,300,400] <= 82246 → all true
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true, true, true]));
+
+        // Verify that values outside the lower bound are correctly excluded.
+        let lower_high = ConstantArray::new(
+            Scalar::decimal(DecimalValue::I32(250i32), decimal_type, Nullability::NonNullable),
+            array.len(),
+        )
+        .into_array();
+
+        let result2 = between_canonical(
+            &array,
+            &lower_high,
+            &upper,
+            &BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+            &mut SESSION.create_execution_ctx(),
+        )?;
+        // 250 <= [100,200,300,400] <= 82246 → [false, false, true, true]
+        assert_arrays_eq!(result2, BoolArray::from_iter([false, false, true, true]));
+
+        Ok(())
     }
 }

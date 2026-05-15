@@ -4,7 +4,6 @@
 use vortex_buffer::BitBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -57,20 +56,18 @@ fn between_unpack<T: NativeDecimalType>(
         .decimal_value()
         .and_then(|v| v.cast::<T>())
     else {
-        vortex_bail!(
-            "invalid lower bound Scalar: {lower}, expected {:?}",
-            T::DECIMAL_TYPE
-        )
+        // The bound's backing integer value doesn't fit in T (the array's storage type). This
+        // can happen when the bound scalar uses a wider decimal storage type than the array,
+        // even though both share the same precision and scale. Signal to the caller to fall
+        // back to the generic Arrow-based comparison, which handles mixed storage types.
+        return Ok(None);
     };
     let Some(upper_value) = upper
         .as_decimal()
         .decimal_value()
         .and_then(|v| v.cast::<T>())
     else {
-        vortex_bail!(
-            "invalid upper bound Scalar: {upper}, expected {:?}",
-            T::DECIMAL_TYPE
-        )
+        return Ok(None);
     };
 
     let lower_op = match options.lower_strict {
