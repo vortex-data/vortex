@@ -21,7 +21,6 @@ pub use tree_display::TreeDisplay;
 use crate::ArrayRef;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
-use crate::arrays::struct_::StructArrayExt;
 
 /// Describe how to convert an array to a string.
 ///
@@ -583,6 +582,7 @@ impl ArrayRef {
                 #[expect(deprecated)]
                 use crate::canonical::ToCanonical as _;
                 use crate::dtype::DType;
+                use crate::arrays::struct_::StructArrayExt;
 
                 let mut builder = tabled::builder::Builder::default();
 
