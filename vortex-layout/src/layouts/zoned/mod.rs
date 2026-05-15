@@ -15,6 +15,7 @@ mod builder;
 mod pruning;
 mod reader;
 mod schema;
+mod v2_resource;
 pub mod writer;
 pub mod zone_map;
 
@@ -23,6 +24,7 @@ use std::sync::Arc;
 pub(crate) use builder::StatsAccumulator;
 pub use schema::MAX_IS_TRUNCATED;
 pub use schema::MIN_IS_TRUNCATED;
+pub use v2_resource::ZoneMapResource;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::dtype::DType;
@@ -51,6 +53,7 @@ use crate::layouts::zoned::reader::ZonedReader;
 use crate::layouts::zoned::schema::stats_table_dtype;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::demand::DemandSource;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PlanArguments;
 use crate::v2::zoned::ZonedPruningPlan;
@@ -192,15 +195,26 @@ impl VTable for Zoned {
         let zones_dtype = stats_table_dtype(&data_dtype, &layout.present_stats);
         let zones_child = layout.children.child(1, &zones_dtype)?;
         let data_plan = data_child.plan(args.clone())?;
-        let zones_plan = zones_child.plan(args.with_expr(vortex_array::expr::root()))?;
+        let zones_plan = zones_child.plan(args.clone().with_expr(vortex_array::expr::root()))?;
 
-        Ok(Arc::new(ZonedPruningPlan::new(
-            data_plan,
+        // Build the shared resource (init pipeline + cached prune
+        // mask). Register it as a `DemandSource` on the plan-time
+        // collector so `Scan::build` adds it to `ScanPlan` for
+        // `ensure_ready` orchestration *and* per-partition `RowDemand`
+        // intersection. The same `Arc` is also held by the
+        // `ZonedPruningPlan` for direct per-zone pulls.
+        let resource = Arc::new(ZoneMapResource::new(
             zones_plan,
             pruning_predicate,
             layout.zone_len as u64,
             layout.children.child_row_count(0),
-        )))
+            args.ctx.session.clone(),
+        ));
+        args.ctx
+            .resources
+            .push_demand_source(Arc::clone(&resource) as Arc<dyn DemandSource>);
+
+        Ok(Arc::new(ZonedPruningPlan::new(data_plan, resource)))
     }
 }
 

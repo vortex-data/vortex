@@ -79,10 +79,7 @@ impl Scan {
             );
         }
 
-        let ctx = PlanCtx {
-            segment_source: Arc::clone(&self.segment_source),
-            session: self.session.clone(),
-        };
+        let ctx = PlanCtx::new(Arc::clone(&self.segment_source), self.session.clone());
 
         let projection_plan = self.layout.plan(PlanArguments {
             selection: self.selection.clone(),
@@ -129,7 +126,19 @@ impl Scan {
         // CSE-collapse, then wrap the whole thing in ScanPlan so the
         // partition's RowDemand gets installed at execute-start.
         let body = cse(FilterPlan::new_or_pushdown(projection_plan, mask_plan))?;
-        Ok(Arc::new(ScanPlan::new(body, row_count)))
+
+        // Drain any resources that layouts registered during planning
+        // (e.g. `ZoneMapResource` from `ZonedLayout::plan`) and attach
+        // them to the ScanPlan so `ensure_ready` runs before the body.
+        let collected = ctx.resources.take();
+        let mut scan_plan = ScanPlan::new(body, row_count);
+        for r in collected.resources {
+            scan_plan = scan_plan.with_resource(r);
+        }
+        for s in collected.demand_sources {
+            scan_plan = scan_plan.with_demand_source(s);
+        }
+        Ok(Arc::new(scan_plan))
     }
 }
 
@@ -301,7 +310,10 @@ impl LayoutPlan for ScanPlan {
         let ctx_owned = ctx.clone();
         let dtype = self.body.schema().clone();
         let stream = try_stream! {
-            futures::future::try_join_all(resources.iter().map(|r| r.ensure_ready())).await?;
+            futures::future::try_join_all(
+                resources.iter().map(|r| r.ensure_ready(ctx_owned.clone())),
+            )
+            .await?;
             let mut body_stream = body.execute(row_range, &demand, &ctx_owned)?;
             while let Some(item) = body_stream.next().await {
                 yield item?;

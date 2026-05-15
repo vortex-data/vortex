@@ -4,22 +4,22 @@
 //! [`ZonedPruningPlan`] — the bool-returning conjunct path for
 //! `ZonedLayout`.
 //!
-//! When `ZonedLayout::plan` is called with a filter conjunct whose
-//! pruning predicate falsifies cleanly against the available stats,
-//! it builds one of these. At execute time the plan reads the zones
-//! table once, evaluates the predicate to a per-zone "prune" mask,
-//! and emits the conjunct's bool stream zone by zone:
+//! Holds an `Arc<ZoneMapResource>` (built and registered by
+//! `ZonedLayout::plan`). At execute time it pulls the per-zone prune
+//! mask from the resource (which has already been `ensure_ready`-
+//! awaited by `ScanPlan`), then emits the conjunct's bool stream
+//! zone by zone:
 //!
 //! - For pruned zones, a [`ConstantArray`] of `false` of the zone's
 //!   row length — no data I/O happens for that zone at all.
 //! - For kept zones, the data plan is invoked over the zone's row
 //!   range and its bool chunks are forwarded.
 //!
-//! This is the "execute-time pruning" variant — pruning short-circuits
-//! the conjunct's bool stream. Cross-conjunct fanout (where one
-//! pruned zone should also let the unrelated projection skip its
-//! reads on those rows) waits for the `RowDemand` work — see
-//! `LAYOUT_PLAN.md` § ZonedLayout::plan.
+//! Cross-conjunct fanout (where this conjunct's pruning lets *other*
+//! plan nodes skip work on the same rows) is implemented by the same
+//! `ZoneMapResource` being registered as a [`DemandSource`] on
+//! `ScanPlan`. Other plan nodes pull `RowDemand`, which intersects
+//! every registered source.
 
 use std::ops::Range;
 use std::sync::Arc;
@@ -27,20 +27,16 @@ use std::sync::Arc;
 use async_stream::try_stream;
 use futures::StreamExt;
 use vortex_array::IntoArray;
-use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::StructArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
-use vortex_array::expr::Expression;
 use vortex_array::stream::ArrayStreamAdapter;
-use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::layouts::zoned::ZoneMapResource;
 use crate::v2::demand::RowDemand;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
@@ -52,27 +48,16 @@ pub struct ZonedPruningPlan {
     /// Bool-returning evaluation of the filter conjunct against the
     /// data child. Invoked over kept-zone row ranges only.
     data_plan: LayoutPlanRef,
-    /// Reads the zones stats table; expected to emit a single
-    /// `StructArray` chunk of `nzones` rows.
-    zones_plan: LayoutPlanRef,
-    /// Predicate over the zones table. `true` for a zone means the
-    /// original filter cannot match any row in that zone, so the
-    /// zone is prunable.
-    pruning_predicate: Expression,
-    zone_len: u64,
-    row_count: u64,
+    /// Shared resource that owns the falsified expression, the zones
+    /// fetch pipeline, and the cached per-zone prune mask. Awaited
+    /// by `ScanPlan::execute` before the body runs, so by the time
+    /// this plan node executes the resource is guaranteed populated.
+    resource: Arc<ZoneMapResource>,
     output_dtype: DType,
 }
 
 impl ZonedPruningPlan {
-    pub fn new(
-        data_plan: LayoutPlanRef,
-        zones_plan: LayoutPlanRef,
-        pruning_predicate: Expression,
-        zone_len: u64,
-        row_count: u64,
-    ) -> Self {
-        debug_assert!(zone_len > 0, "ZonedPruningPlan requires zone_len > 0");
+    pub fn new(data_plan: LayoutPlanRef, resource: Arc<ZoneMapResource>) -> Self {
         debug_assert!(
             matches!(data_plan.schema(), DType::Bool(_)),
             "ZonedPruningPlan: data_plan must produce a Bool stream"
@@ -80,22 +65,24 @@ impl ZonedPruningPlan {
         let output_dtype = DType::Bool(Nullability::NonNullable);
         Self {
             data_plan,
-            zones_plan,
-            pruning_predicate,
-            zone_len,
-            row_count,
+            resource,
             output_dtype,
         }
+    }
+
+    /// The shared resource that backs this plan's pruning decisions.
+    pub fn resource(&self) -> &Arc<ZoneMapResource> {
+        &self.resource
     }
 }
 
 impl PartialEq for ZonedPruningPlan {
     fn eq(&self, other: &Self) -> bool {
         crate::v2::plan::plans_eq(&self.data_plan, &other.data_plan)
-            && crate::v2::plan::plans_eq(&self.zones_plan, &other.zones_plan)
-            && self.pruning_predicate == other.pruning_predicate
-            && self.zone_len == other.zone_len
-            && self.row_count == other.row_count
+            // Resources participate by Arc identity — two plans built
+            // in different `Scan::build` calls never share resource
+            // Arcs, which is the right semantics for CSE.
+            && Arc::ptr_eq(&self.resource, &other.resource)
             && self.output_dtype == other.output_dtype
     }
 }
@@ -105,10 +92,7 @@ impl Eq for ZonedPruningPlan {}
 impl std::hash::Hash for ZonedPruningPlan {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         crate::v2::plan::hash_plan(&self.data_plan, state);
-        crate::v2::plan::hash_plan(&self.zones_plan, state);
-        self.pruning_predicate.hash(state);
-        self.zone_len.hash(state);
-        self.row_count.hash(state);
+        (Arc::as_ptr(&self.resource) as *const () as usize).hash(state);
         self.output_dtype.hash(state);
     }
 }
@@ -132,20 +116,15 @@ impl LayoutPlan for ZonedPruningPlan {
     }
 
     fn required_input_ordered(&self) -> Vec<bool> {
-        // [data, zones]. Data must be ordered (pruning preserves
-        // order); zones order is fixed by the underlying flat read.
-        vec![true, true]
+        // [data]. The zones source is owned by the resource.
+        vec![true]
     }
 
     fn maintains_input_order(&self) -> Vec<bool> {
-        vec![true, true]
+        vec![true]
     }
 
     fn children(&self) -> &[LayoutPlanRef] {
-        // data_plan and zones_plan aren't contiguous; expose just the
-        // data plan so the typical pushdown walker sees the bool
-        // stream's source. Pushdown rules that need the zones plan
-        // can downcast.
         std::slice::from_ref(&self.data_plan)
     }
 
@@ -165,10 +144,7 @@ impl LayoutPlan for ZonedPruningPlan {
             .ok_or_else(|| vortex_err!("ZonedPruningPlan with_new_children: empty vec"))?;
         Ok(Arc::new(Self {
             data_plan,
-            zones_plan: Arc::clone(&self.zones_plan),
-            pruning_predicate: self.pruning_predicate.clone(),
-            zone_len: self.zone_len,
-            row_count: self.row_count,
+            resource: Arc::clone(&self.resource),
             output_dtype: self.output_dtype.clone(),
         }))
     }
@@ -179,54 +155,24 @@ impl LayoutPlan for ZonedPruningPlan {
         demand: &RowDemand,
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
-        if row_range.start > self.row_count || row_range.end > self.row_count {
+        let row_count = self.resource.row_count();
+        if row_range.start > row_count || row_range.end > row_count {
             vortex_bail!(
-                "ZonedPruningPlan::execute row range {row_range:?} exceeds total {}",
-                self.row_count
+                "ZonedPruningPlan::execute row range {row_range:?} exceeds total {row_count}"
             );
         }
 
-        // Zones plan operates in zone-coords (one row per zone) — an
-        // unrelated row space, so pass empty demand.
-        let zones_row_count = self
-            .zones_plan
-            .partition_stats(0)
-            .map(|s| s.row_count())
-            .unwrap_or_default();
-        let zones_demand = RowDemand::empty(zones_row_count);
-        let zones_stream = self
-            .zones_plan
-            .execute(0..zones_row_count, &zones_demand, ctx)?;
-
-        let pruning_predicate = self.pruning_predicate.clone();
-        let zone_len = self.zone_len;
-        let row_count = self.row_count;
-        let session = ctx.session().clone();
+        // Pull the per-zone prune mask from the resource. ScanPlan
+        // has already awaited `ensure_ready`, so this is guaranteed
+        // populated.
+        let zone_prune = self.resource.zone_prune_mask()?;
+        let zone_len = self.resource.zone_len();
         let dtype = self.output_dtype.clone();
         let data_plan = Arc::clone(&self.data_plan);
         let ctx_for_stream = ctx.clone();
         let demand_for_stream = demand.clone();
 
         let stream = try_stream! {
-            // Materialise the zones table into one ArrayRef. For a
-            // typical Flat zones layout this is a single chunk.
-            let zones_array = zones_stream.read_all().await?;
-            let mut ctx_exec = session.create_execution_ctx();
-            let zones_struct = zones_array.execute::<StructArray>(&mut ctx_exec)?;
-
-            // Compute the per-zone prune mask. SAFETY: the zones
-            // layout invariant guarantees the struct's schema matches
-            // the present stats.
-            let zone_map = unsafe {
-                ZoneMap::new_unchecked(zones_struct, zone_len, row_count)
-            };
-            let prune_mask = zone_map.prune(&pruning_predicate, &session)?;
-
-            // (Demand publishing has moved to a future ZoneMapResource
-            // pulled at execute-start. Until that lands the prune mask
-            // here is consumed locally only — kept zones are read,
-            // pruned zones emit constant-false bool chunks.)
-
             // Iterate intersecting zones, emit per-zone bool chunks.
             let zone_start_idx = row_range.start / zone_len;
             let zone_end_idx = row_range.end.div_ceil(zone_len);
@@ -241,18 +187,18 @@ impl LayoutPlan for ZonedPruningPlan {
                 let intersect_len = usize::try_from(intersect_end - intersect_start)?;
                 let zone_idx_usize = usize::try_from(zone_idx)?;
 
-                if prune_mask.value(zone_idx_usize) {
+                if zone_prune.value(zone_idx_usize) {
                     // Pruned — no data I/O. Emit constant false for
                     // the zone's intersection with the requested range.
                     yield ConstantArray::new(false, intersect_len).into_array();
                 } else {
                     // Kept — invoke the data plan over this zone's
-                    // intersection and forward its bool chunks. The
-                    // data plan shares our row coord system (it's a
-                    // pass-through layout under ZonedLayout), so hand
-                    // demand through unchanged.
+                    // intersection and forward its bool chunks. Demand
+                    // is in our coord system; pass through unchanged
+                    // (data plan shares the row coord system).
                     let intersect = intersect_start..intersect_end;
-                    let mut data_stream = data_plan.execute(intersect, &demand_for_stream, &ctx_for_stream)?;
+                    let mut data_stream =
+                        data_plan.execute(intersect, &demand_for_stream, &ctx_for_stream)?;
                     while let Some(item) = data_stream.next().await {
                         yield item?;
                     }

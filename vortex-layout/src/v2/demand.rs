@@ -46,6 +46,8 @@ use parking_lot::Mutex;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
+use crate::v2::scan_ctx::ScanCtx;
+
 /// A row range. Half-open: `[start, end)`.
 pub type RowRange = Range<u64>;
 
@@ -65,8 +67,11 @@ pub trait Resource: Send + Sync + 'static {
     /// Monotonic version of the resource's observable state.
     fn version(&self) -> u64;
 
-    /// Resolve the resource's initial-fetch pipeline. Idempotent.
-    fn ensure_ready(&self) -> BoxFuture<'_, VortexResult<()>>;
+    /// Resolve the resource's initial-fetch pipeline. Idempotent —
+    /// multiple awaits resolve immediately after the first completes.
+    /// `ctx` is cloned in by the caller (typically [`crate::v2::scan::ScanPlan`])
+    /// so the resource can drive its own sub-plan execute calls.
+    fn ensure_ready(&self, ctx: ScanCtx) -> BoxFuture<'_, VortexResult<()>>;
 }
 
 /// A [`Resource`] whose observable value is a per-row bool over the
@@ -260,7 +265,7 @@ mod tests {
             self.version.load(Ordering::Acquire)
         }
 
-        fn ensure_ready(&self) -> BoxFuture<'_, VortexResult<()>> {
+        fn ensure_ready(&self, _ctx: ScanCtx) -> BoxFuture<'_, VortexResult<()>> {
             async move { Ok(()) }.boxed()
         }
     }

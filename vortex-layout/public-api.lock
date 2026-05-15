@@ -816,6 +816,28 @@ impl core::clone::Clone for vortex_layout::layouts::zoned::zone_map::ZoneMap
 
 pub fn vortex_layout::layouts::zoned::zone_map::ZoneMap::clone(&self) -> vortex_layout::layouts::zoned::zone_map::ZoneMap
 
+pub struct vortex_layout::layouts::zoned::ZoneMapResource
+
+impl vortex_layout::layouts::zoned::ZoneMapResource
+
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::new(vortex_layout::v2::plan::LayoutPlanRef, vortex_array::expr::expression::Expression, u64, u64, vortex_session::VortexSession) -> Self
+
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::row_count(&self) -> u64
+
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::zone_len(&self) -> u64
+
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::zone_prune_mask(&self) -> vortex_error::VortexResult<vortex_mask::Mask>
+
+impl vortex_layout::v2::demand::DemandSource for vortex_layout::layouts::zoned::ZoneMapResource
+
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::mask_for(&self, core::ops::range::Range<u64>) -> vortex_error::VortexResult<vortex_mask::Mask>
+
+impl vortex_layout::v2::demand::Resource for vortex_layout::layouts::zoned::ZoneMapResource
+
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::ensure_ready(&self, vortex_layout::v2::scan_ctx::ScanCtx) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<()>>
+
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::version(&self) -> u64
+
 pub struct vortex_layout::layouts::zoned::Zoned
 
 impl core::fmt::Debug for vortex_layout::layouts::zoned::Zoned
@@ -1580,11 +1602,21 @@ pub trait vortex_layout::v2::demand::DemandSource: vortex_layout::v2::demand::Re
 
 pub fn vortex_layout::v2::demand::DemandSource::mask_for(&self, vortex_layout::v2::demand::RowRange) -> vortex_error::VortexResult<vortex_mask::Mask>
 
+impl vortex_layout::v2::demand::DemandSource for vortex_layout::layouts::zoned::ZoneMapResource
+
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::mask_for(&self, core::ops::range::Range<u64>) -> vortex_error::VortexResult<vortex_mask::Mask>
+
 pub trait vortex_layout::v2::demand::Resource: core::marker::Send + core::marker::Sync + 'static
 
-pub fn vortex_layout::v2::demand::Resource::ensure_ready(&self) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<()>>
+pub fn vortex_layout::v2::demand::Resource::ensure_ready(&self, vortex_layout::v2::scan_ctx::ScanCtx) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<()>>
 
 pub fn vortex_layout::v2::demand::Resource::version(&self) -> u64
+
+impl vortex_layout::v2::demand::Resource for vortex_layout::layouts::zoned::ZoneMapResource
+
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::ensure_ready(&self, vortex_layout::v2::scan_ctx::ScanCtx) -> futures_core::future::BoxFuture<'_, vortex_error::VortexResult<()>>
+
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::version(&self) -> u64
 
 pub type vortex_layout::v2::demand::RowRange = core::ops::range::Range<u64>
 
@@ -2162,6 +2194,8 @@ pub fn vortex_layout::v2::plan::PlanArguments::clone(&self) -> vortex_layout::v2
 
 pub struct vortex_layout::v2::plan::PlanCtx
 
+pub vortex_layout::v2::plan::PlanCtx::resources: vortex_layout::v2::plan::ResourceCollector
+
 pub vortex_layout::v2::plan::PlanCtx::segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>
 
 pub vortex_layout::v2::plan::PlanCtx::session: vortex_session::VortexSession
@@ -2173,6 +2207,24 @@ pub fn vortex_layout::v2::plan::PlanCtx::new(alloc::sync::Arc<dyn vortex_layout:
 impl core::clone::Clone for vortex_layout::v2::plan::PlanCtx
 
 pub fn vortex_layout::v2::plan::PlanCtx::clone(&self) -> vortex_layout::v2::plan::PlanCtx
+
+pub struct vortex_layout::v2::plan::ResourceCollector
+
+impl vortex_layout::v2::plan::ResourceCollector
+
+pub fn vortex_layout::v2::plan::ResourceCollector::push_demand_source(&self, alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>)
+
+pub fn vortex_layout::v2::plan::ResourceCollector::push_resource(&self, alloc::sync::Arc<dyn vortex_layout::v2::demand::Resource>)
+
+pub fn vortex_layout::v2::plan::ResourceCollector::take(&self) -> (alloc::vec::Vec<alloc::sync::Arc<dyn vortex_layout::v2::demand::Resource>>, alloc::vec::Vec<alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>>)
+
+impl core::clone::Clone for vortex_layout::v2::plan::ResourceCollector
+
+pub fn vortex_layout::v2::plan::ResourceCollector::clone(&self) -> vortex_layout::v2::plan::ResourceCollector
+
+impl core::default::Default for vortex_layout::v2::plan::ResourceCollector
+
+pub fn vortex_layout::v2::plan::ResourceCollector::default() -> vortex_layout::v2::plan::ResourceCollector
 
 pub trait vortex_layout::v2::plan::LayoutPlan: vortex_utils::dyn_traits::DynEq + vortex_utils::dyn_traits::DynHash + core::marker::Send + core::marker::Sync + 'static
 
@@ -2832,7 +2884,9 @@ pub struct vortex_layout::v2::zoned::ZonedPruningPlan
 
 impl vortex_layout::v2::zoned::ZonedPruningPlan
 
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::new(vortex_layout::v2::plan::LayoutPlanRef, vortex_layout::v2::plan::LayoutPlanRef, vortex_array::expr::expression::Expression, u64, u64) -> Self
+pub fn vortex_layout::v2::zoned::ZonedPruningPlan::new(vortex_layout::v2::plan::LayoutPlanRef, alloc::sync::Arc<vortex_layout::layouts::zoned::ZoneMapResource>) -> Self
+
+pub fn vortex_layout::v2::zoned::ZonedPruningPlan::resource(&self) -> &alloc::sync::Arc<vortex_layout::layouts::zoned::ZoneMapResource>
 
 impl core::cmp::Eq for vortex_layout::v2::zoned::ZonedPruningPlan
 

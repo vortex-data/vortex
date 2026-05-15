@@ -12,6 +12,7 @@ use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
+use parking_lot::Mutex;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::stream::SendableArrayStream;
@@ -23,6 +24,8 @@ use vortex_utils::dyn_traits::DynEq;
 use vortex_utils::dyn_traits::DynHash;
 
 use crate::segments::SegmentSource;
+use crate::v2::demand::DemandSource;
+use crate::v2::demand::Resource;
 use crate::v2::demand::RowDemand;
 use crate::v2::scan_ctx::ScanCtx;
 
@@ -275,8 +278,10 @@ impl PlanArguments {
 /// Cross-cutting context threaded through [`crate::Layout::plan`].
 ///
 /// Carries the [`SegmentSource`] used to fetch on-disk bytes at
-/// execute time and the [`VortexSession`] used for plan-time setup
-/// that touches the array context.
+/// execute time, the [`VortexSession`] used for plan-time setup
+/// that touches the array context, and a [`ResourceCollector`] into
+/// which layouts push any [`Resource`] / [`DemandSource`] handles
+/// they need active at execute time.
 ///
 /// Notably does *not* carry [`RowDemand`] — that's positional
 /// (per-row coordinates), so it travels alongside `row_range` as an
@@ -286,16 +291,76 @@ impl PlanArguments {
 pub struct PlanCtx {
     pub segment_source: Arc<dyn SegmentSource>,
     pub session: VortexSession,
+    /// Collector for resources discovered during plan-building.
+    /// Cloned alongside `PlanCtx`; all clones share one underlying
+    /// `Arc<Mutex<...>>`, so layouts pushing into a clone are visible
+    /// to the original. `Scan::build` drains it after planning and
+    /// registers contents on the resulting `ScanPlan`.
+    pub resources: ResourceCollector,
 }
 
 impl PlanCtx {
-    /// Construct a plan context with the given segment source and session.
+    /// Construct a plan context with the given segment source and
+    /// session. Starts with an empty resource collector.
     pub fn new(segment_source: Arc<dyn SegmentSource>, session: VortexSession) -> Self {
         Self {
             segment_source,
             session,
+            resources: ResourceCollector::default(),
         }
     }
+}
+
+/// Plan-time accumulator for [`Resource`] / [`DemandSource`] handles.
+///
+/// Layouts that need a per-scan [`Resource`] (e.g. a stats fetch
+/// pipeline behind a `ZoneMapResource`) call [`Self::push_resource`]
+/// (or [`Self::push_demand_source`]) during their `Layout::plan`
+/// implementation. The same `Arc` is also held by whatever plan node
+/// consumes it. After planning, [`crate::v2::scan::Scan::build`]
+/// drains the collector via [`Self::take`] and registers the contents
+/// on the resulting `ScanPlan` for `ensure_ready` orchestration.
+#[derive(Clone, Default)]
+pub struct ResourceCollector {
+    inner: Arc<Mutex<ResourceCollectorInner>>,
+}
+
+#[derive(Default)]
+struct ResourceCollectorInner {
+    resources: Vec<Arc<dyn Resource>>,
+    demand_sources: Vec<Arc<dyn DemandSource>>,
+}
+
+impl ResourceCollector {
+    /// Register a resource that must be `ensure_ready`-awaited before
+    /// the scan body executes.
+    pub fn push_resource(&self, resource: Arc<dyn Resource>) {
+        self.inner.lock().resources.push(resource);
+    }
+
+    /// Register a demand source. The collector tracks it in the
+    /// demand-source list only; `Scan::build` later passes it to
+    /// `ScanPlan::with_demand_source`, which adds it to both the
+    /// resource and demand-source lists on the plan so its
+    /// `ensure_ready` is awaited *and* it contributes to `RowDemand`.
+    pub fn push_demand_source(&self, source: Arc<dyn DemandSource>) {
+        self.inner.lock().demand_sources.push(source);
+    }
+
+    /// Drain the collector and return the accumulated lists.
+    pub fn take(&self) -> CollectedResources {
+        let mut inner = self.inner.lock();
+        CollectedResources {
+            resources: std::mem::take(&mut inner.resources),
+            demand_sources: std::mem::take(&mut inner.demand_sources),
+        }
+    }
+}
+
+/// Result of [`ResourceCollector::take`].
+pub struct CollectedResources {
+    pub resources: Vec<Arc<dyn Resource>>,
+    pub demand_sources: Vec<Arc<dyn DemandSource>>,
 }
 
 /// Stats a partition can vouch for. The row range is mandatory —
