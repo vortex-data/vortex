@@ -13,10 +13,10 @@
 //! [`crate::layouts::SharedArrayFuture`]. Use cases: dict values,
 //! file stats, anything that's whole-array-once.
 //!
-//! See `LAYOUT_PLAN.md` § Tee and CommonSubplanElimination. The
-//! streaming variant — for filter mask fan-out and other intra-execute
-//! shared cursors — lands in the PR that consumes it; the
-//! [`crate::v2::tee_stream`] primitive is already in place to back it.
+//! See `LAYOUT_PLAN.md` § Tee and CommonSubplanElimination. A
+//! streaming variant — for filter mask fan-out and other
+//! intra-execute shared cursors — is the natural follow-up; it'll
+//! need a tee primitive to back it.
 
 use std::any::Any;
 use std::ops::Range;
