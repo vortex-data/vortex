@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::mem;
-use std::mem::MaybeUninit;
+use     std::mem::MaybeUninit;
 
 use fastlanes::Delta;
 use fastlanes::FastLanes;
