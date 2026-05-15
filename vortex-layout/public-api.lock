@@ -1468,6 +1468,16 @@ impl vortex_layout::v2::and_bool::AndBoolStreamsPlan
 
 pub fn vortex_layout::v2::and_bool::AndBoolStreamsPlan::new(alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>, u64) -> Self
 
+impl core::cmp::Eq for vortex_layout::v2::and_bool::AndBoolStreamsPlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::and_bool::AndBoolStreamsPlan
+
+pub fn vortex_layout::v2::and_bool::AndBoolStreamsPlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::and_bool::AndBoolStreamsPlan
+
+pub fn vortex_layout::v2::and_bool::AndBoolStreamsPlan::hash<H: core::hash::Hasher>(&self, &mut H)
+
 impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::and_bool::AndBoolStreamsPlan
 
 pub fn vortex_layout::v2::and_bool::AndBoolStreamsPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
@@ -1501,6 +1511,16 @@ impl vortex_layout::v2::chunked::ChunkedPlan
 pub fn vortex_layout::v2::chunked::ChunkedPlan::new(alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>, alloc::vec::Vec<u64>, vortex_array::dtype::DType) -> Self
 
 pub fn vortex_layout::v2::chunked::ChunkedPlan::with_preserve_order(alloc::sync::Arc<Self>, bool) -> alloc::sync::Arc<dyn vortex_layout::v2::plan::LayoutPlan>
+
+impl core::cmp::Eq for vortex_layout::v2::chunked::ChunkedPlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::chunked::ChunkedPlan
+
+pub fn vortex_layout::v2::chunked::ChunkedPlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::chunked::ChunkedPlan
+
+pub fn vortex_layout::v2::chunked::ChunkedPlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
 impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::chunked::ChunkedPlan
 
@@ -1546,6 +1566,16 @@ pub fn vortex_layout::v2::dict::DictDecodePlan::new(vortex_layout::v2::plan::Lay
 
 pub fn vortex_layout::v2::dict::DictDecodePlan::values_plan(&self) -> &vortex_layout::v2::plan::LayoutPlanRef
 
+impl core::cmp::Eq for vortex_layout::v2::dict::DictDecodePlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::dict::DictDecodePlan
+
+pub fn vortex_layout::v2::dict::DictDecodePlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::dict::DictDecodePlan
+
+pub fn vortex_layout::v2::dict::DictDecodePlan::hash<H: core::hash::Hasher>(&self, &mut H)
+
 impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::dict::DictDecodePlan
 
 pub fn vortex_layout::v2::dict::DictDecodePlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
@@ -1577,6 +1607,16 @@ pub struct vortex_layout::v2::empty_struct::EmptyStructPlan
 impl vortex_layout::v2::empty_struct::EmptyStructPlan
 
 pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::new(u64) -> Self
+
+impl core::cmp::Eq for vortex_layout::v2::empty_struct::EmptyStructPlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::empty_struct::EmptyStructPlan
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::empty_struct::EmptyStructPlan
+
+pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
 impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::empty_struct::EmptyStructPlan
 
@@ -1611,6 +1651,16 @@ impl vortex_layout::v2::filter::FilterPlan
 pub fn vortex_layout::v2::filter::FilterPlan::new(vortex_layout::v2::plan::LayoutPlanRef, vortex_layout::v2::plan::LayoutPlanRef) -> Self
 
 pub fn vortex_layout::v2::filter::FilterPlan::new_or_pushdown(vortex_layout::v2::plan::LayoutPlanRef, vortex_layout::v2::plan::LayoutPlanRef) -> vortex_layout::v2::plan::LayoutPlanRef
+
+impl core::cmp::Eq for vortex_layout::v2::filter::FilterPlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::filter::FilterPlan
+
+pub fn vortex_layout::v2::filter::FilterPlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::filter::FilterPlan
+
+pub fn vortex_layout::v2::filter::FilterPlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
 impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::filter::FilterPlan
 
@@ -1650,6 +1700,16 @@ pub fn vortex_layout::v2::flat::FlatPlan::segment_id(&self) -> vortex_layout::se
 
 pub fn vortex_layout::v2::flat::FlatPlan::selection(&self) -> &vortex_scan::selection::Selection
 
+impl core::cmp::Eq for vortex_layout::v2::flat::FlatPlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::flat::FlatPlan
+
+pub fn vortex_layout::v2::flat::FlatPlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::flat::FlatPlan
+
+pub fn vortex_layout::v2::flat::FlatPlan::hash<H: core::hash::Hasher>(&self, &mut H)
+
 impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::flat::FlatPlan
 
 pub fn vortex_layout::v2::flat::FlatPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
@@ -1681,6 +1741,16 @@ pub struct vortex_layout::v2::mask_slice::MaskSlicePlan
 impl vortex_layout::v2::mask_slice::MaskSlicePlan
 
 pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::new(vortex_layout::v2::plan::LayoutPlanRef, core::ops::range::Range<u64>) -> Self
+
+impl core::cmp::Eq for vortex_layout::v2::mask_slice::MaskSlicePlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::mask_slice::MaskSlicePlan
+
+pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::mask_slice::MaskSlicePlan
+
+pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
 impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::mask_slice::MaskSlicePlan
 
@@ -1764,7 +1834,7 @@ impl core::clone::Clone for vortex_layout::v2::plan::PlanContext
 
 pub fn vortex_layout::v2::plan::PlanContext::clone(&self) -> vortex_layout::v2::plan::PlanContext
 
-pub trait vortex_layout::v2::plan::LayoutPlan: 'static + core::marker::Send + core::marker::Sync
+pub trait vortex_layout::v2::plan::LayoutPlan: vortex_utils::dyn_traits::DynEq + vortex_utils::dyn_traits::DynHash + core::marker::Send + core::marker::Sync + 'static
 
 pub fn vortex_layout::v2::plan::LayoutPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
 
@@ -2028,6 +2098,14 @@ pub fn vortex_layout::v2::zoned::ZonedPruningPlan::try_pushdown_mask(alloc::sync
 
 pub fn vortex_layout::v2::zoned::ZonedPruningPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
 
+pub fn vortex_layout::v2::plan::hash_plan<H: core::hash::Hasher>(&vortex_layout::v2::plan::LayoutPlanRef, &mut H)
+
+pub fn vortex_layout::v2::plan::hash_plan_slice<H: core::hash::Hasher>(&[vortex_layout::v2::plan::LayoutPlanRef], &mut H)
+
+pub fn vortex_layout::v2::plan::plan_slices_eq(&[vortex_layout::v2::plan::LayoutPlanRef], &[vortex_layout::v2::plan::LayoutPlanRef]) -> bool
+
+pub fn vortex_layout::v2::plan::plans_eq(&vortex_layout::v2::plan::LayoutPlanRef, &vortex_layout::v2::plan::LayoutPlanRef) -> bool
+
 pub type vortex_layout::v2::plan::LayoutPlanRef = alloc::sync::Arc<dyn vortex_layout::v2::plan::LayoutPlan>
 
 pub mod vortex_layout::v2::project
@@ -2037,6 +2115,16 @@ pub struct vortex_layout::v2::project::ProjectPlan
 impl vortex_layout::v2::project::ProjectPlan
 
 pub fn vortex_layout::v2::project::ProjectPlan::new(vortex_layout::v2::plan::LayoutPlanRef, vortex_array::expr::expression::Expression, vortex_array::dtype::DType) -> Self
+
+impl core::cmp::Eq for vortex_layout::v2::project::ProjectPlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::project::ProjectPlan
+
+pub fn vortex_layout::v2::project::ProjectPlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::project::ProjectPlan
+
+pub fn vortex_layout::v2::project::ProjectPlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
 impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::project::ProjectPlan
 
@@ -2152,6 +2240,16 @@ pub fn vortex_layout::v2::struct_::StructPlan::field_names(&self) -> &[vortex_ar
 
 pub fn vortex_layout::v2::struct_::StructPlan::new(alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>, alloc::vec::Vec<vortex_array::dtype::field_names::FieldName>, vortex_array::dtype::DType, u64) -> Self
 
+impl core::cmp::Eq for vortex_layout::v2::struct_::StructPlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::struct_::StructPlan
+
+pub fn vortex_layout::v2::struct_::StructPlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::struct_::StructPlan
+
+pub fn vortex_layout::v2::struct_::StructPlan::hash<H: core::hash::Hasher>(&self, &mut H)
+
 impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::struct_::StructPlan
 
 pub fn vortex_layout::v2::struct_::StructPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
@@ -2189,6 +2287,16 @@ pub struct vortex_layout::v2::zoned::ZonedPruningPlan
 impl vortex_layout::v2::zoned::ZonedPruningPlan
 
 pub fn vortex_layout::v2::zoned::ZonedPruningPlan::new(vortex_layout::v2::plan::LayoutPlanRef, vortex_layout::v2::plan::LayoutPlanRef, vortex_array::expr::expression::Expression, u64, u64) -> Self
+
+impl core::cmp::Eq for vortex_layout::v2::zoned::ZonedPruningPlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::zoned::ZonedPruningPlan
+
+pub fn vortex_layout::v2::zoned::ZonedPruningPlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::zoned::ZonedPruningPlan
+
+pub fn vortex_layout::v2::zoned::ZonedPruningPlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
 impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::zoned::ZonedPruningPlan
 

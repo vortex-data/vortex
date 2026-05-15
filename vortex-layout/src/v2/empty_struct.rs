@@ -48,6 +48,21 @@ impl EmptyStructPlan {
     }
 }
 
+impl PartialEq for EmptyStructPlan {
+    fn eq(&self, other: &Self) -> bool {
+        self.row_count == other.row_count && self.output_dtype == other.output_dtype
+    }
+}
+
+impl Eq for EmptyStructPlan {}
+
+impl std::hash::Hash for EmptyStructPlan {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.row_count.hash(state);
+        self.output_dtype.hash(state);
+    }
+}
+
 impl LayoutPlan for EmptyStructPlan {
     fn schema(&self) -> &DType {
         &self.output_dtype

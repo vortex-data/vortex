@@ -324,6 +324,53 @@ mod tests {
         Ok(())
     }
 
+    /// Two `Layout::plan` calls on the same file-backed layout
+    /// produce structurally-identical plan trees. CSE keys on
+    /// `Hash + PartialEq` of `Arc<dyn LayoutPlan>`, so this is the
+    /// invariant the pass relies on. The current `ViewedLayoutChildren`
+    /// impl re-builds `LayoutRef` per `child(idx)` call, so
+    /// `Arc::ptr_eq` would say the children are different — only
+    /// structural equality saves us here.
+    #[test]
+    fn plans_are_structurally_eq_across_layout_plan_calls() -> VortexResult<()> {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::Hasher;
+
+        use crate::segments::SegmentSource;
+        use crate::v2::plan::PlanArguments;
+        use crate::v2::plan::PlanContext;
+
+        let (segments, layout, _) = build_chunked_struct_layout();
+        let session = SESSION.clone();
+        let segment_source: Arc<dyn SegmentSource> = Arc::clone(&segments) as _;
+        let ctx = PlanContext::new(segment_source, session);
+        let args = PlanArguments {
+            selection: Selection::All,
+            expr: root(),
+            ctx,
+        };
+        let plan_a = layout.plan(args.clone())?;
+        let plan_b = layout.plan(args)?;
+
+        // Different `Arc` instances...
+        assert!(
+            !Arc::ptr_eq(&plan_a, &plan_b),
+            "expected separate Arc instances",
+        );
+        // ...but structurally equal under `dyn LayoutPlan: Eq`.
+        assert!(
+            crate::v2::plan::plans_eq(&plan_a, &plan_b),
+            "two Layout::plan calls should produce structurally-equal plans",
+        );
+        // And produce the same hash.
+        let mut h_a = DefaultHasher::new();
+        let mut h_b = DefaultHasher::new();
+        crate::v2::plan::hash_plan(&plan_a, &mut h_a);
+        crate::v2::plan::hash_plan(&plan_b, &mut h_b);
+        assert_eq!(h_a.finish(), h_b.finish());
+        Ok(())
+    }
+
     /// Same diff but for a single-chunk `Flat` — exercises the bare
     /// `FlatLayout::plan` path with no `Chunked`/`Struct` wrappers.
     #[test]

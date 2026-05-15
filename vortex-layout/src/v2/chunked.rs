@@ -6,6 +6,8 @@
 //!
 //! See `LAYOUT_PLAN.md` § Per-layout `plan` walkthrough / `ChunkedPlan`.
 
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -67,6 +69,26 @@ impl ChunkedPlan {
 
     fn chunk_range(&self, idx: usize) -> Range<u64> {
         self.chunk_offsets[idx]..self.chunk_offsets[idx + 1]
+    }
+}
+
+impl PartialEq for ChunkedPlan {
+    fn eq(&self, other: &Self) -> bool {
+        self.chunk_offsets == other.chunk_offsets
+            && self.output_dtype == other.output_dtype
+            && self.preserve_order == other.preserve_order
+            && crate::v2::plan::plan_slices_eq(&self.children, &other.children)
+    }
+}
+
+impl Eq for ChunkedPlan {}
+
+impl Hash for ChunkedPlan {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.chunk_offsets.hash(state);
+        self.output_dtype.hash(state);
+        self.preserve_order.hash(state);
+        crate::v2::plan::hash_plan_slice(&self.children, state);
     }
 }
 

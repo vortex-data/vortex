@@ -64,6 +64,24 @@ impl AndBoolStreamsPlan {
     }
 }
 
+impl PartialEq for AndBoolStreamsPlan {
+    fn eq(&self, other: &Self) -> bool {
+        self.children == other.children
+            && self.output_dtype == other.output_dtype
+            && self.row_count == other.row_count
+    }
+}
+
+impl Eq for AndBoolStreamsPlan {}
+
+impl std::hash::Hash for AndBoolStreamsPlan {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.children.hash(state);
+        self.output_dtype.hash(state);
+        self.row_count.hash(state);
+    }
+}
+
 impl LayoutPlan for AndBoolStreamsPlan {
     fn schema(&self) -> &DType {
         &self.output_dtype

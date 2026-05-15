@@ -6,6 +6,8 @@
 //!
 //! See `LAYOUT_PLAN.md` § Per-layout `plan` walkthrough / `StructLayout::plan`.
 
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -61,6 +63,26 @@ impl StructPlan {
 
     pub fn field_names(&self) -> &[FieldName] {
         &self.field_names
+    }
+}
+
+impl PartialEq for StructPlan {
+    fn eq(&self, other: &Self) -> bool {
+        crate::v2::plan::plan_slices_eq(&self.children, &other.children)
+            && self.field_names == other.field_names
+            && self.output_dtype == other.output_dtype
+            && self.row_count == other.row_count
+    }
+}
+
+impl Eq for StructPlan {}
+
+impl Hash for StructPlan {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        crate::v2::plan::hash_plan_slice(&self.children, state);
+        self.field_names.hash(state);
+        self.output_dtype.hash(state);
+        self.row_count.hash(state);
     }
 }
 

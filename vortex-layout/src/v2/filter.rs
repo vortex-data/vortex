@@ -77,6 +77,24 @@ impl FilterPlan {
     }
 }
 
+impl PartialEq for FilterPlan {
+    fn eq(&self, other: &Self) -> bool {
+        crate::v2::plan::plans_eq(&self.values, &other.values)
+            && crate::v2::plan::plans_eq(&self.mask, &other.mask)
+            && self.output_dtype == other.output_dtype
+    }
+}
+
+impl Eq for FilterPlan {}
+
+impl std::hash::Hash for FilterPlan {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        crate::v2::plan::hash_plan(&self.values, state);
+        crate::v2::plan::hash_plan(&self.mask, state);
+        self.output_dtype.hash(state);
+    }
+}
+
 impl LayoutPlan for FilterPlan {
     fn schema(&self) -> &DType {
         &self.output_dtype

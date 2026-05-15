@@ -50,6 +50,24 @@ impl MaskSlicePlan {
     }
 }
 
+impl PartialEq for MaskSlicePlan {
+    fn eq(&self, other: &Self) -> bool {
+        crate::v2::plan::plans_eq(&self.inner, &other.inner)
+            && self.slice_offset == other.slice_offset
+            && self.slice_len == other.slice_len
+    }
+}
+
+impl Eq for MaskSlicePlan {}
+
+impl std::hash::Hash for MaskSlicePlan {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        crate::v2::plan::hash_plan(&self.inner, state);
+        self.slice_offset.hash(state);
+        self.slice_len.hash(state);
+    }
+}
+
 impl LayoutPlan for MaskSlicePlan {
     fn schema(&self) -> &DType {
         self.inner.schema()

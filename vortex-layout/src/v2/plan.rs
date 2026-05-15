@@ -6,6 +6,9 @@
 //! A `LayoutPlan` is the unit of recursive plan-tree construction
 //! returned by [`crate::Layout::plan`]. See `LAYOUT_PLAN.md` § Model.
 
+use std::any::Any;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -16,6 +19,8 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_scan::selection::Selection;
 use vortex_session::VortexSession;
+use vortex_utils::dyn_traits::DynEq;
+use vortex_utils::dyn_traits::DynHash;
 
 use crate::segments::SegmentSource;
 use crate::v2::demand::RowDemand;
@@ -38,7 +43,7 @@ pub type LayoutPlanRef = Arc<dyn LayoutPlan>;
 /// `LAYOUT_PLAN.md` § Tee and CommonSubplanElimination).
 ///
 /// See `LAYOUT_PLAN.md` § Model.
-pub trait LayoutPlan: 'static + Send + Sync {
+pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {
     /// The output schema of this plan node.
     fn schema(&self) -> &DType;
 
@@ -126,6 +131,53 @@ pub trait LayoutPlan: 'static + Send + Sync {
     /// expressed via [`crate::v2::let_use::LetPlan`], which publishes
     /// the value into `ctx` and consumers look it up by `LetId`.
     fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream>;
+}
+
+// `dyn LayoutPlan` is `PartialEq + Eq + Hash` via the dyn-safe
+// `DynEq` / `DynHash` helpers from `vortex-utils`. Concrete plan
+// nodes need only impl regular `PartialEq` / `Eq` / `Hash` (manually
+// — the typical fields like `Arc<dyn SegmentSource>` don't derive)
+// to opt in. `Arc<dyn LayoutPlan>` then gets `Hash + PartialEq` for
+// free via the std blanket impl, so `LayoutPlanRef` is usable as a
+// `HashMap` key in the CSE pass.
+impl PartialEq for dyn LayoutPlan {
+    fn eq(&self, other: &Self) -> bool {
+        self.dyn_eq(other as &dyn Any)
+    }
+}
+
+impl Eq for dyn LayoutPlan {}
+
+impl Hash for dyn LayoutPlan {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.dyn_hash(state);
+    }
+}
+
+/// Compare two [`LayoutPlanRef`]s structurally. Uses `Arc::ptr_eq` as
+/// a fast path; falls back to the trait's `dyn_eq`. Concrete plan
+/// `PartialEq` impls should call this when comparing child plans.
+pub fn plans_eq(a: &LayoutPlanRef, b: &LayoutPlanRef) -> bool {
+    Arc::ptr_eq(a, b) || (**a).eq(&**b)
+}
+
+/// `plans_eq` over a `&[LayoutPlanRef]`.
+pub fn plan_slices_eq(a: &[LayoutPlanRef], b: &[LayoutPlanRef]) -> bool {
+    a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| plans_eq(x, y))
+}
+
+/// Hash a [`LayoutPlanRef`]'s structural content. Concrete plan
+/// `Hash` impls should call this when hashing child plans.
+pub fn hash_plan<H: Hasher>(plan: &LayoutPlanRef, state: &mut H) {
+    (**plan).hash(state);
+}
+
+/// `hash_plan` over a `&[LayoutPlanRef]`.
+pub fn hash_plan_slice<H: Hasher>(plans: &[LayoutPlanRef], state: &mut H) {
+    plans.len().hash(state);
+    for p in plans {
+        hash_plan(p, state);
+    }
 }
 
 /// Arguments passed to [`crate::Layout::plan`]. Carries the consumer's

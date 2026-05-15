@@ -18,6 +18,8 @@
 //! See `LAYOUT_PLAN.md` § Per-layout `plan` walkthrough / `FlatLayout::plan`
 //! and § FilterPlan and its pushdown.
 
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -112,6 +114,46 @@ impl FlatPlan {
 
     pub fn selection(&self) -> &Selection {
         &self.selection
+    }
+}
+
+impl PartialEq for FlatPlan {
+    fn eq(&self, other: &Self) -> bool {
+        // `segment_source` and `array_ctx` are tied to the file we're
+        // scanning, not to the plan's identity — two plans within one
+        // scan share both, two plans across scans never compare. Skip.
+        self.segment_id == other.segment_id
+            && self.layout_row_count == other.layout_row_count
+            && self.layout_dtype == other.layout_dtype
+            && self.array_tree == other.array_tree
+            && self.expr == other.expr
+            && matches!(
+                (&self.selection, &other.selection),
+                (Selection::All, Selection::All)
+            )
+            && self.output_dtype == other.output_dtype
+            && self.mask_plan == other.mask_plan
+    }
+}
+
+impl Eq for FlatPlan {}
+
+impl Hash for FlatPlan {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.segment_id.hash(state);
+        self.layout_row_count.hash(state);
+        self.layout_dtype.hash(state);
+        self.array_tree.hash(state);
+        self.expr.hash(state);
+        // Today `FlatPlan::execute` only accepts `Selection::All`,
+        // so we tag the variant rather than hashing its contents. If
+        // we ever support sliced selections we'll need to extend this.
+        match self.selection {
+            Selection::All => state.write_u8(0),
+            _ => state.write_u8(1),
+        }
+        self.output_dtype.hash(state);
+        self.mask_plan.hash(state);
     }
 }
 

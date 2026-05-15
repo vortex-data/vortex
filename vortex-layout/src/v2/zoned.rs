@@ -89,6 +89,30 @@ impl ZonedPruningPlan {
 
 }
 
+impl PartialEq for ZonedPruningPlan {
+    fn eq(&self, other: &Self) -> bool {
+        crate::v2::plan::plans_eq(&self.data_plan, &other.data_plan)
+            && crate::v2::plan::plans_eq(&self.zones_plan, &other.zones_plan)
+            && self.pruning_predicate == other.pruning_predicate
+            && self.zone_len == other.zone_len
+            && self.row_count == other.row_count
+            && self.output_dtype == other.output_dtype
+    }
+}
+
+impl Eq for ZonedPruningPlan {}
+
+impl std::hash::Hash for ZonedPruningPlan {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        crate::v2::plan::hash_plan(&self.data_plan, state);
+        crate::v2::plan::hash_plan(&self.zones_plan, state);
+        self.pruning_predicate.hash(state);
+        self.zone_len.hash(state);
+        self.row_count.hash(state);
+        self.output_dtype.hash(state);
+    }
+}
+
 impl LayoutPlan for ZonedPruningPlan {
     fn schema(&self) -> &DType {
         &self.output_dtype

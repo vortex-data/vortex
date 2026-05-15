@@ -70,6 +70,28 @@ impl DictDecodePlan {
     }
 }
 
+impl PartialEq for DictDecodePlan {
+    fn eq(&self, other: &Self) -> bool {
+        crate::v2::plan::plans_eq(&self.codes_plan, &other.codes_plan)
+            && crate::v2::plan::plans_eq(&self.values_plan, &other.values_plan)
+            && self.expr == other.expr
+            && self.output_dtype == other.output_dtype
+            && self.all_values_referenced == other.all_values_referenced
+    }
+}
+
+impl Eq for DictDecodePlan {}
+
+impl std::hash::Hash for DictDecodePlan {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        crate::v2::plan::hash_plan(&self.codes_plan, state);
+        crate::v2::plan::hash_plan(&self.values_plan, state);
+        self.expr.hash(state);
+        self.output_dtype.hash(state);
+        self.all_values_referenced.hash(state);
+    }
+}
+
 impl LayoutPlan for DictDecodePlan {
     fn schema(&self) -> &DType {
         &self.output_dtype

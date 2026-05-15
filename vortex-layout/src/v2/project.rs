@@ -44,6 +44,24 @@ impl ProjectPlan {
     }
 }
 
+impl PartialEq for ProjectPlan {
+    fn eq(&self, other: &Self) -> bool {
+        crate::v2::plan::plans_eq(&self.child, &other.child)
+            && self.expr == other.expr
+            && self.output_dtype == other.output_dtype
+    }
+}
+
+impl Eq for ProjectPlan {}
+
+impl std::hash::Hash for ProjectPlan {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        crate::v2::plan::hash_plan(&self.child, state);
+        self.expr.hash(state);
+        self.output_dtype.hash(state);
+    }
+}
+
 impl LayoutPlan for ProjectPlan {
     fn schema(&self) -> &DType {
         &self.output_dtype
