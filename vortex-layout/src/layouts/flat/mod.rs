@@ -132,18 +132,16 @@ impl VTable for Flat {
 
     fn plan(layout: &Self::Layout, args: PlanArguments) -> VortexResult<LayoutPlanRef> {
         let output_dtype = args.expr.return_dtype(&layout.dtype)?;
-        let reader: LayoutReaderRef = Arc::new(FlatReader::new(
-            layout.clone(),
-            "v2.flat".into(),
-            Arc::clone(&args.ctx.segment_source),
-            args.ctx.session.clone(),
-        ));
         Ok(Arc::new(FlatPlan::new(
-            reader,
+            layout.segment_id,
+            layout.row_count,
+            layout.dtype.clone(),
+            layout.ctx.clone(),
+            layout.array_tree.clone(),
+            Arc::clone(&args.ctx.segment_source),
             args.expr,
             args.selection,
             output_dtype,
-            layout.row_count,
         )))
     }
 }

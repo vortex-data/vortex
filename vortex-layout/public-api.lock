@@ -1644,13 +1644,11 @@ impl vortex_layout::v2::flat::FlatPlan
 
 pub fn vortex_layout::v2::flat::FlatPlan::expr(&self) -> &vortex_array::expr::expression::Expression
 
-pub fn vortex_layout::v2::flat::FlatPlan::new(vortex_layout::LayoutReaderRef, vortex_array::expr::expression::Expression, vortex_scan::selection::Selection, vortex_array::dtype::DType, u64) -> Self
+pub fn vortex_layout::v2::flat::FlatPlan::new(vortex_layout::segments::SegmentId, u64, vortex_array::dtype::DType, vortex_session::registry::ReadContext, core::option::Option<vortex_buffer::ByteBuffer>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, vortex_array::expr::expression::Expression, vortex_scan::selection::Selection, vortex_array::dtype::DType) -> Self
 
-pub fn vortex_layout::v2::flat::FlatPlan::reader(&self) -> &vortex_layout::LayoutReaderRef
+pub fn vortex_layout::v2::flat::FlatPlan::segment_id(&self) -> vortex_layout::segments::SegmentId
 
 pub fn vortex_layout::v2::flat::FlatPlan::selection(&self) -> &vortex_scan::selection::Selection
-
-pub fn vortex_layout::v2::flat::FlatPlan::with_mask(self, vortex_layout::v2::plan::LayoutPlanRef) -> Self
 
 impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::flat::FlatPlan
 
