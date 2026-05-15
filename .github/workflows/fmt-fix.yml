@@ -4,8 +4,6 @@
 name: Auto-fix formatting
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
   workflow_run:
     workflows: ["Linters and Tests"]
     types: [completed]
@@ -15,59 +13,59 @@ env:
   NIGHTLY_TOOLCHAIN: nightly-2026-02-05
 
 jobs:
-  check-fmt:
-    name: "Check formatting"
-    # For workflow_run events, only run if the triggering workflow was for a PR.
-    if: >-
-      github.event_name == 'pull_request'
-      || (github.event_name == 'workflow_run'
-          && github.event.workflow_run.event == 'pull_request'
-          && github.event.workflow_run.conclusion == 'completed')
+  check-ci-fmt:
+    name: "Check if CI fmt failed"
+    # Only act on PR runs that completed (success or failure — the fmt step
+    # uses continue-on-error so the workflow can "succeed" even when fmt fails).
+    if: github.event.workflow_run.event == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     outputs:
-      needs-fix: ${{ steps.check.outputs.needs-fix }}
-      pr-head-sha: ${{ steps.resolve.outputs.head-sha }}
-      pr-head-ref: ${{ steps.resolve.outputs.head-ref }}
+      fmt-failed: ${{ steps.check.outputs.fmt-failed }}
+      head-sha: ${{ steps.check.outputs.head-sha }}
+      head-ref: ${{ steps.check.outputs.head-ref }}
     steps:
-      - name: Resolve PR ref
-        id: resolve
+      - name: Check CI fmt step outcome
+        id: check
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7
         with:
           script: |
-            let sha, ref;
-            if (context.eventName === 'pull_request') {
-              sha = context.payload.pull_request.head.sha;
-              ref = context.payload.pull_request.head.ref;
-            } else {
-              // workflow_run: look up the PR from the head branch
-              const wr = context.payload.workflow_run;
-              sha = wr.head_sha;
-              ref = wr.head_branch;
+            const runId = context.payload.workflow_run.id;
+            const headSha = context.payload.workflow_run.head_sha;
+            const headBranch = context.payload.workflow_run.head_branch;
+
+            // Find the "Rust (lint)" job in the CI run.
+            const { data: { jobs } } = await github.rest.actions.listJobsForWorkflowRun({
+              ...context.repo,
+              run_id: runId,
+            });
+            const lintJob = jobs.find(j => j.name === 'Rust (lint)');
+            if (!lintJob) {
+              core.info('Rust (lint) job not found — skipping');
+              core.setOutput('fmt-failed', 'false');
+              return;
             }
-            core.setOutput('head-sha', sha);
-            core.setOutput('head-ref', ref);
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
-        with:
-          ref: ${{ steps.resolve.outputs.head-sha }}
+            // Find the fmt step by its id ("fmt") or name.
+            const fmtStep = lintJob.steps.find(
+              s => s.name === 'Rust Lint - Format'
+            );
+            if (!fmtStep) {
+              core.info('fmt step not found — skipping');
+              core.setOutput('fmt-failed', 'false');
+              return;
+            }
 
-      - name: Install nightly for fmt
-        run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
-
-      - name: Check formatting
-        id: check
-        run: |
-          if cargo +$NIGHTLY_TOOLCHAIN fmt --all --check; then
-            echo "needs-fix=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "needs-fix=true" >> "$GITHUB_OUTPUT"
-          fi
+            const failed = fmtStep.conclusion === 'failure';
+            core.info(`fmt step conclusion: ${fmtStep.conclusion}`);
+            core.setOutput('fmt-failed', String(failed));
+            core.setOutput('head-sha', headSha);
+            core.setOutput('head-ref', headBranch);
 
   apply-fmt:
     name: "Apply formatting fix"
-    needs: check-fmt
-    if: needs.check-fmt.outputs.needs-fix == 'true'
+    needs: check-ci-fmt
+    if: needs.check-ci-fmt.outputs.fmt-failed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: fmt-fix
@@ -76,9 +74,9 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
         with:
-          # Check out the exact commit that triggered this workflow, not the
-          # latest branch HEAD (which may have moved during approval wait).
-          ref: ${{ needs.check-fmt.outputs.pr-head-sha }}
+          # Check out the exact commit that CI ran against, not the latest
+          # branch HEAD (which may have moved during the approval wait).
+          ref: ${{ needs.check-ci-fmt.outputs.head-sha }}
 
       - name: Install nightly for fmt
         run: rustup toolchain install $NIGHTLY_TOOLCHAIN --component rustfmt
@@ -96,14 +94,14 @@ jobs:
 
           Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
 
-      - name: Push (fails if branch moved since trigger)
+      - name: Push (fails if branch moved since CI ran)
         env:
-          EXPECTED_SHA: ${{ needs.check-fmt.outputs.pr-head-sha }}
-          BRANCH: ${{ needs.check-fmt.outputs.pr-head-ref }}
+          EXPECTED_SHA: ${{ needs.check-ci-fmt.outputs.head-sha }}
+          BRANCH: ${{ needs.check-ci-fmt.outputs.head-ref }}
         run: |
           # --force-with-lease atomically checks that the remote branch HEAD
           # is still EXPECTED_SHA before pushing. If someone else pushed a
-          # commit to the PR between trigger and approval, this fails safely.
+          # commit to the PR between the CI run and approval, this fails safely.
           git push origin \
             "HEAD:refs/heads/$BRANCH" \
             "--force-with-lease=refs/heads/$BRANCH:$EXPECTED_SHA"
