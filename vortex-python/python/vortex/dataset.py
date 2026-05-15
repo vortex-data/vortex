@@ -23,11 +23,7 @@ from .expr import Expr, and_
 
 
 @contextmanager
-def _temporary_worker_threads(use_threads: bool | None) -> Iterator[None]:
-    if use_threads is None:
-        yield
-        return
-
+def _temporary_worker_threads(use_threads: bool) -> Iterator[None]:
     previous_workers = _worker_threads()
     if use_threads:
         _set_worker_threads(None)
@@ -41,7 +37,7 @@ def _temporary_worker_threads(use_threads: bool | None) -> Iterator[None]:
 
 
 def _read_batches_with_temporary_worker_threads(
-    reader: pyarrow.RecordBatchReader, use_threads: bool | None
+    reader: pyarrow.RecordBatchReader, use_threads: bool
 ) -> Iterator[pyarrow.RecordBatch]:
     with _temporary_worker_threads(use_threads):
         yield from reader
@@ -81,7 +77,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
         _row_range: tuple[int, int] | None = None,
@@ -135,7 +131,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
         _row_range: tuple[int, int] | None = None,
@@ -237,7 +233,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
         _row_range: tuple[int, int] | None = None,
@@ -308,7 +304,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
         _row_range: tuple[int, int] | None = None,
@@ -361,7 +357,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
         _row_range: tuple[int, int] | None = None,
@@ -405,12 +401,9 @@ class VortexDataset(pyarrow.dataset.Dataset):
         if columns is not None and len(columns) == 0:
             raise ValueError("empty projections are not currently supported")
         del memory_pool
-        with _temporary_worker_threads(use_threads):
-            reader = self._dataset.to_record_batch_reader(
-                columns=columns, row_filter=self._filter_expression(filter), split_by=batch_size, row_range=_row_range
-            )
-        if use_threads is None:
-            return reader
+        reader = self._dataset.to_record_batch_reader(
+            columns=columns, row_filter=self._filter_expression(filter), split_by=batch_size, row_range=_row_range
+        )
         return pyarrow.RecordBatchReader.from_batches(
             reader.schema, _read_batches_with_temporary_worker_threads(reader, use_threads)
         )
@@ -424,7 +417,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
         _row_range: tuple[int, int] | None = None,
@@ -482,7 +475,7 @@ class VortexDataset(pyarrow.dataset.Dataset):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
         _row_range: tuple[int, int] | None = None,
@@ -580,7 +573,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> pyarrow.dataset.Scanner:
@@ -610,7 +603,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool = True,
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> Iterator[pyarrow.RecordBatch]:
@@ -640,7 +633,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> pyarrow.Table:
@@ -679,7 +672,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> pyarrow.Table:
@@ -715,7 +708,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> pyarrow.Table:
@@ -743,7 +736,7 @@ class VortexFragment(pyarrow.dataset.Fragment):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
     ) -> int:
@@ -803,7 +796,7 @@ class VortexScanner(pyarrow.dataset.Scanner):
         batch_readahead: int | None = None,
         fragment_readahead: int | None = None,
         fragment_scan_options: pyarrow.dataset.FragmentScanOptions | None = None,
-        use_threads: bool | None = None,
+        use_threads: bool = True,
         cache_metadata: bool | None = None,
         memory_pool: pyarrow.MemoryPool | None = None,
         _row_range: tuple[int, int] | None = None,
