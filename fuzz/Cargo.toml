@@ -100,6 +100,14 @@ required-features = ["native"]
 [[bin]]
 bench = false
 doc = false
+name = "fsst_roundtrip"
+path = "fuzz_targets/fsst_roundtrip.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
 name = "compress_gpu"
 path = "fuzz_targets/compress_gpu.rs"
 test = false

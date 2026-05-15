@@ -7,6 +7,7 @@ mod array;
 pub mod compress;
 pub mod error;
 pub mod fsst_like;
+pub mod fsst_roundtrip;
 
 // File module only available for native builds (requires vortex-file which uses tokio)
 #[cfg(not(target_arch = "wasm32"))]
@@ -27,6 +28,8 @@ pub use compress::run_compress_roundtrip;
 pub use file::FuzzFileAction;
 pub use fsst_like::FuzzFsstLike;
 pub use fsst_like::run_fsst_like_fuzz;
+pub use fsst_roundtrip::FuzzFsstRoundtrip;
+pub use fsst_roundtrip::run_fsst_roundtrip_fuzz;
 #[cfg(feature = "cuda")]
 pub use gpu::FuzzCompressGpu;
 #[cfg(feature = "cuda")]
