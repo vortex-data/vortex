@@ -28,6 +28,7 @@ use arc_swap::ArcSwap;
 use arrow_array::Array as _;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::RecordBatch;
+use arrow_array::make_array;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
@@ -50,6 +51,8 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrow::FromArrowArray;
+use crate::arrow::convert::nulls;
+use crate::arrow::convert::remove_nulls;
 use crate::arrow::executor::execute_arrow_naive;
 use crate::dtype::DType;
 use crate::dtype::FieldName;
@@ -526,17 +529,14 @@ impl ArrowSession {
                         // Arrow pushes nulls into non-nullable fields; strip before recursing
                         // so Vortex's stricter validity invariants are upheld.
                         let inner = if col.null_count() > 0 && !child_field.is_nullable() {
-                            arrow_array::make_array(crate::arrow::convert::remove_nulls(
-                                col.to_data(),
-                            ))
+                            make_array(remove_nulls(col.to_data()))
                         } else {
                             ArrowArrayRef::clone(col)
                         };
                         self.from_arrow_array(inner, child_field.as_ref())
                     })
                     .collect::<VortexResult<Vec<_>>>()?;
-                let validity =
-                    crate::arrow::convert::nulls(arrow_struct.nulls(), field.is_nullable());
+                let validity = nulls(arrow_struct.nulls(), field.is_nullable());
                 Ok(
                     StructArray::try_new(names, columns, arrow_struct.len(), validity)?
                         .into_array(),
@@ -547,7 +547,7 @@ impl ArrowSession {
                 let elements = self
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
                 let offsets = list.offsets().clone().into_array();
-                let validity = crate::arrow::convert::nulls(list.nulls(), field.is_nullable());
+                let validity = nulls(list.nulls(), field.is_nullable());
                 Ok(crate::arrays::ListArray::try_new(elements, offsets, validity)?.into_array())
             }
             DataType::LargeList(elem_field) => {
@@ -555,14 +555,14 @@ impl ArrowSession {
                 let elements = self
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
                 let offsets = list.offsets().clone().into_array();
-                let validity = crate::arrow::convert::nulls(list.nulls(), field.is_nullable());
+                let validity = nulls(list.nulls(), field.is_nullable());
                 Ok(crate::arrays::ListArray::try_new(elements, offsets, validity)?.into_array())
             }
             DataType::FixedSizeList(elem_field, list_size) => {
                 let fsl = array.as_fixed_size_list();
                 let elements =
                     self.from_arrow_array(ArrowArrayRef::clone(fsl.values()), elem_field.as_ref())?;
-                let validity = crate::arrow::convert::nulls(fsl.nulls(), field.is_nullable());
+                let validity = nulls(fsl.nulls(), field.is_nullable());
                 Ok(crate::arrays::FixedSizeListArray::try_new(
                     elements,
                     *list_size as u32,
@@ -577,7 +577,7 @@ impl ArrowSession {
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
                 let offsets = list.offsets().clone().into_array();
                 let sizes = list.sizes().clone().into_array();
-                let validity = crate::arrow::convert::nulls(list.nulls(), field.is_nullable());
+                let validity = nulls(list.nulls(), field.is_nullable());
                 Ok(
                     crate::arrays::ListViewArray::try_new(elements, offsets, sizes, validity)?
                         .into_array(),
@@ -589,7 +589,7 @@ impl ArrowSession {
                     .from_arrow_array(ArrowArrayRef::clone(list.values()), elem_field.as_ref())?;
                 let offsets = list.offsets().clone().into_array();
                 let sizes = list.sizes().clone().into_array();
-                let validity = crate::arrow::convert::nulls(list.nulls(), field.is_nullable());
+                let validity = nulls(list.nulls(), field.is_nullable());
                 Ok(
                     crate::arrays::ListViewArray::try_new(elements, offsets, sizes, validity)?
                         .into_array(),
