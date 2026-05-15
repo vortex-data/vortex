@@ -3,7 +3,7 @@
 
 # Float operations tests - derived from vortex-duckdb vortex_scan_test.rs
 
-include ./setup.slt
+include ./setup.slt.no
 
 # Create a file with float data
 query I
