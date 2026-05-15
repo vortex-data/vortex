@@ -11,10 +11,10 @@ use bigdecimal::BigDecimal;
 use datafusion_sqllogictest::DFColumnType;
 use indicatif::ProgressBar;
 use sqllogictest::DBOutput;
+use sqllogictest::Normalizer;
 use sqllogictest::runner::AsyncDB;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
-use sqllogictest::Normalizer;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
 use vortex_duckdb::duckdb::ExtractedValue;
@@ -97,10 +97,13 @@ impl DuckDB {
             DFColumnType::Another
         }
     }
-}   
-   
+}
 
-pub fn duckdb_validator(normalizer: Normalizer, actual: &[Vec<String>], expected: &[String]) -> bool {
+pub fn duckdb_validator(
+    normalizer: Normalizer,
+    actual: &[Vec<String>],
+    expected: &[String],
+) -> bool {
     let actual = actual.iter().flat_map(|strings| {
         strings
             .join(" ")
