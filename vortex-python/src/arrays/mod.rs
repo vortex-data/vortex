@@ -333,7 +333,9 @@ impl PyArray {
         if let Some(chunked_array) = array.as_opt::<Chunked>() {
             // We figure out a single Arrow Data Type to convert all chunks into, otherwise
             // the preferred type of each chunk may be different.
-            let arrow_field = session().arrow().to_arrow_field("", chunked_array.dtype())?;
+            let arrow_field = session()
+                .arrow()
+                .to_arrow_field("", chunked_array.dtype())?;
 
             let chunks = chunked_array
                 .iter_chunks()
