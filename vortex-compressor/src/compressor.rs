@@ -27,7 +27,6 @@ use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::builtins::IntDictScheme;
 use crate::ctx::CompressorContext;
@@ -250,9 +249,7 @@ impl CascadingCompressor {
                         .into_array(),
                 )
             }
-            Canonical::Variant(_) => {
-                vortex_bail!("Variant arrays can not be compressed")
-            }
+            Canonical::Variant(variant_array) => Ok(variant_array.into_array()),
         }
     }
 

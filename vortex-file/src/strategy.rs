@@ -26,6 +26,7 @@ use vortex_array::arrays::Primitive;
 use vortex_array::arrays::Struct;
 use vortex_array::arrays::VarBin;
 use vortex_array::arrays::VarBinView;
+use vortex_array::arrays::Variant;
 use vortex_array::arrays::patched::use_experimental_patches;
 use vortex_array::dtype::FieldPath;
 use vortex_btrblocks::BtrBlocksCompressorBuilder;
@@ -52,6 +53,7 @@ use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
+use vortex_parquet_variant::ParquetVariant;
 use vortex_pco::Pco;
 use vortex_runend::RunEnd;
 use vortex_sequence::Sequence;
@@ -89,6 +91,7 @@ pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
     allowed.insert(Constant.id());
     allowed.insert(Masked.id());
     allowed.insert(Dict.id());
+    allowed.insert(Variant.id());
 
     // Compressed encodings from encoding crates
     allowed.insert(ALP.id());
@@ -111,6 +114,7 @@ pub static ALLOWED_ENCODINGS: LazyLock<HashSet<ArrayId>> = LazyLock::new(|| {
 
     if use_experimental_patches() {
         allowed.insert(Patched.id());
+        allowed.insert(ParquetVariant.id());
     }
 
     #[cfg(feature = "zstd")]

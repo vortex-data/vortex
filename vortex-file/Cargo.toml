@@ -46,6 +46,7 @@ vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-parquet-variant = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-scan = { workspace = true }

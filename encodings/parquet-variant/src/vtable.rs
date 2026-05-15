@@ -309,6 +309,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::Precision;
+    use vortex_array::VTable;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
@@ -364,6 +365,44 @@ mod tests {
             .unwrap()
     }
 
+    fn typed_value_variant_array() -> VortexResult<ArrayRef> {
+        let mut metadata = BinaryViewBuilder::new();
+        for _ in 0..3 {
+            metadata.append_value(b"\x01\x00");
+        }
+        let metadata: ArrowArrayRef = Arc::new(metadata.finish());
+        let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
+        let arrow_storage = StructArray::try_new(
+            vec![
+                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
+                Arc::new(Field::new("typed_value", DataType::Int32, false)),
+            ]
+            .into(),
+            vec![metadata, typed_value],
+            None,
+        )?;
+
+        ParquetVariant::from_arrow_variant(&ArrowVariantArray::try_new(&arrow_storage)?)
+    }
+
+    fn parquet_variant_file_session() -> VortexSession {
+        let session = VortexSession::empty()
+            .with::<ArraySession>()
+            .with::<LayoutSession>()
+            .with::<RuntimeSession>();
+        vortex_file::register_default_encodings(&session);
+        session.arrays().register(ParquetVariant);
+        session
+    }
+
+    fn write_strategy_with_parquet_variant() -> Arc<dyn vortex_layout::LayoutStrategy> {
+        let mut allowed = vortex_file::ALLOWED_ENCODINGS.clone();
+        allowed.insert(ParquetVariant.id());
+        vortex_file::WriteStrategyBuilder::default()
+            .with_allow_encodings(allowed)
+            .build()
+    }
+
     #[test]
     fn test_execute_exposes_typed_value_as_canonical_shredded() -> VortexResult<()> {
         let metadata =
@@ -405,37 +444,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_file_roundtrip_typed_value_variant() -> VortexResult<()> {
-        let mut metadata = BinaryViewBuilder::new();
-        for _ in 0..3 {
-            metadata.append_value(b"\x01\x00");
-        }
-        let metadata: ArrowArrayRef = Arc::new(metadata.finish());
-        let typed_value: ArrowArrayRef = Arc::new(Int32Array::from(vec![10, 20, 30]));
-        let arrow_storage = StructArray::try_new(
-            vec![
-                Arc::new(Field::new("metadata", DataType::BinaryView, false)),
-                Arc::new(Field::new("typed_value", DataType::Int32, false)),
-            ]
-            .into(),
-            vec![metadata, typed_value],
-            None,
-        )?;
-        let expected =
-            ParquetVariant::from_arrow_variant(&ArrowVariantArray::try_new(&arrow_storage)?)?;
-
-        let session = VortexSession::empty()
-            .with::<ArraySession>()
-            .with::<LayoutSession>()
-            .with::<RuntimeSession>();
-        vortex_file::register_default_encodings(&session);
-        session.arrays().register(ParquetVariant);
+    async fn test_file_roundtrip_typed_value_variant_with_statistics() -> VortexResult<()> {
+        let expected = typed_value_variant_array()?;
+        let session = parquet_variant_file_session();
 
         let mut bytes = ByteBufferMut::empty();
         session
             .write_options()
             .with_strategy(Arc::new(FlatLayoutStrategy::default()))
-            .with_file_statistics(Vec::new())
+            .write(&mut bytes, expected.to_array_stream())
+            .await?;
+
+        let actual = session
+            .open_options()
+            .open_buffer(bytes)?
+            .scan()?
+            .into_array_stream()?
+            .read_all()
+            .await?;
+
+        assert_arrays_eq!(expected, actual);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_file_roundtrip_typed_value_variant_with_zoned_strategy() -> VortexResult<()> {
+        let expected = typed_value_variant_array()?;
+        let session = parquet_variant_file_session();
+
+        let mut bytes = ByteBufferMut::empty();
+        session
+            .write_options()
+            .with_strategy(write_strategy_with_parquet_variant())
             .write(&mut bytes, expected.to_array_stream())
             .await?;
 

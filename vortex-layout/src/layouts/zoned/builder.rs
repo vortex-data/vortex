@@ -47,6 +47,13 @@ pub struct StatsAccumulator {
 
 impl StatsAccumulator {
     pub fn new(dtype: &DType, stats: &[Stat], max_variable_length_statistics_size: usize) -> Self {
+        if !supports_file_stats(dtype) {
+            return Self {
+                builders: Vec::new(),
+                length: 0,
+            };
+        }
+
         let builders = stats
             .iter()
             .filter_map(|&stat| {
@@ -163,6 +170,10 @@ impl StatsAccumulator {
         }
         Ok(stats_set)
     }
+}
+
+fn supports_file_stats(dtype: &DType) -> bool {
+    !matches!(dtype, DType::Variant(_))
 }
 
 fn stats_builder_with_capacity(
