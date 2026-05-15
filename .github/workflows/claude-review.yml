@@ -242,7 +242,7 @@ jobs:
 
       - name: Run Claude Code in review-only mode
         id: claude
-        uses: anthropics/claude-code-action@6cad158a175744eb2e76f7f5fd108ec63145598c
+        uses: anthropics/claude-code-action@51ea8ea73a139f2a74ff649e3092c25a904aed7e  # v1.0.123
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # This workflow deliberately uses the built-in token because it only needs
