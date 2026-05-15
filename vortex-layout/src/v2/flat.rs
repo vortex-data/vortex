@@ -247,21 +247,23 @@ impl LayoutPlan for FlatPlan {
 
         // Fast path: no pushed-down mask. Fetch + decode + slice + apply.
         let Some(mask_plan) = &self.mask_plan else {
-            let inner = stream::once(async move {
-                let array = decode_segment(
-                    segment_source,
-                    segment_id,
-                    array_tree,
-                    layout_dtype,
-                    layout_row_count,
-                    array_ctx,
-                    &session,
-                )
-                .await?;
-                let array = slice_to_range(array, &row_range_for_slice)?;
-                array.apply(&expr)
-            }
-            .map(|res: VortexResult<ArrayRef>| res));
+            let inner = stream::once(
+                async move {
+                    let array = decode_segment(
+                        segment_source,
+                        segment_id,
+                        array_tree,
+                        layout_dtype,
+                        layout_row_count,
+                        array_ctx,
+                        &session,
+                    )
+                    .await?;
+                    let array = slice_to_range(array, &row_range_for_slice)?;
+                    array.apply(&expr)
+                }
+                .map(|res: VortexResult<ArrayRef>| res),
+            );
             return Ok(Box::pin(ArrayStreamAdapter::new(dtype, inner)));
         };
 

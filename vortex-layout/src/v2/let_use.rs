@@ -381,11 +381,7 @@ impl LayoutPlan for UsePlan {
         Ok(self)
     }
 
-    fn execute(
-        &self,
-        row_range: Range<u64>,
-        ctx: &ScanCtx,
-    ) -> VortexResult<SendableArrayStream> {
+    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
         if row_range.end > self.row_count {
             vortex_bail!(
                 "UsePlan::execute row range {row_range:?} exceeds broadcast row count {}",

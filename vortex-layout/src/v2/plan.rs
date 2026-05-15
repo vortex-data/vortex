@@ -110,10 +110,7 @@ pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {
     /// pushing further down, etc.) override.
     ///
     /// See `LAYOUT_PLAN.md` § FilterPlan and its pushdown.
-    fn try_pushdown_mask(
-        self: Arc<Self>,
-        _mask_plan: LayoutPlanRef,
-    ) -> Option<LayoutPlanRef> {
+    fn try_pushdown_mask(self: Arc<Self>, _mask_plan: LayoutPlanRef) -> Option<LayoutPlanRef> {
         None
     }
 

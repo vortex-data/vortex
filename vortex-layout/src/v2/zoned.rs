@@ -86,7 +86,6 @@ impl ZonedPruningPlan {
             output_dtype,
         }
     }
-
 }
 
 impl PartialEq for ZonedPruningPlan {
@@ -173,11 +172,7 @@ impl LayoutPlan for ZonedPruningPlan {
         }))
     }
 
-    fn execute(
-        &self,
-        row_range: Range<u64>,
-        ctx: &ScanCtx,
-    ) -> VortexResult<SendableArrayStream> {
+    fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
         if row_range.start > self.row_count || row_range.end > self.row_count {
             vortex_bail!(
                 "ZonedPruningPlan::execute row range {row_range:?} exceeds total {}",

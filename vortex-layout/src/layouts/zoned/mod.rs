@@ -172,10 +172,7 @@ impl VTable for Zoned {
         if layout.zone_len == 0 {
             return data_child.plan(args);
         }
-        let returns_bool = matches!(
-            args.expr.return_dtype(&data_dtype)?,
-            DType::Bool(_)
-        );
+        let returns_bool = matches!(args.expr.return_dtype(&data_dtype)?, DType::Bool(_));
         if !returns_bool {
             return data_child.plan(args);
         }
@@ -185,11 +182,9 @@ impl VTable for Zoned {
                 .iter()
                 .map(|s| vortex_array::dtype::FieldPath::from_name(s.name())),
         );
-        let pruning_predicate = vortex_array::expr::pruning::checked_pruning_expr(
-            &args.expr,
-            &available_stats,
-        )
-        .map(|(expr, _)| expr);
+        let pruning_predicate =
+            vortex_array::expr::pruning::checked_pruning_expr(&args.expr, &available_stats)
+                .map(|(expr, _)| expr);
         let Some(pruning_predicate) = pruning_predicate else {
             return data_child.plan(args);
         };
@@ -197,9 +192,7 @@ impl VTable for Zoned {
         let zones_dtype = stats_table_dtype(&data_dtype, &layout.present_stats);
         let zones_child = layout.children.child(1, &zones_dtype)?;
         let data_plan = data_child.plan(args.clone())?;
-        let zones_plan = zones_child.plan(
-            args.with_expr(vortex_array::expr::root()),
-        )?;
+        let zones_plan = zones_child.plan(args.with_expr(vortex_array::expr::root()))?;
 
         Ok(Arc::new(ZonedPruningPlan::new(
             data_plan,

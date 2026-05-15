@@ -322,10 +322,7 @@ fn plan_full_struct(
 /// and apply the expression on top. Saves the per-field `Layout::plan`
 /// traversal for queries like `COUNT(*)` whose scan projection is
 /// `pack([], …)`.
-fn plan_no_field_refs(
-    layout: &StructLayout,
-    args: PlanArguments,
-) -> VortexResult<LayoutPlanRef> {
+fn plan_no_field_refs(layout: &StructLayout, args: PlanArguments) -> VortexResult<LayoutPlanRef> {
     let inner: LayoutPlanRef = Arc::new(EmptyStructPlan::new(layout.row_count));
     let inner_dtype = inner.schema().clone();
     if vortex_array::expr::is_root(&args.expr) {

@@ -105,11 +105,7 @@ impl LayoutPlan for EmptyStructPlan {
         Ok(self)
     }
 
-    fn execute(
-        &self,
-        row_range: Range<u64>,
-        _ctx: &ScanCtx,
-    ) -> VortexResult<SendableArrayStream> {
+    fn execute(&self, row_range: Range<u64>, _ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
         if row_range.start > self.row_count || row_range.end > self.row_count {
             vortex_bail!(
                 "EmptyStructPlan::execute row range {row_range:?} exceeds row count {}",
