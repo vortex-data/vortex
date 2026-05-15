@@ -15,6 +15,7 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
 use vortex_array::arrays::list::ListArrayExt;
@@ -23,6 +24,7 @@ use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::arrays::primitive::PrimitiveArrayExt;
 use vortex_array::arrays::scalar_fn::AnyScalarFn;
 use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::arrays::variant::VariantArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::scalar::Scalar;
@@ -249,7 +251,14 @@ impl CascadingCompressor {
                         .into_array(),
                 )
             }
-            Canonical::Variant(variant_array) => Ok(variant_array.into_array()),
+            Canonical::Variant(variant_array) => {
+                let core_storage = self.compress(variant_array.core_storage(), exec_ctx)?;
+                let shredded = variant_array
+                    .shredded()
+                    .map(|arr| self.compress(arr, exec_ctx))
+                    .transpose()?;
+                Ok(VariantArray::try_new(core_storage, shredded)?.into_array())
+            }
         }
     }
 
