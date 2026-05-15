@@ -656,12 +656,7 @@ impl Executable for CanonicalValidity {
                 ),
             ))),
             Canonical::Variant(variant) => {
-                let core_storage = variant
-                    .core_storage()
-                    .clone()
-                    .execute::<CanonicalValidity>(ctx)?
-                    .0
-                    .into_array();
+                let core_storage = recursively_canonicalize_slots(variant.core_storage(), ctx)?;
                 let shredded = variant
                     .shredded()
                     .map(|shredded| {
