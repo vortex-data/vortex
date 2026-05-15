@@ -461,7 +461,7 @@ mod tests {
     }
 
     fn contains_any(col: &Column, patterns: &[&[u8]]) -> Vec<usize> {
-        let dict = col.dict_for_test();
+        let dict = col.dictionary().clone();
         let ac = AhoCorasickAutomaton::new(patterns, &dict);
         col.scan(ac)
     }
@@ -578,10 +578,10 @@ mod tests {
 
     #[test]
     fn single_pattern_matches_kmp() {
-        use crate::kmp_automaton::KmpAutomaton;
+        use crate::kmp::KmpAutomaton;
         let data = user_strings(50);
         let col = make_column(&data);
-        let dict = col.dict_for_test();
+        let dict = col.dictionary().clone();
         let kmp = KmpAutomaton::new(b"https", &dict);
         let kmp_result = col.scan(kmp);
         let ac = AhoCorasickAutomaton::new(&[b"https"], &dict);

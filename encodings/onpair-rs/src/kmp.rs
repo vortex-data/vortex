@@ -347,7 +347,7 @@ mod tests {
     fn empty_pattern_matches_all() {
         let data = ["abc", "def", "ghi"];
         let col = make_column(&data);
-        let kmp = KmpAutomaton::new(b"", &col.dict_for_test());
+        let kmp = KmpAutomaton::new(b"", &col.dictionary().clone());
         assert_eq!(col.scan(kmp).len(), 3);
     }
 
@@ -357,7 +357,7 @@ mod tests {
     fn basic_substring_match() {
         let data = ["hello world", "foo bar", "hello there", "world hello", "xyz"];
         let col = make_column(&data);
-        let kmp = KmpAutomaton::new(b"hello", &col.dict_for_test());
+        let kmp = KmpAutomaton::new(b"hello", &col.dictionary().clone());
         assert_eq!(col.scan(kmp), vec![0, 2, 3]);
     }
 
@@ -365,7 +365,7 @@ mod tests {
     fn pattern_at_beginning() {
         let data = ["abc_def", "xyz_abc", "abc"];
         let col = make_column(&data);
-        let kmp = KmpAutomaton::new(b"abc", &col.dict_for_test());
+        let kmp = KmpAutomaton::new(b"abc", &col.dictionary().clone());
         assert_eq!(col.scan(kmp).len(), 3);
     }
 
@@ -373,7 +373,7 @@ mod tests {
     fn pattern_at_end() {
         let data = ["hello_xyz", "abc_xyz", "no_match"];
         let col = make_column(&data);
-        let kmp = KmpAutomaton::new(b"xyz", &col.dict_for_test());
+        let kmp = KmpAutomaton::new(b"xyz", &col.dictionary().clone());
         assert_eq!(col.scan(kmp), vec![0, 1]);
     }
 
@@ -381,7 +381,7 @@ mod tests {
     fn no_matches() {
         let data = ["abc", "def", "ghi"];
         let col = make_column(&data);
-        let kmp = KmpAutomaton::new(b"xyz", &col.dict_for_test());
+        let kmp = KmpAutomaton::new(b"xyz", &col.dictionary().clone());
         assert!(col.scan(kmp).is_empty());
     }
 
@@ -389,7 +389,7 @@ mod tests {
     fn exact_string_match() {
         let data = ["abc", "abcd", "ab"];
         let col = make_column(&data);
-        let kmp = KmpAutomaton::new(b"abc", &col.dict_for_test());
+        let kmp = KmpAutomaton::new(b"abc", &col.dictionary().clone());
         assert_eq!(col.scan(kmp), vec![0, 1]);
     }
 
@@ -397,7 +397,7 @@ mod tests {
     fn single_char_pattern() {
         let data = ["abc", "def", "axe"];
         let col = make_column(&data);
-        let kmp = KmpAutomaton::new(b"a", &col.dict_for_test());
+        let kmp = KmpAutomaton::new(b"a", &col.dictionary().clone());
         assert_eq!(col.scan(kmp), vec![0, 2]);
     }
 
@@ -407,7 +407,7 @@ mod tests {
     fn overlapping_pattern_in_string() {
         let data = ["aaaa", "ab", "ba"];
         let col = make_column(&data);
-        let kmp = KmpAutomaton::new(b"aa", &col.dict_for_test());
+        let kmp = KmpAutomaton::new(b"aa", &col.dictionary().clone());
         assert_eq!(col.scan(kmp), vec![0]);
     }
 
@@ -416,7 +416,7 @@ mod tests {
         // Pattern "abab" has LPS [0,0,1,2].
         let data = ["ababab", "abab", "abba", "baba"];
         let col = make_column(&data);
-        let kmp = KmpAutomaton::new(b"abab", &col.dict_for_test());
+        let kmp = KmpAutomaton::new(b"abab", &col.dictionary().clone());
         assert_eq!(col.scan(kmp), vec![0, 1]);
     }
 
@@ -426,7 +426,7 @@ mod tests {
     fn cross_validation_with_brute_force() {
         let data = random_ascii_strings(100, 30, 42);
         let col = make_column(&data);
-        let kmp = KmpAutomaton::new(b"ab", &col.dict_for_test());
+        let kmp = KmpAutomaton::new(b"ab", &col.dictionary().clone());
         assert_eq!(col.scan(kmp), brute_contains(&data, b"ab"));
     }
 
@@ -435,7 +435,7 @@ mod tests {
         let data = user_strings(60);
         let col = make_column(&data);
         for needle in [&b"example"[..], b"https", b"docs", b"missing", b"://"] {
-            let kmp = KmpAutomaton::new(needle, &col.dict_for_test());
+            let kmp = KmpAutomaton::new(needle, &col.dictionary().clone());
             assert_eq!(col.scan(kmp), brute_contains(&data, needle), "needle={needle:?}");
         }
     }
@@ -447,7 +447,7 @@ mod tests {
         let data = ["the quick brown fox", "lazy dog", "quick fox"];
         for bw in 9u32..=16 {
             let col = make_column_bits(&data, bw);
-            let kmp = KmpAutomaton::new(b"quick", &col.dict_for_test());
+            let kmp = KmpAutomaton::new(b"quick", &col.dictionary().clone());
             assert_eq!(col.scan(kmp), vec![0, 2], "bw={bw}");
         }
     }
@@ -458,7 +458,7 @@ mod tests {
     fn pattern_longer_than_strings() {
         let data = ["ab", "cd"];
         let col = make_column(&data);
-        let kmp = KmpAutomaton::new(b"abcdefghij", &col.dict_for_test());
+        let kmp = KmpAutomaton::new(b"abcdefghij", &col.dictionary().clone());
         assert!(col.scan(kmp).is_empty());
     }
 
@@ -469,7 +469,7 @@ mod tests {
         let strings: Vec<&[u8]> = vec![];
         let raw = make_raw(&strings);
         let col = Column::compress(&raw.data, &raw.offsets_u64, DEFAULT_DICT12_CONFIG).unwrap();
-        let kmp = KmpAutomaton::new(b"abc", &col.dict_for_test());
+        let kmp = KmpAutomaton::new(b"abc", &col.dictionary().clone());
         assert!(col.scan(kmp).is_empty());
     }
 
@@ -479,7 +479,7 @@ mod tests {
     fn rescannable() {
         let data = ["abc", "def", "abc_xyz"];
         let col = make_column(&data);
-        let mut kmp = KmpAutomaton::new(b"abc", &col.dict_for_test());
+        let mut kmp = KmpAutomaton::new(b"abc", &col.dictionary().clone());
         let r1 = col.scan(&mut kmp);
         let r2 = col.scan(&mut kmp);
         assert_eq!(r1, r2);
@@ -492,7 +492,7 @@ mod tests {
         let data = user_strings(80);
         let col = make_column(&data);
         for needle in [&b"example"[..], b"https", b"docs"] {
-            let kmp = KmpAutomaton::new(needle, &col.dict_for_test());
+            let kmp = KmpAutomaton::new(needle, &col.dictionary().clone());
             let token_result = col.scan(kmp);
             let bitmap = col.contains_bitmap(needle);
             let bitmap_result: Vec<usize> = (0..data.len())

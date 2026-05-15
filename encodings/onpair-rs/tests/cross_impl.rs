@@ -492,7 +492,7 @@ mod multi_pattern {
         let needles: &[&[u8]] = &[b"admin", b"guest"];
         let rs_bits = rs.multi_pattern_bitmap(needles);
         // Naive truth: row matches iff any needle is a substring of it.
-        let mut expected = onpair_lib::empty_bitmap(strings.len());
+        let mut expected = vec![0u8; strings.len().div_ceil(8)];
         for (i, s) in strings.iter().enumerate() {
             if needles
                 .iter()
@@ -505,72 +505,10 @@ mod multi_pattern {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Combinator algebra: A AND NOT B, A OR B over predicate bitmaps.
-// ─────────────────────────────────────────────────────────────────────────────
-
-mod combinators {
-    use super::*;
-    use onpair_lib::{bitmap_and, bitmap_not, bitmap_or, get_bit};
-
-    #[test]
-    fn and_not_matches_set_difference() {
-        let strings: Vec<&[u8]> = vec![
-            b"user_admin_001",
-            b"user_guest_001",
-            b"admin_001",
-            b"guest_001",
-            b"user_007",
-        ];
-        let (bytes, offsets) = pack(&strings);
-        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
-
-        let users = rs.contains_bitmap(b"user");
-        let guests = rs.contains_bitmap(b"guest");
-        let users_not_guests = bitmap_and(&users, &bitmap_not(&guests, strings.len()));
-
-        // Truth: rows that contain "user" but not "guest".
-        let expected: Vec<bool> = strings
-            .iter()
-            .map(|s| {
-                let has_user = s.windows(4).any(|w| w == b"user");
-                let has_guest = s.windows(5).any(|w| w == b"guest");
-                has_user && !has_guest
-            })
-            .collect();
-        for (i, &want) in expected.iter().enumerate() {
-            assert_eq!(get_bit(&users_not_guests, i), want, "row {i}");
-        }
-    }
-
-    #[test]
-    fn or_matches_union() {
-        let strings: Vec<&[u8]> = vec![b"alpha", b"beta", b"gamma", b"delta"];
-        let (bytes, offsets) = pack(&strings);
-        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
-
-        let a = rs.starts_with_bitmap(b"alp");
-        let b = rs.starts_with_bitmap(b"del");
-        let union = bitmap_or(&a, &b);
-
-        for (i, s) in strings.iter().enumerate() {
-            let want = s.starts_with(b"alp") || s.starts_with(b"del");
-            assert_eq!(get_bit(&union, i), want, "row {i}");
-        }
-    }
-
-    #[test]
-    fn not_matches_complement() {
-        let strings: Vec<&[u8]> = vec![b"a", b"b", b"c", b"d", b"e"];
-        let (bytes, offsets) = pack(&strings);
-        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
-        let b = rs.equals_bitmap(b"b");
-        let not_b = bitmap_not(&b, strings.len());
-        for (i, s) in strings.iter().enumerate() {
-            assert_eq!(get_bit(&not_b, i), s != b"b", "row {i}");
-        }
-    }
-}
+// Bitmap-level algebra (`bitmap_and`/`bitmap_or`/`bitmap_not`) was removed
+// from the public API — the token-automaton combinators (`and`, `or`, `not`)
+// cover the same use cases in a single compressed-domain pass and are
+// covered by the `token_automata` test module below.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Token-automaton equivalence.
@@ -693,8 +631,11 @@ mod token_automata {
         // Bitmap equivalent.
         let users = rs.contains_bitmap(b"user");
         let admins = rs.contains_bitmap(b"admin");
-        let not_admins = onpair_lib::bitmap_not(&admins, strings.len());
-        let combined = onpair_lib::bitmap_and(&users, &not_admins);
+        let combined: Vec<u8> = users
+            .iter()
+            .zip(admins.iter())
+            .map(|(u, a)| u & !a)
+            .collect();
         let bitmap_ids = row_ids_from_bitmap(&combined, strings.len());
 
         assert_eq!(token_ids, bitmap_ids);
@@ -713,7 +654,11 @@ mod token_automata {
 
         let eq_bits = rs.equals_bitmap(b"guest_001");
         let kmp_bits = rs.contains_bitmap(b"admin");
-        let combined = onpair_lib::bitmap_or(&eq_bits, &kmp_bits);
+        let combined: Vec<u8> = eq_bits
+            .iter()
+            .zip(kmp_bits.iter())
+            .map(|(a, b)| a | b)
+            .collect();
         let bitmap_ids = row_ids_from_bitmap(&combined, strings.len());
 
         assert_eq!(token_ids, bitmap_ids);

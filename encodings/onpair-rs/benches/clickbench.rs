@@ -1,5 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::clone_on_ref_ptr,
+    clippy::expect_used,
+    clippy::many_single_char_names,
+    clippy::missing_panics_doc,
+    clippy::unwrap_in_result,
+    clippy::unwrap_used
+)]
 //
 // End-to-end benchmark suite over a real parquet file (ClickBench-style
 // hits or any UTF-8 string column).

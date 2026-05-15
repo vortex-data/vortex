@@ -7,17 +7,40 @@
 // `&[u64]` row offsets so callers don't need to truncate to u32; internally
 // we sanity-check and downcast.
 
+use aho_corasick::AhoCorasick;
+
 use crate::automaton::TokenAutomaton;
+use crate::bits::TokenCursor;
 use crate::config::{Error, OnPairTrainingConfig};
 use crate::dict::Dictionary;
 use crate::dispatch_bits;
 use crate::parser::parse;
-use crate::search::{contains_bitmap, empty_bitmap, equals_bitmap, multi_pattern_bitmap,
-                    starts_with_bitmap};
 use crate::store::Store;
-use crate::token_cursor::TokenCursor;
 use crate::trainer::{TrainResult, train};
 use crate::types::{StreamSpan, is_valid_bits};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bitmap helpers (private — `Column::*_bitmap` are the public entry points).
+// ─────────────────────────────────────────────────────────────────────────────
+
+#[inline]
+fn empty_bitmap(n: usize) -> Vec<u8> {
+    vec![0u8; n.div_ceil(8)]
+}
+
+#[inline]
+fn set_bit(bits: &mut [u8], i: usize) {
+    bits[i / 8] |= 1u8 << (i % 8);
+}
+
+#[inline]
+fn fill_bitmap(n: usize) -> Vec<u8> {
+    let mut bits = empty_bitmap(n);
+    for i in 0..n {
+        set_bit(&mut bits, i);
+    }
+    bits
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Const-generic decode and scan inner loops. Each is monomorphised per
@@ -190,18 +213,53 @@ impl Column {
     }
 
     /// `WHERE col = needle` as an LSB-first packed bitmap of length `(n + 7) / 8`.
+    ///
+    /// Decompress-then-match implementation. For very large columns prefer the
+    /// compressed-domain [`crate::EqAutomaton`] via [`Self::scan_bitmap`].
     pub fn equals_bitmap(&self, needle: &[u8]) -> Vec<u8> {
-        equals_bitmap(&self.dict, &self.store, needle)
+        self.run_byte_predicate(|row| row == needle)
     }
 
     /// `col LIKE 'needle%'` as an LSB-first packed bitmap.
     pub fn starts_with_bitmap(&self, needle: &[u8]) -> Vec<u8> {
-        starts_with_bitmap(&self.dict, &self.store, needle)
+        self.run_byte_predicate(|row| row.starts_with(needle))
     }
 
-    /// `col LIKE '%needle%'` as an LSB-first packed bitmap.
+    /// `col LIKE '%needle%'` as an LSB-first packed bitmap. Uses `memchr::memmem`.
     pub fn contains_bitmap(&self, needle: &[u8]) -> Vec<u8> {
-        contains_bitmap(&self.dict, &self.store, needle)
+        if needle.is_empty() {
+            return fill_bitmap(self.num_rows);
+        }
+        let finder = memchr::memmem::Finder::new(needle);
+        self.run_byte_predicate(|row| finder.find(row).is_some())
+    }
+
+    /// `LIKE '%a%' OR '%b%' OR ...` via Aho-Corasick. Empty `needles` →
+    /// all-zero bitmap.
+    pub fn multi_pattern_bitmap(&self, needles: &[&[u8]]) -> Vec<u8> {
+        if needles.is_empty() {
+            return empty_bitmap(self.num_rows);
+        }
+        let ac = AhoCorasick::new(needles).expect("aho-corasick: build");
+        self.run_byte_predicate(|row| ac.is_match(row))
+    }
+
+    /// Decompress every row and apply `pred`. Shared backend for the
+    /// `*_bitmap` methods.
+    fn run_byte_predicate<F: FnMut(&[u8]) -> bool>(&self, mut pred: F) -> Vec<u8> {
+        let mut bits = empty_bitmap(self.num_rows);
+        let mut buf = Vec::with_capacity(64);
+        for i in 0..self.num_rows {
+            buf.clear();
+            let span = self.store.string_span(i);
+            dispatch_bits!(self.store.bit_width as u32, |B| {
+                decode_span_into::<B>(&self.dict, &self.store.packed, span, &mut buf);
+            });
+            if pred(&buf) {
+                set_bit(&mut bits, i);
+            }
+        }
+        bits
     }
 
     /// Run a [`TokenAutomaton`] over every row's compressed token stream
@@ -239,27 +297,10 @@ impl Column {
         bits
     }
 
-    /// Access the column's dictionary. Required to construct
-    /// [`crate::eq_automaton::EqAutomaton`] / [`crate::prefix_automaton::PrefixAutomaton`]
-    /// / [`crate::kmp_automaton::KmpAutomaton`] /
-    /// [`crate::aho_corasick::AhoCorasickAutomaton`].
+    /// Access the column's dictionary. Required to construct any
+    /// `*Automaton` (they take `&Dictionary`).
     pub fn dictionary(&self) -> &Dictionary {
         &self.dict
-    }
-
-    /// Test-only accessor: returns a cheap clone of the dictionary so the
-    /// automaton constructors (`new(needle, &dict)`) can take it by value
-    /// when needed.
-    #[cfg(test)]
-    pub(crate) fn dict_for_test(&self) -> Dictionary {
-        self.dict.clone()
-    }
-
-    /// `col LIKE '%a%' OR '%b%' OR ...` via Aho-Corasick. One bitmap pass
-    /// over the union of patterns. Empty `needles` produces an all-zero
-    /// bitmap.
-    pub fn multi_pattern_bitmap(&self, needles: &[&[u8]]) -> Vec<u8> {
-        multi_pattern_bitmap(&self.dict, &self.store, needles)
     }
 
     /// Borrow the column's raw arrays for downstream consumers (decode loop,
@@ -290,7 +331,7 @@ impl Column {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bit_unpack::unpack_codes_to_u16;
+    use crate::bits::unpack_codes_to_u16;
     use crate::config::DEFAULT_DICT12_CONFIG;
     use crate::types::Token;
 

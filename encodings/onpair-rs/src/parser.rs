@@ -7,7 +7,7 @@
 // resulting token IDs into a `Store` via `BitWriter`, and records per-string
 // token-count boundaries.
 
-use crate::bit_writer::BitWriter;
+use crate::bits::BitWriter;
 use crate::lpm::LongestPrefixMatcher;
 use crate::store::Store;
 use crate::types::BitWidth;
@@ -52,7 +52,7 @@ pub fn parse(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bit_unpack::unpack_codes_to_u16;
+    use crate::bits::unpack_codes_to_u16;
     use crate::config::{FixedThreshold, ThresholdSpec, TrainingConfig};
     use crate::dict::Dictionary;
     use crate::trainer::{TrainResult, train};
