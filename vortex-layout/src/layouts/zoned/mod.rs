@@ -53,6 +53,7 @@ use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PlanArguments;
+use crate::v2::zoned::ZonedPruningPlan;
 use crate::vtable;
 
 vtable!(Zoned);
@@ -160,13 +161,53 @@ impl VTable for Zoned {
     }
 
     fn plan(layout: &Self::Layout, args: PlanArguments) -> VortexResult<LayoutPlanRef> {
-        // Pass-through to the data child. The opportunistic
-        // `ZonedPruningPlan` publisher to `RowDemand` (see
-        // `LAYOUT_PLAN.md` § ZonedLayout::plan) only matters when a
-        // filter is present; it lands alongside `FilterPlan`.
         let data_dtype = layout.dtype.clone();
         let data_child = layout.children.child(0, &data_dtype)?;
-        data_child.plan(args)
+
+        // Pruning only kicks in when (a) zone_len is > 0 (legacy
+        // files may carry zone_len == 0 as a back-compat marker), and
+        // (b) the expression is bool-returning (a filter conjunct,
+        // not a projection), and (c) `checked_pruning_expr` can build
+        // a falsification predicate from the available stats.
+        if layout.zone_len == 0 {
+            return data_child.plan(args);
+        }
+        let returns_bool = matches!(
+            args.expr.return_dtype(&data_dtype)?,
+            DType::Bool(_)
+        );
+        if !returns_bool {
+            return data_child.plan(args);
+        }
+        let available_stats = vortex_array::dtype::FieldPathSet::from_iter(
+            layout
+                .present_stats
+                .iter()
+                .map(|s| vortex_array::dtype::FieldPath::from_name(s.name())),
+        );
+        let pruning_predicate = vortex_array::expr::pruning::checked_pruning_expr(
+            &args.expr,
+            &available_stats,
+        )
+        .map(|(expr, _)| expr);
+        let Some(pruning_predicate) = pruning_predicate else {
+            return data_child.plan(args);
+        };
+
+        let zones_dtype = stats_table_dtype(&data_dtype, &layout.present_stats);
+        let zones_child = layout.children.child(1, &zones_dtype)?;
+        let data_plan = data_child.plan(args.clone())?;
+        let zones_plan = zones_child.plan(
+            args.with_expr(vortex_array::expr::root()),
+        )?;
+
+        Ok(Arc::new(ZonedPruningPlan::new(
+            data_plan,
+            zones_plan,
+            pruning_predicate,
+            layout.zone_len as u64,
+            layout.children.child_row_count(0),
+        )))
     }
 }
 

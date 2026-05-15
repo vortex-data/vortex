@@ -502,6 +502,109 @@ mod tests {
         Ok(())
     }
 
+    /// Build a `Zoned(Chunked(Flat))` layout — three chunks of 3
+    /// rows each, with min/max stats per zone. Used to exercise
+    /// `ZonedPruningPlan`.
+    fn build_zoned_chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef, ArrayRef) {
+        use crate::layouts::zoned::writer::ZonedLayoutOptions;
+        use crate::layouts::zoned::writer::ZonedStrategy;
+        use crate::sequence::SequentialArrayStreamExt;
+        use vortex_array::arrays::ChunkedArray as ChunkedArrayInner;
+
+        let chunks = vec![
+            buffer![1i32, 2, 3].into_array(),
+            buffer![4i32, 5, 6].into_array(),
+            buffer![7i32, 8, 9].into_array(),
+        ];
+        let combined = ChunkedArrayInner::try_new(chunks.clone(), chunks[0].dtype().clone())
+            .unwrap()
+            .into_array();
+
+        let ctx = ArrayContext::empty();
+        let segments = Arc::new(TestSegments::default());
+        let segments_for_strategy = Arc::<TestSegments>::clone(&segments);
+        let strategy = ZonedStrategy::new(
+            ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()),
+            FlatLayoutStrategy::default(),
+            ZonedLayoutOptions {
+                block_size: 3,
+                ..Default::default()
+            },
+        );
+        let (ptr, eof) = SequenceId::root().split();
+        let combined_for_write = combined.clone();
+        let layout = block_on(|handle| async move {
+            let session = SESSION.clone().with_handle(handle);
+            let stream = combined_for_write.to_array_stream().sequenced(ptr);
+            strategy
+                .write_stream(ctx, segments_for_strategy, stream, eof, &session)
+                .await
+        })
+        .unwrap();
+        (segments, layout, combined)
+    }
+
+    /// V1/V2 must agree on a selective filter against a zoned layout.
+    /// `> 7` prunes the first two zones; `< 4` prunes the last two.
+    /// Both branches are tested.
+    #[test]
+    fn diff_v1_v2_zoned_pruning_high() -> VortexResult<()> {
+        use vortex_array::expr::gt;
+        use vortex_array::expr::lit;
+        let (segments, layout, _) = build_zoned_chunked_layout();
+        let projection = root();
+        let filter = gt(root(), lit(7i32));
+        let v1 = read_v1_with(
+            Arc::clone(&segments),
+            &layout,
+            projection.clone(),
+            Some(filter.clone()),
+        )?;
+        let v2 = read_v2_with(Arc::clone(&segments), &layout, projection, Some(filter))?;
+        assert_arrays_eq!(v1, v2);
+        Ok(())
+    }
+
+    #[test]
+    fn diff_v1_v2_zoned_pruning_low() -> VortexResult<()> {
+        use vortex_array::expr::lit;
+        use vortex_array::expr::lt;
+        let (segments, layout, _) = build_zoned_chunked_layout();
+        let projection = root();
+        let filter = lt(root(), lit(4i32));
+        let v1 = read_v1_with(
+            Arc::clone(&segments),
+            &layout,
+            projection.clone(),
+            Some(filter.clone()),
+        )?;
+        let v2 = read_v2_with(Arc::clone(&segments), &layout, projection, Some(filter))?;
+        assert_arrays_eq!(v1, v2);
+        Ok(())
+    }
+
+    /// Filter that prunes nothing — every zone overlaps the predicate.
+    /// Confirms ZonedPruningPlan still produces correct output when
+    /// no zone is pruneable.
+    #[test]
+    fn diff_v1_v2_zoned_pruning_no_op() -> VortexResult<()> {
+        use vortex_array::expr::gt;
+        use vortex_array::expr::lit;
+        let (segments, layout, _) = build_zoned_chunked_layout();
+        let projection = root();
+        // `> 0` keeps everything.
+        let filter = gt(root(), lit(0i32));
+        let v1 = read_v1_with(
+            Arc::clone(&segments),
+            &layout,
+            projection.clone(),
+            Some(filter.clone()),
+        )?;
+        let v2 = read_v2_with(Arc::clone(&segments), &layout, projection, Some(filter))?;
+        assert_arrays_eq!(v1, v2);
+        Ok(())
+    }
+
     /// V1/V2 must agree when the filter has multiple AND conjuncts —
     /// `Scan::build` decomposes via `split_conjunction` and combines
     /// with `AndBoolStreamsPlan`.
