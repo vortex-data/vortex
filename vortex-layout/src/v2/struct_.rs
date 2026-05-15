@@ -130,8 +130,7 @@ impl LayoutPlan for StructPlan {
     ) -> VortexResult<SendableArrayStream> {
         if self.output_dtype.is_nullable() {
             // Nullable structs need a validity child; that wiring lives in
-            // StructLayout::plan and arrives in a later PR alongside the
-            // expression-routing rewrite.
+            // StructLayout::plan and isn't plumbed through StructPlan yet.
             vortex_bail!("StructPlan does not yet support nullable structs");
         }
 

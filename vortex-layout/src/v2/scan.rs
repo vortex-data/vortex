@@ -4,10 +4,10 @@
 //! [`Scan`] — entrypoint for the LayoutPlan v2 path.
 //!
 //! [`Scan::build`] turns a layout, projection, and selection into a
-//! [`LayoutPlanRef`] tree by recursing through `Layout::plan`. The
-//! initial cut handles the projection-only case (no filter); filter
-//! conjuncts and `FilterPlan` arrive in a later PR — see
-//! `LAYOUT_PLAN.md` § Scan construction.
+//! [`LayoutPlanRef`] tree by recursing through `Layout::plan`.
+//! Filtered scans decompose `filter` into top-level AND conjuncts,
+//! plan each as a bool-stream, AND them, and wrap the projection
+//! plan with `FilterPlan`. See `LAYOUT_PLAN.md` § Scan construction.
 
 use std::sync::Arc;
 
@@ -44,7 +44,9 @@ pub struct Scan {
     pub session: VortexSession,
     /// Projection expression — defaults to `root()` for "all columns".
     pub projection: Expression,
-    /// Optional filter. Today only `None` is supported by [`Scan::build`].
+    /// Optional filter expression. Decomposed into top-level AND
+    /// conjuncts and combined into a mask plan; the projection plan
+    /// is wrapped with [`crate::v2::filter::FilterPlan`].
     pub filter: Option<Expression>,
     /// Pre-mask selection over the layout's row space.
     pub selection: Selection,

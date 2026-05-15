@@ -117,9 +117,8 @@ impl LayoutPlan for FlatPlan {
         _session: &VortexSession,
     ) -> VortexResult<SendableArrayStream> {
         if !matches!(self.selection, Selection::All) {
-            // Selection slicing for non-`All` selections is wired
-            // through `FilterPlan` in a later PR. The projection-only
-            // V2 entrypoint never hands us anything else.
+            // The V2 entrypoints never hand FlatPlan a non-`All`
+            // selection — `FilterPlan` carries masks separately.
             vortex_bail!("FlatPlan only supports Selection::All in the projection-only path");
         }
         if row_range.start > self.row_count || row_range.end > self.row_count {
