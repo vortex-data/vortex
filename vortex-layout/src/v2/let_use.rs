@@ -25,11 +25,15 @@ use std::sync::atomic::Ordering;
 use vortex_array::dtype::DType;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::v2::materialised_mask::MaskRegistry;
+use crate::v2::materialised_mask::build_materialise_future;
+use crate::v2::materialised_mask::slice_to_array;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -211,9 +215,17 @@ impl LayoutPlan for LetPlan {
     }
 
     fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
-        // Two-phase setup:
-        //   1. publish_stream — register the (not-yet-started) tee
-        //      in the registry.
+        // Dispatch on source schema:
+        //   - Bool sources go through `MaskRegistry` — value-based
+        //     distribution, no kanal channels per consumer
+        //     (`crate::v2::materialised_mask`).
+        //   - Anything else uses `TeeStream` for streaming fan-out.
+        if matches!(self.source.schema(), DType::Bool(_)) {
+            self.publish_mask(ctx)?;
+            return self.body.execute(row_range, ctx);
+        }
+        // Two-phase setup for streaming TeeStream:
+        //   1. publish_stream — register the (not-yet-started) tee.
         //   2. body.execute — synchronously walks the body subtree,
         //      causing every UsePlan to call tee.subscribe.
         //   3. tee.start — spawn the producer task now that all
@@ -233,6 +245,48 @@ impl LetPlan {
     /// Fast path: read-lock and look up by id. Only when the tee
     /// hasn't been registered do we acquire the write lock and pay
     /// the source-execute cost.
+    /// Register the source as a [`MaskRegistry`] entry. Used when
+    /// the source schema is `Bool` — value-based distribution
+    /// instead of stream-based fan-out.
+    pub fn publish_mask(&self, ctx: &ScanCtx) -> VortexResult<()> {
+        if let Some(registry) = ctx.get_opt::<MaskRegistry>()
+            && registry.get(self.id).is_some()
+        {
+            return Ok(());
+        }
+        let total_rows = source_total_rows(&self.source);
+        let source = Arc::clone(&self.source);
+        let ctx_for_init = ctx.clone();
+        let session = ctx.session().clone();
+        let mut init_err: Option<VortexError> = None;
+        let mut registry = ctx.get_mut::<MaskRegistry>();
+        drop(registry.get_or_init(
+            self.id,
+            || match source.execute(0..total_rows, &ctx_for_init) {
+                Ok(stream) => build_materialise_future(stream, session),
+                Err(e) => {
+                    init_err = Some(e);
+                    // Install a future that resolves to an error matching
+                    // the synchronously-captured one — but since
+                    // `init_err` is propagated immediately below, this
+                    // future should never actually be observed.
+                    use futures::FutureExt as _;
+                    async move {
+                        Err(Arc::new(vortex_error::vortex_err!(
+                            "publish_mask: source.execute failed (see init_err)"
+                        )))
+                    }
+                    .boxed()
+                    .shared()
+                }
+            },
+        ));
+        if let Some(e) = init_err {
+            return Err(e);
+        }
+        Ok(())
+    }
+
     pub fn publish_stream(&self, ctx: &ScanCtx) -> VortexResult<Arc<TeeStream>> {
         if let Some(registry) = ctx.get_opt::<LetRegistry>()
             && let Some(existing) = registry.get_stream(self.id)
@@ -244,7 +298,7 @@ impl LetPlan {
         let ctx_for_init = ctx.clone();
         let handle = ctx.session().handle();
         let dtype_for_empty = source.schema().clone();
-        let mut init_err: Option<vortex_error::VortexError> = None;
+        let mut init_err: Option<VortexError> = None;
         let mut registry = ctx.get_mut::<LetRegistry>();
         let arc = registry.get_or_init_stream(self.id, || {
             match source.execute(0..total_rows, &ctx_for_init) {
@@ -374,6 +428,13 @@ impl LayoutPlan for UsePlan {
                 self.row_count
             );
         }
+
+        // Dispatch on output dtype: Bool sources go through the
+        // value-based MaskRegistry; everything else uses TeeStream.
+        if matches!(self.output_dtype, DType::Bool(_)) {
+            return self.execute_mask(row_range, ctx);
+        }
+
         let registry = ctx.get::<LetRegistry>();
         let tee = registry.get_stream(self.id).ok_or_else(|| {
             vortex_error::vortex_err!(
@@ -391,6 +452,34 @@ impl LayoutPlan for UsePlan {
         // intersecting `row_range`, already sliced. No post-loop
         // walk required.
         Ok(tee.subscribe(row_range))
+    }
+}
+
+impl UsePlan {
+    /// Execute path for `Bool` sources: look up the materialised
+    /// mask future from [`MaskRegistry`], await it once, slice to
+    /// `row_range`, return as a single-chunk `BoolArray` stream so
+    /// existing consumers (`FilteredFlatPlan`) keep working
+    /// unchanged.
+    fn execute_mask(
+        &self,
+        row_range: Range<u64>,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
+        let fut = ctx.get::<MaskRegistry>().get(self.id).ok_or_else(|| {
+            vortex_error::vortex_err!(
+                "UsePlan(mask): no LetPlan with id {} has been registered (CSE pass bug — \
+                     every UsePlan must be dominated by a matching LetPlan)",
+                self.id.raw()
+            )
+        })?;
+        let dtype = self.output_dtype.clone();
+        let stream = async_stream::try_stream! {
+            let materialised = fut.await.map_err(VortexError::from)?;
+            let array = slice_to_array(&materialised, row_range);
+            yield array;
+        };
+        Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))
     }
 }
 

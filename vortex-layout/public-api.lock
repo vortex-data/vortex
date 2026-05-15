@@ -1850,6 +1850,8 @@ pub fn vortex_layout::v2::let_use::LetPlan::with_id(vortex_layout::v2::let_use::
 
 impl vortex_layout::v2::let_use::LetPlan
 
+pub fn vortex_layout::v2::let_use::LetPlan::publish_mask(&self, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<()>
+
 pub fn vortex_layout::v2::let_use::LetPlan::publish_stream(&self, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<alloc::sync::Arc<vortex_layout::v2::tee_stream::TeeStream>>
 
 impl core::cmp::Eq for vortex_layout::v2::let_use::LetPlan
@@ -2065,6 +2067,52 @@ pub type vortex_layout::v2::matcher::AnyPlan::Match<'a> = &'a alloc::sync::Arc<d
 pub fn vortex_layout::v2::matcher::AnyPlan::matches(&vortex_layout::v2::plan::LayoutPlanRef) -> bool
 
 pub fn vortex_layout::v2::matcher::AnyPlan::try_match(&vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<Self::Match>
+
+pub mod vortex_layout::v2::materialised_mask
+
+pub struct vortex_layout::v2::materialised_mask::MaskRegistry
+
+impl vortex_layout::v2::materialised_mask::MaskRegistry
+
+pub fn vortex_layout::v2::materialised_mask::MaskRegistry::get(&self, vortex_layout::v2::let_use::LetId) -> core::option::Option<futures_util::future::future::shared::Shared<futures_core::future::BoxFuture<'static, core::result::Result<alloc::sync::Arc<vortex_layout::v2::materialised_mask::MaterialisedMask>, alloc::sync::Arc<vortex_error::VortexError>>>>>
+
+pub fn vortex_layout::v2::materialised_mask::MaskRegistry::get_or_init(&mut self, vortex_layout::v2::let_use::LetId, impl core::ops::function::FnOnce() -> futures_util::future::future::shared::Shared<futures_core::future::BoxFuture<'static, core::result::Result<alloc::sync::Arc<vortex_layout::v2::materialised_mask::MaterialisedMask>, alloc::sync::Arc<vortex_error::VortexError>>>>) -> futures_util::future::future::shared::Shared<futures_core::future::BoxFuture<'static, core::result::Result<alloc::sync::Arc<vortex_layout::v2::materialised_mask::MaterialisedMask>, alloc::sync::Arc<vortex_error::VortexError>>>>
+
+impl core::default::Default for vortex_layout::v2::materialised_mask::MaskRegistry
+
+pub fn vortex_layout::v2::materialised_mask::MaskRegistry::default() -> vortex_layout::v2::materialised_mask::MaskRegistry
+
+impl core::fmt::Debug for vortex_layout::v2::materialised_mask::MaskRegistry
+
+pub fn vortex_layout::v2::materialised_mask::MaskRegistry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_layout::v2::scan_ctx::ScanCtxValue for vortex_layout::v2::materialised_mask::MaskRegistry
+
+pub fn vortex_layout::v2::materialised_mask::MaskRegistry::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_layout::v2::materialised_mask::MaskRegistry::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
+pub struct vortex_layout::v2::materialised_mask::MaterialisedMask
+
+impl vortex_layout::v2::materialised_mask::MaterialisedMask
+
+pub fn vortex_layout::v2::materialised_mask::MaterialisedMask::from_array(vortex_array::array::erased::ArrayRef, &vortex_session::VortexSession) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_layout::v2::materialised_mask::MaterialisedMask::is_empty(&self) -> bool
+
+pub fn vortex_layout::v2::materialised_mask::MaterialisedMask::len(&self) -> usize
+
+pub fn vortex_layout::v2::materialised_mask::MaterialisedMask::mask(&self) -> &vortex_mask::Mask
+
+pub fn vortex_layout::v2::materialised_mask::MaterialisedMask::slice(&self, core::ops::range::Range<u64>) -> vortex_mask::Mask
+
+impl core::fmt::Debug for vortex_layout::v2::materialised_mask::MaterialisedMask
+
+pub fn vortex_layout::v2::materialised_mask::MaterialisedMask::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub fn vortex_layout::v2::materialised_mask::build_materialise_future(vortex_array::stream::SendableArrayStream, vortex_session::VortexSession) -> futures_util::future::future::shared::Shared<futures_core::future::BoxFuture<'static, core::result::Result<alloc::sync::Arc<vortex_layout::v2::materialised_mask::MaterialisedMask>, alloc::sync::Arc<vortex_error::VortexError>>>>
+
+pub fn vortex_layout::v2::materialised_mask::slice_to_array(&vortex_layout::v2::materialised_mask::MaterialisedMask, core::ops::range::Range<u64>) -> vortex_array::array::erased::ArrayRef
 
 pub mod vortex_layout::v2::plan
 
@@ -2637,6 +2685,12 @@ impl vortex_layout::v2::scan_ctx::ScanCtxValue for vortex_layout::v2::let_use::L
 pub fn vortex_layout::v2::let_use::LetRegistry::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_layout::v2::let_use::LetRegistry::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
+impl vortex_layout::v2::scan_ctx::ScanCtxValue for vortex_layout::v2::materialised_mask::MaskRegistry
+
+pub fn vortex_layout::v2::materialised_mask::MaskRegistry::as_any(&self) -> &dyn core::any::Any
+
+pub fn vortex_layout::v2::materialised_mask::MaskRegistry::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
 pub mod vortex_layout::v2::struct_
 

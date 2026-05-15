@@ -25,6 +25,7 @@ pub mod let_use;
 pub mod mask_collect;
 pub mod mask_slice;
 pub mod matcher;
+pub mod materialised_mask;
 pub mod plan;
 pub mod project;
 pub mod pushdown;
