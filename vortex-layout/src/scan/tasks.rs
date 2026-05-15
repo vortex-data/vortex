@@ -4,19 +4,17 @@
 //! Split scanning task implementation.
 
 use std::ops::BitAnd;
-use std::ops::Range;
 use std::sync::Arc;
 
 use bit_vec::BitVec;
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use futures::future::ok;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_scan::selection::Selection;
+use vortex_scan::row_mask::RowMask;
 
 use crate::LayoutReader;
 use crate::scan::filter::FilterExpr;
@@ -24,6 +22,8 @@ use crate::scan::filter::FilterExpr;
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 
 /// Logic for executing a single split reading task.
+/// N.B. read_mask should be evaluated against all_false() before calling this
+/// method to avoid creating an empty TaskFuture.
 ///
 /// # Task execution flow
 ///
@@ -37,16 +37,11 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 /// finally mapping the Vortex columnar record batches into some result type `A`.
 pub fn split_exec<A: 'static + Send>(
     ctx: Arc<TaskContext<A>>,
-    split: Range<u64>,
+    read_mask: RowMask,
     limit: Option<&mut u64>,
 ) -> VortexResult<TaskFuture<Option<A>>> {
-    // Apply the selection to calculate a read mask
-    let read_mask = ctx.selection.row_mask(&split);
     let row_range = read_mask.row_range();
     let row_mask = read_mask.mask().clone();
-    if row_mask.all_false() {
-        return Ok(ok(None).boxed());
-    }
 
     let filter_mask = match ctx.filter.as_ref() {
         // No filter == immediate mask
@@ -156,9 +151,9 @@ pub fn split_exec<A: 'static + Send>(
 }
 
 /// Information needed to execute a single split task.
+///
+/// Row selection is evaluated before creating a split task so it's not included
 pub struct TaskContext<A> {
-    /// A row selection to apply.
-    pub selection: Selection,
     /// The shared filter expression.
     pub filter: Option<Arc<FilterExpr>>,
     /// The layout reader.
