@@ -12860,8 +12860,6 @@ pub fn vortex_array::expr::Expression::simplify(&self, &vortex_array::dtype::DTy
 
 pub fn vortex_array::expr::Expression::simplify_untyped(&self) -> vortex_error::VortexResult<vortex_array::expr::Expression>
 
-pub fn vortex_array::expr::Expression::try_optimize(&self, &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
-
 pub fn vortex_array::expr::Expression::try_optimize_recursive(&self, &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 impl core::clone::Clone for vortex_array::expr::Expression
