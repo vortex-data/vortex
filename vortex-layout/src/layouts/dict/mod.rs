@@ -145,20 +145,20 @@ impl VTable for Dict {
     }
 
     fn plan(layout: &Self::Layout, args: PlanArguments) -> VortexResult<LayoutPlanRef> {
-        // Projection-only path: codes via the codes child plan; values
-        // are read once at the start of `DictDecodePlan::execute` and
-        // shared across all codes-chunk closures within that call (see
-        // `DictDecodePlan::execute`). The values layout and segment
-        // source pass through unchanged — no per-call I/O state lives
-        // on the plan struct.
+        // Lower both children: codes via the codes child plan, values
+        // via the values child plan. `DictDecodePlan` holds them as
+        // `LayoutPlanRef`s in fully-lowered form — no raw `LayoutRef`
+        // or `SegmentSource` on the plan struct.
         let output_dtype = args.expr.return_dtype(layout.values.dtype())?;
         let codes_plan = layout
             .codes
             .plan(args.clone().with_expr(vortex_array::expr::root()))?;
+        let values_plan = layout
+            .values
+            .plan(args.clone().with_expr(vortex_array::expr::root()))?;
         Ok(Arc::new(DictDecodePlan::new(
             codes_plan,
-            Arc::clone(&layout.values),
-            Arc::clone(&args.ctx.segment_source),
+            values_plan,
             args.expr,
             output_dtype,
             layout.all_values_referenced,

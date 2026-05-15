@@ -1542,7 +1542,9 @@ pub struct vortex_layout::v2::dict::DictDecodePlan
 
 impl vortex_layout::v2::dict::DictDecodePlan
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::new(vortex_layout::v2::plan::LayoutPlanRef, vortex_layout::LayoutRef, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, vortex_array::expr::expression::Expression, vortex_array::dtype::DType, bool) -> Self
+pub fn vortex_layout::v2::dict::DictDecodePlan::new(vortex_layout::v2::plan::LayoutPlanRef, vortex_layout::v2::plan::LayoutPlanRef, vortex_array::expr::expression::Expression, vortex_array::dtype::DType, bool) -> Self
+
+pub fn vortex_layout::v2::dict::DictDecodePlan::values_plan(&self) -> &vortex_layout::v2::plan::LayoutPlanRef
 
 impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::dict::DictDecodePlan
 
