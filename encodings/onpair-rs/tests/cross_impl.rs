@@ -384,3 +384,190 @@ fn both_dicts_are_lex_sorted() {
     assert!(dict_is_sorted(cpp_parts.dict_bytes, cpp_parts.dict_offsets));
     assert!(dict_is_sorted(rs_parts.dict_bytes, rs_parts.dict_offsets));
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bitmap-API equivalence.
+//
+// `onpair-lib`'s predicate API returns the same LSB-first packed bitmap
+// layout as `vortex-onpair-sys`'s `*_bitmap` family. Compare the two
+// directly against the C++-FFI implementation on identical inputs.
+// ─────────────────────────────────────────────────────────────────────────────
+
+mod bitmap_parity {
+    use super::*;
+
+    fn corpus_for_predicates() -> Vec<&'static [u8]> {
+        vec![
+            b"https://www.example.com/page",
+            b"https://www.example.com/data",
+            b"https://www.test.org/page",
+            b"ftp://files.example.com/x",
+            b"https://www.example.com/page",
+            b"admin_001",
+            b"admin_002",
+            b"guest_001",
+            b"user_007",
+            b"no_match_row",
+            b"another_no_match",
+        ]
+    }
+
+    #[test]
+    fn equals_bitmap_matches_cpp() {
+        let strings = corpus_for_predicates();
+        let (bytes, offsets) = pack(&strings);
+        let cpp = CppColumn::compress(&bytes, &offsets, cpp_cfg(12, 0.5, 42)).expect("cpp");
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+        for needle in [&b"admin_001"[..], b"missing", b"user_007", b""] {
+            let cpp_bits = cpp.equals_bitmap(needle).expect("cpp eq");
+            let rs_bits = rs.equals_bitmap(needle);
+            assert_eq!(cpp_bits, rs_bits, "needle={needle:?}");
+        }
+    }
+
+    #[test]
+    fn starts_with_bitmap_matches_cpp() {
+        let strings = corpus_for_predicates();
+        let (bytes, offsets) = pack(&strings);
+        let cpp = CppColumn::compress(&bytes, &offsets, cpp_cfg(12, 0.5, 42)).expect("cpp");
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+        for needle in [&b"https://"[..], b"admin_", b"ftp://", b"zzz", b""] {
+            let cpp_bits = cpp.starts_with_bitmap(needle).expect("cpp sw");
+            let rs_bits = rs.starts_with_bitmap(needle);
+            assert_eq!(cpp_bits, rs_bits, "needle={needle:?}");
+        }
+    }
+
+    #[test]
+    fn contains_bitmap_matches_cpp() {
+        let strings = corpus_for_predicates();
+        let (bytes, offsets) = pack(&strings);
+        let cpp = CppColumn::compress(&bytes, &offsets, cpp_cfg(12, 0.5, 42)).expect("cpp");
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+        for needle in [&b"example"[..], b"admin", b"never", b"_00", b""] {
+            let cpp_bits = cpp.contains_bitmap(needle).expect("cpp ct");
+            let rs_bits = rs.contains_bitmap(needle);
+            assert_eq!(cpp_bits, rs_bits, "needle={needle:?}");
+        }
+    }
+
+    #[test]
+    fn decompress_row_matches_cpp() {
+        let strings = corpus_for_predicates();
+        let (bytes, offsets) = pack(&strings);
+        let cpp = CppColumn::compress(&bytes, &offsets, cpp_cfg(12, 0.5, 42)).expect("cpp");
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+        let mut cpp_buf = Vec::new();
+        let mut rs_buf = Vec::new();
+        for (i, s) in strings.iter().enumerate() {
+            cpp.decompress_row(i, &mut cpp_buf).expect("cpp dec");
+            rs.decompress_row(i, &mut rs_buf).expect("rs dec");
+            assert_eq!(cpp_buf, *s, "cpp row {i}");
+            assert_eq!(rs_buf, *s, "rs row {i}");
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Multi-pattern (Aho-Corasick) equivalence against naive truth.
+// `vortex-onpair-sys` exposes single-needle predicates only, so we compare
+// against the byte-level union-of-substrings predicate.
+// ─────────────────────────────────────────────────────────────────────────────
+
+mod multi_pattern {
+    use super::*;
+
+    #[test]
+    fn multi_pattern_matches_naive_union() {
+        let strings: Vec<&[u8]> = vec![
+            b"admin_001",
+            b"guest_999",
+            b"user_007",
+            b"no_pattern_here",
+            b"some_admin_text",
+            b"guest_in_middle",
+        ];
+        let (bytes, offsets) = pack(&strings);
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+        let needles: &[&[u8]] = &[b"admin", b"guest"];
+        let rs_bits = rs.multi_pattern_bitmap(needles);
+        // Naive truth: row matches iff any needle is a substring of it.
+        let mut expected = onpair_lib::empty_bitmap(strings.len());
+        for (i, s) in strings.iter().enumerate() {
+            if needles
+                .iter()
+                .any(|n| s.windows(n.len()).any(|w| &w == n))
+            {
+                expected[i / 8] |= 1u8 << (i % 8);
+            }
+        }
+        assert_eq!(rs_bits, expected);
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Combinator algebra: A AND NOT B, A OR B over predicate bitmaps.
+// ─────────────────────────────────────────────────────────────────────────────
+
+mod combinators {
+    use super::*;
+    use onpair_lib::{bitmap_and, bitmap_not, bitmap_or, get_bit};
+
+    #[test]
+    fn and_not_matches_set_difference() {
+        let strings: Vec<&[u8]> = vec![
+            b"user_admin_001",
+            b"user_guest_001",
+            b"admin_001",
+            b"guest_001",
+            b"user_007",
+        ];
+        let (bytes, offsets) = pack(&strings);
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+
+        let users = rs.contains_bitmap(b"user");
+        let guests = rs.contains_bitmap(b"guest");
+        let users_not_guests = bitmap_and(&users, &bitmap_not(&guests, strings.len()));
+
+        // Truth: rows that contain "user" but not "guest".
+        let expected: Vec<bool> = strings
+            .iter()
+            .map(|s| {
+                let has_user = s.windows(4).any(|w| w == b"user");
+                let has_guest = s.windows(5).any(|w| w == b"guest");
+                has_user && !has_guest
+            })
+            .collect();
+        for (i, &want) in expected.iter().enumerate() {
+            assert_eq!(get_bit(&users_not_guests, i), want, "row {i}");
+        }
+    }
+
+    #[test]
+    fn or_matches_union() {
+        let strings: Vec<&[u8]> = vec![b"alpha", b"beta", b"gamma", b"delta"];
+        let (bytes, offsets) = pack(&strings);
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+
+        let a = rs.starts_with_bitmap(b"alp");
+        let b = rs.starts_with_bitmap(b"del");
+        let union = bitmap_or(&a, &b);
+
+        for (i, s) in strings.iter().enumerate() {
+            let want = s.starts_with(b"alp") || s.starts_with(b"del");
+            assert_eq!(get_bit(&union, i), want, "row {i}");
+        }
+    }
+
+    #[test]
+    fn not_matches_complement() {
+        let strings: Vec<&[u8]> = vec![b"a", b"b", b"c", b"d", b"e"];
+        let (bytes, offsets) = pack(&strings);
+        let rs = RustColumn::compress(&bytes, &offsets, rust_cfg(12, 0.5, 42)).expect("rs");
+        let b = rs.equals_bitmap(b"b");
+        let not_b = bitmap_not(&b, strings.len());
+        for (i, s) in strings.iter().enumerate() {
+            assert_eq!(get_bit(&not_b, i), s != b"b", "row {i}");
+        }
+    }
+}

@@ -6597,7 +6597,9 @@ checksum = "cfe21416a02c693fb9f980befcb230ecc70b0b3d1cc4abf88b9675c4c1457f0c"
 name = "onpair-lib"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
  "hashbrown 0.17.1",
+ "memchr",
  "rand 0.10.1",
  "rstest",
  "vortex-onpair-sys",

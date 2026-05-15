@@ -58,10 +58,11 @@ mod tests {
     use crate::trainer::{TrainResult, train};
     use crate::types::Token;
 
-    // Re-use the corpus helpers from trainer's test module.
-    use crate::trainer::tests::{
-        make_alternating_strings, make_binary_strings, make_homogeneous_strings,
-        make_mixed_length_strings, make_random_strings, make_raw, make_user_strings,
+    use crate::test_corpus::{
+        alternating_strings as make_alternating_strings, binary_strings as make_binary_strings,
+        homogeneous_strings as make_homogeneous_strings, make_raw,
+        mixed_length_strings as make_mixed_length_strings,
+        random_ascii_strings as make_random_strings, user_strings as make_user_strings,
     };
 
     fn make_base_dict() -> Dictionary {

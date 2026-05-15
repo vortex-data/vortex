@@ -300,100 +300,12 @@ fn sort_dictionary(result: &mut TrainResult) {
 pub(crate) mod tests {
     use super::*;
     use crate::config::{DynamicThreshold, FixedThreshold};
-
-    /// Helper that mirrors the C++ tests/helpers/corpus.h `RawCorpus`.
-    pub(crate) struct Raw {
-        pub data: Vec<u8>,
-        pub offsets: Vec<u32>,
-        pub n: usize,
-    }
-
-    pub(crate) fn make_raw<S: AsRef<[u8]>>(strings: &[S]) -> Raw {
-        let mut data = Vec::new();
-        let mut offsets = Vec::with_capacity(strings.len() + 1);
-        offsets.push(0);
-        for s in strings {
-            data.extend_from_slice(s.as_ref());
-            offsets.push(data.len() as u32);
-        }
-        Raw { data, offsets, n: strings.len() }
-    }
-
-    // ── Corpus generators (port of tests/helpers/corpus.h) ─────────────────
-
-    pub(crate) fn make_user_strings(n: usize) -> Vec<String> {
-        // Repetitive URL-shaped strings — easy targets for BPE merges.
-        let bases = [
-            "https://www.example.com/page",
-            "https://www.example.com/data",
-            "https://www.test.org/page",
-            "ftp://files.example.com/x",
-            "https://docs.example.com/spec",
-            "https://api.example.net/v1",
-        ];
-        (0..n).map(|i| bases[i % bases.len()].to_string()).collect()
-    }
-
-    pub(crate) fn make_homogeneous_strings(n: usize, len: usize, ch: u8) -> Vec<Vec<u8>> {
-        (0..n).map(|_| vec![ch; len]).collect()
-    }
-
-    pub(crate) fn make_alternating_strings(n: usize, len: usize) -> Vec<Vec<u8>> {
-        (0..n)
-            .map(|_| {
-                let mut v = Vec::with_capacity(len);
-                for i in 0..len {
-                    v.push(if i % 2 == 0 { b'a' } else { b'b' });
-                }
-                v
-            })
-            .collect()
-    }
-
-    pub(crate) fn make_random_strings(n: usize, max_len: usize, seed: u64) -> Vec<Vec<u8>> {
-        use rand::RngExt;
-        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-        (0..n)
-            .map(|_| {
-                let l = rng.random_range(1..=max_len);
-                (0..l).map(|_| rng.random_range(b'a'..=b'z')).collect()
-            })
-            .collect()
-    }
-
-    pub(crate) fn make_binary_strings(n: usize, max_len: usize, seed: u64) -> Vec<Vec<u8>> {
-        use rand::RngExt;
-        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-        (0..n)
-            .map(|_| {
-                let l = rng.random_range(1..=max_len);
-                (0..l).map(|_| rng.random_range(0..=255u32) as u8).collect()
-            })
-            .collect()
-    }
-
-    pub(crate) fn make_fixed_length_strings(n: usize, len: usize) -> Vec<Vec<u8>> {
-        (0..n)
-            .map(|i| {
-                let mut v = Vec::with_capacity(len);
-                for j in 0..len {
-                    v.push(b'a' + ((i + j) as u8 % 26));
-                }
-                v
-            })
-            .collect()
-    }
-
-    pub(crate) fn make_mixed_length_strings(n: usize, max_len: usize, seed: u64) -> Vec<Vec<u8>> {
-        use rand::RngExt;
-        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-        (0..n)
-            .map(|_| {
-                let l = rng.random_range(0..=max_len);
-                (0..l).map(|_| rng.random_range(b'a'..=b'z')).collect()
-            })
-            .collect()
-    }
+    use crate::test_corpus::{
+        alternating_strings as make_alternating_strings, binary_strings as make_binary_strings,
+        fixed_length_strings as make_fixed_length_strings, homogeneous_strings as make_homogeneous_strings,
+        make_raw, mixed_length_strings as make_mixed_length_strings,
+        random_ascii_strings as make_random_strings, user_strings as make_user_strings,
+    };
 
     fn train_strings<S: AsRef<[u8]>>(strings: &[S], cfg: &TrainingConfig) -> TrainResult {
         let raw = make_raw(strings);

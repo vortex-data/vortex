@@ -8,8 +8,10 @@
 // we sanity-check and downcast.
 
 use crate::config::{Error, OnPairTrainingConfig};
+use crate::decoder::{decode_all, decompress_row};
 use crate::dict::Dictionary;
 use crate::parser::parse;
+use crate::search::{contains_bitmap, equals_bitmap, multi_pattern_bitmap, starts_with_bitmap};
 use crate::store::Store;
 use crate::trainer::{TrainResult, train};
 use crate::types::is_valid_bits;
@@ -95,6 +97,42 @@ impl Column {
     #[inline]
     pub fn dict_size(&self) -> usize {
         self.dict.num_tokens()
+    }
+
+    /// Decompress row `row_id` into `out`, clearing it first.
+    pub fn decompress_row(&self, row_id: usize, out: &mut Vec<u8>) -> Result<(), Error> {
+        if row_id >= self.num_rows {
+            return Err(Error::OutOfRange);
+        }
+        decompress_row(&self.dict, &self.store, row_id, out);
+        Ok(())
+    }
+
+    /// Decompress every row into a flat byte buffer + `n + 1` offsets.
+    pub fn decode_all(&self) -> (Vec<u8>, Vec<u32>) {
+        decode_all(&self.dict, &self.store)
+    }
+
+    /// `WHERE col = needle` as an LSB-first packed bitmap of length `(n + 7) / 8`.
+    pub fn equals_bitmap(&self, needle: &[u8]) -> Vec<u8> {
+        equals_bitmap(&self.dict, &self.store, needle)
+    }
+
+    /// `col LIKE 'needle%'` as an LSB-first packed bitmap.
+    pub fn starts_with_bitmap(&self, needle: &[u8]) -> Vec<u8> {
+        starts_with_bitmap(&self.dict, &self.store, needle)
+    }
+
+    /// `col LIKE '%needle%'` as an LSB-first packed bitmap.
+    pub fn contains_bitmap(&self, needle: &[u8]) -> Vec<u8> {
+        contains_bitmap(&self.dict, &self.store, needle)
+    }
+
+    /// `col LIKE '%a%' OR '%b%' OR ...` via Aho-Corasick. One bitmap pass
+    /// over the union of patterns. Empty `needles` produces an all-zero
+    /// bitmap.
+    pub fn multi_pattern_bitmap(&self, needles: &[&[u8]]) -> Vec<u8> {
+        multi_pattern_bitmap(&self.dict, &self.store, needles)
     }
 
     /// Borrow the column's raw arrays for downstream consumers (decode loop,

@@ -17,7 +17,9 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+aho-corasick = { workspace = true }
 hashbrown = { workspace = true }
+memchr = { workspace = true }
 rand = { workspace = true }
 
 [dev-dependencies]
