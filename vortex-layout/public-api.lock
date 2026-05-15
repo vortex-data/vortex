@@ -1804,7 +1804,7 @@ pub fn vortex_layout::v2::let_use::LetPlan::with_id(vortex_layout::v2::let_use::
 
 impl vortex_layout::v2::let_use::LetPlan
 
-pub fn vortex_layout::v2::let_use::LetPlan::publish_broadcast(&self, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_layout::layouts::SharedArrayFuture
+pub fn vortex_layout::v2::let_use::LetPlan::publish_stream(&self, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<alloc::sync::Arc<vortex_layout::v2::tee_stream::TeeStream>>
 
 impl core::cmp::Eq for vortex_layout::v2::let_use::LetPlan
 
@@ -1844,9 +1844,9 @@ pub struct vortex_layout::v2::let_use::LetRegistry
 
 impl vortex_layout::v2::let_use::LetRegistry
 
-pub fn vortex_layout::v2::let_use::LetRegistry::get_broadcast(&self, vortex_layout::v2::let_use::LetId) -> core::option::Option<vortex_layout::layouts::SharedArrayFuture>
+pub fn vortex_layout::v2::let_use::LetRegistry::get_or_init_stream(&mut self, vortex_layout::v2::let_use::LetId, impl core::ops::function::FnOnce() -> vortex_layout::v2::tee_stream::TeeStream) -> alloc::sync::Arc<vortex_layout::v2::tee_stream::TeeStream>
 
-pub fn vortex_layout::v2::let_use::LetRegistry::get_or_init_broadcast(&mut self, vortex_layout::v2::let_use::LetId, impl core::ops::function::FnOnce() -> vortex_layout::layouts::SharedArrayFuture) -> vortex_layout::layouts::SharedArrayFuture
+pub fn vortex_layout::v2::let_use::LetRegistry::get_stream(&self, vortex_layout::v2::let_use::LetId) -> core::option::Option<alloc::sync::Arc<vortex_layout::v2::tee_stream::TeeStream>>
 
 impl core::default::Default for vortex_layout::v2::let_use::LetRegistry
 
@@ -2543,6 +2543,22 @@ pub fn vortex_layout::v2::struct_::StructPlan::schema(&self) -> &vortex_array::d
 pub fn vortex_layout::v2::struct_::StructPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
 
 pub fn vortex_layout::v2::struct_::StructPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+
+pub mod vortex_layout::v2::tee_stream
+
+pub struct vortex_layout::v2::tee_stream::TeeStream
+
+impl vortex_layout::v2::tee_stream::TeeStream
+
+pub const vortex_layout::v2::tee_stream::TeeStream::DEFAULT_LOOKAHEAD: usize
+
+pub fn vortex_layout::v2::tee_stream::TeeStream::dtype(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::tee_stream::TeeStream::new(vortex_array::stream::SendableArrayStream) -> Self
+
+pub fn vortex_layout::v2::tee_stream::TeeStream::subscribe(&self) -> vortex_array::stream::SendableArrayStream
+
+pub fn vortex_layout::v2::tee_stream::TeeStream::with_lookahead(vortex_array::stream::SendableArrayStream, usize) -> Self
 
 pub mod vortex_layout::v2::toggle
 

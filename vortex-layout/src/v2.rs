@@ -29,5 +29,6 @@ pub mod pushdown;
 pub mod scan;
 pub mod scan_ctx;
 pub mod struct_;
+pub mod tee_stream;
 pub mod toggle;
 pub mod zoned;

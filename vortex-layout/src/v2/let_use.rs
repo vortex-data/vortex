@@ -3,20 +3,18 @@
 
 //! [`LetPlan`] — structural sharing primitive for the layout plan tree.
 //!
-//! `LetPlan { id, source, body }` publishes `source` under a stable
-//! [`LetId`] in the per-scan [`crate::v2::scan_ctx::ScanCtx`], then
-//! delegates execution to `body`. Plans inside `body` look up the
-//! published value by `LetId` and reuse it across calls.
+//! `LetPlan { id, source, body }` registers a [`crate::v2::tee_stream::TeeStream`]
+//! over `source` under a stable [`LetId`] in the per-scan
+//! [`crate::v2::scan_ctx::ScanCtx`], then delegates execution to `body`.
+//! Plans inside `body` (specifically [`UsePlan`]s, built by the CSE
+//! pass) subscribe to the tee at execute time and pull chunks at
+//! their own pace. The source is polled at most once per scan.
 //!
-//! Today only the **broadcast** semantics are implemented: `source`
-//! is read once per scan (not per `execute` call) into a single
-//! [`crate::layouts::SharedArrayFuture`]. Use cases: dict values,
-//! file stats, anything that's whole-array-once.
+//! Streaming, not broadcast: chunks fan out through the tee as they
+//! arrive, sliced per-consumer to that consumer's row range. No
+//! whole-array materialisation.
 //!
-//! See `LAYOUT_PLAN.md` § Tee and CommonSubplanElimination. A
-//! streaming variant — for filter mask fan-out and other
-//! intra-execute shared cursors — is the natural follow-up; it'll
-//! need a tee primitive to back it.
+//! See `LAYOUT_PLAN.md` § Tee and CommonSubplanElimination.
 
 use std::any::Any;
 use std::ops::Range;
@@ -24,26 +22,22 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
-use futures::FutureExt;
+use async_stream::try_stream;
 use futures::StreamExt;
-use futures::TryFutureExt;
 use vortex_array::ArrayRef;
-use vortex_array::IntoArray;
-use vortex_array::arrays::ChunkedArray;
-use vortex_array::arrays::SharedArray;
 use vortex_array::dtype::DType;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::layouts::SharedArrayFuture;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
 use crate::v2::scan_ctx::ScanCtxValue;
+use crate::v2::tee_stream::TeeStream;
 
 /// Identifies a [`LetPlan`] within one scan. IDs are globally unique;
 /// collisions across scans are harmless (each scan has its own
@@ -65,11 +59,20 @@ impl LetId {
     }
 }
 
-/// Per-scan registry of broadcasted [`LetPlan`] sources. Stored in
-/// [`ScanCtx`] under one type slot; lookup is by [`LetId`].
-#[derive(Debug, Default)]
+/// Per-scan registry of [`LetPlan`] sources, each shared as a
+/// [`TeeStream`]. Stored in [`ScanCtx`] under one type slot;
+/// lookup is by [`LetId`].
+#[derive(Default)]
 pub struct LetRegistry {
-    broadcasts: HashMap<LetId, SharedArrayFuture>,
+    streams: HashMap<LetId, Arc<TeeStream>>,
+}
+
+impl std::fmt::Debug for LetRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LetRegistry")
+            .field("ids", &self.streams.keys().collect::<Vec<_>>())
+            .finish()
+    }
 }
 
 impl ScanCtxValue for LetRegistry {
@@ -82,29 +85,30 @@ impl ScanCtxValue for LetRegistry {
 }
 
 impl LetRegistry {
-    /// Returns the broadcast for `id` if one has been published.
-    pub fn get_broadcast(&self, id: LetId) -> Option<SharedArrayFuture> {
-        self.broadcasts.get(&id).cloned()
+    /// Returns the tee for `id` if one has been registered.
+    pub fn get_stream(&self, id: LetId) -> Option<Arc<TeeStream>> {
+        self.streams.get(&id).cloned()
     }
 
-    /// Get-or-init: if `id` has not yet been published, runs `init`
-    /// to construct the future and stores it. Returns a clone of the
-    /// stored (shared) future.
-    pub fn get_or_init_broadcast(
+    /// Get-or-init: if `id` has not yet been registered, runs `init`
+    /// to construct the [`TeeStream`] and stores it. Returns a clone
+    /// of the (shared) Arc so multiple consumers can `subscribe`.
+    pub fn get_or_init_stream(
         &mut self,
         id: LetId,
-        init: impl FnOnce() -> SharedArrayFuture,
-    ) -> SharedArrayFuture {
-        self.broadcasts.entry(id).or_insert_with(init).clone()
+        init: impl FnOnce() -> TeeStream,
+    ) -> Arc<TeeStream> {
+        let arc = self.streams.entry(id).or_insert_with(|| Arc::new(init()));
+        Arc::clone(arc)
     }
 }
 
-/// Publishes `source` under [`LetId`], then delegates execution to
-/// `body`. Body subtree consumes the published value via
-/// [`LetRegistry::get_broadcast`].
+/// Registers a [`TeeStream`] over `source` under [`LetId`], then
+/// delegates execution to `body`. Body subtree consumes chunks via
+/// [`UsePlan`].
 ///
 /// Pure description — no caches on the plan struct itself; the per-
-/// scan cache lives in [`ScanCtx`] (see module docs).
+/// scan tee lives in [`ScanCtx`].
 pub struct LetPlan {
     id: LetId,
     source: LayoutPlanRef,
@@ -120,17 +124,17 @@ impl LetPlan {
     }
 
     /// Construct a Let with a caller-supplied [`LetId`]. The typical
-    /// pattern is: allocate via [`LetId::fresh`], wire the ID into the
-    /// body subtree's lookup site (e.g. `DictDecodePlan::values_let_id`),
-    /// then wrap with `LetPlan::with_id` so the same ID publishes the
+    /// pattern is: allocate via [`LetId::fresh`], wire the ID into
+    /// the body subtree's lookup site (via [`UsePlan::new`]), then
+    /// wrap with `LetPlan::with_id` so the same ID registers the
     /// source.
     pub fn with_id(id: LetId, source: LayoutPlanRef, body: LayoutPlanRef) -> Self {
         Self { id, source, body }
     }
 
-    /// The [`LetId`] under which `source` is published. Body subtrees
-    /// must be constructed with this ID so they can look up the
-    /// broadcast at execute time.
+    /// The [`LetId`] under which `source` is registered. Body
+    /// subtrees must be constructed with this ID so they can look
+    /// up the tee at execute time.
     pub fn id(&self) -> LetId {
         self.id
     }
@@ -209,42 +213,63 @@ impl LayoutPlan for LetPlan {
     }
 
     fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
-        // Publish (idempotent): if some prior execute on this scan
-        // already registered the broadcast, this is a no-op clone.
-        drop(self.publish_broadcast(ctx));
+        // Idempotent register: first execute installs the tee in
+        // the registry; subsequent executes are no-ops. The tee is
+        // lazy (doesn't poll source until a UsePlan subscribes).
+        drop(self.publish_stream(ctx)?);
         self.body.execute(row_range, ctx)
     }
 }
 
 impl LetPlan {
-    /// Idempotently register the broadcast in the scan's
-    /// [`LetRegistry`]. Returns the (shared) future so callers that
-    /// want to consume the value directly can.
+    /// Idempotently register the tee in the scan's [`LetRegistry`].
+    /// Returns the shared Arc so callers can subscribe directly if
+    /// they want.
     ///
-    /// Fast path: take a read lock and look up by id. Only when the
-    /// broadcast hasn't been registered do we upgrade to a write lock
-    /// and pay the build cost. This matters for cases where many
-    /// concurrent `execute` calls all hit the same `Let` (e.g., one
-    /// `DictDecodePlan` per chunk under a `ChunkedPlan`).
-    pub fn publish_broadcast(&self, ctx: &ScanCtx) -> SharedArrayFuture {
+    /// Fast path: read-lock and look up by id. Only when the tee
+    /// hasn't been registered do we acquire the write lock and pay
+    /// the source-execute cost.
+    pub fn publish_stream(&self, ctx: &ScanCtx) -> VortexResult<Arc<TeeStream>> {
         if let Some(registry) = ctx.get_opt::<LetRegistry>()
-            && let Some(existing) = registry.get_broadcast(self.id)
+            && let Some(existing) = registry.get_stream(self.id)
         {
-            return existing;
+            return Ok(existing);
         }
-        let mut registry = ctx.get_mut::<LetRegistry>();
+        // We must call source.execute() before we can hand the
+        // resulting stream to TeeStream. Do that under the write
+        // lock's get_or_init so two concurrent `publish_stream` calls
+        // don't both spin up sources.
+        let total_rows = source_total_rows(&self.source);
         let source = Arc::clone(&self.source);
         let ctx_for_init = ctx.clone();
-        let dtype = self.source.schema().clone();
-        let total_rows = source_total_rows(&self.source);
-        registry.get_or_init_broadcast(self.id, move || {
-            build_broadcast_future(source, total_rows, dtype, ctx_for_init)
-        })
+        // `get_or_init_stream` runs `init` at most once per id, so
+        // we wrap the fallible source-execute in a `Result` channel
+        // via a helper.
+        let mut init_err: Option<vortex_error::VortexError> = None;
+        let mut registry = ctx.get_mut::<LetRegistry>();
+        let arc = registry.get_or_init_stream(self.id, || {
+            match source.execute(0..total_rows, &ctx_for_init) {
+                Ok(stream) => TeeStream::new(stream),
+                Err(e) => {
+                    // Stash error for the caller; install an empty
+                    // tee so subsequent UsePlans surface clean EOF.
+                    init_err = Some(e);
+                    TeeStream::new(Box::pin(ArrayStreamAdapter::new(
+                        source.schema().clone(),
+                        futures::stream::empty(),
+                    )))
+                }
+            }
+        });
+        if let Some(e) = init_err {
+            return Err(e);
+        }
+        Ok(arc)
     }
 }
 
-/// Sum of `source`'s partition row ranges. Drives the "read the entire
-/// source" execute call inside [`build_broadcast_future`].
+/// Sum of `source`'s partition row ranges. Drives the "read the
+/// entire source" execute call for the underlying tee.
 fn source_total_rows(source: &LayoutPlanRef) -> u64 {
     (0..source.partition_count())
         .filter_map(|i| source.partition_stats(i).ok())
@@ -252,58 +277,19 @@ fn source_total_rows(source: &LayoutPlanRef) -> u64 {
         .sum()
 }
 
-/// Build a [`SharedArrayFuture`] that executes `source` over its full
-/// row range and folds the resulting chunks into one [`ArrayRef`].
-fn build_broadcast_future(
-    source: LayoutPlanRef,
-    total_rows: u64,
-    dtype: DType,
-    ctx: ScanCtx,
-) -> SharedArrayFuture {
-    async move {
-        let mut stream = source.execute(0..total_rows, &ctx).map_err(Arc::new)?;
-        let mut chunks: Vec<ArrayRef> = Vec::new();
-        while let Some(chunk) = stream.next().await {
-            chunks.push(chunk.map_err(Arc::new)?);
-        }
-        let folded = if chunks.len() == 1 {
-            chunks
-                .into_iter()
-                .next()
-                .ok_or_else(|| Arc::new(vortex_error::vortex_err!("len-1 vec was empty")))?
-        } else if chunks.is_empty() {
-            // Empty source — surface as an empty ChunkedArray of the
-            // declared dtype so downstream consumers get a real array
-            // back (not a panic).
-            ChunkedArray::try_new(Vec::new(), dtype.clone())
-                .map_err(Arc::new)?
-                .into_array()
-        } else {
-            ChunkedArray::try_new(chunks, dtype.clone())
-                .map_err(Arc::new)?
-                .into_array()
-        };
-        Ok(SharedArray::new(folded).into_array())
-    }
-    .map_err(|e: Arc<VortexError>| e)
-    .boxed()
-    .shared()
-}
-
-/// Consumer side of [`LetPlan`] / `Use` sharing. References a
-/// previously-published broadcast by [`LetId`] and at execute time
-/// resolves it from the [`crate::v2::let_use::LetRegistry`] in
-/// [`ScanCtx`], slicing to the requested row range.
+/// Consumer side of [`LetPlan`] sharing. References a registered
+/// tee by [`LetId`] and at execute time subscribes for a fresh
+/// cursor, then row-range-slices each chunk.
 ///
-/// Built only by the [`crate::v2::cse`] pass — never by `Layout::plan`
-/// directly. The `LetPlan` carrying the matching id must dominate
-/// every `UsePlan(id)` in the plan tree, otherwise execute fails
-/// with an "unregistered LetId" error.
+/// Built only by the [`crate::v2::cse`] pass — never by
+/// `Layout::plan` directly. The `LetPlan` carrying the matching id
+/// must dominate every `UsePlan(id)` in the plan tree, otherwise
+/// execute fails with an "unregistered LetId" error.
 pub struct UsePlan {
     id: LetId,
     output_dtype: DType,
-    /// Row count of the broadcast value. Surfaces as the plan's
-    /// single partition's row range.
+    /// Total row count of the source. Surfaces as the plan's single
+    /// partition's row range.
     row_count: u64,
 }
 
@@ -384,42 +370,73 @@ impl LayoutPlan for UsePlan {
     fn execute(&self, row_range: Range<u64>, ctx: &ScanCtx) -> VortexResult<SendableArrayStream> {
         if row_range.end > self.row_count {
             vortex_bail!(
-                "UsePlan::execute row range {row_range:?} exceeds broadcast row count {}",
+                "UsePlan::execute row range {row_range:?} exceeds source row count {}",
                 self.row_count
             );
         }
         let registry = ctx.get::<LetRegistry>();
-        let fut = registry.get_broadcast(self.id).ok_or_else(|| {
+        let tee = registry.get_stream(self.id).ok_or_else(|| {
             vortex_error::vortex_err!(
                 "UsePlan: no LetPlan with id {} has been registered (CSE pass bug — \
                  every UsePlan must be dominated by a matching LetPlan in the tree)",
                 self.id.raw()
             )
         })?;
-        // Drop the registry guard before awaiting — its `Ref` borrows
-        // the underlying DashMap shard.
+        // Drop registry guard before subscribing — `subscribe` locks
+        // the tee internally, and the registry guard borrows the
+        // ScanCtx slot map.
         drop(registry);
 
+        let mut subscriber = tee.subscribe();
         let dtype = self.output_dtype.clone();
-        let stream = async_stream::try_stream! {
-            let array = fut.await.map_err(VortexError::from)?;
-            let len_u64 = array.len() as u64;
-            let start = usize::try_from(row_range.start)?;
-            let end = usize::try_from(row_range.end.min(len_u64))?;
-            let sliced = if start == 0 && end == array.len() {
-                array
-            } else {
-                array.slice(start..end)?
-            };
-            yield sliced;
+        let target_start = row_range.start;
+        let target_end = row_range.end;
+
+        // Per-subscriber row cursor: each chunk we pull from the tee
+        // covers some consecutive rows starting at `cursor`. We
+        // skip chunks entirely below `target_start`, slice chunks
+        // straddling the range boundaries, and stop when we've
+        // covered `target_end`.
+        let stream = try_stream! {
+            let mut cursor: u64 = 0;
+            while let Some(chunk_res) = subscriber.next().await {
+                let chunk = chunk_res?;
+                let chunk_len = chunk.len() as u64;
+                let chunk_start = cursor;
+                let chunk_end = cursor + chunk_len;
+                cursor = chunk_end;
+
+                // Entirely before target — drop and continue.
+                if chunk_end <= target_start {
+                    continue;
+                }
+                // Entirely after target — stop pulling.
+                if chunk_start >= target_end {
+                    break;
+                }
+                // Overlap. Slice if needed; otherwise pass through.
+                let slice_start = target_start.saturating_sub(chunk_start);
+                let slice_end = (target_end - chunk_start).min(chunk_len);
+                let sliced: ArrayRef = if slice_start == 0 && slice_end == chunk_len {
+                    chunk
+                } else {
+                    let s = usize::try_from(slice_start)?;
+                    let e = usize::try_from(slice_end)?;
+                    chunk.slice(s..e)?
+                };
+                yield sliced;
+
+                if chunk_end >= target_end {
+                    break;
+                }
+            }
         };
-        Ok(Box::pin(vortex_array::stream::ArrayStreamAdapter::new(
-            dtype, stream,
-        )))
+        Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))
     }
 }
 
 #[cfg(test)]
+#[allow(deprecated, reason = "tests use to_primitive() to inspect values")]
 mod tests {
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
@@ -428,6 +445,7 @@ mod tests {
     use futures::StreamExt;
     use futures::stream;
     use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability::NonNullable;
@@ -442,6 +460,7 @@ mod tests {
     use super::LetId;
     use super::LetPlan;
     use super::LetRegistry;
+    use super::UsePlan;
     use crate::v2::plan::LayoutPlan;
     use crate::v2::plan::LayoutPlanRef;
     use crate::v2::plan::PartitionStats;
@@ -479,7 +498,6 @@ mod tests {
             self.chunks == other.chunks
                 && self.row_count == other.row_count
                 && self.dtype == other.dtype
-            // executes is per-instance state; ignore.
         }
     }
 
@@ -539,22 +557,35 @@ mod tests {
         }
     }
 
+    async fn collect_i32(mut s: SendableArrayStream) -> VortexResult<Vec<i32>> {
+        let mut out = Vec::new();
+        while let Some(item) = s.next().await {
+            let arr = item?;
+            let buf = arr.to_primitive().into_buffer::<i32>();
+            out.extend(buf.iter().copied());
+        }
+        Ok(out)
+    }
+
     #[test]
-    fn broadcast_runs_source_once_across_many_publishes() -> VortexResult<()> {
+    fn streaming_let_runs_source_once_for_two_uses() -> VortexResult<()> {
         block_on(|_| async move {
             let ctx = ScanCtx::empty();
-
             let (source, executes) = CountingPlan::new(vec![vec![1, 2], vec![3, 4]]);
-            let (body, _) = CountingPlan::new(vec![vec![10, 20]]);
-            let plan = LetPlan::new(source, body);
 
-            // Publish three times — source should only execute once.
-            let f1 = plan.publish_broadcast(&ctx);
-            let f2 = plan.publish_broadcast(&ctx);
-            let f3 = plan.publish_broadcast(&ctx);
-            drop(f1.await.map_err(VortexError::from)?);
-            drop(f2.await.map_err(VortexError::from)?);
-            drop(f3.await.map_err(VortexError::from)?);
+            let id = LetId::fresh();
+            let body_left: LayoutPlanRef = Arc::new(UsePlan::new(id, dtype(), 4));
+            // Use-only body, but Let needs a body that itself doesn't
+            // produce data. For this test, treat body as a single-Use
+            // and pull two subscribers directly via publish_stream.
+            let plan = LetPlan::with_id(id, Arc::clone(&source) as _, body_left);
+            let tee = plan.publish_stream(&ctx)?;
+            let s1 = tee.subscribe();
+            let s2 = tee.subscribe();
+
+            let (r1, r2) = futures::future::join(collect_i32(s1), collect_i32(s2)).await;
+            assert_eq!(r1?, vec![1, 2, 3, 4]);
+            assert_eq!(r2?, vec![1, 2, 3, 4]);
             assert_eq!(executes.load(Ordering::SeqCst), 1);
             Ok::<_, VortexError>(())
         })?;
@@ -562,17 +593,22 @@ mod tests {
     }
 
     #[test]
-    fn broadcast_folded_into_single_array() -> VortexResult<()> {
+    fn use_plan_slices_to_its_row_range() -> VortexResult<()> {
         block_on(|_| async move {
             let ctx = ScanCtx::empty();
+            let (source, _) = CountingPlan::new(vec![vec![1, 2, 3], vec![4, 5], vec![6, 7, 8]]);
+            let id = LetId::fresh();
+            // Body uses the let; we'll test by executing UsePlan
+            // with a subset row range.
+            let body: LayoutPlanRef = Arc::new(UsePlan::new(id, dtype(), 8));
+            let plan = LetPlan::with_id(id, Arc::clone(&source) as _, Arc::clone(&body));
 
-            let (source, _) = CountingPlan::new(vec![vec![1, 2, 3], vec![4], vec![5, 6]]);
-            let (body, _) = CountingPlan::new(vec![vec![]]);
-            let plan = LetPlan::new(source, body);
-
-            let f = plan.publish_broadcast(&ctx);
-            let arr = f.await.map_err(VortexError::from)?;
-            assert_eq!(arr.len(), 6);
+            // Trigger publication, then execute Use over rows 2..6
+            // (i.e. values 3,4,5,6).
+            plan.publish_stream(&ctx)?;
+            let stream = body.execute(2..6, &ctx)?;
+            let values = collect_i32(stream).await?;
+            assert_eq!(values, vec![3, 4, 5, 6]);
             Ok::<_, VortexError>(())
         })?;
         Ok(())
@@ -593,11 +629,11 @@ mod tests {
                 total += item?.len();
             }
             assert_eq!(total, 3);
-            // Body executed once (we asked for one execute), source
-            // hasn't been awaited yet — broadcast is lazy until
-            // someone awaits the future.
+            // Body executed once. Source `execute` was called when
+            // we registered the tee, but its output stream wasn't
+            // polled because no UsePlan subscribed.
             assert_eq!(body_execs.load(Ordering::SeqCst), 1);
-            assert_eq!(source_execs.load(Ordering::SeqCst), 0);
+            assert_eq!(source_execs.load(Ordering::SeqCst), 1);
             Ok::<_, VortexError>(())
         })?;
         Ok(())
@@ -607,6 +643,6 @@ mod tests {
     fn registry_returns_none_for_unregistered_id() {
         let ctx = ScanCtx::empty();
         let registry = ctx.get::<LetRegistry>();
-        assert!(registry.get_broadcast(LetId(999)).is_none());
+        assert!(registry.get_stream(LetId(999)).is_none());
     }
 }
