@@ -295,6 +295,433 @@ pub(crate) fn merge_n_way_ovc_runend(sides: &[RunEndI64<'_>]) -> usize {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// CONSTANT: every row has the same value. OVC value is the constant; offset
+// is always >= 1 vs same-side predecessor (within a side, every row equals
+// the previous), so within-side OVC = 0 (duplicate). Cross-side compare is a
+// single constant-vs-constant compare resolved at column open.
+// ───────────────────────────────────────────────────────────────────────────
+
+pub(crate) struct ConstantI64 {
+    pub value: i64,
+    pub len: usize,
+}
+
+pub(crate) fn merge_n_way_ovc_constant(sides: &[ConstantI64]) -> usize {
+    let n = sides.len();
+    if n == 0 {
+        return 0;
+    }
+    let mut indices = vec![0usize; n];
+    let mut ovcs = vec![u64::MAX; n];
+    for i in 0..n {
+        if sides[i].len > 0 {
+            ovcs[i] = pack(1, i64_to_unsigned(sides[i].value));
+        }
+    }
+    let mut count = 0usize;
+    loop {
+        let mut min_ovc = u64::MAX;
+        let mut min_side = usize::MAX;
+        for i in 0..n {
+            if indices[i] < sides[i].len && ovcs[i] < min_ovc {
+                min_ovc = ovcs[i];
+                min_side = i;
+            }
+        }
+        if min_side == usize::MAX {
+            break;
+        }
+        count += 1;
+        indices[min_side] += 1;
+        if indices[min_side] < sides[min_side].len {
+            // Same constant → equal to predecessor.
+            ovcs[min_side] = 0;
+        } else {
+            ovcs[min_side] = u64::MAX;
+        }
+    }
+    count
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// FRAME-OF-REFERENCE (FoR): value = base + delta[row]. Same base across the
+// column. OVC value is the reconstructed i64.
+// ───────────────────────────────────────────────────────────────────────────
+
+pub(crate) struct ForI64<'a> {
+    pub base: i64,
+    pub deltas: &'a [i32],
+}
+
+impl<'a> ForI64<'a> {
+    #[inline]
+    fn value_at(&self, row: usize) -> i64 {
+        self.base + i64::from(self.deltas[row])
+    }
+    #[inline]
+    fn len(&self) -> usize {
+        self.deltas.len()
+    }
+}
+
+pub(crate) fn merge_n_way_ovc_for(sides: &[ForI64<'_>]) -> usize {
+    let n = sides.len();
+    if n == 0 {
+        return 0;
+    }
+    let mut indices = vec![0usize; n];
+    let mut ovcs = vec![u64::MAX; n];
+    for i in 0..n {
+        if sides[i].len() > 0 {
+            ovcs[i] = pack(1, i64_to_unsigned(sides[i].value_at(0)));
+        }
+    }
+    let mut count = 0usize;
+    loop {
+        let mut min_ovc = u64::MAX;
+        let mut min_side = usize::MAX;
+        for i in 0..n {
+            if indices[i] < sides[i].len() && ovcs[i] < min_ovc {
+                min_ovc = ovcs[i];
+                min_side = i;
+            }
+        }
+        if min_side == usize::MAX {
+            break;
+        }
+        count += 1;
+        let pred_row = indices[min_side];
+        indices[min_side] += 1;
+        if indices[min_side] < sides[min_side].len() {
+            let cur = sides[min_side].value_at(indices[min_side]);
+            let pred = sides[min_side].value_at(pred_row);
+            ovcs[min_side] = if cur == pred { 0 } else { pack(1, i64_to_unsigned(cur)) };
+        } else {
+            ovcs[min_side] = u64::MAX;
+        }
+    }
+    count
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// ZIGZAG: signed integer ⟷ unsigned via (n << 1) ^ (n >> 63). Per-row decode
+// is one shift+xor. OVC value is the decoded i64.
+// ───────────────────────────────────────────────────────────────────────────
+
+pub(crate) struct ZigzagI64<'a> {
+    pub zigzagged: &'a [u64],
+}
+
+impl<'a> ZigzagI64<'a> {
+    #[inline]
+    fn value_at(&self, row: usize) -> i64 {
+        let z = self.zigzagged[row];
+        ((z >> 1) as i64) ^ -((z & 1) as i64)
+    }
+    #[inline]
+    fn len(&self) -> usize {
+        self.zigzagged.len()
+    }
+}
+
+pub(crate) fn merge_n_way_ovc_zigzag(sides: &[ZigzagI64<'_>]) -> usize {
+    let n = sides.len();
+    if n == 0 {
+        return 0;
+    }
+    let mut indices = vec![0usize; n];
+    let mut ovcs = vec![u64::MAX; n];
+    for i in 0..n {
+        if sides[i].len() > 0 {
+            ovcs[i] = pack(1, i64_to_unsigned(sides[i].value_at(0)));
+        }
+    }
+    let mut count = 0usize;
+    loop {
+        let mut min_ovc = u64::MAX;
+        let mut min_side = usize::MAX;
+        for i in 0..n {
+            if indices[i] < sides[i].len() && ovcs[i] < min_ovc {
+                min_ovc = ovcs[i];
+                min_side = i;
+            }
+        }
+        if min_side == usize::MAX {
+            break;
+        }
+        count += 1;
+        let pred_row = indices[min_side];
+        indices[min_side] += 1;
+        if indices[min_side] < sides[min_side].len() {
+            let cur = sides[min_side].value_at(indices[min_side]);
+            let pred = sides[min_side].value_at(pred_row);
+            ovcs[min_side] = if cur == pred { 0 } else { pack(1, i64_to_unsigned(cur)) };
+        } else {
+            ovcs[min_side] = u64::MAX;
+        }
+    }
+    count
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// ALP-LITE: float value = mantissa * 10^-exp. Per-row reconstruction is a
+// multiply + cast. OVC value is the reconstructed f64 bits, sign/bit-flipped
+// so memcmp/u64-cmp matches numeric float order.
+// ───────────────────────────────────────────────────────────────────────────
+
+pub(crate) struct AlpF64<'a> {
+    pub mantissas: &'a [i64],
+    pub exp: u8,
+}
+
+impl<'a> AlpF64<'a> {
+    #[inline]
+    fn value_at(&self, row: usize) -> f64 {
+        const POW10: [f64; 16] = [
+            1e0, 1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13,
+            1e-14, 1e-15,
+        ];
+        self.mantissas[row] as f64 * POW10[self.exp as usize]
+    }
+    #[inline]
+    fn len(&self) -> usize {
+        self.mantissas.len()
+    }
+}
+
+#[inline]
+fn f64_to_unsigned(v: f64) -> u64 {
+    // Order-preserving f64 → u64: flip sign bit on positives, flip all bits on negatives.
+    let bits = v.to_bits();
+    if bits & (1u64 << 63) == 0 {
+        bits | (1u64 << 63)
+    } else {
+        !bits
+    }
+}
+
+pub(crate) fn merge_n_way_ovc_alp(sides: &[AlpF64<'_>]) -> usize {
+    let n = sides.len();
+    if n == 0 {
+        return 0;
+    }
+    let mut indices = vec![0usize; n];
+    let mut ovcs = vec![u64::MAX; n];
+    for i in 0..n {
+        if sides[i].len() > 0 {
+            ovcs[i] = pack(1, f64_to_unsigned(sides[i].value_at(0)));
+        }
+    }
+    let mut count = 0usize;
+    loop {
+        let mut min_ovc = u64::MAX;
+        let mut min_side = usize::MAX;
+        for i in 0..n {
+            if indices[i] < sides[i].len() && ovcs[i] < min_ovc {
+                min_ovc = ovcs[i];
+                min_side = i;
+            }
+        }
+        if min_side == usize::MAX {
+            break;
+        }
+        count += 1;
+        let pred_row = indices[min_side];
+        indices[min_side] += 1;
+        if indices[min_side] < sides[min_side].len() {
+            let cur = sides[min_side].value_at(indices[min_side]);
+            let pred = sides[min_side].value_at(pred_row);
+            ovcs[min_side] = if cur.to_bits() == pred.to_bits() {
+                0
+            } else {
+                pack(1, f64_to_unsigned(cur))
+            };
+        } else {
+            ovcs[min_side] = u64::MAX;
+        }
+    }
+    count
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// VARBIN: variable-length byte values. OVC value = first 8 bytes of the
+// binary, taken as BE u64. On OVC tie, full byte compare resolves order.
+// ───────────────────────────────────────────────────────────────────────────
+
+pub(crate) struct VarBin<'a> {
+    pub offsets: &'a [u32],
+    pub data: &'a [u8],
+}
+
+impl<'a> VarBin<'a> {
+    #[inline]
+    fn bytes_at(&self, row: usize) -> &'a [u8] {
+        let s = self.offsets[row] as usize;
+        let e = self.offsets[row + 1] as usize;
+        &self.data[s..e]
+    }
+    #[inline]
+    fn len(&self) -> usize {
+        self.offsets.len().saturating_sub(1)
+    }
+    #[inline]
+    fn ovc_value_at(&self, row: usize) -> u64 {
+        let bytes = self.bytes_at(row);
+        let mut buf = [0u8; 8];
+        let n = bytes.len().min(8);
+        buf[..n].copy_from_slice(&bytes[..n]);
+        u64::from_be_bytes(buf)
+    }
+}
+
+pub(crate) fn merge_n_way_ovc_varbin(sides: &[VarBin<'_>]) -> usize {
+    let n = sides.len();
+    if n == 0 {
+        return 0;
+    }
+    let mut indices = vec![0usize; n];
+    let mut ovcs = vec![u64::MAX; n];
+    for i in 0..n {
+        if sides[i].len() > 0 {
+            ovcs[i] = pack(1, sides[i].ovc_value_at(0));
+        }
+    }
+    let mut count = 0usize;
+    loop {
+        // Pass 1: find smallest OVC integer.
+        let mut min_ovc = u64::MAX;
+        for i in 0..n {
+            if indices[i] < sides[i].len() && ovcs[i] < min_ovc {
+                min_ovc = ovcs[i];
+            }
+        }
+        if min_ovc == u64::MAX {
+            break;
+        }
+        // Pass 2: tie-break by full bytes compare among sides with same OVC.
+        let mut min_side = usize::MAX;
+        for i in 0..n {
+            if indices[i] < sides[i].len()
+                && ovcs[i] == min_ovc
+                && (min_side == usize::MAX
+                    || sides[i].bytes_at(indices[i]) < sides[min_side].bytes_at(indices[min_side]))
+            {
+                min_side = i;
+            }
+        }
+        count += 1;
+        let pred_row = indices[min_side];
+        indices[min_side] += 1;
+        if indices[min_side] < sides[min_side].len() {
+            let cur = sides[min_side].bytes_at(indices[min_side]);
+            let pred = sides[min_side].bytes_at(pred_row);
+            ovcs[min_side] = if cur == pred {
+                0
+            } else {
+                pack(1, sides[min_side].ovc_value_at(indices[min_side]))
+            };
+        } else {
+            ovcs[min_side] = u64::MAX;
+        }
+        // Recompute OVCs of other tied sides against new pred.
+        // For varbin tie case, both rows had matching first-8 bytes; their
+        // OVC vs new pred (= winner's previous row) is still vs first-8 of
+        // their own row, which is unchanged. Loser invariant holds.
+    }
+    count
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// CHUNKED: a side composed of multiple sub-arrays of varying encodings.
+// Per-row access dispatches to the chunk containing that row. For OVC, the
+// "value" is whatever the inner encoding produces.
+//
+// We represent it as Vec<OvcCol<'a>> with cumulative offsets, but only
+// implement a single-encoding wrap (PrimI64 chunks) here as proof of shape.
+// The same skeleton extends to any inner encoding by polymorphism.
+// ───────────────────────────────────────────────────────────────────────────
+
+pub(crate) struct ChunkedPrim<'a> {
+    pub chunks: Vec<&'a [i64]>,
+    /// cumulative row counts: chunk_offsets[k] = total rows in chunks 0..k
+    pub chunk_offsets: Vec<usize>,
+    pub len: usize,
+}
+
+impl<'a> ChunkedPrim<'a> {
+    pub(crate) fn new(chunks: Vec<&'a [i64]>) -> Self {
+        let mut chunk_offsets = Vec::with_capacity(chunks.len() + 1);
+        chunk_offsets.push(0);
+        let mut total = 0usize;
+        for c in &chunks {
+            total += c.len();
+            chunk_offsets.push(total);
+        }
+        Self { chunks, chunk_offsets, len: total }
+    }
+    #[inline]
+    fn chunk_of(&self, row: usize, hint: usize) -> usize {
+        let mut k = hint;
+        while k < self.chunks.len() && self.chunk_offsets[k + 1] <= row {
+            k += 1;
+        }
+        k
+    }
+    #[inline]
+    fn value_at(&self, row: usize, hint: usize) -> (i64, usize) {
+        let k = self.chunk_of(row, hint);
+        (self.chunks[k][row - self.chunk_offsets[k]], k)
+    }
+}
+
+pub(crate) fn merge_n_way_ovc_chunked(sides: &[ChunkedPrim<'_>]) -> usize {
+    let n = sides.len();
+    if n == 0 {
+        return 0;
+    }
+    let mut indices = vec![0usize; n];
+    let mut chunk_hint = vec![0usize; n];
+    // Cache the last-seen value per side instead of re-fetching pred_row
+    // (which may live in an earlier chunk than the current hint).
+    let mut last_value = vec![0i64; n];
+    let mut ovcs = vec![u64::MAX; n];
+    for i in 0..n {
+        if sides[i].len > 0 {
+            let (v, k) = sides[i].value_at(0, 0);
+            chunk_hint[i] = k;
+            last_value[i] = v;
+            ovcs[i] = pack(1, i64_to_unsigned(v));
+        }
+    }
+    let mut count = 0usize;
+    loop {
+        let mut min_ovc = u64::MAX;
+        let mut min_side = usize::MAX;
+        for i in 0..n {
+            if indices[i] < sides[i].len && ovcs[i] < min_ovc {
+                min_ovc = ovcs[i];
+                min_side = i;
+            }
+        }
+        if min_side == usize::MAX {
+            break;
+        }
+        count += 1;
+        let pred = last_value[min_side];
+        indices[min_side] += 1;
+        if indices[min_side] < sides[min_side].len {
+            let (cur, k) = sides[min_side].value_at(indices[min_side], chunk_hint[min_side]);
+            chunk_hint[min_side] = k;
+            last_value[min_side] = cur;
+            ovcs[min_side] = if cur == pred { 0 } else { pack(1, i64_to_unsigned(cur)) };
+        } else {
+            ovcs[min_side] = u64::MAX;
+        }
+    }
+    count
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // n-way memcmp merge over pre-materialized 8-byte rows.
 // ───────────────────────────────────────────────────────────────────────────
 
@@ -390,6 +817,103 @@ mod tests {
             RunEndI64 { run_ends: &e1, values: &v1, len: n1 },
         ];
         assert_eq!(merge_n_way_ovc_runend(&sides), n0 + n1);
+    }
+
+    /// RunEnd OVC handles sides with totally different run boundaries.
+    /// Side 0: 10 runs of 5 rows each; side 1: 5 runs of 13 rows each.
+    /// Sort orders interleave at arbitrary run boundaries.
+    #[test]
+    fn agreement_constant() {
+        let sides = vec![
+            ConstantI64 { value: 1, len: 10 },
+            ConstantI64 { value: 5, len: 10 },
+            ConstantI64 { value: 3, len: 10 },
+        ];
+        assert_eq!(merge_n_way_ovc_constant(&sides), 30);
+    }
+
+    #[test]
+    fn agreement_for() {
+        let d0: Vec<i32> = (0..20i32).collect();
+        let d1: Vec<i32> = (0..20i32).collect();
+        let sides = vec![
+            ForI64 { base: 0, deltas: &d0 },
+            ForI64 { base: 100, deltas: &d1 },
+        ];
+        assert_eq!(merge_n_way_ovc_for(&sides), 40);
+    }
+
+    #[test]
+    fn agreement_zigzag() {
+        // Encode some sorted i64s as zigzag for both sides.
+        let enc = |x: i64| -> u64 { ((x << 1) ^ (x >> 63)) as u64 };
+        let d0: Vec<u64> = (0i64..20).map(enc).collect();
+        let d1: Vec<u64> = (20i64..40).map(enc).collect();
+        let sides = vec![ZigzagI64 { zigzagged: &d0 }, ZigzagI64 { zigzagged: &d1 }];
+        assert_eq!(merge_n_way_ovc_zigzag(&sides), 40);
+    }
+
+    #[test]
+    fn agreement_alp() {
+        let m0: Vec<i64> = (0..20i64).collect();
+        let m1: Vec<i64> = (20..40i64).collect();
+        let sides = vec![
+            AlpF64 { mantissas: &m0, exp: 2 },
+            AlpF64 { mantissas: &m1, exp: 2 },
+        ];
+        assert_eq!(merge_n_way_ovc_alp(&sides), 40);
+    }
+
+    #[test]
+    fn agreement_varbin() {
+        let mut data0 = Vec::new();
+        let mut offs0 = vec![0u32];
+        let mut data1 = Vec::new();
+        let mut offs1 = vec![0u32];
+        for i in 0..20u8 {
+            data0.extend_from_slice(&[i, 0xAA]);
+            offs0.push(data0.len() as u32);
+            data1.extend_from_slice(&[i + 20, 0xBB]);
+            offs1.push(data1.len() as u32);
+        }
+        let sides = vec![
+            VarBin { offsets: &offs0, data: &data0 },
+            VarBin { offsets: &offs1, data: &data1 },
+        ];
+        assert_eq!(merge_n_way_ovc_varbin(&sides), 40);
+    }
+
+    #[test]
+    fn agreement_chunked() {
+        let c0a: Vec<i64> = (0..10).collect();
+        let c0b: Vec<i64> = (10..20).collect();
+        let c1a: Vec<i64> = (20..30).collect();
+        let c1b: Vec<i64> = (30..40).collect();
+        let sides = vec![
+            ChunkedPrim::new(vec![&c0a, &c0b]),
+            ChunkedPrim::new(vec![&c1a, &c1b]),
+        ];
+        assert_eq!(merge_n_way_ovc_chunked(&sides), 40);
+    }
+
+    #[test]
+    fn agreement_runend_different_shapes() {
+        // Side 0: ends [5,10,15,...,50], values [0,2,4,...,18]   (50 rows)
+        // Side 1: ends [13,26,39,52,65], values [1,3,5,7,9]       (65 rows)
+        let e0: Vec<u32> = (1u32..=10).map(|i| i * 5).collect();
+        let v0: Vec<i64> = (0..10i64).map(|i| i * 2).collect();
+        let e1: Vec<u32> = (1u32..=5).map(|i| i * 13).collect();
+        let v1: Vec<i64> = (0..5i64).map(|i| i * 2 + 1).collect();
+        let sides = vec![
+            RunEndI64 { run_ends: &e0, values: &v0, len: 50 },
+            RunEndI64 { run_ends: &e1, values: &v1, len: 65 },
+        ];
+        // Cross-check against the decompressed merge.
+        let d0 = runend_decompress(&sides[0]);
+        let d1 = runend_decompress(&sides[1]);
+        let prim = vec![PrimI64 { data: &d0 }, PrimI64 { data: &d1 }];
+        assert_eq!(merge_n_way_ovc_runend(&sides), merge_n_way_ovc_prim(&prim));
+        assert_eq!(merge_n_way_ovc_runend(&sides), 50 + 65);
     }
 
     /// 8-way merge bench across encodings.
@@ -505,6 +1029,311 @@ mod tests {
             || {
                 let mats: Vec<Vec<u8>> =
                     runend_sides_short.iter().map(materialize_runend).collect();
+                let refs: Vec<&[u8]> = mats.iter().map(Vec::as_slice).collect();
+                merge_n_way_memcmp(&refs) as u64
+            },
+        );
+
+        // --- Constant ---
+        let constants: Vec<ConstantI64> = (0..N_SIDES)
+            .map(|i| ConstantI64 { value: (i * N) as i64, len: N })
+            .collect();
+        let const_to_prim: Vec<Vec<i64>> =
+            constants.iter().map(|c| vec![c.value; c.len]).collect();
+        let const_prim: Vec<PrimI64> = const_to_prim.iter().map(|d| PrimI64 { data: d }).collect();
+        bench_three(
+            "CONSTANT (1 value/side)",
+            N * N_SIDES,
+            ITERS,
+            || merge_n_way_ovc_constant(&constants) as u64,
+            || merge_n_way_ovc_prim(&const_prim) as u64,
+            || {
+                let mats: Vec<Vec<u8>> = const_prim.iter().map(materialize_prim).collect();
+                let refs: Vec<&[u8]> = mats.iter().map(Vec::as_slice).collect();
+                merge_n_way_memcmp(&refs) as u64
+            },
+        );
+
+        // --- FoR ---
+        let for_data: Vec<Vec<i32>> = (0..N_SIDES).map(|_| (0..N as i32).collect()).collect();
+        let for_sides: Vec<ForI64> = for_data
+            .iter()
+            .enumerate()
+            .map(|(i, d)| ForI64 { base: (i * N) as i64, deltas: d })
+            .collect();
+        bench_three(
+            "FoR (base + i32 delta)",
+            N * N_SIDES,
+            ITERS,
+            || merge_n_way_ovc_for(&for_sides) as u64,
+            || {
+                let decoded: Vec<Vec<i64>> = for_sides
+                    .iter()
+                    .map(|f| f.deltas.iter().map(|&d| f.base + i64::from(d)).collect())
+                    .collect();
+                let prim_view: Vec<PrimI64> = decoded.iter().map(|d| PrimI64 { data: d }).collect();
+                merge_n_way_ovc_prim(&prim_view) as u64
+            },
+            || {
+                let mats: Vec<Vec<u8>> = for_sides
+                    .iter()
+                    .map(|f| {
+                        let mut out = vec![0u8; f.deltas.len() * 8];
+                        for (i, &d) in f.deltas.iter().enumerate() {
+                            let v = f.base + i64::from(d);
+                            let u = (v as u64) ^ (1u64 << 63);
+                            out[i * 8..(i + 1) * 8].copy_from_slice(&u.to_be_bytes());
+                        }
+                        out
+                    })
+                    .collect();
+                let refs: Vec<&[u8]> = mats.iter().map(Vec::as_slice).collect();
+                merge_n_way_memcmp(&refs) as u64
+            },
+        );
+
+        // --- Zigzag ---
+        let zz_data: Vec<Vec<u64>> = (0..N_SIDES)
+            .map(|i| {
+                (0..N as i64)
+                    .map(|j| {
+                        let v = (i * N) as i64 + j;
+                        ((v << 1) ^ (v >> 63)) as u64
+                    })
+                    .collect()
+            })
+            .collect();
+        let zz_sides: Vec<ZigzagI64> = zz_data.iter().map(|d| ZigzagI64 { zigzagged: d }).collect();
+        bench_three(
+            "ZIGZAG (signed varint base)",
+            N * N_SIDES,
+            ITERS,
+            || merge_n_way_ovc_zigzag(&zz_sides) as u64,
+            || {
+                let decoded: Vec<Vec<i64>> = zz_sides
+                    .iter()
+                    .map(|z| {
+                        z.zigzagged
+                            .iter()
+                            .map(|&v| ((v >> 1) as i64) ^ -((v & 1) as i64))
+                            .collect()
+                    })
+                    .collect();
+                let prim_view: Vec<PrimI64> = decoded.iter().map(|d| PrimI64 { data: d }).collect();
+                merge_n_way_ovc_prim(&prim_view) as u64
+            },
+            || {
+                let mats: Vec<Vec<u8>> = zz_sides
+                    .iter()
+                    .map(|z| {
+                        let mut out = vec![0u8; z.zigzagged.len() * 8];
+                        for (i, &v) in z.zigzagged.iter().enumerate() {
+                            let dec = ((v >> 1) as i64) ^ -((v & 1) as i64);
+                            let u = (dec as u64) ^ (1u64 << 63);
+                            out[i * 8..(i + 1) * 8].copy_from_slice(&u.to_be_bytes());
+                        }
+                        out
+                    })
+                    .collect();
+                let refs: Vec<&[u8]> = mats.iter().map(Vec::as_slice).collect();
+                merge_n_way_memcmp(&refs) as u64
+            },
+        );
+
+        // --- ALP-lite (floats) ---
+        let alp_data: Vec<Vec<i64>> = (0..N_SIDES)
+            .map(|i| (0..N as i64).map(|j| (i * N) as i64 + j).collect())
+            .collect();
+        let alp_sides: Vec<AlpF64> =
+            alp_data.iter().map(|m| AlpF64 { mantissas: m, exp: 2 }).collect();
+        bench_three(
+            "ALP-lite (mantissa+exp f64)",
+            N * N_SIDES,
+            ITERS,
+            || merge_n_way_ovc_alp(&alp_sides) as u64,
+            || {
+                let decoded: Vec<Vec<i64>> = alp_sides
+                    .iter()
+                    .map(|a| {
+                        a.mantissas
+                            .iter()
+                            .enumerate()
+                            .map(|(i, _)| a.value_at(i).to_bits() as i64)
+                            .collect()
+                    })
+                    .collect();
+                let prim_view: Vec<PrimI64> = decoded.iter().map(|d| PrimI64 { data: d }).collect();
+                merge_n_way_ovc_prim(&prim_view) as u64
+            },
+            || {
+                let mats: Vec<Vec<u8>> = alp_sides
+                    .iter()
+                    .map(|a| {
+                        let mut out = vec![0u8; a.mantissas.len() * 8];
+                        for (i, _) in a.mantissas.iter().enumerate() {
+                            let f = a.value_at(i);
+                            let u = f64_to_unsigned(f);
+                            out[i * 8..(i + 1) * 8].copy_from_slice(&u.to_be_bytes());
+                        }
+                        out
+                    })
+                    .collect();
+                let refs: Vec<&[u8]> = mats.iter().map(Vec::as_slice).collect();
+                merge_n_way_memcmp(&refs) as u64
+            },
+        );
+
+        // --- VarBin (50-byte values) ---
+        const VB_LEN: usize = 50;
+        let vb_offsets: Vec<Vec<u32>> = (0..N_SIDES)
+            .map(|_| (0..=N).map(|i| (i * VB_LEN) as u32).collect())
+            .collect();
+        let vb_data: Vec<Vec<u8>> = (0..N_SIDES)
+            .map(|side| {
+                let mut buf = vec![0u8; N * VB_LEN];
+                for row in 0..N {
+                    let key = ((side * N + row) as u64).to_be_bytes();
+                    buf[row * VB_LEN..row * VB_LEN + 8].copy_from_slice(&key);
+                }
+                buf
+            })
+            .collect();
+        let vb_sides: Vec<VarBin> = vb_offsets
+            .iter()
+            .zip(vb_data.iter())
+            .map(|(o, d)| VarBin { offsets: o, data: d })
+            .collect();
+        bench_three(
+            "VARBIN (50B values, leading key)",
+            N * N_SIDES,
+            ITERS,
+            || merge_n_way_ovc_varbin(&vb_sides) as u64,
+            || {
+                // Decompressed-equivalent: copy bytes into a flat Vec<u8> with
+                // fixed stride 50; merge with memcmp (no escape-encoding).
+                let mats: Vec<Vec<u8>> = vb_sides
+                    .iter()
+                    .map(|s| {
+                        let n = s.len();
+                        let mut out = vec![0u8; n * VB_LEN];
+                        for i in 0..n {
+                            let b = s.bytes_at(i);
+                            out[i * VB_LEN..i * VB_LEN + b.len()].copy_from_slice(b);
+                        }
+                        out
+                    })
+                    .collect();
+                let refs: Vec<&[u8]> = mats.iter().map(Vec::as_slice).collect();
+                // re-use memcmp merge but stride is VB_LEN, not 8
+                let mut indices = vec![0usize; refs.len()];
+                let mut count = 0usize;
+                loop {
+                    let mut min_side = usize::MAX;
+                    let mut min_b: &[u8] = &[];
+                    for i in 0..refs.len() {
+                        let rows = refs[i].len() / VB_LEN;
+                        if indices[i] < rows {
+                            let row = &refs[i][indices[i] * VB_LEN..(indices[i] + 1) * VB_LEN];
+                            if min_side == usize::MAX || row < min_b {
+                                min_side = i;
+                                min_b = row;
+                            }
+                        }
+                    }
+                    if min_side == usize::MAX {
+                        break;
+                    }
+                    count += 1;
+                    indices[min_side] += 1;
+                }
+                count as u64
+            },
+            || {
+                let mats: Vec<Vec<u8>> = vb_sides
+                    .iter()
+                    .map(|s| {
+                        let n = s.len();
+                        let mut out = vec![0u8; n * VB_LEN];
+                        for i in 0..n {
+                            let b = s.bytes_at(i);
+                            out[i * VB_LEN..i * VB_LEN + b.len()].copy_from_slice(b);
+                        }
+                        out
+                    })
+                    .collect();
+                let refs: Vec<&[u8]> = mats.iter().map(Vec::as_slice).collect();
+                let mut indices = vec![0usize; refs.len()];
+                let mut count = 0usize;
+                loop {
+                    let mut min_side = usize::MAX;
+                    let mut min_b: &[u8] = &[];
+                    for i in 0..refs.len() {
+                        let rows = refs[i].len() / VB_LEN;
+                        if indices[i] < rows {
+                            let row = &refs[i][indices[i] * VB_LEN..(indices[i] + 1) * VB_LEN];
+                            if min_side == usize::MAX || row < min_b {
+                                min_side = i;
+                                min_b = row;
+                            }
+                        }
+                    }
+                    if min_side == usize::MAX {
+                        break;
+                    }
+                    count += 1;
+                    indices[min_side] += 1;
+                }
+                count as u64
+            },
+        );
+
+        // --- Chunked primitive (4 chunks/side) ---
+        let chunked_raw: Vec<Vec<Vec<i64>>> = (0..N_SIDES)
+            .map(|i| {
+                let base = (i * N) as i64;
+                let q = N / 4;
+                (0..4)
+                    .map(|c| (0..q as i64).map(|j| base + (c as i64) * q as i64 + j).collect())
+                    .collect()
+            })
+            .collect();
+        let chunked_sides: Vec<ChunkedPrim> = chunked_raw
+            .iter()
+            .map(|cs| ChunkedPrim::new(cs.iter().map(Vec::as_slice).collect()))
+            .collect();
+        bench_three(
+            "CHUNKED (4 prim chunks/side)",
+            N * N_SIDES,
+            ITERS,
+            || merge_n_way_ovc_chunked(&chunked_sides) as u64,
+            || {
+                let decoded: Vec<Vec<i64>> = chunked_sides
+                    .iter()
+                    .map(|c| {
+                        let mut out = Vec::with_capacity(c.len);
+                        for ch in &c.chunks {
+                            out.extend_from_slice(ch);
+                        }
+                        out
+                    })
+                    .collect();
+                let prim_view: Vec<PrimI64> = decoded.iter().map(|d| PrimI64 { data: d }).collect();
+                merge_n_way_ovc_prim(&prim_view) as u64
+            },
+            || {
+                let mats: Vec<Vec<u8>> = chunked_sides
+                    .iter()
+                    .map(|c| {
+                        let mut out = Vec::with_capacity(c.len * 8);
+                        for ch in &c.chunks {
+                            for &v in ch.iter() {
+                                let u = (v as u64) ^ (1u64 << 63);
+                                out.extend_from_slice(&u.to_be_bytes());
+                            }
+                        }
+                        out
+                    })
+                    .collect();
                 let refs: Vec<&[u8]> = mats.iter().map(Vec::as_slice).collect();
                 merge_n_way_memcmp(&refs) as u64
             },
