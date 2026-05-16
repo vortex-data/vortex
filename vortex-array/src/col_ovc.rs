@@ -19,7 +19,8 @@
     dead_code,
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    clippy::cast_lossless
+    clippy::cast_lossless,
+    clippy::many_single_char_names
 )]
 
 use std::cmp::Ordering;
@@ -247,6 +248,179 @@ pub(crate) fn to_ord_bytes(rows: &[i64]) -> Vec<u8> {
     out
 }
 
+/// Columnar (Arrow-shaped) input: each column is a separate `&[i64]` slice,
+/// all with the same length. This is what arrow-rs's `Int64Array::values()`
+/// returns, and the natural physical layout for a columnar engine.
+pub(crate) struct ArrowCols<'a> {
+    cols: Vec<&'a [i64]>,
+}
+
+impl<'a> ArrowCols<'a> {
+    pub(crate) fn new(cols: Vec<&'a [i64]>) -> Self {
+        if let Some(first) = cols.first() {
+            let n = first.len();
+            assert!(cols.iter().all(|c| c.len() == n));
+        }
+        Self { cols }
+    }
+    pub(crate) fn len(&self) -> usize {
+        self.cols.first().map_or(0, |c| c.len())
+    }
+    pub(crate) fn arity(&self) -> usize {
+        self.cols.len()
+    }
+    #[inline]
+    pub(crate) fn at(&self, col: usize, row: usize) -> i64 {
+        self.cols[col][row]
+    }
+}
+
+/// Materialize columnar Arrow-shaped data into a row-major ord-byte buffer,
+/// sign-flipped big-endian per column so memcmp matches lex order. This is
+/// the cost the OVC-over-columns approach avoids.
+///
+/// Row-major iteration order: writes are sequential, reads are strided
+/// across columns. Empirically faster than column-major for the sizes
+/// where this matters (multiple input columns fit in L2).
+pub(crate) fn materialize_ord_bytes(cols: &ArrowCols<'_>) -> Vec<u8> {
+    let n = cols.len();
+    let k = cols.arity();
+    let mut out = vec![0u8; n * k * 8];
+    for row in 0..n {
+        let dst_row = &mut out[row * k * 8..(row + 1) * k * 8];
+        for col in 0..k {
+            let u = (cols.cols[col][row] as u64) ^ (1u64 << 63);
+            dst_row[col * 8..(col + 1) * 8].copy_from_slice(&u.to_be_bytes());
+        }
+    }
+    out
+}
+
+/// Compare row `lr` of `left` against row `rr` of `right`, column by column.
+#[inline]
+fn cmp_cols(left: &ArrowCols<'_>, lr: usize, right: &ArrowCols<'_>, rr: usize) -> Ordering {
+    let arity = left.arity();
+    for c in 0..arity {
+        match left.at(c, lr).cmp(&right.at(c, rr)) {
+            Ordering::Equal => continue,
+            ord => return ord,
+        }
+    }
+    Ordering::Equal
+}
+
+/// Compute the OVC of `(target_side, target_row)` against `(pred_side, pred_row)`,
+/// scanning columns from 0 until they differ.
+#[inline]
+fn ovc_cols(
+    target: &ArrowCols<'_>,
+    target_row: usize,
+    pred: &ArrowCols<'_>,
+    pred_row: usize,
+) -> u64 {
+    let arity = target.arity();
+    for c in 0..arity {
+        let t = target.at(c, target_row);
+        let p = pred.at(c, pred_row);
+        if t != p {
+            return encode_ovc((arity - c) as u8, t);
+        }
+    }
+    0 // equal to predecessor
+}
+
+/// Initial OVC against "no predecessor" (`-∞`): every row's OVC is
+/// `encode_ovc(arity, row[0])` — offset=0, value=first column.
+#[inline]
+fn ovc_cols_initial(target: &ArrowCols<'_>, target_row: usize) -> u64 {
+    encode_ovc(target.arity() as u8, target.at(0, target_row))
+}
+
+/// Inner merge join over Arrow-shaped columnar inputs using column-level
+/// OVC. Reads only the columns it needs per compare; never materializes a
+/// row buffer. Identical in semantics to [`merge_ovc`] but operating on a
+/// columnar physical layout.
+pub(crate) fn merge_ovc_columnar(
+    left: &ArrowCols<'_>,
+    right: &ArrowCols<'_>,
+) -> Vec<(u32, u32)> {
+    let arity = left.arity();
+    assert_eq!(arity, right.arity());
+    let mut out = Vec::new();
+    if left.len() == 0 || right.len() == 0 {
+        return out;
+    }
+    let (mut l, mut r) = (0usize, 0usize);
+    let mut ovc_l = ovc_cols_initial(left, l);
+    let mut ovc_r = ovc_cols_initial(right, r);
+
+    while l < left.len() && r < right.len() {
+        let (cmp, tie) = match ovc_l.cmp(&ovc_r) {
+            Ordering::Less => (Ordering::Less, false),
+            Ordering::Greater => (Ordering::Greater, false),
+            Ordering::Equal => (cmp_cols(left, l, right, r), true),
+        };
+        match cmp {
+            Ordering::Less => {
+                let pred = l;
+                l += 1;
+                if l == left.len() {
+                    break;
+                }
+                ovc_l = ovc_cols(left, l, left, pred);
+                if tie {
+                    ovc_r = ovc_cols(right, r, left, pred);
+                }
+            }
+            Ordering::Greater => {
+                let pred = r;
+                r += 1;
+                if r == right.len() {
+                    break;
+                }
+                ovc_r = ovc_cols(right, r, right, pred);
+                if tie {
+                    ovc_l = ovc_cols(left, l, right, pred);
+                }
+            }
+            Ordering::Equal => {
+                let l_end = run_end_cols(left, l);
+                let r_end = run_end_cols(right, r);
+                for li in l..l_end {
+                    for ri in r..r_end {
+                        out.push((li as u32, ri as u32));
+                    }
+                }
+                let pred = l_end - 1;
+                l = l_end;
+                r = r_end;
+                if l < left.len() {
+                    ovc_l = ovc_cols(left, l, left, pred);
+                }
+                if r < right.len() {
+                    ovc_r = ovc_cols(right, r, left, pred);
+                }
+            }
+        }
+    }
+    out
+}
+
+#[inline]
+fn run_end_cols(side: &ArrowCols<'_>, start: usize) -> usize {
+    let arity = side.arity();
+    let mut end = start + 1;
+    'outer: while end < side.len() {
+        for c in 0..arity {
+            if side.at(c, end) != side.at(c, start) {
+                break 'outer;
+            }
+        }
+        end += 1;
+    }
+    end
+}
+
 /// Byte-memcmp baseline operating on a pre-encoded ord-byte buffer. This is
 /// the comparator that wins in our ord-byte SMJ pipeline; the paper does
 /// not include it in its baselines.
@@ -429,6 +603,131 @@ mod tests {
                 mc_ns / full_ns,
                 out_full.len(),
             );
+        }
+    }
+
+    /// End-to-end comparison: column-OVC over Arrow-shaped data (no
+    /// materialization) vs. ord-byte materialization + memcmp merge.
+    /// Both pipelines start from the same columnar i64 input.
+    ///
+    /// Run: cargo test --release -p vortex-array col_ovc::tests::bench_e2e \
+    ///     -- --ignored --nocapture --test-threads=1
+    #[test]
+    #[ignore = "benchmark, run explicitly"]
+    #[allow(clippy::cast_precision_loss, clippy::many_single_char_names)]
+    fn bench_e2e_columnar_vs_ord_bytes() {
+        const N_PER_SIDE: usize = 50_000;
+        const ITERS: u32 = 20;
+        const DISTINCT: u32 = 20;
+
+        println!("\n== End-to-end: column-OVC vs ord-byte materialize+memcmp ==");
+        println!("  inputs are Arrow-shaped columnar i64; disjoint sides (no matches).");
+        println!(
+            "{:<5} {:<8} {:>14} {:>14} {:>14} {:>14}   {:>10} {:>10}",
+            "K",
+            "prefix",
+            "OVC total",
+            "Mat (mat)",
+            "Mat (merge)",
+            "Mat total",
+            "OVC/Mat",
+            "Mat-merge%",
+        );
+
+        for &k in &[2usize, 4, 8, 16] {
+            for &shared_prefix in &[0usize, k / 2] {
+                if shared_prefix >= k {
+                    continue;
+                }
+                let varying = k - shared_prefix;
+                let max_distinct: u64 = (DISTINCT as u64).saturating_pow(varying as u32);
+                if max_distinct < (N_PER_SIDE as u64) * 2 {
+                    continue;
+                }
+
+                // Build row-major data, then split into columnar slices.
+                let left_rm = make_sorted(N_PER_SIDE, k, shared_prefix, DISTINCT, 0);
+                let right_rm = make_sorted(N_PER_SIDE, k, shared_prefix, DISTINCT, N_PER_SIDE as u64);
+
+                let to_columnar = |rm: &[i64]| -> Vec<Vec<i64>> {
+                    let n = rm.len() / k;
+                    let mut cols = vec![Vec::with_capacity(n); k];
+                    for row in 0..n {
+                        for col in 0..k {
+                            cols[col].push(rm[row * k + col]);
+                        }
+                    }
+                    cols
+                };
+                let lc = to_columnar(&left_rm);
+                let rc = to_columnar(&right_rm);
+                let l_arrow = ArrowCols::new(lc.iter().map(Vec::as_slice).collect());
+                let r_arrow = ArrowCols::new(rc.iter().map(Vec::as_slice).collect());
+
+                // (A) Column-OVC: no materialization, just merge.
+                let measure_ovc = || -> std::time::Duration {
+                    drop(merge_ovc_columnar(&l_arrow, &r_arrow));
+                    let t = Instant::now();
+                    for _ in 0..ITERS {
+                        std::hint::black_box(merge_ovc_columnar(&l_arrow, &r_arrow));
+                    }
+                    t.elapsed()
+                };
+
+                // (B) Materialize ord-bytes, then memcmp merge.
+                let row_bytes = k * 8;
+                let measure_mat_only = || -> std::time::Duration {
+                    drop(materialize_ord_bytes(&l_arrow));
+                    drop(materialize_ord_bytes(&r_arrow));
+                    let t = Instant::now();
+                    for _ in 0..ITERS {
+                        std::hint::black_box(materialize_ord_bytes(&l_arrow));
+                        std::hint::black_box(materialize_ord_bytes(&r_arrow));
+                    }
+                    t.elapsed()
+                };
+                let measure_merge_only = || -> std::time::Duration {
+                    let lb = materialize_ord_bytes(&l_arrow);
+                    let rb = materialize_ord_bytes(&r_arrow);
+                    drop(merge_memcmp_bytes(&lb, &rb, row_bytes));
+                    let t = Instant::now();
+                    for _ in 0..ITERS {
+                        std::hint::black_box(merge_memcmp_bytes(&lb, &rb, row_bytes));
+                    }
+                    t.elapsed()
+                };
+
+                let ovc_d = measure_ovc();
+                let mat_d = measure_mat_only();
+                let merge_d = measure_merge_only();
+                let total_rows = u64::from(ITERS) * (N_PER_SIDE as u64) * 2;
+                let to_ns = |d: std::time::Duration| -> f64 {
+                    d.as_nanos() as f64 / total_rows as f64
+                };
+                let ovc_ns = to_ns(ovc_d);
+                let mat_ns = to_ns(mat_d);
+                let merge_ns = to_ns(merge_d);
+                let total_mat = mat_ns + merge_ns;
+
+                // Cross-check correctness on first iter.
+                let out_ovc = merge_ovc_columnar(&l_arrow, &r_arrow);
+                let lb = materialize_ord_bytes(&l_arrow);
+                let rb = materialize_ord_bytes(&r_arrow);
+                let out_mat = merge_memcmp_bytes(&lb, &rb, row_bytes);
+                assert_eq!(out_ovc, out_mat);
+
+                println!(
+                    "{:<5} {:<8} {:>14.2} {:>14.2} {:>14.2} {:>14.2}   {:>9.2}x {:>9.0}%",
+                    k,
+                    shared_prefix,
+                    ovc_ns,
+                    mat_ns,
+                    merge_ns,
+                    total_mat,
+                    ovc_ns / total_mat,
+                    100.0 * merge_ns / total_mat,
+                );
+            }
         }
     }
 }

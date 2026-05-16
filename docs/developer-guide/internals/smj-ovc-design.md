@@ -154,6 +154,64 @@ contribute zero offset bytes (constant) or one fixed chunk (common-prefix
 header, dict rank). The merge driver still sees a single sequential byte
 position counter — non-uniformity is hidden in the header/payload split.
 
+## End-to-end measurement: materialization is the cost
+
+When measured from columnar input through to merged output, the ord-byte
+materialization step dominates the pipeline; the merge itself is a small
+fraction. From `vortex-array/src/col_ovc.rs` benches, 50K rows/side,
+i64 columns, disjoint ranges (pure merge cost, no cross-product emit):
+
+```
+K   prefix   OVC ns/row   Mat-only   Merge   Mat total   OVC/Mat
+4   0           2.19         5.53     1.75      7.28      0.30×
+8   0           4.38        11.31     2.14     13.45      0.33×
+8   4           4.72        11.91     2.12     14.02      0.34×
+16  0           9.08        22.45     2.87     25.32      0.36×
+16  8           8.88        22.05     2.71     24.75      0.36×
+```
+
+The merge step (memcmp on pre-built byte rows) is fast — 2-3 ns/row — but
+materialization is 11-25 ns/row, swamping it. **Column-OVC operating
+directly on the columnar input is 2.8-3.4× faster end-to-end** because it
+skips materialization entirely; per-compare it touches only the columns
+needed to determine ordering (typically 1-2 columns, not all K).
+
+This changes the design recommendation. Earlier benches showed memcmp
+beating OVC per-compare on pre-built ord-byte buffers; that was a
+misleading framing because the buffer doesn't appear for free. From
+columnar inputs, the relevant comparison is:
+
+- **OVC over columns**: O(N · p) reads where p ≈ divergence depth per row,
+  no materialization.
+- **Materialize + memcmp**: O(N · K · 8) writes for the buffer, then
+  O(N · K · 8) reads during memcmp (per-row, full key width).
+
+OVC wins as long as p < K, which is most workloads. The win grows with
+K. Materialization only makes sense when you'd amortize its cost across
+multiple operators (sort + merge + aggregate sharing the same ord-byte
+representation), or when the comparator needs the byte form for some
+other reason (e.g. SIMD batched compare across many row pairs).
+
+## Updated recommendation
+
+For Vortex-shaped SMJ:
+
+- **Default to OVC over columnar data.** Walk the typed columns directly;
+  maintain a u64-packed (offset, value) per side; advance loser-invariant
+  style. The merge driver is straightforward and the constant factor
+  (4-9 ns/row at K=4-16) is competitive with or better than ord-byte
+  pipelines.
+- **Materialize only when the ord-byte form is needed downstream too.**
+  Sharing the buffer across operators amortizes the materialization cost.
+  Otherwise it's pure overhead.
+- **Encoding-aware comparison stays in scope.** OVC's "value at offset"
+  field can be a dict code, a primitive value, an RLE run header — same
+  algorithm, encoding-specific kernels for the per-column compare.
+
+The byte-OVC and prefix-shortcut experiments in `vortex-array/src/smj.rs`
+are kept as closed experiments — they assumed the ord-byte buffer was
+free, which it isn't.
+
 ## Open questions
 
 - Planner heuristics for `RankBE` vs `EscapedUtf8` target selection on
@@ -163,3 +221,5 @@ position counter — non-uniformity is hidden in the header/payload split.
 - Concrete representation of `header` and `payload` for varlen payloads
   when a column also has a non-empty header (e.g. common-prefix + varlen
   suffixes).
+- OVC over compressed columns: dict-code comparison (cheap), RLE run
+  boundary comparison (skip-ahead), FSST symbol comparison.
