@@ -3,9 +3,7 @@
 
 //! [`PointSession`] — the caching point-fn dispatcher.
 
-use std::any::Any;
 use std::collections::VecDeque;
-use std::sync::Arc;
 
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -14,6 +12,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::point_fn::BlockKey;
 use crate::point_fn::PointDispatch;
+use crate::point_fn::dispatch::AnyBlock;
 use crate::point_fn::dispatch::CacheArrayId;
 use crate::point_fn::dispatch_table;
 use crate::scalar::Scalar;
@@ -40,7 +39,7 @@ pub const DEFAULT_BLOCK_CACHE_CAPACITY: usize = 8;
 pub struct PointSession<'a> {
     ctx: &'a mut ExecutionCtx,
     scalar_cache: BoundedFifo<(CacheArrayId, usize), Scalar>,
-    block_cache: BoundedFifo<(CacheArrayId, BlockKey), Arc<dyn Any + Send + Sync>>,
+    block_cache: BoundedFifo<(CacheArrayId, BlockKey), AnyBlock>,
 }
 
 impl<'a> PointSession<'a> {
@@ -103,22 +102,22 @@ impl PointDispatch for PointSession<'_> {
         dispatch_table::dispatch_search_sorted(arr, value, side, self)
     }
 
-    fn cached_block<B, F>(&mut self, key: (CacheArrayId, BlockKey), decode: F) -> VortexResult<B>
-    where
-        B: Clone + Send + Sync + 'static,
-        F: FnOnce() -> VortexResult<B>,
-    {
-        if let Some(any) = self.block_cache.get(&key)
-            && let Some(b) = any.downcast_ref::<B>()
-        {
-            return Ok(b.clone());
+    fn cached_block_dyn(
+        &mut self,
+        key: (CacheArrayId, BlockKey),
+        decode: &mut dyn FnMut() -> VortexResult<AnyBlock>,
+    ) -> VortexResult<AnyBlock> {
+        if let Some(any) = self.block_cache.get(&key) {
+            return Ok(std::sync::Arc::<dyn std::any::Any + Send + Sync>::clone(
+                any,
+            ));
         }
-        // Either cache miss, or type mismatch on the same key (very unusual; two
-        // encodings would have to use the same `BlockKey`). Fall through and decode.
-        let b = decode()?;
-        let stored: Arc<dyn Any + Send + Sync> = Arc::new(b.clone());
-        self.block_cache.put(key, stored);
-        Ok(b)
+        let v = decode()?;
+        self.block_cache.put(
+            key,
+            std::sync::Arc::<dyn std::any::Any + Send + Sync>::clone(&v),
+        );
+        Ok(v)
     }
 }
 

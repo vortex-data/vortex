@@ -287,6 +287,25 @@ impl ArrayRef {
         Ok(scalar)
     }
 
+    /// Point-fn-aware `scalar_at`: routes through the encoding's
+    /// `OperationsVTable::point_scalar_at` (default: forward to `scalar_at`).
+    ///
+    /// Encoding-specific overrides can recurse via `d.scalar_at(child, …)` or
+    /// wrap their block decoder in `d.cached_block(…)`.
+    pub fn point_execute_scalar(
+        &self,
+        index: usize,
+        d: &mut dyn crate::point_fn::PointDispatch,
+    ) -> VortexResult<Scalar> {
+        vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
+        if self.dtype().is_nullable() && self.is_invalid(index, d.ctx())? {
+            return Ok(Scalar::null(self.dtype().clone()));
+        }
+        let scalar = self.0.data.point_execute_scalar(self, index, d)?;
+        debug_assert_eq!(self.dtype(), scalar.dtype(), "Scalar dtype mismatch");
+        Ok(scalar)
+    }
+
     /// Open a caching [`PointSession`](crate::point_fn::PointSession) for this array.
     ///
     /// Hold the returned session across multiple point-fn calls (`scalar_at`,

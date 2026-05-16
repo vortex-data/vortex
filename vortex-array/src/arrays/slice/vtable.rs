@@ -167,6 +167,16 @@ impl OperationsVTable<Slice> for Slice {
     ) -> VortexResult<Scalar> {
         array.child().execute_scalar(array.range.start + index, ctx)
     }
+
+    fn point_scalar_at(
+        array: ArrayView<'_, Slice>,
+        index: usize,
+        d: &mut dyn crate::point_fn::PointDispatch,
+    ) -> VortexResult<Scalar> {
+        // Push through to the child so the session's caches apply at both
+        // levels (slice-level and child-level).
+        d.scalar_at(array.child(), array.range.start + index)
+    }
 }
 
 impl ValidityVTable<Slice> for Slice {

@@ -195,6 +195,19 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar>;
+
+    /// Point-fn-aware variant of [`Self::execute_scalar`].
+    ///
+    /// Dispatches to `OperationsVTable::point_scalar_at`, which an encoding can
+    /// override to recurse through children via `d.scalar_at(child, …)` or to use
+    /// `d.cached_block(…)` for block-decoded data. Encodings that have not opted
+    /// in get the default behavior (delegate to `scalar_at` with `d.ctx()`).
+    fn point_execute_scalar(
+        &self,
+        this: &ArrayRef,
+        index: usize,
+        d: &mut dyn crate::point_fn::PointDispatch,
+    ) -> VortexResult<Scalar>;
 }
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].
@@ -508,6 +521,16 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     ) -> VortexResult<Scalar> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         <V::OperationsVTable as OperationsVTable<V>>::scalar_at(view, index, ctx)
+    }
+
+    fn point_execute_scalar(
+        &self,
+        this: &ArrayRef,
+        index: usize,
+        d: &mut dyn crate::point_fn::PointDispatch,
+    ) -> VortexResult<Scalar> {
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        <V::OperationsVTable as OperationsVTable<V>>::point_scalar_at(view, index, d)
     }
 }
 

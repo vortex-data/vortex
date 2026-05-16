@@ -27,8 +27,10 @@ mod session;
 #[cfg(test)]
 mod tests;
 
+pub use dispatch::AnyBlock;
 pub use dispatch::BlockKey;
 pub use dispatch::PointDispatch;
+pub use dispatch::PointDispatchExt;
 pub use runtime::PointRuntime;
 pub use session::PointSession;
 

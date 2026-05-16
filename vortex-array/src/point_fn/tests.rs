@@ -12,6 +12,7 @@ use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::point_fn::BlockKey;
 use crate::point_fn::PointDispatch;
+use crate::point_fn::PointDispatchExt;
 use crate::point_fn::PointRuntime;
 use crate::point_fn::PointSession;
 use crate::scalar::Scalar;
