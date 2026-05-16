@@ -406,6 +406,91 @@ pub(crate) fn merge_ovc_columnar(
     out
 }
 
+/// n-way merge driven by column-level OVC, linear-scan minimum across sides.
+/// Returns total rows emitted (for benchmarking).
+pub(crate) fn merge_n_way_ovc(sides: &[ArrowCols<'_>]) -> usize {
+    let n = sides.len();
+    if n == 0 {
+        return 0;
+    }
+    let arity = sides[0].arity();
+    assert!(sides.iter().all(|s| s.arity() == arity));
+
+    let mut indices = vec![0usize; n];
+    let mut ovcs = vec![u64::MAX; n];
+    for (i, side) in sides.iter().enumerate() {
+        if side.len() > 0 {
+            ovcs[i] = ovc_cols_initial(side, 0);
+        }
+    }
+
+    let mut count = 0usize;
+    loop {
+        let mut min_ovc = u64::MAX;
+        let mut min_side = usize::MAX;
+        for i in 0..n {
+            if indices[i] < sides[i].len() && ovcs[i] <= min_ovc {
+                min_ovc = ovcs[i];
+                min_side = i;
+            }
+        }
+        if min_side == usize::MAX {
+            break;
+        }
+        count += 1;
+        let pred_row = indices[min_side];
+        indices[min_side] += 1;
+        if indices[min_side] < sides[min_side].len() {
+            ovcs[min_side] = ovc_cols(
+                &sides[min_side],
+                indices[min_side],
+                &sides[min_side],
+                pred_row,
+            );
+        } else {
+            ovcs[min_side] = u64::MAX;
+        }
+        // Loser-invariant: other sides' OVCs against the new predecessor are
+        // unchanged. (Holds for disjoint-range inputs without OVC ties.)
+    }
+    count
+}
+
+/// n-way merge over pre-built ord-byte buffers, linear-scan minimum.
+/// Returns total rows emitted.
+pub(crate) fn merge_n_way_memcmp(sides: &[&[u8]], row_bytes: usize) -> usize {
+    let n = sides.len();
+    let mut indices = vec![0usize; n];
+    let mut count = 0usize;
+    loop {
+        let mut min_row: Option<&[u8]> = None;
+        let mut min_side = usize::MAX;
+        for i in 0..n {
+            let rows = sides[i].len() / row_bytes;
+            if indices[i] < rows {
+                let row = &sides[i][indices[i] * row_bytes..(indices[i] + 1) * row_bytes];
+                match min_row {
+                    None => {
+                        min_row = Some(row);
+                        min_side = i;
+                    }
+                    Some(cur) if row < cur => {
+                        min_row = Some(row);
+                        min_side = i;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if min_side == usize::MAX {
+            break;
+        }
+        count += 1;
+        indices[min_side] += 1;
+    }
+    count
+}
+
 #[inline]
 fn run_end_cols(side: &ArrowCols<'_>, start: usize) -> usize {
     let arity = side.arity();
@@ -728,6 +813,137 @@ mod tests {
                     100.0 * merge_ns / total_mat,
                 );
             }
+        }
+    }
+
+    /// n-way merge: does memcmp amortize its materialization cost as n grows?
+    /// log(n) compares per output row mean memcmp's per-compare advantage
+    /// compounds; OVC's materialization-free path stays linear in compares.
+    ///
+    /// Run: cargo test --release -p vortex-array col_ovc::tests::bench_n_way \
+    ///     -- --ignored --nocapture --test-threads=1
+    #[test]
+    #[ignore = "benchmark, run explicitly"]
+    #[allow(clippy::cast_precision_loss, clippy::many_single_char_names)]
+    fn bench_n_way() {
+        const N_PER_SIDE: usize = 25_000;
+        const ITERS: u32 = 10;
+        const DISTINCT: u32 = 20;
+        const K: usize = 8;
+
+        println!("\n== n-way merge: column-OVC vs ord-byte materialize+memcmp ==");
+        println!(
+            "  K={K} i64 cols, {N_PER_SIDE} rows/side, disjoint ranges (no matches)."
+        );
+        println!(
+            "{:<5} {:>10} {:>14} {:>14} {:>14} {:>14}   {:>10}",
+            "n",
+            "total rows",
+            "OVC ns/row",
+            "Mat (mat)",
+            "Mat (merge)",
+            "Mat total",
+            "OVC/Mat",
+        );
+
+        for &n in &[2usize, 4, 8, 16, 32] {
+            // Each side gets a disjoint range so no rows match across any pair.
+            let max_distinct: u64 = (DISTINCT as u64).saturating_pow(K as u32);
+            if max_distinct < (N_PER_SIDE as u64) * (n as u64) {
+                continue;
+            }
+            let mut sides_data: Vec<Vec<i64>> = Vec::with_capacity(n);
+            for i in 0..n {
+                let offset = (i as u64) * (N_PER_SIDE as u64);
+                sides_data.push(make_sorted(N_PER_SIDE, K, 0, DISTINCT, offset));
+            }
+
+            // Build columnar Arrow-shaped views per side.
+            let columnar: Vec<Vec<Vec<i64>>> = sides_data
+                .iter()
+                .map(|rm| {
+                    let mut cols: Vec<Vec<i64>> =
+                        (0..K).map(|_| Vec::with_capacity(N_PER_SIDE)).collect();
+                    for row in 0..N_PER_SIDE {
+                        for col in 0..K {
+                            cols[col].push(rm[row * K + col]);
+                        }
+                    }
+                    cols
+                })
+                .collect();
+            let arrow_sides: Vec<ArrowCols> = columnar
+                .iter()
+                .map(|cols| ArrowCols::new(cols.iter().map(Vec::as_slice).collect()))
+                .collect();
+
+            let total_rows = N_PER_SIDE * n;
+            let row_bytes = K * 8;
+
+            // (A) OVC: no materialization.
+            let measure_ovc = || -> std::time::Duration {
+                let _ = merge_n_way_ovc(&arrow_sides);
+                let t = Instant::now();
+                for _ in 0..ITERS {
+                    std::hint::black_box(merge_n_way_ovc(&arrow_sides));
+                }
+                t.elapsed()
+            };
+            // (B) Materialize ord-bytes for each side, then memcmp merge.
+            let measure_mat_only = || -> std::time::Duration {
+                for side in &arrow_sides {
+                    drop(materialize_ord_bytes(side));
+                }
+                let t = Instant::now();
+                for _ in 0..ITERS {
+                    for side in &arrow_sides {
+                        std::hint::black_box(materialize_ord_bytes(side));
+                    }
+                }
+                t.elapsed()
+            };
+            let measure_merge_only = || -> std::time::Duration {
+                let byte_sides: Vec<Vec<u8>> =
+                    arrow_sides.iter().map(materialize_ord_bytes).collect();
+                let byte_refs: Vec<&[u8]> = byte_sides.iter().map(Vec::as_slice).collect();
+                let _ = merge_n_way_memcmp(&byte_refs, row_bytes);
+                let t = Instant::now();
+                for _ in 0..ITERS {
+                    std::hint::black_box(merge_n_way_memcmp(&byte_refs, row_bytes));
+                }
+                t.elapsed()
+            };
+
+            let ovc_d = measure_ovc();
+            let mat_d = measure_mat_only();
+            let merge_d = measure_merge_only();
+            let to_ns = |d: std::time::Duration| -> f64 {
+                d.as_nanos() as f64 / (u64::from(ITERS) * total_rows as u64) as f64
+            };
+            let ovc_ns = to_ns(ovc_d);
+            let mat_ns = to_ns(mat_d);
+            let merge_ns = to_ns(merge_d);
+            let total_mat = mat_ns + merge_ns;
+
+            // Sanity-check: same row count emitted by both.
+            let count_ovc = merge_n_way_ovc(&arrow_sides);
+            let byte_sides: Vec<Vec<u8>> =
+                arrow_sides.iter().map(materialize_ord_bytes).collect();
+            let byte_refs: Vec<&[u8]> = byte_sides.iter().map(Vec::as_slice).collect();
+            let count_mat = merge_n_way_memcmp(&byte_refs, row_bytes);
+            assert_eq!(count_ovc, count_mat);
+            assert_eq!(count_ovc, total_rows);
+
+            println!(
+                "{:<5} {:>10} {:>14.2} {:>14.2} {:>14.2} {:>14.2}   {:>9.2}x",
+                n,
+                total_rows,
+                ovc_ns,
+                mat_ns,
+                merge_ns,
+                total_mat,
+                ovc_ns / total_mat,
+            );
         }
     }
 }
