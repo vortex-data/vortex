@@ -13,6 +13,7 @@
 
 use std::sync::Arc;
 
+use async_stream::try_stream;
 use futures::StreamExt;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
@@ -22,7 +23,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
+use crate::v2::experiment::bool_var;
+use crate::v2::experiment::trace_flow;
+use crate::v2::placeholder::default_array;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -121,9 +126,32 @@ impl LayoutPlan for ProjectPlan {
         // the rewritten child back in `ProjectPlan` and the
         // expression evaluates over the filtered rows.
         if !matches!(mask_plan.schema(), DType::Bool(_)) {
+            if trace_flow() {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    output_dtype = %self.output_dtype,
+                    "project pushdown failed non-bool mask"
+                );
+            }
             return None;
         }
-        let new_child = Arc::clone(&self.child).try_pushdown_mask(mask_plan)?;
+        let Some(new_child) = Arc::clone(&self.child).try_pushdown_mask(mask_plan) else {
+            if trace_flow() {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    output_dtype = %self.output_dtype,
+                    "project pushdown failed child rejected"
+                );
+            }
+            return None;
+        };
+        if trace_flow() {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                output_dtype = %self.output_dtype,
+                "project pushdown succeeded"
+            );
+        }
         Some(Arc::new(Self {
             child: new_child,
             expr: self.expr.clone(),
@@ -135,9 +163,40 @@ impl LayoutPlan for ProjectPlan {
         &self,
         row_range: std::ops::Range<u64>,
         demand: &RowDemand,
+        frontier: &OutputFrontier,
+
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
-        let inner = self.child.execute(row_range, demand, ctx)?;
+        if bool_var("VORTEX_V2_VALUE_TREE_ROW_DEMAND") && !bool_var("VORTEX_V2_DISABLE_ROW_DEMAND")
+        {
+            let child = Arc::clone(&self.child);
+            let expr = self.expr.clone();
+            let dtype = self.output_dtype.clone();
+            let output_dtype = dtype.clone();
+            let demand = demand.clone();
+            let frontier = frontier.clone();
+            let ctx = ctx.clone();
+            let stream = try_stream! {
+                let demanded_rows = if bool_var("VORTEX_V2_ROW_DEMAND_RANGE_PULL") {
+                    demand.cardinality_uncached(row_range.clone()).await?
+                } else {
+                    demand.cardinality(row_range.clone()).await?
+                };
+                if demanded_rows == 0 {
+                    let len = usize::try_from(row_range.end - row_range.start)?;
+                    yield default_array(&output_dtype, len);
+                    return;
+                }
+
+                let mut inner = child.execute(row_range, &demand, &frontier, &ctx)?;
+                while let Some(chunk) = inner.next().await {
+                    yield chunk?.apply(&expr)?;
+                }
+            };
+            return Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)));
+        }
+
+        let inner = self.child.execute(row_range, demand, frontier, ctx)?;
         let expr = self.expr.clone();
         let dtype = self.output_dtype.clone();
         let mapped = inner.map(move |chunk_res| chunk_res.and_then(|chunk| chunk.apply(&expr)));

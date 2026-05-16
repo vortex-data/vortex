@@ -61,6 +61,10 @@ Do not wait for a deep code read before showing benchmark comparisons or first s
 
    Use `--no-build` only after the relevant binary has been rebuilt from current sources.
 
+   Do not run benchmark measurements in parallel with other benchmark measurements. Parallel shell
+   work is useful for source inspection, but competing benchmark binaries distort medians and create
+   multi-second outliers that look like engine regressions.
+
 4. If the comparison is surprising or too noisy, rerun the same target with more iterations before
    profiling. Keep the query/engine/format/env identical.
 
@@ -224,6 +228,31 @@ python3 .agents/skills/bench-performance/scripts/summarize_conjunct_debug.py \
 
 Use this when checking whether a pushed-down or shared mask is actually evaluated once, or whether
 each projected field is driving the same conjunct work again.
+
+When investigating V2 stream scheduling, enable the flow trace and summarize it immediately:
+
+```bash
+VORTEX_V2_TRACE_FLOW=1 RUST_LOG=vortex_layout::v2::flow=debug,datafusion=warn \
+  target/<profile-dir>/datafusion-bench clickbench \
+  --display-format gh-json --iterations 1 --hide-progress-bar \
+  --formats vortex --queries <query> \
+  -o /private/tmp/<label>.jsonl > /private/tmp/<label>.log 2>&1
+
+python3 .agents/skills/bench-performance/scripts/summarize_v2_flow.py \
+  /private/tmp/<label>.log
+```
+
+Read the summary as a scheduling picture:
+
+- `filter pushdown failed` with no `filtered flat` events means the plan is applying a sparse mask
+  after full value/projection work.
+- `dict/struct/project pushdown failed` shows which row-preserving node blocked mask pushdown.
+- `materialised mask read_all done` counts full mask barriers and their true counts.
+- `filtered flat mask read_all done` or `filtered flat incremental mask ready` counts leaf mask
+  consumption; compare sums to detect repeated mask use across projected fields.
+- `aligned producer waits by label` separates backpressure in `filter`, `struct`, and `conjunct`
+  zips. High cumulative send wait means producer tasks are ready but the aligned consumer is
+  waiting on another child or on downstream demand.
 
 ## Count vs Latency
 

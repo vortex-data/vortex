@@ -232,6 +232,7 @@ pub fn split_exec<A: 'static + Send>(
     Ok(array_fut.boxed())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn log_conjunct_eval(
     message: &'static str,
     conjunct_idx: usize,

@@ -158,6 +158,31 @@ impl RowDemand {
         }
     }
 
+    /// Return a view with one additional demand source in the same
+    /// root row coordinate space.
+    ///
+    /// This is used by experimental domain-preserving operators that
+    /// produce row-demand during execution and want their children to
+    /// observe it before materializing values. The returned demand
+    /// preserves this view's scope.
+    pub fn with_source(&self, source: Arc<dyn DemandSource>) -> Self {
+        let mut sources = self.inner.sources.clone();
+        sources.push(source);
+        Self {
+            inner: Arc::new(RowDemandInner {
+                sources,
+                total_rows: self.inner.total_rows,
+                cache: Mutex::new(None),
+            }),
+            scope: self.scope.clone(),
+        }
+    }
+
+    /// Total row count covered by the root demand coordinate space.
+    pub fn root_total_rows(&self) -> u64 {
+        self.inner.total_rows
+    }
+
     /// Total row count this view exposes (in local coords).
     pub fn total_rows(&self) -> u64 {
         self.scope.end - self.scope.start
@@ -217,6 +242,36 @@ impl RowDemand {
     /// Cardinality (true-count) over `range` (local coords).
     pub async fn cardinality(&self, range: RowRange) -> VortexResult<u64> {
         Ok(self.mask_for(range).await?.true_count() as u64)
+    }
+
+    /// Pull the AND of all sources over only `range` (local coords),
+    /// bypassing the full-root cache.
+    ///
+    /// This is useful for experiments where a runtime operator
+    /// publishes fine-grained demand and children ask about small
+    /// segment ranges. The normal [`Self::mask_for`] path is better
+    /// when many consumers repeatedly query the same scan-wide demand.
+    pub async fn mask_for_uncached(&self, range: RowRange) -> VortexResult<Mask> {
+        let global = self.to_global(&range);
+        if global.start >= global.end {
+            return Ok(Mask::new_true(0));
+        }
+        let len = usize::try_from(global.end - global.start)?;
+        if self.inner.sources.is_empty() {
+            return Ok(Mask::new_true(len));
+        }
+
+        let mut acc = self.inner.sources[0].mask_for(global.clone()).await?;
+        for src in &self.inner.sources[1..] {
+            let next = src.mask_for(global.clone()).await?;
+            acc = (&acc).bitand(&next);
+        }
+        Ok(acc)
+    }
+
+    /// Cardinality over `range` using [`Self::mask_for_uncached`].
+    pub async fn cardinality_uncached(&self, range: RowRange) -> VortexResult<u64> {
+        Ok(self.mask_for_uncached(range).await?.true_count() as u64)
     }
 
     /// Returns the cached AND over `0..total_rows`, recomputing if any
@@ -391,6 +446,19 @@ mod tests {
         assert_eq!(inner.total_rows(), 100);
         // Both zeros (150, 175) fall inside inner, at local 0 and 25.
         assert_eq!(block_on(inner.cardinality(0..100))?, 98);
+        Ok(())
+    }
+
+    #[test]
+    fn with_source_preserves_scope_and_uncached_pull() -> VortexResult<()> {
+        let src_a = FixedSource::new(mask_with_zeros(1000, &[110, 125]));
+        let src_b = FixedSource::new(mask_with_zeros(1000, &[125, 140]));
+        let demand = RowDemand::new(vec![src_a as _], 1000).scope(100..200);
+        let demand = demand.with_source(src_b as _);
+
+        assert_eq!(demand.total_rows(), 100);
+        assert_eq!(block_on(demand.cardinality_uncached(0..100))?, 97);
+        assert_eq!(block_on(demand.cardinality_uncached(25..41))?, 14);
         Ok(())
     }
 }

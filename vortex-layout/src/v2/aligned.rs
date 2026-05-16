@@ -38,8 +38,11 @@
 //! EOF), trading a copy for fewer/larger emitted batches.
 
 use std::pin::Pin;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
+use std::time::Instant;
 
 use futures::Stream;
 use futures::StreamExt as _;
@@ -55,6 +58,7 @@ use vortex_error::vortex_err;
 use vortex_io::runtime::Handle;
 use vortex_io::runtime::Task;
 
+use crate::v2::experiment::trace_flow;
 use crate::v2::experiment::usize_var;
 
 /// How many chunks each child's producer may run ahead of the zip.
@@ -64,6 +68,8 @@ const CHILD_BUFFER_DEPTH: usize = 4;
 
 /// K-way row-aligned zip. See module docs.
 pub struct AlignedArrayStream {
+    id: u64,
+    label: &'static str,
     children: Vec<ChildState>,
     /// Optional minimum batch size hint — see [`Self::with_min_rows`].
     min_rows: Option<usize>,
@@ -91,14 +97,37 @@ impl AlignedArrayStream {
     /// into a producer task spawned via `handle`; the resulting
     /// receivers feed the zip.
     pub fn new(children: Vec<SendableArrayStream>, handle: Handle) -> Self {
+        Self::new_labeled(children, handle, "aligned")
+    }
+
+    /// Construct a pipelined k-way zip with a trace label identifying
+    /// the plan node that owns the alignment.
+    pub fn new_labeled(
+        children: Vec<SendableArrayStream>,
+        handle: Handle,
+        label: &'static str,
+    ) -> Self {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         let mut child_states = Vec::with_capacity(children.len());
         let mut producers = Vec::with_capacity(children.len());
         let buffer_depth =
             usize_var("VORTEX_V2_ALIGNED_BUFFER_DEPTH").unwrap_or(CHILD_BUFFER_DEPTH);
-        for child in children {
+        let child_count = children.len();
+        if trace_flow() {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                aligned_id = id,
+                aligned_label = label,
+                child_count,
+                buffer_depth,
+                "aligned new"
+            );
+        }
+        for (child_idx, child) in children.into_iter().enumerate() {
             let dtype = child.dtype().clone();
             let (sender, receiver) = kanal::bounded_async(buffer_depth);
-            let task = handle.spawn(producer_task(child, sender));
+            let task = handle.spawn(producer_task(id, label, child_idx, child, sender));
             let receiver_stream: SendableArrayStream = Box::pin(ArrayStreamAdapter::new(
                 dtype.clone(),
                 futures::stream::unfold(receiver, recv_one),
@@ -112,6 +141,8 @@ impl AlignedArrayStream {
             producers.push(task);
         }
         Self {
+            id,
+            label,
             children: child_states,
             min_rows: None,
             _producers: producers,
@@ -135,13 +166,50 @@ impl AlignedArrayStream {
 /// Drain `source` into `sender`. Exits cleanly when source EOFs or
 /// when the receiver closes (consumer dropped the channel).
 async fn producer_task(
+    aligned_id: u64,
+    aligned_label: &'static str,
+    child_idx: usize,
     mut source: SendableArrayStream,
     sender: kanal::AsyncSender<VortexResult<ArrayRef>>,
 ) {
+    let trace = trace_flow();
     while let Some(item) = source.next().await {
+        let rows = item.as_ref().map_or(0, |array| array.len());
+        let send_start = Instant::now();
         if sender.send(item).await.is_err() {
+            if trace {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    aligned_id,
+                    aligned_label,
+                    child_idx,
+                    rows,
+                    "aligned producer receiver closed"
+                );
+            }
             return;
         }
+        let send_elapsed = send_start.elapsed();
+        if trace {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                aligned_id,
+                aligned_label,
+                child_idx,
+                rows,
+                send_elapsed_ms = send_elapsed.as_secs_f64() * 1000.0,
+                "aligned producer sent"
+            );
+        }
+    }
+    if trace {
+        tracing::debug!(
+            target: "vortex_layout::v2::flow",
+            aligned_id,
+            aligned_label,
+            child_idx,
+            "aligned producer eof"
+        );
     }
 }
 
@@ -164,19 +232,33 @@ impl Stream for AlignedArrayStream {
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         let target = this.min_rows.unwrap_or(1);
+        let trace = trace_flow();
 
         // Step 1: refill each child's head until it has at least
         // `target` rows OR the receiver-stream EOFs. Polling each
         // receiver-stream is cheap (channel pop); the actual source
         // I/O happened concurrently in the producer task.
-        for child in this.children.iter_mut() {
+        for (child_idx, child) in this.children.iter_mut().enumerate() {
             loop {
                 let buffered = child.head.as_ref().map_or(0, |a| a.len());
                 if buffered >= target || child.eof {
                     break;
                 }
                 match child.receiver_stream.poll_next_unpin(cx) {
-                    Poll::Pending => return Poll::Pending,
+                    Poll::Pending => {
+                        if trace {
+                            tracing::debug!(
+                                target: "vortex_layout::v2::flow",
+                                aligned_id = this.id,
+                                aligned_label = this.label,
+                                child_idx,
+                                buffered,
+                                target,
+                                "aligned pending child"
+                            );
+                        }
+                        return Poll::Pending;
+                    }
                     Poll::Ready(None) => {
                         child.eof = true;
                         break;
@@ -247,6 +329,18 @@ impl Stream for AlignedArrayStream {
                 child.head = Some(rest);
                 output.push(front);
             }
+        }
+
+        if trace {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                aligned_id = this.id,
+                aligned_label = this.label,
+                emit_len,
+                child_count = this.children.len(),
+                target,
+                "aligned emit"
+            );
         }
 
         Poll::Ready(Some(Ok(output)))

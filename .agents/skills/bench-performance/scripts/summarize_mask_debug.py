@@ -22,6 +22,8 @@ MESSAGE_RE = re.compile(
     r"filter conjunct evaluated|"
     r"filtered flat batch projected|"
     r"filtered flat batch skipped|"
+    r"scan batch projected|"
+    r"scan batch skipped|"
     r"conjunct mask evaluated|"
     r"pruning conjunct evaluated"
     r"))\b"

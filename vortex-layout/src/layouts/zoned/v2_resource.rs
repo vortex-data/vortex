@@ -46,6 +46,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::DemandSource;
 use crate::v2::demand::Resource;
 use crate::v2::demand::RowDemand;
@@ -154,10 +155,14 @@ impl Resource for ZoneMapResource {
                 .map(|s| s.row_count())
                 .unwrap_or(0);
             let zones_demand = RowDemand::empty(zones_row_count);
+            let zones_frontier = OutputFrontier::unbounded(zones_row_count);
             let scratch_ctx = ScanCtx::new(self.session.clone());
-            let zones_stream =
-                self.zones_plan
-                    .execute(0..zones_row_count, &zones_demand, &scratch_ctx)?;
+            let zones_stream = self.zones_plan.execute(
+                0..zones_row_count,
+                &zones_demand,
+                &zones_frontier,
+                &scratch_ctx,
+            )?;
             let zones_array = zones_stream.read_all().await?;
             let mut ctx_exec = self.session.create_execution_ctx();
             let zones_struct = zones_array.execute::<StructArray>(&mut ctx_exec)?;

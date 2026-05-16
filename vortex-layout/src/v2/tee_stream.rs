@@ -46,6 +46,9 @@
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+use std::time::Instant;
 
 use futures::StreamExt;
 use futures::stream;
@@ -61,6 +64,8 @@ use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 use vortex_io::runtime::Task;
 
+use crate::v2::experiment::trace_flow;
+
 // We use unbounded channels because consumers in this codebase
 // (notably `AlignedArrayStream`) poll subscriber streams
 // sequentially in one task — a bounded channel deadlocks when the
@@ -71,9 +76,11 @@ use vortex_io::runtime::Task;
 /// Multiplexes one source [`SendableArrayStream`] into N
 /// row-range-keyed subscribers via per-subscriber kanal channels.
 pub struct TeeStream {
+    id: u64,
     inner: Arc<Mutex<TeeInner>>,
     dtype: DType,
     handle: Handle,
+    base_row: u64,
 }
 
 struct TeeInner {
@@ -94,8 +101,28 @@ impl TeeStream {
     /// Wrap `source` in a tee. Spawns nothing yet — call
     /// [`Self::subscribe`] for each consumer, then [`Self::start`].
     pub fn new(source: SendableArrayStream, handle: Handle) -> Self {
+        Self::with_base_row(source, handle, 0)
+    }
+
+    pub(crate) fn with_base_row(
+        source: SendableArrayStream,
+        handle: Handle,
+        base_row: u64,
+    ) -> Self {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         let dtype = source.dtype().clone();
+        if trace_flow() {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                tee_id = id,
+                base_row,
+                dtype = %dtype,
+                "tee new"
+            );
+        }
         Self {
+            id,
             inner: Arc::new(Mutex::new(TeeInner {
                 source: Some(source),
                 senders: Vec::new(),
@@ -103,6 +130,7 @@ impl TeeStream {
             })),
             dtype,
             handle,
+            base_row,
         }
     }
 
@@ -117,6 +145,17 @@ impl TeeStream {
     /// [`Self::start`].
     pub fn subscribe(&self, row_range: Range<u64>) -> SendableArrayStream {
         let (sender, receiver) = kanal::unbounded_async();
+        let subscriber_idx = self.inner.lock().senders.len();
+        if trace_flow() {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                tee_id = self.id,
+                subscriber_idx,
+                row_start = row_range.start,
+                row_end = row_range.end,
+                "tee subscribe"
+            );
+        }
         self.inner
             .lock()
             .senders
@@ -139,7 +178,21 @@ impl TeeStream {
             return;
         };
         let inner_arc = Arc::clone(&self.inner);
-        let task = self.handle.spawn(producer_task(source, inner_arc));
+        let id = self.id;
+        let base_row = self.base_row;
+        let subscriber_count = inner.senders.len();
+        if trace_flow() {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                tee_id = id,
+                base_row,
+                subscriber_count,
+                "tee start"
+            );
+        }
+        let task = self
+            .handle
+            .spawn(producer_task(id, source, inner_arc, self.base_row));
         inner.producer = Some(task);
     }
 }
@@ -162,8 +215,14 @@ async fn recv_one(
 /// subscriber whose row range intersects the chunk. Slices on the
 /// way out so each subscriber's channel only carries data it asked
 /// for.
-async fn producer_task(mut source: SendableArrayStream, inner: Arc<Mutex<TeeInner>>) {
-    let mut rows_produced: u64 = 0;
+async fn producer_task(
+    tee_id: u64,
+    mut source: SendableArrayStream,
+    inner: Arc<Mutex<TeeInner>>,
+    base_row: u64,
+) {
+    let trace = trace_flow();
+    let mut rows_produced = base_row;
     while let Some(item) = source.next().await {
         match item {
             Ok(chunk) => {
@@ -214,7 +273,22 @@ async fn producer_task(mut source: SendableArrayStream, inner: Arc<Mutex<TeeInne
                     };
                     // If the receiver dropped, send returns an error;
                     // just drop the chunk for that subscriber.
+                    let send_start = Instant::now();
                     let _ = sender.send(Ok(sliced)).await;
+                    let send_elapsed = send_start.elapsed();
+                    if trace {
+                        tracing::debug!(
+                            target: "vortex_layout::v2::flow",
+                            tee_id,
+                            chunk_start = chunk_range.start,
+                            chunk_end = chunk_range.end,
+                            subscriber_start = range.start,
+                            subscriber_end = range.end,
+                            rows = local_end - local_start,
+                            send_elapsed_ms = send_elapsed.as_secs_f64() * 1000.0,
+                            "tee sent chunk"
+                        );
+                    }
                 }
             }
             Err(e) => {
@@ -238,6 +312,14 @@ async fn producer_task(mut source: SendableArrayStream, inner: Arc<Mutex<TeeInne
     }
     // EOF: dropping the senders closes the channels; consumers see
     // None and terminate.
+    if trace {
+        tracing::debug!(
+            target: "vortex_layout::v2::flow",
+            tee_id,
+            rows_produced,
+            "tee producer eof"
+        );
+    }
     inner.lock().senders.clear();
 }
 

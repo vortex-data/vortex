@@ -37,6 +37,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::layouts::zoned::ZoneMapResource;
+use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::Resource;
 use crate::v2::demand::RowDemand;
 use crate::v2::plan::LayoutPlan;
@@ -154,6 +155,8 @@ impl LayoutPlan for ZonedPruningPlan {
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
+        frontier: &OutputFrontier,
+
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
         let row_count = self.resource.row_count();
@@ -168,6 +171,7 @@ impl LayoutPlan for ZonedPruningPlan {
         let data_plan = Arc::clone(&self.data_plan);
         let ctx_for_stream = ctx.clone();
         let demand_for_stream = demand.clone();
+        let frontier = frontier.clone();
         let resource = Arc::clone(&self.resource);
 
         let stream = try_stream! {
@@ -202,7 +206,7 @@ impl LayoutPlan for ZonedPruningPlan {
                     // (data plan shares the row coord system).
                     let intersect = intersect_start..intersect_end;
                     let mut data_stream =
-                        data_plan.execute(intersect, &demand_for_stream, &ctx_for_stream)?;
+                        data_plan.execute(intersect, &demand_for_stream, &frontier, &ctx_for_stream)?;
                     while let Some(item) = data_stream.next().await {
                         yield item?;
                     }

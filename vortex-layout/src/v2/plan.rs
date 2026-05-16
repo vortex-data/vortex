@@ -24,6 +24,8 @@ use vortex_utils::dyn_traits::DynEq;
 use vortex_utils::dyn_traits::DynHash;
 
 use crate::segments::SegmentSource;
+use crate::v2::dataflow::LayoutLoweringCtx;
+use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::DemandSource;
 use crate::v2::demand::RowDemand;
 use crate::v2::scan_ctx::ScanCtx;
@@ -119,6 +121,33 @@ pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {
         None
     }
 
+    /// Lower this plan into the experimental single-scheduler model.
+    ///
+    /// This is deliberately not wired into DataFusion. It records plan
+    /// metadata, lets leaves enqueue their initial scheduler work, and
+    /// leaves execution to [`LayoutLoweringCtx::drive_to_completion`].
+    ///
+    /// The default lowering assumes every child shares the same row
+    /// coordinate space as its parent. Plans that translate row
+    /// coordinates, hide children from [`Self::children`], or are both
+    /// an operator and a leaf override this method.
+    fn lower_to_scheduler(
+        &self,
+        row_range: Range<u64>,
+        ctx: &mut LayoutLoweringCtx,
+    ) -> VortexResult<()> {
+        let subplan =
+            ctx.register_plan_node(row_range.clone(), self.schema(), self.children().len());
+        if self.children().is_empty() {
+            return ctx.register_leaf_work(subplan, row_range, self.schema());
+        }
+
+        for child in self.children() {
+            child.lower_to_scheduler(row_range.clone(), ctx)?;
+        }
+        Ok(())
+    }
+
     /// Read the rows in `row_range` from this plan, in this plan's
     /// row coordinate space. Returns a stream of arrays whose total
     /// row count is `row_range.len()`.
@@ -130,6 +159,13 @@ pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {
     /// [`RowDemand::scope`] before delegating. Subtrees in unrelated
     /// row spaces (e.g. a stats child) should pass
     /// [`RowDemand::empty`] instead.
+    ///
+    /// `frontier` is the matching output-production frontier for this
+    /// row domain. The default implementation used today grants every
+    /// requested row, preserving current stream behavior. Future
+    /// schedulers can wrap it to expose different visible frontiers to
+    /// different sub-plans while leaf operators keep asking the same
+    /// local "may I produce the next N rows?" question.
     ///
     /// `ctx` is the per-scan execution context (see
     /// [`crate::v2::scan_ctx::ScanCtx`]). It carries the
@@ -144,6 +180,7 @@ pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
+        frontier: &OutputFrontier,
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream>;
 }
@@ -167,6 +204,23 @@ impl Hash for dyn LayoutPlan {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.dyn_hash(state);
     }
+}
+
+/// Lower one plan range into the experimental single-scheduler model.
+///
+/// This helper is intentionally detached from the DataFusion scan
+/// path. It gives tests and local experiments a one-call way to build
+/// the scheduler prototype, inspect queued leaf work, and drive it to
+/// completion.
+pub fn lower_to_single_scheduler(
+    plan: &dyn LayoutPlan,
+    row_range: Range<u64>,
+) -> VortexResult<LayoutLoweringCtx> {
+    let mut ctx = LayoutLoweringCtx::for_single_scheduler(row_range.end);
+    ctx.with_global_range(row_range.clone(), |ctx| {
+        plan.lower_to_scheduler(row_range, ctx)
+    })?;
+    Ok(ctx)
 }
 
 /// Compare two [`LayoutPlanRef`]s structurally. Uses `Arc::ptr_eq` as

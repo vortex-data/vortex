@@ -22,6 +22,8 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::v2::dataflow::LayoutLoweringCtx;
+use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
@@ -122,10 +124,33 @@ impl LayoutPlan for MaskSlicePlan {
         }))
     }
 
+    fn lower_to_scheduler(
+        &self,
+        row_range: Range<u64>,
+        ctx: &mut LayoutLoweringCtx,
+    ) -> VortexResult<()> {
+        if row_range.end > self.slice_len {
+            vortex_bail!(
+                "MaskSlicePlan::lower_to_scheduler row range {row_range:?} exceeds slice len {}",
+                self.slice_len
+            );
+        }
+
+        let global_range = ctx.current_global_range();
+        ctx.register_plan_node(row_range.clone(), self.schema(), 1);
+        let abs_start = self.slice_offset + row_range.start;
+        let abs_end = self.slice_offset + row_range.end;
+        ctx.with_global_range(global_range, |ctx| {
+            self.inner.lower_to_scheduler(abs_start..abs_end, ctx)
+        })
+    }
+
     fn execute(
         &self,
         row_range: Range<u64>,
         _demand: &RowDemand,
+        frontier: &OutputFrontier,
+
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
         if row_range.end > self.slice_len {
@@ -140,6 +165,7 @@ impl LayoutPlan for MaskSlicePlan {
         // range) than what we received; pass detached so it doesn't
         // mis-attribute publishes against our parent's narrow scope.
         let inner_demand = RowDemand::empty(abs_end);
-        self.inner.execute(abs_start..abs_end, &inner_demand, ctx)
+        self.inner
+            .execute(abs_start..abs_end, &inner_demand, frontier, ctx)
     }
 }

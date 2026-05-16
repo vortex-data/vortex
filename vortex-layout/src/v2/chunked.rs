@@ -19,7 +19,10 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::v2::dataflow::LayoutLoweringCtx;
+use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
+use crate::v2::experiment::trace_flow;
 use crate::v2::mask_slice::MaskSlicePlan;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
@@ -148,7 +151,15 @@ impl LayoutPlan for ChunkedPlan {
     }
 
     fn try_pushdown_mask(self: Arc<Self>, mask_plan: LayoutPlanRef) -> Option<LayoutPlanRef> {
+        let trace = trace_flow();
         if !matches!(mask_plan.schema(), DType::Bool(_)) {
+            if trace {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    chunk_count = self.children.len(),
+                    "chunked pushdown failed non-bool mask"
+                );
+            }
             return None;
         }
         // Push the chunk's slice of the mask into each child. Each
@@ -170,8 +181,37 @@ impl LayoutPlan for ChunkedPlan {
                 Arc::clone(&mask_plan),
                 chunk_start..chunk_end,
             ));
-            let pushed = Arc::clone(&self.children[idx]).try_pushdown_mask(sliced)?;
+            let Some(pushed) = Arc::clone(&self.children[idx]).try_pushdown_mask(sliced) else {
+                if trace {
+                    tracing::debug!(
+                        target: "vortex_layout::v2::flow",
+                        chunk_idx = idx,
+                        chunk_start,
+                        chunk_end,
+                        chunk_count = self.children.len(),
+                        "chunked pushdown failed child rejected"
+                    );
+                }
+                return None;
+            };
+            if trace {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    chunk_idx = idx,
+                    chunk_start,
+                    chunk_end,
+                    chunk_count = self.children.len(),
+                    "chunked pushdown child succeeded"
+                );
+            }
             new_children.push(pushed);
+        }
+        if trace {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                chunk_count = self.children.len(),
+                "chunked pushdown succeeded"
+            );
         }
         Some(Arc::new(Self {
             children: new_children,
@@ -181,10 +221,47 @@ impl LayoutPlan for ChunkedPlan {
         }))
     }
 
+    fn lower_to_scheduler(
+        &self,
+        row_range: Range<u64>,
+        ctx: &mut LayoutLoweringCtx,
+    ) -> VortexResult<()> {
+        if row_range.start > self.total_rows() || row_range.end > self.total_rows() {
+            vortex_bail!(
+                "ChunkedPlan::lower_to_scheduler row range {row_range:?} exceeds total {}",
+                self.total_rows()
+            );
+        }
+        if row_range.start > row_range.end {
+            vortex_bail!(
+                "ChunkedPlan::lower_to_scheduler received reversed row range {row_range:?}"
+            );
+        }
+
+        ctx.register_plan_node(row_range.clone(), self.schema(), self.children.len());
+        for idx in 0..self.children.len() {
+            let chunk_start = self.chunk_offsets[idx];
+            let chunk_end = self.chunk_offsets[idx + 1];
+            if chunk_end <= row_range.start || chunk_start >= row_range.end {
+                continue;
+            }
+
+            let intersect_start = chunk_start.max(row_range.start);
+            let intersect_end = chunk_end.min(row_range.end);
+            let child_range = (intersect_start - chunk_start)..(intersect_end - chunk_start);
+            ctx.with_global_range(intersect_start..intersect_end, |ctx| {
+                self.children[idx].lower_to_scheduler(child_range, ctx)
+            })?;
+        }
+        Ok(())
+    }
+
     fn execute(
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
+        frontier: &OutputFrontier,
+
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
         if row_range.start > self.total_rows() || row_range.end > self.total_rows() {
@@ -207,6 +284,17 @@ impl LayoutPlan for ChunkedPlan {
         // single Chunked grows to thousands of chunks we can swap to
         // binary search over `chunk_offsets`.
         let mut child_streams: Vec<SendableArrayStream> = Vec::new();
+        let trace = trace_flow();
+        if trace {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                row_start = row_range.start,
+                row_end = row_range.end,
+                chunk_count = self.children.len(),
+                preserve_order = self.preserve_order,
+                "chunked execute"
+            );
+        }
         for idx in 0..self.children.len() {
             let chunk_start = self.chunk_offsets[idx];
             let chunk_end = self.chunk_offsets[idx + 1];
@@ -222,7 +310,26 @@ impl LayoutPlan for ChunkedPlan {
             // coordinates, even when the requested parent range
             // starts in the middle of the chunk.
             let child_demand = demand.scope(chunk_start..chunk_end);
-            child_streams.push(self.children[idx].execute(child_range, &child_demand, ctx)?);
+            let output_start = intersect_start - row_range.start;
+            let output_end = intersect_end - row_range.start;
+            let child_frontier = frontier.clone_with_offset(output_start..output_end);
+            if trace {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    chunk_idx = idx,
+                    chunk_start,
+                    chunk_end,
+                    child_start = child_range.start,
+                    child_end = child_range.end,
+                    "chunked child execute"
+                );
+            }
+            child_streams.push(self.children[idx].execute(
+                child_range,
+                &child_demand,
+                &child_frontier,
+                ctx,
+            )?);
         }
 
         let dtype = self.output_dtype.clone();

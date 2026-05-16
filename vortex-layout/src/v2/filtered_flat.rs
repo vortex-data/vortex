@@ -24,6 +24,7 @@ use std::time::Instant;
 
 use async_stream::try_stream;
 use futures::FutureExt;
+use futures::StreamExt;
 use futures::TryFutureExt;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
@@ -42,8 +43,11 @@ use vortex_session::registry::ReadContext;
 use crate::mask_debug::log_mask_batch;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::dataflow::LayoutLoweringCtx;
+use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
 use crate::v2::experiment::bool_var;
+use crate::v2::experiment::trace_flow;
 use crate::v2::flat::SharedSegmentFuture;
 use crate::v2::flat::decode_segment;
 use crate::v2::flat::slice_to_range;
@@ -240,10 +244,43 @@ impl LayoutPlan for FilteredFlatPlan {
         None
     }
 
+    fn lower_to_scheduler(
+        &self,
+        row_range: Range<u64>,
+        ctx: &mut LayoutLoweringCtx,
+    ) -> VortexResult<()> {
+        if row_range.start > self.layout_row_count || row_range.end > self.layout_row_count {
+            vortex_bail!(
+                "FilteredFlatPlan::lower_to_scheduler row range {row_range:?} exceeds layout row count {}",
+                self.layout_row_count
+            );
+        }
+        let subplan = ctx.register_plan_node(row_range.clone(), self.schema(), 1);
+        self.mask_plan.lower_to_scheduler(row_range.clone(), ctx)?;
+        let pipeline = ctx.close_pipeline_with_segment_source(
+            subplan,
+            self.segment_id,
+            row_range,
+            self.schema(),
+        );
+        let global_range = ctx.current_global_range();
+        let rows = global_range.end.saturating_sub(global_range.start).max(1);
+        ctx.register_segment_task(
+            pipeline,
+            self.segment_id,
+            global_range,
+            rows.saturating_mul(16),
+            self.segment_fut.clone(),
+        )?;
+        Ok(())
+    }
+
     fn execute(
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
+        frontier: &OutputFrontier,
+
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
         if !matches!(self.selection, Selection::All) {
@@ -270,8 +307,22 @@ impl LayoutPlan for FilteredFlatPlan {
         let coord_range = demand.global_range(&row_range);
         let debug_label = ctx.debug_label().map(str::to_owned);
         let segment_id = self.segment_id;
+        let incremental_mask_batches = !bool_var("VORTEX_V2_FILTERED_FLAT_READ_ALL_MASK");
+        let trace = trace_flow();
+        if trace {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                ?segment_id,
+                row_start = row_range_for_slice.start,
+                row_end = row_range_for_slice.end,
+                coord_start = coord_range.start,
+                coord_end = coord_range.end,
+                incremental_mask_batches,
+                "filtered flat execute"
+            );
+        }
 
-        let mask_stream = self.mask_plan.execute(row_range, demand, ctx)?;
+        let mask_stream = self.mask_plan.execute(row_range, demand, frontier, ctx)?;
         let demand_for_skip = demand.clone();
         let demand_range = row_range_for_slice.clone();
         let stream = try_stream! {
@@ -286,15 +337,167 @@ impl LayoutPlan for FilteredFlatPlan {
             {
                 return;
             }
+
+            if incremental_mask_batches {
+                let mut mask_stream = mask_stream;
+                let mut batch_start = row_range_for_slice.start;
+                let mut decoded = None;
+
+                while let Some(mask_array) = mask_stream.next().await {
+                    let mask_start = Instant::now();
+                    let mask_array = mask_array?;
+                    let batch_len = mask_array.len();
+                    if batch_len == 0 {
+                        continue;
+                    }
+                    let batch_len_u64 = u64::try_from(batch_len)?;
+                    let batch_end = batch_start + batch_len_u64;
+                    if batch_end > row_range_for_slice.end {
+                        Err(vortex_error::vortex_err!(
+                            "FilteredFlatPlan mask stream produced rows past requested range: {batch_end} > {}",
+                            row_range_for_slice.end
+                        ))?;
+                    }
+                    let batch_range = batch_start..batch_end;
+                    let batch_coord_range = demand_for_skip.global_range(&batch_range);
+                    batch_start = batch_end;
+
+                    let mut ctx_exec = session.create_execution_ctx();
+                    let mask: Mask = mask_array.execute::<Mask>(&mut ctx_exec)?;
+                    let mask_elapsed = mask_start.elapsed();
+
+                    if mask.true_count() == 0 {
+                        log_mask_batch(
+                            "v2 filtered flat batch skipped",
+                            debug_label.as_deref(),
+                            &batch_range,
+                            &batch_coord_range,
+                            &mask,
+                            Some(mask_elapsed),
+                            None,
+                        );
+                        continue;
+                    }
+                    if trace {
+                        tracing::debug!(
+                            target: "vortex_layout::v2::flow",
+                            ?segment_id,
+                            row_start = batch_range.start,
+                            row_end = batch_range.end,
+                            true_count = mask.true_count(),
+                            mask_elapsed_ms = mask_elapsed.as_secs_f64() * 1000.0,
+                            "filtered flat incremental mask ready"
+                        );
+                    }
+                    let output_mask_for_log = tracing::enabled!(tracing::Level::DEBUG).then(|| mask.clone());
+
+                    let decode_start = Instant::now();
+                    if decoded.is_none() {
+                        decoded = Some(decode_segment(
+                            segment_fut.clone(),
+                            array_tree.clone(),
+                            layout_dtype.clone(),
+                            layout_row_count,
+                            array_ctx.clone(),
+                            &session,
+                        )
+                        .await?);
+                    }
+                    let decode_elapsed = decode_start.elapsed();
+                    if trace {
+                        tracing::debug!(
+                            target: "vortex_layout::v2::flow",
+                            ?segment_id,
+                            row_start = batch_range.start,
+                            row_end = batch_range.end,
+                            decode_elapsed_ms = decode_elapsed.as_secs_f64() * 1000.0,
+                            cached = decoded.is_some(),
+                            "filtered flat incremental decode ready"
+                        );
+                    }
+                    let array = decoded
+                        .as_ref()
+                        .ok_or_else(|| vortex_error::vortex_err!("FilteredFlatPlan decoded array missing"))?
+                        .clone();
+                    let array = slice_to_range(array, &batch_range)?;
+
+                    let filter_start = Instant::now();
+                    let array = if mask.all_true() {
+                        array
+                    } else {
+                        array.filter(mask)?
+                    };
+                    let filter_elapsed = filter_start.elapsed();
+                    let apply_start = Instant::now();
+                    let array = array.apply(&expr)?;
+                    let apply_elapsed = apply_start.elapsed();
+                    if let Some(mask) = output_mask_for_log.as_ref() {
+                        log_mask_batch(
+                            "v2 filtered flat batch projected",
+                            debug_label.as_deref(),
+                            &batch_range,
+                            &batch_coord_range,
+                            mask,
+                            Some(mask_elapsed + decode_elapsed + filter_elapsed + apply_elapsed),
+                            Some(array.len()),
+                        );
+                    }
+                    tracing::debug!(
+                        scan_label = debug_label.as_deref().unwrap_or(""),
+                        ?segment_id,
+                        row_start = batch_range.start,
+                        row_end = batch_range.end,
+                        coord_start = batch_coord_range.start,
+                        coord_end = batch_coord_range.end,
+                        mask_elapsed_ms = mask_elapsed.as_secs_f64() * 1000.0,
+                        decode_elapsed_ms = decode_elapsed.as_secs_f64() * 1000.0,
+                        filter_elapsed_ms = filter_elapsed.as_secs_f64() * 1000.0,
+                        apply_elapsed_ms = apply_elapsed.as_secs_f64() * 1000.0,
+                        output_rows = array.len(),
+                        "v2 filtered flat batch timing"
+                    );
+                    yield array;
+                }
+
+                if batch_start != row_range_for_slice.end {
+                    Err(vortex_error::vortex_err!(
+                        "FilteredFlatPlan mask stream produced {} rows, expected {}",
+                        batch_start - row_range_for_slice.start,
+                        row_range_for_slice.end - row_range_for_slice.start
+                    ))?;
+                }
+                return;
+            }
+
             // Lockstep contract: await enough mask rows to cover this
             // flat layout's row range, then issue the read. The
             // partial-read variant lands later (see
             // `LAYOUT_PLAN.md` § FilterPlan and its pushdown).
             let mask_start = Instant::now();
+            if trace {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    ?segment_id,
+                    row_start = row_range_for_slice.start,
+                    row_end = row_range_for_slice.end,
+                    "filtered flat mask read_all start"
+                );
+            }
             let mask_array = mask_stream.read_all().await?;
             let mut ctx_exec = session.create_execution_ctx();
             let mask: Mask = mask_array.execute::<Mask>(&mut ctx_exec)?;
             let mask_elapsed = mask_start.elapsed();
+            if trace {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    ?segment_id,
+                    row_start = row_range_for_slice.start,
+                    row_end = row_range_for_slice.end,
+                    true_count = mask.true_count(),
+                    mask_elapsed_ms = mask_elapsed.as_secs_f64() * 1000.0,
+                    "filtered flat mask read_all done"
+                );
+            }
 
             // Mask-zero short-circuit: if the upstream filter produced
             // an all-false mask over our range, skip the decode +
@@ -325,6 +528,16 @@ impl LayoutPlan for FilteredFlatPlan {
             )
             .await?;
             let decode_elapsed = decode_start.elapsed();
+            if trace {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    ?segment_id,
+                    row_start = row_range_for_slice.start,
+                    row_end = row_range_for_slice.end,
+                    decode_elapsed_ms = decode_elapsed.as_secs_f64() * 1000.0,
+                    "filtered flat decode done"
+                );
+            }
             let array = slice_to_range(array, &row_range_for_slice)?;
 
             let filter_start = Instant::now();

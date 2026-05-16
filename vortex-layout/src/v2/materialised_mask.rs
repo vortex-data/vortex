@@ -33,14 +33,17 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::ops::Range;
 use std::sync::Arc;
+use std::time::Instant;
 
 use futures::FutureExt;
+use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::future::Shared;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_array::validity::Validity;
 use vortex_error::VortexError;
@@ -50,6 +53,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
+use crate::v2::experiment::trace_flow;
 use crate::v2::let_use::LetId;
 use crate::v2::scan_ctx::ScanCtxValue;
 
@@ -204,13 +208,53 @@ pub fn build_materialise_future(
 ) -> SharedMaskFuture {
     use vortex_array::stream::ArrayStreamExt as _;
     async move {
+        let trace = trace_flow();
+        let start = Instant::now();
+        if trace {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                row_start = row_range.start,
+                row_end = row_range.end,
+                "materialised mask read_all start"
+            );
+        }
         let array = source_stream.read_all().await.map_err(Arc::new)?;
         let materialised =
             MaterialisedMask::from_array(array, &session, row_range).map_err(Arc::new)?;
+        if trace {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                row_start = materialised.row_range.start,
+                row_end = materialised.row_range.end,
+                rows = materialised.len(),
+                true_count = materialised.mask.true_count(),
+                elapsed_ms = start.elapsed().as_secs_f64() * 1000.0,
+                "materialised mask read_all done"
+            );
+        }
         Ok(Arc::new(materialised))
     }
     .boxed()
     .shared()
+}
+
+/// Canonicalise each Bool stream chunk into a [`Mask`] once, then
+/// expose it again as a Bool array. This keeps streaming chunk
+/// boundaries while giving downstream consumers cheap all-true /
+/// all-false mask representations where possible.
+pub(crate) fn canonical_mask_stream(
+    source_stream: SendableArrayStream,
+    session: VortexSession,
+) -> SendableArrayStream {
+    let dtype = source_stream.dtype().clone();
+    let stream = source_stream.map(move |item| {
+        item.and_then(|array| {
+            let mut ctx = session.create_execution_ctx();
+            let mask: Mask = array.execute::<Mask>(&mut ctx)?;
+            Ok(mask.into_array())
+        })
+    });
+    Box::pin(ArrayStreamAdapter::new(dtype, stream))
 }
 
 /// Wrap an `Arc<MaterialisedMask>` slice as an `ArrayRef` so that

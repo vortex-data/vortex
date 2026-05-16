@@ -31,7 +31,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::v2::dataflow::LayoutLoweringCtx;
+use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
+use crate::v2::experiment::trace_flow;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -150,10 +153,61 @@ impl LayoutPlan for DictDecodePlan {
         }))
     }
 
+    fn try_pushdown_mask(self: Arc<Self>, mask_plan: LayoutPlanRef) -> Option<LayoutPlanRef> {
+        if !matches!(mask_plan.schema(), DType::Bool(_)) {
+            if trace_flow() {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    output_dtype = %self.output_dtype,
+                    "dict pushdown failed non-bool mask"
+                );
+            }
+            return None;
+        }
+
+        let pushed_codes = Arc::clone(&self.codes_plan).try_pushdown_mask(mask_plan)?;
+
+        if trace_flow() {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                output_dtype = %self.output_dtype,
+                "dict pushdown succeeded"
+            );
+        }
+
+        Some(Arc::new(Self {
+            codes_plan: pushed_codes,
+            values_plan: Arc::clone(&self.values_plan),
+            expr: self.expr.clone(),
+            output_dtype: self.output_dtype.clone(),
+            // Filtering codes can make previously referenced dictionary
+            // values unreachable, so drop the stronger hint after pushdown.
+            all_values_referenced: false,
+        }))
+    }
+
+    fn lower_to_scheduler(
+        &self,
+        row_range: Range<u64>,
+        ctx: &mut LayoutLoweringCtx,
+    ) -> VortexResult<()> {
+        ctx.register_plan_node(row_range.clone(), self.schema(), 2);
+
+        let values_total = self.values_plan.partition_stats(0)?.row_count();
+        let global_range = ctx.current_global_range();
+        ctx.with_global_range(global_range, |ctx| {
+            self.values_plan.lower_to_scheduler(0..values_total, ctx)
+        })?;
+
+        self.codes_plan.lower_to_scheduler(row_range, ctx)
+    }
+
     fn execute(
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
+        frontier: &OutputFrontier,
+
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
         // Read the entire values table. The values plan covers its
@@ -170,18 +224,25 @@ impl LayoutPlan for DictDecodePlan {
         let codes_plan = Arc::clone(&self.codes_plan);
         let values_plan = Arc::clone(&self.values_plan);
         let demand = demand.clone();
+        let frontier = frontier.clone();
         let ctx_for_stream = ctx.clone();
         let expr = self.expr.clone();
         let dtype = self.output_dtype.clone();
         let all_values_referenced = self.all_values_referenced;
         let stream = try_stream! {
-            let mut codes_stream = codes_plan.execute(row_range, &demand, &ctx_for_stream)?;
+            let mut codes_stream = codes_plan.execute(row_range, &demand, &frontier, &ctx_for_stream)?;
             let Some(first_codes) = codes_stream.next().await else {
                 return;
             };
 
             let values_demand = RowDemand::empty(values_total);
-            let values_stream = values_plan.execute(0..values_total, &values_demand, &ctx_for_stream)?;
+            let values_frontier = OutputFrontier::unbounded(values_total);
+            let values_stream = values_plan.execute(
+                0..values_total,
+                &values_demand,
+                &values_frontier,
+                &ctx_for_stream,
+            )?;
 
             // Materialise the values into a single shared array. Wrap
             // in `SharedArray` so each chunk's `DictArray::new_unchecked`

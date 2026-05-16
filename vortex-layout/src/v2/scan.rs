@@ -33,8 +33,12 @@ use crate::segments::SegmentSource;
 use crate::v2::and_bool::ConjunctInfo;
 use crate::v2::and_bool::ConjunctPlan;
 use crate::v2::cse::cse;
+use crate::v2::dataflow::OutputFrontier;
+use crate::v2::dataflow::execute_with_single_scheduler;
 use crate::v2::demand::DemandSource;
 use crate::v2::demand::RowDemand;
+use crate::v2::experiment::bool_var;
+use crate::v2::experiment::trace_flow;
 use crate::v2::filter::FilterPlan;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
@@ -377,6 +381,8 @@ impl LayoutPlan for ScanPlan {
         &self,
         row_range: std::ops::Range<u64>,
         _demand: &RowDemand,
+        _frontier: &OutputFrontier,
+
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
         // Construct the per-partition RowDemand from our declared
@@ -384,6 +390,16 @@ impl LayoutPlan for ScanPlan {
         // called us) is intentionally ignored — `ScanPlan` is the
         // boundary that introduces a fresh demand.
         let demand = RowDemand::new(self.demand_sources.clone(), self.total_rows);
+        if trace_flow() {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                row_start = row_range.start,
+                row_end = row_range.end,
+                total_rows = self.total_rows,
+                demand_sources = self.demand_sources.len(),
+                "scan execute"
+            );
+        }
 
         // Spawn each source's `ensure_ready` so init happens
         // concurrently with the body. Pulls inside the body lazily
@@ -401,7 +417,18 @@ impl LayoutPlan for ScanPlan {
                 .detach();
         }
 
-        self.body.execute(row_range, &demand, ctx)
+        let frontier =
+            OutputFrontier::unbounded(self.total_rows).clone_with_offset(row_range.clone());
+        if bool_var("VORTEX_V2_SCHEDULER_EXECUTE") {
+            return execute_with_single_scheduler(
+                Arc::clone(&self.body),
+                row_range,
+                demand,
+                frontier,
+                ctx.clone(),
+            );
+        }
+        self.body.execute(row_range, &demand, &frontier, ctx)
     }
 }
 
@@ -581,7 +608,9 @@ mod tests {
             // chunking/slicing it needs. ScanPlan installs a fresh
             // demand internally; the parent demand we pass is detached.
             let parent_demand = crate::v2::demand::RowDemand::empty(row_count);
-            let mut stream = plan.execute(0..row_count, &parent_demand, &scan_ctx)?;
+            let parent_frontier = crate::v2::dataflow::OutputFrontier::unbounded(row_count);
+            let mut stream =
+                plan.execute(0..row_count, &parent_demand, &parent_frontier, &scan_ctx)?;
             while let Some(chunk) = stream.next().await {
                 chunks.push(chunk?);
             }
@@ -616,7 +645,10 @@ mod tests {
             let mut chunks = Vec::new();
             for range in ranges {
                 let scan_ctx = crate::v2::scan_ctx::ScanCtx::new(session.clone());
-                let mut stream = plan.execute(range, &parent_demand, &scan_ctx)?;
+                let parent_frontier = crate::v2::dataflow::OutputFrontier::unbounded(row_count)
+                    .clone_with_offset(range.clone());
+                let mut stream =
+                    plan.execute(range, &parent_demand, &parent_frontier, &scan_ctx)?;
                 while let Some(chunk) = stream.next().await {
                     chunks.push(chunk?);
                 }
@@ -892,6 +924,70 @@ mod tests {
 
         assert_arrays_eq!(v1, v2);
         Ok(())
+    }
+
+    /// The scheduler-backed partition driver should produce the same
+    /// filtered scan output while returning arrays through its sink
+    /// queue.
+    #[test]
+    fn scheduler_execute_filtered_chunked_struct_single_conjunct() -> VortexResult<()> {
+        use vortex_array::expr::eq;
+        use vortex_array::expr::get_item;
+        use vortex_array::expr::lit;
+        let (segments, layout, _) = build_chunked_struct_layout();
+
+        let projection = root();
+        let filter = eq(get_item("a", root()), lit(2i32));
+
+        let v1 = read_v1_with(
+            Arc::clone(&segments),
+            &layout,
+            projection.clone(),
+            Some(filter.clone()),
+        )?;
+        let v2 = temp_env::with_var("VORTEX_V2_SCHEDULER_EXECUTE", Some("1"), || {
+            read_v2_with(Arc::clone(&segments), &layout, projection, Some(filter))
+        })?;
+
+        assert_arrays_eq!(v1, v2);
+        Ok(())
+    }
+
+    /// The experimental dataflow filter path should preserve the
+    /// observable filtered-scan result while delaying value execution
+    /// until mask coverage is available.
+    #[test]
+    fn diff_v1_v2_filtered_chunked_struct_dataflow_filter() -> VortexResult<()> {
+        use vortex_array::expr::and;
+        use vortex_array::expr::eq;
+        use vortex_array::expr::get_item;
+        use vortex_array::expr::gt;
+        use vortex_array::expr::lit;
+        let (segments, layout, _) = build_chunked_struct_layout();
+
+        let projection = root();
+        let filter = and(
+            gt(get_item("a", root()), lit(1i32)),
+            eq(get_item("b", root()), lit(40i32)),
+        );
+
+        temp_env::with_vars(
+            [
+                ("VORTEX_V2_FILTER_DATAFLOW", Some("1")),
+                ("VORTEX_V2_FILTER_DATAFLOW_MIN_VALUE_ROWS", Some("2")),
+            ],
+            || {
+                let v1 = read_v1_with(
+                    Arc::clone(&segments),
+                    &layout,
+                    projection.clone(),
+                    Some(filter.clone()),
+                )?;
+                let v2 = read_v2_with(Arc::clone(&segments), &layout, projection, Some(filter))?;
+                assert_arrays_eq!(v1, v2);
+                Ok(())
+            },
+        )
     }
 
     /// Build a `Zoned(Chunked(Flat))` layout — three chunks of 3

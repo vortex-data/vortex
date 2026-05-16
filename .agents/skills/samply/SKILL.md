@@ -68,12 +68,14 @@ For long performance sessions, use this cadence:
    ```
 
 3. Record a focused Samply profile. `vx-bench --samply` works, but direct `samply record` gives
-   control over output paths and prevents the browser UI from opening:
+   control over output paths and prevents the browser UI from opening. Prefer recording without
+   `--unstable-presymbolicate` first, then symbolicate offline with the scripts below. This avoids
+   chasing misleading pre-symbolicated stacks when macOS unwinding or symbol lookup gets confused:
 
    ```bash
-   FEATURE_TOGGLE=1 samply record --save-only --unstable-presymbolicate --rate 1000 \
+   FEATURE_TOGGLE=1 samply record --save-only --rate 1000 \
      --output /private/tmp/<label>.profile.json.gz \
-     -- target/release_debug/<benchmark-binary> <benchmark> \
+     -- target/<profile-dir>/<benchmark-binary> <benchmark> \
        --display-format gh-json \
        --iterations 5 \
        --hide-progress-bar \
@@ -89,17 +91,32 @@ For long performance sessions, use this cadence:
 
    ```bash
    samply record --save-only --output /private/tmp/samply-help.profile.json.gz \
-     -- target/release_debug/datafusion-bench --help
+     -- target/<profile-dir>/datafusion-bench --help
    ```
 
    In Codex on macOS, `Encountered an error during profiling: Unknown(1100)` usually means Samply
    was blocked by the sandbox before the profiled command started. Rerun the same `samply record`
    command with escalated permissions instead of debugging the benchmark or changing the query.
 
-   `bench-orchestrator` builds `target/release_debug/datafusion-bench` by default with
-   `RUSTFLAGS="-C target-cpu=native -C force-frame-pointers=yes"` and the
-   `unstable_encodings` feature. That profile has debug info and frame pointers, which is usually
-   better for Samply than an arbitrary release binary.
+   `release_debug` is fine when its stacks look sane:
+
+   ```bash
+   cargo build -p <benchmark-crate> --profile release_debug --features unstable_encodings
+   # binary: target/release_debug/<benchmark-binary>
+   ```
+
+   If the symbols or unwinding look suspect, rebuild with the repo's `bench` profile and re-record:
+
+   ```bash
+   cargo build -p <benchmark-crate> --profile bench --features unstable_encodings
+   # binary: target/release/<benchmark-binary>
+   ```
+
+   If a profile shows impossible-looking ancestry, such as hot execution frames nested under
+   unrelated `Drop::drop` frames or otherwise nonsensical async stacks, do not trust the stack
+   summary. First verify the binary UUID matches the profile, remove presymbolication from the
+   recording command, and rebuild with `--profile bench` if `release_debug` still produces bad
+   stacks.
 
    After the profile is recorded, immediately show the user the command to open it themselves:
 
@@ -122,7 +139,7 @@ For long performance sessions, use this cadence:
    ```bash
    python3 .agents/skills/samply/scripts/profile_summary.py \
      /private/tmp/<label>.profile.json.gz \
-     --binary target/release_debug/<benchmark-binary> \
+     --binary target/<profile-dir>/<benchmark-binary> \
      --symbolicate \
      --weight-mode cpu \
      --top 12 \
@@ -136,7 +153,7 @@ For long performance sessions, use this cadence:
    ```bash
    python3 .agents/skills/samply/scripts/profile_summary.py \
      /private/tmp/<label>.profile.json.gz \
-     --binary target/release_debug/<benchmark-binary> \
+     --binary target/<profile-dir>/<benchmark-binary> \
      --symbolicate \
      --weight-mode cpu \
      --top 30 \
@@ -158,7 +175,7 @@ For long performance sessions, use this cadence:
    ```bash
    python3 .agents/skills/samply/scripts/profile_inverted_tree.py \
      /private/tmp/<label>.profile.json.gz \
-     --binary target/release_debug/<benchmark-binary> \
+     --binary target/<profile-dir>/<benchmark-binary> \
      --symbolicate \
      --thread-regex tokio-rt-worker \
      --start-ms <start> \
@@ -203,7 +220,7 @@ using `atos`, verify the binary UUID matches the profile:
 
 ```bash
 gzip -cd profile.json.gz | jq '.libs[] | select(.name=="datafusion-bench") | {path, codeId, breakpadId}'
-dwarfdump --uuid target/release_debug/datafusion-bench
+dwarfdump --uuid target/<profile-dir>/datafusion-bench
 ```
 
 If the UUID/code ID does not match, do not trust symbol names from the current binary. Re-profile,
@@ -213,7 +230,7 @@ On macOS, Samply stores app addresses as offsets. Add the Mach-O text load addre
 `atos` manually:
 
 ```bash
-atos -o target/release_debug/datafusion-bench -l 0x100000000 0x103db28a0
+atos -o target/<profile-dir>/datafusion-bench -l 0x100000000 0x103db28a0
 ```
 
 For a raw offset `0x3db28a0`, the address passed to `atos` is `0x100000000 + 0x3db28a0`.

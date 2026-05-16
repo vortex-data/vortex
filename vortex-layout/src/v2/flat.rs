@@ -21,11 +21,11 @@ use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
+use async_stream::try_stream;
 use futures::FutureExt;
 use futures::TryFutureExt;
 use futures::future::BoxFuture;
 use futures::future::Shared;
-use futures::stream;
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
@@ -44,8 +44,12 @@ use vortex_session::registry::ReadContext;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+use crate::v2::dataflow::LayoutLoweringCtx;
+use crate::v2::dataflow::OutputEstimate;
+use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
 use crate::v2::experiment::bool_var;
+use crate::v2::experiment::trace_flow;
 use crate::v2::filtered_flat::FilteredFlatPlan;
 use crate::v2::placeholder::default_array;
 use crate::v2::plan::LayoutPlan;
@@ -204,7 +208,23 @@ impl LayoutPlan for FlatPlan {
 
     fn try_pushdown_mask(self: Arc<Self>, mask_plan: LayoutPlanRef) -> Option<LayoutPlanRef> {
         if !matches!(mask_plan.schema(), DType::Bool(_)) {
+            if trace_flow() {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    segment_id = ?self.segment_id,
+                    "flat pushdown failed non-bool mask"
+                );
+            }
             return None;
+        }
+        if trace_flow() {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                segment_id = ?self.segment_id,
+                layout_rows = self.layout_row_count,
+                output_dtype = %self.output_dtype,
+                "flat pushdown succeeded"
+            );
         }
         Some(Arc::new(FilteredFlatPlan::with_segment_future(
             self.segment_id,
@@ -220,10 +240,42 @@ impl LayoutPlan for FlatPlan {
         )))
     }
 
+    fn lower_to_scheduler(
+        &self,
+        row_range: Range<u64>,
+        ctx: &mut LayoutLoweringCtx,
+    ) -> VortexResult<()> {
+        if row_range.start > self.layout_row_count || row_range.end > self.layout_row_count {
+            vortex_bail!(
+                "FlatPlan::lower_to_scheduler row range {row_range:?} exceeds layout row count {}",
+                self.layout_row_count
+            );
+        }
+        let subplan = ctx.register_plan_node(row_range.clone(), self.schema(), 0);
+        let pipeline = ctx.close_pipeline_with_segment_source(
+            subplan,
+            self.segment_id,
+            row_range,
+            self.schema(),
+        );
+        let global_range = ctx.current_global_range();
+        let rows = global_range.end.saturating_sub(global_range.start).max(1);
+        ctx.register_segment_task(
+            pipeline,
+            self.segment_id,
+            global_range,
+            rows.saturating_mul(16),
+            self.segment_fut.clone(),
+        )?;
+        Ok(())
+    }
+
     fn execute(
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
+        frontier: &OutputFrontier,
+
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
         if !matches!(self.selection, Selection::All) {
@@ -248,36 +300,70 @@ impl LayoutPlan for FlatPlan {
         let expr = self.expr.clone();
         let session = ctx.session().clone();
         let row_range_for_slice = row_range;
-        let row_range_for_demand = row_range_for_slice.clone();
         let demand = demand.clone();
+        let mut frontier = frontier.clone();
+        if trace_flow() {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                segment_id = ?self.segment_id,
+                row_start = row_range_for_slice.start,
+                row_end = row_range_for_slice.end,
+                layout_rows = self.layout_row_count,
+                output_dtype = %self.output_dtype,
+                "flat execute"
+            );
+        }
 
-        let inner = stream::once(
-            async move {
-                if !bool_var("VORTEX_V2_DISABLE_ROW_DEMAND")
-                    && demand.cardinality(row_range_for_demand).await? == 0
-                {
-                    let len = usize::try_from(row_range_for_slice.end - row_range_for_slice.start)
-                        .map_err(|_| {
-                            vortex_err!(
-                                "FlatPlan: row range length exceeds usize: {row_range_for_slice:?}"
-                            )
-                        })?;
-                    return Ok(default_array(&output_dtype, len));
+        let inner = try_stream! {
+            let requested_rows = row_range_for_slice.end - row_range_for_slice.start;
+            let mut decoded: Option<ArrayRef> = None;
+            let mut cursor = 0;
+            while cursor < requested_rows {
+                let remaining = requested_rows - cursor;
+                let grant = frontier
+                    .grant_next_async(remaining, OutputEstimate::new(remaining, remaining))
+                    .await?;
+                if grant.range().start >= grant.range().end {
+                    continue;
                 }
-                let array = decode_segment(
-                    segment_fut,
-                    array_tree,
-                    layout_dtype,
-                    layout_row_count,
-                    array_ctx,
-                    &session,
-                )
-                .await?;
-                let array = slice_to_range(array, &row_range_for_slice)?;
-                array.apply(&expr)
+                let grant_len = grant.range().end - grant.range().start;
+                let local_range = (row_range_for_slice.start + grant.range().start)
+                    ..(row_range_for_slice.start + grant.range().end);
+                if !bool_var("VORTEX_V2_DISABLE_ROW_DEMAND") {
+                    let demanded_rows = if bool_var("VORTEX_V2_ROW_DEMAND_RANGE_PULL") {
+                        demand.cardinality_uncached(local_range.clone()).await?
+                    } else {
+                        demand.cardinality(local_range.clone()).await?
+                    };
+                    if demanded_rows == 0 {
+                        let len = usize::try_from(grant_len).map_err(|_| {
+                            vortex_err!("FlatPlan: grant length exceeds usize: {grant_len}")
+                        })?;
+                        yield default_array(&output_dtype, len);
+                        cursor = grant.range().end;
+                        continue;
+                    }
+                }
+                if decoded.is_none() {
+                    decoded = Some(decode_segment(
+                        segment_fut.clone(),
+                        array_tree.clone(),
+                        layout_dtype.clone(),
+                        layout_row_count,
+                        array_ctx.clone(),
+                        &session,
+                    )
+                    .await?);
+                }
+                let array = decoded
+                    .as_ref()
+                    .ok_or_else(|| vortex_err!("FlatPlan decoded array missing"))?
+                    .clone();
+                let array = slice_to_range(array, &local_range)?;
+                yield array.apply(&expr)?;
+                cursor = grant.range().end;
             }
-            .map(|res: VortexResult<ArrayRef>| res),
-        );
+        };
         Ok(Box::pin(ArrayStreamAdapter::new(dtype, inner)))
     }
 }

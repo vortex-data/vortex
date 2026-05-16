@@ -158,7 +158,9 @@ fn sum_range(start: u64, end: u64) -> u64 {
     } else {
         n.wrapping_mul((first + last) / 2)
     };
-    sum as u64
+    let mut low = [0_u8; 8];
+    low.copy_from_slice(&sum.to_le_bytes()[..8]);
+    u64::from_le_bytes(low)
 }
 
 fn xor_range(start: u64, end: u64) -> u64 {

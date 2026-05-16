@@ -11,6 +11,7 @@ use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
+use async_stream::try_stream;
 use futures::StreamExt;
 use vortex_array::IntoArray;
 use vortex_array::arrays::StructArray;
@@ -25,7 +26,11 @@ use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
 
 use crate::v2::aligned::AlignedArrayStream;
+use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
+use crate::v2::experiment::bool_var;
+use crate::v2::experiment::trace_flow;
+use crate::v2::placeholder::default_array;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -148,6 +153,13 @@ impl LayoutPlan for StructPlan {
     }
 
     fn try_pushdown_mask(self: Arc<Self>, mask_plan: LayoutPlanRef) -> Option<LayoutPlanRef> {
+        if bool_var("VORTEX_V2_DISABLE_STRUCT_MASK_PUSHDOWN") {
+            return None;
+        }
+        if self.children.len() > 1 && !bool_var("VORTEX_V2_ENABLE_MULTI_FIELD_STRUCT_MASK_PUSHDOWN")
+        {
+            return None;
+        }
         // All fields share the struct's row space, so each can
         // accept the same mask. If any field can't absorb, bail —
         // a partial pushdown would mean some fields filter and
@@ -161,12 +173,44 @@ impl LayoutPlan for StructPlan {
         // regression that caused this pushdown to be reverted on
         // PR4. CSE + streaming Let make it safe again.
         if !matches!(mask_plan.schema(), DType::Bool(_)) {
+            if trace_flow() {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    child_count = self.children.len(),
+                    "struct pushdown failed non-bool mask"
+                );
+            }
             return None;
         }
         let mut new_children = Vec::with_capacity(self.children.len());
-        for child in &self.children {
-            let absorbed = Arc::clone(child).try_pushdown_mask(Arc::clone(&mask_plan))?;
+        for (child_idx, child) in self.children.iter().enumerate() {
+            let Some(absorbed) = Arc::clone(child).try_pushdown_mask(Arc::clone(&mask_plan)) else {
+                if trace_flow() {
+                    tracing::debug!(
+                        target: "vortex_layout::v2::flow",
+                        child_idx,
+                        child_count = self.children.len(),
+                        "struct pushdown failed child rejected"
+                    );
+                }
+                return None;
+            };
+            if trace_flow() {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    child_idx,
+                    child_count = self.children.len(),
+                    "struct pushdown child succeeded"
+                );
+            }
             new_children.push(absorbed);
+        }
+        if trace_flow() {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                child_count = self.children.len(),
+                "struct pushdown succeeded"
+            );
         }
         Some(Arc::new(Self {
             children: new_children,
@@ -183,6 +227,8 @@ impl LayoutPlan for StructPlan {
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
+        frontier: &OutputFrontier,
+
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
         if self.output_dtype.is_nullable() {
@@ -191,9 +237,79 @@ impl LayoutPlan for StructPlan {
             vortex_bail!("StructPlan does not yet support nullable structs");
         }
 
+        if bool_var("VORTEX_V2_VALUE_TREE_ROW_DEMAND") && !bool_var("VORTEX_V2_DISABLE_ROW_DEMAND")
+        {
+            let children = self.children.clone();
+            let field_names = self.field_names.clone();
+            let output_dtype = self.output_dtype.clone();
+            let dtype = output_dtype.clone();
+            let demand = demand.clone();
+            let frontier = frontier.clone();
+            let ctx = ctx.clone();
+            let stream = try_stream! {
+                let demanded_rows = if bool_var("VORTEX_V2_ROW_DEMAND_RANGE_PULL") {
+                    demand.cardinality_uncached(row_range.clone()).await?
+                } else {
+                    demand.cardinality(row_range.clone()).await?
+                };
+                if demanded_rows == 0 {
+                    let len = usize::try_from(row_range.end - row_range.start)?;
+                    yield default_array(&output_dtype, len);
+                    return;
+                }
+
+                let mut child_streams = Vec::with_capacity(children.len());
+                if trace_flow() {
+                    tracing::debug!(
+                        target: "vortex_layout::v2::flow",
+                        row_start = row_range.start,
+                        row_end = row_range.end,
+                        child_count = children.len(),
+                        "struct execute"
+                    );
+                }
+                for child in &children {
+                    child_streams.push(child.execute(row_range.clone(), &demand, &frontier, &ctx)?);
+                }
+
+                let names: FieldNames = FieldNames::from(field_names.as_slice());
+                let mut aligned =
+                    Box::pin(AlignedArrayStream::new_labeled(child_streams, ctx.session().handle(), "struct"));
+                while let Some(result) = aligned.next().await {
+                    let arrays = result?;
+                    let len = arrays.first().map_or(0, |a| a.len());
+                    if trace_flow() {
+                        tracing::debug!(
+                            target: "vortex_layout::v2::flow",
+                            len,
+                            field_count = arrays.len(),
+                            "struct emit"
+                        );
+                    }
+                    yield StructArray::try_new(
+                        names.clone(),
+                        arrays,
+                        len,
+                        Validity::NonNullable,
+                    )?
+                    .into_array();
+                }
+            };
+            return Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)));
+        }
+
         let mut child_streams = Vec::with_capacity(self.children.len());
+        if trace_flow() {
+            tracing::debug!(
+                target: "vortex_layout::v2::flow",
+                row_start = row_range.start,
+                row_end = row_range.end,
+                child_count = self.children.len(),
+                "struct execute"
+            );
+        }
         for child in &self.children {
-            child_streams.push(child.execute(row_range.clone(), demand, ctx)?);
+            child_streams.push(child.execute(row_range.clone(), demand, frontier, ctx)?);
         }
 
         // Different fields can return arrays at different chunk
@@ -207,10 +323,19 @@ impl LayoutPlan for StructPlan {
         let names: FieldNames = FieldNames::from(self.field_names.as_slice());
         let dtype = self.output_dtype.clone();
 
-        let aligned = AlignedArrayStream::new(child_streams, ctx.session().handle());
+        let aligned =
+            AlignedArrayStream::new_labeled(child_streams, ctx.session().handle(), "struct");
         let zipped = aligned.map(move |result| {
             let arrays = result?;
             let len = arrays.first().map_or(0, |a| a.len());
+            if trace_flow() {
+                tracing::debug!(
+                    target: "vortex_layout::v2::flow",
+                    len,
+                    field_count = arrays.len(),
+                    "struct emit"
+                );
+            }
             Ok(
                 StructArray::try_new(names.clone(), arrays, len, Validity::NonNullable)?
                     .into_array(),

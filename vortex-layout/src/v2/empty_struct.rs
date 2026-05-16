@@ -25,6 +25,7 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
+use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
@@ -110,6 +111,7 @@ impl LayoutPlan for EmptyStructPlan {
         &self,
         row_range: Range<u64>,
         _demand: &RowDemand,
+        _frontier: &OutputFrontier,
         _ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
         if row_range.start > self.row_count || row_range.end > self.row_count {
