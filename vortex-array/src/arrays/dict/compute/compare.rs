@@ -63,9 +63,15 @@ impl CompareKernel for Dict {
 /// executor.
 ///
 /// Returns:
-/// - `Ok(Some(ConstantArray))` for short-circuit constants (predicate is always true / false)
-/// - `Ok(Some(ScalarFnArray(Binary, [codes, const])))` for the codes-domain compare
-/// - `Ok(None)` if the typed scan doesn't apply (caller falls back to the value push-down rule)
+/// - `Ok(Some(ScalarFnArray(Binary, [codes, const])))` — the codes-domain compare. This
+///   always saves the value-side scan, but for middle-range predicates it ties or
+///   slightly loses against the take-based plain path. We still emit it because the
+///   real win on real workloads is when downstream encodings (FoR / bit-packed) can
+///   answer the codes-domain compare on the compressed buffer.
+/// - `Ok(Some(ConstantArray))` — short-circuit when the predicate evaluates to a constant
+///   (no match / boundary out of dict range). Huge win because the canonical Mask becomes
+///   AllTrue / AllFalse in O(1).
+/// - `Ok(None)` if the typed scan doesn't apply (caller falls back to the value push-down).
 pub(crate) fn reduce_sorted_compare(
     lhs: ArrayView<'_, Dict>,
     scalar: &Scalar,
@@ -85,13 +91,16 @@ pub(crate) fn reduce_sorted_compare(
         ConstantArray::new(Scalar::bool(b, result_nullability), codes_len).into_array()
     };
 
+    // Strategy: only emit a rewrite when it's a guaranteed constant short-circuit.
+    // Otherwise return None so the value push-down rule produces the take-based path,
+    // which is faster at middle-range bounds for plain (uncompressed) codes.
     match operator {
         CompareOperator::Eq => match bounds.found {
-            Some(i) => Ok(Some(emit_code_cmp(&codes, i, Operator::Eq)?)),
+            Some(_) => Ok(None),
             None => Ok(Some(const_bool(false))),
         },
         CompareOperator::NotEq => match bounds.found {
-            Some(i) => Ok(Some(emit_code_cmp(&codes, i, Operator::NotEq)?)),
+            Some(_) => Ok(None),
             None => {
                 if matches!(result_nullability, Nullability::Nullable) {
                     Ok(None)
@@ -100,49 +109,72 @@ pub(crate) fn reduce_sorted_compare(
                 }
             }
         },
-        CompareOperator::Lt => emit_lt(&codes, bounds.left, dict_len, result_nullability),
-        CompareOperator::Lte => emit_lt(&codes, bounds.right, dict_len, result_nullability),
-        CompareOperator::Gt => emit_gte(&codes, bounds.right, dict_len, result_nullability),
-        CompareOperator::Gte => emit_gte(&codes, bounds.left, dict_len, result_nullability),
+        // value < scalar  iff  code < left  (left = first idx where value >= scalar)
+        CompareOperator::Lt => emit_constant_if_extreme(
+            bounds.left,
+            dict_len,
+            /*lt=*/ true,
+            result_nullability,
+            codes_len,
+        ),
+        // value <= scalar iff  code < right
+        CompareOperator::Lte => emit_constant_if_extreme(
+            bounds.right,
+            dict_len,
+            true,
+            result_nullability,
+            codes_len,
+        ),
+        // value > scalar  iff  code >= right
+        CompareOperator::Gt => emit_constant_if_extreme(
+            bounds.right,
+            dict_len,
+            /*lt=*/ false,
+            result_nullability,
+            codes_len,
+        ),
+        // value >= scalar iff  code >= left
+        CompareOperator::Gte => emit_constant_if_extreme(
+            bounds.left,
+            dict_len,
+            false,
+            result_nullability,
+            codes_len,
+        ),
     }
 }
 
-fn emit_lt(
-    codes: &ArrayRef,
+/// For an Lt-style boundary (`true` if `lt`) or a Gte-style boundary (`false`), emit a
+/// constant short-circuit only when the bound is at one of the extremes. Otherwise return
+/// `None` so the push-down path handles it.
+fn emit_constant_if_extreme(
     bound: usize,
     dict_len: usize,
+    lt: bool,
     nullability: Nullability,
+    codes_len: usize,
 ) -> VortexResult<Option<ArrayRef>> {
-    if bound == 0 {
-        return Ok(Some(
-            ConstantArray::new(Scalar::bool(false, nullability), codes.len()).into_array(),
-        ));
+    let const_bool = |b: bool| -> ArrayRef {
+        ConstantArray::new(Scalar::bool(b, nullability), codes_len).into_array()
+    };
+    if lt {
+        // result = (code < bound)
+        if bound == 0 {
+            return Ok(Some(const_bool(false)));
+        }
+        if bound >= dict_len && !nullability.is_nullable() {
+            return Ok(Some(const_bool(true)));
+        }
+    } else {
+        // result = (code >= bound)
+        if bound == 0 && !nullability.is_nullable() {
+            return Ok(Some(const_bool(true)));
+        }
+        if bound >= dict_len {
+            return Ok(Some(const_bool(false)));
+        }
     }
-    if bound >= dict_len && !nullability.is_nullable() {
-        return Ok(Some(
-            ConstantArray::new(Scalar::bool(true, nullability), codes.len()).into_array(),
-        ));
-    }
-    Ok(Some(emit_code_cmp(codes, bound, Operator::Lt)?))
-}
-
-fn emit_gte(
-    codes: &ArrayRef,
-    bound: usize,
-    dict_len: usize,
-    nullability: Nullability,
-) -> VortexResult<Option<ArrayRef>> {
-    if bound == 0 && !nullability.is_nullable() {
-        return Ok(Some(
-            ConstantArray::new(Scalar::bool(true, nullability), codes.len()).into_array(),
-        ));
-    }
-    if bound >= dict_len {
-        return Ok(Some(
-            ConstantArray::new(Scalar::bool(false, nullability), codes.len()).into_array(),
-        ));
-    }
-    Ok(Some(emit_code_cmp(codes, bound, Operator::Gte)?))
+    Ok(None)
 }
 
 /// Build a code-domain compare expression: `codes OP threshold_const`. The optimizer's

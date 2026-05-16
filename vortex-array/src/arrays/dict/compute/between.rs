@@ -12,14 +12,10 @@ use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::dict::DictArraySlotsExt;
-use crate::arrays::dict::compute::compare::code_threshold_scalar;
 use crate::arrays::dict::compute::compare::emit_code_cmp;
 use crate::arrays::dict::compute::compare::scan_sorted_bounds;
-use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::scalar::Scalar;
-use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
-use crate::scalar_fn::fns::between::StrictComparison;
 use crate::scalar_fn::fns::operators::Operator;
 
 /// Reduce-rule entry point: emit the AST for a sorted-dict BETWEEN without running the
@@ -58,6 +54,10 @@ pub(crate) fn reduce_sorted_between(
         upper_bounds.right
     };
 
+    // Strategy: only emit a rewrite when the range collapses to a constant or to a
+    // single-sided predicate; otherwise return None so the value push-down rule produces
+    // the take-based path, which is competitive at middle-range bounds for uncompressed
+    // codes.
     if code_lo >= code_hi {
         return Ok(Some(
             ConstantArray::new(Scalar::bool(false, nullability), codes_len).into_array(),
@@ -69,23 +69,19 @@ pub(crate) fn reduce_sorted_between(
         ));
     }
     if code_lo == 0 {
+        // Only an upper bound is effective; one primitive cmp.
         return Ok(Some(emit_code_cmp(&codes, code_hi, Operator::Lt)?));
     }
     if code_hi >= dict_len {
+        // Only a lower bound is effective; one primitive cmp.
         return Ok(Some(emit_code_cmp(&codes, code_lo, Operator::Gte)?));
     }
 
-    // Emit a single Between on the codes: code BETWEEN code_lo AND code_hi-1 (both
-    // inclusive). One pass over the codes child instead of two compares + AND.
-    let lower_scalar = code_threshold_scalar(&codes, code_lo)?;
-    let upper_scalar = code_threshold_scalar(&codes, code_hi - 1)?;
-    let lower_arr = ConstantArray::new(lower_scalar, codes_len).into_array();
-    let upper_arr = ConstantArray::new(upper_scalar, codes_len).into_array();
-    let between_opts = BetweenOptions {
-        lower_strict: StrictComparison::NonStrict,
-        upper_strict: StrictComparison::NonStrict,
-    };
-    Between.try_new_array(codes_len, between_opts, [codes, lower_arr, upper_arr]).map(Some)
+    // Both bounds in the dict interior: defer to the existing push-down + take path,
+    // which is faster for plain primitive codes. (For compressed code encodings, the
+    // codes-domain compare would win, but that's a future optimization in the codes
+    // child's encoding kernel, not here.)
+    Ok(None)
 }
 
 #[cfg(test)]
