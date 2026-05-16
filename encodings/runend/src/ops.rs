@@ -4,8 +4,11 @@
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
+use vortex_array::match_each_native_ptype;
+use vortex_array::point_fn::PointDispatch;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
+use vortex_array::scalar::ScalarValue;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -25,6 +28,87 @@ impl OperationsVTable<RunEnd> for RunEnd {
             .values()
             .execute_scalar(array.find_physical_index(index)?, ctx)
     }
+
+    /// Recurse via the dispatch: search `ends` (typically small, sorted by
+    /// construction), then read `values` at the resulting run index. Both
+    /// child calls hit the session's caches.
+    fn point_scalar_at(
+        array: ArrayView<'_, RunEnd>,
+        index: usize,
+        d: &mut dyn PointDispatch,
+    ) -> VortexResult<Scalar> {
+        let logical = index + array.offset();
+        let logical_scalar = usize_as_scalar(array.ends(), logical)?;
+        let run_search = d.search_sorted(array.ends(), &logical_scalar, SearchSortedSide::Right)?;
+        let run_idx = run_search.to_ends_index(array.ends().len());
+        d.scalar_at(array.values(), run_idx)
+    }
+
+    /// `search_sorted` on a RunEnd whose `values` is sorted is `O(log num_runs)`:
+    /// binary-search `values` directly, then translate the resulting run index
+    /// back to a logical position via `ends`.
+    ///
+    /// Precondition: the array's logical values must be sorted, which on a
+    /// RunEnd-encoded array means `values` is sorted.
+    fn point_search_sorted(
+        array: ArrayView<'_, RunEnd>,
+        value: &Scalar,
+        side: SearchSortedSide,
+        d: &mut dyn PointDispatch,
+    ) -> VortexResult<SearchResult> {
+        let values = array.values();
+        let ends = array.ends();
+        let offset = array.offset();
+        let logical_len = array.as_ref().len();
+
+        let vrun = d.search_sorted(values, value, side)?;
+
+        // Translate run index → logical position. ends are stored without the
+        // slice offset subtracted, so we subtract it on lookup and clamp to the
+        // [0, logical_len] window.
+        let logical = match vrun.to_index() {
+            0 => 0,
+            i if i >= values.len() => logical_len,
+            i => {
+                // ends[i - 1] is the (exclusive) end position of the run before
+                // the target run, in unsliced coordinates. Subtract the slice
+                // offset and clamp.
+                let end_scalar = d.scalar_at(ends, i - 1)?;
+                let raw: usize = pvalue_to_usize(&end_scalar)?;
+                raw.saturating_sub(offset).min(logical_len)
+            }
+        };
+
+        Ok(match vrun {
+            SearchResult::Found(_) => SearchResult::Found(logical),
+            SearchResult::NotFound(_) => SearchResult::NotFound(logical),
+        })
+    }
+}
+
+fn pvalue_to_usize(scalar: &Scalar) -> VortexResult<usize> {
+    let pv = scalar
+        .as_primitive()
+        .pvalue()
+        .ok_or_else(|| vortex_error::vortex_err!("expected non-null ends scalar"))?;
+    usize::try_from(pv)
+}
+
+/// Construct a Scalar of `ends_array.dtype()` from a usize, for searching
+/// the run-ends array by logical position. Casts the usize to the ends
+/// array's native ptype so the resulting scalar matches the dtype.
+fn usize_as_scalar(ends_array: &ArrayRef, value: usize) -> VortexResult<Scalar> {
+    let ptype = ends_array.dtype().as_ptype();
+    let pvalue = match_each_native_ptype!(ptype, |P| {
+        let v: P = <P as num_traits::FromPrimitive>::from_usize(value).ok_or_else(|| {
+            vortex_error::vortex_err!("usize {} out of range for {:?}", value, ptype)
+        })?;
+        PValue::from(v)
+    });
+    Scalar::try_new(
+        ends_array.dtype().clone(),
+        Some(ScalarValue::Primitive(pvalue)),
+    )
 }
 
 /// Find the physical offset for and index that would be an end of the slice i.e., one past the last element.
@@ -168,6 +252,103 @@ mod tests {
         .execute_scalar(11, &mut ctx)
         .unwrap();
         assert_eq!(scalar, 5.into());
+    }
+
+    #[test]
+    fn point_search_sorted_through_dispatch() {
+        use vortex_array::point_fn::PointDispatch;
+        use vortex_array::point_fn::PointRuntime;
+        use vortex_array::scalar::Scalar;
+        use vortex_array::search_sorted::SearchResult;
+        use vortex_array::search_sorted::SearchSortedSide;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        // Run ends [3, 6, 8, 12], values [1, 2, 4, 7] — sorted.
+        // Logical: [1, 1, 1, 2, 2, 2, 4, 4, 7, 7, 7, 7]
+        let arr = RunEnd::try_new(
+            buffer![3u32, 6, 8, 12].into_array(),
+            buffer![1i32, 2, 4, 7].into_array(),
+            &mut ctx,
+        )
+        .unwrap()
+        .into_array();
+        let mut ctx2 = LEGACY_SESSION.create_execution_ctx();
+        let mut rt = PointRuntime::new(&mut ctx2);
+
+        // Found cases: each value lives in a contiguous run.
+        assert_eq!(
+            rt.search_sorted(&arr, &Scalar::from(1i32), SearchSortedSide::Left)
+                .unwrap(),
+            SearchResult::Found(0)
+        );
+        assert_eq!(
+            rt.search_sorted(&arr, &Scalar::from(2i32), SearchSortedSide::Left)
+                .unwrap(),
+            SearchResult::Found(3)
+        );
+        assert_eq!(
+            rt.search_sorted(&arr, &Scalar::from(4i32), SearchSortedSide::Left)
+                .unwrap(),
+            SearchResult::Found(6)
+        );
+        assert_eq!(
+            rt.search_sorted(&arr, &Scalar::from(7i32), SearchSortedSide::Left)
+                .unwrap(),
+            SearchResult::Found(8)
+        );
+
+        // Right side returns one past the rightmost match.
+        assert_eq!(
+            rt.search_sorted(&arr, &Scalar::from(2i32), SearchSortedSide::Right)
+                .unwrap(),
+            SearchResult::Found(6)
+        );
+        assert_eq!(
+            rt.search_sorted(&arr, &Scalar::from(7i32), SearchSortedSide::Right)
+                .unwrap(),
+            SearchResult::Found(12)
+        );
+
+        // NotFound cases.
+        assert_eq!(
+            rt.search_sorted(&arr, &Scalar::from(0i32), SearchSortedSide::Left)
+                .unwrap(),
+            SearchResult::NotFound(0)
+        );
+        assert_eq!(
+            rt.search_sorted(&arr, &Scalar::from(3i32), SearchSortedSide::Left)
+                .unwrap(),
+            SearchResult::NotFound(6)
+        );
+        assert_eq!(
+            rt.search_sorted(&arr, &Scalar::from(99i32), SearchSortedSide::Left)
+                .unwrap(),
+            SearchResult::NotFound(12)
+        );
+    }
+
+    #[test]
+    fn point_scalar_at_through_dispatch() {
+        use vortex_array::point_fn::PointDispatch;
+        use vortex_array::point_fn::PointRuntime;
+
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        // Logical: [1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]
+        let arr = RunEnd::try_new(
+            buffer![3u32, 6, 8, 12].into_array(),
+            buffer![1i32, 4, 2, 5].into_array(),
+            &mut ctx,
+        )
+        .unwrap()
+        .into_array();
+        let mut ctx2 = LEGACY_SESSION.create_execution_ctx();
+        let mut rt = PointRuntime::new(&mut ctx2);
+
+        let expected: Vec<i32> = vec![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5];
+        for (i, expected_v) in expected.iter().enumerate() {
+            let got = rt.scalar_at(&arr, i).unwrap();
+            assert_eq!(got, (*expected_v).into(), "mismatch at idx {i}");
+        }
     }
 
     #[test]
