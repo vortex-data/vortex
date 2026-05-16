@@ -215,3 +215,7 @@ harness = false
 [[bench]]
 name = "to_arrow"
 harness = false
+
+[[bench]]
+name = "cpu_take_vs_cmp"
+harness = false
