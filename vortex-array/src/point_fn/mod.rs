@@ -21,6 +21,7 @@
 
 pub mod algorithms;
 mod dispatch;
+mod dispatch_table;
 mod runtime;
 mod session;
 #[cfg(test)]

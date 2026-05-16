@@ -70,7 +70,8 @@ fn point_runtime_search_sorted(bencher: Bencher, &len: &usize) {
             // PointRuntime: one ctx reused across all probes. No caching.
             let mut ctx = LEGACY_SESSION.create_execution_ctx();
             let mut rt = PointRuntime::new(&mut ctx);
-            rt.search_sorted(arr, target, SearchSortedSide::Left).unwrap()
+            rt.search_sorted(arr, target, SearchSortedSide::Left)
+                .unwrap()
         });
 }
 

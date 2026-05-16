@@ -188,6 +188,56 @@ fn session_cached_block_decodes_once_per_key() -> VortexResult<()> {
 }
 
 #[test]
+fn slice_recurses_through_dispatch() -> VortexResult<()> {
+    use crate::arrays::SliceArray;
+
+    let inner = sorted_primitive();
+    // slice covers indices 4..10 of the inner array
+    let slice = SliceArray::new(inner, 4..10).into_array();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut session = PointSession::new(&mut ctx);
+
+    // scalar_at on the slice at local idx 0 should equal inner's idx 4 (= 2).
+    let v = session.scalar_at(&slice, 0)?;
+    assert_eq!(v, Scalar::from(2i32));
+
+    // After the slice scalar_at, the cache should hold entries at BOTH levels:
+    // one for the slice array and one for the inner array (the recursion target).
+    assert_eq!(
+        session.scalar_cache_len(),
+        2,
+        "recursion populated caches at slice and inner levels"
+    );
+
+    // Re-fetching slice[0] should hit the slice-level cache (no recursion).
+    let v2 = session.scalar_at(&slice, 0)?;
+    assert_eq!(v2, Scalar::from(2i32));
+    assert_eq!(session.scalar_cache_len(), 2, "no new entries");
+    Ok(())
+}
+
+#[test]
+fn slice_search_sorted_recurses_correctly() -> VortexResult<()> {
+    use crate::arrays::SliceArray;
+
+    let inner = sorted_primitive();
+    // inner: [0, 1, 2, 2, 2, 3, 5, 5, 8, 13, 21, 34, 55, 89, 144]
+    // slice covers indices 5..12 → [3, 5, 5, 8, 13, 21, 34]
+    let slice = SliceArray::new(inner, 5..12).into_array();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut rt = PointRuntime::new(&mut ctx);
+
+    // Search for 5 (Left side) — should return Found(1) in slice-local coords.
+    let r = rt.search_sorted(&slice, &Scalar::from(5i32), SearchSortedSide::Left)?;
+    assert_eq!(r, SearchResult::Found(1));
+
+    // Search for 100 — should return NotFound(7) (past end of slice).
+    let r = rt.search_sorted(&slice, &Scalar::from(100i32), SearchSortedSide::Left)?;
+    assert_eq!(r, SearchResult::NotFound(7));
+    Ok(())
+}
+
+#[test]
 fn session_cached_block_evicts_oldest() -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mut session = PointSession::with_capacities(&mut ctx, 8, 2);

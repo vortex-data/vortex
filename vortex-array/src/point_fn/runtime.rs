@@ -8,7 +8,7 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::point_fn::PointDispatch;
-use crate::point_fn::algorithms;
+use crate::point_fn::dispatch_table;
 use crate::scalar::Scalar;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSortedSide;
@@ -47,10 +47,7 @@ impl PointDispatch for PointRuntime<'_> {
     }
 
     fn scalar_at(&mut self, arr: &ArrayRef, idx: usize) -> VortexResult<Scalar> {
-        // Phase 1a: delegate to the existing OperationsVTable::scalar_at via execute_scalar.
-        // Encoding-specific kernels that recurse through `d.scalar_at` (Phase 1c+) will be
-        // introduced once the per-encoding vtable integration lands.
-        arr.execute_scalar(idx, self.ctx)
+        dispatch_table::dispatch_scalar_at(arr, idx, self)
     }
 
     fn search_sorted(
@@ -59,8 +56,6 @@ impl PointDispatch for PointRuntime<'_> {
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        // Phase 1a: always use the generic algorithm. Per-encoding overrides land in
-        // Phase 2 (structural encodings: Dict, RunEnd, Chunked, Constant, Sequence, FoR).
-        algorithms::generic_search_sorted(arr, value, side, self)
+        dispatch_table::dispatch_search_sorted(arr, value, side, self)
     }
 }

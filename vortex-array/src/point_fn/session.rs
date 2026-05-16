@@ -14,8 +14,8 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::point_fn::BlockKey;
 use crate::point_fn::PointDispatch;
-use crate::point_fn::algorithms;
 use crate::point_fn::dispatch::CacheArrayId;
+use crate::point_fn::dispatch_table;
 use crate::scalar::Scalar;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSortedSide;
@@ -87,8 +87,9 @@ impl PointDispatch for PointSession<'_> {
         if let Some(v) = self.scalar_cache.get(&key) {
             return Ok(v.clone());
         }
-        // Phase 1a: delegate to existing OperationsVTable::scalar_at via execute_scalar.
-        let v = arr.execute_scalar(idx, self.ctx)?;
+        // Route via the dispatch table so view encodings (Slice today; Dict /
+        // RunEnd / Chunked / etc. in later phases) push down through children.
+        let v = dispatch_table::dispatch_scalar_at(arr, idx, self)?;
         self.scalar_cache.put(key, v.clone());
         Ok(v)
     }
@@ -99,10 +100,7 @@ impl PointDispatch for PointSession<'_> {
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        // Phase 1a: always use the generic algorithm. The scalar cache absorbs
-        // any repeated probes (e.g. the side-refinement pass that revisits the
-        // bracketed equal range).
-        algorithms::generic_search_sorted(arr, value, side, self)
+        dispatch_table::dispatch_search_sorted(arr, value, side, self)
     }
 
     fn cached_block<B, F>(&mut self, key: (CacheArrayId, BlockKey), decode: F) -> VortexResult<B>
