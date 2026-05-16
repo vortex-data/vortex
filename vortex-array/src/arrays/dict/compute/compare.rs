@@ -27,15 +27,11 @@ impl CompareKernel for Dict {
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Sorted-values fast path: emit a code-domain compare directly.
-        if let Some(rhs_const) = rhs.as_constant()
-            && lhs.has_sorted_values()
-            && !lhs.values().dtype().is_nullable()
-            && !rhs_const.is_null()
-            && let Some(result) = sorted_compare_scalar(lhs, &rhs_const, operator, ctx)?
-        {
-            return Ok(Some(result));
-        }
+        // Note: the sorted-values fast path lives in `DictionarySortedCompareRule` in
+        // `rules.rs`, which fires before `DictionaryScalarFnValuesPushDownRule` to rewrite
+        // the predicate as a codes-domain compare. By the time CompareKernel is reached, we
+        // are on the values-side compare path that the push-down rule produced — fall
+        // through to the existing logic.
 
         // Original path: if we have more values than codes, it is faster to canonicalize first.
         if lhs.values().len() > lhs.codes().len() {
@@ -63,19 +59,17 @@ impl CompareKernel for Dict {
     }
 }
 
-/// Sorted-values fast path for comparing a dict to a scalar constant.
+/// Reduce-rule entry point: emit the AST for a sorted-dict compare without running the
+/// executor.
 ///
-/// Resolves the predicate `value OP scalar` to a code-domain integer comparison and emits
-/// that compare directly against the codes child. Skips the `take(bool_values, codes)` step
-/// the plain path needs.
-///
-/// Returns `None` if the values encoding doesn't support a typed linear scan (caller falls
-/// back to the existing path).
-pub(crate) fn sorted_compare_scalar(
+/// Returns:
+/// - `Ok(Some(ConstantArray))` for short-circuit constants (predicate is always true / false)
+/// - `Ok(Some(ScalarFnArray(Binary, [codes, const])))` for the codes-domain compare
+/// - `Ok(None)` if the typed scan doesn't apply (caller falls back to the value push-down rule)
+pub(crate) fn reduce_sorted_compare(
     lhs: ArrayView<'_, Dict>,
     scalar: &Scalar,
     operator: CompareOperator,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     let values = lhs.values().clone();
     let codes = lhs.codes().clone();
@@ -87,34 +81,29 @@ pub(crate) fn sorted_compare_scalar(
         return Ok(None);
     };
 
-    let const_bool = |b: bool| -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(Scalar::bool(b, result_nullability), codes_len).into_array())
+    let const_bool = |b: bool| -> ArrayRef {
+        ConstantArray::new(Scalar::bool(b, result_nullability), codes_len).into_array()
     };
 
     match operator {
         CompareOperator::Eq => match bounds.found {
-            Some(i) => code_cmp(&codes, i, Operator::Eq, ctx).map(Some),
-            None => const_bool(false).map(Some),
+            Some(i) => Ok(Some(emit_code_cmp(&codes, i, Operator::Eq)?)),
+            None => Ok(Some(const_bool(false))),
         },
         CompareOperator::NotEq => match bounds.found {
-            Some(i) => code_cmp(&codes, i, Operator::NotEq, ctx).map(Some),
+            Some(i) => Ok(Some(emit_code_cmp(&codes, i, Operator::NotEq)?)),
             None => {
                 if matches!(result_nullability, Nullability::Nullable) {
-                    // Need null preservation through the existing path.
                     Ok(None)
                 } else {
-                    const_bool(true).map(Some)
+                    Ok(Some(const_bool(true)))
                 }
             }
         },
-        // value < scalar  iff  code < left  (left = first idx where value >= scalar)
-        CompareOperator::Lt => emit_lt(&codes, bounds.left, dict_len, result_nullability, ctx),
-        // value <= scalar iff  code < right (right = first idx where value > scalar)
-        CompareOperator::Lte => emit_lt(&codes, bounds.right, dict_len, result_nullability, ctx),
-        // value > scalar  iff  code >= right
-        CompareOperator::Gt => emit_gte(&codes, bounds.right, dict_len, result_nullability, ctx),
-        // value >= scalar iff  code >= left
-        CompareOperator::Gte => emit_gte(&codes, bounds.left, dict_len, result_nullability, ctx),
+        CompareOperator::Lt => emit_lt(&codes, bounds.left, dict_len, result_nullability),
+        CompareOperator::Lte => emit_lt(&codes, bounds.right, dict_len, result_nullability),
+        CompareOperator::Gt => emit_gte(&codes, bounds.right, dict_len, result_nullability),
+        CompareOperator::Gte => emit_gte(&codes, bounds.left, dict_len, result_nullability),
     }
 }
 
@@ -123,7 +112,6 @@ fn emit_lt(
     bound: usize,
     dict_len: usize,
     nullability: Nullability,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     if bound == 0 {
         return Ok(Some(
@@ -135,7 +123,7 @@ fn emit_lt(
             ConstantArray::new(Scalar::bool(true, nullability), codes.len()).into_array(),
         ));
     }
-    code_cmp(codes, bound, Operator::Lt, ctx).map(Some)
+    Ok(Some(emit_code_cmp(codes, bound, Operator::Lt)?))
 }
 
 fn emit_gte(
@@ -143,7 +131,6 @@ fn emit_gte(
     bound: usize,
     dict_len: usize,
     nullability: Nullability,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
     if bound == 0 && !nullability.is_nullable() {
         return Ok(Some(
@@ -155,32 +142,20 @@ fn emit_gte(
             ConstantArray::new(Scalar::bool(false, nullability), codes.len()).into_array(),
         ));
     }
-    code_cmp(codes, bound, Operator::Gte, ctx).map(Some)
+    Ok(Some(emit_code_cmp(codes, bound, Operator::Gte)?))
 }
 
-/// Run a code-domain compare against an integer threshold. Calls `execute_compare`
-/// directly, skipping the ScalarFnArray/executor scaffolding so the call drops straight
-/// into Arrow's vectorized primitive cmp kernel.
-pub(crate) fn code_cmp(
+/// Build a code-domain compare expression: `codes OP threshold_const`. The optimizer's
+/// canonicalize/execute pipeline will dispatch this to Arrow's vectorized primitive cmp.
+pub(crate) fn emit_code_cmp(
     codes: &ArrayRef,
     threshold: usize,
     op: Operator,
-    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    use crate::scalar_fn::fns::binary::execute_compare;
     let threshold_scalar = code_threshold_scalar(codes, threshold)?;
     let len = codes.len();
     let threshold_arr = ConstantArray::new(threshold_scalar, len).into_array();
-    let compare_op = match op {
-        Operator::Eq => CompareOperator::Eq,
-        Operator::NotEq => CompareOperator::NotEq,
-        Operator::Lt => CompareOperator::Lt,
-        Operator::Lte => CompareOperator::Lte,
-        Operator::Gt => CompareOperator::Gt,
-        Operator::Gte => CompareOperator::Gte,
-        _ => vortex_error::vortex_bail!("code_cmp called with non-comparison op {op:?}"),
-    };
-    execute_compare(codes, &threshold_arr, compare_op, ctx)
+    codes.clone().binary(threshold_arr, op)
 }
 
 /// Build a `Scalar` of the codes' ptype holding `idx`. `idx` is in `0..=dict_len` and
