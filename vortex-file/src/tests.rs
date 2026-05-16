@@ -1860,6 +1860,54 @@ async fn test_segment_ordering_dict_codes_before_values() -> VortexResult<()> {
     Ok(())
 }
 
+/// Verify that the default `WriteStrategyBuilder` writes sorted-dict layouts
+/// (`DictLayoutOptions::sort_values = true` by default) and that the resulting
+/// `DictLayout` is tagged with `sorted_values=true`.
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_default_write_strategy_uses_sorted_dict() -> VortexResult<()> {
+    use vortex_layout::Layout;
+    use vortex_layout::layouts::dict::Dict as DictLayoutVTable;
+
+    // Low-cardinality strings so the dict layout is selected.
+    let n = 8192;
+    let values: Vec<&str> = (0..n).map(|i| ["zeta", "alpha", "mu"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+    let st = StructArray::from_fields(&[("strings", strings)]).unwrap();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+
+    let root = summary.footer().layout();
+
+    fn walk_collect_sorted_flags(
+        layout: &dyn Layout,
+        out: &mut Vec<bool>,
+    ) -> VortexResult<()> {
+        if layout.encoding_id().as_ref() == "vortex.dict" {
+            let dict = layout.as_::<DictLayoutVTable>();
+            out.push(dict.has_sorted_values());
+        }
+        for child in layout.children()? {
+            walk_collect_sorted_flags(child.as_ref(), out)?;
+        }
+        Ok(())
+    }
+
+    let mut flags = vec![];
+    walk_collect_sorted_flags(root.as_ref(), &mut flags)?;
+    assert!(!flags.is_empty(), "expected at least one dict layout");
+    assert!(
+        flags.iter().all(|&f| f),
+        "all dict layouts should be tagged sorted_values=true by default; got {flags:?}"
+    );
+
+    Ok(())
+}
+
 #[tokio::test]
 #[cfg_attr(miri, ignore)]
 async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
