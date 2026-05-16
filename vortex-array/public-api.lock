@@ -2408,9 +2408,9 @@ pub fn vortex_array::arrays::dict::Dict::fmt(&self, &mut core::fmt::Formatter<'_
 
 impl vortex_array::OperationsVTable<vortex_array::arrays::dict::Dict> for vortex_array::arrays::dict::Dict
 
-pub fn vortex_array::arrays::dict::Dict::point_scalar_at(vortex_array::ArrayView<'_, V>, usize, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::arrays::dict::Dict::point_scalar_at(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, usize, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::arrays::dict::Dict::point_search_sorted(vortex_array::ArrayView<'_, V>, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
+pub fn vortex_array::arrays::dict::Dict::point_search_sorted(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
 
 pub fn vortex_array::arrays::dict::Dict::scalar_at(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, usize, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
@@ -2504,9 +2504,9 @@ pub fn vortex_array::arrays::dict::Dict::fmt(&self, &mut core::fmt::Formatter<'_
 
 impl vortex_array::OperationsVTable<vortex_array::arrays::dict::Dict> for vortex_array::arrays::dict::Dict
 
-pub fn vortex_array::arrays::dict::Dict::point_scalar_at(vortex_array::ArrayView<'_, V>, usize, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::arrays::dict::Dict::point_scalar_at(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, usize, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::arrays::dict::Dict::point_search_sorted(vortex_array::ArrayView<'_, V>, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
+pub fn vortex_array::arrays::dict::Dict::point_search_sorted(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
 
 pub fn vortex_array::arrays::dict::Dict::scalar_at(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, usize, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
@@ -6162,9 +6162,9 @@ pub fn vortex_array::arrays::dict::Dict::fmt(&self, &mut core::fmt::Formatter<'_
 
 impl vortex_array::OperationsVTable<vortex_array::arrays::dict::Dict> for vortex_array::arrays::dict::Dict
 
-pub fn vortex_array::arrays::dict::Dict::point_scalar_at(vortex_array::ArrayView<'_, V>, usize, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::arrays::dict::Dict::point_scalar_at(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, usize, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::arrays::dict::Dict::point_search_sorted(vortex_array::ArrayView<'_, V>, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
+pub fn vortex_array::arrays::dict::Dict::point_search_sorted(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
 
 pub fn vortex_array::arrays::dict::Dict::scalar_at(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, usize, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
@@ -22118,9 +22118,9 @@ pub fn vortex_array::arrays::Variant::scalar_at(vortex_array::ArrayView<'_, vort
 
 impl vortex_array::OperationsVTable<vortex_array::arrays::dict::Dict> for vortex_array::arrays::dict::Dict
 
-pub fn vortex_array::arrays::dict::Dict::point_scalar_at(vortex_array::ArrayView<'_, V>, usize, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::arrays::dict::Dict::point_scalar_at(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, usize, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::arrays::dict::Dict::point_search_sorted(vortex_array::ArrayView<'_, V>, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
+pub fn vortex_array::arrays::dict::Dict::point_search_sorted(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
 
 pub fn vortex_array::arrays::dict::Dict::scalar_at(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, usize, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
@@ -26072,9 +26072,9 @@ pub fn vortex_array::arrays::Variant::scalar_at(vortex_array::ArrayView<'_, vort
 
 impl vortex_array::OperationsVTable<vortex_array::arrays::dict::Dict> for vortex_array::arrays::dict::Dict
 
-pub fn vortex_array::arrays::dict::Dict::point_scalar_at(vortex_array::ArrayView<'_, V>, usize, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::arrays::dict::Dict::point_scalar_at(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, usize, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::arrays::dict::Dict::point_search_sorted(vortex_array::ArrayView<'_, V>, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
+pub fn vortex_array::arrays::dict::Dict::point_search_sorted(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
 
 pub fn vortex_array::arrays::dict::Dict::scalar_at(vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, usize, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 

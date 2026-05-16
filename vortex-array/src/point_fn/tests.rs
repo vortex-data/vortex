@@ -296,6 +296,62 @@ fn slice_search_sorted_clamps_to_slice_bounds() -> VortexResult<()> {
 }
 
 #[test]
+fn dict_search_sorted_through_dispatch() -> VortexResult<()> {
+    use crate::arrays::DictArray;
+
+    // Sorted dict: [10, 20, 30, 40], sorted codes: [0, 0, 1, 1, 2, 3, 3, 3]
+    // Logical (sorted): [10, 10, 20, 20, 30, 40, 40, 40]
+    let dict = PrimitiveArray::new(
+        vortex_buffer::buffer![10i32, 20, 30, 40],
+        crate::validity::Validity::NonNullable,
+    )
+    .into_array();
+    let codes = PrimitiveArray::new(
+        vortex_buffer::buffer![0u32, 0, 1, 1, 2, 3, 3, 3],
+        crate::validity::Validity::NonNullable,
+    )
+    .into_array();
+    let arr = DictArray::try_new(codes, dict)?.into_array();
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut rt = PointRuntime::new(&mut ctx);
+
+    // Found cases.
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(10i32), SearchSortedSide::Left)?,
+        SearchResult::Found(0),
+    );
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(20i32), SearchSortedSide::Left)?,
+        SearchResult::Found(2),
+    );
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(20i32), SearchSortedSide::Right)?,
+        SearchResult::Found(4),
+    );
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(40i32), SearchSortedSide::Right)?,
+        SearchResult::Found(8),
+    );
+
+    // NotFound cases.
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(5i32), SearchSortedSide::Left)?,
+        SearchResult::NotFound(0),
+    );
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(25i32), SearchSortedSide::Left)?,
+        SearchResult::NotFound(4),
+    );
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(50i32), SearchSortedSide::Left)?,
+        SearchResult::NotFound(8),
+    );
+
+    Ok(())
+}
+
+#[test]
 fn session_cached_block_evicts_oldest() -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mut session = PointSession::with_capacities(&mut ctx, 8, 2);
