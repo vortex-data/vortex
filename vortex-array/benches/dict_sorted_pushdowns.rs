@@ -20,6 +20,7 @@ use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -139,6 +140,8 @@ fn run_like(bencher: Bencher, sorted: bool, pattern: &'static str) {
         .with_inputs(|| (dict.clone(), pattern_arr.clone(), LEGACY_SESSION.create_execution_ctx()))
         .bench_values(|(d, p, mut ctx)| {
             Like.try_new_array(N, LikeOptions::default(), [d, p])
+                .unwrap()
+                .optimize()
                 .unwrap()
                 .execute::<Mask>(&mut ctx)
                 .unwrap()
