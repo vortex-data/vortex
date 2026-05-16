@@ -20,6 +20,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
+use std::time::Instant;
 
 use async_stream::try_stream;
 use futures::FutureExt;
@@ -38,9 +39,11 @@ use vortex_mask::Mask;
 use vortex_scan::selection::Selection;
 use vortex_session::registry::ReadContext;
 
+use crate::mask_debug::log_mask_batch;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::v2::demand::RowDemand;
+use crate::v2::experiment::bool_var;
 use crate::v2::flat::SharedSegmentFuture;
 use crate::v2::flat::decode_segment;
 use crate::v2::flat::slice_to_range;
@@ -264,6 +267,9 @@ impl LayoutPlan for FilteredFlatPlan {
         let expr = self.expr.clone();
         let session = ctx.session().clone();
         let row_range_for_slice = row_range.clone();
+        let coord_range = demand.global_range(&row_range);
+        let debug_label = ctx.debug_label().map(str::to_owned);
+        let segment_id = self.segment_id;
 
         let mask_stream = self.mask_plan.execute(row_range, demand, ctx)?;
         let demand_for_skip = demand.clone();
@@ -275,25 +281,40 @@ impl LayoutPlan for FilteredFlatPlan {
             // skip the mask read AND segment IO. This is the path
             // that pays off cross-conjunct pruning — the zone falsifier
             // for column A lets us skip IO on column B.
-            if demand_for_skip.cardinality(demand_range).await? == 0 {
+            if !bool_var("VORTEX_V2_DISABLE_ROW_DEMAND")
+                && demand_for_skip.cardinality(demand_range).await? == 0
+            {
                 return;
             }
             // Lockstep contract: await enough mask rows to cover this
             // flat layout's row range, then issue the read. The
             // partial-read variant lands later (see
             // `LAYOUT_PLAN.md` § FilterPlan and its pushdown).
+            let mask_start = Instant::now();
             let mask_array = mask_stream.read_all().await?;
             let mut ctx_exec = session.create_execution_ctx();
             let mask: Mask = mask_array.execute::<Mask>(&mut ctx_exec)?;
+            let mask_elapsed = mask_start.elapsed();
 
             // Mask-zero short-circuit: if the upstream filter produced
             // an all-false mask over our range, skip the decode +
             // segment IO entirely. Mask round-trip is already paid;
             // the `decode_segment` below is the expensive part.
             if mask.true_count() == 0 {
+                log_mask_batch(
+                    "v2 filtered flat batch skipped",
+                    debug_label.as_deref(),
+                    &row_range_for_slice,
+                    &coord_range,
+                    &mask,
+                    Some(mask_elapsed),
+                    None,
+                );
                 return;
             }
+            let output_mask_for_log = tracing::enabled!(tracing::Level::DEBUG).then(|| mask.clone());
 
+            let decode_start = Instant::now();
             let array = decode_segment(
                 segment_fut,
                 array_tree,
@@ -303,13 +324,45 @@ impl LayoutPlan for FilteredFlatPlan {
                 &session,
             )
             .await?;
+            let decode_elapsed = decode_start.elapsed();
             let array = slice_to_range(array, &row_range_for_slice)?;
+
+            let filter_start = Instant::now();
             let array = if mask.all_true() {
                 array
             } else {
                 array.filter(mask)?
             };
-            yield array.apply(&expr)?;
+            let filter_elapsed = filter_start.elapsed();
+            let apply_start = Instant::now();
+            let array = array.apply(&expr)?;
+            let apply_elapsed = apply_start.elapsed();
+            if let Some(mask) = output_mask_for_log.as_ref() {
+                log_mask_batch(
+                    "v2 filtered flat batch projected",
+                    debug_label.as_deref(),
+                    &row_range_for_slice,
+                    &coord_range,
+                    mask,
+                    Some(mask_elapsed + decode_elapsed + filter_elapsed + apply_elapsed),
+                    Some(array.len()),
+                );
+            }
+            tracing::debug!(
+                scan_label = debug_label.as_deref().unwrap_or(""),
+                ?segment_id,
+                row_start = row_range_for_slice.start,
+                row_end = row_range_for_slice.end,
+                coord_start = coord_range.start,
+                coord_end = coord_range.end,
+                mask_elapsed_ms = mask_elapsed.as_secs_f64() * 1000.0,
+                decode_elapsed_ms = decode_elapsed.as_secs_f64() * 1000.0,
+                filter_elapsed_ms = filter_elapsed.as_secs_f64() * 1000.0,
+                apply_elapsed_ms = apply_elapsed.as_secs_f64() * 1000.0,
+                output_rows = array.len(),
+                "v2 filtered flat batch timing"
+            );
+            yield array;
         };
         Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))
     }

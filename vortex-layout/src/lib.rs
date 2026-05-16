@@ -17,6 +17,7 @@ pub mod display;
 mod encoding;
 mod flatbuffers;
 mod layout;
+mod mask_debug;
 mod reader;
 pub mod scan;
 pub mod segments;

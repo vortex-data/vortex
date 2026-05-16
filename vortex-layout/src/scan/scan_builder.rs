@@ -75,6 +75,8 @@ pub struct ScanBuilder<A> {
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     row_offset: u64,
+    /// Optional label included in debug/trace logs for correlating scan work.
+    debug_label: Option<Arc<str>>,
 }
 
 impl ScanBuilder<ArrayRef> {
@@ -96,6 +98,7 @@ impl ScanBuilder<ArrayRef> {
             file_stats: None,
             limit: None,
             row_offset: 0,
+            debug_label: None,
         }
     }
 
@@ -167,6 +170,13 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    /// Attach a label to scan debug logs. This is diagnostic-only and
+    /// does not affect scan results or planning.
+    pub fn with_debug_label(mut self, label: impl Into<Arc<str>>) -> Self {
+        self.debug_label = Some(label.into());
+        self
+    }
+
     pub fn with_split_by(mut self, split_by: SplitBy) -> Self {
         self.split_by = split_by;
         self
@@ -234,6 +244,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             file_stats: self.file_stats,
             limit: self.limit,
             row_offset: self.row_offset,
+            debug_label: self.debug_label,
             map_fn: Arc::new(move |a| old_map_fn(a).and_then(&map_fn)),
         }
     }
@@ -299,6 +310,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             self.map_fn,
             self.limit,
             dtype,
+            self.debug_label,
         ))
     }
 

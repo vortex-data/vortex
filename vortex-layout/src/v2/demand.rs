@@ -163,6 +163,16 @@ impl RowDemand {
         self.scope.end - self.scope.start
     }
 
+    /// Translate `local` coordinates for this view into the root
+    /// coordinates covered by the underlying demand sources.
+    ///
+    /// This is primarily useful for diagnostics. Execution should keep
+    /// passing local coordinates to child plans and use [`Self::scope`]
+    /// when delegating across row offsets.
+    pub fn global_range(&self, local: &RowRange) -> RowRange {
+        self.to_global(local)
+    }
+
     /// View this demand restricted to a sub-range, in local coords.
     /// The returned view's local coord 0 corresponds to this view's
     /// `sub_range.start`. Cheap (clones an `Arc`, computes a range).

@@ -45,7 +45,9 @@ use vortex_session::registry::ReadContext;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::v2::demand::RowDemand;
+use crate::v2::experiment::bool_var;
 use crate::v2::filtered_flat::FilteredFlatPlan;
+use crate::v2::placeholder::default_array;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -221,7 +223,7 @@ impl LayoutPlan for FlatPlan {
     fn execute(
         &self,
         row_range: Range<u64>,
-        _demand: &RowDemand,
+        demand: &RowDemand,
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
         if !matches!(self.selection, Selection::All) {
@@ -237,6 +239,7 @@ impl LayoutPlan for FlatPlan {
         }
 
         let dtype = self.output_dtype.clone();
+        let output_dtype = dtype.clone();
         let layout_dtype = self.layout_dtype.clone();
         let array_ctx = self.array_ctx.clone();
         let array_tree = self.array_tree.clone();
@@ -245,9 +248,22 @@ impl LayoutPlan for FlatPlan {
         let expr = self.expr.clone();
         let session = ctx.session().clone();
         let row_range_for_slice = row_range;
+        let row_range_for_demand = row_range_for_slice.clone();
+        let demand = demand.clone();
 
         let inner = stream::once(
             async move {
+                if !bool_var("VORTEX_V2_DISABLE_ROW_DEMAND")
+                    && demand.cardinality(row_range_for_demand).await? == 0
+                {
+                    let len = usize::try_from(row_range_for_slice.end - row_range_for_slice.start)
+                        .map_err(|_| {
+                            vortex_err!(
+                                "FlatPlan: row range length exceeds usize: {row_range_for_slice:?}"
+                            )
+                        })?;
+                    return Ok(default_array(&output_dtype, len));
+                }
                 let array = decode_segment(
                     segment_fut,
                     array_tree,

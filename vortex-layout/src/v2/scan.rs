@@ -9,11 +9,17 @@
 //! plan each as a bool-stream, AND them, and wrap the projection
 //! plan with `FilterPlan`. See `LAYOUT_PLAN.md` § Scan construction.
 
+use std::env;
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::expr::split_conjunction;
+use vortex_array::scalar_fn::fns::binary::Binary;
+use vortex_array::scalar_fn::fns::like::Like;
+use vortex_array::scalar_fn::fns::like::LikeOptions;
+use vortex_array::scalar_fn::fns::literal::Literal;
+use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -24,7 +30,8 @@ use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::segments::SegmentSource;
-use crate::v2::and_bool::AndBoolStreamsPlan;
+use crate::v2::and_bool::ConjunctInfo;
+use crate::v2::and_bool::ConjunctPlan;
 use crate::v2::cse::cse;
 use crate::v2::demand::DemandSource;
 use crate::v2::demand::RowDemand;
@@ -99,16 +106,48 @@ impl Scan {
         // and wrap projection with FilterPlan. See `LAYOUT_PLAN.md`
         // § Scan construction.
         let conjuncts = split_conjunction(filter);
-        let conjunct_plans: Vec<LayoutPlanRef> = conjuncts
+        let mut conjunct_plans: Vec<(usize, u8, Expression, LayoutPlanRef)> = conjuncts
             .into_iter()
-            .map(|expr| {
-                self.layout.plan(PlanArguments {
+            .enumerate()
+            .map(|(idx, expr)| {
+                let cost = conjunct_order_cost(&expr);
+                let plan = self.layout.plan(PlanArguments {
                     selection: self.selection.clone(),
-                    expr,
+                    expr: expr.clone(),
                     ctx: ctx.clone(),
-                })
+                })?;
+                Ok((idx, cost, expr, plan))
             })
             .collect::<VortexResult<_>>()?;
+        if let Some(order) = conjunct_order_override(conjunct_plans.len()) {
+            conjunct_plans.sort_by_key(|(idx, ..)| {
+                order
+                    .iter()
+                    .position(|ordered_idx| ordered_idx == idx)
+                    .unwrap_or(*idx)
+            });
+        } else {
+            conjunct_plans.sort_by_key(|(idx, cost, ..)| (*cost, *idx));
+        }
+        tracing::debug!(
+            order = ?conjunct_plans
+                .iter()
+                .map(|(idx, cost, expr, _)| format!("#{idx} cost={cost} {expr}"))
+                .collect::<Vec<_>>(),
+            "v2 conjunct order"
+        );
+        let conjunct_infos: Vec<ConjunctInfo> = conjunct_plans
+            .iter()
+            .map(|(idx, cost, expr, _)| ConjunctInfo {
+                original_idx: *idx,
+                cost: *cost,
+                expr: expr.to_string(),
+            })
+            .collect();
+        let conjunct_plans: Vec<LayoutPlanRef> = conjunct_plans
+            .into_iter()
+            .map(|(_, _, _, plan)| plan)
+            .collect();
 
         let mask_plan: LayoutPlanRef = match conjunct_plans.len() {
             0 => return cse(projection_plan),
@@ -116,7 +155,11 @@ impl Scan {
                 .into_iter()
                 .next()
                 .ok_or_else(|| vortex_err!("len-1 conjunct_plans was empty"))?,
-            _ => Arc::new(AndBoolStreamsPlan::new(conjunct_plans, row_count)),
+            _ => Arc::new(ConjunctPlan::with_conjuncts(
+                conjunct_plans,
+                conjunct_infos,
+                row_count,
+            )),
         };
 
         // Wrap projection with FilterPlan (or pushed-down equivalent),
@@ -135,6 +178,81 @@ impl Scan {
         }
         Ok(Arc::new(scan_plan))
     }
+}
+
+/// Static first-pass ordering for AND conjuncts.
+///
+/// V2's conjunct streams can use an earlier conjunct's mask to reduce
+/// later predicate work. Without any history, running the SQL order can
+/// spend early batches on expensive low-value predicates. This heuristic
+/// is intentionally simple: cheap scalar comparisons first, then likely
+/// selective LIKEs, then negated/wide LIKEs. Runtime selectivity feedback
+/// can refine this later.
+fn conjunct_order_cost(expr: &Expression) -> u8 {
+    if let Some(op) = expr.as_opt::<Binary>() {
+        return match op {
+            Operator::Gt | Operator::Gte | Operator::Lt | Operator::Lte => 10,
+            Operator::Eq => 20,
+            Operator::NotEq if compares_empty_string_literal(expr) => 25,
+            Operator::NotEq => 30,
+            Operator::And | Operator::Or => 90,
+            Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => 100,
+        };
+    }
+
+    if let Some(options) = expr.as_opt::<Like>() {
+        return like_order_cost(expr, *options);
+    }
+
+    50
+}
+
+fn compares_empty_string_literal(expr: &Expression) -> bool {
+    expr.children()
+        .iter()
+        .any(|child| utf8_literal(child).is_some_and(|value| value.is_empty()))
+}
+
+fn like_order_cost(expr: &Expression, options: LikeOptions) -> u8 {
+    let pattern = expr.child(1);
+    let pattern = utf8_literal(pattern);
+    let leading_wildcard = pattern.is_some_and(|p| p.starts_with(['%', '_']));
+    let mut cost = if leading_wildcard { 60 } else { 40 };
+    if options.negated {
+        cost += 20;
+    }
+    if options.case_insensitive {
+        cost += 10;
+    }
+    cost
+}
+
+fn utf8_literal(expr: &Expression) -> Option<&str> {
+    expr.as_opt::<Literal>()?
+        .as_utf8_opt()?
+        .value()
+        .map(|s| s.as_str())
+}
+
+fn conjunct_order_override(conjunct_count: usize) -> Option<Vec<usize>> {
+    let raw = env::var("VORTEX_V2_CONJUNCT_ORDER").ok()?;
+    let parsed: Option<Vec<usize>> = raw
+        .split(',')
+        .map(|part| part.trim().parse::<usize>().ok())
+        .collect();
+    let parsed = parsed?;
+    if parsed.len() != conjunct_count
+        || parsed.iter().any(|idx| *idx >= conjunct_count)
+        || (0..conjunct_count).any(|idx| !parsed.contains(&idx))
+    {
+        tracing::warn!(
+            order = raw,
+            conjunct_count,
+            "ignoring invalid VORTEX_V2_CONJUNCT_ORDER"
+        );
+        return None;
+    }
+    Some(parsed)
 }
 
 /// Top-level wrapper installed by [`Scan::build`] for filtered scans.
@@ -907,7 +1025,7 @@ mod tests {
 
     /// V1/V2 must agree when the filter has multiple AND conjuncts —
     /// `Scan::build` decomposes via `split_conjunction` and combines
-    /// with `AndBoolStreamsPlan`.
+    /// with `ConjunctPlan`.
     #[test]
     fn diff_v1_v2_filtered_chunked_struct_two_conjuncts() -> VortexResult<()> {
         use vortex_array::expr::and;

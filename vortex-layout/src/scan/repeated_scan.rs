@@ -54,6 +54,8 @@ pub struct RepeatedScan<A: 'static + Send> {
     limit: Option<u64>,
     /// The dtype of the projected arrays.
     dtype: DType,
+    /// Optional label included in debug/trace logs for correlating scan work.
+    debug_label: Option<Arc<str>>,
 }
 
 impl RepeatedScan<ArrayRef> {
@@ -101,6 +103,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
         limit: Option<u64>,
         dtype: DType,
+        debug_label: Option<Arc<str>>,
     ) -> Self {
         Self {
             session,
@@ -115,6 +118,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             map_fn,
             limit,
             dtype,
+            debug_label,
         }
     }
 
@@ -128,6 +132,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             reader: Arc::clone(&self.layout_reader),
             projection: self.projection.clone(),
             mapper: Arc::clone(&self.map_fn),
+            debug_label: self.debug_label.clone(),
         });
 
         let row_range = intersect_ranges(self.row_range.as_ref(), row_range);

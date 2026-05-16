@@ -3,41 +3,53 @@
 
 use std::sync::Arc;
 
-use arrow_array::BooleanArray;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
+use vortex_mask::MaskIter;
 use vortex_mask::MaskValues;
 
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
-use crate::arrays::VarBinView;
 use crate::arrays::VarBinViewArray;
-use crate::arrow::ArrowArrayExecutor;
-use crate::arrow::FromArrowArray;
+use crate::arrays::varbinview::BinaryView;
+use crate::arrays::varbinview::VarBinViewArrayExt;
+use crate::buffer::BufferHandle;
 
 pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> VarBinViewArray {
-    // Delegate to the Arrow implementation of filter over `VarBinView`.
-    arrow_filter_fn(&array.clone().into_array(), &Mask::Values(Arc::clone(mask)))
-        .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
-        .as_::<VarBinView>()
-        .into_owned()
+    let filter_mask = Mask::Values(Arc::clone(mask));
+    let views = filter_views(array.views(), mask);
+    let validity = array
+        .varbinview_validity()
+        .filter(&filter_mask)
+        .vortex_expect("filtering VarBinView validity should not fail");
+
+    // SAFETY: filtering views and validity by the same mask preserves all view invariants. The data
+    // buffers are immutable and remain referenced by the copied views.
+    unsafe {
+        VarBinViewArray::new_handle_unchecked(
+            BufferHandle::new_host(views.into_byte_buffer()),
+            Arc::clone(array.data_buffers()),
+            array.dtype().clone(),
+            validity,
+        )
+    }
 }
 
-fn arrow_filter_fn(array: &ArrayRef, mask: &Mask) -> vortex_error::VortexResult<ArrayRef> {
-    let values = match &mask {
-        Mask::Values(values) => values,
-        Mask::AllTrue(_) | Mask::AllFalse(_) => unreachable!("check in filter invoke"),
-    };
-
-    let array_ref = array
-        .clone()
-        .execute_arrow(None, &mut LEGACY_SESSION.create_execution_ctx())?;
-    let mask_array = BooleanArray::new(values.bit_buffer().clone().into(), None);
-    let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
-
-    ArrayRef::from_arrow(filtered.as_ref(), array.dtype().is_nullable())
+fn filter_views(views: &[BinaryView], mask: &MaskValues) -> Buffer<BinaryView> {
+    match mask.threshold_iter(0.5) {
+        MaskIter::Indices(indices) => {
+            Buffer::from_trusted_len_iter(indices.iter().map(|idx| views[*idx]))
+        }
+        MaskIter::Slices(slices) => {
+            let mut filtered = BufferMut::with_capacity(mask.true_count());
+            for (start, end) in slices.iter().copied() {
+                for view in &views[start..end] {
+                    filtered.push(*view);
+                }
+            }
+            filtered.freeze()
+        }
+    }
 }
 
 #[cfg(test)]

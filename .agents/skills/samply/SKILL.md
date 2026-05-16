@@ -22,7 +22,8 @@ For long performance sessions, use this cadence:
 
 1. benchmark command starts: say what target, format, query, and toggles are being measured;
 2. benchmark command finishes: immediately show run ID, timing comparison, and output path;
-3. profile command finishes: immediately show profile path and first stack/function summary;
+3. profile command finishes: immediately show profile path, a `samply load` command the user can
+   run to inspect it in Firefox Profiler, and the first stack/function summary;
 4. deeper analysis begins: state the concrete hotspot or hypothesis being checked.
 
 ## Standard Loop
@@ -100,6 +101,21 @@ For long performance sessions, use this cadence:
    `unstable_encodings` feature. That profile has debug info and frame pointers, which is usually
    better for Samply than an arbitrary release binary.
 
+   After the profile is recorded, immediately show the user the command to open it themselves:
+
+   ```bash
+   samply load /private/tmp/<label>.profile.json.gz
+   ```
+
+   `samply load` starts a local Firefox Profiler server and opens the browser UI. If the user only
+   wants the URL or the environment cannot open a browser, use:
+
+   ```bash
+   samply load --no-open /private/tmp/<label>.profile.json.gz
+   ```
+
+   Then report the printed local URL.
+
 4. Summarize the profile without opening Firefox Profiler. Run a small summary first and report it
    immediately, then run a wider summary only if needed:
 
@@ -126,6 +142,28 @@ For long performance sessions, use this cadence:
      --top 30 \
      --threads 6 \
      --stacks 12
+   ```
+
+   For timeline skew, quantify worker occupancy instead of relying only on the visual timeline:
+
+   ```bash
+   python3 .agents/skills/samply/scripts/profile_activity.py \
+     /private/tmp/<label>.profile.json.gz \
+     --thread-regex tokio-rt-worker \
+     --bin-ms 10
+   ```
+
+   For a focused inverted call tree over a thread class or time range, use:
+
+   ```bash
+   python3 .agents/skills/samply/scripts/profile_inverted_tree.py \
+     /private/tmp/<label>.profile.json.gz \
+     --binary target/release_debug/<benchmark-binary> \
+     --symbolicate \
+     --thread-regex tokio-rt-worker \
+     --start-ms <start> \
+     --end-ms <end> \
+     --contains '<frame-regex>'
    ```
 
 5. Inspect code near the actual hot path. Load the benchmark query text or workload definition
@@ -186,6 +224,11 @@ For a raw offset `0x3db28a0`, the address passed to `atos` is `0x100000000 + 0x3
   CPU time is usually on `tokio-rt-worker` threads.
 - Sort threads by total sample weight and CPU delta. Many idle worker threads can have high wall
   time but near-zero CPU.
+- Use `profile_activity.py` when the Firefox Profiler timeline shows empty space. Good parallel
+  benchmark traces keep worker occupancy high through the timed region; a low-occupancy tail points
+  to scheduling skew, stragglers, dependency ordering, or partition imbalance.
+- Use `profile_inverted_tree.py` with `--contains` for allocation frames, blocking frames, or a hot
+  leaf function to see the caller contexts that produce the samples.
 - A stack with many samples may mean the operation is slow, or it may mean it is called many times.
   Samply alone usually cannot distinguish those. Pair hot stacks with counters, metrics, or logs:
   operation count, byte count, rows decoded, cache hits/misses, per-operation max/median duration,
@@ -206,6 +249,7 @@ For a raw offset `0x3db28a0`, the address passed to `atos` is `0x100000000 + 0x3
 Summaries should include:
 
 - benchmark command and profile command;
+- command for the user to open the profile, usually `samply load <profile.json.gz>`;
 - branch and binary profile used;
 - before/after timings or run IDs;
 - top hot threads/functions/stacks;

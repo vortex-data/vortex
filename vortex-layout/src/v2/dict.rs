@@ -156,7 +156,6 @@ impl LayoutPlan for DictDecodePlan {
         demand: &RowDemand,
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
-        let codes_stream = self.codes_plan.execute(row_range, demand, ctx)?;
         // Read the entire values table. The values plan covers its
         // own row space (the dict's distinct-value count), not the
         // codes' row space — execute it over its full range with a
@@ -167,22 +166,36 @@ impl LayoutPlan for DictDecodePlan {
             .partition_stats(0)
             .map(|s| s.row_count())
             .unwrap_or(0);
-        let values_demand = RowDemand::empty(values_total);
-        let values_stream = self
-            .values_plan
-            .execute(0..values_total, &values_demand, ctx)?;
 
+        let codes_plan = Arc::clone(&self.codes_plan);
+        let values_plan = Arc::clone(&self.values_plan);
+        let demand = demand.clone();
+        let ctx_for_stream = ctx.clone();
         let expr = self.expr.clone();
         let dtype = self.output_dtype.clone();
         let all_values_referenced = self.all_values_referenced;
         let stream = try_stream! {
+            let mut codes_stream = codes_plan.execute(row_range, &demand, &ctx_for_stream)?;
+            let Some(first_codes) = codes_stream.next().await else {
+                return;
+            };
+
+            let values_demand = RowDemand::empty(values_total);
+            let values_stream = values_plan.execute(0..values_total, &values_demand, &ctx_for_stream)?;
+
             // Materialise the values into a single shared array. Wrap
             // in `SharedArray` so each chunk's `DictArray::new_unchecked`
             // gets a cheap Arc-clone rather than re-canonicalising.
             let values = SharedArray::new(values_stream.read_all().await?).into_array();
-            let mut codes_stream = codes_stream;
-            while let Some(codes_res) = codes_stream.next().await {
-                let codes = codes_res?;
+            let mut pending = Some(first_codes?);
+            loop {
+                let codes = if let Some(codes) = pending.take() {
+                    codes
+                } else if let Some(codes_res) = codes_stream.next().await {
+                    codes_res?
+                } else {
+                    break;
+                };
                 // SAFETY: matches the v1 `DictReader::projection_evaluation`
                 // contract (`vortex-layout/src/layouts/dict/reader.rs:243`):
                 // codes dtype is enforced by the codes child reader, and

@@ -55,6 +55,8 @@ use vortex_error::vortex_err;
 use vortex_io::runtime::Handle;
 use vortex_io::runtime::Task;
 
+use crate::v2::experiment::usize_var;
+
 /// How many chunks each child's producer may run ahead of the zip.
 /// Bounded by the channel capacity — backpressure kicks in when the
 /// zip is slower than the child can produce.
@@ -91,9 +93,11 @@ impl AlignedArrayStream {
     pub fn new(children: Vec<SendableArrayStream>, handle: Handle) -> Self {
         let mut child_states = Vec::with_capacity(children.len());
         let mut producers = Vec::with_capacity(children.len());
+        let buffer_depth =
+            usize_var("VORTEX_V2_ALIGNED_BUFFER_DEPTH").unwrap_or(CHILD_BUFFER_DEPTH);
         for child in children {
             let dtype = child.dtype().clone();
-            let (sender, receiver) = kanal::bounded_async(CHILD_BUFFER_DEPTH);
+            let (sender, receiver) = kanal::bounded_async(buffer_depth);
             let task = handle.spawn(producer_task(child, sender));
             let receiver_stream: SendableArrayStream = Box::pin(ArrayStreamAdapter::new(
                 dtype.clone(),

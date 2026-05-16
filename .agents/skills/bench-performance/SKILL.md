@@ -194,6 +194,37 @@ python3 .agents/skills/bench-performance/scripts/compare_gh_json.py \
 It ignores non-JSON log lines, groups by benchmark/query target, reports milliseconds, min/median/max,
 and ratios against the selected baseline target or the first target in each query.
 
+## Summarizing Mask/Row-Demand Logs
+
+When a run emits Vortex mask-style debug lines, summarize them before reading more code. This
+includes V2 `vortex_layout::mask_debug` rows and V1 pruning rows with the same coordinate fields.
+These logs are useful for deciding whether a hot stack is expensive per row, called over too many
+rows, or repeated over the same coordinates:
+
+```bash
+python3 .agents/skills/bench-performance/scripts/summarize_mask_debug.py \
+  /private/tmp/<label>.log \
+  --message-regex 'filter|conjunct|flat' \
+  --duplicates
+```
+
+The output reports batch counts, zero-output percentage, total input/output rows, density, batch
+size quantiles, elapsed totals when present, the largest batches, and duplicate coordinate masks.
+If a low-selectivity filter still shows very large input batches late in the pipeline, compare this
+with the Samply timeline: a few huge all-false batches can explain idle workers even when total row
+work looks reasonable.
+
+For conjunct scheduling logs, aggregate compute rows per predicate. This handles V2 conjunct rows
+and V1 pruning/filter conjunct rows when the logs include comparable fields:
+
+```bash
+python3 .agents/skills/bench-performance/scripts/summarize_conjunct_debug.py \
+  /private/tmp/<label>.log
+```
+
+Use this when checking whether a pushed-down or shared mask is actually evaluated once, or whether
+each projected field is driving the same conjunct work again.
+
 ## Count vs Latency
 
 A hot sampled stack does not by itself say whether the operation is intrinsically slow, called too
@@ -205,6 +236,22 @@ many times, or waiting on contention. Before changing code, classify it:
   admission with similar work counts.
 - **Scheduler shape**: many idle or parked workers can dominate wall-time samples; compare
   CPU-weighted and sample-weighted summaries.
+
+When reading Samply's timeline view, look at the shape of CPU occupancy, not only the hottest
+function names:
+
+- A healthy parallel Vortex/DataFusion profile usually keeps worker threads doing CPU work across
+  most of the timed region. Large empty spans or many idle workers while one worker runs a hot
+  stack point to scheduling skew, dependency ordering, partition imbalance, or a straggler. In
+  that case, investigate why the work became serialized before micro-optimizing the leaf function.
+- If a leaf such as a string scan appears hot only after other workers have gone idle, the problem
+  may be that it was released late or is waiting on upstream work, not that the leaf loop itself is
+  too slow. Check stream readiness, partition sizes, conjunct/order decisions, and whether earlier
+  operators delay the selective work.
+- If allocation frames such as `with_capacity`, `RawVec`, `reserve`, or allocator symbols appear
+  throughout the whole trace, treat that as allocation churn and missing buffer reuse. Look for
+  per-batch scratch allocation, repeated materialization, unbounded `Vec` creation, and places
+  where reusable buffers or capacity-preserving paths would avoid rebuilding the same memory.
 
 For Vortex/DataFusion scan I/O, prefer `--show-metrics` before OS tracing:
 
@@ -235,6 +282,35 @@ Use logs when metrics are missing. Add narrow trace points around the suspected 
 call count, requested byte range, coalesced range, segment id, row range, elapsed time, and whether
 the call hit/missed a cache. Keep logs behind existing `tracing` levels and run with a focused
 `RUST_LOG` filter.
+
+## Batch Coordinate Diagnostics
+
+When comparing two scan designs, aggregate timings can hide whether the same work ran over the same
+rows. Add temporary trace/debug fields that make each compute event joinable:
+
+- stable scan label, usually the file/object path or another per-input identifier;
+- root row coordinates, not only child-local row coordinates;
+- local row range too, when the execution node works in translated child coordinates;
+- conjunct or expression identifier and its chosen order;
+- input/output true counts, density, first/last surviving row, and a short sample of survivor
+  ranges;
+- a deterministic hash of the absolute survivor row set for same-window checks;
+- partition-independent fingerprints such as wrapping row-id sum and row-id xor so unions can be
+  compared when V1 and V2 use different batch boundaries.
+
+Be careful with multi-file benchmarks: `row_start=0..N` is only meaningful with a file label. Be
+careful with nested layouts too: child plans may log local coordinates unless the diagnostic uses
+the scoped demand, split metadata, or another explicit root-offset source. If two paths partition
+the same file differently, identical `(file, row_range)` keys may not exist; compare per-conjunct
+input/output row counts first, then add a union-level dump only if exact row-set equality is still
+unclear.
+
+Prefer diagnostic logs over changing public batch types. Useful log points are final V1 split
+projection, V2 mask/filter nodes, and filtered V2 leaf projection nodes. For each batch-like event,
+emit the input coordinate window plus the post-mask survivor summary/hash; that lets you compare
+exact row sets even when physical batch boundaries differ. Avoid logging every unfiltered leaf by
+default: nested layouts such as dictionary values may live in a different row space and can drown
+out the scan-coordinate signal.
 
 ## Samply
 

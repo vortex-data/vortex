@@ -19,10 +19,12 @@
 use std::ops::Range;
 use std::sync::Arc;
 
+use async_stream::try_stream;
 use futures::StreamExt;
 use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::stream::ArrayStreamAdapter;
+use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -30,8 +32,10 @@ use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 
+use crate::mask_debug::log_mask_batch;
 use crate::v2::aligned::AlignedArrayStream;
 use crate::v2::demand::RowDemand;
+use crate::v2::experiment::bool_var;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
@@ -156,11 +160,20 @@ impl LayoutPlan for FilterPlan {
         demand: &RowDemand,
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
+        if bool_var("VORTEX_V2_FILTER_MASK_FIRST") {
+            return self.execute_mask_first(row_range, demand, ctx);
+        }
+
+        let local_start = row_range.start;
+        let coord_start = demand.global_range(&row_range).start;
         let values_stream = self.values.execute(row_range.clone(), demand, ctx)?;
         let mask_stream = self.mask.execute(row_range, demand, ctx)?;
 
         let session = ctx.session().clone();
         let dtype = self.output_dtype.clone();
+        let debug_label = ctx.debug_label().map(str::to_owned);
+        let mut local_cursor = local_start;
+        let mut coord_cursor = coord_start;
         let aligned =
             AlignedArrayStream::new(vec![values_stream, mask_stream], ctx.session().handle());
         let mapped = aligned.map(move |result| {
@@ -176,13 +189,124 @@ impl LayoutPlan for FilterPlan {
             // does when it has a non-trivial mask.
             let mut ctx = session.create_execution_ctx();
             let mask: Mask = mask.execute::<Mask>(&mut ctx)?;
+            let input_rows = mask.len() as u64;
+            let local_range = local_cursor..local_cursor + input_rows;
+            let coord_range = coord_cursor..coord_cursor + input_rows;
+            let output_mask_for_log =
+                tracing::enabled!(tracing::Level::DEBUG).then(|| mask.clone());
             if mask.all_true() {
+                let output_rows = values.len();
+                if let Some(mask) = output_mask_for_log.as_ref() {
+                    log_mask_batch(
+                        "v2 filter batch projected",
+                        debug_label.as_deref(),
+                        &local_range,
+                        &coord_range,
+                        mask,
+                        None,
+                        Some(output_rows),
+                    );
+                }
+                local_cursor += input_rows;
+                coord_cursor += input_rows;
                 Ok(values)
             } else {
-                values.filter(mask)
+                let output = values.filter(mask)?;
+                if let Some(mask) = output_mask_for_log.as_ref() {
+                    log_mask_batch(
+                        "v2 filter batch projected",
+                        debug_label.as_deref(),
+                        &local_range,
+                        &coord_range,
+                        mask,
+                        None,
+                        Some(output.len()),
+                    );
+                }
+                local_cursor += input_rows;
+                coord_cursor += input_rows;
+                Ok(output)
             }
         });
 
         Ok(Box::pin(ArrayStreamAdapter::new(dtype, mapped)))
+    }
+}
+
+impl FilterPlan {
+    fn execute_mask_first(
+        &self,
+        row_range: Range<u64>,
+        demand: &RowDemand,
+        ctx: &ScanCtx,
+    ) -> VortexResult<SendableArrayStream> {
+        let values = Arc::clone(&self.values);
+        let mut mask_stream = self.mask.execute(row_range.clone(), demand, ctx)?;
+        let dtype = self.output_dtype.clone();
+        let session = ctx.session().clone();
+        let demand = demand.clone();
+        let ctx = ctx.clone();
+        let debug_label = ctx.debug_label().map(str::to_owned);
+        let mut local_cursor = row_range.start;
+        let mut coord_cursor = demand.global_range(&row_range).start;
+
+        let stream = try_stream! {
+            while let Some(mask_array) = mask_stream.next().await {
+                let mask_array = mask_array?;
+                if mask_array.is_empty() {
+                    continue;
+                }
+
+                let mut exec_ctx = session.create_execution_ctx();
+                let mask: Mask = mask_array.execute::<Mask>(&mut exec_ctx)?;
+                let input_rows = mask.len() as u64;
+                let local_range = local_cursor..local_cursor + input_rows;
+                let coord_range = coord_cursor..coord_cursor + input_rows;
+                let output_mask_for_log =
+                    tracing::enabled!(tracing::Level::DEBUG).then(|| mask.clone());
+
+                if mask.all_false() {
+                    if let Some(mask) = output_mask_for_log.as_ref() {
+                        log_mask_batch(
+                            "v2 filter batch projected",
+                            debug_label.as_deref(),
+                            &local_range,
+                            &coord_range,
+                            mask,
+                            None,
+                            Some(0),
+                        );
+                    }
+                    local_cursor += input_rows;
+                    coord_cursor += input_rows;
+                    continue;
+                }
+
+                let values_stream = values.execute(local_range.clone(), &demand, &ctx)?;
+                let values = values_stream.read_all().await?;
+                let output = if mask.all_true() {
+                    values
+                } else {
+                    values.filter(mask.clone())?
+                };
+
+                if let Some(mask) = output_mask_for_log.as_ref() {
+                    log_mask_batch(
+                        "v2 filter batch projected",
+                        debug_label.as_deref(),
+                        &local_range,
+                        &coord_range,
+                        mask,
+                        None,
+                        Some(output.len()),
+                    );
+                }
+                local_cursor += input_rows;
+                coord_cursor += input_rows;
+                yield output;
+            }
+        };
+
+        Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))
     }
 }

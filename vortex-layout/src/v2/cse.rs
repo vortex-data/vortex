@@ -286,7 +286,7 @@ mod tests {
 
     /// A test-only N-ary container that exposes its children to
     /// `children()` so the CSE walker can find duplicates across them.
-    /// Real two-child plans (`AndBoolStreamsPlan`, `FilterPlan`, etc.)
+    /// Real two-child plans (`ConjunctPlan`, `FilterPlan`, etc.)
     /// require Bool schemas; this stays untyped.
     struct ContainerPlan {
         children: Vec<LayoutPlanRef>,

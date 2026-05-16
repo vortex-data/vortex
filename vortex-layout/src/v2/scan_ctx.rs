@@ -41,6 +41,7 @@ use vortex_session::VortexSession;
 pub struct ScanCtx {
     session: VortexSession,
     vars: Arc<ScanVars>,
+    debug_label: Option<Arc<str>>,
 }
 
 impl ScanCtx {
@@ -49,6 +50,7 @@ impl ScanCtx {
         Self {
             session,
             vars: Arc::default(),
+            debug_label: None,
         }
     }
 
@@ -61,6 +63,18 @@ impl ScanCtx {
     /// The session this scan is executing against.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+
+    /// Return the optional diagnostic label attached to this scan.
+    pub fn debug_label(&self) -> Option<&str> {
+        self.debug_label.as_deref()
+    }
+
+    /// Attach a label to scan debug logs. This is diagnostic-only and
+    /// does not affect scan results or planning.
+    pub fn with_debug_label(mut self, label: impl Into<Arc<str>>) -> Self {
+        self.debug_label = Some(label.into());
+        self
     }
 
     /// Get a typed slot, inserting a default value if it is not yet

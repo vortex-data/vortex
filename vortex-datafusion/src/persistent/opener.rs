@@ -335,7 +335,9 @@ impl FileOpener for VortexOpener {
                 }
             };
 
-            let mut scan_builder = ScanBuilder::new(session.clone(), Arc::clone(&layout_reader));
+            let scan_label: Arc<str> = Arc::from(file.object_meta.location.to_string());
+            let mut scan_builder = ScanBuilder::new(session.clone(), Arc::clone(&layout_reader))
+                .with_debug_label(Arc::clone(&scan_label));
 
             // Pull any access-plan selection out of the file extensions so we
             // can both apply it to the v1 builder and inspect it for v2
@@ -513,7 +515,8 @@ impl FileOpener for VortexOpener {
                     return Ok(stream::empty().boxed());
                 }
 
-                let scan_ctx = vortex::layout::v2::scan_ctx::ScanCtx::new(session.clone());
+                let scan_ctx = vortex::layout::v2::scan_ctx::ScanCtx::new(session.clone())
+                    .with_debug_label(Arc::clone(&scan_label));
                 // Top-level call into the plan tree. ScanPlan installs
                 // a fresh per-scan RowDemand internally; pass detached
                 // here to satisfy the parameter shape.
