@@ -188,71 +188,24 @@ fn argsort_primitive<T: NativePType>(
     Ok(())
 }
 
-/// Argsort a VarBinView array without copying the value bytes. We borrow byte slices
-/// directly from the underlying data buffers via `bytes_at`-equivalent indexing.
+/// Argsort a VarBinView. Materializes each value to `Vec<u8>` once via the standard
+/// `ArrayAccessor::with_iterator` (dict_len <= u16::MAX so this is cheap), then sorts a
+/// `(validity, bytes, idx)` triple by validity-first then bytes.
 fn argsort_varbinview(values: &VarBinViewArray, n: u32) -> VortexResult<Vec<u32>> {
-    let views = values.views();
-    let buffers: Vec<&[u8]> = (0..values.data_buffers().len())
-        .map(|i| values.buffer(i).as_slice())
-        .collect();
-    let validity = values.validity()?;
-
-    // Resolve each view to a (validity_flag, &[u8] slice). For inlined views, the slice
-    // lives inside the view itself; we use a small workaround to expose it without copy.
-    // We store the resolved slice as (start_ptr, len) pairs alongside an index.
-    //
-    // For sorting, we wrap into a `Vec<(u8, ResolvedView, u32)>` so null-first is cheap.
-
-    enum Resolved<'a> {
-        Inlined([u8; 12], u32), // value bytes + len (<=12)
-        Ref(&'a [u8]),
-    }
-
-    impl<'a> Resolved<'a> {
-        #[inline]
-        fn as_slice(&self) -> &[u8] {
-            match self {
-                Resolved::Inlined(buf, len) => &buf[..*len as usize],
-                Resolved::Ref(s) => s,
-            }
+    let items: Vec<Option<Vec<u8>>> = values
+        .with_iterator(|it: &mut dyn Iterator<Item = Option<&[u8]>>| {
+            it.map(|opt| opt.map(|b| b.to_vec())).collect()
+        });
+    let mut perm: Vec<u32> = (0..n).collect();
+    perm.sort_unstable_by(|&a, &b| {
+        match (&items[a as usize], &items[b as usize]) {
+            (None, None) => Ordering::Equal,
+            (None, Some(_)) => Ordering::Less, // nulls sort first
+            (Some(_), None) => Ordering::Greater,
+            (Some(av), Some(bv)) => av.as_slice().cmp(bv.as_slice()),
         }
-    }
-
-    let valid_iter: Box<dyn Iterator<Item = bool>> = match &validity {
-        Validity::NonNullable | Validity::AllValid => Box::new(std::iter::repeat_n(true, n as usize)),
-        Validity::AllInvalid => Box::new(std::iter::repeat_n(false, n as usize)),
-        Validity::Array(_) => {
-            let v: Vec<bool> = values
-                .with_iterator(|it: &mut dyn Iterator<Item = Option<&[u8]>>| {
-                    it.map(|opt| opt.is_some()).collect()
-                });
-            Box::new(v.into_iter())
-        }
-    };
-
-    let mut triples: Vec<(u8, Resolved, u32)> = Vec::with_capacity(n as usize);
-    for (idx, valid) in (0u32..).zip(valid_iter).take(n as usize) {
-        let view = &views[idx as usize];
-        let resolved = if view.is_inlined() {
-            let inlined_bytes = view.as_inlined().value();
-            let mut buf = [0u8; 12];
-            let len = inlined_bytes.len().min(12);
-            buf[..len].copy_from_slice(&inlined_bytes[..len]);
-            Resolved::Inlined(buf, len as u32)
-        } else {
-            let r = view.as_view();
-            let buf = buffers[r.buffer_index as usize];
-            Resolved::Ref(&buf[r.as_range()])
-        };
-        triples.push((u8::from(valid), resolved, idx));
-    }
-
-    triples.sort_unstable_by(|a, b| match a.0.cmp(&b.0) {
-        Ordering::Equal => a.1.as_slice().cmp(b.1.as_slice()),
-        ord => ord,
     });
-
-    Ok(triples.into_iter().map(|(_, _, i)| i).collect())
+    Ok(perm)
 }
 
 /// Reorder `values` such that the i-th element of the output is `values[perm[i]]`.

@@ -31,7 +31,6 @@ use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::between;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
-use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::between::Between;
 use vortex_array::scalar_fn::fns::between::BetweenOptions;
 use vortex_array::scalar_fn::fns::between::StrictComparison::NonStrict;

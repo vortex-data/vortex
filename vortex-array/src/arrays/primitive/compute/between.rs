@@ -11,6 +11,7 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Primitive;
+use crate::arrays::primitive::compute::chunked_pack::chunked_pack;
 use crate::dtype::NativePType;
 use crate::dtype::Nullability;
 use crate::match_each_native_ptype;
@@ -157,38 +158,15 @@ fn between_wraparound<T: NativePType + Copy>(
     )
 }
 
+/// Wraparound subtract for one unsigned ptype: `lo <= v <= hi`  ≡
+/// `v.wrapping_sub(lo) <= range`. One sub + one cmp per element, single dependency
+/// chain into the bit-pack — auto-vectorises better than two compares + AND.
 macro_rules! impl_wraparound_chunked {
     ($name:ident, $t:ty) => {
         #[inline]
         fn $name(slice: &[$t], lo: $t, hi: $t) -> BitBuffer {
-            use vortex_buffer::ByteBufferMut;
-            let len = slice.len();
             let range = hi.wrapping_sub(lo);
-            let bytes_len = len.div_ceil(8);
-            let mut bytes = ByteBufferMut::zeroed(bytes_len);
-            let dst = bytes.as_mut_slice();
-            let full = len / 8;
-            for chunk_idx in 0..full {
-                let base = chunk_idx * 8;
-                let mut b = 0u8;
-                for j in 0..8 {
-                    // SAFETY: base + j < full*8 <= len.
-                    let v = unsafe { *slice.get_unchecked(base + j) };
-                    b |= u8::from(v.wrapping_sub(lo) <= range) << j;
-                }
-                // SAFETY: chunk_idx < full <= bytes_len.
-                unsafe { *dst.get_unchecked_mut(chunk_idx) = b };
-            }
-            let tail = full * 8;
-            if tail < len {
-                let mut b = 0u8;
-                for j in 0..(len - tail) {
-                    let v = unsafe { *slice.get_unchecked(tail + j) };
-                    b |= u8::from(v.wrapping_sub(lo) <= range) << j;
-                }
-                unsafe { *dst.get_unchecked_mut(full) = b };
-            }
-            BitBuffer::new(bytes.freeze(), len)
+            chunked_pack(slice, |v| v.wrapping_sub(lo) <= range)
         }
     };
 }
@@ -209,7 +187,7 @@ where
     T: NativePType + Copy,
 {
     let slice = arr.as_slice::<T>();
-    let bits = chunked_between::<T>(slice, lower, lower_fn, upper, upper_fn);
+    let bits = chunked_pack(slice, |v| lower_fn(lower, v) & upper_fn(v, upper));
     BoolArray::new(
         bits,
         arr.validity()
@@ -217,49 +195,4 @@ where
             .union_nullability(nullability),
     )
     .into_array()
-}
-
-/// Pack 8 between-checks into a byte at a time. Matches the chunked SIMD pattern in
-/// `compare::cmp_chunked` — Vortex's `BitBuffer::collect_bool` builder serializes the
-/// bit writes one at a time and defeats auto-vectorization (~2-3× slower than this).
-#[inline]
-fn chunked_between<T>(
-    slice: &[T],
-    lower: T,
-    lower_fn: impl Fn(T, T) -> bool,
-    upper: T,
-    upper_fn: impl Fn(T, T) -> bool,
-) -> BitBuffer
-where
-    T: NativePType + Copy,
-{
-    use vortex_buffer::ByteBufferMut;
-    let len = slice.len();
-    let bytes_len = len.div_ceil(8);
-    let mut bytes = ByteBufferMut::zeroed(bytes_len);
-    let dst = bytes.as_mut_slice();
-    let full = len / 8;
-    for chunk_idx in 0..full {
-        let base = chunk_idx * 8;
-        let mut b = 0u8;
-        for j in 0..8 {
-            // SAFETY: base + j < full*8 <= len.
-            let v = unsafe { *slice.get_unchecked(base + j) };
-            b |= u8::from(lower_fn(lower, v) & upper_fn(v, upper)) << j;
-        }
-        // SAFETY: chunk_idx < full <= bytes_len.
-        unsafe { *dst.get_unchecked_mut(chunk_idx) = b };
-    }
-    let tail = full * 8;
-    if tail < len {
-        let mut b = 0u8;
-        for j in 0..(len - tail) {
-            // SAFETY: tail + j < len.
-            let v = unsafe { *slice.get_unchecked(tail + j) };
-            b |= u8::from(lower_fn(lower, v) & upper_fn(v, upper)) << j;
-        }
-        // SAFETY: full < bytes_len when len % 8 != 0.
-        unsafe { *dst.get_unchecked_mut(full) = b };
-    }
-    BitBuffer::new(bytes.freeze(), len)
 }

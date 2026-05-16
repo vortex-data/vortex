@@ -8,7 +8,6 @@
 //! `collect_bool` path Vortex was using through Arrow).
 
 use vortex_buffer::BitBuffer;
-use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -17,9 +16,9 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::BoolArray;
 use crate::arrays::Primitive;
+use crate::arrays::primitive::compute::chunked_pack::chunked_pack;
 use crate::dtype::DType;
 use crate::dtype::NativePType;
-use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
@@ -30,7 +29,7 @@ impl CompareKernel for Primitive {
         lhs: ArrayView<'_, Primitive>,
         rhs: &ArrayRef,
         operator: CompareOperator,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         // Only handle vs-constant. Vec-vec falls through to Arrow.
         let Some(rhs_const) = rhs.as_constant() else {
@@ -61,72 +60,26 @@ impl CompareKernel for Primitive {
         let validity = if !result_nullable {
             Validity::NonNullable
         } else {
-            let lhs_validity = lhs.validity()?;
-            match lhs_validity {
+            match lhs.validity()? {
                 Validity::NonNullable => Validity::AllValid,
                 v => v,
             }
         };
-        let _ = ctx;
-        let _ = PType::U8;
         Ok(Some(BoolArray::new(bits, validity).into_array()))
     }
 }
 
-/// Pack 8 cmps into a byte at a time so the compiler can vectorize the body. The naive
-/// `collect_bool` path Vortex uses via Arrow's `cmp::lt` was ~3× slower at every size past
-/// L1 (see `cpu_take_vs_cmp` bench).
+/// `cmp(slice[i], needle, op)` packed into a `BitBuffer`. Dispatches the comparison
+/// operator once at the top so the inner loop is monomorphic and vectorizes.
 #[inline]
 fn cmp_chunked<T: NativePType>(slice: &[T], needle: T, op: CompareOperator) -> BitBuffer {
-    let len = slice.len();
-    let bytes_len = len.div_ceil(8);
-    let mut bytes = ByteBufferMut::zeroed(bytes_len);
-
     match op {
-        CompareOperator::Lt => pack_chunks(slice, needle, len, &mut bytes, |a, b| a.is_lt(b)),
-        CompareOperator::Lte => pack_chunks(slice, needle, len, &mut bytes, |a, b| a.is_le(b)),
-        CompareOperator::Gt => pack_chunks(slice, needle, len, &mut bytes, |a, b| a.is_gt(b)),
-        CompareOperator::Gte => pack_chunks(slice, needle, len, &mut bytes, |a, b| a.is_ge(b)),
-        CompareOperator::Eq => pack_chunks(slice, needle, len, &mut bytes, |a, b| a.is_eq(b)),
-        CompareOperator::NotEq => pack_chunks(slice, needle, len, &mut bytes, |a, b| !a.is_eq(b)),
-    }
-
-    // Build a BitBuffer over exactly `len` bits.
-    BitBuffer::new(bytes.freeze(), len)
-}
-
-#[inline(always)]
-fn pack_chunks<T: NativePType, F: Fn(T, T) -> bool>(
-    slice: &[T],
-    needle: T,
-    len: usize,
-    bytes: &mut ByteBufferMut,
-    pred: F,
-) {
-    let full = len / 8;
-    let dst = bytes.as_mut_slice();
-    for chunk_idx in 0..full {
-        let base = chunk_idx * 8;
-        let mut b = 0u8;
-        // The inner loop is fully unrolled and vectorizes for primitive cmps.
-        for j in 0..8 {
-            // SAFETY: base + j < full*8 <= len.
-            let v = unsafe { *slice.get_unchecked(base + j) };
-            b |= u8::from(pred(v, needle)) << j;
-        }
-        // SAFETY: chunk_idx < full <= bytes_len.
-        unsafe { *dst.get_unchecked_mut(chunk_idx) = b };
-    }
-    let tail = full * 8;
-    if tail < len {
-        let mut b = 0u8;
-        for j in 0..(len - tail) {
-            // SAFETY: tail + j < len.
-            let v = unsafe { *slice.get_unchecked(tail + j) };
-            b |= u8::from(pred(v, needle)) << j;
-        }
-        // SAFETY: full < bytes_len when len % 8 != 0.
-        unsafe { *dst.get_unchecked_mut(full) = b };
+        CompareOperator::Lt => chunked_pack(slice, |v| v.is_lt(needle)),
+        CompareOperator::Lte => chunked_pack(slice, |v| v.is_le(needle)),
+        CompareOperator::Gt => chunked_pack(slice, |v| v.is_gt(needle)),
+        CompareOperator::Gte => chunked_pack(slice, |v| v.is_ge(needle)),
+        CompareOperator::Eq => chunked_pack(slice, |v| v.is_eq(needle)),
+        CompareOperator::NotEq => chunked_pack(slice, |v| !v.is_eq(needle)),
     }
 }
 

@@ -208,23 +208,20 @@ pub(crate) fn emit_code_cmp(
 /// `dict_len` already fits in the codes ptype by DictArray invariant.
 pub(crate) fn code_threshold_scalar(codes: &ArrayRef, idx: usize) -> VortexResult<Scalar> {
     use crate::dtype::DType;
-    use crate::dtype::PType;
+    use crate::match_each_integer_ptype;
     let nullability = codes.dtype().nullability();
-    match codes.dtype() {
-        DType::Primitive(PType::U8, _) => Ok(Scalar::primitive(idx as u8, nullability)),
-        DType::Primitive(PType::U16, _) => Ok(Scalar::primitive(idx as u16, nullability)),
-        DType::Primitive(PType::U32, _) => Ok(Scalar::primitive(idx as u32, nullability)),
-        DType::Primitive(PType::U64, _) => Ok(Scalar::primitive(idx as u64, nullability)),
-        DType::Primitive(PType::I8, _) => Ok(Scalar::primitive(idx as i8, nullability)),
-        DType::Primitive(PType::I16, _) => Ok(Scalar::primitive(idx as i16, nullability)),
-        DType::Primitive(PType::I32, _) => Ok(Scalar::primitive(idx as i32, nullability)),
-        DType::Primitive(PType::I64, _) => Ok(Scalar::primitive(idx as i64, nullability)),
-        other => vortex_error::vortex_bail!("dict codes have unexpected dtype {other}"),
-    }
+    let DType::Primitive(ptype, _) = codes.dtype() else {
+        vortex_error::vortex_bail!("dict codes have unexpected dtype {}", codes.dtype());
+    };
+    Ok(match_each_integer_ptype!(ptype, |T| {
+        // SAFETY: dict_len fits in the codes ptype by DictArray invariant; idx <= dict_len.
+        #[allow(clippy::cast_possible_truncation)]
+        Scalar::primitive(idx as T, nullability)
+    }))
 }
 
 /// Boundary indices on a sorted (ascending, non-nullable) values array.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct SortedBounds {
     /// First index `i` where `values[i] >= scalar`.
     pub left: usize,
@@ -297,203 +294,38 @@ pub(crate) fn scan_sorted_dual_bounds(
     Ok(None)
 }
 
-/// Two-phase scan. Since values are sorted ascending and `lo <= hi`, all positions
-/// touched by the upper-bound search are at or after the lower bound's exit point.
-/// Each element is compared against exactly one needle, not both.
+/// Two-phase scan. Phase 1 walks `slice` to find `lo` bounds; since values are sorted
+/// ascending and `hi >= lo`, phase 2 resumes from where phase 1 stopped. Each element is
+/// compared against exactly one needle. Special-cases `lo == hi` so both bounds match.
 fn scan_primitive_dual<T: crate::dtype::NativePType>(
     slice: &[T],
     lo: T,
     hi: T,
 ) -> (SortedBounds, SortedBounds) {
-    use std::cmp::Ordering::*;
-    let n = slice.len();
-    let mut lo_left: Option<usize> = None;
-    let mut lo_right: Option<usize> = None;
-    let mut lo_found: Option<usize> = None;
-    let mut hi_left: Option<usize> = None;
-    let mut hi_right: Option<usize> = None;
-    let mut hi_found: Option<usize> = None;
-
-    // Phase 1: find lo bounds.
-    let mut i = 0;
-    while i < n {
-        // SAFETY: i < n.
-        let v = unsafe { *slice.get_unchecked(i) };
-        match v.total_compare(lo) {
-            Less => {}
-            Equal => {
-                if lo_left.is_none() {
-                    lo_left = Some(i);
-                    lo_found = Some(i);
-                }
-            }
-            Greater => {
-                if lo_left.is_none() {
-                    lo_left = Some(i);
-                }
-                lo_right = Some(i);
-                break;
-            }
-        }
-        i += 1;
+    let (lo_bounds, exit) = scan_primitive_from(slice, 0, lo);
+    if lo.total_compare(hi) == std::cmp::Ordering::Equal {
+        return (lo_bounds, lo_bounds);
     }
-
-    // Phase 2: find hi bounds, starting from where lo's scan stopped.
-    let mut j = lo_right.unwrap_or(n);
-    // We also need to check if any element at position [lo_left, j) hit `hi` exactly.
-    // But since values are sorted and hi >= lo, the lower indices have v <= lo <= hi,
-    // so v == hi only if v == lo == hi, in which case lo_found already captured it.
-    // For the typical lo < hi case, hi search starts at j.
-    while j < n {
-        let v = unsafe { *slice.get_unchecked(j) };
-        match v.total_compare(hi) {
-            Less => {}
-            Equal => {
-                if hi_left.is_none() {
-                    hi_left = Some(j);
-                    hi_found = Some(j);
-                }
-            }
-            Greater => {
-                if hi_left.is_none() {
-                    hi_left = Some(j);
-                }
-                hi_right = Some(j);
-                break;
-            }
-        }
-        j += 1;
-    }
-
-    // Special case: if lo == hi, all hi bounds equal the lo bounds.
-    if lo == hi || (lo.total_compare(hi) == Equal) {
-        return (
-            SortedBounds {
-                left: lo_left.unwrap_or(n),
-                right: lo_right.unwrap_or(n),
-                found: lo_found,
-            },
-            SortedBounds {
-                left: lo_left.unwrap_or(n),
-                right: lo_right.unwrap_or(n),
-                found: lo_found,
-            },
-        );
-    }
-
-    (
-        SortedBounds {
-            left: lo_left.unwrap_or(n),
-            right: lo_right.unwrap_or(n),
-            found: lo_found,
-        },
-        SortedBounds {
-            left: hi_left.unwrap_or(n),
-            right: hi_right.unwrap_or(n),
-            found: hi_found,
-        },
-    )
+    let (hi_bounds, _) = scan_primitive_from(slice, exit, hi);
+    (lo_bounds, hi_bounds)
 }
 
-/// Two-phase dual scan for byte slices. We materialize the (already canonical) view
-/// iterator into a `Vec<Option<&[u8]>>` once — dict size is bounded by `u16::MAX` and
-/// the view resolution is free, so this is cheap — then run two indexed phases:
-/// phase 1 finds lo bounds, phase 2 resumes from there to find hi bounds. Each element
-/// is compared against exactly one needle, not both.
+/// Two-phase dual scan for byte slices. Materializes the view iterator once (cheap:
+/// dict_len <= u16::MAX, view resolution is essentially free) then runs the shared
+/// `scan_bytes_from` helper twice: phase 1 finds lo bounds, phase 2 resumes from there
+/// to find hi bounds. Each element is compared against exactly one needle.
 fn scan_bytes_dual<'a>(
     it: &mut dyn Iterator<Item = Option<&'a [u8]>>,
     lo: &[u8],
     hi: &[u8],
 ) -> (SortedBounds, SortedBounds) {
-    use std::cmp::Ordering::*;
     let items: Vec<Option<&[u8]>> = it.collect();
-    let n = items.len();
-
-    let mut lo_left: Option<usize> = None;
-    let mut lo_right: Option<usize> = None;
-    let mut lo_found: Option<usize> = None;
-
-    // Phase 1: find lo bounds.
-    let mut phase2_start = n;
-    for (i, opt) in items.iter().copied().enumerate() {
-        let bytes = match opt {
-            None => continue,
-            Some(b) => b,
-        };
-        match bytes.cmp(lo) {
-            Less => {}
-            Equal => {
-                if lo_left.is_none() {
-                    lo_left = Some(i);
-                    lo_found = Some(i);
-                }
-            }
-            Greater => {
-                if lo_left.is_none() {
-                    lo_left = Some(i);
-                }
-                lo_right = Some(i);
-                phase2_start = i;
-                break;
-            }
-        }
-    }
-
+    let (lo_bounds, exit) = scan_bytes_from(&items, 0, lo);
     if lo == hi {
-        return (
-            SortedBounds {
-                left: lo_left.unwrap_or(n),
-                right: lo_right.unwrap_or(n),
-                found: lo_found,
-            },
-            SortedBounds {
-                left: lo_left.unwrap_or(n),
-                right: lo_right.unwrap_or(n),
-                found: lo_found,
-            },
-        );
+        return (lo_bounds, lo_bounds);
     }
-
-    let mut hi_left: Option<usize> = None;
-    let mut hi_right: Option<usize> = None;
-    let mut hi_found: Option<usize> = None;
-
-    // Phase 2: starting from phase2_start (the element where lo's scan stopped).
-    for i in phase2_start..n {
-        let bytes = match items[i] {
-            None => continue,
-            Some(b) => b,
-        };
-        match bytes.cmp(hi) {
-            Less => {}
-            Equal => {
-                if hi_left.is_none() {
-                    hi_left = Some(i);
-                    hi_found = Some(i);
-                }
-            }
-            Greater => {
-                if hi_left.is_none() {
-                    hi_left = Some(i);
-                }
-                hi_right = Some(i);
-                break;
-            }
-        }
-    }
-
-    (
-        SortedBounds {
-            left: lo_left.unwrap_or(n),
-            right: lo_right.unwrap_or(n),
-            found: lo_found,
-        },
-        SortedBounds {
-            left: hi_left.unwrap_or(n),
-            right: hi_right.unwrap_or(n),
-            found: hi_found,
-        },
-    )
+    let (hi_bounds, _) = scan_bytes_from(&items, exit, hi);
+    (lo_bounds, hi_bounds)
 }
 
 /// Linear scan of a sorted values array to find the (left, right, found) boundaries for
@@ -545,13 +377,33 @@ pub(crate) fn scan_sorted_bounds(
 }
 
 fn scan_primitive<T: crate::dtype::NativePType>(slice: &[T], needle: T) -> SortedBounds {
+    let (bounds, _) = scan_primitive_from(slice, 0, needle);
+    bounds
+}
+
+/// Walk `slice[start..]` and locate `(left, right, found)` boundaries for `needle`,
+/// stopping at the first element greater than `needle`. Also returns the index where
+/// the scan exited (`slice.len()` if it reached the end without finding `Greater`).
+///
+/// Shared by single-bound `scan_primitive` and dual-bound `scan_primitive_dual` so the
+/// scan loop is implemented once.
+fn scan_primitive_from<T: crate::dtype::NativePType>(
+    slice: &[T],
+    start: usize,
+    needle: T,
+) -> (SortedBounds, usize) {
     use std::cmp::Ordering::*;
+    let n = slice.len();
     let mut left: Option<usize> = None;
     let mut right: Option<usize> = None;
     let mut found: Option<usize> = None;
-    for (i, &v) in slice.iter().enumerate() {
+    let mut exit = n;
+    let mut i = start;
+    while i < n {
+        // SAFETY: i < n.
+        let v = unsafe { *slice.get_unchecked(i) };
         match v.total_compare(needle) {
-            Less => {} // continue
+            Less => {}
             Equal => {
                 if left.is_none() {
                     left = Some(i);
@@ -563,30 +415,46 @@ fn scan_primitive<T: crate::dtype::NativePType>(slice: &[T], needle: T) -> Sorte
                     left = Some(i);
                 }
                 right = Some(i);
+                exit = i;
                 break;
             }
         }
+        i += 1;
     }
-    SortedBounds {
-        left: left.unwrap_or(slice.len()),
-        right: right.unwrap_or(slice.len()),
-        found,
-    }
+    (
+        SortedBounds {
+            left: left.unwrap_or(n),
+            right: right.unwrap_or(n),
+            found,
+        },
+        exit,
+    )
 }
 
 fn scan_bytes<'a>(
     it: &mut dyn Iterator<Item = Option<&'a [u8]>>,
     needle: &[u8],
 ) -> SortedBounds {
+    // The single-bound case still materialises so we share scan_bytes_from with the
+    // dual-bound case. The Vec<Option<&[u8]>> is small (dict_len <= u16::MAX).
+    let items: Vec<Option<&[u8]>> = it.collect();
+    let (bounds, _) = scan_bytes_from(&items, 0, needle);
+    bounds
+}
+
+/// Walk `items[start..]` and locate `(left, right, found)` boundaries for `needle`,
+/// stopping at the first byte slice greater than it. Returns the exit index (the
+/// position where the scan stopped, or `items.len()` if none).
+fn scan_bytes_from(items: &[Option<&[u8]>], start: usize, needle: &[u8]) -> (SortedBounds, usize) {
     use std::cmp::Ordering::*;
+    let n = items.len();
     let mut left: Option<usize> = None;
     let mut right: Option<usize> = None;
     let mut found: Option<usize> = None;
-    let mut len = 0usize;
-    for (i, opt) in it.enumerate() {
-        len = i + 1;
+    let mut exit = n;
+    for (i, opt) in items.iter().copied().enumerate().skip(start) {
         let cmp = match opt {
-            None => Less, // nulls sort first; we early-rejected nullable values above, but be safe
+            None => Less, // nulls sort first
             Some(b) => b.cmp(needle),
         };
         match cmp {
@@ -602,16 +470,19 @@ fn scan_bytes<'a>(
                     left = Some(i);
                 }
                 right = Some(i);
+                exit = i;
                 break;
             }
         }
     }
-    // Drain the iterator length if we early-exited so callers don't get a misleading slice.
-    SortedBounds {
-        left: left.unwrap_or(len),
-        right: right.unwrap_or(len),
-        found,
-    }
+    (
+        SortedBounds {
+            left: left.unwrap_or(n),
+            right: right.unwrap_or(n),
+            found,
+        },
+        exit,
+    )
 }
 
 #[cfg(test)]

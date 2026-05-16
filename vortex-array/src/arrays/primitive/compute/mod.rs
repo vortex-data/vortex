@@ -3,6 +3,7 @@
 
 mod between;
 mod cast;
+mod chunked_pack;
 mod compare;
 mod fill_null;
 mod mask;
