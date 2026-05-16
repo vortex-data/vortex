@@ -224,3 +224,8 @@ harness = false
 name = "str_between_profile"
 harness = false
 required-features = ["_test-harness"]
+
+[[bench]]
+name = "dict_sorted_pushdowns"
+harness = false
+required-features = ["_test-harness"]
