@@ -50,10 +50,17 @@ const ARGS: &[(usize, usize)] = &[
 ];
 
 // ---------------------------------------------------------------------------
-// Baseline: raw primitive compare on a u16 buffer, no dict involved.
-// This is the absolute floor for a 100k-element cmp going through binary().
+// Baselines: directly measure the two atomic operations the user is comparing:
+//   - raw u16 < scalar  (SIMD primitive compare; what the sorted dict emits)
+//   - take(bool[1024], codes_u16)  (what the plain dict emits via push-down)
+// At larger N the codes read is no longer cache-resident, so the user's
+// hypothesis (SIMD cmp beats indexed take due to dependent loads) should
+// become visible if it's going to.
 // ---------------------------------------------------------------------------
-#[divan::bench(args = [10_000usize, 100_000])]
+
+const BASELINE_SIZES: &[usize] = &[10_000, 100_000, 1_000_000, 5_000_000];
+
+#[divan::bench(args = BASELINE_SIZES)]
 fn raw_u16_lt_baseline(bencher: Bencher, len: usize) {
     use vortex_array::arrays::PrimitiveArray;
     let arr: PrimitiveArray = (0..len).map(|i| (i % 1024) as u16).collect();
@@ -66,6 +73,25 @@ fn raw_u16_lt_baseline(bencher: Bencher, len: usize) {
                 .execute::<Mask>(&mut ctx)
                 .unwrap()
         });
+}
+
+#[divan::bench(args = BASELINE_SIZES)]
+fn raw_take_bool_baseline(bencher: Bencher, len: usize) {
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::PrimitiveArray;
+    let bools: BoolArray = (0..1024).map(|i| i % 7 == 0).collect();
+    let codes: PrimitiveArray = (0..len).map(|i| (i % 1024) as u16).collect();
+    let bools = bools.into_array();
+    let codes = codes.into_array();
+    bencher
+        .with_inputs(|| {
+            (
+                bools.clone(),
+                codes.clone(),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(b, c, mut ctx)| b.take(c).unwrap().execute::<Mask>(&mut ctx).unwrap());
 }
 
 // ---------------------------------------------------------------------------
