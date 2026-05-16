@@ -104,15 +104,57 @@ where
     T: NativePType + Copy,
 {
     let slice = arr.as_slice::<T>();
+    let bits = chunked_between::<T>(slice, lower, lower_fn, upper, upper_fn);
     BoolArray::new(
-        BitBuffer::collect_bool(slice.len(), |idx| {
-            // We only iterate upto arr len and |arr| == |slice|.
-            let i = unsafe { *slice.get_unchecked(idx) };
-            lower_fn(lower, i) & upper_fn(i, upper)
-        }),
+        bits,
         arr.validity()
             .vortex_expect("validity should be derivable")
             .union_nullability(nullability),
     )
     .into_array()
+}
+
+/// Pack 8 between-checks into a byte at a time. Matches the chunked SIMD pattern in
+/// `compare::cmp_chunked` — Vortex's `BitBuffer::collect_bool` builder serializes the
+/// bit writes one at a time and defeats auto-vectorization (~2-3× slower than this).
+#[inline]
+fn chunked_between<T>(
+    slice: &[T],
+    lower: T,
+    lower_fn: impl Fn(T, T) -> bool,
+    upper: T,
+    upper_fn: impl Fn(T, T) -> bool,
+) -> BitBuffer
+where
+    T: NativePType + Copy,
+{
+    use vortex_buffer::ByteBufferMut;
+    let len = slice.len();
+    let bytes_len = len.div_ceil(8);
+    let mut bytes = ByteBufferMut::zeroed(bytes_len);
+    let dst = bytes.as_mut_slice();
+    let full = len / 8;
+    for chunk_idx in 0..full {
+        let base = chunk_idx * 8;
+        let mut b = 0u8;
+        for j in 0..8 {
+            // SAFETY: base + j < full*8 <= len.
+            let v = unsafe { *slice.get_unchecked(base + j) };
+            b |= u8::from(lower_fn(lower, v) & upper_fn(v, upper)) << j;
+        }
+        // SAFETY: chunk_idx < full <= bytes_len.
+        unsafe { *dst.get_unchecked_mut(chunk_idx) = b };
+    }
+    let tail = full * 8;
+    if tail < len {
+        let mut b = 0u8;
+        for j in 0..(len - tail) {
+            // SAFETY: tail + j < len.
+            let v = unsafe { *slice.get_unchecked(tail + j) };
+            b |= u8::from(lower_fn(lower, v) & upper_fn(v, upper)) << j;
+        }
+        // SAFETY: full < bytes_len when len % 8 != 0.
+        unsafe { *dst.get_unchecked_mut(full) = b };
+    }
+    BitBuffer::new(bytes.freeze(), len)
 }
