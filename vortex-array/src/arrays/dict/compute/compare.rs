@@ -297,12 +297,16 @@ pub(crate) fn scan_sorted_dual_bounds(
     Ok(None)
 }
 
+/// Two-phase scan. Since values are sorted ascending and `lo <= hi`, all positions
+/// touched by the upper-bound search are at or after the lower bound's exit point.
+/// Each element is compared against exactly one needle, not both.
 fn scan_primitive_dual<T: crate::dtype::NativePType>(
     slice: &[T],
     lo: T,
     hi: T,
 ) -> (SortedBounds, SortedBounds) {
     use std::cmp::Ordering::*;
+    let n = slice.len();
     let mut lo_left: Option<usize> = None;
     let mut lo_right: Option<usize> = None;
     let mut lo_found: Option<usize> = None;
@@ -310,46 +314,73 @@ fn scan_primitive_dual<T: crate::dtype::NativePType>(
     let mut hi_right: Option<usize> = None;
     let mut hi_found: Option<usize> = None;
 
-    for (i, &v) in slice.iter().enumerate() {
-        if hi_right.is_none() {
-            match v.total_compare(hi) {
-                Less => {}
-                Equal => {
-                    if hi_left.is_none() {
-                        hi_left = Some(i);
-                        hi_found = Some(i);
-                    }
-                }
-                Greater => {
-                    if hi_left.is_none() {
-                        hi_left = Some(i);
-                    }
-                    hi_right = Some(i);
+    // Phase 1: find lo bounds.
+    let mut i = 0;
+    while i < n {
+        // SAFETY: i < n.
+        let v = unsafe { *slice.get_unchecked(i) };
+        match v.total_compare(lo) {
+            Less => {}
+            Equal => {
+                if lo_left.is_none() {
+                    lo_left = Some(i);
+                    lo_found = Some(i);
                 }
             }
-        }
-        if lo_right.is_none() {
-            match v.total_compare(lo) {
-                Less => {}
-                Equal => {
-                    if lo_left.is_none() {
-                        lo_left = Some(i);
-                        lo_found = Some(i);
-                    }
+            Greater => {
+                if lo_left.is_none() {
+                    lo_left = Some(i);
                 }
-                Greater => {
-                    if lo_left.is_none() {
-                        lo_left = Some(i);
-                    }
-                    lo_right = Some(i);
-                }
+                lo_right = Some(i);
+                break;
             }
         }
-        if hi_right.is_some() {
-            break;
-        }
+        i += 1;
     }
-    let n = slice.len();
+
+    // Phase 2: find hi bounds, starting from where lo's scan stopped.
+    let mut j = lo_right.unwrap_or(n);
+    // We also need to check if any element at position [lo_left, j) hit `hi` exactly.
+    // But since values are sorted and hi >= lo, the lower indices have v <= lo <= hi,
+    // so v == hi only if v == lo == hi, in which case lo_found already captured it.
+    // For the typical lo < hi case, hi search starts at j.
+    while j < n {
+        let v = unsafe { *slice.get_unchecked(j) };
+        match v.total_compare(hi) {
+            Less => {}
+            Equal => {
+                if hi_left.is_none() {
+                    hi_left = Some(j);
+                    hi_found = Some(j);
+                }
+            }
+            Greater => {
+                if hi_left.is_none() {
+                    hi_left = Some(j);
+                }
+                hi_right = Some(j);
+                break;
+            }
+        }
+        j += 1;
+    }
+
+    // Special case: if lo == hi, all hi bounds equal the lo bounds.
+    if lo == hi || (lo.total_compare(hi) == Equal) {
+        return (
+            SortedBounds {
+                left: lo_left.unwrap_or(n),
+                right: lo_right.unwrap_or(n),
+                found: lo_found,
+            },
+            SortedBounds {
+                left: lo_left.unwrap_or(n),
+                right: lo_right.unwrap_or(n),
+                found: lo_found,
+            },
+        );
+    }
+
     (
         SortedBounds {
             left: lo_left.unwrap_or(n),
@@ -364,65 +395,93 @@ fn scan_primitive_dual<T: crate::dtype::NativePType>(
     )
 }
 
+/// Two-phase dual scan for byte slices. We materialize the (already canonical) view
+/// iterator into a `Vec<Option<&[u8]>>` once — dict size is bounded by `u16::MAX` and
+/// the view resolution is free, so this is cheap — then run two indexed phases:
+/// phase 1 finds lo bounds, phase 2 resumes from there to find hi bounds. Each element
+/// is compared against exactly one needle, not both.
 fn scan_bytes_dual<'a>(
     it: &mut dyn Iterator<Item = Option<&'a [u8]>>,
     lo: &[u8],
     hi: &[u8],
 ) -> (SortedBounds, SortedBounds) {
     use std::cmp::Ordering::*;
+    let items: Vec<Option<&[u8]>> = it.collect();
+    let n = items.len();
+
     let mut lo_left: Option<usize> = None;
     let mut lo_right: Option<usize> = None;
     let mut lo_found: Option<usize> = None;
+
+    // Phase 1: find lo bounds.
+    let mut phase2_start = n;
+    for (i, opt) in items.iter().copied().enumerate() {
+        let bytes = match opt {
+            None => continue,
+            Some(b) => b,
+        };
+        match bytes.cmp(lo) {
+            Less => {}
+            Equal => {
+                if lo_left.is_none() {
+                    lo_left = Some(i);
+                    lo_found = Some(i);
+                }
+            }
+            Greater => {
+                if lo_left.is_none() {
+                    lo_left = Some(i);
+                }
+                lo_right = Some(i);
+                phase2_start = i;
+                break;
+            }
+        }
+    }
+
+    if lo == hi {
+        return (
+            SortedBounds {
+                left: lo_left.unwrap_or(n),
+                right: lo_right.unwrap_or(n),
+                found: lo_found,
+            },
+            SortedBounds {
+                left: lo_left.unwrap_or(n),
+                right: lo_right.unwrap_or(n),
+                found: lo_found,
+            },
+        );
+    }
+
     let mut hi_left: Option<usize> = None;
     let mut hi_right: Option<usize> = None;
     let mut hi_found: Option<usize> = None;
-    let mut n = 0usize;
-    for (i, opt) in it.enumerate() {
-        n = i + 1;
-        let bytes = match opt {
-            None => {
-                continue;
-            }
+
+    // Phase 2: starting from phase2_start (the element where lo's scan stopped).
+    for i in phase2_start..n {
+        let bytes = match items[i] {
+            None => continue,
             Some(b) => b,
         };
-        if hi_right.is_none() {
-            match bytes.cmp(hi) {
-                Less => {}
-                Equal => {
-                    if hi_left.is_none() {
-                        hi_left = Some(i);
-                        hi_found = Some(i);
-                    }
-                }
-                Greater => {
-                    if hi_left.is_none() {
-                        hi_left = Some(i);
-                    }
-                    hi_right = Some(i);
+        match bytes.cmp(hi) {
+            Less => {}
+            Equal => {
+                if hi_left.is_none() {
+                    hi_left = Some(i);
+                    hi_found = Some(i);
                 }
             }
-        }
-        if lo_right.is_none() {
-            match bytes.cmp(lo) {
-                Less => {}
-                Equal => {
-                    if lo_left.is_none() {
-                        lo_left = Some(i);
-                        lo_found = Some(i);
-                    }
+            Greater => {
+                if hi_left.is_none() {
+                    hi_left = Some(i);
                 }
-                Greater => {
-                    if lo_left.is_none() {
-                        lo_left = Some(i);
-                    }
-                    lo_right = Some(i);
-                }
+                hi_right = Some(i);
+                break;
             }
-        }
-        if hi_right.is_some() {
-            break;
         }
     }
+
     (
         SortedBounds {
             left: lo_left.unwrap_or(n),
