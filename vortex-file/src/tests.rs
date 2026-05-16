@@ -1703,6 +1703,17 @@ where
     }
 }
 
+fn metadata_key_limit_message() -> String {
+    format!("at most {} bytes", crate::footer::MAX_METADATA_KEY_BYTES)
+}
+
+fn metadata_segment_limit_message() -> String {
+    format!(
+        "at most {} metadata segments",
+        crate::footer::MAX_METADATA_SEGMENTS
+    )
+}
+
 #[tokio::test]
 async fn test_file_metadata_segments_roundtrip() -> VortexResult<()> {
     let array =
@@ -1714,6 +1725,7 @@ async fn test_file_metadata_segments_roundtrip() -> VortexResult<()> {
     let summary = SESSION
         .write_options()
         .with_metadata_segment("application/json", ByteBuffer::copy_from(b"old"))
+        // Re-using a key intentionally exercises last-write-wins replacement.
         .with_metadata_segment("application/json", small.clone())
         .with_metadata_segment("large", large.clone())
         .write(&mut buf, array.to_array_stream())
@@ -1730,6 +1742,7 @@ async fn test_file_metadata_segments_roundtrip() -> VortexResult<()> {
 
     let bytes = ByteBuffer::from(buf);
     let file_without_metadata = SESSION.open_options().open_buffer(bytes.clone())?;
+    assert_eq!(file_without_metadata.row_count(), 3);
     assert_eq!(file_without_metadata.metadata_segments().count(), 0);
     assert!(
         file_without_metadata
@@ -1781,23 +1794,21 @@ async fn test_file_metadata_empty_key_rejected() -> VortexResult<()> {
     let err = metadata_write_error([(String::new(), ByteBuffer::empty())]).await?;
 
     assert!(err.contains("non-empty"));
-    assert!(err.contains("at most 32 bytes"));
-    assert!(err.contains("at most 16 metadata segments"));
+    assert!(err.contains(&metadata_key_limit_message()));
+    assert!(err.contains(&metadata_segment_limit_message()));
 
     Ok(())
 }
 
 #[tokio::test]
 async fn test_file_metadata_long_key_rejected() -> VortexResult<()> {
-    let err = metadata_write_error([(
-        "é".repeat((crate::footer::MAX_METADATA_KEY_BYTES / "é".len()) + 1),
-        ByteBuffer::empty(),
-    )])
-    .await?;
+    let key = "é".repeat((crate::footer::MAX_METADATA_KEY_BYTES / "é".len()) + 1);
+    let key_len = key.len();
+    let err = metadata_write_error([(key, ByteBuffer::empty())]).await?;
 
-    assert!(err.contains("34 bytes"));
-    assert!(err.contains("at most 32 bytes"));
-    assert!(err.contains("at most 16 metadata segments"));
+    assert!(err.contains(&format!("{key_len} bytes")));
+    assert!(err.contains(&metadata_key_limit_message()));
+    assert!(err.contains(&metadata_segment_limit_message()));
 
     Ok(())
 }
@@ -1811,9 +1822,12 @@ async fn test_file_metadata_too_many_segments_rejected() -> VortexResult<()> {
     )
     .await?;
 
-    assert!(err.contains("got 17 metadata segments"));
-    assert!(err.contains("at most 16 metadata segments"));
-    assert!(err.contains("at most 32 bytes"));
+    assert!(err.contains(&format!(
+        "got {} metadata segments",
+        crate::footer::MAX_METADATA_SEGMENTS + 1
+    )));
+    assert!(err.contains(&metadata_segment_limit_message()));
+    assert!(err.contains(&metadata_key_limit_message()));
 
     Ok(())
 }

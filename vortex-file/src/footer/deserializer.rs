@@ -80,12 +80,18 @@ impl FooterDeserializer {
     }
 
     /// Include user-defined metadata segments in footer deserialization.
+    ///
+    /// When enabled, deserialization may request additional bytes so the read buffer covers all
+    /// metadata segments named by the postscript.
     pub fn include_metadata(mut self) -> Self {
         self.include_metadata = true;
         self
     }
 
     /// Whether to include user-defined metadata segments in footer deserialization.
+    ///
+    /// When enabled, deserialization may request additional bytes so the read buffer covers all
+    /// metadata segments named by the postscript.
     pub fn with_include_metadata(mut self, include_metadata: bool) -> Self {
         self.include_metadata = include_metadata;
         self
@@ -283,7 +289,7 @@ impl FooterDeserializer {
         metadata: &PostscriptMetadata,
     ) -> VortexResult<(String, ByteBuffer)> {
         let offset = usize::try_from(metadata.segment.offset - initial_offset)?;
-        let length = metadata.segment.length as usize;
+        let length = usize::try_from(metadata.segment.length)?;
         let end = offset
             .checked_add(length)
             .ok_or_else(|| vortex_err!("Metadata segment range overflowed usize"))?;

@@ -321,17 +321,17 @@ impl VortexWriteOptions {
 fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexResult<()> {
     if metadata.len() > MAX_METADATA_SEGMENTS {
         vortex_bail!(
-            "Vortex files may contain at most {} metadata segments with keys at most {} bytes; got {} metadata segments",
+            "Vortex files may contain at most {} metadata segments; got {} metadata segments. Metadata keys must be non-empty and at most {} bytes",
             MAX_METADATA_SEGMENTS,
-            MAX_METADATA_KEY_BYTES,
-            metadata.len()
+            metadata.len(),
+            MAX_METADATA_KEY_BYTES
         );
     }
 
     for key in metadata.keys() {
         if key.is_empty() {
             vortex_bail!(
-                "Vortex metadata keys must be non-empty and at most {} bytes, and files may contain at most {} metadata segments",
+                "Vortex metadata keys must be non-empty and at most {} bytes; files may contain at most {} metadata segments",
                 MAX_METADATA_KEY_BYTES,
                 MAX_METADATA_SEGMENTS
             );
@@ -340,7 +340,7 @@ fn validate_metadata_segments(metadata: &HashMap<String, ByteBuffer>) -> VortexR
         let key_bytes = key.len();
         if key_bytes > MAX_METADATA_KEY_BYTES {
             vortex_bail!(
-                "Vortex metadata key {key:?} is {key_bytes} bytes, but keys must be at most {} bytes and files may contain at most {} metadata segments",
+                "Vortex metadata key {key:?} is {key_bytes} bytes, but keys must be at most {} bytes; files may contain at most {} metadata segments",
                 MAX_METADATA_KEY_BYTES,
                 MAX_METADATA_SEGMENTS
             );

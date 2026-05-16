@@ -78,11 +78,15 @@ impl VortexFile {
     }
 
     /// Returns the user-defined metadata segments loaded for this file.
+    ///
+    /// Metadata is only loaded when requested during open. Iteration order is unspecified.
     pub fn metadata_segments(&self) -> impl Iterator<Item = (&str, &ByteBuffer)> {
         self.footer.metadata_segments()
     }
 
     /// Returns the loaded user-defined metadata segment for the given key.
+    ///
+    /// Returns `None` when the key is absent or metadata was not loaded.
     pub fn metadata_segment(&self, key: &str) -> Option<&ByteBuffer> {
         self.footer.metadata_segment(key)
     }

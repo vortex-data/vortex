@@ -142,13 +142,17 @@ impl VortexOpenOptions {
     /// Include user-defined metadata segments when opening the file.
     ///
     /// By default, opening a file reads only the metadata required to interpret the layout.
-    /// Enabling this option includes all postscript metadata segments in the footer read.
+    /// Enabling this option loads all metadata segments named by the postscript, which may require
+    /// additional reads before the footer is returned.
     pub fn include_metadata(mut self) -> Self {
         self.include_metadata = true;
         self
     }
 
     /// Configure whether user-defined metadata segments are included when opening the file.
+    ///
+    /// Enabling this option loads all metadata segments named by the postscript, which may require
+    /// additional reads before the footer is returned.
     pub fn with_include_metadata(mut self, include_metadata: bool) -> Self {
         self.include_metadata = include_metadata;
         self

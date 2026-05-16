@@ -42,13 +42,15 @@
 //!    1. To allow for more efficient IO & pruning, our writer implementation first writes the "data" arrays,
 //!       and then writes the "metadata" arrays (i.e., per-column statistics)
 //! 2. We write what is collectively referred to as the "Footer", which contains:
-//!    1. An optional Schema, which if present is a valid flatbuffer representing a message::Schema
-//!    2. The Layout, which is a valid footer::Layout flatbuffer, and describes the physical byte ranges & relationships amongst
+//!    1. Optional user-defined metadata segments, keyed by strings in the Postscript.
+//!    2. An optional Schema, which if present is a valid flatbuffer representing a message::Schema
+//!    3. The Layout, which is a valid footer::Layout flatbuffer, and describes the physical byte ranges & relationships amongst
 //!       the those byte ranges that we wrote in part 1.
-//!    3. Optional user-defined metadata segments, keyed by strings in the Postscript.
-//!    4. The Postscript, which is a valid footer::Postscript flatbuffer, containing the absolute start offsets of the Schema,
+//!    4. Optional file-level Statistics, stored as a valid footer::FileStatistics flatbuffer.
+//!    5. The Footer flatbuffer, which stores the segment map and registered array/layout specs.
+//!    6. The Postscript, which is a valid footer::Postscript flatbuffer, containing the absolute start offsets of the Schema,
 //!       Layout, Footer, Statistics, and user-defined metadata segments within the file.
-//!    5. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 postscript length, and 4 magic bytes.
+//!    7. The End-of-File marker, which is 8 bytes, and contains the u16 version, u16 postscript length, and 4 magic bytes.
 //!
 //! ## Illustrated File Format
 //! ```text

@@ -342,6 +342,8 @@ pub enum PostscriptOffset {}
 ///
 /// The segments pointed to by the postscript have inline compression and encryption specs to avoid
 /// the need to fetch encryption schemes up-front.
+///
+/// New fields must be appended to preserve FlatBuffers field-order compatibility with old readers.
 pub struct Postscript<'a> {
   pub _tab: ::flatbuffers::Table<'a>,
 }
@@ -412,7 +414,8 @@ impl<'a> Postscript<'a> {
     // which contains a valid value in this slot
     unsafe { self._tab.get::<::flatbuffers::ForwardsUOffset<PostscriptSegment>>(Postscript::VT_FOOTER, None)}
   }
-  /// User-defined metadata segments keyed by string.
+  /// User-defined metadata segments keyed by string. Keys must be unique, non-empty, and at most
+  /// 32 UTF-8 bytes; readers reject postscripts that violate these limits.
   #[inline]
   pub fn metadata(&self) -> Option<::flatbuffers::Vector<'a, ::flatbuffers::ForwardsUOffset<PostscriptMetadata<'a>>>> {
     // Safety:

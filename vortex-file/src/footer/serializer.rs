@@ -68,6 +68,7 @@ impl FooterSerializer {
         let mut buffers = vec![];
 
         let mut metadata = self.footer.metadata_segments().collect::<Vec<_>>();
+        // Metadata is stored in a HashMap, so sort keys before assigning segment offsets.
         metadata.sort_unstable_by_key(|(key, _)| *key);
 
         let mut metadata_segments = Vec::with_capacity(metadata.len());

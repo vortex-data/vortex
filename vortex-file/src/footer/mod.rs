@@ -167,6 +167,9 @@ impl Footer {
     }
 
     /// Returns the user-defined metadata segments loaded for this file.
+    ///
+    /// Metadata is only loaded when requested during open or footer deserialization. Iteration order
+    /// is unspecified.
     pub fn metadata_segments(&self) -> impl Iterator<Item = (&str, &ByteBuffer)> {
         self.metadata
             .iter()
@@ -174,6 +177,8 @@ impl Footer {
     }
 
     /// Returns the loaded user-defined metadata segment for the given key.
+    ///
+    /// Returns `None` when the key is absent or metadata was not loaded.
     pub fn metadata_segment(&self, key: &str) -> Option<&ByteBuffer> {
         self.metadata.get(key)
     }
