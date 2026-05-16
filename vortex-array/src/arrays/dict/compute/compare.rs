@@ -72,6 +72,18 @@ impl CompareKernel for Dict {
 ///   (no match / boundary out of dict range). Huge win because the canonical Mask becomes
 ///   AllTrue / AllFalse in O(1).
 /// - `Ok(None)` if the typed scan doesn't apply (caller falls back to the value push-down).
+///
+/// TODO(sorted-column): a sorted-values dict still has unsorted codes, so a middle-range
+/// `lt` predicate has to run a SIMD compare over every code (~22 µs at 100K, u16).
+/// `benches/dict_sorted_pushdowns.rs::cmp_*` shows that:
+///   - the SIMD bitmap pack is already optimal — faster than `Vec<bool>`, faster even
+///     than a scalar count;
+///   - the only way to beat it is to skip per-row evaluation, which requires the *codes*
+///     to be sorted (i.e. a fully sorted column, not just a sorted-values dict). In that
+///     case the predicate collapses to `Mask::from_slices(N, [(0, k)])` at ~350 ns,
+///     a ~64x further speedup.
+/// Reuses the same `partition_point` we already do in `scan_primitive_from`; gated on a
+/// new `has_sorted_codes()` (or equivalent layout-level marker).
 pub(crate) fn reduce_sorted_compare(
     lhs: ArrayView<'_, Dict>,
     scalar: &Scalar,
