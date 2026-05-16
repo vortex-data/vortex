@@ -65,6 +65,7 @@ pub mod scalar_fn;
 pub mod search_sorted;
 pub mod serde;
 pub mod session;
+mod smj;
 pub mod stats;
 pub mod stream;
 #[cfg(any(test, feature = "_test-harness"))]
