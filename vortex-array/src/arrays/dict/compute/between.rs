@@ -27,8 +27,6 @@ use crate::arrays::dict::DictArraySlotsExt;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
-use crate::search_sorted::SearchSorted;
-use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
 
 impl BetweenKernel for Dict {
@@ -58,23 +56,22 @@ impl BetweenKernel for Dict {
         let values = array.values().clone();
         let dict_len = values.len();
 
+        // Use the typed binary search helper from `compare` to avoid execute_scalar overhead.
+        use crate::arrays::dict::compute::compare::sorted_compare_scalar_search;
+        let lower_search = sorted_compare_scalar_search(&values, &lower_scalar)?;
+        let upper_search = sorted_compare_scalar_search(&values, &upper_scalar)?;
+        let (lower_left, lower_right) = lower_search;
+        let (upper_left, upper_right) = upper_search;
+
         let code_lo = if options.lower_strict.is_strict() {
-            values
-                .search_sorted(&lower_scalar, SearchSortedSide::Right)?
-                .to_index()
+            lower_right.to_index()
         } else {
-            values
-                .search_sorted(&lower_scalar, SearchSortedSide::Left)?
-                .to_index()
+            lower_left.to_index()
         };
         let code_hi = if options.upper_strict.is_strict() {
-            values
-                .search_sorted(&upper_scalar, SearchSortedSide::Left)?
-                .to_index()
+            upper_left.to_index()
         } else {
-            values
-                .search_sorted(&upper_scalar, SearchSortedSide::Right)?
-                .to_index()
+            upper_right.to_index()
         };
 
         if code_lo >= code_hi {

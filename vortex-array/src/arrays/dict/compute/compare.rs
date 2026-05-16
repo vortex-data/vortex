@@ -95,8 +95,9 @@ pub(crate) fn sorted_compare_scalar(
         Ok(ConstantArray::new(Scalar::bool(b, result_nullability), codes_len).into_array())
     };
 
-    let left = values.search_sorted(scalar, SearchSortedSide::Left)?;
-    let right = values.search_sorted(scalar, SearchSortedSide::Right)?;
+    // Typed binary search avoids the generic `IndexOrd<Scalar>` path's per-probe
+    // execute_scalar overhead (~3 µs each).
+    let (left, right) = sorted_compare_scalar_search(&values, scalar)?;
 
     // Resolve the predicate to a half-open range `[lo, hi)` of dictionary slots
     // for which the predicate is `true`.
@@ -179,23 +180,142 @@ fn wrap_and_canonicalize(
     Ok(dict.execute::<Canonical>(ctx)?.into_array())
 }
 
-/// Build a `Scalar` of the codes' ptype holding `idx`. `idx` is guaranteed to be in
-/// `0..=dict_len` and `dict_len` already fits in the codes ptype by DictArray invariant.
-pub(crate) fn code_threshold_scalar(codes: &ArrayRef, idx: usize) -> VortexResult<Scalar> {
-    use crate::dtype::DType;
-    use crate::dtype::PType;
-    let nullability = codes.dtype().nullability();
-    match codes.dtype() {
-        DType::Primitive(PType::U8, _) => Ok(Scalar::primitive(idx as u8, nullability)),
-        DType::Primitive(PType::U16, _) => Ok(Scalar::primitive(idx as u16, nullability)),
-        DType::Primitive(PType::U32, _) => Ok(Scalar::primitive(idx as u32, nullability)),
-        DType::Primitive(PType::U64, _) => Ok(Scalar::primitive(idx as u64, nullability)),
-        DType::Primitive(PType::I8, _) => Ok(Scalar::primitive(idx as i8, nullability)),
-        DType::Primitive(PType::I16, _) => Ok(Scalar::primitive(idx as i16, nullability)),
-        DType::Primitive(PType::I32, _) => Ok(Scalar::primitive(idx as i32, nullability)),
-        DType::Primitive(PType::I64, _) => Ok(Scalar::primitive(idx as i64, nullability)),
-        other => vortex_error::vortex_bail!("dict codes have unexpected dtype {other}"),
+/// Resolve `(left, right)` search-sorted boundaries for `scalar` against `values`,
+/// preferring the typed fast path and falling back to the generic `IndexOrd<Scalar>` path.
+pub(crate) fn sorted_compare_scalar_search(
+    values: &ArrayRef,
+    scalar: &Scalar,
+) -> VortexResult<(SearchResult, SearchResult)> {
+    if let Some(pair) = typed_search_pair(values, scalar)? {
+        return Ok(pair);
     }
+    Ok((
+        values.search_sorted(scalar, SearchSortedSide::Left)?,
+        values.search_sorted(scalar, SearchSortedSide::Right)?,
+    ))
+}
+
+/// Typed binary search on the values array. Returns `(left, right)` boundaries if `values`
+/// is a canonical Primitive or VarBinView and a needle of the matching native type can be
+/// extracted from `scalar`. Returns `None` if the typed fast path doesn't apply, in which
+/// case the caller should fall back to the generic `IndexOrd<Scalar>` path.
+fn typed_search_pair(
+    values: &ArrayRef,
+    scalar: &Scalar,
+) -> VortexResult<Option<(SearchResult, SearchResult)>> {
+    use crate::accessor::ArrayAccessor;
+    use crate::arrays::Primitive;
+    use crate::arrays::VarBinView;
+    use crate::match_each_native_ptype;
+
+    if let Some(prim) = values.as_opt::<Primitive>() {
+        return Ok(Some(match_each_native_ptype!(prim.ptype(), |T| {
+            let Ok(needle) = T::try_from(scalar) else {
+                return Ok(None);
+            };
+            typed_search_primitive::<T>(prim.as_slice::<T>(), needle)
+        })));
+    }
+    if let Some(vbv) = values.as_opt::<VarBinView>() {
+        let needle_bytes: Vec<u8> = match scalar.dtype() {
+            crate::dtype::DType::Utf8(_) => {
+                let s: Option<String> = scalar.try_into().ok();
+                let Some(s) = s else { return Ok(None) };
+                s.into_bytes()
+            }
+            crate::dtype::DType::Binary(_) => {
+                let b: Option<Vec<u8>> = scalar.try_into().ok();
+                let Some(b) = b else { return Ok(None) };
+                b
+            }
+            _ => return Ok(None),
+        };
+        // Materialize the dict's values once as Vec<Option<&[u8]>> — dict size is bounded
+        // by u16::MAX so this is cheap and avoids repeated view resolution per probe.
+        let resolved: Vec<Option<Vec<u8>>> = vbv
+            .into_owned()
+            .with_iterator(|it: &mut dyn Iterator<Item = Option<&[u8]>>| {
+                it.map(|opt| opt.map(|b| b.to_vec())).collect()
+            });
+        return Ok(Some(typed_search_bytes(&resolved, &needle_bytes)));
+    }
+    Ok(None)
+}
+
+fn typed_search_primitive<T: crate::dtype::NativePType>(
+    slice: &[T],
+    needle: T,
+) -> (SearchResult, SearchResult) {
+    use std::cmp::Ordering::*;
+    let left = match slice.binary_search_by(|probe| match probe.total_compare(needle) {
+        Equal => Greater,
+        other => other,
+    }) {
+        Ok(_) => unreachable!("custom comparator never returns Equal"),
+        Err(i) => {
+            // i is the first index where probe >= needle.
+            if i < slice.len() && slice[i].total_compare(needle) == Equal {
+                SearchResult::Found(i)
+            } else {
+                SearchResult::NotFound(i)
+            }
+        }
+    };
+    let right = match slice.binary_search_by(|probe| match probe.total_compare(needle) {
+        Equal => Less,
+        other => other,
+    }) {
+        Ok(_) => unreachable!("custom comparator never returns Equal"),
+        Err(i) => {
+            // i is the first index where probe > needle.
+            if i > 0 && slice[i - 1].total_compare(needle) == Equal {
+                SearchResult::Found(i)
+            } else {
+                SearchResult::NotFound(i)
+            }
+        }
+    };
+    (left, right)
+}
+
+fn typed_search_bytes(
+    resolved: &[Option<Vec<u8>>],
+    needle: &[u8],
+) -> (SearchResult, SearchResult) {
+    // Convention: nulls sort first, so for any non-null needle, the null prefix is less.
+    let cmp = |probe: &Option<Vec<u8>>| -> std::cmp::Ordering {
+        match probe {
+            None => std::cmp::Ordering::Less,
+            Some(v) => v.as_slice().cmp(needle),
+        }
+    };
+    let left = match resolved.binary_search_by(|probe| match cmp(probe) {
+        std::cmp::Ordering::Equal => std::cmp::Ordering::Greater,
+        other => other,
+    }) {
+        Ok(_) => unreachable!("custom comparator never returns Equal"),
+        Err(i) => {
+            if i < resolved.len() && cmp(&resolved[i]) == std::cmp::Ordering::Equal {
+                SearchResult::Found(i)
+            } else {
+                SearchResult::NotFound(i)
+            }
+        }
+    };
+    let right = match resolved.binary_search_by(|probe| match cmp(probe) {
+        std::cmp::Ordering::Equal => std::cmp::Ordering::Less,
+        other => other,
+    }) {
+        Ok(_) => unreachable!("custom comparator never returns Equal"),
+        Err(i) => {
+            if i > 0 && cmp(&resolved[i - 1]) == std::cmp::Ordering::Equal {
+                SearchResult::Found(i)
+            } else {
+                SearchResult::NotFound(i)
+            }
+        }
+    };
+    (left, right)
 }
 
 #[cfg(test)]
