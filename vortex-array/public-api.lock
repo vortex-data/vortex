@@ -14030,9 +14030,13 @@ pub fn vortex_array::optimizer::kernels::ArrayKernels::find_execute_parent(&self
 
 pub fn vortex_array::optimizer::kernels::ArrayKernels::find_reduce_parent(&self, vortex_session::registry::Id, vortex_session::registry::Id) -> core::option::Option<alloc::sync::Arc<[vortex_array::optimizer::kernels::ReduceParentFn]>>
 
+pub fn vortex_array::optimizer::kernels::ArrayKernels::find_scalar_at(&self, vortex_session::registry::Id) -> core::option::Option<alloc::sync::Arc<[vortex_array::optimizer::kernels::ScalarAtFn]>>
+
 pub fn vortex_array::optimizer::kernels::ArrayKernels::register_execute_parent(&self, vortex_session::registry::Id, vortex_session::registry::Id, &[vortex_array::optimizer::kernels::ExecuteParentFn])
 
 pub fn vortex_array::optimizer::kernels::ArrayKernels::register_reduce_parent(&self, vortex_session::registry::Id, vortex_session::registry::Id, &[vortex_array::optimizer::kernels::ReduceParentFn])
+
+pub fn vortex_array::optimizer::kernels::ArrayKernels::register_scalar_at(&self, vortex_session::registry::Id, &[vortex_array::optimizer::kernels::ScalarAtFn])
 
 impl core::default::Default for vortex_array::optimizer::kernels::ArrayKernels
 
@@ -14059,6 +14063,8 @@ pub fn S::kernels(&self) -> vortex_session::Ref<'_, vortex_array::optimizer::ker
 pub type vortex_array::optimizer::kernels::ExecuteParentFn = fn(&vortex_array::ArrayRef, &vortex_array::ArrayRef, usize, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub type vortex_array::optimizer::kernels::ReduceParentFn = fn(&vortex_array::ArrayRef, &vortex_array::ArrayRef, usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub type vortex_array::optimizer::kernels::ScalarAtFn = fn(&vortex_array::ArrayRef, usize, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::scalar::Scalar>>
 
 pub mod vortex_array::optimizer::rules
 
@@ -24008,15 +24014,19 @@ impl vortex_array::ExecutionCtx
 
 pub fn vortex_array::ExecutionCtx::allocator(&self) -> vortex_array::memory::HostAllocatorRef
 
+pub fn vortex_array::ExecutionCtx::fork_isolated(&self) -> Self
+
+pub fn vortex_array::ExecutionCtx::fork_shared(&self) -> Self
+
 pub fn vortex_array::ExecutionCtx::log(&mut self, core::fmt::Arguments<'_>)
 
 pub fn vortex_array::ExecutionCtx::new(vortex_session::VortexSession) -> Self
 
+pub fn vortex_array::ExecutionCtx::scalar_cache(&self) -> &vortex_array::ScalarAtCache
+
 pub fn vortex_array::ExecutionCtx::session(&self) -> &vortex_session::VortexSession
 
-impl core::clone::Clone for vortex_array::ExecutionCtx
-
-pub fn vortex_array::ExecutionCtx::clone(&self) -> vortex_array::ExecutionCtx
+pub fn vortex_array::ExecutionCtx::with_scalar_cache(vortex_session::VortexSession, vortex_array::ScalarAtCache) -> Self
 
 impl core::fmt::Debug for vortex_array::ExecutionCtx
 
@@ -24127,6 +24137,66 @@ pub struct vortex_array::RecursiveCanonical(pub vortex_array::Canonical)
 impl vortex_array::Executable for vortex_array::RecursiveCanonical
 
 pub fn vortex_array::RecursiveCanonical::execute(vortex_array::ArrayRef, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<Self>
+
+pub struct vortex_array::ScalarAtCache
+
+impl vortex_array::ScalarAtCache
+
+pub fn vortex_array::ScalarAtCache::clear(&self)
+
+pub fn vortex_array::ScalarAtCache::config(&self) -> vortex_array::ScalarAtCacheConfig
+
+pub fn vortex_array::ScalarAtCache::fork_isolated(&self) -> Self
+
+pub fn vortex_array::ScalarAtCache::get_or_canonicalize<F>(&self, vortex_array::CacheKey, F) -> vortex_error::VortexResult<vortex_array::Canonical> where F: core::ops::function::FnOnce() -> vortex_error::VortexResult<vortex_array::Canonical>
+
+pub fn vortex_array::ScalarAtCache::insert(&self, vortex_array::CacheKey, vortex_array::Canonical)
+
+pub fn vortex_array::ScalarAtCache::is_empty(&self) -> bool
+
+pub fn vortex_array::ScalarAtCache::len(&self) -> usize
+
+pub fn vortex_array::ScalarAtCache::new(vortex_array::ScalarAtCacheConfig) -> Self
+
+pub fn vortex_array::ScalarAtCache::pin(&self, vortex_array::CacheKey)
+
+pub fn vortex_array::ScalarAtCache::try_get(&self, vortex_array::CacheKey) -> core::option::Option<vortex_array::Canonical>
+
+pub fn vortex_array::ScalarAtCache::unpin(&self, vortex_array::CacheKey)
+
+impl core::clone::Clone for vortex_array::ScalarAtCache
+
+pub fn vortex_array::ScalarAtCache::clone(&self) -> vortex_array::ScalarAtCache
+
+impl core::default::Default for vortex_array::ScalarAtCache
+
+pub fn vortex_array::ScalarAtCache::default() -> Self
+
+impl core::fmt::Debug for vortex_array::ScalarAtCache
+
+pub fn vortex_array::ScalarAtCache::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_array::ScalarAtCacheConfig
+
+pub vortex_array::ScalarAtCacheConfig::max_entries: core::num::nonzero::NonZeroUsize
+
+impl vortex_array::ScalarAtCacheConfig
+
+pub const vortex_array::ScalarAtCacheConfig::DEFAULT: Self
+
+impl core::clone::Clone for vortex_array::ScalarAtCacheConfig
+
+pub fn vortex_array::ScalarAtCacheConfig::clone(&self) -> vortex_array::ScalarAtCacheConfig
+
+impl core::default::Default for vortex_array::ScalarAtCacheConfig
+
+pub fn vortex_array::ScalarAtCacheConfig::default() -> Self
+
+impl core::fmt::Debug for vortex_array::ScalarAtCacheConfig
+
+pub fn vortex_array::ScalarAtCacheConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_array::ScalarAtCacheConfig
 
 pub struct vortex_array::ValidityVTableFromChild
 
@@ -26651,5 +26721,7 @@ pub type vortex_array::ArrayPluginRef = alloc::sync::Arc<dyn vortex_array::Array
 pub type vortex_array::ArrayPluginRef = alloc::sync::Arc<dyn vortex_array::ArrayPlugin>
 
 pub type vortex_array::ArraySlots = smallvec::SmallVec<[core::option::Option<vortex_array::ArrayRef>; 4]>
+
+pub type vortex_array::CacheKey = usize
 
 pub type vortex_array::DonePredicate = fn(&vortex_array::ArrayRef) -> bool

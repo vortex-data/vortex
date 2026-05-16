@@ -45,6 +45,7 @@ use crate::array::VTable;
 use crate::arrays::Struct;
 use crate::arrays::struct_::compute::cast::struct_cast_execute_parent;
 use crate::arrays::struct_::compute::rules::struct_cast_reduce_parent;
+use crate::scalar::Scalar;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::cast::Cast;
 
@@ -109,6 +110,35 @@ impl Borrow<u64> for ExecuteParentFnId {
     }
 }
 
+/// Function pointer for a plugin-provided scalar-extraction kernel.
+///
+/// The dispatcher calls this with the source `array`, the requested `index`, and the current
+/// [`ExecutionCtx`]. Return `Ok(Some(scalar))` to satisfy the lookup, or `Ok(None)` to decline so
+/// the dispatcher can try the next registered function and ultimately fall back to the canonical
+/// cache.
+///
+/// Implementations may assume that `index < array.len()` and that nullable arrays have already
+/// had their `is_invalid(index)` short-circuit applied — the dispatcher performs both checks
+/// before invoking any kernel.
+pub type ScalarAtFn =
+    fn(array: &ArrayRef, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<Option<Scalar>>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[repr(transparent)]
+struct ScalarAtFnId(u64);
+
+impl From<u64> for ScalarAtFnId {
+    fn from(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+impl Borrow<u64> for ScalarAtFnId {
+    fn borrow(&self) -> &u64 {
+        &self.0
+    }
+}
+
 /// Session-scoped registry of optimizer kernel functions.
 ///
 /// Each kernel kind has its own storage map, keyed by `(outer_id, child_id)`. Registering
@@ -117,6 +147,7 @@ impl Borrow<u64> for ExecuteParentFnId {
 pub struct ArrayKernels {
     reduce_parent: ArcSwap<HashMap<ReduceParentFnId, Arc<[ReduceParentFn]>>>,
     execute_parent: ArcSwap<HashMap<ExecuteParentFnId, Arc<[ExecuteParentFn]>>>,
+    scalar_at: ArcSwap<HashMap<ScalarAtFnId, Arc<[ScalarAtFn]>>>,
 }
 
 impl Default for ArrayKernels {
@@ -134,6 +165,7 @@ impl ArrayKernels {
         Self {
             reduce_parent: ArcSwap::from_pointee(HashMap::default()),
             execute_parent: ArcSwap::from_pointee(HashMap::default()),
+            scalar_at: ArcSwap::from_pointee(HashMap::default()),
         }
     }
 
@@ -200,10 +232,34 @@ impl ArrayKernels {
         let id = hash_fn_id(parent, child);
         self.execute_parent.load().get(&id).cloned()
     }
+
+    /// Register [`ScalarAtFn`]s for the encoding identified by `encoding`.
+    ///
+    /// The dispatcher invokes these functions in registration order before falling back to the
+    /// canonical-cache path. If functions have already been registered for the same encoding,
+    /// these functions are appended after them.
+    pub fn register_scalar_at(&self, encoding: Id, fns: &[ScalarAtFn]) {
+        self.scalar_at.rcu(move |registry| {
+            update_fns(registry.as_ref().clone(), hash_encoding_id(encoding), fns)
+        });
+    }
+
+    /// Look up the [`ScalarAtFn`]s registered for `encoding`.
+    ///
+    /// Returns an owned [`Arc`] so the session-variable borrow can be dropped before invoking the
+    /// functions.
+    pub fn find_scalar_at(&self, encoding: Id) -> Option<Arc<[ScalarAtFn]>> {
+        let id = hash_encoding_id(encoding);
+        self.scalar_at.load().get(&id).cloned()
+    }
 }
 
 fn hash_fn_id(parent: Id, child: Id) -> u64 {
     FN_HASHER.hash_one((parent, child))
+}
+
+fn hash_encoding_id(encoding: Id) -> u64 {
+    FN_HASHER.hash_one(encoding)
 }
 
 fn update_fns<F: Clone, K: Borrow<u64> + Eq + Hash + From<u64>>(

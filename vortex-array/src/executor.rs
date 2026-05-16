@@ -34,6 +34,7 @@ use crate::AnyCanonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::ScalarAtCache;
 use crate::array::ArrayId;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity_in;
@@ -302,33 +303,69 @@ struct StackFrame {
 }
 
 /// Execution context for batch CPU compute.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ExecutionCtx {
     session: VortexSession,
+    scalar_cache: ScalarAtCache,
     #[cfg(debug_assertions)]
     id: usize,
     #[cfg(debug_assertions)]
     ops: Vec<String>,
 }
 
+#[cfg(debug_assertions)]
+fn next_exec_ctx_id() -> usize {
+    static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
+    EXEC_CTX_ID.fetch_add(1, Ordering::Relaxed)
+}
+
 impl ExecutionCtx {
-    /// Create a new execution context with the given session.
+    /// Create a new execution context with the given session and a default scalar cache.
     pub fn new(session: VortexSession) -> Self {
+        Self::with_scalar_cache(session, ScalarAtCache::default())
+    }
+
+    /// Create a new execution context with the given session and an explicit scalar cache.
+    ///
+    /// Use this when constructing a ctx whose cache should be shared with another ctx
+    /// (`existing.scalar_cache().clone()`) or has non-default bounds.
+    pub fn with_scalar_cache(session: VortexSession, scalar_cache: ScalarAtCache) -> Self {
         Self {
             session,
+            scalar_cache,
             #[cfg(debug_assertions)]
-            id: {
-                static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
-                EXEC_CTX_ID.fetch_add(1, Ordering::Relaxed)
-            },
+            id: next_exec_ctx_id(),
             #[cfg(debug_assertions)]
             ops: Vec::new(),
         }
     }
 
+    /// Fork this context, sharing the same scalar cache via `Arc`-clone.
+    ///
+    /// The forked ctx sees every entry the parent has cached and contributes its insertions
+    /// back. Use for parallel tasks within one logical scope (e.g. fan-out within a scan).
+    /// Debug-only fields (`id`, `ops`) are reset; the session is `Arc`-shared.
+    pub fn fork_shared(&self) -> Self {
+        Self::with_scalar_cache(self.session.clone(), self.scalar_cache.clone())
+    }
+
+    /// Fork this context with an empty, independent scalar cache that uses the same
+    /// configuration as this context's cache.
+    ///
+    /// Use for subqueries or speculative work that shouldn't pollute or compete with the
+    /// parent's working set.
+    pub fn fork_isolated(&self) -> Self {
+        Self::with_scalar_cache(self.session.clone(), self.scalar_cache.fork_isolated())
+    }
+
     /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+
+    /// Returns the scalar cache owned by this context.
+    pub fn scalar_cache(&self) -> &ScalarAtCache {
+        &self.scalar_cache
     }
 
     /// Get the session-scoped host allocator for this execution context.

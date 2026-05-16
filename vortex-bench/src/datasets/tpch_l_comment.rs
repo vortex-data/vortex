@@ -79,9 +79,9 @@ impl Dataset for TPCHLCommentChunked {
                 .scan()?
                 .with_projection(pack(vec![("l_comment", col("l_comment"))], NonNullable))
                 .map({
-                    let ctx = ctx.clone();
+                    let ctx = ctx.fork_shared();
                     move |a| {
-                        let mut ctx = ctx.clone();
+                        let mut ctx = ctx.fork_shared();
                         let canonical = a.execute::<Canonical>(&mut ctx)?;
                         Ok(canonical.into_array())
                     }
