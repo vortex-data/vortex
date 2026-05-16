@@ -5,12 +5,14 @@ use crate::arrays::Primitive;
 use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 use crate::scalar_fn::fns::between::BetweenExecuteAdaptor;
+use crate::scalar_fn::fns::binary::CompareExecuteAdaptor;
 use crate::scalar_fn::fns::cast::CastExecuteAdaptor;
 use crate::scalar_fn::fns::fill_null::FillNullExecuteAdaptor;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<Primitive> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&BetweenExecuteAdaptor(Primitive)),
     ParentKernelSet::lift(&CastExecuteAdaptor(Primitive)),
+    ParentKernelSet::lift(&CompareExecuteAdaptor(Primitive)),
     ParentKernelSet::lift(&FillNullExecuteAdaptor(Primitive)),
     ParentKernelSet::lift(&TakeExecuteAdaptor(Primitive)),
 ]);

@@ -3,6 +3,7 @@
 
 mod between;
 mod cast;
+mod compare;
 mod fill_null;
 mod mask;
 pub(crate) mod rules;
