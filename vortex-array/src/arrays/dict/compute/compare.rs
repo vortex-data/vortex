@@ -112,82 +112,60 @@ pub(crate) fn reduce_sorted_compare(
                 }
             }
         },
-        // value < scalar  iff  code < left  (left = first idx where value >= scalar)
-        CompareOperator::Lt => emit_lt_or_cmp(
-            &codes,
-            bounds.left,
-            dict_len,
-            result_nullability,
-            codes_len,
-        ),
-        // value <= scalar iff  code < right
-        CompareOperator::Lte => emit_lt_or_cmp(
-            &codes,
-            bounds.right,
-            dict_len,
-            result_nullability,
-            codes_len,
-        ),
+        // value < scalar  iff  code < left   (left = first idx where value >= scalar)
+        CompareOperator::Lt => {
+            emit_bounded_cmp(&codes, bounds.left, dict_len, Operator::Lt, result_nullability, codes_len)
+        }
+        // value <= scalar iff  code < right  (right = first idx where value > scalar)
+        CompareOperator::Lte => {
+            emit_bounded_cmp(&codes, bounds.right, dict_len, Operator::Lt, result_nullability, codes_len)
+        }
         // value > scalar  iff  code >= right
-        CompareOperator::Gt => emit_gte_or_cmp(
-            &codes,
-            bounds.right,
-            dict_len,
-            result_nullability,
-            codes_len,
-        ),
+        CompareOperator::Gt => {
+            emit_bounded_cmp(&codes, bounds.right, dict_len, Operator::Gte, result_nullability, codes_len)
+        }
         // value >= scalar iff  code >= left
-        CompareOperator::Gte => emit_gte_or_cmp(
-            &codes,
-            bounds.left,
-            dict_len,
-            result_nullability,
-            codes_len,
-        ),
+        CompareOperator::Gte => {
+            emit_bounded_cmp(&codes, bounds.left, dict_len, Operator::Gte, result_nullability, codes_len)
+        }
     }
 }
 
-/// `result = (code < bound)`. Folds to a constant when `bound` is at an extreme;
-/// otherwise emits a primitive `code < bound` compare that the new Vortex-native
-/// primitive cmp kernel runs as a single SIMD pass with bit-packed output.
-fn emit_lt_or_cmp(
+/// Emit a code-domain `code OP bound` compare, folding to a `ConstantArray<Bool>` when
+/// `bound` is at an extreme (`0` or `dict_len`) so `Mask::execute` collapses the result
+/// to `AllTrue`/`AllFalse` in O(1). `op` must be `Lt` or `Gte`; the symmetric values for
+/// each boundary are determined by which direction the comparison extends.
+fn emit_bounded_cmp(
     codes: &ArrayRef,
     bound: usize,
     dict_len: usize,
+    op: Operator,
     nullability: Nullability,
     codes_len: usize,
 ) -> VortexResult<Option<ArrayRef>> {
     let const_bool = |b: bool| -> ArrayRef {
         ConstantArray::new(Scalar::bool(b, nullability), codes_len).into_array()
+    };
+    // For Lt: `code < 0` is always false; `code < dict_len` is always true.
+    // For Gte: `code >= 0` is always true; `code >= dict_len` is always false.
+    let (at_zero, at_top) = match op {
+        Operator::Lt => (false, true),
+        Operator::Gte => (true, false),
+        _ => vortex_error::vortex_panic!("emit_bounded_cmp expects Lt or Gte, got {op:?}"),
     };
     if bound == 0 {
-        return Ok(Some(const_bool(false)));
-    }
-    if bound >= dict_len && !nullability.is_nullable() {
-        return Ok(Some(const_bool(true)));
-    }
-    Ok(Some(emit_code_cmp(codes, bound, Operator::Lt)?))
-}
-
-/// `result = (code >= bound)`. Folds to a constant when `bound` is at an extreme;
-/// otherwise emits a primitive `code >= bound` compare.
-fn emit_gte_or_cmp(
-    codes: &ArrayRef,
-    bound: usize,
-    dict_len: usize,
-    nullability: Nullability,
-    codes_len: usize,
-) -> VortexResult<Option<ArrayRef>> {
-    let const_bool = |b: bool| -> ArrayRef {
-        ConstantArray::new(Scalar::bool(b, nullability), codes_len).into_array()
-    };
-    if bound == 0 && !nullability.is_nullable() {
-        return Ok(Some(const_bool(true)));
+        // The `true` arm requires non-nullable codes; otherwise we'd lose null
+        // propagation and need to fall back to the existing path.
+        if !at_zero || !nullability.is_nullable() {
+            return Ok(Some(const_bool(at_zero)));
+        }
     }
     if bound >= dict_len {
-        return Ok(Some(const_bool(false)));
+        if !at_top || !nullability.is_nullable() {
+            return Ok(Some(const_bool(at_top)));
+        }
     }
-    Ok(Some(emit_code_cmp(codes, bound, Operator::Gte)?))
+    Ok(Some(emit_code_cmp(codes, bound, op)?))
 }
 
 /// Build a code-domain compare expression: `codes OP threshold`. The Vortex-native
@@ -254,35 +232,10 @@ pub(crate) fn scan_sorted_dual_bounds(
         })));
     }
     if let Some(vbv) = values.as_opt::<VarBinView>() {
-        let lo_needle: &[u8] = match lower.dtype() {
-            crate::dtype::DType::Utf8(_) => {
-                let Some(s) = lower.as_utf8_opt().and_then(|v| v.value()) else {
-                    return Ok(None);
-                };
-                s.as_bytes()
-            }
-            crate::dtype::DType::Binary(_) => {
-                let Some(b) = lower.as_binary_opt().and_then(|v| v.value()) else {
-                    return Ok(None);
-                };
-                b.as_slice()
-            }
-            _ => return Ok(None),
-        };
-        let hi_needle: &[u8] = match upper.dtype() {
-            crate::dtype::DType::Utf8(_) => {
-                let Some(s) = upper.as_utf8_opt().and_then(|v| v.value()) else {
-                    return Ok(None);
-                };
-                s.as_bytes()
-            }
-            crate::dtype::DType::Binary(_) => {
-                let Some(b) = upper.as_binary_opt().and_then(|v| v.value()) else {
-                    return Ok(None);
-                };
-                b.as_slice()
-            }
-            _ => return Ok(None),
+        let (Some(lo_needle), Some(hi_needle)) =
+            (scalar_as_bytes(lower), scalar_as_bytes(upper))
+        else {
+            return Ok(None);
         };
         let bounds = vbv
             .into_owned()
@@ -292,6 +245,17 @@ pub(crate) fn scan_sorted_dual_bounds(
         return Ok(Some(bounds));
     }
     Ok(None)
+}
+
+/// Extract a byte-slice view of a Utf8 / Binary scalar. Returns `None` for any other
+/// dtype or null value. Shared between the single-bound and dual-bound scans.
+fn scalar_as_bytes(scalar: &Scalar) -> Option<&[u8]> {
+    use crate::dtype::DType;
+    match scalar.dtype() {
+        DType::Utf8(_) => scalar.as_utf8_opt().and_then(|v| v.value()).map(|s| s.as_bytes()),
+        DType::Binary(_) => scalar.as_binary_opt().and_then(|v| v.value()).map(|b| b.as_slice()),
+        _ => None,
+    }
 }
 
 /// Two-phase scan. Phase 1 walks `slice` to find `lo` bounds; since values are sorted
@@ -353,20 +317,8 @@ pub(crate) fn scan_sorted_bounds(
         })));
     }
     if let Some(vbv) = values.as_opt::<VarBinView>() {
-        let needle: &[u8] = match scalar.dtype() {
-            crate::dtype::DType::Utf8(_) => {
-                let Some(s) = scalar.as_utf8_opt().and_then(|v| v.value()) else {
-                    return Ok(None);
-                };
-                s.as_bytes()
-            }
-            crate::dtype::DType::Binary(_) => {
-                let Some(b) = scalar.as_binary_opt().and_then(|v| v.value()) else {
-                    return Ok(None);
-                };
-                b.as_slice()
-            }
-            _ => return Ok(None),
+        let Some(needle) = scalar_as_bytes(scalar) else {
+            return Ok(None);
         };
         let bounds = vbv
             .into_owned()

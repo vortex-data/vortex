@@ -210,20 +210,20 @@ fn argsort_varbinview(values: &VarBinViewArray, n: u32) -> VortexResult<Vec<u32>
 
 /// Reorder `values` such that the i-th element of the output is `values[perm[i]]`.
 ///
-/// `Array::take` wraps in a `DictArray` and optimizes; we want the canonical underlying
-/// values array (Primitive / VarBinView) so downstream sorted-aware kernels can do typed
-/// binary search without going through `execute_scalar`.
+/// `Array::take` wraps in a `DictArray` and optimizes lazily; the downstream sorted-aware
+/// kernels expect the canonical underlying values array (Primitive / VarBinView) for the
+/// typed linear scan, so we eagerly canonicalize here.
 fn take_values(values: &ArrayRef, perm: &[u32]) -> VortexResult<ArrayRef> {
     use crate::Canonical;
-    use crate::VortexSessionExecute;
     use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
 
-    let indices = BufferMut::<u32>::from_iter(perm.iter().copied())
-        .freeze()
-        .into_array();
-    let taken = values.take(indices)?;
+    let indices = PrimitiveArray::from_iter(perm.iter().copied()).into_array();
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    Ok(taken.execute::<Canonical>(&mut ctx)?.into_array())
+    values
+        .take(indices)?
+        .execute::<Canonical>(&mut ctx)
+        .map(Into::into)
 }
 
 /// Apply the sort permutation to a codes array: for each code `c`, replace with
