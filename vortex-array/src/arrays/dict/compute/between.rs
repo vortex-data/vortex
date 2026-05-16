@@ -13,7 +13,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::compare::emit_code_cmp;
-use crate::arrays::dict::compute::compare::scan_sorted_bounds;
+use crate::arrays::dict::compute::compare::scan_sorted_dual_bounds;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenOptions;
@@ -37,10 +37,11 @@ pub(crate) fn reduce_sorted_between(
     let values = array.values().clone();
     let dict_len = values.len();
 
-    let Some(lower_bounds) = scan_sorted_bounds(&values, lower_scalar)? else {
-        return Ok(None);
-    };
-    let Some(upper_bounds) = scan_sorted_bounds(&values, upper_scalar)? else {
+    // Single pass to find both bounds. Saves ~one full scan over the dict values vs
+    // calling scan_sorted_bounds twice.
+    let Some((lower_bounds, upper_bounds)) =
+        scan_sorted_dual_bounds(&values, lower_scalar, upper_scalar)?
+    else {
         return Ok(None);
     };
     let code_lo = if options.lower_strict.is_strict() {

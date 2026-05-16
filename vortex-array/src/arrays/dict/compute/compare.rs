@@ -234,6 +234,209 @@ pub(crate) struct SortedBounds {
     pub found: Option<usize>,
 }
 
+/// Scan a sorted values array to find boundaries for `lower` AND `upper` in a single
+/// pass. Used by the BETWEEN reduce rule, which would otherwise call `scan_sorted_bounds`
+/// twice. Since values are sorted ascending, both needles can be resolved together: once
+/// we pass `upper`, no later element can affect either bound.
+pub(crate) fn scan_sorted_dual_bounds(
+    values: &ArrayRef,
+    lower: &Scalar,
+    upper: &Scalar,
+) -> VortexResult<Option<(SortedBounds, SortedBounds)>> {
+    use crate::accessor::ArrayAccessor;
+    use crate::arrays::Primitive;
+    use crate::arrays::VarBinView;
+    use crate::match_each_native_ptype;
+
+    if let Some(prim) = values.as_opt::<Primitive>() {
+        return Ok(Some(match_each_native_ptype!(prim.ptype(), |T| {
+            let (Ok(lo), Ok(hi)) = (T::try_from(lower), T::try_from(upper)) else {
+                return Ok(None);
+            };
+            scan_primitive_dual::<T>(prim.as_slice::<T>(), lo, hi)
+        })));
+    }
+    if let Some(vbv) = values.as_opt::<VarBinView>() {
+        let lo_needle: &[u8] = match lower.dtype() {
+            crate::dtype::DType::Utf8(_) => {
+                let Some(s) = lower.as_utf8_opt().and_then(|v| v.value()) else {
+                    return Ok(None);
+                };
+                s.as_bytes()
+            }
+            crate::dtype::DType::Binary(_) => {
+                let Some(b) = lower.as_binary_opt().and_then(|v| v.value()) else {
+                    return Ok(None);
+                };
+                b.as_slice()
+            }
+            _ => return Ok(None),
+        };
+        let hi_needle: &[u8] = match upper.dtype() {
+            crate::dtype::DType::Utf8(_) => {
+                let Some(s) = upper.as_utf8_opt().and_then(|v| v.value()) else {
+                    return Ok(None);
+                };
+                s.as_bytes()
+            }
+            crate::dtype::DType::Binary(_) => {
+                let Some(b) = upper.as_binary_opt().and_then(|v| v.value()) else {
+                    return Ok(None);
+                };
+                b.as_slice()
+            }
+            _ => return Ok(None),
+        };
+        let bounds = vbv
+            .into_owned()
+            .with_iterator(|it: &mut dyn Iterator<Item = Option<&[u8]>>| {
+                scan_bytes_dual(it, lo_needle, hi_needle)
+            });
+        return Ok(Some(bounds));
+    }
+    Ok(None)
+}
+
+fn scan_primitive_dual<T: crate::dtype::NativePType>(
+    slice: &[T],
+    lo: T,
+    hi: T,
+) -> (SortedBounds, SortedBounds) {
+    use std::cmp::Ordering::*;
+    let mut lo_left: Option<usize> = None;
+    let mut lo_right: Option<usize> = None;
+    let mut lo_found: Option<usize> = None;
+    let mut hi_left: Option<usize> = None;
+    let mut hi_right: Option<usize> = None;
+    let mut hi_found: Option<usize> = None;
+
+    for (i, &v) in slice.iter().enumerate() {
+        if hi_right.is_none() {
+            match v.total_compare(hi) {
+                Less => {}
+                Equal => {
+                    if hi_left.is_none() {
+                        hi_left = Some(i);
+                        hi_found = Some(i);
+                    }
+                }
+                Greater => {
+                    if hi_left.is_none() {
+                        hi_left = Some(i);
+                    }
+                    hi_right = Some(i);
+                }
+            }
+        }
+        if lo_right.is_none() {
+            match v.total_compare(lo) {
+                Less => {}
+                Equal => {
+                    if lo_left.is_none() {
+                        lo_left = Some(i);
+                        lo_found = Some(i);
+                    }
+                }
+                Greater => {
+                    if lo_left.is_none() {
+                        lo_left = Some(i);
+                    }
+                    lo_right = Some(i);
+                }
+            }
+        }
+        if hi_right.is_some() {
+            break;
+        }
+    }
+    let n = slice.len();
+    (
+        SortedBounds {
+            left: lo_left.unwrap_or(n),
+            right: lo_right.unwrap_or(n),
+            found: lo_found,
+        },
+        SortedBounds {
+            left: hi_left.unwrap_or(n),
+            right: hi_right.unwrap_or(n),
+            found: hi_found,
+        },
+    )
+}
+
+fn scan_bytes_dual<'a>(
+    it: &mut dyn Iterator<Item = Option<&'a [u8]>>,
+    lo: &[u8],
+    hi: &[u8],
+) -> (SortedBounds, SortedBounds) {
+    use std::cmp::Ordering::*;
+    let mut lo_left: Option<usize> = None;
+    let mut lo_right: Option<usize> = None;
+    let mut lo_found: Option<usize> = None;
+    let mut hi_left: Option<usize> = None;
+    let mut hi_right: Option<usize> = None;
+    let mut hi_found: Option<usize> = None;
+    let mut n = 0usize;
+    for (i, opt) in it.enumerate() {
+        n = i + 1;
+        let bytes = match opt {
+            None => {
+                continue;
+            }
+            Some(b) => b,
+        };
+        if hi_right.is_none() {
+            match bytes.cmp(hi) {
+                Less => {}
+                Equal => {
+                    if hi_left.is_none() {
+                        hi_left = Some(i);
+                        hi_found = Some(i);
+                    }
+                }
+                Greater => {
+                    if hi_left.is_none() {
+                        hi_left = Some(i);
+                    }
+                    hi_right = Some(i);
+                }
+            }
+        }
+        if lo_right.is_none() {
+            match bytes.cmp(lo) {
+                Less => {}
+                Equal => {
+                    if lo_left.is_none() {
+                        lo_left = Some(i);
+                        lo_found = Some(i);
+                    }
+                }
+                Greater => {
+                    if lo_left.is_none() {
+                        lo_left = Some(i);
+                    }
+                    lo_right = Some(i);
+                }
+            }
+        }
+        if hi_right.is_some() {
+            break;
+        }
+    }
+    (
+        SortedBounds {
+            left: lo_left.unwrap_or(n),
+            right: lo_right.unwrap_or(n),
+            found: lo_found,
+        },
+        SortedBounds {
+            left: hi_left.unwrap_or(n),
+            right: hi_right.unwrap_or(n),
+            found: hi_found,
+        },
+    )
+}
+
 /// Linear scan of a sorted values array to find the (left, right, found) boundaries for
 /// `scalar`. Dict size is bounded by `u16::MAX` so a typed linear scan is fast (memory-
 /// resident, well-predicted branch); the scaffolding of binary_search + `IndexOrd<Scalar>`
