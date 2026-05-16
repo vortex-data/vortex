@@ -352,6 +352,76 @@ fn dict_search_sorted_through_dispatch() -> VortexResult<()> {
 }
 
 #[test]
+fn chunked_search_sorted_routes_to_chunk() -> VortexResult<()> {
+    use crate::arrays::ChunkedArray;
+    use crate::dtype::Nullability;
+    use crate::dtype::PType;
+
+    // Three chunks, cross-chunk monotonic ascending:
+    //   chunk 0: [1, 3, 5]
+    //   chunk 1: [7, 9, 11]
+    //   chunk 2: [13, 15, 17]
+    let chunks = vec![
+        PrimitiveArray::new(
+            vortex_buffer::buffer![1i32, 3, 5],
+            crate::validity::Validity::NonNullable,
+        )
+        .into_array(),
+        PrimitiveArray::new(
+            vortex_buffer::buffer![7i32, 9, 11],
+            crate::validity::Validity::NonNullable,
+        )
+        .into_array(),
+        PrimitiveArray::new(
+            vortex_buffer::buffer![13i32, 15, 17],
+            crate::validity::Validity::NonNullable,
+        )
+        .into_array(),
+    ];
+    let arr = ChunkedArray::try_new(
+        chunks,
+        crate::dtype::DType::Primitive(PType::I32, Nullability::NonNullable),
+    )?
+    .into_array();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut rt = PointRuntime::new(&mut ctx);
+
+    // Found cases (one per chunk).
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(3i32), SearchSortedSide::Left)?,
+        SearchResult::Found(1),
+    );
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(7i32), SearchSortedSide::Left)?,
+        SearchResult::Found(3),
+    );
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(15i32), SearchSortedSide::Left)?,
+        SearchResult::Found(7),
+    );
+
+    // NotFound — values that fall in gaps.
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(0i32), SearchSortedSide::Left)?,
+        SearchResult::NotFound(0),
+    );
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(4i32), SearchSortedSide::Left)?,
+        SearchResult::NotFound(2),
+    );
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(6i32), SearchSortedSide::Left)?,
+        SearchResult::NotFound(3),
+    );
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(20i32), SearchSortedSide::Left)?,
+        SearchResult::NotFound(9),
+    );
+
+    Ok(())
+}
+
+#[test]
 fn session_cached_block_evicts_oldest() -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mut session = PointSession::with_capacities(&mut ctx, 8, 2);

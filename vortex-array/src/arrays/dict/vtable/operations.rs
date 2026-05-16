@@ -96,8 +96,7 @@ impl OperationsVTable<Dict> for Dict {
                     return Ok(SearchResult::NotFound(0));
                 }
                 let code_scalar = usize_as_scalar(codes, insertion_dict_idx)?;
-                let result =
-                    dispatch.search_sorted(codes, &code_scalar, SearchSortedSide::Left)?;
+                let result = dispatch.search_sorted(codes, &code_scalar, SearchSortedSide::Left)?;
                 Ok(SearchResult::NotFound(result.to_index()))
             }
         }
