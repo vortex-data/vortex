@@ -77,10 +77,14 @@ fn raw_u16_lt_baseline(bencher: Bencher, len: usize) {
 
 #[divan::bench(args = BASELINE_SIZES)]
 fn raw_take_bool_baseline(bencher: Bencher, len: usize) {
+    use rand::SeedableRng;
+    use rand::prelude::StdRng;
+    use rand::RngExt;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     let bools: BoolArray = (0..1024).map(|i| i % 7 == 0).collect();
-    let codes: PrimitiveArray = (0..len).map(|i| (i % 1024) as u16).collect();
+    let mut rng = StdRng::seed_from_u64(0);
+    let codes: PrimitiveArray = (0..len).map(|_| rng.random_range(0..1024) as u16).collect();
     let bools = bools.into_array();
     let codes = codes.into_array();
     bencher
@@ -106,7 +110,8 @@ fn dict_take_via_pushdown_baseline(bencher: Bencher, len: usize) {
     use rand::prelude::StdRng;
     let mut rng = StdRng::seed_from_u64(0);
     let values: PrimitiveArray = (0..1024i64).map(|_| rng.random::<i64>()).collect();
-    let codes: PrimitiveArray = (0..len).map(|i| (i % 1024) as u16).collect();
+    // Random codes (match what dict_encode produces from random data)
+    let codes: PrimitiveArray = (0..len).map(|_| rng.random_range(0..1024) as u16).collect();
     let dict = DictArray::try_new(codes.into_array(), values.into_array())
         .unwrap()
         .into_array();
