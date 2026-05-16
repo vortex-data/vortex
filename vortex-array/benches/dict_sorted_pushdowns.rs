@@ -198,7 +198,7 @@ fn i64_is_sorted_sorted(bencher: Bencher) { run_is_sorted::<i64>(bencher, true);
 
 // Hush divan warnings about unused canonical import.
 const _: fn() = || {
-    let _ = std::mem::size_of::<Canonical>();
-    let _ = std::mem::size_of::<DictArray>();
-    let _ = std::mem::size_of::<PrimitiveArray>();
+    let _ = size_of::<Canonical>();
+    let _ = size_of::<DictArray>();
+    let _ = size_of::<PrimitiveArray>();
 };
