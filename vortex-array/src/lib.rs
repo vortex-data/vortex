@@ -60,6 +60,7 @@ pub mod normalize;
 pub mod optimizer;
 mod partial_ord;
 pub mod patches;
+pub mod point_fn;
 pub mod scalar;
 pub mod scalar_fn;
 pub mod search_sorted;

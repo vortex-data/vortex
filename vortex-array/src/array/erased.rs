@@ -287,6 +287,23 @@ impl ArrayRef {
         Ok(scalar)
     }
 
+    /// Open a caching [`PointSession`](crate::point_fn::PointSession) for this array.
+    ///
+    /// Hold the returned session across multiple point-fn calls (`scalar_at`,
+    /// `search_sorted`, etc.) to share work via the per-session scalar and
+    /// decoded-block caches. For a single one-shot call, construct a
+    /// [`PointRuntime`](crate::point_fn::PointRuntime) directly instead.
+    pub fn point_session<'a>(
+        &'a self,
+        ctx: &'a mut ExecutionCtx,
+    ) -> crate::point_fn::PointSession<'a> {
+        // `self` is intentionally unused here — the session is array-agnostic and the
+        // caller passes arrays into its methods. This lifetime tie keeps the session
+        // borrow associated with this array's lifetime for ergonomic call sites.
+        let _ = self;
+        crate::point_fn::PointSession::new(ctx)
+    }
+
     /// Returns whether the item at `index` is valid.
     pub fn is_valid(&self, index: usize, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         vortex_ensure!(index < self.len(), OutOfBounds: index, 0, self.len());
