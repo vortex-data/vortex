@@ -225,6 +225,27 @@ pub(crate) fn merge_inner_join_ovc(left: &OrdRows<'_>, right: &OrdRows<'_>) -> V
     out
 }
 
+/// Inner sorted merge join with a shared per-side prefix.
+///
+/// Both sides carry a constant prefix factored out of every row; payload rows
+/// in `left` and `right` hold only the suffix bytes. If the two prefixes
+/// differ, no rows can possibly match and the result is empty. If they're
+/// equal, the merge reduces to a memcmp merge over the suffix payload rows.
+///
+/// This is the framework's degenerate "all rows in this block share one
+/// prefix" case; see `docs/developer-guide/internals/smj-ovc-design.md`.
+pub(crate) fn merge_inner_join_with_prefix(
+    left_prefix: &[u8],
+    left: &OrdRows<'_>,
+    right_prefix: &[u8],
+    right: &OrdRows<'_>,
+) -> Vec<(u32, u32)> {
+    if left_prefix != right_prefix {
+        return Vec::new();
+    }
+    merge_inner_join(left, right)
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
@@ -316,6 +337,169 @@ mod tests {
         let result = join_both(&l_refs, &r_refs);
         let expected: Vec<(u32, u32)> = (0..16u32).map(|i| (i, i)).collect();
         assert_eq!(result, expected);
+    }
+
+    /// Microbenchmark for the three merge variants on wide, prefix-heavy keys.
+    ///
+    /// Run with:
+    ///   cargo test --release -p vortex-array smj::tests::bench -- \
+    ///     --ignored --nocapture
+    #[test]
+    #[ignore = "benchmark, run explicitly"]
+    #[allow(clippy::use_debug, clippy::cast_precision_loss)]
+    fn bench_wide_prefix_heavy() {
+        use std::time::Instant;
+
+        // Workload: every row's key is `k1 || k2 || k3` of 8 bytes each.
+        // k1 and k2 are identical across all rows on each side (the shared
+        // "block prefix"); k3 varies. This is the case the user described:
+        // wide keys, sorted, leading columns repeat across many rows, with
+        // the discriminating bytes in the tail.
+        const K1: [u8; 8] = [0xAA; 8];
+        const K2: [u8; 8] = [0xBB; 8];
+        const N_PER_SIDE: u64 = 100_000;
+        const OVERLAP_START: u64 = 50_000; // right starts here -> 50k matches
+        const ITERS: u32 = 20;
+
+        let prefix: Vec<u8> = [&K1[..], &K2[..]].concat(); // 16 bytes
+        let mk_full = |k3: u64| {
+            let mut v = Vec::with_capacity(24);
+            v.extend_from_slice(&K1);
+            v.extend_from_slice(&K2);
+            v.extend_from_slice(&k3.to_be_bytes());
+            v
+        };
+        let mk_suffix = |k3: u64| k3.to_be_bytes().to_vec();
+
+        let left_full: Vec<Vec<u8>> = (0..N_PER_SIDE).map(mk_full).collect();
+        let right_full: Vec<Vec<u8>> = (OVERLAP_START..OVERLAP_START + N_PER_SIDE)
+            .map(mk_full)
+            .collect();
+        let left_suf: Vec<Vec<u8>> = (0..N_PER_SIDE).map(mk_suffix).collect();
+        let right_suf: Vec<Vec<u8>> = (OVERLAP_START..OVERLAP_START + N_PER_SIDE)
+            .map(mk_suffix)
+            .collect();
+
+        fn to_refs(v: &[Vec<u8>]) -> Vec<&[u8]> {
+            v.iter().map(|r| r.as_slice()).collect()
+        }
+        let (lvf, lbf) = views_from(&to_refs(&left_full));
+        let (rvf, rbf) = views_from(&to_refs(&right_full));
+        let (lvs, lbs) = views_from(&to_refs(&left_suf));
+        let (rvs, rbs) = views_from(&to_refs(&right_suf));
+
+        let l_full = OrdRows::new(&lvf, &lbf);
+        let r_full = OrdRows::new(&rvf, &rbf);
+        let l_suf = OrdRows::new(&lvs, &lbs);
+        let r_suf = OrdRows::new(&rvs, &rbs);
+
+        let time = |label: &str, mut f: Box<dyn FnMut() -> Vec<(u32, u32)>>| {
+            // Warm-up.
+            let warm = f();
+            let t = Instant::now();
+            let mut last = warm;
+            for _ in 0..ITERS {
+                last = f();
+            }
+            let elapsed = t.elapsed();
+            let per_iter = elapsed / ITERS;
+            let total_rows = u64::from(ITERS) * (N_PER_SIDE * 2);
+            let ns_per_row = elapsed.as_nanos() as f64 / total_rows as f64;
+            println!(
+                "{:<10} {:>10?}/iter   {:>6.2} ns/input-row   pairs={}",
+                label,
+                per_iter,
+                ns_per_row,
+                last.len(),
+            );
+            last
+        };
+
+        println!(
+            "\n== smj microbench: {} rows/side, 24B keys (16B common prefix), {} expected matches ==",
+            N_PER_SIDE,
+            N_PER_SIDE - OVERLAP_START,
+        );
+
+        let o1 = time("memcmp", Box::new(|| merge_inner_join(&l_full, &r_full)));
+        let o2 = time("ovc", Box::new(|| merge_inner_join_ovc(&l_full, &r_full)));
+        let o3 = time(
+            "prefix",
+            Box::new(|| merge_inner_join_with_prefix(&prefix, &l_suf, &prefix, &r_suf)),
+        );
+
+        assert_eq!(o1, o2, "memcmp and ovc disagree");
+        assert_eq!(o1, o3, "memcmp and prefix disagree");
+    }
+
+    /// Sweep the shared-prefix length to find OVC's crossover point.
+    ///
+    /// Run with the same `--ignored --nocapture --release` flags as above.
+    #[test]
+    #[ignore = "benchmark, run explicitly"]
+    #[allow(clippy::cast_precision_loss, clippy::many_single_char_names)]
+    fn bench_prefix_length_sweep() {
+        use std::time::Instant;
+
+        const N_PER_SIDE: u64 = 50_000;
+        const OVERLAP_START: u64 = 25_000;
+        const ITERS: u32 = 20;
+        const PREFIX_LENS: &[usize] = &[8, 32, 128, 512, 2048];
+
+        println!(
+            "\n== smj prefix-length sweep: {} rows/side, 50% overlap ==",
+            N_PER_SIDE,
+        );
+        println!(
+            "{:<10}  {:>14}  {:>14}  {:>10}",
+            "prefix B", "memcmp ns/row", "ovc ns/row", "ovc/memcmp",
+        );
+
+        for &prefix_len in PREFIX_LENS {
+            let prefix = vec![0xCC; prefix_len];
+            let mk = |k3: u64| {
+                let mut v = Vec::with_capacity(prefix_len + 8);
+                v.extend_from_slice(&prefix);
+                v.extend_from_slice(&k3.to_be_bytes());
+                v
+            };
+            let left: Vec<Vec<u8>> = (0..N_PER_SIDE).map(mk).collect();
+            let right: Vec<Vec<u8>> = (OVERLAP_START..OVERLAP_START + N_PER_SIDE).map(mk).collect();
+            let l_refs: Vec<&[u8]> = left.iter().map(|v| v.as_slice()).collect();
+            let r_refs: Vec<&[u8]> = right.iter().map(|v| v.as_slice()).collect();
+            let (lv, lb) = views_from(&l_refs);
+            let (rv, rb) = views_from(&r_refs);
+            let l = OrdRows::new(&lv, &lb);
+            let r = OrdRows::new(&rv, &rb);
+
+            // Warm
+            drop(merge_inner_join(&l, &r));
+            drop(merge_inner_join_ovc(&l, &r));
+
+            let t = Instant::now();
+            let mut last = Vec::new();
+            for _ in 0..ITERS {
+                last = merge_inner_join(&l, &r);
+            }
+            let memcmp_ns =
+                t.elapsed().as_nanos() as f64 / (f64::from(ITERS) * (N_PER_SIDE * 2) as f64);
+
+            let t = Instant::now();
+            for _ in 0..ITERS {
+                last = merge_inner_join_ovc(&l, &r);
+            }
+            let ovc_ns =
+                t.elapsed().as_nanos() as f64 / (f64::from(ITERS) * (N_PER_SIDE * 2) as f64);
+
+            println!(
+                "{:<10}  {:>14.2}  {:>14.2}  {:>9.2}x   pairs={}",
+                prefix_len,
+                memcmp_ns,
+                ovc_ns,
+                ovc_ns / memcmp_ns,
+                last.len(),
+            );
+        }
     }
 
     #[test]
