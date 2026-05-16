@@ -285,6 +285,92 @@ fn struct_sort_order() -> VortexResult<()> {
 }
 
 #[test]
+#[allow(clippy::cast_possible_truncation)]
+fn pure_fixed_offsets_arithmetic() -> VortexResult<()> {
+    use crate::arrays::listview::ListViewArrayExt;
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    // Two i64 columns: encoded width = 2 * (1 + 8) = 18 bytes per row.
+    let nrows = 16usize;
+    let col_a = PrimitiveArray::from_iter((0..nrows as i64).collect::<Vec<_>>()).into_array();
+    let col_b =
+        PrimitiveArray::from_iter((1000..(1000 + nrows as i64)).collect::<Vec<_>>()).into_array();
+    let encoded = convert_columns(
+        &[col_a, col_b],
+        &[SortField::default(), SortField::default()],
+        &mut ctx,
+    )?;
+
+    // Confirm the arithmetic offsets path engaged: offsets[i] == i * 18.
+    let fixed_per_row: u32 = 2 * (1 + 8);
+    let offsets = encoded
+        .offsets()
+        .clone()
+        .execute::<PrimitiveArray>(&mut ctx)?;
+    let offsets_slice: &[u32] = offsets.as_slice();
+    for (i, &o) in offsets_slice.iter().enumerate() {
+        let expected = (i as u32) * fixed_per_row;
+        assert_eq!(o, expected, "offsets[{i}] = {o}, expected {expected}",);
+    }
+    // And sizes should be the constant `fixed_per_row` (we make this a ConstantArray when
+    // there are no varlen columns).
+    use crate::Canonical;
+    let sizes_canon = encoded.sizes().clone().execute::<Canonical>(&mut ctx)?;
+    match sizes_canon {
+        Canonical::Primitive(prim) => {
+            for &x in prim.as_slice::<u32>() {
+                assert_eq!(x, fixed_per_row);
+            }
+        }
+        _ => panic!("expected primitive sizes after canonicalization"),
+    }
+    Ok(())
+}
+
+#[test]
+fn row_size_struct_shape() -> VortexResult<()> {
+    use crate::arrays::Constant;
+    use crate::arrays::StructArray;
+    use crate::arrays::struct_::StructArrayExt;
+    use crate::row::compute_row_sizes;
+
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let ints: Vec<i32> = vec![1, 2, 3, 4, 5];
+    let strs = vec!["a", "bb", "ccc", "", "eeeee"];
+    let col0 = PrimitiveArray::from_iter(ints).into_array();
+    let col1 = VarBinViewArray::from_iter_str(strs).into_array();
+
+    let sizes = compute_row_sizes(
+        &[col0, col1],
+        &[SortField::default(), SortField::default()],
+        &mut ctx,
+    )?;
+    // Shape must be Struct { fixed, var }
+    let struct_arr = sizes.execute::<StructArray>(&mut ctx)?;
+    assert_eq!(struct_arr.struct_fields().nfields(), 2);
+    let fixed = struct_arr.unmasked_field(0);
+    let var = struct_arr.unmasked_field(1);
+
+    // `fixed` must be ConstantArray with value = encoded i32 width = 1 + 4 = 5.
+    let fixed_const = fixed
+        .as_opt::<Constant>()
+        .expect("fixed field should be a ConstantArray");
+    assert_eq!(
+        fixed_const.scalar(),
+        &crate::scalar::Scalar::from(5u32),
+        "fixed scalar should be encoded primitive i32 width"
+    );
+
+    // `var` must be a PrimitiveArray<u32>, since we have a varlen column.
+    let var_prim = var.clone().execute::<PrimitiveArray>(&mut ctx)?;
+    let v: &[u32] = var_prim.as_slice();
+    assert_eq!(v.len(), 5);
+    // empty string: sentinel(1) + 1 byte; non-empty: sentinel(1) + 33 bytes (single block).
+    let expected: Vec<u32> = vec![34, 34, 34, 2, 34];
+    assert_eq!(v, expected.as_slice());
+    Ok(())
+}
+
+#[test]
 fn single_buffer_invariant() -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Encoded rows here are all > 12 bytes, forcing the Ref-view path that points back into

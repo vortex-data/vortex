@@ -14444,6 +14444,30 @@ pub mod vortex_array::row
 
 pub mod vortex_array::row::codec
 
+pub enum vortex_array::row::codec::RowWidth
+
+pub vortex_array::row::codec::RowWidth::Fixed(u32)
+
+pub vortex_array::row::codec::RowWidth::Variable
+
+impl core::clone::Clone for vortex_array::row::codec::RowWidth
+
+pub fn vortex_array::row::codec::RowWidth::clone(&self) -> vortex_array::row::codec::RowWidth
+
+impl core::cmp::Eq for vortex_array::row::codec::RowWidth
+
+impl core::cmp::PartialEq for vortex_array::row::codec::RowWidth
+
+pub fn vortex_array::row::codec::RowWidth::eq(&self, &vortex_array::row::codec::RowWidth) -> bool
+
+impl core::fmt::Debug for vortex_array::row::codec::RowWidth
+
+pub fn vortex_array::row::codec::RowWidth::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_array::row::codec::RowWidth
+
+impl core::marker::StructuralPartialEq for vortex_array::row::codec::RowWidth
+
 pub const vortex_array::row::codec::BOOL_ENCODED_SIZE: u32
 
 pub const vortex_array::row::codec::VARLEN_BLOCK_SIZE: usize
@@ -14516,7 +14540,13 @@ pub fn vortex_array::row::codec::encoded_size_for_scalar(&vortex_array::scalar::
 
 pub fn vortex_array::row::codec::field_encode(&vortex_array::Canonical, vortex_array::row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
+pub fn vortex_array::row::codec::field_encode_fixed_arithmetic(&vortex_array::Canonical, vortex_array::row::options::SortField, u32, u32, core::option::Option<&[u32]>, u32, &mut [u8], &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
 pub fn vortex_array::row::codec::field_size(&vortex_array::Canonical, vortex_array::row::options::SortField, &mut [u32], &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::row::codec::row_width(&vortex_array::ArrayRef, vortex_array::row::options::SortField) -> vortex_error::VortexResult<vortex_array::row::codec::RowWidth>
+
+pub fn vortex_array::row::codec::row_width_for_dtype(&vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::row::codec::RowWidth>
 
 pub mod vortex_array::row::convert
 

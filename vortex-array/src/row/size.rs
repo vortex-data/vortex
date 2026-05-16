@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
@@ -17,17 +18,24 @@ use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::Constant;
+use crate::arrays::ConstantArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::StructArray;
 use crate::arrays::dict::Dict;
 use crate::dtype::DType;
+use crate::dtype::FieldName;
+use crate::dtype::FieldNames;
 use crate::dtype::Nullability;
 use crate::dtype::PType;
+use crate::dtype::StructFields;
 use crate::row::codec;
+use crate::row::codec::RowWidth;
 use crate::row::options::RowEncodeOptions;
 use crate::row::options::SortField;
 use crate::row::options::deserialize_row_encode_options;
 use crate::row::options::serialize_row_encode_options;
 use crate::row::registry;
+use crate::scalar::Scalar;
 use crate::scalar_fn::Arity;
 use crate::scalar_fn::ChildName;
 use crate::scalar_fn::ExecutionArgs;
@@ -36,10 +44,36 @@ use crate::scalar_fn::ScalarFnVTable;
 use crate::validity::Validity;
 
 /// Variadic scalar function that, given N input columns and per-column [`SortField`]s,
-/// returns a `U32` array of per-row byte sizes for the row-oriented encoding produced by
-/// [`RowEncode`](super::encode::RowEncode).
+/// returns a `Struct { fixed: U32, var: U32 }` array of per-row byte sizes for the
+/// row-oriented encoding produced by [`RowEncode`](super::encode::RowEncode).
+///
+/// The `fixed` field is always a [`ConstantArray`] holding the sum of the per-column
+/// constant widths of fixed-width inputs (sentinel + value bytes). The `var` field is a
+/// `ConstantArray(0)` when there are no variable-length input columns, and a
+/// [`PrimitiveArray<u32>`] of per-row varlen-byte sums otherwise.
+///
+/// The total per-row byte size is `fixed + var`.
 #[derive(Clone, Debug)]
 pub struct RowSize;
+
+/// Returns the [`FieldNames`] used by the [`RowSize`] output struct.
+pub(crate) fn row_size_field_names() -> FieldNames {
+    FieldNames::from([FieldName::from("fixed"), FieldName::from("var")])
+}
+
+/// Returns the output [`DType`] of [`RowSize`].
+pub(crate) fn row_size_struct_dtype() -> DType {
+    DType::Struct(
+        StructFields::new(
+            row_size_field_names(),
+            vec![
+                DType::Primitive(PType::U32, Nullability::NonNullable),
+                DType::Primitive(PType::U32, Nullability::NonNullable),
+            ],
+        ),
+        Nullability::NonNullable,
+    )
+}
 
 impl ScalarFnVTable for RowSize {
     type Options = RowEncodeOptions;
@@ -69,7 +103,7 @@ impl ScalarFnVTable for RowSize {
     }
 
     fn return_dtype(&self, _options: &Self::Options, _args: &[DType]) -> VortexResult<DType> {
-        Ok(DType::Primitive(PType::U32, Nullability::NonNullable))
+        Ok(row_size_struct_dtype())
     }
 
     fn execute(
@@ -90,7 +124,12 @@ impl ScalarFnVTable for RowSize {
             );
         }
         let nrows = args.row_count();
-        let mut sizes = vec![0u32; nrows];
+
+        // Per-column accumulation lives entirely in these stack-local variables. Only at the
+        // very end do we materialize the result `StructArray`.
+        let mut fixed_per_row: u32 = 0;
+        let mut var_lengths: Option<Vec<u32>> = None;
+
         for i in 0..n_inputs {
             let col = args.get(i)?;
             if col.len() != nrows {
@@ -101,12 +140,33 @@ impl ScalarFnVTable for RowSize {
                     nrows
                 );
             }
-            dispatch_size(&col, options.fields[i], &mut sizes, ctx)?;
+            match codec::row_width_for_dtype(col.dtype())? {
+                RowWidth::Fixed(w) => {
+                    fixed_per_row = fixed_per_row
+                        .checked_add(w)
+                        .vortex_expect("row width overflow")
+                }
+                RowWidth::Variable => {
+                    let v = var_lengths.get_or_insert_with(|| vec![0u32; nrows]);
+                    dispatch_size(&col, options.fields[i], v, ctx)?;
+                }
+            }
         }
-        Ok(
-            PrimitiveArray::new(Buffer::<u32>::copy_from(&sizes), Validity::NonNullable)
+
+        let fixed_array = ConstantArray::new(Scalar::from(fixed_per_row), nrows).into_array();
+        let var_array = match var_lengths {
+            Some(v) => PrimitiveArray::new(Buffer::<u32>::copy_from(&v), Validity::NonNullable)
                 .into_array(),
-        )
+            None => ConstantArray::new(Scalar::from(0u32), nrows).into_array(),
+        };
+
+        Ok(StructArray::try_new(
+            row_size_field_names(),
+            vec![fixed_array, var_array],
+            nrows,
+            Validity::NonNullable,
+        )?
+        .into_array())
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
