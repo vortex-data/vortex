@@ -339,10 +339,19 @@ fn execute_row_encode(
         }
     };
 
-    Ok(
-        ListViewArray::try_new(elements, offsets_arr, sizes_arr, Validity::NonNullable)?
-            .into_array(),
-    )
+    // SAFETY: The encoder constructs `elements`, `offsets_arr`, and `sizes_arr` itself.
+    // - `elements` is a `PrimitiveArray<u8>` of length `total_bytes`.
+    // - `offsets[i]` is `i * fixed_per_row + var_prefix[i]`, monotonically increasing,
+    //   each value in `0..total_bytes`.
+    // - `sizes[i]` is the per-row size; `offsets[i] + sizes[i] <= total_bytes` by
+    //   construction of the buffer.
+    // - Each row's slice is disjoint from every other row's slice.
+    // The constructor's `validate` re-walks every row to verify these invariants; we know
+    // they hold so we skip it.
+    Ok(unsafe {
+        ListViewArray::new_unchecked(elements, offsets_arr, sizes_arr, Validity::NonNullable)
+    }
+    .into_array())
 }
 
 /// Dispatch a single column's encoding through the arithmetic fast path. This is used for
