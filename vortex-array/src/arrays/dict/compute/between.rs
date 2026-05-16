@@ -21,7 +21,7 @@ use crate::arrays::Dict;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::dict::compute::compare::code_cmp;
-use crate::arrays::dict::compute::compare::sorted_compare_scalar_search;
+use crate::arrays::dict::compute::compare::scan_sorted_bounds;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
@@ -55,17 +55,21 @@ impl BetweenKernel for Dict {
         let values = array.values().clone();
         let dict_len = values.len();
 
-        let (lower_left, lower_right) = sorted_compare_scalar_search(&values, &lower_scalar)?;
-        let (upper_left, upper_right) = sorted_compare_scalar_search(&values, &upper_scalar)?;
+        let Some(lower_bounds) = scan_sorted_bounds(&values, &lower_scalar)? else {
+            return Ok(None);
+        };
+        let Some(upper_bounds) = scan_sorted_bounds(&values, &upper_scalar)? else {
+            return Ok(None);
+        };
         let code_lo = if options.lower_strict.is_strict() {
-            lower_right.to_index()
+            lower_bounds.right
         } else {
-            lower_left.to_index()
+            lower_bounds.left
         };
         let code_hi = if options.upper_strict.is_strict() {
-            upper_left.to_index()
+            upper_bounds.left
         } else {
-            upper_right.to_index()
+            upper_bounds.right
         };
 
         if code_lo >= code_hi {

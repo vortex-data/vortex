@@ -4,13 +4,13 @@
 use vortex_error::VortexResult;
 
 use super::Dict;
-use super::DictArray;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
+use crate::arrays::DictArray;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::builtins::ArrayBuiltins;
@@ -19,9 +19,6 @@ use crate::scalar::Scalar;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
-use crate::search_sorted::SearchResult;
-use crate::search_sorted::SearchSorted;
-use crate::search_sorted::SearchSortedSide;
 
 impl CompareKernel for Dict {
     fn compare(
@@ -30,11 +27,7 @@ impl CompareKernel for Dict {
         operator: CompareOperator,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Sorted-values fast path: convert the predicate against values into a code-domain
-        // comparison via binary search on the values array. Only applies when:
-        //   - the dict is tagged sorted_values
-        //   - the rhs is a constant
-        //   - the values array is non-nullable (so the null prefix doesn't poison the result)
+        // Sorted-values fast path: emit a code-domain compare directly.
         if let Some(rhs_const) = rhs.as_constant()
             && lhs.has_sorted_values()
             && !lhs.values().dtype().is_nullable()
@@ -63,7 +56,6 @@ impl CompareKernel for Dict {
                     .into_array()
             };
 
-            // We canonicalize the result because dictionary-encoded bools is dumb.
             return Ok(Some(result.execute::<Canonical>(ctx)?.into_array()));
         }
 
@@ -71,13 +63,14 @@ impl CompareKernel for Dict {
     }
 }
 
-/// Sorted-values fast path for comparing a dict to a constant.
+/// Sorted-values fast path for comparing a dict to a scalar constant.
 ///
-/// For sorted values, the predicate `value OP scalar` partitions the values into a
-/// contiguous code range. Translate the predicate into a single (or two-clause) integer
-/// comparison in the code domain and run it directly against the codes child via Arrow's
-/// vectorized primitive compare kernel. This skips the `take(bool_values, codes)` step
-/// that the plain path needs — codes go straight to the result.
+/// Resolves the predicate `value OP scalar` to a code-domain integer comparison and emits
+/// that compare directly against the codes child. Skips the `take(bool_values, codes)` step
+/// the plain path needs.
+///
+/// Returns `None` if the values encoding doesn't support a typed linear scan (caller falls
+/// back to the existing path).
 pub(crate) fn sorted_compare_scalar(
     lhs: ArrayView<'_, Dict>,
     scalar: &Scalar,
@@ -90,93 +83,84 @@ pub(crate) fn sorted_compare_scalar(
     let dict_len = values.len();
     let result_nullability = codes.dtype().nullability();
 
+    let Some(bounds) = scan_sorted_bounds(&values, scalar)? else {
+        return Ok(None);
+    };
+
     let const_bool = |b: bool| -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(Scalar::bool(b, result_nullability), codes_len).into_array())
     };
 
-    // Typed binary search avoids the generic `IndexOrd<Scalar>` path's per-probe
-    // execute_scalar overhead.
-    let (left, right) = sorted_compare_scalar_search(&values, scalar)?;
-
-    // Translate the predicate to a code-domain operator + threshold (or pair).
-    use crate::scalar_fn::fns::operators::Operator;
     match operator {
-        CompareOperator::Eq => match left {
-            SearchResult::Found(i) => {
-                // codes == i (preserves codes' nullability automatically).
-                code_cmp(&codes, i, Operator::Eq, ctx).map(Some)
-            }
-            SearchResult::NotFound(_) => const_bool(false).map(Some),
+        CompareOperator::Eq => match bounds.found {
+            Some(i) => code_cmp(&codes, i, Operator::Eq, ctx).map(Some),
+            None => const_bool(false).map(Some),
         },
-        CompareOperator::NotEq => match left {
-            SearchResult::Found(i) => code_cmp(&codes, i, Operator::NotEq, ctx).map(Some),
-            SearchResult::NotFound(_) => {
-                // All values != scalar. For nullable codes the result must be null where
-                // codes are null; fall back to the existing path which handles that.
+        CompareOperator::NotEq => match bounds.found {
+            Some(i) => code_cmp(&codes, i, Operator::NotEq, ctx).map(Some),
+            None => {
                 if matches!(result_nullability, Nullability::Nullable) {
+                    // Need null preservation through the existing path.
                     Ok(None)
                 } else {
                     const_bool(true).map(Some)
                 }
             }
         },
-        // value < scalar  iff  code < left  iff  code <= left-1   (left can be 0 → all false)
-        CompareOperator::Lt => {
-            let bound = left.to_index();
-            if bound == 0 {
-                return const_bool(false).map(Some);
-            }
-            if bound >= dict_len {
-                if !matches!(result_nullability, Nullability::Nullable) {
-                    return const_bool(true).map(Some);
-                }
-            }
-            code_cmp(&codes, bound, Operator::Lt, ctx).map(Some)
-        }
-        // value <= scalar iff  code < right
-        CompareOperator::Lte => {
-            let bound = right.to_index();
-            if bound == 0 {
-                return const_bool(false).map(Some);
-            }
-            if bound >= dict_len {
-                if !matches!(result_nullability, Nullability::Nullable) {
-                    return const_bool(true).map(Some);
-                }
-            }
-            code_cmp(&codes, bound, Operator::Lt, ctx).map(Some)
-        }
+        // value < scalar  iff  code < left  (left = first idx where value >= scalar)
+        CompareOperator::Lt => emit_lt(&codes, bounds.left, dict_len, result_nullability, ctx),
+        // value <= scalar iff  code < right (right = first idx where value > scalar)
+        CompareOperator::Lte => emit_lt(&codes, bounds.right, dict_len, result_nullability, ctx),
         // value > scalar  iff  code >= right
-        CompareOperator::Gt => {
-            let bound = right.to_index();
-            if bound == 0 {
-                if !matches!(result_nullability, Nullability::Nullable) {
-                    return const_bool(true).map(Some);
-                }
-            }
-            if bound >= dict_len {
-                return const_bool(false).map(Some);
-            }
-            code_cmp(&codes, bound, Operator::Gte, ctx).map(Some)
-        }
+        CompareOperator::Gt => emit_gte(&codes, bounds.right, dict_len, result_nullability, ctx),
         // value >= scalar iff  code >= left
-        CompareOperator::Gte => {
-            let bound = left.to_index();
-            if bound == 0 {
-                if !matches!(result_nullability, Nullability::Nullable) {
-                    return const_bool(true).map(Some);
-                }
-            }
-            if bound >= dict_len {
-                return const_bool(false).map(Some);
-            }
-            code_cmp(&codes, bound, Operator::Gte, ctx).map(Some)
-        }
+        CompareOperator::Gte => emit_gte(&codes, bounds.left, dict_len, result_nullability, ctx),
     }
 }
 
-/// Run a primitive code-domain compare against an integer threshold. Wraps the threshold
-/// in a `ConstantArray` (O(1) construction) so Arrow's vectorized kernel can scalar-broadcast.
+fn emit_lt(
+    codes: &ArrayRef,
+    bound: usize,
+    dict_len: usize,
+    nullability: Nullability,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    if bound == 0 {
+        return Ok(Some(
+            ConstantArray::new(Scalar::bool(false, nullability), codes.len()).into_array(),
+        ));
+    }
+    if bound >= dict_len && !nullability.is_nullable() {
+        return Ok(Some(
+            ConstantArray::new(Scalar::bool(true, nullability), codes.len()).into_array(),
+        ));
+    }
+    code_cmp(codes, bound, Operator::Lt, ctx).map(Some)
+}
+
+fn emit_gte(
+    codes: &ArrayRef,
+    bound: usize,
+    dict_len: usize,
+    nullability: Nullability,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    if bound == 0 && !nullability.is_nullable() {
+        return Ok(Some(
+            ConstantArray::new(Scalar::bool(true, nullability), codes.len()).into_array(),
+        ));
+    }
+    if bound >= dict_len {
+        return Ok(Some(
+            ConstantArray::new(Scalar::bool(false, nullability), codes.len()).into_array(),
+        ));
+    }
+    code_cmp(codes, bound, Operator::Gte, ctx).map(Some)
+}
+
+/// Run a code-domain compare against an integer threshold. The threshold is wrapped in a
+/// `ConstantArray` (O(1) construction) so Arrow's vectorized primitive kernel can
+/// scalar-broadcast.
 pub(crate) fn code_cmp(
     codes: &ArrayRef,
     threshold: usize,
@@ -195,7 +179,7 @@ pub(crate) fn code_cmp(
 
 /// Build a `Scalar` of the codes' ptype holding `idx`. `idx` is in `0..=dict_len` and
 /// `dict_len` already fits in the codes ptype by DictArray invariant.
-pub(crate) fn code_threshold_scalar(codes: &ArrayRef, idx: usize) -> VortexResult<Scalar> {
+fn code_threshold_scalar(codes: &ArrayRef, idx: usize) -> VortexResult<Scalar> {
     use crate::dtype::DType;
     use crate::dtype::PType;
     let nullability = codes.dtype().nullability();
@@ -212,29 +196,28 @@ pub(crate) fn code_threshold_scalar(codes: &ArrayRef, idx: usize) -> VortexResul
     }
 }
 
-/// Resolve `(left, right)` search-sorted boundaries for `scalar` against `values`,
-/// preferring the typed fast path and falling back to the generic `IndexOrd<Scalar>` path.
-pub(crate) fn sorted_compare_scalar_search(
-    values: &ArrayRef,
-    scalar: &Scalar,
-) -> VortexResult<(SearchResult, SearchResult)> {
-    if let Some(pair) = typed_search_pair(values, scalar)? {
-        return Ok(pair);
-    }
-    Ok((
-        values.search_sorted(scalar, SearchSortedSide::Left)?,
-        values.search_sorted(scalar, SearchSortedSide::Right)?,
-    ))
+/// Boundary indices on a sorted (ascending, non-nullable) values array.
+#[derive(Debug)]
+pub(crate) struct SortedBounds {
+    /// First index `i` where `values[i] >= scalar`.
+    pub left: usize,
+    /// First index `i` where `values[i] > scalar`.
+    pub right: usize,
+    /// `Some(i)` iff `values[i] == scalar`; `None` if no exact match.
+    pub found: Option<usize>,
 }
 
-/// Typed binary search on the values array. Returns `(left, right)` boundaries if `values`
-/// is a canonical Primitive or VarBinView and a needle of the matching native type can be
-/// extracted from `scalar`. Returns `None` if the typed fast path doesn't apply, in which
-/// case the caller should fall back to the generic `IndexOrd<Scalar>` path.
-fn typed_search_pair(
+/// Linear scan of a sorted values array to find the (left, right, found) boundaries for
+/// `scalar`. Dict size is bounded by `u16::MAX` so a typed linear scan is fast (memory-
+/// resident, well-predicted branch); the scaffolding of binary_search + `IndexOrd<Scalar>`
+/// is unwarranted at this scale.
+///
+/// Returns `None` if `values` isn't a canonical Primitive or VarBinView or the scalar can't
+/// be converted to the matching native type.
+pub(crate) fn scan_sorted_bounds(
     values: &ArrayRef,
     scalar: &Scalar,
-) -> VortexResult<Option<(SearchResult, SearchResult)>> {
+) -> VortexResult<Option<SortedBounds>> {
     use crate::accessor::ArrayAccessor;
     use crate::arrays::Primitive;
     use crate::arrays::VarBinView;
@@ -245,109 +228,101 @@ fn typed_search_pair(
             let Ok(needle) = T::try_from(scalar) else {
                 return Ok(None);
             };
-            typed_search_primitive::<T>(prim.as_slice::<T>(), needle)
+            scan_primitive::<T>(prim.as_slice::<T>(), needle)
         })));
     }
     if let Some(vbv) = values.as_opt::<VarBinView>() {
-        let needle_bytes: Vec<u8> = match scalar.dtype() {
+        let needle: &[u8] = match scalar.dtype() {
             crate::dtype::DType::Utf8(_) => {
-                let s: Option<String> = scalar.try_into().ok();
-                let Some(s) = s else { return Ok(None) };
-                s.into_bytes()
+                let Some(s) = scalar.as_utf8_opt().and_then(|v| v.value()) else {
+                    return Ok(None);
+                };
+                s.as_bytes()
             }
             crate::dtype::DType::Binary(_) => {
-                let b: Option<Vec<u8>> = scalar.try_into().ok();
-                let Some(b) = b else { return Ok(None) };
-                b
+                let Some(b) = scalar.as_binary_opt().and_then(|v| v.value()) else {
+                    return Ok(None);
+                };
+                b.as_slice()
             }
             _ => return Ok(None),
         };
-        // Materialize the dict's values once as Vec<Option<&[u8]>> — dict size is bounded
-        // by u16::MAX so this is cheap and avoids repeated view resolution per probe.
-        let resolved: Vec<Option<Vec<u8>>> = vbv
+        let bounds = vbv
             .into_owned()
-            .with_iterator(|it: &mut dyn Iterator<Item = Option<&[u8]>>| {
-                it.map(|opt| opt.map(|b| b.to_vec())).collect()
-            });
-        return Ok(Some(typed_search_bytes(&resolved, &needle_bytes)));
+            .with_iterator(|it: &mut dyn Iterator<Item = Option<&[u8]>>| scan_bytes(it, needle));
+        return Ok(Some(bounds));
     }
     Ok(None)
 }
 
-fn typed_search_primitive<T: crate::dtype::NativePType>(
-    slice: &[T],
-    needle: T,
-) -> (SearchResult, SearchResult) {
+fn scan_primitive<T: crate::dtype::NativePType>(slice: &[T], needle: T) -> SortedBounds {
     use std::cmp::Ordering::*;
-    let left = match slice.binary_search_by(|probe| match probe.total_compare(needle) {
-        Equal => Greater,
-        other => other,
-    }) {
-        Ok(_) => unreachable!("custom comparator never returns Equal"),
-        Err(i) => {
-            // i is the first index where probe >= needle.
-            if i < slice.len() && slice[i].total_compare(needle) == Equal {
-                SearchResult::Found(i)
-            } else {
-                SearchResult::NotFound(i)
+    let mut left: Option<usize> = None;
+    let mut right: Option<usize> = None;
+    let mut found: Option<usize> = None;
+    for (i, &v) in slice.iter().enumerate() {
+        match v.total_compare(needle) {
+            Less => {} // continue
+            Equal => {
+                if left.is_none() {
+                    left = Some(i);
+                    found = Some(i);
+                }
+            }
+            Greater => {
+                if left.is_none() {
+                    left = Some(i);
+                }
+                right = Some(i);
+                break;
             }
         }
-    };
-    let right = match slice.binary_search_by(|probe| match probe.total_compare(needle) {
-        Equal => Less,
-        other => other,
-    }) {
-        Ok(_) => unreachable!("custom comparator never returns Equal"),
-        Err(i) => {
-            // i is the first index where probe > needle.
-            if i > 0 && slice[i - 1].total_compare(needle) == Equal {
-                SearchResult::Found(i)
-            } else {
-                SearchResult::NotFound(i)
-            }
-        }
-    };
-    (left, right)
+    }
+    SortedBounds {
+        left: left.unwrap_or(slice.len()),
+        right: right.unwrap_or(slice.len()),
+        found,
+    }
 }
 
-fn typed_search_bytes(
-    resolved: &[Option<Vec<u8>>],
+fn scan_bytes<'a>(
+    it: &mut dyn Iterator<Item = Option<&'a [u8]>>,
     needle: &[u8],
-) -> (SearchResult, SearchResult) {
-    // Convention: nulls sort first, so for any non-null needle, the null prefix is less.
-    let cmp = |probe: &Option<Vec<u8>>| -> std::cmp::Ordering {
-        match probe {
-            None => std::cmp::Ordering::Less,
-            Some(v) => v.as_slice().cmp(needle),
-        }
-    };
-    let left = match resolved.binary_search_by(|probe| match cmp(probe) {
-        std::cmp::Ordering::Equal => std::cmp::Ordering::Greater,
-        other => other,
-    }) {
-        Ok(_) => unreachable!("custom comparator never returns Equal"),
-        Err(i) => {
-            if i < resolved.len() && cmp(&resolved[i]) == std::cmp::Ordering::Equal {
-                SearchResult::Found(i)
-            } else {
-                SearchResult::NotFound(i)
+) -> SortedBounds {
+    use std::cmp::Ordering::*;
+    let mut left: Option<usize> = None;
+    let mut right: Option<usize> = None;
+    let mut found: Option<usize> = None;
+    let mut len = 0usize;
+    for (i, opt) in it.enumerate() {
+        len = i + 1;
+        let cmp = match opt {
+            None => Less, // nulls sort first; we early-rejected nullable values above, but be safe
+            Some(b) => b.cmp(needle),
+        };
+        match cmp {
+            Less => {}
+            Equal => {
+                if left.is_none() {
+                    left = Some(i);
+                    found = Some(i);
+                }
+            }
+            Greater => {
+                if left.is_none() {
+                    left = Some(i);
+                }
+                right = Some(i);
+                break;
             }
         }
-    };
-    let right = match resolved.binary_search_by(|probe| match cmp(probe) {
-        std::cmp::Ordering::Equal => std::cmp::Ordering::Less,
-        other => other,
-    }) {
-        Ok(_) => unreachable!("custom comparator never returns Equal"),
-        Err(i) => {
-            if i > 0 && cmp(&resolved[i - 1]) == std::cmp::Ordering::Equal {
-                SearchResult::Found(i)
-            } else {
-                SearchResult::NotFound(i)
-            }
-        }
-    };
-    (left, right)
+    }
+    // Drain the iterator length if we early-exited so callers don't get a misleading slice.
+    SortedBounds {
+        left: left.unwrap_or(len),
+        right: right.unwrap_or(len),
+        found,
+    }
 }
 
 #[cfg(test)]
@@ -371,7 +346,9 @@ mod tests {
 
     fn cmp(dict: ArrayRef, scalar: ArrayRef, op: Operator) -> VortexResult<ArrayRef> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        dict.binary(scalar, op)?.execute::<Canonical>(&mut ctx).map(Into::into)
+        dict.binary(scalar, op)?
+            .execute::<Canonical>(&mut ctx)
+            .map(Into::into)
     }
 
     #[test]
@@ -380,7 +357,10 @@ mod tests {
         let dict = dict_encode_sorted(&arr)?.into_array();
         let scalar = ConstantArray::new(2i32, 6).into_array();
         let r = cmp(dict, scalar, Operator::Eq)?;
-        assert_arrays_eq!(r, BoolArray::from_iter([false, false, true, false, false, true]));
+        assert_arrays_eq!(
+            r,
+            BoolArray::from_iter([false, false, true, false, false, true])
+        );
         Ok(())
     }
 
@@ -400,7 +380,10 @@ mod tests {
         let dict = dict_encode_sorted(&arr)?.into_array();
         let scalar = ConstantArray::new(3i32, 6).into_array();
         let r = cmp(dict, scalar, Operator::Lt)?;
-        assert_arrays_eq!(r, BoolArray::from_iter([false, true, true, true, false, true]));
+        assert_arrays_eq!(
+            r,
+            BoolArray::from_iter([false, true, true, true, false, true])
+        );
         Ok(())
     }
 
@@ -410,7 +393,10 @@ mod tests {
         let dict = dict_encode_sorted(&arr)?.into_array();
         let scalar = ConstantArray::new(2i32, 6).into_array();
         let r = cmp(dict, scalar, Operator::Gte)?;
-        assert_arrays_eq!(r, BoolArray::from_iter([true, false, true, false, true, true]));
+        assert_arrays_eq!(
+            r,
+            BoolArray::from_iter([true, false, true, false, true, true])
+        );
         Ok(())
     }
 
@@ -420,7 +406,10 @@ mod tests {
         let dict = dict_encode_sorted(&arr)?.into_array();
         let scalar = ConstantArray::new(2i32, 6).into_array();
         let r = cmp(dict, scalar, Operator::Lte)?;
-        assert_arrays_eq!(r, BoolArray::from_iter([false, true, true, true, false, true]));
+        assert_arrays_eq!(
+            r,
+            BoolArray::from_iter([false, true, true, true, false, true])
+        );
         Ok(())
     }
 
@@ -430,14 +419,23 @@ mod tests {
         let dict = dict_encode_sorted(&arr)?.into_array();
         let scalar = ConstantArray::new(2i32, 6).into_array();
         let r = cmp(dict, scalar, Operator::Gt)?;
-        assert_arrays_eq!(r, BoolArray::from_iter([true, false, false, false, true, false]));
+        assert_arrays_eq!(
+            r,
+            BoolArray::from_iter([true, false, false, false, true, false])
+        );
         Ok(())
     }
 
     #[test]
     fn sorted_dict_eq_string() -> VortexResult<()> {
         let arr = VarBinArray::from_iter(
-            [Some("zeta"), Some("alpha"), Some("mu"), Some("alpha"), Some("zeta")],
+            [
+                Some("zeta"),
+                Some("alpha"),
+                Some("mu"),
+                Some("alpha"),
+                Some("zeta"),
+            ],
             DType::Utf8(Nullability::NonNullable),
         )
         .into_array();
@@ -451,7 +449,13 @@ mod tests {
     #[test]
     fn sorted_dict_gt_string() -> VortexResult<()> {
         let arr = VarBinArray::from_iter(
-            [Some("zeta"), Some("alpha"), Some("mu"), Some("alpha"), Some("zeta")],
+            [
+                Some("zeta"),
+                Some("alpha"),
+                Some("mu"),
+                Some("alpha"),
+                Some("zeta"),
+            ],
             DType::Utf8(Nullability::NonNullable),
         )
         .into_array();
