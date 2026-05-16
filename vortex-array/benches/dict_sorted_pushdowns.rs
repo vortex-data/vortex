@@ -158,6 +158,58 @@ fn str_like_middle_plain(bencher: Bencher) { run_like(bencher, false, "%abc%"); 
 fn str_like_middle_sorted(bencher: Bencher) { run_like(bencher, true, "%abc%"); }
 
 // ---------------------------------------------------------------------------
+// lt without bool materialisation.
+//
+// What the dict path costs (22 µs at 100K, 1024) goes mostly to scanning the
+// codes with a SIMD compare and writing the bool buffer. If the column itself
+// is sorted (codes increase monotonically along the row axis), we can replace
+// the per-row compare with a single binary search and emit a contiguous
+// Mask::from_slices — no per-row materialisation at all.
+//
+//   lt_sorted_dict        : binary-search values for `k`, then `codes < k`
+//                           (current sorted-dict pushdown — has bool alloc)
+//   lt_sorted_column_range: binary-search the sorted column for `needle`, emit
+//                           Mask::from_slices(N, [(0, k)])
+//                           (what we'd do if the column were truly sorted)
+//   lt_sorted_column_alltrue: needle past max -> Mask::AllTrue (boundary case)
+// ---------------------------------------------------------------------------
+
+// Borrow the slice (avoid Vec clone/drop in the timed section).
+#[divan::bench]
+fn i64_lt_sorted_column_range(bencher: Bencher) {
+    let arr: Vec<i64> = (0..N as i64).collect();
+    let needle: i64 = (N / 2) as i64;
+    bencher.bench(|| {
+        let k = arr.partition_point(|&v| v < needle);
+        Mask::from_slices(N, vec![(0, k)])
+    });
+}
+
+#[divan::bench]
+fn i64_lt_sorted_column_alltrue(bencher: Bencher) {
+    let arr: Vec<i64> = (0..N as i64).collect();
+    let needle: i64 = (N + 1) as i64;
+    bencher.bench(|| {
+        let k = arr.partition_point(|&v| v < needle);
+        if k == 0 {
+            Mask::AllFalse(N)
+        } else if k == N {
+            Mask::AllTrue(N)
+        } else {
+            Mask::from_slices(N, vec![(0, k)])
+        }
+    });
+}
+
+// Binary search alone (no Mask alloc).
+#[divan::bench]
+fn i64_lt_sorted_column_search_only(bencher: Bencher) {
+    let arr: Vec<i64> = (0..N as i64).collect();
+    let needle: i64 = (N / 2) as i64;
+    bencher.bench(|| arr.partition_point(|&v| v < needle));
+}
+
+// ---------------------------------------------------------------------------
 // min/max aggregate
 // ---------------------------------------------------------------------------
 
