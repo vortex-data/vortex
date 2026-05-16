@@ -210,6 +210,118 @@ fn i64_lt_sorted_column_search_only(bencher: Bencher) {
 }
 
 // ---------------------------------------------------------------------------
+// SIMD compare: pack vs sum vs byte-mask materialisation.
+//
+// All three iterate the same N u16 codes comparing against a scalar. They
+// differ only in what they DO with each bool:
+//   - pack: shift-and-or 8 results into a byte, write to BitBuffer (12.5KB for 100K)
+//   - sum:  cast bool to u64 and accumulate (returns count, 8 bytes)
+//   - byte: write 1 byte (0 or 1) per element to Vec<u8> (100KB for 100K)
+//
+// Each variant operates on the exact same input so the difference is purely
+// the materialisation strategy.
+// ---------------------------------------------------------------------------
+
+fn make_codes(len: usize) -> Vec<u16> {
+    use rand::SeedableRng;
+    use rand::prelude::StdRng;
+    use rand::RngExt;
+    let mut rng = StdRng::seed_from_u64(0);
+    (0..len).map(|_| rng.random_range(0..1024) as u16).collect()
+}
+
+#[divan::bench]
+fn cmp_pack_bits(bencher: Bencher) {
+    let codes = make_codes(N);
+    let needle = 512u16;
+    bencher.bench(|| {
+        // Chunked 8-at-a-time pack: one byte per 8 cmps.
+        let chunks = N / 8;
+        let tail = N % 8;
+        let mut out: Vec<u8> = Vec::with_capacity(chunks + usize::from(tail > 0));
+        let mut i = 0;
+        for _ in 0..chunks {
+            let mut b: u8 = 0;
+            for j in 0..8 {
+                b |= u8::from(codes[i + j] < needle) << j;
+            }
+            out.push(b);
+            i += 8;
+        }
+        if tail > 0 {
+            let mut b: u8 = 0;
+            for j in 0..tail {
+                b |= u8::from(codes[i + j] < needle) << j;
+            }
+            out.push(b);
+        }
+        out
+    });
+}
+
+#[divan::bench]
+fn cmp_sum_count(bencher: Bencher) {
+    let codes = make_codes(N);
+    let needle = 512u16;
+    bencher.bench(|| {
+        let mut count: u64 = 0;
+        for &c in &codes {
+            count += u64::from(c < needle);
+        }
+        count
+    });
+}
+
+// Chunked sum: gives the autovectoriser a fixed-width inner loop.
+#[divan::bench]
+fn cmp_sum_count_chunked(bencher: Bencher) {
+    let codes = make_codes(N);
+    let needle = 512u16;
+    bencher.bench(|| {
+        codes
+            .chunks_exact(64)
+            .map(|c| c.iter().filter(|&&x| x < needle).count() as u64)
+            .sum::<u64>()
+    });
+}
+
+// Iterator-fold variant — sometimes optimises better.
+#[divan::bench]
+fn cmp_sum_count_iter(bencher: Bencher) {
+    let codes = make_codes(N);
+    let needle = 512u16;
+    bencher.bench(|| codes.iter().filter(|&&c| c < needle).count() as u64);
+}
+
+#[divan::bench]
+fn cmp_byte_mask(bencher: Bencher) {
+    let codes = make_codes(N);
+    let needle = 512u16;
+    bencher.bench(|| {
+        let mut out: Vec<u8> = Vec::with_capacity(N);
+        for &c in &codes {
+            out.push(u8::from(c < needle));
+        }
+        out
+    });
+}
+
+// Vec<bool> writes 1 byte per element too but goes through bool's
+// representation rather than u8 directly — to compare with cmp_byte_mask.
+#[divan::bench]
+fn cmp_vec_bool(bencher: Bencher) {
+    let codes = make_codes(N);
+    let needle = 512u16;
+    bencher.bench(|| {
+        let mut out: Vec<bool> = Vec::with_capacity(N);
+        for &c in &codes {
+            out.push(c < needle);
+        }
+        out
+    });
+}
+
+// ---------------------------------------------------------------------------
 // min/max aggregate
 // ---------------------------------------------------------------------------
 
