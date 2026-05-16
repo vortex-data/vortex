@@ -106,6 +106,10 @@ name = "search_sorted"
 harness = false
 
 [[bench]]
+name = "point_fn_structural"
+harness = false
+
+[[bench]]
 name = "scalar_subtract"
 harness = false
 

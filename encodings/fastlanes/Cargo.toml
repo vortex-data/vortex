@@ -59,3 +59,7 @@ required-features = ["_test-harness"]
 name = "bit_transpose"
 harness = false
 required-features = ["_test-harness"]
+
+[[bench]]
+name = "point_fn_for"
+harness = false
