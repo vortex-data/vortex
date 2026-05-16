@@ -57,6 +57,14 @@ impl<'a> OrdRows<'a> {
     }
 }
 
+// A prefix-shortcut comparator using the BinaryView 4-byte header was
+// tried (see git history) and consistently lost to plain slice memcmp on
+// 64-256 byte keys — both with constant and varying prefixes. The extra
+// is_inlined branches and double dispatch cost more than the buffer
+// dereferences they save, and slice::cmp on u8 already calls SIMD memcmp.
+// The win for shared-prefix workloads comes from structural elision
+// (merge_inner_join_with_prefix), not from per-row prefix shortcuts.
+
 /// Inner sorted merge join over two pre-sorted ord-byte sides.
 ///
 /// Returns `(left_idx, right_idx)` pairs for rows whose ord-bytes compare
@@ -269,7 +277,7 @@ mod tests {
         (views, vec![ByteBuffer::copy_from(&data)])
     }
 
-    /// Run both merge variants and assert they agree.
+    /// Run all merge variants and assert they agree.
     fn join_both(left: &[&[u8]], right: &[&[u8]]) -> Vec<(u32, u32)> {
         let (lv, lb) = views_from(left);
         let (rv, rb) = views_from(right);
@@ -432,39 +440,149 @@ mod tests {
         assert_eq!(o1, o3, "memcmp and prefix disagree");
     }
 
-    /// Sweep the shared-prefix length to find OVC's crossover point.
+    /// Sweep wide keys (>= 64 B) and compare three driver variants:
+    /// memcmp, prefix-shortcut memcmp, and structural prefix elision.
     ///
-    /// Run with the same `--ignored --nocapture --release` flags as above.
+    /// Run with `--release --ignored --nocapture`.
     #[test]
     #[ignore = "benchmark, run explicitly"]
     #[allow(clippy::cast_precision_loss, clippy::many_single_char_names)]
-    fn bench_prefix_length_sweep() {
+    fn bench_wide_keys() {
         use std::time::Instant;
 
         const N_PER_SIDE: u64 = 50_000;
         const OVERLAP_START: u64 = 25_000;
         const ITERS: u32 = 20;
-        const PREFIX_LENS: &[usize] = &[8, 32, 128, 512, 2048];
+        // (total key bytes, shared prefix bytes -- suffix = total - prefix - 8)
+        const SHAPES: &[(usize, usize)] = &[
+            (64, 32),
+            (64, 56),
+            (128, 96),
+            (128, 120),
+            (256, 224),
+            (256, 248),
+        ];
 
         println!(
-            "\n== smj prefix-length sweep: {} rows/side, 50% overlap ==",
+            "\n== smj wide-key bench: {} rows/side, 50% overlap, ns/input-row ==",
             N_PER_SIDE,
         );
         println!(
-            "{:<10}  {:>14}  {:>14}  {:>10}",
-            "prefix B", "memcmp ns/row", "ovc ns/row", "ovc/memcmp",
+            "{:<6} {:<6} {:<6} {:>10} {:>10} {:>10}  {:>10} {:>10}",
+            "key B",
+            "prefix",
+            "suffix",
+            "memcmp",
+            "fast",
+            "elide",
+            "fast/mc",
+            "elide/mc",
         );
 
-        for &prefix_len in PREFIX_LENS {
-            let prefix = vec![0xCC; prefix_len];
-            let mk = |k3: u64| {
-                let mut v = Vec::with_capacity(prefix_len + 8);
+        for &(key_len, prefix_len) in SHAPES {
+            assert!(prefix_len + 8 <= key_len);
+            let prefix = vec![0xDD_u8; prefix_len];
+            let pad_len = key_len - prefix_len - 8;
+            let pad = vec![0x77_u8; pad_len];
+
+            let mk_full = |k3: u64| {
+                let mut v = Vec::with_capacity(key_len);
                 v.extend_from_slice(&prefix);
+                v.extend_from_slice(&pad);
                 v.extend_from_slice(&k3.to_be_bytes());
                 v
             };
+            let mk_suffix = |k3: u64| {
+                let mut v = Vec::with_capacity(pad_len + 8);
+                v.extend_from_slice(&pad);
+                v.extend_from_slice(&k3.to_be_bytes());
+                v
+            };
+
+            let left_full: Vec<Vec<u8>> = (0..N_PER_SIDE).map(mk_full).collect();
+            let right_full: Vec<Vec<u8>> = (OVERLAP_START..OVERLAP_START + N_PER_SIDE)
+                .map(mk_full)
+                .collect();
+            let left_suf: Vec<Vec<u8>> = (0..N_PER_SIDE).map(mk_suffix).collect();
+            let right_suf: Vec<Vec<u8>> = (OVERLAP_START..OVERLAP_START + N_PER_SIDE)
+                .map(mk_suffix)
+                .collect();
+
+            fn to_refs(v: &[Vec<u8>]) -> Vec<&[u8]> {
+                v.iter().map(|r| r.as_slice()).collect()
+            }
+            let (lvf, lbf) = views_from(&to_refs(&left_full));
+            let (rvf, rbf) = views_from(&to_refs(&right_full));
+            let (lvs, lbs) = views_from(&to_refs(&left_suf));
+            let (rvs, rbs) = views_from(&to_refs(&right_suf));
+            let l_full = OrdRows::new(&lvf, &lbf);
+            let r_full = OrdRows::new(&rvf, &rbf);
+            let l_suf = OrdRows::new(&lvs, &lbs);
+            let r_suf = OrdRows::new(&rvs, &rbs);
+
+            let measure = |mut f: Box<dyn FnMut() -> Vec<(u32, u32)>>| -> (f64, Vec<(u32, u32)>) {
+                drop(f());
+                let t = Instant::now();
+                let mut last = Vec::new();
+                for _ in 0..ITERS {
+                    last = f();
+                }
+                let ns = t.elapsed().as_nanos() as f64
+                    / (f64::from(ITERS) * (N_PER_SIDE * 2) as f64);
+                (ns, last)
+            };
+
+            let (memcmp_ns, out_m) = measure(Box::new(|| merge_inner_join(&l_full, &r_full)));
+            let (elide_ns, out_e) = measure(Box::new(|| {
+                merge_inner_join_with_prefix(&prefix, &l_suf, &prefix, &r_suf)
+            }));
+
+            assert_eq!(out_m, out_e);
+
+            println!(
+                "{:<6} {:<6} {:<6} {:>10.2} {:>10.2}  {:>9.2}x  pairs={}",
+                key_len,
+                prefix_len,
+                pad_len + 8,
+                memcmp_ns,
+                elide_ns,
+                elide_ns / memcmp_ns,
+                out_m.len(),
+            );
+        }
+    }
+
+    /// Wide keys where the leading bytes *vary* between rows. Sanity-check
+    /// that plain memcmp scales reasonably with key width when the prefix
+    /// shortcut would have nothing to elide.
+    #[test]
+    #[ignore = "benchmark, run explicitly"]
+    #[allow(clippy::cast_precision_loss, clippy::many_single_char_names)]
+    fn bench_wide_keys_varying_prefix() {
+        use std::time::Instant;
+
+        const N_PER_SIDE: u64 = 50_000;
+        const ITERS: u32 = 20;
+        const KEY_LENS: &[usize] = &[64, 128, 256];
+
+        println!("\n== smj wide-key varying-prefix bench: {N_PER_SIDE} rows/side ==");
+        println!("{:<6} {:>10}", "key B", "memcmp ns/row");
+
+        for &key_len in KEY_LENS {
+            // Build rows whose first 8 bytes (k1, BE u64) are the row index,
+            // i.e. every row has a unique leading u64. The remaining bytes
+            // are a fixed pad — they only get read on prefix match.
+            let pad = vec![0xEE_u8; key_len - 8];
+            let mk = |k1: u64| {
+                let mut v = Vec::with_capacity(key_len);
+                v.extend_from_slice(&k1.to_be_bytes());
+                v.extend_from_slice(&pad);
+                v
+            };
+            // 50% overlap on k1 so we get joins to drive the equal path too.
             let left: Vec<Vec<u8>> = (0..N_PER_SIDE).map(mk).collect();
-            let right: Vec<Vec<u8>> = (OVERLAP_START..OVERLAP_START + N_PER_SIDE).map(mk).collect();
+            let right: Vec<Vec<u8>> =
+                (N_PER_SIDE / 2..N_PER_SIDE / 2 + N_PER_SIDE).map(mk).collect();
             let l_refs: Vec<&[u8]> = left.iter().map(|v| v.as_slice()).collect();
             let r_refs: Vec<&[u8]> = right.iter().map(|v| v.as_slice()).collect();
             let (lv, lb) = views_from(&l_refs);
@@ -472,32 +590,24 @@ mod tests {
             let l = OrdRows::new(&lv, &lb);
             let r = OrdRows::new(&rv, &rb);
 
-            // Warm
-            drop(merge_inner_join(&l, &r));
-            drop(merge_inner_join_ovc(&l, &r));
-
-            let t = Instant::now();
-            let mut last = Vec::new();
-            for _ in 0..ITERS {
-                last = merge_inner_join(&l, &r);
-            }
-            let memcmp_ns =
-                t.elapsed().as_nanos() as f64 / (f64::from(ITERS) * (N_PER_SIDE * 2) as f64);
-
-            let t = Instant::now();
-            for _ in 0..ITERS {
-                last = merge_inner_join_ovc(&l, &r);
-            }
-            let ovc_ns =
-                t.elapsed().as_nanos() as f64 / (f64::from(ITERS) * (N_PER_SIDE * 2) as f64);
+            let measure = |mut f: Box<dyn FnMut() -> Vec<(u32, u32)>>| -> (f64, Vec<(u32, u32)>) {
+                drop(f());
+                let t = Instant::now();
+                let mut last = Vec::new();
+                for _ in 0..ITERS {
+                    last = f();
+                }
+                let ns = t.elapsed().as_nanos() as f64
+                    / (f64::from(ITERS) * (N_PER_SIDE * 2) as f64);
+                (ns, last)
+            };
+            let (memcmp_ns, out_m) = measure(Box::new(|| merge_inner_join(&l, &r)));
 
             println!(
-                "{:<10}  {:>14.2}  {:>14.2}  {:>9.2}x   pairs={}",
-                prefix_len,
+                "{:<6} {:>10.2}  pairs={}",
+                key_len,
                 memcmp_ns,
-                ovc_ns,
-                ovc_ns / memcmp_ns,
-                last.len(),
+                out_m.len(),
             );
         }
     }
