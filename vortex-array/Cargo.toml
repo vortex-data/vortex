@@ -164,6 +164,11 @@ harness = false
 required-features = ["_test-harness"]
 
 [[bench]]
+name = "dict_sorted_predicates"
+harness = false
+required-features = ["_test-harness"]
+
+[[bench]]
 name = "dict_mask"
 harness = false
 
