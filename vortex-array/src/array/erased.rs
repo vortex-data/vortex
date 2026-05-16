@@ -306,6 +306,25 @@ impl ArrayRef {
         Ok(scalar)
     }
 
+    /// Point-fn-aware `search_sorted`: routes through the encoding's
+    /// `OperationsVTable::point_search_sorted` (default: generic binary search via
+    /// `d.scalar_at`).
+    ///
+    /// Precondition: the array's logical values must be sorted. The result
+    /// distinguishes `Found(i)` (an equal value exists at `i`) from `NotFound(i)`
+    /// (no equal value; `i` is the position where one would be inserted to keep
+    /// the array sorted).
+    pub fn point_execute_search_sorted(
+        &self,
+        value: &Scalar,
+        side: crate::search_sorted::SearchSortedSide,
+        d: &mut dyn crate::point_fn::PointDispatch,
+    ) -> VortexResult<crate::search_sorted::SearchResult> {
+        self.0
+            .data
+            .point_execute_search_sorted(self, value, side, d)
+    }
+
     /// Open a caching [`PointSession`](crate::point_fn::PointSession) for this array.
     ///
     /// Hold the returned session across multiple point-fn calls (`scalar_at`,

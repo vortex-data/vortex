@@ -8,7 +8,10 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::point_fn::PointDispatch;
+use crate::point_fn::algorithms::generic_search_sorted;
 use crate::scalar::Scalar;
+use crate::search_sorted::SearchResult;
+use crate::search_sorted::SearchSortedSide;
 use crate::vtable::NotSupported;
 
 pub trait OperationsVTable<V: VTable> {
@@ -41,6 +44,30 @@ pub trait OperationsVTable<V: VTable> {
         d: &mut dyn PointDispatch,
     ) -> VortexResult<Scalar> {
         Self::scalar_at(array, index, d.ctx())
+    }
+
+    /// Point-function-aware `search_sorted` override.
+    ///
+    /// Encodings can override this to push search into a child array directly:
+    ///  - **Dict** (sorted dict + sorted codes): search the small `dict` then
+    ///    locate via `codes`. `O(log dict_size + log n)` vs `O(log n × scalar_at)`.
+    ///  - **RunEnd**: search `values` for the target then read `ends`.
+    ///    `O(log num_runs)` vs `O(log n × log num_runs)`.
+    ///  - **Chunked**: zone-map prune to a single chunk, descend.
+    ///  - **FoR**: subtract reference once, push into encoded.
+    ///  - **Constant**/**Sequence**: closed-form, `O(1)`.
+    ///  - **Slice**/**Extension**: rewrite and recurse through `d.search_sorted(child, …)`.
+    ///
+    /// The default implementation runs generic binary search using `d.scalar_at`,
+    /// which is optimal for encodings without a structural shortcut. **Precondition**
+    /// (preserved across overrides): the array's logical values must be sorted.
+    fn point_search_sorted(
+        array: ArrayView<'_, V>,
+        value: &Scalar,
+        side: SearchSortedSide,
+        d: &mut dyn PointDispatch,
+    ) -> VortexResult<SearchResult> {
+        generic_search_sorted(array.as_ref(), value, side, d)
     }
 }
 

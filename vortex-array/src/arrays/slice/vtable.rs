@@ -177,6 +177,41 @@ impl OperationsVTable<Slice> for Slice {
         // levels (slice-level and child-level).
         d.scalar_at(array.child(), array.range.start + index)
     }
+
+    /// Search the child once, then clamp the result into the slice's local
+    /// coordinate space. The child must be sorted for this to be meaningful;
+    /// that precondition is inherited from the slice array.
+    fn point_search_sorted(
+        array: ArrayView<'_, Slice>,
+        value: &Scalar,
+        side: crate::search_sorted::SearchSortedSide,
+        d: &mut dyn crate::point_fn::PointDispatch,
+    ) -> VortexResult<crate::search_sorted::SearchResult> {
+        use crate::search_sorted::SearchResult;
+        let offset = array.range.start;
+        let stop = array.range.end;
+        let len = stop - offset;
+
+        let child_result = d.search_sorted(array.child(), value, side)?;
+        let raw = child_result.to_index();
+
+        // Map child's position into the slice's [0, len] range. A child position
+        // inside [offset, stop) maps to (raw - offset); outside that range, the
+        // value lies before/after the slice entirely.
+        Ok(match child_result {
+            SearchResult::Found(i) if i >= offset && i < stop => SearchResult::Found(i - offset),
+            SearchResult::Found(_) | SearchResult::NotFound(_) => {
+                let local = if raw <= offset {
+                    0
+                } else if raw >= stop {
+                    len
+                } else {
+                    raw - offset
+                };
+                SearchResult::NotFound(local)
+            }
+        })
+    }
 }
 
 impl ValidityVTable<Slice> for Slice {

@@ -239,6 +239,63 @@ fn slice_search_sorted_recurses_correctly() -> VortexResult<()> {
 }
 
 #[test]
+fn constant_search_sorted_o1() -> VortexResult<()> {
+    use crate::arrays::ConstantArray;
+
+    // Constant array of 1000 copies of 42.
+    let arr = ConstantArray::new(Scalar::from(42i32), 1000).into_array();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut rt = PointRuntime::new(&mut ctx);
+
+    // Found semantics — Left → 0, Right → len.
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(42i32), SearchSortedSide::Left)?,
+        SearchResult::Found(0),
+    );
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(42i32), SearchSortedSide::Right)?,
+        SearchResult::Found(1000),
+    );
+    // Less than constant: goes before everything.
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(0i32), SearchSortedSide::Left)?,
+        SearchResult::NotFound(0),
+    );
+    // Greater than constant: goes at the end.
+    assert_eq!(
+        rt.search_sorted(&arr, &Scalar::from(100i32), SearchSortedSide::Left)?,
+        SearchResult::NotFound(1000),
+    );
+    Ok(())
+}
+
+#[test]
+fn slice_search_sorted_clamps_to_slice_bounds() -> VortexResult<()> {
+    use crate::arrays::SliceArray;
+
+    let inner = sorted_primitive();
+    // inner: [0, 1, 2, 2, 2, 3, 5, 5, 8, 13, 21, 34, 55, 89, 144]
+    // slice covers indices 5..12 → [3, 5, 5, 8, 13, 21, 34]
+    let slice = SliceArray::new(inner, 5..12).into_array();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut rt = PointRuntime::new(&mut ctx);
+
+    // Value 1 is in the inner array but before the slice — NotFound(0).
+    let r = rt.search_sorted(&slice, &Scalar::from(1i32), SearchSortedSide::Left)?;
+    assert_eq!(r, SearchResult::NotFound(0));
+
+    // Value 144 is the last in the inner array, after the slice — NotFound(len).
+    let r = rt.search_sorted(&slice, &Scalar::from(144i32), SearchSortedSide::Left)?;
+    assert_eq!(r, SearchResult::NotFound(7));
+
+    // Value 8 is in the slice at local index 3.
+    let r = rt.search_sorted(&slice, &Scalar::from(8i32), SearchSortedSide::Left)?;
+    assert_eq!(r, SearchResult::Found(3));
+
+    Ok(())
+}
+
+#[test]
 fn session_cached_block_evicts_oldest() -> VortexResult<()> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mut session = PointSession::with_capacities(&mut ctx, 8, 2);

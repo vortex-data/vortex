@@ -25,13 +25,13 @@ pub(crate) fn dispatch_scalar_at<D: PointDispatch>(
     arr.point_execute_scalar(idx, d)
 }
 
-/// Dispatch `search_sorted`. No per-encoding `SearchSortedKernel` override exists
-/// yet (Phase 2), so this is unconditionally `generic_search_sorted`.
-pub(crate) fn dispatch_search_sorted<D: PointDispatch + ?Sized>(
+/// Dispatch `search_sorted` through the encoding's `point_search_sorted` vtable
+/// hook (default = generic binary search via `d.scalar_at`).
+pub(crate) fn dispatch_search_sorted<D: PointDispatch>(
     arr: &ArrayRef,
     value: &Scalar,
     side: SearchSortedSide,
     d: &mut D,
 ) -> VortexResult<SearchResult> {
-    super::algorithms::generic_search_sorted(arr, value, side, d)
+    arr.point_execute_search_sorted(value, side, d)
 }

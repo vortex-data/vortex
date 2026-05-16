@@ -133,9 +133,7 @@ fn slice_of_pco_legacy_search_sorted(bencher: Bencher, &len: &usize) {
     let (arr, target) = build_slice_of_pco(len);
     bencher
         .with_inputs(|| (&arr, &target))
-        .bench_refs(|(arr, target)| {
-            arr.search_sorted(target, SearchSortedSide::Left).unwrap()
-        });
+        .bench_refs(|(arr, target)| arr.search_sorted(target, SearchSortedSide::Left).unwrap());
 }
 
 #[divan::bench(args = SIZES)]

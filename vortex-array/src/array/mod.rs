@@ -208,6 +208,20 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
         index: usize,
         d: &mut dyn crate::point_fn::PointDispatch,
     ) -> VortexResult<Scalar>;
+
+    /// Point-fn-aware search-sorted, dispatched through the encoding vtable.
+    ///
+    /// Encodings can override [`crate::OperationsVTable::point_search_sorted`] to
+    /// push search into children directly (Dict, RunEnd, Chunked, FoR, Constant,
+    /// Sequence, Slice, Extension). The default delegates to the generic binary
+    /// search via `d.scalar_at`.
+    fn point_execute_search_sorted(
+        &self,
+        this: &ArrayRef,
+        value: &Scalar,
+        side: crate::search_sorted::SearchSortedSide,
+        d: &mut dyn crate::point_fn::PointDispatch,
+    ) -> VortexResult<crate::search_sorted::SearchResult>;
 }
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].
@@ -531,6 +545,17 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
     ) -> VortexResult<Scalar> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
         <V::OperationsVTable as OperationsVTable<V>>::point_scalar_at(view, index, d)
+    }
+
+    fn point_execute_search_sorted(
+        &self,
+        this: &ArrayRef,
+        value: &Scalar,
+        side: crate::search_sorted::SearchSortedSide,
+        d: &mut dyn crate::point_fn::PointDispatch,
+    ) -> VortexResult<crate::search_sorted::SearchResult> {
+        let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        <V::OperationsVTable as OperationsVTable<V>>::point_search_sorted(view, value, side, d)
     }
 }
 
