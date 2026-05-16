@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Registry for per-encoding row-encode fast paths from downstream crates.
+//!
+//! Encodings that live outside `vortex-array` (such as `RunEnd` in `encodings/runend`) cannot
+//! be directly downcast from inside the variadic [`RowSize`] / [`RowEncode`] dispatch loops.
+//! Instead, they submit a [`RowEncodeRegistration`] via the `inventory` crate, and the
+//! dispatch loop looks them up by [`ArrayId`].
+//!
+//! [`RowSize`]: super::size::RowSize
+//! [`RowEncode`]: super::encode::RowEncode
+
+use std::sync::OnceLock;
+
+use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_map::HashMap;
+
+use crate::ArrayRef;
+use crate::ExecutionCtx;
+use crate::array::ArrayId;
+use crate::row::options::SortField;
+
+/// Function pointer signature for an encoding's per-row size contribution.
+pub type DynSizeFn =
+    fn(&ArrayRef, SortField, &mut [u32], &mut ExecutionCtx) -> VortexResult<Option<()>>;
+
+/// Function pointer signature for an encoding's per-row byte encoding.
+pub type DynEncodeFn = fn(
+    &ArrayRef,
+    SortField,
+    &[u32],
+    &mut [u32],
+    &mut [u8],
+    &mut ExecutionCtx,
+) -> VortexResult<Option<()>>;
+
+/// A registration submitted by an encoding crate to plug into the row encoder.
+///
+/// Because [`ArrayId`] requires runtime string interning, the encoding id is passed as a
+/// function pointer that is called once at registry initialization time.
+pub struct RowEncodeRegistration {
+    /// Returns the [`ArrayId`] of the encoding this registration applies to.
+    pub id: fn() -> ArrayId,
+    /// Per-row size contribution function.
+    pub size: DynSizeFn,
+    /// Per-row encoding function.
+    pub encode: DynEncodeFn,
+}
+
+inventory::collect!(RowEncodeRegistration);
+
+/// Look up a (size, encode) pair for the given encoding id.
+pub fn lookup(id: &ArrayId) -> Option<(DynSizeFn, DynEncodeFn)> {
+    static MAP: OnceLock<HashMap<ArrayId, (DynSizeFn, DynEncodeFn)>> = OnceLock::new();
+    let map = MAP.get_or_init(|| {
+        inventory::iter::<RowEncodeRegistration>
+            .into_iter()
+            .map(|r| ((r.id)(), (r.size, r.encode)))
+            .collect()
+    });
+    map.get(id).copied()
+}

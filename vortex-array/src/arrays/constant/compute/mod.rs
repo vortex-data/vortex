@@ -6,6 +6,7 @@ mod cast;
 mod fill_null;
 mod filter;
 mod not;
+pub(crate) mod row_encode;
 pub(crate) mod rules;
 mod slice;
 mod take;
