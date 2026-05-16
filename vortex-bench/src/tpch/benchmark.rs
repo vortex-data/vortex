@@ -13,6 +13,8 @@ use crate::BenchmarkDataset;
 use crate::Format;
 use crate::IdempotentPath;
 use crate::TableSpec;
+use crate::tpch::EXPECTED_ROW_COUNTS_SF0_01;
+use crate::tpch::EXPECTED_ROW_COUNTS_SF0_1;
 use crate::tpch::EXPECTED_ROW_COUNTS_SF1;
 use crate::tpch::EXPECTED_ROW_COUNTS_SF10;
 use crate::tpch::schema::CUSTOMER;
@@ -99,6 +101,8 @@ impl Benchmark for TpcHBenchmark {
 
     fn expected_row_counts(&self) -> Option<Vec<usize>> {
         match self.scale_factor.as_str() {
+            "0.01" => Some(EXPECTED_ROW_COUNTS_SF0_01.to_vec()),
+            "0.1" => Some(EXPECTED_ROW_COUNTS_SF0_1.to_vec()),
             "1.0" => Some(EXPECTED_ROW_COUNTS_SF1.to_vec()),
             "10.0" => Some(EXPECTED_ROW_COUNTS_SF10.to_vec()),
             _ => None, // Unsupported scale factor
