@@ -158,23 +158,29 @@ fn emit_gte(
     code_cmp(codes, bound, Operator::Gte, ctx).map(Some)
 }
 
-/// Run a code-domain compare against an integer threshold. The threshold is wrapped in a
-/// `ConstantArray` (O(1) construction) so Arrow's vectorized primitive kernel can
-/// scalar-broadcast.
+/// Run a code-domain compare against an integer threshold. Calls `execute_compare`
+/// directly, skipping the ScalarFnArray/executor scaffolding so the call drops straight
+/// into Arrow's vectorized primitive cmp kernel.
 pub(crate) fn code_cmp(
     codes: &ArrayRef,
     threshold: usize,
     op: Operator,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
+    use crate::scalar_fn::fns::binary::execute_compare;
     let threshold_scalar = code_threshold_scalar(codes, threshold)?;
     let len = codes.len();
     let threshold_arr = ConstantArray::new(threshold_scalar, len).into_array();
-    codes
-        .clone()
-        .binary(threshold_arr, op)?
-        .execute::<Canonical>(ctx)
-        .map(Into::into)
+    let compare_op = match op {
+        Operator::Eq => CompareOperator::Eq,
+        Operator::NotEq => CompareOperator::NotEq,
+        Operator::Lt => CompareOperator::Lt,
+        Operator::Lte => CompareOperator::Lte,
+        Operator::Gt => CompareOperator::Gt,
+        Operator::Gte => CompareOperator::Gte,
+        _ => vortex_error::vortex_bail!("code_cmp called with non-comparison op {op:?}"),
+    };
+    execute_compare(codes, &threshold_arr, compare_op, ctx)
 }
 
 /// Build a `Scalar` of the codes' ptype holding `idx`. `idx` is in `0..=dict_len` and
