@@ -94,6 +94,32 @@ fn raw_take_bool_baseline(bencher: Bencher, len: usize) {
         .bench_values(|(b, c, mut ctx)| b.take(c).unwrap().execute::<Mask>(&mut ctx).unwrap());
 }
 
+// Apples-to-apples: same shape the push-down rule produces.
+//   DictArray<codes_u16[N], ScalarFnArray<Binary, [values_i64[1024], const]>>
+// then execute<Mask>. This is the exact path plain dict takes for middle-range cmp.
+#[divan::bench(args = BASELINE_SIZES)]
+fn dict_take_via_pushdown_baseline(bencher: Bencher, len: usize) {
+    use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use rand::SeedableRng;
+    use rand::RngExt;
+    use rand::prelude::StdRng;
+    let mut rng = StdRng::seed_from_u64(0);
+    let values: PrimitiveArray = (0..1024i64).map(|_| rng.random::<i64>()).collect();
+    let codes: PrimitiveArray = (0..len).map(|i| (i % 1024) as u16).collect();
+    let dict = DictArray::try_new(codes.into_array(), values.into_array())
+        .unwrap()
+        .into_array();
+    bencher
+        .with_inputs(|| (dict.clone(), LEGACY_SESSION.create_execution_ctx()))
+        .bench_values(|(d, mut ctx)| {
+            d.binary(ConstantArray::new(0i64, len).into_array(), Operator::Lt)
+                .unwrap()
+                .execute::<Mask>(&mut ctx)
+                .unwrap()
+        });
+}
+
 // ---------------------------------------------------------------------------
 // Primitive (i64, u8, f32): compare with Eq, Lt, Gte; BETWEEN
 // ---------------------------------------------------------------------------
