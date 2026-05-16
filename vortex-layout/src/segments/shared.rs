@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::future::Future;
 use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::TryFutureExt;
+use futures::future;
 use futures::future::BoxFuture;
 use futures::future::WeakShared;
 use vortex_array::buffer::BufferHandle;
@@ -23,6 +25,7 @@ use crate::segments::SegmentSource;
 pub struct SharedSegmentSource<S> {
     inner: S,
     in_flight: DashMap<SegmentId, WeakShared<SharedSegmentFuture>>,
+    completed: Arc<DashMap<SegmentId, SharedVortexResult<BufferHandle>>>,
 }
 
 type SharedSegmentFuture = BoxFuture<'static, SharedVortexResult<BufferHandle>>;
@@ -33,12 +36,17 @@ impl<S: SegmentSource> SharedSegmentSource<S> {
         Self {
             inner,
             in_flight: DashMap::default(),
+            completed: Arc::new(DashMap::default()),
         }
     }
 }
 
 impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
     fn request(&self, id: SegmentId) -> SegmentFuture {
+        if let Some(result) = self.completed.get(&id) {
+            return future::ready(result.clone().map_err(VortexError::from)).boxed();
+        }
+
         loop {
             match self.in_flight.entry(id) {
                 Entry::Occupied(e) => {
@@ -50,7 +58,11 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
                     }
                 }
                 Entry::Vacant(e) => {
-                    let future = self.inner.request(id).map_err(Arc::new).boxed().shared();
+                    let completed = Arc::clone(&self.completed);
+                    let future =
+                        cache_on_success(self.inner.request(id).map_err(Arc::new), id, completed)
+                            .boxed()
+                            .shared();
                     e.insert(
                         future
                             .downgrade()
@@ -61,6 +73,18 @@ impl<S: SegmentSource> SegmentSource for SharedSegmentSource<S> {
             }
         }
     }
+}
+
+async fn cache_on_success(
+    future: impl Future<Output = SharedVortexResult<BufferHandle>>,
+    id: SegmentId,
+    completed: Arc<DashMap<SegmentId, SharedVortexResult<BufferHandle>>>,
+) -> SharedVortexResult<BufferHandle> {
+    let result = future.await;
+    if result.is_ok() {
+        completed.insert(id, result.clone());
+    }
+    result
 }
 
 #[cfg(test)]
@@ -115,6 +139,29 @@ mod tests {
         assert_eq!(result2.unwrap().unwrap_host(), data);
 
         // The inner source should have been called only once
+        assert_eq!(source.request_count.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn test_shared_source_reuses_completed_requests() {
+        let source = CountingSegmentSource::default();
+
+        let data = ByteBuffer::from(vec![1, 2, 3, 4]);
+        let seq_id = SequenceId::root().downgrade();
+        source
+            .segments
+            .write(seq_id, vec![data.clone()])
+            .await
+            .unwrap();
+
+        let shared_source = SharedSegmentSource::new(source.clone());
+        let id = SegmentId::from(0);
+
+        let result1 = shared_source.request(id).await;
+        let result2 = shared_source.request(id).await;
+
+        assert_eq!(result1.unwrap().unwrap_host(), data);
+        assert_eq!(result2.unwrap().unwrap_host(), data);
         assert_eq!(source.request_count.load(Ordering::Relaxed), 1);
     }
 

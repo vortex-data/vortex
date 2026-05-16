@@ -39,10 +39,13 @@ pub type LayoutPlanRef = Arc<dyn LayoutPlan>;
 /// [`LayoutPlan::execute`]; aligning with `partition_stats` minimises
 /// slicing at the leaves but isn't required.
 ///
-/// **Plans are pure descriptions.** No I/O caches live on the plan;
-/// holding a `LayoutPlanRef` should never hold execution state.
-/// Cross-execute sharing arrives via `Let` / `Use` (see
-/// `LAYOUT_PLAN.md` § Tee and CommonSubplanElimination).
+/// **Plans are mostly pure descriptions.** Plan nodes should not hold
+/// decoded arrays or derived execution caches. The current exception
+/// is flat leaf nodes, which pre-register shared segment futures so
+/// the file I/O driver can coalesce all leaves before execution order
+/// starts pulling them. Cross-execute sharing of derived values
+/// arrives via `Let` / `Use` (see `LAYOUT_PLAN.md` § Tee and
+/// CommonSubplanElimination).
 ///
 /// See `LAYOUT_PLAN.md` § Model.
 pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {

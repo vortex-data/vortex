@@ -159,12 +159,14 @@ plan node slices its own data on read — `ChunkedPlan.execute(range)`
 finds intersecting chunks; `StructPlan.execute(range)` delegates the
 range to every child; `FlatPlan.execute(range)` slices the segment.
 
-**Plans are pure descriptions.** No execution caches on the plan —
-holding a plan should never hold I/O state. Cross-execute sharing
-(dict values reused across N codes-partition reads, segment reused
-across sub-range reads of a flat) is **not** carried by the plan; it
-arrives later via explicit sharing nodes (see § Tee / Let-Use). Until
-those land, those reads are honestly redundant.
+**Plans are mostly descriptions.** Plan nodes should not hold decoded
+arrays or derived execution caches. Flat leaves are the current
+exception: they pre-register shared segment futures so the file I/O
+driver sees all candidate segment requests early enough to coalesce
+them, while the future is only polled when execution really needs the
+segment. Cross-execute sharing of derived values (dict values reused
+across N codes-partition reads, materialised masks, etc.) arrives via
+explicit sharing nodes (see § Tee / Let-Use).
 
 ## Row domains and partitioning
 
@@ -735,7 +737,7 @@ consumer warrants the structural representation:
   producer, single consumer, no shared-future plumbing.
 - Patterns 1 and 2 wait for `PushFilterThroughStruct` to land.
 
-Plans remain pure descriptions (see § Model). The `ScanCtx` is a
+Plans remain mostly descriptions (see § Model). The `ScanCtx` is a
 `VortexSession`-style typed key/value map plus the session itself,
 threaded through every `execute` call. It exists today as
 infrastructure; the future `Let` / `Use` registry will be one of its

@@ -5,8 +5,8 @@
 //!
 //! Owns its own segment fetch + decode + expression apply; does not
 //! go through any V1 `LayoutReader`. Holds the `SegmentId`, the
-//! decode context, the `SegmentSource`, and the expression — the
-//! plan is fully lowered V2-native.
+//! decode context, a pre-registered shared segment future, and the
+//! expression — the plan is fully lowered V2-native.
 //!
 //! When [`LayoutPlan::try_pushdown_mask`] is called and a mask
 //! pushes down successfully, this plan node is replaced with a
@@ -22,14 +22,20 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::FutureExt;
+use futures::TryFutureExt;
+use futures::future::BoxFuture;
+use futures::future::Shared;
 use futures::stream;
 use vortex_array::ArrayRef;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::dtype::DType;
 use vortex_array::expr::Expression;
 use vortex_array::serde::SerializedArray;
 use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_buffer::ByteBuffer;
+use vortex_error::SharedVortexResult;
+use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -44,6 +50,8 @@ use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
 use crate::v2::plan::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
+
+pub(crate) type SharedSegmentFuture = Shared<BoxFuture<'static, SharedVortexResult<BufferHandle>>>;
 
 /// Terminal node over one segment. Owns the segment fetch and array
 /// decode; no V1 `LayoutReader` involved.
@@ -60,7 +68,7 @@ pub struct FlatPlan {
     /// present, decode reads only the segment buffers and reconstructs
     /// the array via `SerializedArray::from_flatbuffer_and_segment`.
     array_tree: Option<ByteBuffer>,
-    segment_source: Arc<dyn SegmentSource>,
+    segment_fut: SharedSegmentFuture,
     expr: Expression,
     selection: Selection,
     output_dtype: DType,
@@ -79,13 +87,18 @@ impl FlatPlan {
         selection: Selection,
         output_dtype: DType,
     ) -> Self {
+        let segment_fut = segment_source
+            .request(segment_id)
+            .map_err(Arc::new)
+            .boxed()
+            .shared();
         Self {
             segment_id,
             layout_row_count,
             layout_dtype,
             array_ctx,
             array_tree,
-            segment_source,
+            segment_fut,
             expr,
             selection,
             output_dtype,
@@ -191,13 +204,13 @@ impl LayoutPlan for FlatPlan {
         if !matches!(mask_plan.schema(), DType::Bool(_)) {
             return None;
         }
-        Some(Arc::new(FilteredFlatPlan::new(
+        Some(Arc::new(FilteredFlatPlan::with_segment_future(
             self.segment_id,
             self.layout_row_count,
             self.layout_dtype.clone(),
             self.array_ctx.clone(),
             self.array_tree.clone(),
-            Arc::clone(&self.segment_source),
+            self.segment_fut.clone(),
             self.expr.clone(),
             self.selection.clone(),
             self.output_dtype.clone(),
@@ -227,8 +240,7 @@ impl LayoutPlan for FlatPlan {
         let layout_dtype = self.layout_dtype.clone();
         let array_ctx = self.array_ctx.clone();
         let array_tree = self.array_tree.clone();
-        let segment_source = Arc::clone(&self.segment_source);
-        let segment_id = self.segment_id;
+        let segment_fut = self.segment_fut.clone();
         let layout_row_count = self.layout_row_count;
         let expr = self.expr.clone();
         let session = ctx.session().clone();
@@ -237,8 +249,7 @@ impl LayoutPlan for FlatPlan {
         let inner = stream::once(
             async move {
                 let array = decode_segment(
-                    segment_source,
-                    segment_id,
+                    segment_fut,
                     array_tree,
                     layout_dtype,
                     layout_row_count,
@@ -260,8 +271,7 @@ impl LayoutPlan for FlatPlan {
 /// `ArrayRef` of length `layout_row_count`. Shared between `FlatPlan`
 /// and `FilteredFlatPlan`.
 pub(crate) async fn decode_segment(
-    segment_source: Arc<dyn SegmentSource>,
-    segment_id: SegmentId,
+    segment_fut: SharedSegmentFuture,
     array_tree: Option<ByteBuffer>,
     dtype: DType,
     layout_row_count: u64,
@@ -270,8 +280,7 @@ pub(crate) async fn decode_segment(
 ) -> VortexResult<ArrayRef> {
     let row_count_usize = usize::try_from(layout_row_count)
         .map_err(|_| vortex_err!("FlatPlan: layout row count exceeds usize"))?;
-    let segment_fut = segment_source.request(segment_id);
-    let segment = segment_fut.await?;
+    let segment = segment_fut.await.map_err(VortexError::from)?;
     let parts = if let Some(tree) = array_tree {
         SerializedArray::from_flatbuffer_and_segment(tree, segment)?
     } else {

@@ -302,12 +302,17 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::dtype::DType;
     use vortex_array::expr::root;
+    use vortex_array::scalar_fn::session::ScalarFnSession;
+    use vortex_array::session::ArraySession;
     use vortex_array::stream::ArrayStream as _;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_io::runtime::Handle;
     use vortex_io::runtime::single::block_on;
+    use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
     use vortex_scan::selection::Selection;
+    use vortex_session::VortexSession;
 
     use super::Scan;
     use crate::LayoutRef;
@@ -321,7 +326,17 @@ mod tests {
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialStreamAdapter;
     use crate::sequence::SequentialStreamExt as _;
+    use crate::session::LayoutSession;
     use crate::test::SESSION;
+
+    fn session_with_handle(handle: Handle) -> VortexSession {
+        VortexSession::empty()
+            .with::<ArraySession>()
+            .with::<LayoutSession>()
+            .with::<ScalarFnSession>()
+            .with::<RuntimeSession>()
+            .with_handle(handle)
+    }
 
     /// Build a `Chunked(Struct(Flat, Flat))` layout with two chunks.
     /// Returns the segment source, the layout, and the array we wrote.
@@ -360,7 +375,7 @@ mod tests {
         let dtype_for_write = dtype.clone();
 
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             strategy
                 .write_stream(
                     ctx,
@@ -398,7 +413,7 @@ mod tests {
         filter: Option<vortex_array::expr::Expression>,
     ) -> VortexResult<ArrayRef> {
         let (chunks, dtype) = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             let reader = layout.new_reader("v1".into(), segments, &session)?;
             let stream = ScanBuilder::new(session, reader)
                 .with_projection(projection)
@@ -429,7 +444,7 @@ mod tests {
         let layout = Arc::clone(layout);
         let row_count = layout.row_count();
         let (chunks, plan_dtype) = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             let scan = Scan {
                 layout,
                 segment_source: segments,
@@ -467,7 +482,7 @@ mod tests {
         let layout = Arc::clone(layout);
         let row_count = layout.row_count();
         let (chunks, plan_dtype) = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             let scan = Scan {
                 layout,
                 segment_source: segments,
@@ -502,7 +517,7 @@ mod tests {
         let (ptr, eof) = SequenceId::root().split();
         let array_for_write = array.clone();
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             FlatLayoutStrategy::default()
                 .write_stream(
                     ctx,
@@ -673,7 +688,7 @@ mod tests {
         let chunk2_for_write = chunk2.clone();
         let dtype_for_write = dtype.clone();
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             strategy
                 .write_stream(
                     ctx,
@@ -794,7 +809,7 @@ mod tests {
         let (ptr, eof) = SequenceId::root().split();
         let combined_for_write = combined.clone();
         let layout = block_on(|handle| async move {
-            let session = SESSION.clone().with_handle(handle);
+            let session = session_with_handle(handle);
             let stream = combined_for_write.to_array_stream().sequenced(ptr);
             strategy
                 .write_stream(ctx, segments_for_strategy, stream, eof, &session)
