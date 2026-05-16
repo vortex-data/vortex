@@ -160,7 +160,7 @@ pub(crate) fn emit_code_cmp(
 
 /// Build a `Scalar` of the codes' ptype holding `idx`. `idx` is in `0..=dict_len` and
 /// `dict_len` already fits in the codes ptype by DictArray invariant.
-fn code_threshold_scalar(codes: &ArrayRef, idx: usize) -> VortexResult<Scalar> {
+pub(crate) fn code_threshold_scalar(codes: &ArrayRef, idx: usize) -> VortexResult<Scalar> {
     use crate::dtype::DType;
     use crate::dtype::PType;
     let nullability = codes.dtype().nullability();

@@ -12,11 +12,14 @@ use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::dict::DictArraySlotsExt;
+use crate::arrays::dict::compute::compare::code_threshold_scalar;
 use crate::arrays::dict::compute::compare::emit_code_cmp;
 use crate::arrays::dict::compute::compare::scan_sorted_bounds;
-use crate::builtins::ArrayBuiltins;
+use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
+use crate::scalar_fn::fns::between::StrictComparison;
 use crate::scalar_fn::fns::operators::Operator;
 
 /// Reduce-rule entry point: emit the AST for a sorted-dict BETWEEN without running the
@@ -72,9 +75,17 @@ pub(crate) fn reduce_sorted_between(
         return Ok(Some(emit_code_cmp(&codes, code_lo, Operator::Gte)?));
     }
 
-    let lo_cmp = emit_code_cmp(&codes, code_lo, Operator::Gte)?;
-    let hi_cmp = emit_code_cmp(&codes, code_hi, Operator::Lt)?;
-    Ok(Some(lo_cmp.binary(hi_cmp, Operator::And)?))
+    // Emit a single Between on the codes: code BETWEEN code_lo AND code_hi-1 (both
+    // inclusive). One pass over the codes child instead of two compares + AND.
+    let lower_scalar = code_threshold_scalar(&codes, code_lo)?;
+    let upper_scalar = code_threshold_scalar(&codes, code_hi - 1)?;
+    let lower_arr = ConstantArray::new(lower_scalar, codes_len).into_array();
+    let upper_arr = ConstantArray::new(upper_scalar, codes_len).into_array();
+    let between_opts = BetweenOptions {
+        lower_strict: StrictComparison::NonStrict,
+        upper_strict: StrictComparison::NonStrict,
+    };
+    Between.try_new_array(codes_len, between_opts, [codes, lower_arr, upper_arr]).map(Some)
 }
 
 #[cfg(test)]
