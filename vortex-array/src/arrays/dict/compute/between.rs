@@ -3,14 +3,12 @@
 
 //! Sorted-values fast path for `BETWEEN`.
 //!
-//! For sorted-values dicts, `value BETWEEN lo AND hi` translates to a contiguous range of
-//! dictionary slots. Resolve each bound via one binary search on the values array, build a
-//! small `BoolArray` of length `dict_len` representing the predicate per slot, wrap as a
-//! `DictArray<codes, bool_values>`, and canonicalize. This is the same `take(bool, codes)`
-//! pipeline as the existing dict-compare path, but the values-side comparison is replaced
-//! by O(log dict_len) instead of O(dict_len * compare_cost) per bound.
+//! For sorted-values dicts, `value BETWEEN lo AND hi` translates to a contiguous code range
+//! `[code_lo, code_hi)`. Resolve each bound via one typed binary search on the values
+//! array, then evaluate `code BETWEEN code_lo AND code_hi-1` directly on the codes child
+//! using Arrow's vectorized primitive compare kernels. The plain path materializes a
+//! per-value bool and runs `take(bool, codes)`; the sorted path skips that take entirely.
 
-use vortex_buffer::BitBufferMut;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -18,16 +16,17 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
-use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
-use crate::arrays::DictArray;
 use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
+use crate::arrays::dict::compute::compare::code_cmp;
+use crate::arrays::dict::compute::compare::sorted_compare_scalar_search;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenKernel;
 use crate::scalar_fn::fns::between::BetweenOptions;
-use crate::validity::Validity;
+use crate::scalar_fn::fns::binary::execute_boolean;
+use crate::scalar_fn::fns::operators::Operator;
 
 impl BetweenKernel for Dict {
     fn between(
@@ -56,13 +55,8 @@ impl BetweenKernel for Dict {
         let values = array.values().clone();
         let dict_len = values.len();
 
-        // Use the typed binary search helper from `compare` to avoid execute_scalar overhead.
-        use crate::arrays::dict::compute::compare::sorted_compare_scalar_search;
-        let lower_search = sorted_compare_scalar_search(&values, &lower_scalar)?;
-        let upper_search = sorted_compare_scalar_search(&values, &upper_scalar)?;
-        let (lower_left, lower_right) = lower_search;
-        let (upper_left, upper_right) = upper_search;
-
+        let (lower_left, lower_right) = sorted_compare_scalar_search(&values, &lower_scalar)?;
+        let (upper_left, upper_right) = sorted_compare_scalar_search(&values, &upper_scalar)?;
         let code_lo = if options.lower_strict.is_strict() {
             lower_right.to_index()
         } else {
@@ -79,19 +73,28 @@ impl BetweenKernel for Dict {
                 ConstantArray::new(Scalar::bool(false, nullability), codes_len).into_array(),
             ));
         }
+        if code_lo == 0 && code_hi >= dict_len {
+            // Always true. For nullable codes the validity is preserved if we fall through.
+            if !nullability.is_nullable() {
+                return Ok(Some(
+                    ConstantArray::new(Scalar::bool(true, nullability), codes_len).into_array(),
+                ));
+            }
+        }
+        if code_lo == 0 {
+            // Only an upper bound: codes < code_hi.
+            return Ok(Some(code_cmp(&codes, code_hi, Operator::Lt, ctx)?));
+        }
+        if code_hi >= dict_len {
+            // Only a lower bound: codes >= code_lo.
+            return Ok(Some(code_cmp(&codes, code_lo, Operator::Gte, ctx)?));
+        }
 
-        // Build a non-nullable bool array of length dict_len:
-        //   slot i == true  iff  code_lo <= i < code_hi
-        let mut bb = BitBufferMut::with_capacity(dict_len);
-        bb.append_n(false, code_lo);
-        bb.append_n(true, code_hi - code_lo);
-        bb.append_n(false, dict_len - code_hi);
-        let bool_values = BoolArray::new(bb.freeze(), Validity::NonNullable).into_array();
-
-        // SAFETY: bool_values len == dict_len; codes index into [0, dict_len) by DictArray
-        // invariant.
-        let dict = unsafe { DictArray::new_unchecked(codes, bool_values).into_array() };
-        Ok(Some(dict.execute::<Canonical>(ctx)?.into_array()))
+        // Two-sided range: codes >= code_lo AND codes < code_hi.
+        let lo_cmp = code_cmp(&codes, code_lo, Operator::Gte, ctx)?;
+        let hi_cmp = code_cmp(&codes, code_hi, Operator::Lt, ctx)?;
+        let result = execute_boolean(&lo_cmp, &hi_cmp, Operator::And, ctx)?;
+        Ok(Some(result.execute::<Canonical>(ctx)?.into_array()))
     }
 }
 
