@@ -15,7 +15,6 @@
 use divan::Bencher;
 use rand::distr::Distribution;
 use rand::distr::StandardUniform;
-use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
@@ -36,6 +35,7 @@ use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::between::BetweenOptions;
 use vortex_array::scalar_fn::fns::between::StrictComparison::NonStrict;
 use vortex_array::scalar_fn::fns::operators::Operator;
+use vortex_mask::Mask;
 
 fn main() {
     divan::main();
@@ -77,7 +77,7 @@ fn run_primitive_compare<T>(
         .bench_values(|(d, mut ctx)| {
             d.binary(ConstantArray::new(needle, len).into_array(), op)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Mask>(&mut ctx)
                 .unwrap()
         });
 }
@@ -151,7 +151,7 @@ fn run_str_compare(
         .bench_values(|(d, mut ctx)| {
             d.binary(ConstantArray::new(needle, len).into_array(), op)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Mask>(&mut ctx)
                 .unwrap()
         });
 }
@@ -186,7 +186,7 @@ fn varbin_lt_plain(bencher: Bencher, args: (usize, usize)) {
         .bench_values(|(d, mut ctx)| {
             d.binary(ConstantArray::new("m", len).into_array(), Operator::Lt)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Mask>(&mut ctx)
                 .unwrap()
         });
 }
@@ -201,7 +201,7 @@ fn varbin_lt_sorted(bencher: Bencher, args: (usize, usize)) {
         .bench_values(|(d, mut ctx)| {
             d.binary(ConstantArray::new("m", len).into_array(), Operator::Lt)
                 .unwrap()
-                .execute::<Canonical>(&mut ctx)
+                .execute::<Mask>(&mut ctx)
                 .unwrap()
         });
 }
@@ -237,7 +237,7 @@ fn run_between_primitive<T>(
     bencher
         .with_inputs(|| (dict_arr.clone(), LEGACY_SESSION.create_execution_ctx()))
         .bench_values(|(d, mut ctx)| {
-            d.apply(&expr).unwrap().execute::<Canonical>(&mut ctx).unwrap()
+            d.apply(&expr).unwrap().execute::<Mask>(&mut ctx).unwrap()
         });
 }
 
@@ -273,7 +273,7 @@ fn str_between_plain(bencher: Bencher, args: (usize, usize)) {
     bencher
         .with_inputs(|| (dict_arr.clone(), LEGACY_SESSION.create_execution_ctx()))
         .bench_values(|(d, mut ctx)| {
-            d.apply(&expr).unwrap().execute::<Canonical>(&mut ctx).unwrap()
+            d.apply(&expr).unwrap().execute::<Mask>(&mut ctx).unwrap()
         });
 }
 #[divan::bench(args = ARGS)]
@@ -290,7 +290,7 @@ fn str_between_sorted(bencher: Bencher, args: (usize, usize)) {
     bencher
         .with_inputs(|| (dict_arr.clone(), LEGACY_SESSION.create_execution_ctx()))
         .bench_values(|(d, mut ctx)| {
-            d.apply(&expr).unwrap().execute::<Canonical>(&mut ctx).unwrap()
+            d.apply(&expr).unwrap().execute::<Mask>(&mut ctx).unwrap()
         });
 }
 
