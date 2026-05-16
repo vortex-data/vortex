@@ -50,6 +50,25 @@ const ARGS: &[(usize, usize)] = &[
 ];
 
 // ---------------------------------------------------------------------------
+// Baseline: raw primitive compare on a u16 buffer, no dict involved.
+// This is the absolute floor for a 100k-element cmp going through binary().
+// ---------------------------------------------------------------------------
+#[divan::bench(args = [10_000usize, 100_000])]
+fn raw_u16_lt_baseline(bencher: Bencher, len: usize) {
+    use vortex_array::arrays::PrimitiveArray;
+    let arr: PrimitiveArray = (0..len).map(|i| (i % 1024) as u16).collect();
+    let arr = arr.into_array();
+    bencher
+        .with_inputs(|| (arr.clone(), LEGACY_SESSION.create_execution_ctx()))
+        .bench_values(|(a, mut ctx)| {
+            a.binary(ConstantArray::new(512u16, len).into_array(), Operator::Lt)
+                .unwrap()
+                .execute::<Mask>(&mut ctx)
+                .unwrap()
+        });
+}
+
+// ---------------------------------------------------------------------------
 // Primitive (i64, u8, f32): compare with Eq, Lt, Gte; BETWEEN
 // ---------------------------------------------------------------------------
 
