@@ -47,6 +47,15 @@ pub struct ConvertArgs {
     /// Execute quietly. No output will be printed.
     #[arg(short, long)]
     pub quiet: bool,
+
+    /// Whether dictionary-encoded layouts sort values and remap codes at write time.
+    /// Defaults to true (codes are an order-preserving encoding of the column).
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub dict_sort_values: bool,
+
+    /// Optional output path. Defaults to replacing the input extension with ".vortex".
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
 }
 
 /// The batch size of the record batches.
@@ -63,7 +72,10 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
         eprintln!("Converting input Parquet file: {}", input_path.display());
     }
 
-    let output_path = input_path.with_extension("vortex");
+    let output_path = flags
+        .output
+        .clone()
+        .unwrap_or_else(|| input_path.with_extension("vortex"));
     let file = File::open(input_path).await?;
 
     let parquet = ParquetRecordBatchStreamBuilder::new(file)
@@ -97,6 +109,7 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
         strategy =
             strategy.with_btrblocks_builder(BtrBlocksCompressorBuilder::default().with_compact());
     }
+    strategy = strategy.with_dict_sort_values(flags.dict_sort_values);
 
     let mut file = File::create(output_path).await?;
     session

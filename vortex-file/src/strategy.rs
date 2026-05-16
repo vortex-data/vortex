@@ -45,6 +45,7 @@ use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex_layout::layouts::collect::CollectStrategy;
 use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::compressed::CompressorPlugin;
+use vortex_layout::layouts::dict::writer::DictLayoutOptions;
 use vortex_layout::layouts::dict::writer::DictStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::repartition::RepartitionStrategy;
@@ -143,6 +144,7 @@ pub struct WriteStrategyBuilder {
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<HashSet<ArrayId>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
+    dict_options: DictLayoutOptions,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -155,6 +157,7 @@ impl Default for WriteStrategyBuilder {
             field_writers: HashMap::new(),
             allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
             flat_strategy: None,
+            dict_options: DictLayoutOptions::default(),
         }
     }
 }
@@ -206,6 +209,21 @@ impl WriteStrategyBuilder {
     /// The compressor is used as-is for both data and stats compression.
     pub fn with_compressor<C: CompressorPlugin>(mut self, compressor: C) -> Self {
         self.compressor = CompressorConfig::Opaque(Arc::new(compressor));
+        self
+    }
+
+    /// Override the [`DictLayoutOptions`] used for dictionary-encoded layouts.
+    pub fn with_dict_options(mut self, dict_options: DictLayoutOptions) -> Self {
+        self.dict_options = dict_options;
+        self
+    }
+
+    /// Toggle whether dictionary values are sorted (and codes remapped) at write time.
+    /// When enabled, dictionary codes become an order-preserving encoding of the original
+    /// column, unlocking O(1) min/max, cheap `is_sorted`, and range-predicate pushdown.
+    /// Enabled by default.
+    pub fn with_dict_sort_values(mut self, sort_values: bool) -> Self {
+        self.dict_options.sort_values = sort_values;
         self
     }
 
@@ -269,7 +287,7 @@ impl WriteStrategyBuilder {
             coalescing.clone(),
             compress_then_flat.clone(),
             coalescing,
-            Default::default(),
+            self.dict_options.clone(),
         );
 
         // 2. calculate stats for each row group

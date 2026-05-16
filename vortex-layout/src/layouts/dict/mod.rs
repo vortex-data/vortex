@@ -60,6 +60,7 @@ impl VTable for Dict {
             DictLayoutMetadata::new(PType::try_from(layout.codes.dtype()).vortex_expect("ptype"));
         metadata.is_nullable_codes = Some(layout.codes.dtype().is_nullable());
         metadata.all_values_referenced = Some(layout.all_values_referenced);
+        metadata.sorted_values = Some(layout.sorted_values);
         ProstMetadata(metadata)
     }
 
@@ -122,6 +123,7 @@ impl VTable for Dict {
         Ok(unsafe {
             DictLayout::new(values, codes)
                 .set_all_values_referenced(metadata.all_values_referenced.unwrap_or(false))
+                .set_sorted_values(metadata.sorted_values.unwrap_or(false))
         })
     }
 
@@ -157,6 +159,10 @@ pub struct DictLayout {
     /// `true` = all values are referenced (computed during encoding).
     /// `false` = unknown/might have unreferenced values.
     all_values_referenced: bool,
+    /// Indicates whether the dictionary values are sorted in ascending order.
+    /// `true` = codes are an order-preserving encoding of the original column.
+    /// `false` = no ordering guarantee on values.
+    sorted_values: bool,
 }
 
 impl DictLayout {
@@ -165,6 +171,7 @@ impl DictLayout {
             values,
             codes,
             all_values_referenced: false,
+            sorted_values: false,
         }
     }
 
@@ -186,6 +193,21 @@ impl DictLayout {
     pub fn has_all_values_referenced(&self) -> bool {
         self.all_values_referenced
     }
+
+    /// Set whether the dictionary values are sorted in ascending order.
+    ///
+    /// # Safety
+    /// See `DictArray::set_sorted_values`. Setting this incorrectly leads to incorrect query
+    /// results in operations that exploit a sorted dictionary (min/max, is_sorted, range
+    /// pushdown), but never memory unsafety.
+    pub unsafe fn set_sorted_values(mut self, sorted_values: bool) -> Self {
+        self.sorted_values = sorted_values;
+        self
+    }
+
+    pub fn has_sorted_values(&self) -> bool {
+        self.sorted_values
+    }
 }
 
 #[derive(prost::Message)]
@@ -202,6 +224,12 @@ pub struct DictLayoutMetadata {
     // see `DictArray::all_values_referenced`
     #[prost(optional, bool, tag = "3")]
     pub(crate) all_values_referenced: Option<bool>,
+    // sorted_values is optional for backward compatibility
+    // true = dictionary values are stored in ascending order; codes are an order-preserving
+    //        encoding of the original column
+    // false/None = no ordering guarantee on values (conservative default)
+    #[prost(optional, bool, tag = "4")]
+    pub(crate) sorted_values: Option<bool>,
 }
 
 impl DictLayoutMetadata {

@@ -20,11 +20,17 @@ use futures::stream::once;
 use futures::try_join;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::Dict;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::builders::dict::DictConstraints;
 use vortex_array::builders::dict::DictEncoder;
 use vortex_array::builders::dict::dict_encoder;
+use vortex_array::builders::dict::sort_dict;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -90,9 +96,23 @@ impl Default for DictLayoutConstraints {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct DictLayoutOptions {
     pub constraints: DictLayoutConstraints,
+    /// When true, the dictionary values for each run are sorted in ascending order and the
+    /// emitted codes are remapped through the sort permutation. This makes codes an
+    /// order-preserving encoding of the original column, enabling O(1) min/max, cheap
+    /// is_sorted, and range-predicate pushdown into the codes domain at read time.
+    pub sort_values: bool,
+}
+
+impl Default for DictLayoutOptions {
+    fn default() -> Self {
+        Self {
+            constraints: DictLayoutConstraints::default(),
+            sort_values: true,
+        }
+    }
 }
 
 /// A layout strategy that encodes chunk into values and codes, if found
@@ -170,6 +190,14 @@ impl LayoutStrategy for DictStrategy {
         // (a1, a2) -> (code(c1), code(c2), values(v1), code(c3), ...)
         let dict_stream = dict_encode_stream(stream, options.constraints.into());
 
+        // If sorted-values mode is enabled, transparently sort each run.
+        let sort_values = options.sort_values;
+        let dict_stream = if sort_values {
+            sort_dict_stream(dict_stream)
+        } else {
+            dict_stream
+        };
+
         // Wrap up the dict stream to yield pairs of (codes_stream, values_future).
         // Each of these pairs becomes a child dict layout.
         let runs = DictionaryTransformer::new(dict_stream);
@@ -223,8 +251,17 @@ impl LayoutStrategy for DictStrategy {
             .buffered(usize::MAX)
             .map(|result| {
                 let (codes_layout, values_layout) = result?;
-                // All values are referenced when created via dictionary encoding
-                Ok::<_, VortexError>(DictLayout::new(values_layout, codes_layout).into_layout())
+                // All values are referenced when created via dictionary encoding.
+                // Tag `sorted_values` if the writer ran the sorted-values transform.
+                let layout = DictLayout::new(values_layout, codes_layout);
+                let layout = if sort_values {
+                    // SAFETY: codes were remapped through the sort permutation in
+                    // sort_dict_stream, so values are in ascending order for each run.
+                    unsafe { layout.set_sorted_values(true) }
+                } else {
+                    layout
+                };
+                Ok::<_, VortexError>(layout.into_layout())
             })
             .try_collect::<Vec<_>>()
             .await?;
@@ -257,6 +294,67 @@ enum DictionaryChunk {
 }
 
 type DictionaryStream = BoxStream<'static, VortexResult<DictionaryChunk>>;
+
+/// Wrap a [`DictionaryStream`] so that each run's values are sorted in ascending order and the
+/// emitted codes are remapped through the sort permutation.
+///
+/// All codes chunks within a single run are buffered until that run's values arrive, then the
+/// run is sorted as a unit. Buffering is bounded by the run size, which is itself bounded by
+/// [`DictConstraints`].
+fn sort_dict_stream(input: DictionaryStream) -> DictionaryStream {
+    Box::pin(try_stream! {
+        let mut buffered_codes: Vec<(SequenceId, ArrayRef, PType)> = Vec::new();
+        pin_mut!(input);
+
+        while let Some(item) = input.next().await {
+            match item? {
+                DictionaryChunk::Codes { seq_id, codes, codes_ptype } => {
+                    buffered_codes.push((seq_id, codes, codes_ptype));
+                }
+                DictionaryChunk::Values((values_seq_id, values)) => {
+                    if buffered_codes.is_empty() {
+                        // Degenerate: values without any codes. Just emit.
+                        yield DictionaryChunk::Values((values_seq_id, values));
+                        continue;
+                    }
+
+                    let codes_dtype = buffered_codes[0].1.dtype().clone();
+                    let codes_chunks: Vec<ArrayRef> = buffered_codes
+                        .iter()
+                        .map(|(_, codes, _)| codes.clone())
+                        .collect();
+                    let concat_codes = ChunkedArray::try_new(codes_chunks, codes_dtype)?
+                        .into_array()
+                        .optimize()?;
+
+                    let dict = unsafe { DictArray::new_unchecked(concat_codes, values) };
+                    let sorted = sort_dict(dict)?;
+                    let sorted_codes = sorted.codes().clone();
+                    let sorted_values = sorted.values().clone();
+
+                    // Emit remapped codes per original chunk, preserving sequence IDs.
+                    let mut offset: usize = 0;
+                    for (seq_id, original_codes, codes_ptype) in buffered_codes.drain(..) {
+                        let len = original_codes.len();
+                        let remapped = sorted_codes.slice(offset..offset + len)?;
+                        offset += len;
+                        yield DictionaryChunk::Codes {
+                            seq_id,
+                            codes: remapped,
+                            codes_ptype,
+                        };
+                    }
+                    yield DictionaryChunk::Values((values_seq_id, sorted_values));
+                }
+            }
+        }
+
+        // Edge case: stream ended mid-run without a final Values chunk. Emit codes as-is.
+        for (seq_id, codes, codes_ptype) in buffered_codes.drain(..) {
+            yield DictionaryChunk::Codes { seq_id, codes, codes_ptype };
+        }
+    })
+}
 
 fn dict_encode_stream(
     input: SendableSequentialStream,

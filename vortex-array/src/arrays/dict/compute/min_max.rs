@@ -40,7 +40,11 @@ impl DynAggregateKernel for DictMinMaxKernel {
 
         let struct_dtype = make_minmax_dtype(batch.dtype());
 
-        let result = if dict.has_all_values_referenced() {
+        let result = if dict.has_sorted_values() && dict.has_all_values_referenced() {
+            // Sorted dict where every value is referenced: min/max are the endpoints of the
+            // values array. Skip scanning codes entirely.
+            min_max_from_sorted_values(dict.values(), ctx)?
+        } else if dict.has_all_values_referenced() {
             // All values are referenced, compute min/max directly on the values array.
             min_max(dict.values(), ctx)?
         } else {
@@ -56,6 +60,41 @@ impl DynAggregateKernel for DictMinMaxKernel {
             None => Ok(Some(Scalar::null(struct_dtype))),
         }
     }
+}
+
+/// Compute min/max from a values array that is known to be sorted in ascending order.
+///
+/// Nulls are sorted first, so the first non-null element is the min and the last non-null
+/// element is the max. Returns `None` if every value is null or the array is empty.
+fn min_max_from_sorted_values(
+    values: &ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<crate::aggregate_fn::fns::min_max::MinMaxResult>> {
+    use crate::aggregate_fn::fns::min_max::MinMaxResult;
+    use vortex_error::VortexExpect;
+
+    let len = values.len();
+    if len == 0 {
+        return Ok(None);
+    }
+
+    let validity = values.validity()?;
+    let mask = validity.execute_mask(len, ctx)?;
+    let (first, last) = match (mask.first(), mask.last()) {
+        (Some(f), Some(l)) => (f, l),
+        _ => return Ok(None),
+    };
+
+    let elem_dtype = values.dtype().as_nonnullable();
+    let min = values
+        .execute_scalar(first, ctx)
+        .vortex_expect("scalar within bounds")
+        .cast(&elem_dtype)?;
+    let max = values
+        .execute_scalar(last, ctx)
+        .vortex_expect("scalar within bounds")
+        .cast(&elem_dtype)?;
+    Ok(Some(MinMaxResult { min, max }))
 }
 
 #[cfg(test)]
@@ -176,5 +215,31 @@ mod tests {
     #[case::all_null_codes(dict_all_null_codes())]
     fn test_min_max_none(#[case] dict: DictArray) -> VortexResult<()> {
         assert_min_max(&dict.into_array(), None)
+    }
+
+    #[test]
+    fn test_min_max_sorted_dict_fast_path() -> VortexResult<()> {
+        use crate::arrays::dict::DictArrayExt;
+        use crate::builders::dict::dict_encode_sorted;
+        // Sorted dict where every value is referenced -> min/max come straight from
+        // values[first_valid] and values[last_valid].
+        let arr = buffer![5i32, 1, 3, 1, 5, 3].into_array();
+        let sorted = dict_encode_sorted(&arr)?;
+        assert!(sorted.has_sorted_values());
+        assert!(sorted.has_all_values_referenced());
+        assert_min_max(&sorted.into_array(), Some((1, 5)))
+    }
+
+    #[test]
+    fn test_min_max_sorted_dict_with_nulls() -> VortexResult<()> {
+        use crate::arrays::PrimitiveArray;
+        use crate::arrays::dict::DictArrayExt;
+        use crate::builders::dict::dict_encode_sorted;
+        // Nulls sort first, so min/max should exclude them.
+        let arr = PrimitiveArray::from_option_iter([Some(7i32), None, Some(2), Some(7), None])
+            .into_array();
+        let sorted = dict_encode_sorted(&arr)?;
+        assert!(sorted.has_sorted_values());
+        assert_min_max(&sorted.into_array(), Some((2, 7)))
     }
 }

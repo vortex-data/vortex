@@ -41,6 +41,12 @@ pub struct DictMetadata {
     // false/None = unknown whether all values are referenced (conservative default).
     #[prost(optional, bool, tag = "4")]
     pub(super) all_values_referenced: Option<bool>,
+    // sorted_values is optional for backward compatibility.
+    // true = the dictionary values are stored in ascending order, so codes are an
+    //        order-preserving encoding of the original column.
+    // false/None = no ordering guarantee on values.
+    #[prost(optional, bool, tag = "5")]
+    pub(super) sorted_values: Option<bool>,
 }
 
 #[array_slots(Dict)]
@@ -59,11 +65,20 @@ pub struct DictData {
     /// In case this is incorrect never use this to enable memory unsafe behaviour just semantically
     /// incorrect behaviour.
     pub(super) all_values_referenced: bool,
+    /// Indicates whether the dictionary values are sorted in ascending order.
+    /// `true` = `values[i] <= values[i+1]` for all valid `i`, so `codes` are an order-preserving
+    /// encoding of the original column. Setting this incorrectly can lead to incorrect query
+    /// results (e.g. min/max, is_sorted) but never memory unsafety.
+    pub(super) sorted_values: bool,
 }
 
 impl Display for DictData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "all_values_referenced: {}", self.all_values_referenced)
+        write!(
+            f,
+            "all_values_referenced: {}, sorted_values: {}",
+            self.all_values_referenced, self.sorted_values
+        )
     }
 }
 
@@ -77,6 +92,7 @@ impl DictData {
     pub unsafe fn new_unchecked() -> Self {
         Self {
             all_values_referenced: false,
+            sorted_values: false,
         }
     }
 
@@ -91,6 +107,18 @@ impl DictData {
     /// that all values are referenced.
     pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
         self.all_values_referenced = all_values_referenced;
+        self
+    }
+
+    /// Set whether the dictionary values are sorted in ascending order.
+    ///
+    /// # Safety
+    /// The caller must ensure that when setting `sorted_values = true`, the dictionary values
+    /// are actually in ascending order. Setting this incorrectly can lead to incorrect query
+    /// results in operations like `min_max`, `is_sorted`, or range pushdown, but never memory
+    /// unsafety.
+    pub unsafe fn set_sorted_values(mut self, sorted_values: bool) -> Self {
+        self.sorted_values = sorted_values;
         self
     }
 
@@ -126,6 +154,32 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
     #[inline]
     fn has_all_values_referenced(&self) -> bool {
         self.all_values_referenced
+    }
+
+    /// Returns whether the dictionary values are sorted in ascending order.
+    ///
+    /// When `true`, the codes are an order-preserving encoding of the original column.
+    #[inline]
+    fn has_sorted_values(&self) -> bool {
+        self.sorted_values
+    }
+
+    /// Validate that the values are actually sorted in ascending order if the flag is set.
+    /// Useful in debug builds; runs `is_strict_sorted`-style comparisons across the values.
+    fn validate_sorted_values(&self) -> VortexResult<()> {
+        if !self.has_sorted_values() {
+            return Ok(());
+        }
+        if !self.values().is_host() {
+            return Ok(());
+        }
+        use crate::aggregate_fn::fns::is_sorted::is_sorted as _is_sorted;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        vortex_ensure!(
+            _is_sorted(self.values(), &mut ctx)?,
+            "dict values flagged sorted_values but are not in ascending order"
+        );
+        Ok(())
     }
 
     fn validate_all_values_referenced(&self) -> VortexResult<()> {
@@ -285,6 +339,30 @@ impl Array<Dict> {
             array
                 .validate_all_values_referenced()
                 .vortex_expect("validation should succeed when all values are referenced");
+        }
+
+        array
+    }
+
+    /// Set whether the dictionary values are sorted in ascending order.
+    ///
+    /// # Safety
+    ///
+    /// See [`DictData::set_sorted_values`].
+    pub unsafe fn set_sorted_values(self, sorted_values: bool) -> Self {
+        let dtype = self.dtype().clone();
+        let len = self.len();
+        let slots: ArraySlots = self.slots().iter().cloned().collect();
+        let data = unsafe { self.into_data().set_sorted_values(sorted_values) };
+        let array = unsafe {
+            Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data).with_slots(slots))
+        };
+
+        #[cfg(debug_assertions)]
+        if sorted_values {
+            array
+                .validate_sorted_values()
+                .vortex_expect("validation should succeed when sorted_values is set");
         }
 
         array
@@ -495,6 +573,7 @@ mod test {
                 values_len: u32::MAX,
                 is_nullable_codes: None,
                 all_values_referenced: None,
+                sorted_values: None,
             }
             .encode_to_vec(),
         );

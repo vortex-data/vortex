@@ -22,6 +22,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::array::ArrayView;
+use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::filter::FilterReduce;
 
@@ -32,10 +33,12 @@ impl TakeExecute for Dict {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let codes = array.codes().take(indices.clone())?;
-        // SAFETY: selecting codes doesn't change the invariants of DictArray
-        // Preserve all_values_referenced since taking codes doesn't affect which values are referenced
+        // SAFETY: selecting codes doesn't change the invariants of DictArray.
+        // `sorted_values` is a property of the values array, which is unchanged.
         Ok(Some(unsafe {
-            DictArray::new_unchecked(codes, array.values().clone()).into_array()
+            DictArray::new_unchecked(codes, array.values().clone())
+                .set_sorted_values(array.has_sorted_values())
+                .into_array()
         }))
     }
 }
@@ -44,10 +47,12 @@ impl FilterReduce for Dict {
     fn filter(array: ArrayView<'_, Dict>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let codes = array.codes().filter(mask.clone())?;
 
-        // SAFETY: filtering codes doesn't change invariants
-        // Preserve all_values_referenced since filtering codes doesn't affect which values are referenced
+        // SAFETY: filtering codes doesn't change invariants.
+        // `sorted_values` is a property of the values array, which is unchanged.
         Ok(Some(unsafe {
-            DictArray::new_unchecked(codes, array.values().clone()).into_array()
+            DictArray::new_unchecked(codes, array.values().clone())
+                .set_sorted_values(array.has_sorted_values())
+                .into_array()
         }))
     }
 }

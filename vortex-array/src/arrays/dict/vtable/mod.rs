@@ -127,6 +127,7 @@ impl VTable for Dict {
                 })?,
                 is_nullable_codes: Some(array.codes().dtype().is_nullable()),
                 all_values_referenced: Some(array.has_all_values_referenced()),
+                sorted_values: Some(array.has_sorted_values()),
             }
             .encode_to_vec(),
         ))
@@ -158,9 +159,12 @@ impl VTable for Dict {
         let codes = children.get(0, &codes_dtype, len)?;
         let values = children.get(1, dtype, metadata.values_len as usize)?;
         let all_values_referenced = metadata.all_values_referenced.unwrap_or(false);
+        let sorted_values = metadata.sorted_values.unwrap_or(false);
 
         Ok(ArrayParts::new(self.clone(), dtype.clone(), len, unsafe {
-            DictData::new_unchecked().set_all_values_referenced(all_values_referenced)
+            DictData::new_unchecked()
+                .set_all_values_referenced(all_values_referenced)
+                .set_sorted_values(sorted_values)
         })
         .with_slots(smallvec![Some(codes), Some(values)]))
     }

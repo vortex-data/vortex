@@ -233,17 +233,20 @@ impl LayoutReader for DictReader {
         let expr = expr.clone();
 
         let all_values_referenced = self.layout.has_all_values_referenced();
+        let sorted_values = self.layout.has_sorted_values();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
             // SAFETY: Layout was validated at write time.
             //  * The codes dtype is guaranteed to be an integer type from the layout
             //  * The codes child reader ensures the correct dtype.
-            //  * The layout stores `all_values_referenced` and if this is malicious then it must
-            //    only affect correctness not memory safety.
+            //  * `all_values_referenced` and `sorted_values` are stored in the layout; if
+            //    a malicious file claims they're true when they aren't, the worst case is
+            //    incorrect query results, not memory unsafety.
             let array = unsafe {
                 DictArray::new_unchecked(codes, values)
                     .set_all_values_referenced(all_values_referenced)
+                    .set_sorted_values(sorted_values)
             }
             .into_array()
             .optimize()?;
@@ -536,6 +539,84 @@ mod tests {
                 .vortex_expect("to_canonical failed")
                 .into_array();
             assert_arrays_eq!(actual_canonical, expected);
+        })
+    }
+
+    #[test]
+    fn sorted_dict_layout_roundtrip() {
+        use crate::layouts::dict::Dict as DictLayoutVTable;
+
+        block_on(|handle| async move {
+            let session = session_with_handle(handle);
+            let mut options = DictLayoutOptions::default();
+            // Ensure sorted-values mode is on (it is by default).
+            options.sort_values = true;
+            let strategy = DictStrategy::new(
+                FlatLayoutStrategy::default(),
+                FlatLayoutStrategy::default(),
+                FlatLayoutStrategy::default(),
+                options,
+            );
+
+            // Insertion order is not sorted; sorted dict should reorder values.
+            let array = VarBinArray::from_iter(
+                [
+                    Some("zeta"),
+                    Some("alpha"),
+                    Some("mu"),
+                    Some("alpha"),
+                    Some("zeta"),
+                    Some("mu"),
+                ],
+                DType::Utf8(Nullability::Nullable),
+            )
+            .into_array();
+            let array_to_write = array.clone();
+            let ctx = ArrayContext::empty();
+            let segments = Arc::new(TestSegments::default());
+            let (ptr, eof) = SequenceId::root().split();
+            let layout: LayoutRef = strategy
+                .write_stream(
+                    ctx,
+                    Arc::<TestSegments>::clone(&segments),
+                    SequentialStreamAdapter::new(
+                        DType::Utf8(Nullability::Nullable),
+                        array_to_write.to_array_stream().sequenced(ptr),
+                    )
+                    .sendable(),
+                    eof,
+                    &session,
+                )
+                .await
+                .unwrap();
+
+            assert_eq!(layout.encoding_id(), LayoutId::new("vortex.dict"));
+
+            // The DictLayout should be tagged sorted_values=true.
+            assert!(
+                layout.as_::<DictLayoutVTable>().has_sorted_values(),
+                "DictLayout should be tagged sorted_values after sort_values writer pass"
+            );
+
+            // Read back and verify equivalence with the input.
+            let read_back = layout
+                .new_reader("".into(), segments, &session)
+                .unwrap()
+                .projection_evaluation(
+                    &(0..layout.row_count()),
+                    &root(),
+                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                )
+                .unwrap()
+                .await
+                .unwrap();
+
+            let mut ctx_exec = LEGACY_SESSION.create_execution_ctx();
+            let read_back_canonical = read_back
+                .execute::<Canonical>(&mut ctx_exec)
+                .unwrap()
+                .into_array();
+            assert_arrays_eq!(read_back_canonical, array);
         })
     }
 }

@@ -21,6 +21,11 @@ use crate::match_each_native_ptype;
 
 mod bytes;
 mod primitive;
+mod sorted;
+
+pub use sorted::dict_encode_sorted;
+pub use sorted::dict_encode_sorted_with_constraints;
+pub use sorted::sort_dict;
 
 #[derive(Clone)]
 pub struct DictConstraints {
