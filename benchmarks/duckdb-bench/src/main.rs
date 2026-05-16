@@ -24,6 +24,7 @@ use vortex_bench::runner::BenchmarkMode;
 use vortex_bench::runner::SqlBenchmarkRunner;
 use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
+use vortex_bench::tpch::benchmark::TpcHBenchmark;
 use vortex_bench::v3;
 
 /// Common arguments shared across benchmarks
@@ -82,6 +83,11 @@ struct Args {
     /// Print EXPLAIN output for each query instead of running benchmarks.
     #[arg(long, default_value_t = false)]
     explain: bool,
+
+    /// After the benchmark finishes, verify TPC-H query output against committed reference CSVs
+    /// (only supported for `tpch` at scale factors 0.01, 0.1, 1.0, and 10.0).
+    #[arg(long, default_value_t = false)]
+    validate: bool,
 
     #[arg(
         long,
@@ -203,6 +209,19 @@ fn main() -> anyhow::Result<()> {
         let benchmark_id = format!("duckdb-{}", benchmark.dataset_name());
         let writer = create_output_writer(&args.display_format, args.output_path, &benchmark_id)?;
         runner.export_to(&args.display_format, writer)?;
+    }
+
+    if args.validate {
+        if !matches!(args.benchmark, BenchmarkArg::TpcH) {
+            anyhow::bail!("--validate is only supported for the tpch benchmark");
+        }
+        let scale_factor = opts.get("scale-factor").unwrap_or("1.0").to_string();
+        let remote_data_dir = opts.get_as::<String>("remote-data-dir");
+        let tpch = TpcHBenchmark::new(scale_factor, remote_data_dir)?;
+        let query_ids: Vec<usize> = filtered_queries.iter().map(|(idx, _)| *idx).collect();
+        for format in &args.formats {
+            validation::verify_duckdb_tpch_results(&tpch, *format, query_ids.clone())?;
+        }
     }
 
     Ok(())

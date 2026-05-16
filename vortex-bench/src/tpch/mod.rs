@@ -33,7 +33,7 @@ pub fn tpch_queries() -> impl Iterator<Item = (usize, String)> {
 }
 
 // A few tpch queries have multiple statements, this handles that
-fn tpch_query(query_idx: usize) -> String {
+pub fn tpch_query(query_idx: usize) -> String {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tpch")
         .join(format!("q{query_idx}"))
