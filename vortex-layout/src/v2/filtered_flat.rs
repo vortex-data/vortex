@@ -46,7 +46,6 @@ use crate::segments::SegmentSource;
 use crate::v2::dataflow::LayoutLoweringCtx;
 use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
-use crate::v2::experiment::bool_var;
 use crate::v2::experiment::trace_flow;
 use crate::v2::flat::SharedSegmentFuture;
 use crate::v2::flat::decode_segment;
@@ -307,7 +306,7 @@ impl LayoutPlan for FilteredFlatPlan {
         let coord_range = demand.global_range(&row_range);
         let debug_label = ctx.debug_label().map(str::to_owned);
         let segment_id = self.segment_id;
-        let incremental_mask_batches = !bool_var("VORTEX_V2_FILTERED_FLAT_READ_ALL_MASK");
+        let incremental_mask_batches = true;
         let trace = trace_flow();
         if trace {
             tracing::debug!(
@@ -332,9 +331,7 @@ impl LayoutPlan for FilteredFlatPlan {
             // skip the mask read AND segment IO. This is the path
             // that pays off cross-conjunct pruning — the zone falsifier
             // for column A lets us skip IO on column B.
-            if !bool_var("VORTEX_V2_DISABLE_ROW_DEMAND")
-                && demand_for_skip.cardinality(demand_range).await? == 0
-            {
+            if demand_for_skip.cardinality(demand_range).await? == 0 {
                 return;
             }
 

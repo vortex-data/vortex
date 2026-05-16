@@ -36,14 +36,12 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use futures::FutureExt;
-use futures::StreamExt;
 use futures::future::BoxFuture;
 use futures::future::Shared;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
-use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::SendableArrayStream;
 use vortex_array::validity::Validity;
 use vortex_error::VortexError;
@@ -236,25 +234,6 @@ pub fn build_materialise_future(
     }
     .boxed()
     .shared()
-}
-
-/// Canonicalise each Bool stream chunk into a [`Mask`] once, then
-/// expose it again as a Bool array. This keeps streaming chunk
-/// boundaries while giving downstream consumers cheap all-true /
-/// all-false mask representations where possible.
-pub(crate) fn canonical_mask_stream(
-    source_stream: SendableArrayStream,
-    session: VortexSession,
-) -> SendableArrayStream {
-    let dtype = source_stream.dtype().clone();
-    let stream = source_stream.map(move |item| {
-        item.and_then(|array| {
-            let mut ctx = session.create_execution_ctx();
-            let mask: Mask = array.execute::<Mask>(&mut ctx)?;
-            Ok(mask.into_array())
-        })
-    });
-    Box::pin(ArrayStreamAdapter::new(dtype, stream))
 }
 
 /// Wrap an `Arc<MaterialisedMask>` slice as an `ArrayRef` so that

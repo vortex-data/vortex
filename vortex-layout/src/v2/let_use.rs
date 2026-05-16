@@ -34,11 +34,9 @@ use vortex_utils::aliases::hash_map::HashMap;
 use crate::v2::dataflow::LayoutLoweringCtx;
 use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
-use crate::v2::experiment::bool_var;
 use crate::v2::experiment::trace_flow;
 use crate::v2::materialised_mask::MaskRegistry;
 use crate::v2::materialised_mask::build_materialise_future;
-use crate::v2::materialised_mask::canonical_mask_stream;
 use crate::v2::materialised_mask::slice_to_array;
 use crate::v2::plan::LayoutPlan;
 use crate::v2::plan::LayoutPlanRef;
@@ -244,21 +242,6 @@ impl LayoutPlan for LetPlan {
         //     (`crate::v2::materialised_mask`).
         //   - Anything else uses `TeeStream` for streaming fan-out.
         if matches!(self.source.schema(), DType::Bool(_)) {
-            if bool_var("VORTEX_V2_STREAM_MASK_BATCHES") {
-                if trace_flow() {
-                    tracing::debug!(
-                        target: "vortex_layout::v2::flow",
-                        let_id = self.id.raw(),
-                        row_start = row_range.start,
-                        row_end = row_range.end,
-                        "let bool source using streaming mask batches"
-                    );
-                }
-                let tee = self.publish_mask_stream(row_range.clone(), ctx)?;
-                let body_stream = self.body.execute(row_range, demand, frontier, ctx)?;
-                tee.start();
-                return Ok(body_stream);
-            }
             if trace_flow() {
                 tracing::debug!(
                     target: "vortex_layout::v2::flow",
@@ -365,68 +348,6 @@ impl LetPlan {
             return Err(e);
         }
         Ok(())
-    }
-
-    pub(crate) fn publish_mask_stream(
-        &self,
-        row_range: Range<u64>,
-        ctx: &ScanCtx,
-    ) -> VortexResult<Arc<TeeStream>> {
-        if let Some(registry) = ctx.get_opt::<LetRegistry>()
-            && let Some(existing) = registry.get_stream(self.id)
-        {
-            return Ok(existing);
-        }
-
-        let total_rows = source_total_rows(&self.source);
-        let source = Arc::clone(&self.source);
-        let source_row_range = self.source_row_range(row_range);
-        if trace_flow() {
-            tracing::debug!(
-                target: "vortex_layout::v2::flow",
-                let_id = self.id.raw(),
-                source_start = source_row_range.start,
-                source_end = source_row_range.end,
-                "publish streaming mask"
-            );
-        }
-        let ctx_for_init = ctx.clone();
-        let handle = ctx.session().handle();
-        let session = ctx.session().clone();
-        let dtype_for_empty = source.schema().clone();
-        let mut init_err: Option<VortexError> = None;
-        let source_demand = RowDemand::empty(total_rows);
-        let source_frontier = OutputFrontier::unbounded(total_rows);
-        let source_range = source_row_range.clone();
-        let mut registry = ctx.get_mut::<LetRegistry>();
-        let arc = registry.get_or_init_stream(self.id, || {
-            match source.execute(
-                source_range.clone(),
-                &source_demand,
-                &source_frontier,
-                &ctx_for_init,
-            ) {
-                Ok(stream) => {
-                    let stream = canonical_mask_stream(stream, session);
-                    TeeStream::with_base_row(stream, handle.clone(), source_row_range.start)
-                }
-                Err(e) => {
-                    init_err = Some(e);
-                    TeeStream::with_base_row(
-                        Box::pin(ArrayStreamAdapter::new(
-                            dtype_for_empty,
-                            futures::stream::empty(),
-                        )),
-                        handle.clone(),
-                        source_row_range.start,
-                    )
-                }
-            }
-        });
-        if let Some(e) = init_err {
-            return Err(e);
-        }
-        Ok(arc)
     }
 
     pub fn publish_stream(&self, ctx: &ScanCtx) -> VortexResult<Arc<TeeStream>> {
@@ -590,18 +511,6 @@ impl LayoutPlan for UsePlan {
         // Dispatch on output dtype: Bool sources go through the
         // value-based MaskRegistry; everything else uses TeeStream.
         if matches!(self.output_dtype, DType::Bool(_)) {
-            if bool_var("VORTEX_V2_STREAM_MASK_BATCHES") {
-                if trace_flow() {
-                    tracing::debug!(
-                        target: "vortex_layout::v2::flow",
-                        let_id = self.id.raw(),
-                        row_start = row_range.start,
-                        row_end = row_range.end,
-                        "use bool streaming mask"
-                    );
-                }
-                return self.execute_stream(row_range, ctx);
-            }
             if trace_flow() {
                 tracing::debug!(
                     target: "vortex_layout::v2::flow",

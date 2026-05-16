@@ -9,7 +9,6 @@
 //! plan each as a bool-stream, AND them, and wrap the projection
 //! plan with `FilterPlan`. See `LAYOUT_PLAN.md` § Scan construction.
 
-use std::env;
 use std::sync::Arc;
 
 use vortex_array::dtype::DType;
@@ -37,7 +36,6 @@ use crate::v2::dataflow::OutputFrontier;
 use crate::v2::dataflow::execute_with_single_scheduler;
 use crate::v2::demand::DemandSource;
 use crate::v2::demand::RowDemand;
-use crate::v2::experiment::bool_var;
 use crate::v2::experiment::trace_flow;
 use crate::v2::filter::FilterPlan;
 use crate::v2::plan::LayoutPlan;
@@ -123,16 +121,7 @@ impl Scan {
                 Ok((idx, cost, expr, plan))
             })
             .collect::<VortexResult<_>>()?;
-        if let Some(order) = conjunct_order_override(conjunct_plans.len()) {
-            conjunct_plans.sort_by_key(|(idx, ..)| {
-                order
-                    .iter()
-                    .position(|ordered_idx| ordered_idx == idx)
-                    .unwrap_or(*idx)
-            });
-        } else {
-            conjunct_plans.sort_by_key(|(idx, cost, ..)| (*cost, *idx));
-        }
+        conjunct_plans.sort_by_key(|(idx, cost, ..)| (*cost, *idx));
         tracing::debug!(
             order = ?conjunct_plans
                 .iter()
@@ -236,27 +225,6 @@ fn utf8_literal(expr: &Expression) -> Option<&str> {
         .as_utf8_opt()?
         .value()
         .map(|s| s.as_str())
-}
-
-fn conjunct_order_override(conjunct_count: usize) -> Option<Vec<usize>> {
-    let raw = env::var("VORTEX_V2_CONJUNCT_ORDER").ok()?;
-    let parsed: Option<Vec<usize>> = raw
-        .split(',')
-        .map(|part| part.trim().parse::<usize>().ok())
-        .collect();
-    let parsed = parsed?;
-    if parsed.len() != conjunct_count
-        || parsed.iter().any(|idx| *idx >= conjunct_count)
-        || (0..conjunct_count).any(|idx| !parsed.contains(&idx))
-    {
-        tracing::warn!(
-            order = raw,
-            conjunct_count,
-            "ignoring invalid VORTEX_V2_CONJUNCT_ORDER"
-        );
-        return None;
-    }
-    Some(parsed)
 }
 
 /// Top-level wrapper installed by [`Scan::build`] for filtered scans.
@@ -419,16 +387,13 @@ impl LayoutPlan for ScanPlan {
 
         let frontier =
             OutputFrontier::unbounded(self.total_rows).clone_with_offset(row_range.clone());
-        if bool_var("VORTEX_V2_SCHEDULER_EXECUTE") {
-            return execute_with_single_scheduler(
-                Arc::clone(&self.body),
-                row_range,
-                demand,
-                frontier,
-                ctx.clone(),
-            );
-        }
-        self.body.execute(row_range, &demand, &frontier, ctx)
+        execute_with_single_scheduler(
+            Arc::clone(&self.body),
+            row_range,
+            demand,
+            frontier,
+            ctx.clone(),
+        )
     }
 }
 
@@ -945,49 +910,10 @@ mod tests {
             projection.clone(),
             Some(filter.clone()),
         )?;
-        let v2 = temp_env::with_var("VORTEX_V2_SCHEDULER_EXECUTE", Some("1"), || {
-            read_v2_with(Arc::clone(&segments), &layout, projection, Some(filter))
-        })?;
+        let v2 = read_v2_with(Arc::clone(&segments), &layout, projection, Some(filter))?;
 
         assert_arrays_eq!(v1, v2);
         Ok(())
-    }
-
-    /// The experimental dataflow filter path should preserve the
-    /// observable filtered-scan result while delaying value execution
-    /// until mask coverage is available.
-    #[test]
-    fn diff_v1_v2_filtered_chunked_struct_dataflow_filter() -> VortexResult<()> {
-        use vortex_array::expr::and;
-        use vortex_array::expr::eq;
-        use vortex_array::expr::get_item;
-        use vortex_array::expr::gt;
-        use vortex_array::expr::lit;
-        let (segments, layout, _) = build_chunked_struct_layout();
-
-        let projection = root();
-        let filter = and(
-            gt(get_item("a", root()), lit(1i32)),
-            eq(get_item("b", root()), lit(40i32)),
-        );
-
-        temp_env::with_vars(
-            [
-                ("VORTEX_V2_FILTER_DATAFLOW", Some("1")),
-                ("VORTEX_V2_FILTER_DATAFLOW_MIN_VALUE_ROWS", Some("2")),
-            ],
-            || {
-                let v1 = read_v1_with(
-                    Arc::clone(&segments),
-                    &layout,
-                    projection.clone(),
-                    Some(filter.clone()),
-                )?;
-                let v2 = read_v2_with(Arc::clone(&segments), &layout, projection, Some(filter))?;
-                assert_arrays_eq!(v1, v2);
-                Ok(())
-            },
-        )
     }
 
     /// Build a `Zoned(Chunked(Flat))` layout — three chunks of 3

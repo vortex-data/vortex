@@ -48,7 +48,6 @@ use crate::v2::dataflow::LayoutLoweringCtx;
 use crate::v2::dataflow::OutputEstimate;
 use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
-use crate::v2::experiment::bool_var;
 use crate::v2::experiment::trace_flow;
 use crate::v2::filtered_flat::FilteredFlatPlan;
 use crate::v2::placeholder::default_array;
@@ -329,20 +328,14 @@ impl LayoutPlan for FlatPlan {
                 let grant_len = grant.range().end - grant.range().start;
                 let local_range = (row_range_for_slice.start + grant.range().start)
                     ..(row_range_for_slice.start + grant.range().end);
-                if !bool_var("VORTEX_V2_DISABLE_ROW_DEMAND") {
-                    let demanded_rows = if bool_var("VORTEX_V2_ROW_DEMAND_RANGE_PULL") {
-                        demand.cardinality_uncached(local_range.clone()).await?
-                    } else {
-                        demand.cardinality(local_range.clone()).await?
-                    };
-                    if demanded_rows == 0 {
-                        let len = usize::try_from(grant_len).map_err(|_| {
-                            vortex_err!("FlatPlan: grant length exceeds usize: {grant_len}")
-                        })?;
-                        yield default_array(&output_dtype, len);
-                        cursor = grant.range().end;
-                        continue;
-                    }
+                let demanded_rows = demand.cardinality(local_range.clone()).await?;
+                if demanded_rows == 0 {
+                    let len = usize::try_from(grant_len).map_err(|_| {
+                        vortex_err!("FlatPlan: grant length exceeds usize: {grant_len}")
+                    })?;
+                    yield default_array(&output_dtype, len);
+                    cursor = grant.range().end;
+                    continue;
                 }
                 if decoded.is_none() {
                     decoded = Some(decode_segment(

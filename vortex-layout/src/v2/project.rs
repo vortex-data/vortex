@@ -25,7 +25,6 @@ use vortex_error::vortex_bail;
 
 use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
-use crate::v2::experiment::bool_var;
 use crate::v2::experiment::trace_flow;
 use crate::v2::placeholder::default_array;
 use crate::v2::plan::LayoutPlan;
@@ -167,39 +166,26 @@ impl LayoutPlan for ProjectPlan {
 
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
-        if bool_var("VORTEX_V2_VALUE_TREE_ROW_DEMAND") && !bool_var("VORTEX_V2_DISABLE_ROW_DEMAND")
-        {
-            let child = Arc::clone(&self.child);
-            let expr = self.expr.clone();
-            let dtype = self.output_dtype.clone();
-            let output_dtype = dtype.clone();
-            let demand = demand.clone();
-            let frontier = frontier.clone();
-            let ctx = ctx.clone();
-            let stream = try_stream! {
-                let demanded_rows = if bool_var("VORTEX_V2_ROW_DEMAND_RANGE_PULL") {
-                    demand.cardinality_uncached(row_range.clone()).await?
-                } else {
-                    demand.cardinality(row_range.clone()).await?
-                };
-                if demanded_rows == 0 {
-                    let len = usize::try_from(row_range.end - row_range.start)?;
-                    yield default_array(&output_dtype, len);
-                    return;
-                }
-
-                let mut inner = child.execute(row_range, &demand, &frontier, &ctx)?;
-                while let Some(chunk) = inner.next().await {
-                    yield chunk?.apply(&expr)?;
-                }
-            };
-            return Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)));
-        }
-
-        let inner = self.child.execute(row_range, demand, frontier, ctx)?;
+        let child = Arc::clone(&self.child);
         let expr = self.expr.clone();
         let dtype = self.output_dtype.clone();
-        let mapped = inner.map(move |chunk_res| chunk_res.and_then(|chunk| chunk.apply(&expr)));
-        Ok(Box::pin(ArrayStreamAdapter::new(dtype, mapped)))
+        let output_dtype = dtype.clone();
+        let demand = demand.clone();
+        let frontier = frontier.clone();
+        let ctx = ctx.clone();
+        let stream = try_stream! {
+            let demanded_rows = demand.cardinality(row_range.clone()).await?;
+            if demanded_rows == 0 {
+                let len = usize::try_from(row_range.end - row_range.start)?;
+                yield default_array(&output_dtype, len);
+                return;
+            }
+
+            let mut inner = child.execute(row_range, &demand, &frontier, &ctx)?;
+            while let Some(chunk) = inner.next().await {
+                yield chunk?.apply(&expr)?;
+            }
+        };
+        Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))
     }
 }

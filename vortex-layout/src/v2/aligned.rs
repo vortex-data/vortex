@@ -59,7 +59,6 @@ use vortex_io::runtime::Handle;
 use vortex_io::runtime::Task;
 
 use crate::v2::experiment::trace_flow;
-use crate::v2::experiment::usize_var;
 
 /// How many chunks each child's producer may run ahead of the zip.
 /// Bounded by the channel capacity — backpressure kicks in when the
@@ -111,8 +110,7 @@ impl AlignedArrayStream {
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
         let mut child_states = Vec::with_capacity(children.len());
         let mut producers = Vec::with_capacity(children.len());
-        let buffer_depth =
-            usize_var("VORTEX_V2_ALIGNED_BUFFER_DEPTH").unwrap_or(CHILD_BUFFER_DEPTH);
+        let buffer_depth = CHILD_BUFFER_DEPTH;
         let child_count = children.len();
         if trace_flow() {
             tracing::debug!(

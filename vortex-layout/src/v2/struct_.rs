@@ -28,7 +28,6 @@ use vortex_io::session::RuntimeSessionExt;
 use crate::v2::aligned::AlignedArrayStream;
 use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
-use crate::v2::experiment::bool_var;
 use crate::v2::experiment::trace_flow;
 use crate::v2::placeholder::default_array;
 use crate::v2::plan::LayoutPlan;
@@ -153,13 +152,6 @@ impl LayoutPlan for StructPlan {
     }
 
     fn try_pushdown_mask(self: Arc<Self>, mask_plan: LayoutPlanRef) -> Option<LayoutPlanRef> {
-        if bool_var("VORTEX_V2_DISABLE_STRUCT_MASK_PUSHDOWN") {
-            return None;
-        }
-        if self.children.len() > 1 && !bool_var("VORTEX_V2_ENABLE_MULTI_FIELD_STRUCT_MASK_PUSHDOWN")
-        {
-            return None;
-        }
         // All fields share the struct's row space, so each can
         // accept the same mask. If any field can't absorb, bail —
         // a partial pushdown would mean some fields filter and
@@ -237,111 +229,58 @@ impl LayoutPlan for StructPlan {
             vortex_bail!("StructPlan does not yet support nullable structs");
         }
 
-        if bool_var("VORTEX_V2_VALUE_TREE_ROW_DEMAND") && !bool_var("VORTEX_V2_DISABLE_ROW_DEMAND")
-        {
-            let children = self.children.clone();
-            let field_names = self.field_names.clone();
-            let output_dtype = self.output_dtype.clone();
-            let dtype = output_dtype.clone();
-            let demand = demand.clone();
-            let frontier = frontier.clone();
-            let ctx = ctx.clone();
-            let stream = try_stream! {
-                let demanded_rows = if bool_var("VORTEX_V2_ROW_DEMAND_RANGE_PULL") {
-                    demand.cardinality_uncached(row_range.clone()).await?
-                } else {
-                    demand.cardinality(row_range.clone()).await?
-                };
-                if demanded_rows == 0 {
-                    let len = usize::try_from(row_range.end - row_range.start)?;
-                    yield default_array(&output_dtype, len);
-                    return;
-                }
+        let children = self.children.clone();
+        let field_names = self.field_names.clone();
+        let output_dtype = self.output_dtype.clone();
+        let dtype = output_dtype.clone();
+        let demand = demand.clone();
+        let frontier = frontier.clone();
+        let ctx = ctx.clone();
+        let stream = try_stream! {
+            let demanded_rows = demand.cardinality(row_range.clone()).await?;
+            if demanded_rows == 0 {
+                let len = usize::try_from(row_range.end - row_range.start)?;
+                yield default_array(&output_dtype, len);
+                return;
+            }
 
-                let mut child_streams = Vec::with_capacity(children.len());
-                if trace_flow() {
-                    tracing::debug!(
-                        target: "vortex_layout::v2::flow",
-                        row_start = row_range.start,
-                        row_end = row_range.end,
-                        child_count = children.len(),
-                        "struct execute"
-                    );
-                }
-                for child in &children {
-                    child_streams.push(child.execute(row_range.clone(), &demand, &frontier, &ctx)?);
-                }
-
-                let names: FieldNames = FieldNames::from(field_names.as_slice());
-                let mut aligned =
-                    Box::pin(AlignedArrayStream::new_labeled(child_streams, ctx.session().handle(), "struct"));
-                while let Some(result) = aligned.next().await {
-                    let arrays = result?;
-                    let len = arrays.first().map_or(0, |a| a.len());
-                    if trace_flow() {
-                        tracing::debug!(
-                            target: "vortex_layout::v2::flow",
-                            len,
-                            field_count = arrays.len(),
-                            "struct emit"
-                        );
-                    }
-                    yield StructArray::try_new(
-                        names.clone(),
-                        arrays,
-                        len,
-                        Validity::NonNullable,
-                    )?
-                    .into_array();
-                }
-            };
-            return Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)));
-        }
-
-        let mut child_streams = Vec::with_capacity(self.children.len());
-        if trace_flow() {
-            tracing::debug!(
-                target: "vortex_layout::v2::flow",
-                row_start = row_range.start,
-                row_end = row_range.end,
-                child_count = self.children.len(),
-                "struct execute"
-            );
-        }
-        for child in &self.children {
-            child_streams.push(child.execute(row_range.clone(), demand, frontier, ctx)?);
-        }
-
-        // Different fields can return arrays at different chunk
-        // granularities for the same row range (the writer's
-        // byte-based coalescing produces one big chunk for narrow
-        // numeric columns and several smaller chunks for wide string
-        // columns). `AlignedArrayStream` k-way-zips the children,
-        // slicing each step to the smallest currently-available
-        // length so we emit row-aligned struct batches without
-        // collecting either side fully into memory.
-        let names: FieldNames = FieldNames::from(self.field_names.as_slice());
-        let dtype = self.output_dtype.clone();
-
-        let aligned =
-            AlignedArrayStream::new_labeled(child_streams, ctx.session().handle(), "struct");
-        let zipped = aligned.map(move |result| {
-            let arrays = result?;
-            let len = arrays.first().map_or(0, |a| a.len());
+            let mut child_streams = Vec::with_capacity(children.len());
             if trace_flow() {
                 tracing::debug!(
                     target: "vortex_layout::v2::flow",
-                    len,
-                    field_count = arrays.len(),
-                    "struct emit"
+                    row_start = row_range.start,
+                    row_end = row_range.end,
+                    child_count = children.len(),
+                    "struct execute"
                 );
             }
-            Ok(
-                StructArray::try_new(names.clone(), arrays, len, Validity::NonNullable)?
-                    .into_array(),
-            )
-        });
+            for child in &children {
+                child_streams.push(child.execute(row_range.clone(), &demand, &frontier, &ctx)?);
+            }
 
-        Ok(Box::pin(ArrayStreamAdapter::new(dtype, zipped)))
+            let names: FieldNames = FieldNames::from(field_names.as_slice());
+            let mut aligned =
+                Box::pin(AlignedArrayStream::new_labeled(child_streams, ctx.session().handle(), "struct"));
+            while let Some(result) = aligned.next().await {
+                let arrays = result?;
+                let len = arrays.first().map_or(0, |a| a.len());
+                if trace_flow() {
+                    tracing::debug!(
+                        target: "vortex_layout::v2::flow",
+                        len,
+                        field_count = arrays.len(),
+                        "struct emit"
+                    );
+                }
+                yield StructArray::try_new(
+                    names.clone(),
+                    arrays,
+                    len,
+                    Validity::NonNullable,
+                )?
+                .into_array();
+            }
+        };
+        Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))
     }
 }

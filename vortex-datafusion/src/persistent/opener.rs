@@ -517,46 +517,16 @@ impl FileOpener for VortexOpener {
 
                 let scan_ctx = vortex::layout::v2::scan_ctx::ScanCtx::new(session.clone())
                     .with_debug_label(Arc::clone(&scan_label));
-                let v2_split_execute =
-                    std::env::var("VORTEX_V2_SPLIT_EXECUTE").is_ok_and(|value| {
-                        matches!(
-                            value.trim().to_ascii_lowercase().as_str(),
-                            "1" | "true" | "yes" | "on"
-                        )
-                    });
-                let v2_ranges = if v2_split_execute && !has_output_ordering {
-                    let natural_split_ranges = natural_split_ranges_for_file(
-                        natural_split_ranges.as_ref(),
-                        &file.object_meta.location,
-                        &layout_reader,
-                    )?;
-                    let split_ranges =
-                        intersect_split_ranges(natural_split_ranges.as_ref(), &v2_range);
-                    if split_ranges.is_empty() {
-                        vec![v2_range.clone()]
-                    } else {
-                        split_ranges
-                    }
-                } else {
-                    vec![v2_range.clone()]
-                };
-                let v2_concurrency = scan_concurrency.unwrap_or_else(|| {
-                    4 * std::thread::available_parallelism()
-                        .map(usize::from)
-                        .unwrap_or(1)
-                });
-
-                let chunk_stream = stream::iter(v2_ranges).map(move |range| {
-                    // Top-level call into the plan tree. ScanPlan installs
-                    // a fresh per-scan RowDemand internally; pass detached
-                    // here to satisfy the parameter shape.
-                    let parent_demand = vortex::layout::v2::demand::RowDemand::empty(total_rows);
-                    let parent_frontier =
-                        vortex::layout::v2::dataflow::OutputFrontier::unbounded(total_rows)
-                            .clone_with_offset(range.clone());
-                    plan.execute(range, &parent_demand, &parent_frontier, &scan_ctx)
-                });
-                let chunk_stream = chunk_stream.try_flatten_unordered(Some(v2_concurrency));
+                // Top-level call into the plan tree. ScanPlan installs
+                // a fresh per-scan RowDemand internally; pass detached
+                // here to satisfy the parameter shape.
+                let parent_demand = vortex::layout::v2::demand::RowDemand::empty(total_rows);
+                let parent_frontier =
+                    vortex::layout::v2::dataflow::OutputFrontier::unbounded(total_rows)
+                        .clone_with_offset(v2_range.clone());
+                let chunk_stream = plan
+                    .execute(v2_range, &parent_demand, &parent_frontier, &scan_ctx)
+                    .map_err(|e| exec_datafusion_err!("Failed to execute LayoutPlan v2: {e}"))?;
 
                 chunk_stream
                     .map(move |chunk_res: vortex::error::VortexResult<ArrayRef>| {
@@ -697,17 +667,6 @@ fn compute_natural_split_ranges(layout_reader: &dyn LayoutReader) -> DFResult<Ar
         .collect::<Vec<_>>();
 
     Ok(split_points.into())
-}
-
-fn intersect_split_ranges(split_ranges: &[Range<u64>], row_range: &Range<u64>) -> Vec<Range<u64>> {
-    split_ranges
-        .iter()
-        .filter_map(|split| {
-            let start = split.start.max(row_range.start);
-            let end = split.end.min(row_range.end);
-            (start < end).then_some(start..end)
-        })
-        .collect()
 }
 
 /// Translate a DataFusion byte range to the contiguous natural split ranges it owns.
