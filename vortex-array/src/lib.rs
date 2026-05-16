@@ -66,6 +66,7 @@ pub mod search_sorted;
 pub mod serde;
 pub mod session;
 mod col_ovc;
+mod ovc_encoded;
 mod ovc_mixed;
 mod smj;
 pub mod stats;
