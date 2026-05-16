@@ -73,68 +73,110 @@ impl CompareKernel for Dict {
 
 /// Sorted-values fast path for comparing a dict to a constant.
 ///
-/// For sorted values, the predicate `value OP scalar` partitions the values into a contiguous
-/// range. Translate the predicate into a single code-domain comparison and run it against the
-/// codes child directly.
+/// For sorted values, the predicate `value OP scalar` partitions the values into a
+/// contiguous range. We resolve that range via one or two binary searches on the values
+/// array, build a tiny `BoolArray` of length `dict_len` representing the predicate per
+/// dictionary slot, then dict-wrap and canonicalize. This is the same pipeline as the
+/// existing path (`take(bool, codes)`), except the values-side comparison is replaced by
+/// O(log dict_len) instead of O(dict_len).
 pub(crate) fn sorted_compare_scalar(
     lhs: ArrayView<'_, Dict>,
     scalar: &Scalar,
     operator: CompareOperator,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ArrayRef>> {
-    let values = lhs.values();
+    let values = lhs.values().clone();
     let codes = lhs.codes().clone();
     let codes_len = codes.len();
-
+    let dict_len = values.len();
     let result_nullability = codes.dtype().nullability();
 
-    // Helper: emit a constant bool of length `codes_len` with the codes' nullability.
     let const_bool = |b: bool| -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(Scalar::bool(b, result_nullability), codes_len).into_array())
     };
 
-    let values_ref: ArrayRef = values.clone();
-    let left = values_ref.search_sorted(scalar, SearchSortedSide::Left)?;
-    let right = values_ref.search_sorted(scalar, SearchSortedSide::Right)?;
+    let left = values.search_sorted(scalar, SearchSortedSide::Left)?;
+    let right = values.search_sorted(scalar, SearchSortedSide::Right)?;
 
-    // Codes form an order-preserving encoding, so the predicate translates as follows.
-    // Use `Left` for `<`-style boundaries (first index >= scalar) and `Right` for `>`-style
-    // (first index > scalar).
-    let (codes_op, codes_threshold) = match operator {
+    // Resolve the predicate to a half-open range `[lo, hi)` of dictionary slots
+    // for which the predicate is `true`.
+    let (lo, hi): (usize, usize) = match operator {
         CompareOperator::Eq => match left {
-            SearchResult::Found(i) => (Operator::Eq, i),
+            SearchResult::Found(i) => (i, i + 1),
             SearchResult::NotFound(_) => return const_bool(false).map(Some),
         },
         CompareOperator::NotEq => match left {
-            SearchResult::Found(i) => (Operator::NotEq, i),
+            SearchResult::Found(i) => {
+                // True everywhere except slot `i`. Two ranges: [0,i) ∪ [i+1, dict_len).
+                // Build the boolean directly below.
+                let bool_values = build_two_range_bool(dict_len, i)?;
+                return wrap_and_canonicalize(codes, bool_values, ctx).map(Some);
+            }
             SearchResult::NotFound(_) => {
-                // All values != scalar; codes are also != scalar.
-                // But preserve nulls: result is null where the code is null.
                 if matches!(result_nullability, Nullability::Nullable) {
-                    // codes != codes.max + 1 will be true wherever codes is non-null.
-                    // Simpler: just const bool true preserving validity isn't trivial without
-                    // a per-code mask. Fall back to the slow path.
+                    // Nulls in codes must be preserved; fall back to the existing path
+                    // which handles that via DictArray<codes, bool_values>.
                     return Ok(None);
                 }
                 return const_bool(true).map(Some);
             }
         },
-        // value < scalar  iff  code < left
-        CompareOperator::Lt => (Operator::Lt, left.to_index()),
-        // value <= scalar iff  code < right
-        CompareOperator::Lte => (Operator::Lt, right.to_index()),
-        // value > scalar  iff  code >= right
-        CompareOperator::Gt => (Operator::Gte, right.to_index()),
-        // value >= scalar iff  code >= left
-        CompareOperator::Gte => (Operator::Gte, left.to_index()),
+        CompareOperator::Lt => (0, left.to_index()),
+        CompareOperator::Lte => (0, right.to_index()),
+        CompareOperator::Gt => (right.to_index(), dict_len),
+        CompareOperator::Gte => (left.to_index(), dict_len),
     };
 
-    // Build a same-typed scalar matching the codes ptype.
-    let codes_threshold_scalar = code_threshold_scalar(&codes, codes_threshold)?;
-    let threshold_arr =
-        ConstantArray::new(codes_threshold_scalar, codes_len).into_array();
-    let result = codes.binary(threshold_arr, codes_op)?;
-    Ok(Some(result.execute::<Canonical>(ctx)?.into_array()))
+    if lo >= hi {
+        return const_bool(false).map(Some);
+    }
+    if lo == 0 && hi == dict_len {
+        // All-true. Same caveat as NotEq above for nullable codes; the take/dict-wrap path
+        // preserves nulls correctly when we go through it.
+        if !matches!(result_nullability, Nullability::Nullable) {
+            return const_bool(true).map(Some);
+        }
+    }
+
+    let bool_values = build_range_bool(dict_len, lo, hi)?;
+    wrap_and_canonicalize(codes, bool_values, ctx).map(Some)
+}
+
+/// Build a non-nullable `BoolArray` of `dict_len` where the range `[lo, hi)` is true.
+fn build_range_bool(dict_len: usize, lo: usize, hi: usize) -> VortexResult<ArrayRef> {
+    use vortex_buffer::BitBufferMut;
+    let mut bb = BitBufferMut::with_capacity(dict_len);
+    // Append `lo` false, `hi-lo` true, `dict_len-hi` false.
+    bb.append_n(false, lo);
+    bb.append_n(true, hi - lo);
+    bb.append_n(false, dict_len - hi);
+    use crate::arrays::BoolArray;
+    use crate::validity::Validity;
+    Ok(BoolArray::new(bb.freeze(), Validity::NonNullable).into_array())
+}
+
+/// Build a non-nullable `BoolArray` of `dict_len` where every slot is true except `skip_idx`.
+fn build_two_range_bool(dict_len: usize, skip_idx: usize) -> VortexResult<ArrayRef> {
+    use vortex_buffer::BitBufferMut;
+    let mut bb = BitBufferMut::with_capacity(dict_len);
+    bb.append_n(true, skip_idx);
+    bb.append_false();
+    bb.append_n(true, dict_len - skip_idx - 1);
+    use crate::arrays::BoolArray;
+    use crate::validity::Validity;
+    Ok(BoolArray::new(bb.freeze(), Validity::NonNullable).into_array())
+}
+
+/// Wrap a small per-dict bool array as a `DictArray<codes, bool_values>` and canonicalize.
+/// This reuses the highly-optimized take(BoolArray, codes) path.
+fn wrap_and_canonicalize(
+    codes: ArrayRef,
+    bool_values: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    // SAFETY: bool_values len equals dict_len, codes already index into it correctly.
+    let dict = unsafe { DictArray::new_unchecked(codes, bool_values).into_array() };
+    Ok(dict.execute::<Canonical>(ctx)?.into_array())
 }
 
 /// Build a `Scalar` of the codes' ptype holding `idx`. `idx` is guaranteed to be in
@@ -148,7 +190,6 @@ pub(crate) fn code_threshold_scalar(codes: &ArrayRef, idx: usize) -> VortexResul
         DType::Primitive(PType::U16, _) => Ok(Scalar::primitive(idx as u16, nullability)),
         DType::Primitive(PType::U32, _) => Ok(Scalar::primitive(idx as u32, nullability)),
         DType::Primitive(PType::U64, _) => Ok(Scalar::primitive(idx as u64, nullability)),
-        // Vortex guarantees codes are unsigned; signed codes are external compat only.
         DType::Primitive(PType::I8, _) => Ok(Scalar::primitive(idx as i8, nullability)),
         DType::Primitive(PType::I16, _) => Ok(Scalar::primitive(idx as i16, nullability)),
         DType::Primitive(PType::I32, _) => Ok(Scalar::primitive(idx as i32, nullability)),
