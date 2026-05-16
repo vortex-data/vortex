@@ -12,11 +12,9 @@ use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::dict::DictArraySlotsExt;
-use crate::arrays::dict::compute::compare::emit_code_cmp;
 use crate::arrays::dict::compute::compare::scan_sorted_bounds;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::between::BetweenOptions;
-use crate::scalar_fn::fns::operators::Operator;
 
 /// Reduce-rule entry point: emit the AST for a sorted-dict BETWEEN without running the
 /// executor. Returns `None` if the typed scan doesn't apply (caller falls back to the
@@ -55,7 +53,9 @@ pub(crate) fn reduce_sorted_between(
     };
 
     // Empty range / full range: short-circuit to a constant, which Mask::execute folds
-    // to AllFalse/AllTrue in O(1).
+    // to AllFalse/AllTrue in O(1). For the other cases the take-based push-down is
+    // faster than the codes-domain Between on uncompressed primitive codes (the bool
+    // dict fits in L1, so take_bool beats SIMD cmp by ~25%).
     if code_lo >= code_hi {
         return Ok(Some(
             ConstantArray::new(Scalar::bool(false, nullability), codes_len).into_array(),
@@ -66,34 +66,7 @@ pub(crate) fn reduce_sorted_between(
             ConstantArray::new(Scalar::bool(true, nullability), codes_len).into_array(),
         ));
     }
-
-    // Single-sided range: one primitive cmp on codes.
-    if code_lo == 0 {
-        return Ok(Some(emit_code_cmp(&codes, code_hi, Operator::Lt)?));
-    }
-    if code_hi >= dict_len {
-        return Ok(Some(emit_code_cmp(&codes, code_lo, Operator::Gte)?));
-    }
-
-    // Two-sided range: emit a single Between expression on the codes so the canonical
-    // primitive Between kernel walks the codes once. Same SIMD-cmp economics as Lt/Gte,
-    // and beats push-down + take_bool by 20-30% past L1.
-    use crate::arrays::dict::compute::compare::code_threshold_scalar;
-    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
-    use crate::scalar_fn::fns::between::Between;
-    use crate::scalar_fn::fns::between::StrictComparison;
-
-    let lower_scalar = code_threshold_scalar(&codes, code_lo)?;
-    let upper_scalar = code_threshold_scalar(&codes, code_hi - 1)?;
-    let lower_arr = ConstantArray::new(lower_scalar, codes_len).into_array();
-    let upper_arr = ConstantArray::new(upper_scalar, codes_len).into_array();
-    let between_opts = BetweenOptions {
-        lower_strict: StrictComparison::NonStrict,
-        upper_strict: StrictComparison::NonStrict,
-    };
-    Between
-        .try_new_array(codes_len, between_opts, [codes, lower_arr, upper_arr])
-        .map(Some)
+    Ok(None)
 }
 
 #[cfg(test)]

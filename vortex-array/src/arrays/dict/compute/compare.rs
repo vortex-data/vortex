@@ -91,138 +91,96 @@ pub(crate) fn reduce_sorted_compare(
         ConstantArray::new(Scalar::bool(b, result_nullability), codes_len).into_array()
     };
 
-    // Strategy: always emit a code-domain rewrite. For sorted dicts,
-    //   code OP threshold
-    // is one SIMD pass over the codes; the alternative (push-down + take_bool)
-    // does indexed bit-reads with dependent loads, which the SIMD cmp beats by
-    // 20-30% past L1 (raw_u16_lt_baseline vs raw_take_bool_baseline at N >= 100k).
-    // Plus: when the boundary falls at an extreme of the dict we collapse to a
-    // ConstantArray, which Mask::execute folds to AllTrue/AllFalse in O(1) — a
-    // 17-57x win on the bench.
+    // Strategy: only fold to a constant short-circuit. With uncompressed primitive
+    // codes ≤ u16 (max dict_len = 64k), the values-side bool array fits in L1, so
+    // `take(bool[dict_len], codes)` is ~25% faster than SIMD cmp on the codes
+    // (random-access take_bool beats Arrow cmp due to lower per-op overhead).
+    // The constant cases stay big wins because Mask::execute folds ConstantArray
+    // to AllTrue/AllFalse in O(1).
+    //
+    // (For compressed codes — FoR / bit-packed — the trade-off flips: cmp can run on
+    // the compressed buffer while take must materialize. That belongs on the codes
+    // encoding's CompareKernel, not here.)
     match operator {
         CompareOperator::Eq => match bounds.found {
-            Some(i) => Ok(Some(emit_code_cmp(&codes, i, Operator::Eq)?)),
+            Some(_) => Ok(None),
             None => Ok(Some(const_bool(false))),
         },
         CompareOperator::NotEq => match bounds.found {
-            Some(i) => Ok(Some(emit_code_cmp(&codes, i, Operator::NotEq)?)),
+            Some(_) => Ok(None),
             None => {
                 if matches!(result_nullability, Nullability::Nullable) {
-                    // Need to preserve nulls on the codes; fall back.
                     Ok(None)
                 } else {
                     Ok(Some(const_bool(true)))
                 }
             }
         },
-        // value < scalar  iff  code < left   (left = first idx where value >= scalar)
-        CompareOperator::Lt => emit_lt_or_cmp(
-            &codes,
+        CompareOperator::Lt => emit_const_at_extreme(
             bounds.left,
             dict_len,
+            /* lt = */ true,
             result_nullability,
             codes_len,
         ),
-        // value <= scalar iff  code < right
-        CompareOperator::Lte => emit_lt_or_cmp(
-            &codes,
+        CompareOperator::Lte => emit_const_at_extreme(
             bounds.right,
             dict_len,
+            true,
             result_nullability,
             codes_len,
         ),
-        // value > scalar  iff  code >= right
-        CompareOperator::Gt => emit_gte_or_cmp(
-            &codes,
+        CompareOperator::Gt => emit_const_at_extreme(
             bounds.right,
             dict_len,
+            /* lt = */ false,
             result_nullability,
             codes_len,
         ),
-        // value >= scalar iff  code >= left
-        CompareOperator::Gte => emit_gte_or_cmp(
-            &codes,
+        CompareOperator::Gte => emit_const_at_extreme(
             bounds.left,
             dict_len,
+            false,
             result_nullability,
             codes_len,
         ),
     }
 }
 
-/// `result = (code < bound)`. Folds to a constant if `bound` is at an extreme;
-/// otherwise emits `code < bound` as a codes-domain primitive compare.
-fn emit_lt_or_cmp(
-    codes: &ArrayRef,
+/// Fold to a constant if `bound` is at an extreme; otherwise return `None` so the
+/// value-push-down rule produces the take-based path (which is faster at this scale
+/// for uncompressed primitive codes).
+fn emit_const_at_extreme(
     bound: usize,
     dict_len: usize,
+    lt: bool,
     nullability: Nullability,
     codes_len: usize,
 ) -> VortexResult<Option<ArrayRef>> {
     let const_bool = |b: bool| -> ArrayRef {
         ConstantArray::new(Scalar::bool(b, nullability), codes_len).into_array()
     };
-    if bound == 0 {
-        return Ok(Some(const_bool(false)));
+    if lt {
+        if bound == 0 {
+            return Ok(Some(const_bool(false)));
+        }
+        if bound >= dict_len && !nullability.is_nullable() {
+            return Ok(Some(const_bool(true)));
+        }
+    } else {
+        if bound == 0 && !nullability.is_nullable() {
+            return Ok(Some(const_bool(true)));
+        }
+        if bound >= dict_len {
+            return Ok(Some(const_bool(false)));
+        }
     }
-    if bound >= dict_len && !nullability.is_nullable() {
-        return Ok(Some(const_bool(true)));
-    }
-    Ok(Some(emit_code_cmp(codes, bound, Operator::Lt)?))
+    Ok(None)
 }
 
-/// `result = (code >= bound)`. Folds to a constant if `bound` is at an extreme;
-/// otherwise emits `code >= bound` as a codes-domain primitive compare.
-fn emit_gte_or_cmp(
-    codes: &ArrayRef,
-    bound: usize,
-    dict_len: usize,
-    nullability: Nullability,
-    codes_len: usize,
-) -> VortexResult<Option<ArrayRef>> {
-    let const_bool = |b: bool| -> ArrayRef {
-        ConstantArray::new(Scalar::bool(b, nullability), codes_len).into_array()
-    };
-    if bound == 0 && !nullability.is_nullable() {
-        return Ok(Some(const_bool(true)));
-    }
-    if bound >= dict_len {
-        return Ok(Some(const_bool(false)));
-    }
-    Ok(Some(emit_code_cmp(codes, bound, Operator::Gte)?))
-}
-
-/// Build a code-domain compare expression: `codes OP threshold_const`. The optimizer's
-/// canonicalize/execute pipeline will dispatch this to Arrow's vectorized primitive cmp.
-pub(crate) fn emit_code_cmp(
-    codes: &ArrayRef,
-    threshold: usize,
-    op: Operator,
-) -> VortexResult<ArrayRef> {
-    let threshold_scalar = code_threshold_scalar(codes, threshold)?;
-    let len = codes.len();
-    let threshold_arr = ConstantArray::new(threshold_scalar, len).into_array();
-    codes.clone().binary(threshold_arr, op)
-}
-
-/// Build a `Scalar` of the codes' ptype holding `idx`. `idx` is in `0..=dict_len` and
-/// `dict_len` already fits in the codes ptype by DictArray invariant.
-pub(crate) fn code_threshold_scalar(codes: &ArrayRef, idx: usize) -> VortexResult<Scalar> {
-    use crate::dtype::DType;
-    use crate::dtype::PType;
-    let nullability = codes.dtype().nullability();
-    match codes.dtype() {
-        DType::Primitive(PType::U8, _) => Ok(Scalar::primitive(idx as u8, nullability)),
-        DType::Primitive(PType::U16, _) => Ok(Scalar::primitive(idx as u16, nullability)),
-        DType::Primitive(PType::U32, _) => Ok(Scalar::primitive(idx as u32, nullability)),
-        DType::Primitive(PType::U64, _) => Ok(Scalar::primitive(idx as u64, nullability)),
-        DType::Primitive(PType::I8, _) => Ok(Scalar::primitive(idx as i8, nullability)),
-        DType::Primitive(PType::I16, _) => Ok(Scalar::primitive(idx as i16, nullability)),
-        DType::Primitive(PType::I32, _) => Ok(Scalar::primitive(idx as i32, nullability)),
-        DType::Primitive(PType::I64, _) => Ok(Scalar::primitive(idx as i64, nullability)),
-        other => vortex_error::vortex_bail!("dict codes have unexpected dtype {other}"),
-    }
-}
+// (Codes-domain compare emit helpers removed: with uncompressed primitive codes ≤ u16
+// the take-based push-down is faster than a codes-domain cmp. They'll come back when a
+// compressed codes encoding can answer the cmp on the compressed buffer.)
 
 /// Boundary indices on a sorted (ascending, non-nullable) values array.
 #[derive(Debug)]
