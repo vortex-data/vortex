@@ -416,6 +416,10 @@ pub fn vortex_fastlanes::FoR::validate(&self, &Self::TypedArrayData, &vortex_arr
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_fastlanes::FoR> for vortex_fastlanes::FoR
 
+pub fn vortex_fastlanes::FoR::point_scalar_at(vortex_array::array::view::ArrayView<'_, vortex_fastlanes::FoR>, usize, &mut dyn vortex_array::point_fn::dispatch::PointDispatch) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+
+pub fn vortex_fastlanes::FoR::point_search_sorted(vortex_array::array::view::ArrayView<'_, vortex_fastlanes::FoR>, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide, &mut dyn vortex_array::point_fn::dispatch::PointDispatch) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
+
 pub fn vortex_fastlanes::FoR::scalar_at(vortex_array::array::view::ArrayView<'_, vortex_fastlanes::FoR>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::array::vtable::validity::ValidityChild<vortex_fastlanes::FoR> for vortex_fastlanes::FoR
