@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
@@ -65,7 +66,7 @@ impl BoundedMaxPartial {
         self.state = match std::mem::replace(&mut self.state, BoundedMaxState::Empty) {
             BoundedMaxState::Empty => BoundedMaxState::Value(max),
             BoundedMaxState::Value(current) => BoundedMaxState::Value(
-                partial_max(max, current).expect("incomparable bounded max scalars"),
+                partial_max(max, current).vortex_expect("incomparable bounded max scalars"),
             ),
             BoundedMaxState::Unknown => BoundedMaxState::Unknown,
         };
@@ -187,6 +188,25 @@ fn supported_dtype<'a>(options: &BoundedMaxOptions, input_dtype: &'a DType) -> O
         .map(|_| input_dtype)
 }
 
+fn truncate_max(value: Scalar, max_bytes: usize) -> VortexResult<Option<Scalar>> {
+    let nullability = value.dtype().nullability();
+    match value.dtype() {
+        DType::Utf8(_) => {
+            Ok(
+                upper_bound(BufferString::from_scalar(value)?, max_bytes, nullability)
+                    .map(|(bound, _)| bound),
+            )
+        }
+        DType::Binary(_) => {
+            Ok(
+                upper_bound(ByteBuffer::from_scalar(value)?, max_bytes, nullability)
+                    .map(|(bound, _)| bound),
+            )
+        }
+        _ => Ok(Some(value)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
@@ -268,24 +288,5 @@ mod tests {
 
         assert_eq!(roundtrip, options);
         Ok(())
-    }
-}
-
-fn truncate_max(value: Scalar, max_bytes: usize) -> VortexResult<Option<Scalar>> {
-    let nullability = value.dtype().nullability();
-    match value.dtype() {
-        DType::Utf8(_) => {
-            Ok(
-                upper_bound(BufferString::from_scalar(value)?, max_bytes, nullability)
-                    .map(|(bound, _)| bound),
-            )
-        }
-        DType::Binary(_) => {
-            Ok(
-                upper_bound(ByteBuffer::from_scalar(value)?, max_bytes, nullability)
-                    .map(|(bound, _)| bound),
-            )
-        }
-        _ => Ok(Some(value)),
     }
 }

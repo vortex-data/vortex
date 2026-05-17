@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
@@ -56,7 +57,9 @@ impl BoundedMinPartial {
         }
 
         self.min = Some(match self.min.take() {
-            Some(current) => partial_min(min, current).expect("incomparable bounded min scalars"),
+            Some(current) => {
+                partial_min(min, current).vortex_expect("incomparable bounded min scalars")
+            }
             None => min,
         });
     }
@@ -172,6 +175,25 @@ fn supported_dtype<'a>(options: &BoundedMinOptions, input_dtype: &'a DType) -> O
         .map(|_| input_dtype)
 }
 
+fn truncate_min(value: Scalar, max_bytes: usize) -> VortexResult<Option<Scalar>> {
+    let nullability = value.dtype().nullability();
+    match value.dtype() {
+        DType::Utf8(_) => {
+            Ok(
+                lower_bound(BufferString::from_scalar(value)?, max_bytes, nullability)
+                    .map(|(bound, _)| bound),
+            )
+        }
+        DType::Binary(_) => {
+            Ok(
+                lower_bound(ByteBuffer::from_scalar(value)?, max_bytes, nullability)
+                    .map(|(bound, _)| bound),
+            )
+        }
+        _ => Ok(Some(value)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
@@ -241,24 +263,5 @@ mod tests {
 
         assert_eq!(roundtrip, options);
         Ok(())
-    }
-}
-
-fn truncate_min(value: Scalar, max_bytes: usize) -> VortexResult<Option<Scalar>> {
-    let nullability = value.dtype().nullability();
-    match value.dtype() {
-        DType::Utf8(_) => {
-            Ok(
-                lower_bound(BufferString::from_scalar(value)?, max_bytes, nullability)
-                    .map(|(bound, _)| bound),
-            )
-        }
-        DType::Binary(_) => {
-            Ok(
-                lower_bound(ByteBuffer::from_scalar(value)?, max_bytes, nullability)
-                    .map(|(bound, _)| bound),
-            )
-        }
-        _ => Ok(Some(value)),
     }
 }

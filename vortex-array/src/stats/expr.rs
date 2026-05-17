@@ -322,18 +322,15 @@ mod tests {
     }
 
     #[test]
-    fn stat_expr_reads_all_nan_false_for_empty_non_float() -> VortexResult<()> {
+    fn stat_expr_rejects_all_nan_for_non_float() -> VortexResult<()> {
         let array = PrimitiveArray::empty::<i32>(Nullability::NonNullable).into_array();
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
         let result = array
-            .apply(&super::all_nan(root()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
-            .into_array();
+            .apply(&super::all_nan(root()))
+            .and_then(|array| array.execute::<Canonical>(&mut ctx));
 
-        let expected =
-            ConstantArray::new(Scalar::bool(false, Nullability::Nullable), 0).into_array();
-        assert_arrays_eq!(result, expected);
-
+        assert!(result.is_err());
         Ok(())
     }
 

@@ -38,8 +38,8 @@ impl AggregateFnVTable for AllNan {
         Ok(None)
     }
 
-    fn return_dtype(&self, _options: &Self::Options, _input_dtype: &DType) -> Option<DType> {
-        Some(DType::Bool(Nullability::NonNullable))
+    fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        has_nans(input_dtype).then_some(DType::Bool(Nullability::Nullable))
     }
 
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -49,9 +49,9 @@ impl AggregateFnVTable for AllNan {
     fn empty_partial(
         &self,
         _options: &Self::Options,
-        input_dtype: &DType,
+        _input_dtype: &DType,
     ) -> VortexResult<Self::Partial> {
-        Ok(has_nans(input_dtype))
+        Ok(true)
     }
 
     fn combine_partials(&self, partial: &mut Self::Partial, other: Scalar) -> VortexResult<()> {
@@ -60,7 +60,7 @@ impl AggregateFnVTable for AllNan {
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        Ok(Scalar::bool(*partial, Nullability::NonNullable))
+        Ok(Scalar::bool(*partial, Nullability::Nullable))
     }
 
     fn reset(&self, partial: &mut Self::Partial) {
@@ -161,12 +161,19 @@ mod tests {
     }
 
     #[test]
-    fn all_nan_false_for_non_float_values() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    fn all_nan_unsupported_for_non_float_values() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        assert!(Accumulator::try_new(AllNan, EmptyOptions, dtype).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn all_nan_false_with_null() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let dtype = DType::Primitive(PType::F32, Nullability::Nullable);
         let mut acc = Accumulator::try_new(AllNan, EmptyOptions, dtype)?;
 
-        let batch = PrimitiveArray::from_option_iter([Some(1i32), None]).into_array();
+        let batch = PrimitiveArray::from_option_iter([Some(f32::NAN), None]).into_array();
         acc.accumulate(&batch, &mut ctx)?;
 
         assert!(!bool::try_from(&acc.finish()?)?);
@@ -174,11 +181,11 @@ mod tests {
     }
 
     #[test]
-    fn all_nan_false_for_empty_non_float_values() -> VortexResult<()> {
-        let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+    fn all_nan_true_for_empty_float_values() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::F32, Nullability::Nullable);
         let mut acc = Accumulator::try_new(AllNan, EmptyOptions, dtype)?;
 
-        assert!(!bool::try_from(&acc.finish()?)?);
+        assert!(bool::try_from(&acc.finish()?)?);
         Ok(())
     }
 }

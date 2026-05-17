@@ -38,8 +38,8 @@ impl AggregateFnVTable for AllNonNan {
         Ok(None)
     }
 
-    fn return_dtype(&self, _options: &Self::Options, _input_dtype: &DType) -> Option<DType> {
-        Some(DType::Bool(Nullability::NonNullable))
+    fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
+        has_nans(input_dtype).then_some(DType::Bool(Nullability::Nullable))
     }
 
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -60,7 +60,7 @@ impl AggregateFnVTable for AllNonNan {
     }
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
-        Ok(Scalar::bool(*partial, Nullability::NonNullable))
+        Ok(Scalar::bool(*partial, Nullability::Nullable))
     }
 
     fn reset(&self, partial: &mut Self::Partial) {
@@ -102,6 +102,10 @@ impl AggregateFnVTable for AllNonNan {
     fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         self.to_scalar(partial)
     }
+}
+
+fn has_nans(dtype: &DType) -> bool {
+    matches!(dtype, DType::Primitive(ptype, _) if ptype.is_float())
 }
 
 #[cfg(test)]
@@ -147,12 +151,28 @@ mod tests {
     }
 
     #[test]
-    fn all_non_nan_true_for_non_float() -> VortexResult<()> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    fn all_non_nan_unsupported_for_non_float() -> VortexResult<()> {
         let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        assert!(Accumulator::try_new(AllNonNan, EmptyOptions, dtype).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn all_non_nan_true_for_empty_float() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::F32, Nullability::Nullable);
         let mut acc = Accumulator::try_new(AllNonNan, EmptyOptions, dtype)?;
 
-        let batch = PrimitiveArray::from_option_iter([Some(1i32), None]).into_array();
+        assert!(bool::try_from(&acc.finish()?)?);
+        Ok(())
+    }
+
+    #[test]
+    fn all_non_nan_true_with_nulls() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let dtype = DType::Primitive(PType::F32, Nullability::Nullable);
+        let mut acc = Accumulator::try_new(AllNonNan, EmptyOptions, dtype)?;
+
+        let batch = PrimitiveArray::from_option_iter([Some(1.0f32), None]).into_array();
         acc.accumulate(&batch, &mut ctx)?;
 
         assert!(bool::try_from(&acc.finish()?)?);
