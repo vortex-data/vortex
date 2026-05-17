@@ -9,6 +9,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::list::ListDataParts;
+use vortex::array::arrays::list::maybe_trim_unreferenced_elements;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::validity::Validity;
 use vortex::dtype::IntegerPType;
@@ -44,6 +45,13 @@ pub(crate) fn new_exporter(
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    // Trim leading/trailing unreferenced elements before materialising the child vector. The
+    // resulting `elements` buffer will be exactly the live window referenced by the offsets,
+    // so the cached `Vector` keys on that smaller buffer.
+    let array = match maybe_trim_unreferenced_elements(&array, ctx)? {
+        Some(trimmed) => trimmed,
+        None => array,
+    };
     let array_len = array.len();
     // Cache an `elements` vector up front so that future exports can reference it.
     let ListDataParts {

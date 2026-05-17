@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::AsPrimitive;
 use num_traits::FromPrimitive;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
@@ -160,9 +161,17 @@ impl ListViewArray {
 
         let len = offsets_slice.len();
 
+        // Sum sizes to size `take_indices` exactly. The sum is bounded by `elements().len()`
+        // but for sparse listviews (e.g., after a selective take/filter) it can be many orders
+        // of magnitude smaller, and over-reserving wastes memory and trips page-fault overhead.
+        let take_capacity: usize = sizes_slice
+            .iter()
+            .map(|s| AsPrimitive::<usize>::as_(*s))
+            .sum();
+
         let mut new_offsets = BufferMut::<NewOffset>::with_capacity(len);
         let mut new_sizes = BufferMut::<S>::with_capacity(len);
-        let mut take_indices = BufferMut::<u64>::with_capacity(self.elements().len());
+        let mut take_indices = BufferMut::<u64>::with_capacity(take_capacity);
 
         let mut n_elements = NewOffset::zero();
         for index in 0..len {

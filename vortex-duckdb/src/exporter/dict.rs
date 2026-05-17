@@ -10,8 +10,10 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::DictArray;
+use vortex::array::arrays::Primitive;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::dict::DictArraySlotsExt;
+use vortex::array::arrays::dict::maybe_prune_unreferenced_values;
 use vortex::array::match_each_integer_ptype;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
@@ -40,6 +42,28 @@ pub(crate) fn new_exporter_with_flatten(
     // Whether to return a duckdb flat vector or not.
     mut flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    // When the codes only cover a small subset of the values, materialising the full values
+    // buffer into a DuckDB vector wastes work proportional to the unreferenced range. Prune
+    // before any caching so the downstream caches key on the (smaller) pruned values buffer.
+    //
+    // Skip the prune for already-canonical primitive values: the duckdb primitive exporter
+    // hands the buffer pointer over zero-copy regardless of length, so the only "cost" of
+    // unreferenced values is the duckdb `Vector::with_capacity` allocation, which is dwarfed
+    // by the cost of pruning itself (taking + canonicalising). For compressed values the
+    // materialisation does real per-element work, and pruning pays off.
+    let pruned;
+    let array = if array.values().is::<Primitive>() {
+        array
+    } else {
+        match maybe_prune_unreferenced_values(array, ctx)? {
+            Some(p) => {
+                pruned = p;
+                &pruned
+            }
+            None => array,
+        }
+    };
+
     // Grab the cache dictionary values.
     let values = array.values();
     let codes = array.codes();

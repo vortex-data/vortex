@@ -17,6 +17,9 @@ pub use array::*;
 pub(crate) mod compute;
 mod execute;
 
+mod prune;
+pub use prune::*;
+
 mod take;
 pub use take::*;
 

@@ -9,6 +9,9 @@ pub use vtable::ListArray;
 
 pub(crate) mod compute;
 
+mod prune;
+pub use prune::*;
+
 mod vtable;
 pub use vtable::List;
 

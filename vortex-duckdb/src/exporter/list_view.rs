@@ -9,6 +9,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::listview::ListViewDataParts;
+use vortex::array::arrays::listview::maybe_prune_unreferenced_elements;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::validity::Validity;
 use vortex::dtype::IntegerPType;
@@ -46,6 +47,13 @@ pub(crate) fn new_exporter(
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    // When the surviving views cover only a small fraction of the elements buffer, materialise
+    // only the referenced positions before constructing the exporter. The cached elements
+    // vector then keys on the pruned (much smaller) elements buffer.
+    let array = match maybe_prune_unreferenced_elements(&array, ctx)? {
+        Some(pruned) => pruned,
+        None => array,
+    };
     let len = array.len();
     let ListViewDataParts {
         elements_dtype,

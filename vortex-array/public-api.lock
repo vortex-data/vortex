@@ -2704,6 +2704,10 @@ pub type vortex_array::arrays::dict::TakeReduceAdaptor<V>::Parent = vortex_array
 
 pub fn vortex_array::arrays::dict::TakeReduceAdaptor<V>::reduce_parent(&self, vortex_array::ArrayView<'_, V>, vortex_array::ArrayView<'_, vortex_array::arrays::dict::Dict>, usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+pub const vortex_array::arrays::dict::PRUNE_DICT_MIN_SAVINGS_RATIO: f64
+
+pub const vortex_array::arrays::dict::PRUNE_DICT_MIN_VALUES: usize
+
 pub trait vortex_array::arrays::dict::DictArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::dict::Dict> + vortex_array::arrays::dict::DictArraySlotsExt
 
 pub fn vortex_array::arrays::dict::DictArrayExt::compute_referenced_values_mask(&self, bool) -> vortex_error::VortexResult<vortex_buffer::bit::buf::BitBuffer>
@@ -2823,6 +2827,8 @@ pub fn vortex_array::arrays::Variant::take(vortex_array::ArrayView<'_, vortex_ar
 impl vortex_array::arrays::dict::TakeReduce for vortex_array::arrays::null::Null
 
 pub fn vortex_array::arrays::null::Null::take(vortex_array::ArrayView<'_, vortex_array::arrays::null::Null>, &vortex_array::ArrayRef) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub fn vortex_array::arrays::dict::maybe_prune_unreferenced_values(&vortex_array::arrays::dict::DictArray, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::arrays::dict::DictArray>>
 
 pub type vortex_array::arrays::dict::DictArray = vortex_array::Array<vortex_array::arrays::dict::Dict>
 
@@ -3388,6 +3394,10 @@ pub vortex_array::arrays::list::ListDataParts::offsets: vortex_array::ArrayRef
 
 pub vortex_array::arrays::list::ListDataParts::validity: vortex_array::validity::Validity
 
+pub const vortex_array::arrays::list::PRUNE_LIST_MIN_ELEMENTS: usize
+
+pub const vortex_array::arrays::list::PRUNE_LIST_MIN_SAVINGS_RATIO: f64
+
 pub trait vortex_array::arrays::list::ListArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::List>
 
 pub fn vortex_array::arrays::list::ListArrayExt::element_dtype(&self) -> &vortex_array::dtype::DType
@@ -3427,6 +3437,8 @@ pub fn T::offsets(&self) -> &vortex_array::ArrayRef
 pub fn T::reset_offsets(&self, bool) -> vortex_error::VortexResult<vortex_array::Array<vortex_array::arrays::List>>
 
 pub fn T::sliced_elements(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+
+pub fn vortex_array::arrays::list::maybe_trim_unreferenced_elements(&vortex_array::arrays::ListArray, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::arrays::ListArray>>
 
 pub type vortex_array::arrays::list::ListArray = vortex_array::Array<vortex_array::arrays::List>
 
@@ -3576,6 +3588,10 @@ pub vortex_array::arrays::listview::ListViewDataParts::sizes: vortex_array::Arra
 
 pub vortex_array::arrays::listview::ListViewDataParts::validity: vortex_array::validity::Validity
 
+pub const vortex_array::arrays::listview::PRUNE_LISTVIEW_MAX_REFERENCED_RATIO: f64
+
+pub const vortex_array::arrays::listview::PRUNE_LISTVIEW_MIN_ELEMENTS: usize
+
 pub trait vortex_array::arrays::listview::ListViewArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::ListView>
 
 pub fn vortex_array::arrays::listview::ListViewArrayExt::elements(&self) -> &vortex_array::ArrayRef
@@ -3619,6 +3635,8 @@ pub fn T::verify_is_zero_copy_to_list(&self) -> bool
 pub fn vortex_array::arrays::listview::list_from_list_view(vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<vortex_array::arrays::ListArray>
 
 pub fn vortex_array::arrays::listview::list_view_from_list(vortex_array::arrays::ListArray, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::ListViewArray>
+
+pub fn vortex_array::arrays::listview::maybe_prune_unreferenced_elements(&vortex_array::arrays::ListViewArray, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::arrays::ListViewArray>>
 
 pub fn vortex_array::arrays::listview::recursive_list_from_list_view(vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 

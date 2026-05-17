@@ -17,6 +17,9 @@ pub use conversion::list_from_list_view;
 pub use conversion::list_view_from_list;
 pub use conversion::recursive_list_from_list_view;
 
+mod prune;
+pub use prune::*;
+
 mod rebuild;
 pub use rebuild::ListViewRebuildMode;
 
