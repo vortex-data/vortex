@@ -70,9 +70,7 @@ pub fn vortex_runend::RunEnd::validate(&self, &Self::TypedArrayData, &vortex_arr
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_runend::RunEnd> for vortex_runend::RunEnd
 
-pub fn vortex_runend::RunEnd::point_scalar_at(vortex_array::array::view::ArrayView<'_, vortex_runend::RunEnd>, usize, &mut dyn vortex_array::point_fn::dispatch::PointDispatch) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_runend::RunEnd::point_search_sorted(vortex_array::array::view::ArrayView<'_, vortex_runend::RunEnd>, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide, &mut dyn vortex_array::point_fn::dispatch::PointDispatch) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
+pub fn vortex_runend::RunEnd::point_kernels() -> core::option::Option<&'static vortex_array::point_fn::kernels::PointKernels<vortex_runend::RunEnd>>
 
 pub fn vortex_runend::RunEnd::scalar_at(vortex_array::array::view::ArrayView<'_, vortex_runend::RunEnd>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 

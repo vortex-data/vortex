@@ -665,21 +665,34 @@ impl OperationsVTable<Pco> for Pco {
             .execute_scalar(0, ctx)
     }
 
-    /// Point-fn-aware override: decode the full PCO array once per session and
-    /// cache it as an `Arc<ArrayRef>`. Subsequent `scalar_at` / `search_sorted`
-    /// calls within the same session amortize the decode across all probes.
-    ///
-    /// Tradeoff (Phase 1d POC):
-    ///
-    /// - A single one-shot `scalar_at(idx)` decodes the whole array (slower
-    ///   than the legacy per-call `_slice(idx, idx+1).decompress`).
-    /// - Any sequence of ≥2 point-fn calls within a session is faster.
-    /// - `search_sorted` (log(n) probes) is dramatically faster.
-    ///
-    /// Phase 2 will introduce page-granular caching to avoid the single-shot
-    /// regression.
-    fn point_scalar_at(
-        array: ArrayView<'_, Pco>,
+    fn point_kernels() -> Option<&'static vortex_array::point_fn::PointKernels<Pco>> {
+        Some(&POINT_KERNELS)
+    }
+}
+
+const POINT_KERNELS: vortex_array::point_fn::PointKernels<Pco> =
+    vortex_array::point_fn::PointKernels::empty().with_scalar_at(
+        vortex_array::point_fn::PointKernels::lift_scalar_at(&PcoScalarAtKernel),
+    );
+
+/// Point-fn-aware kernel: decode the full PCO array once per session and
+/// cache it as an `Arc<ArrayRef>`. Subsequent `scalar_at` / `search_sorted`
+/// calls within the same session amortize the decode across all probes.
+///
+/// Tradeoff (Phase 1d POC):
+///
+/// - A single one-shot `scalar_at(idx)` decodes the whole array (slower
+///   than the legacy per-call `_slice(idx, idx+1).decompress`).
+/// - Any sequence of ≥2 point-fn calls within a session is faster.
+/// - `search_sorted` (log(n) probes) is dramatically faster.
+///
+/// Phase 2 will introduce page-granular caching to avoid the single-shot
+/// regression.
+struct PcoScalarAtKernel;
+
+impl vortex_array::point_fn::ScalarAtKernel<Pco> for PcoScalarAtKernel {
+    fn execute(
+        view: ArrayView<'_, Pco>,
         index: usize,
         d: &mut dyn vortex_array::point_fn::PointDispatch,
     ) -> VortexResult<Scalar> {
@@ -687,16 +700,16 @@ impl OperationsVTable<Pco> for Pco {
         use vortex_array::point_fn::PointDispatchExt;
 
         // Tag 0 = "whole array" cache slot; Phase 2 will use per-page keys.
-        let key = (array.array().addr(), BlockKey::new(0, 0));
+        let key = (view.array().addr(), BlockKey::new(0, 0));
         let unsliced_validity =
-            child_to_validity(array.slots()[0].as_ref(), array.dtype().nullability());
-        let array_clone = array.into_owned();
+            child_to_validity(view.slots()[0].as_ref(), view.dtype().nullability());
+        let view_owned = view.into_owned();
         // Clone the ctx for the closure: needed to satisfy the borrow checker
         // (d is borrowed by cached_block, so the decode closure can't reborrow
         // d.ctx()). The clone is cheap — ExecutionCtx is small.
         let mut decode_ctx = d.ctx().clone();
         let decoded: std::sync::Arc<ArrayRef> = d.cached_block(key, || {
-            let arr = array_clone
+            let arr = view_owned
                 .data()
                 .decompress(&unsliced_validity, &mut decode_ctx)?
                 .into_array();
