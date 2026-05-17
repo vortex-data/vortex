@@ -68,6 +68,7 @@ pub mod session;
 mod col_ovc;
 mod ovc_chunked;
 mod ovc_encoded;
+mod ovc_iter;
 mod ovc_mixed;
 mod smj;
 pub mod stats;
