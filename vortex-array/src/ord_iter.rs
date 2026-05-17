@@ -303,6 +303,90 @@ impl OrdIter for VarBinIter<'_> {
     }
 }
 
+/// `ClosureIter` is the **default fallback**: any encoding that can answer
+/// "give me the i64 at row i" satisfies `OrdIter` via this wrapper. New
+/// Vortex encodings get a working — if slow — implementation for free,
+/// without changing the merge driver or trait. Specialised impls only
+/// matter when the perf gap to direct row access is worth the engineering.
+pub struct ClosureIter<F> {
+    f: F,
+    total: usize,
+    pos: usize,
+}
+
+impl<F> ClosureIter<F> {
+    pub fn new(total: usize, f: F) -> Self {
+        Self { f, total, pos: 0 }
+    }
+}
+
+impl<F: FnMut(usize) -> i64> OrdIter for ClosureIter<F> {
+    fn ord_len(&self) -> usize {
+        self.total
+    }
+    fn next_chunk<'s>(&mut self, max_rows: usize, scratch: &'s mut Scratch) -> Option<OrdChunk<'s>> {
+        if self.pos >= self.total {
+            return None;
+        }
+        let take = max_rows.min(self.total - self.pos);
+        for i in 0..take {
+            let v = (self.f)(self.pos + i);
+            scratch.dense[i] = (v as u64) ^ (1u64 << 63);
+        }
+        self.pos += take;
+        Some(OrdChunk::Dense(&scratch.dense[..take]))
+    }
+    fn skip(&mut self, n: usize) {
+        self.pos = (self.pos + n).min(self.total);
+    }
+}
+
+/// Multi-column composition: two i32 columns packed into one OVC u64 head
+/// (col0 high 32 bits, col1 low 32 bits). Demonstrates that multi-column
+/// keys compose without changing the merge driver — same trait, same
+/// chunked Dense output, just a different `next_chunk` body.
+///
+/// For real multi-column OVC, generalise to K columns and reserve a few
+/// high bits for the offset (which column first diverges); fall back to
+/// `cmp_full` for ties beyond the packed prefix. Sketched in the design
+/// doc; this prototype carries the simplest version.
+pub struct MultiColI32Iter<'a> {
+    col0: &'a [i32],
+    col1: &'a [i32],
+    pos: usize,
+}
+
+impl<'a> MultiColI32Iter<'a> {
+    pub fn new(col0: &'a [i32], col1: &'a [i32]) -> Self {
+        assert_eq!(col0.len(), col1.len());
+        Self { col0, col1, pos: 0 }
+    }
+}
+
+impl OrdIter for MultiColI32Iter<'_> {
+    fn ord_len(&self) -> usize {
+        self.col0.len()
+    }
+    fn next_chunk<'s>(&mut self, max_rows: usize, scratch: &'s mut Scratch) -> Option<OrdChunk<'s>> {
+        if self.pos >= self.col0.len() {
+            return None;
+        }
+        let take = max_rows.min(self.col0.len() - self.pos);
+        let c0 = &self.col0[self.pos..self.pos + take];
+        let c1 = &self.col1[self.pos..self.pos + take];
+        for i in 0..take {
+            let u0 = (c0[i] as u32) ^ (1u32 << 31);
+            let u1 = (c1[i] as u32) ^ (1u32 << 31);
+            scratch.dense[i] = (u64::from(u0) << 32) | u64::from(u1);
+        }
+        self.pos += take;
+        Some(OrdChunk::Dense(&scratch.dense[..take]))
+    }
+    fn skip(&mut self, n: usize) {
+        self.pos = (self.pos + n).min(self.col0.len());
+    }
+}
+
 // Convenience constructors from the shared source structs.
 impl<'a> From<&PrimI64<'a>> for PrimIter<'a> {
     fn from(p: &PrimI64<'a>) -> Self {
@@ -504,6 +588,31 @@ mod tests {
             Box::new(ConstantIter::new(5, 10)),
         ];
         assert_eq!(merge_n_way(&mut iters, 4), 20);
+    }
+
+    #[test]
+    fn closure_fallback() {
+        // Any encoding satisfies OrdIter as long as it answers (row) -> i64.
+        let data: Vec<i64> = (0..40).collect();
+        let mut iters: Vec<Box<dyn OrdIter + '_>> = vec![
+            Box::new(ClosureIter::new(40, |i| data[i])),
+            Box::new(PrimIter::new(&data)),
+        ];
+        // Two sides with the same content → 80 emits.
+        assert_eq!(merge_n_way(&mut iters, 16), 80);
+    }
+
+    #[test]
+    fn multicol_disjoint() {
+        let c0a: Vec<i32> = (0..40).collect();
+        let c1a: Vec<i32> = (0..40).map(|i| i % 13).collect();
+        let c0b: Vec<i32> = (40..80).collect();
+        let c1b: Vec<i32> = (0..40).map(|i| i % 13).collect();
+        let mut iters: Vec<Box<dyn OrdIter + '_>> = vec![
+            Box::new(MultiColI32Iter::new(&c0a, &c1a)),
+            Box::new(MultiColI32Iter::new(&c0b, &c1b)),
+        ];
+        assert_eq!(merge_n_way(&mut iters, 16), 80);
     }
 
     #[test]

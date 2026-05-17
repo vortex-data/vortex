@@ -35,7 +35,8 @@ mod tests {
         constant_ord_at, dict_ord_at, prim_ord_at, runend_ord_at, varbin_ord_at,
     };
     use crate::ord_iter::{
-        ConstantIter, DictIter, OrdChunk, OrdIter, PrimIter, RunEndIter, Scratch, VarBinIter,
+        ClosureIter, ConstantIter, DictIter, MultiColI32Iter, OrdChunk, OrdIter, PrimIter,
+        RunEndIter, Scratch, VarBinIter,
     };
     use crate::ord_memcmp::{
         materialize_constant, materialize_dict, materialize_prim, materialize_runend,
@@ -298,6 +299,31 @@ mod tests {
         run("memcmp (expand each run)", || {
             let buf = materialize_runend(&r_long);
             drain_memcmp_buf(&buf, 8)
+        });
+
+        // (c+) Multi-column: 2 i32 cols packed into one OVC u64
+        println!("\n-- MULTI-COLUMN (2 i32 cols packed into one OVC u64) --");
+        let mc_col0: Vec<i32> = (0..N as i32).collect();
+        let mc_col1: Vec<i32> = (0..N as i32).map(|i| i % 13).collect();
+        run("OrdIter MultiColI32 (no merge)", || {
+            let mut it = MultiColI32Iter::new(&mc_col0, &mc_col1);
+            let mut sc = Scratch::new(CHUNK);
+            drain_iter(&mut it, &mut sc)
+        });
+
+        // (c++) Fallback closure-based iter — proves any encoding can join.
+        println!("\n-- FALLBACK ClosureIter (any encoding can use this) --");
+        let cl_data: Vec<i64> = (0..N as i64).collect();
+        run("ClosureIter wrapping a slice", || {
+            let mut it = ClosureIter::new(N, |i| cl_data[i]);
+            let mut sc = Scratch::new(CHUNK);
+            drain_iter(&mut it, &mut sc)
+        });
+        // Reference: a real PrimIter on the same data.
+        run("PrimIter reference (specialised path)", || {
+            let mut it = PrimIter::new(&cl_data);
+            let mut sc = Scratch::new(CHUNK);
+            drain_iter(&mut it, &mut sc)
         });
 
         // (d) VarBin 1KB values (URLs, paths)
