@@ -1,21 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Sort the values array of a [`DictArray`] and remap codes accordingly.
-//!
-//! A "sorted" dictionary stores `values` in ascending order so that `codes` form an
-//! order-preserving encoding of the original column. This unlocks O(1) min/max,
+//! Sort the values array of a [`DictArray`] and remap codes accordingly so the codes
+//! form an order-preserving encoding of the original column. This unlocks O(1) min/max,
 //! cheap is_sorted, and range-predicate pushdown into the codes domain.
-//!
-//! ## Performance notes
-//!
-//! The hot paths are:
-//! 1. **argsort** of the dictionary values: O(d log d). The dict size `d` is bounded by
-//!    `DictConstraints::max_len` (typically <= 64k), so this is dominated by comparison
-//!    cost. For primitives we sort `(T, u32)` pairs to keep comparisons local in cache.
-//! 2. **code remap**: O(n) over the codes array. The codes can be millions of entries, so
-//!    we widen `inv_perm` once into a typed `Vec<C>` (matching the codes ptype) and do an
-//!    unchecked gather loop.
 
 use std::cmp::Ordering;
 
@@ -109,7 +97,7 @@ fn argsort_values(values: &ArrayRef) -> VortexResult<Vec<u32>> {
         .map_err(|_| vortex_error::vortex_err!("dict values length {} exceeds u32::MAX", values.len()))?;
 
     if let Some(prim) = values.as_opt::<Primitive>() {
-        let owned = prim.clone().into_owned();
+        let owned = prim.into_owned();
         let mut perm = Vec::with_capacity(n as usize);
         match_each_native_ptype!(owned.ptype(), |P| {
             argsort_primitive::<P>(&owned, &mut perm)?;
@@ -137,9 +125,7 @@ fn argsort_values(values: &ArrayRef) -> VortexResult<Vec<u32>> {
     }
 }
 
-/// Argsort a primitive array. Builds `(value, idx)` pairs and sorts them in place;
-/// this is faster than indirect comparison-based argsort because comparisons hit
-/// adjacent memory rather than chasing pointers into the source slice.
+/// Argsort a primitive array. Sorts `(value, idx)` pairs to keep comparisons in cache.
 fn argsort_primitive<T: NativePType>(
     values: &PrimitiveArray,
     out_perm: &mut Vec<u32>,
@@ -151,27 +137,24 @@ fn argsort_primitive<T: NativePType>(
 
     match values.validity()? {
         Validity::NonNullable | Validity::AllValid => {
-            // Build pairs and sort by value. For Ord types we'd use sort_by_key, but Vortex's
-            // NativePType uses total_compare (which handles NaN deterministically for floats).
-            let mut pairs: Vec<(T, u32)> = slice
-                .iter()
-                .copied()
-                .zip(0u32..)
-                .map(|(v, i)| (v, i))
-                .collect();
+            // total_compare handles NaN deterministically; sort_unstable_by_key needs Ord
+            // which floats lack.
+            let mut pairs: Vec<(T, u32)> = slice.iter().copied().zip(0u32..).collect();
             pairs.sort_unstable_by(|a, b| a.0.total_compare(b.0));
             out_perm.extend(pairs.into_iter().map(|(_, i)| i));
         }
         Validity::AllInvalid => {
-            // All-null: any permutation is sorted. Identity is cheapest.
-            out_perm.extend(0u32..(n as u32));
+            // All-null: any permutation is sorted; identity is cheapest.
+            let n_u32 = u32::try_from(n).map_err(|_| {
+                vortex_error::vortex_err!("dict values length {n} exceeds u32::MAX")
+            })?;
+            out_perm.extend(0u32..n_u32);
         }
         Validity::Array(_) => {
-            // Build (validity, value, idx) triples; validity=false sorts first.
+            // Sort (validity, value, idx) — null (validity=0) sorts before non-null.
             let valid: Vec<bool> = values.with_iterator(|it: &mut dyn Iterator<Item = Option<&T>>| {
                 it.map(|opt| opt.is_some()).collect()
             });
-            // We encode null-first by storing a u8 flag; pairs are small so this is fine.
             let mut triples: Vec<(u8, T, u32)> = slice
                 .iter()
                 .copied()

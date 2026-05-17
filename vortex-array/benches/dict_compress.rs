@@ -122,7 +122,7 @@ where
 
     bencher
         .with_inputs(|| dict.clone())
-        .bench_values(|d| sort_dict(d));
+        .bench_values(sort_dict);
 }
 
 #[divan::bench(args = BENCH_ARGS)]
@@ -132,7 +132,7 @@ fn sort_existing_varbinview(bencher: Bencher, (len, unique_values): (usize, usiz
 
     bencher
         .with_inputs(|| dict.clone())
-        .bench_values(|d| sort_dict(d));
+        .bench_values(sort_dict);
 }
 
 #[divan::bench(types = [u8, f32, i64], args = BENCH_ARGS)]

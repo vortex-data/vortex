@@ -59,16 +59,12 @@ pub struct DictSlots {
 
 #[derive(Debug, Clone)]
 pub struct DictData {
-    /// Indicates whether all dictionary values are definitely referenced by at least one code.
-    /// `true` = all values are referenced (computed during encoding).
-    /// `false` = unknown/might have unreferenced values.
-    /// In case this is incorrect never use this to enable memory unsafe behaviour just semantically
-    /// incorrect behaviour.
+    /// `true` if every dictionary value is referenced by at least one code. An incorrect
+    /// value here can cause incorrect query results (e.g. min/max) but never UB.
     pub(super) all_values_referenced: bool,
-    /// Indicates whether the dictionary values are sorted in ascending order.
-    /// `true` = `values[i] <= values[i+1]` for all valid `i`, so `codes` are an order-preserving
-    /// encoding of the original column. Setting this incorrectly can lead to incorrect query
-    /// results (e.g. min/max, is_sorted) but never memory unsafety.
+    /// `true` if the dictionary values are in ascending order, making `codes` an
+    /// order-preserving encoding. Incorrect setting can cause incorrect query results
+    /// (e.g. min/max, is_sorted, range pushdown) but never UB.
     pub(super) sorted_values: bool,
 }
 
@@ -96,27 +92,21 @@ impl DictData {
         }
     }
 
-    /// Set whether all dictionary values are definitely referenced.
+    /// Set whether all dictionary values are referenced by at least one code.
     ///
     /// # Safety
-    /// The caller must ensure that when setting `all_values_referenced = true`, ALL dictionary
-    /// values are actually referenced by at least one valid code. Setting this incorrectly can
-    /// lead to incorrect query results in operations like min/max.
-    ///
-    /// This is typically only set to `true` during dictionary encoding when we know for certain
-    /// that all values are referenced.
+    /// Setting `true` when some values are unreferenced does not cause UB but will produce
+    /// incorrect results from operations like min/max.
     pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
         self.all_values_referenced = all_values_referenced;
         self
     }
 
-    /// Set whether the dictionary values are sorted in ascending order.
+    /// Set whether the dictionary values are in ascending order.
     ///
     /// # Safety
-    /// The caller must ensure that when setting `sorted_values = true`, the dictionary values
-    /// are actually in ascending order. Setting this incorrectly can lead to incorrect query
-    /// results in operations like `min_max`, `is_sorted`, or range pushdown, but never memory
-    /// unsafety.
+    /// Setting `true` when the values aren't sorted does not cause UB but will produce
+    /// incorrect results from min/max, is_sorted, and the sorted-dict pushdowns.
     pub unsafe fn set_sorted_values(mut self, sorted_values: bool) -> Self {
         self.sorted_values = sorted_values;
         self
@@ -164,8 +154,7 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         self.sorted_values
     }
 
-    /// Validate that the values are actually sorted in ascending order if the flag is set.
-    /// Useful in debug builds; runs `is_strict_sorted`-style comparisons across the values.
+    /// Validate that the values are actually sorted if `has_sorted_values()` is set.
     fn validate_sorted_values(&self) -> VortexResult<()> {
         if !self.has_sorted_values() {
             return Ok(());

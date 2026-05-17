@@ -217,15 +217,6 @@ name = "to_arrow"
 harness = false
 
 [[bench]]
-name = "cpu_take_vs_cmp"
-harness = false
-
-[[bench]]
-name = "str_between_profile"
-harness = false
-required-features = ["_test-harness"]
-
-[[bench]]
 name = "dict_sorted_pushdowns"
 harness = false
 required-features = ["_test-harness"]

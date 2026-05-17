@@ -116,8 +116,7 @@ mod tests {
         let scalar = ConstantArray::new(500u16, 1000).into_array();
         let r = run(arr, scalar, Operator::Lt)?;
         // Sanity: first 500 true, rest false.
-        let bool_arr = r.as_::<crate::arrays::Bool>().clone();
-        let bits = bool_arr.to_bit_buffer();
+        let bits = r.as_::<crate::arrays::Bool>().to_bit_buffer();
         assert_eq!(bits.true_count(), 500);
         assert!(bits.value(0));
         assert!(bits.value(499));
@@ -132,8 +131,7 @@ mod tests {
         let arr = PrimitiveArray::new(arr, Validity::NonNullable);
         let scalar = ConstantArray::new(20i64, 6).into_array();
         let r = run(arr, scalar, Operator::Eq)?;
-        let bool_arr = r.as_::<crate::arrays::Bool>().clone();
-        let bits = bool_arr.to_bit_buffer();
+        let bits = r.as_::<crate::arrays::Bool>().to_bit_buffer();
         assert_eq!(
             (0..6).map(|i| bits.value(i)).collect::<Vec<_>>(),
             vec![false, true, false, true, false, false]
@@ -147,8 +145,7 @@ mod tests {
         let arr: PrimitiveArray = (0..13u32).collect();
         let scalar = ConstantArray::new(10u32, 13).into_array();
         let r = run(arr, scalar, Operator::Gte)?;
-        let bool_arr = r.as_::<crate::arrays::Bool>().clone();
-        let bits = bool_arr.to_bit_buffer();
+        let bits = r.as_::<crate::arrays::Bool>().to_bit_buffer();
         for i in 0..13 {
             assert_eq!(bits.value(i), i >= 10, "i={i}");
         }
@@ -162,8 +159,7 @@ mod tests {
             PrimitiveArray::new(buffer![1.0f32, f32::NAN, 2.0], Validity::NonNullable);
         let scalar = ConstantArray::new(1.5f32, 3).into_array();
         let r = run(arr, scalar, Operator::Lt)?;
-        let bool_arr = r.as_::<crate::arrays::Bool>().clone();
-        let bits = bool_arr.to_bit_buffer();
+        let bits = r.as_::<crate::arrays::Bool>().to_bit_buffer();
         // 1.0 < 1.5 -> true; NaN < 1.5 -> false; 2.0 < 1.5 -> false
         assert_eq!(
             (0..3).map(|i| bits.value(i)).collect::<Vec<_>>(),
@@ -179,8 +175,7 @@ mod tests {
         let scalar = ConstantArray::new(2i32, 5).into_array();
         let r = run(arr, scalar, Operator::Lt)?;
         // Bits at null positions are unspecified; check non-null ones via canonical.
-        let bool_arr = r.as_::<crate::arrays::Bool>().clone();
-        let bits = bool_arr.to_bit_buffer();
+        let bits = r.as_::<crate::arrays::Bool>().to_bit_buffer();
         // Expected non-null bits: 1<2=true, 3<2=false, 2<2=false
         assert!(bits.value(0));
         assert!(!bits.value(2));

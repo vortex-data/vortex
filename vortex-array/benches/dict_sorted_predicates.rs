@@ -1,14 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Microbench: compare ops and BETWEEN on sorted vs unsorted dict.
-//!
-//! For each value type (i64, u8, f32, str) and (codes_len, uniques) shape we measure
-//! the cost of evaluating a constant-vs-column predicate against:
-//!   - a plain dict (insertion-order values)
-//!   - a sorted dict (sorted-values flag set, codes remapped)
-//! The sorted path uses the binary-search → codes-domain fast paths added in
-//! `dict::compute::compare` and `dict::compute::between`.
+//! Microbench: compare ops and BETWEEN on sorted vs unsorted dict, across types and
+//! shapes. Each pair `<op>_plain` / `<op>_sorted` runs the same predicate against an
+//! unsorted dict and a sorted dict.
 
 #![expect(clippy::unwrap_used)]
 
@@ -49,20 +44,17 @@ const ARGS: &[(usize, usize)] = &[
     (100_000, 1024),
 ];
 
-// ---------------------------------------------------------------------------
-// Baselines: directly measure the two atomic operations the user is comparing:
-//   - raw u16 < scalar  (SIMD primitive compare; what the sorted dict emits)
-//   - take(bool[1024], codes_u16)  (what the plain dict emits via push-down)
-// At larger N the codes read is no longer cache-resident, so the user's
-// hypothesis (SIMD cmp beats indexed take due to dependent loads) should
-// become visible if it's going to.
-// ---------------------------------------------------------------------------
+// Baselines that bypass the dict layer:
+//   raw_u16_lt:              SIMD primitive cmp (what the sorted dict emits)
+//   raw_take_bool:           take(bool[1024], codes_u16) (what plain dict emits)
+//   dict_take_via_pushdown:  the full plain-dict push-down shape, end-to-end
 
 const BASELINE_SIZES: &[usize] = &[10_000, 100_000, 1_000_000, 5_000_000];
 
 #[divan::bench(args = BASELINE_SIZES)]
 fn raw_u16_lt_baseline(bencher: Bencher, len: usize) {
     use vortex_array::arrays::PrimitiveArray;
+    #[allow(clippy::cast_possible_truncation, reason = "u16 dict size by construction")]
     let arr: PrimitiveArray = (0..len).map(|i| (i % 1024) as u16).collect();
     let arr = arr.into_array();
     bencher
@@ -84,7 +76,7 @@ fn raw_take_bool_baseline(bencher: Bencher, len: usize) {
     use vortex_array::arrays::PrimitiveArray;
     let bools: BoolArray = (0..1024).map(|i| i % 7 == 0).collect();
     let mut rng = StdRng::seed_from_u64(0);
-    let codes: PrimitiveArray = (0..len).map(|_| rng.random_range(0..1024) as u16).collect();
+    let codes: PrimitiveArray = (0..len).map(|_| rng.random_range(0u16..1024)).collect();
     let bools = bools.into_array();
     let codes = codes.into_array();
     bencher
@@ -98,9 +90,8 @@ fn raw_take_bool_baseline(bencher: Bencher, len: usize) {
         .bench_values(|(b, c, mut ctx)| b.take(c).unwrap().execute::<Mask>(&mut ctx).unwrap());
 }
 
-// Apples-to-apples: same shape the push-down rule produces.
+// End-to-end shape the push-down rule produces:
 //   DictArray<codes_u16[N], ScalarFnArray<Binary, [values_i64[1024], const]>>
-// then execute<Mask>. This is the exact path plain dict takes for middle-range cmp.
 #[divan::bench(args = BASELINE_SIZES)]
 fn dict_take_via_pushdown_baseline(bencher: Bencher, len: usize) {
     use vortex_array::arrays::DictArray;
@@ -110,8 +101,7 @@ fn dict_take_via_pushdown_baseline(bencher: Bencher, len: usize) {
     use rand::prelude::StdRng;
     let mut rng = StdRng::seed_from_u64(0);
     let values: PrimitiveArray = (0..1024i64).map(|_| rng.random::<i64>()).collect();
-    // Random codes (match what dict_encode produces from random data)
-    let codes: PrimitiveArray = (0..len).map(|_| rng.random_range(0..1024) as u16).collect();
+    let codes: PrimitiveArray = (0..len).map(|_| rng.random_range(0u16..1024)).collect();
     let dict = DictArray::try_new(codes.into_array(), values.into_array())
         .unwrap()
         .into_array();

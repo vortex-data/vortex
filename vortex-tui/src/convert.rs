@@ -52,10 +52,6 @@ pub struct ConvertArgs {
     /// Defaults to true (codes are an order-preserving encoding of the column).
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub dict_sort_values: bool,
-
-    /// Optional output path. Defaults to replacing the input extension with ".vortex".
-    #[arg(short, long)]
-    pub output: Option<PathBuf>,
 }
 
 /// The batch size of the record batches.
@@ -72,10 +68,7 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
         eprintln!("Converting input Parquet file: {}", input_path.display());
     }
 
-    let output_path = flags
-        .output
-        .clone()
-        .unwrap_or_else(|| input_path.with_extension("vortex"));
+    let output_path = input_path.with_extension("vortex");
     let file = File::open(input_path).await?;
 
     let parquet = ParquetRecordBatchStreamBuilder::new(file)

@@ -8,6 +8,7 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::fns::min_max::MinMax;
+use crate::aggregate_fn::fns::min_max::MinMaxResult;
 use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
@@ -69,8 +70,7 @@ impl DynAggregateKernel for DictMinMaxKernel {
 fn min_max_from_sorted_values(
     values: &ArrayRef,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<crate::aggregate_fn::fns::min_max::MinMaxResult>> {
-    use crate::aggregate_fn::fns::min_max::MinMaxResult;
+) -> VortexResult<Option<MinMaxResult>> {
     use vortex_error::VortexExpect;
 
     let len = values.len();

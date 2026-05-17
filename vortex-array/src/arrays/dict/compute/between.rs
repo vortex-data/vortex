@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Sorted-values fast path for `BETWEEN` lives in `rules.rs` as a reduce rule that fires
-//! before the value push-down. This module provides the AST builders that the rule uses.
+//! AST builders for the sorted-dict BETWEEN reduce rule (see `rules.rs`).
 
 use vortex_error::VortexResult;
 
@@ -12,15 +11,18 @@ use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::dict::DictArraySlotsExt;
+use crate::arrays::dict::compute::compare::code_threshold_scalar;
 use crate::arrays::dict::compute::compare::emit_code_cmp;
 use crate::arrays::dict::compute::compare::scan_sorted_dual_bounds;
-use crate::scalar_fn::fns::operators::Operator;
+use crate::arrays::scalar_fn::ScalarFnFactoryExt;
 use crate::scalar::Scalar;
+use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::between::BetweenOptions;
+use crate::scalar_fn::fns::between::StrictComparison;
+use crate::scalar_fn::fns::operators::Operator;
 
-/// Reduce-rule entry point: emit the AST for a sorted-dict BETWEEN without running the
-/// executor. Returns `None` if the typed scan doesn't apply (caller falls back to the
-/// value push-down rule).
+/// Rewrite a sorted-dict `BETWEEN` as a codes-domain compare. Returns `None` if the typed
+/// scan doesn't apply (caller falls back to the value push-down rule).
 pub(crate) fn reduce_sorted_between(
     array: ArrayView<'_, Dict>,
     lower_scalar: &Scalar,
@@ -37,8 +39,6 @@ pub(crate) fn reduce_sorted_between(
     let values = array.values().clone();
     let dict_len = values.len();
 
-    // Single pass to find both bounds. Saves ~one full scan over the dict values vs
-    // calling scan_sorted_bounds twice.
     let Some((lower_bounds, upper_bounds)) =
         scan_sorted_dual_bounds(&values, lower_scalar, upper_scalar)?
     else {
@@ -55,21 +55,16 @@ pub(crate) fn reduce_sorted_between(
         upper_bounds.right
     };
 
-    // Empty range / full range: short-circuit to a constant, which Mask::execute folds
-    // to AllFalse/AllTrue in O(1).
+    let const_bool = |b: bool| -> ArrayRef {
+        ConstantArray::new(Scalar::bool(b, nullability), codes_len).into_array()
+    };
+
     if code_lo >= code_hi {
-        return Ok(Some(
-            ConstantArray::new(Scalar::bool(false, nullability), codes_len).into_array(),
-        ));
+        return Ok(Some(const_bool(false)));
     }
     if code_lo == 0 && code_hi >= dict_len && !nullability.is_nullable() {
-        return Ok(Some(
-            ConstantArray::new(Scalar::bool(true, nullability), codes_len).into_array(),
-        ));
+        return Ok(Some(const_bool(true)));
     }
-
-    // Single-sided range: one primitive cmp on codes (3× faster than take_bool now that
-    // the new SIMD CompareKernel for Primitive lands).
     if code_lo == 0 {
         return Ok(Some(emit_code_cmp(&codes, code_hi, Operator::Lt)?));
     }
@@ -77,23 +72,20 @@ pub(crate) fn reduce_sorted_between(
         return Ok(Some(emit_code_cmp(&codes, code_lo, Operator::Gte)?));
     }
 
-    // Two-sided range: emit a single Between on the codes. One pass over the codes,
-    // SIMD-friendly, no take.
-    use crate::arrays::dict::compute::compare::code_threshold_scalar;
-    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
-    use crate::scalar_fn::fns::between::Between;
-    use crate::scalar_fn::fns::between::StrictComparison;
-
-    let lower_scalar_v = code_threshold_scalar(&codes, code_lo)?;
-    let upper_scalar_v = code_threshold_scalar(&codes, code_hi - 1)?;
-    let lower_arr = ConstantArray::new(lower_scalar_v, codes_len).into_array();
-    let upper_arr = ConstantArray::new(upper_scalar_v, codes_len).into_array();
-    let between_opts = BetweenOptions {
-        lower_strict: StrictComparison::NonStrict,
-        upper_strict: StrictComparison::NonStrict,
-    };
+    // Two-sided range: emit one Between on the codes (one pass, SIMD-friendly).
+    let lower_arr =
+        ConstantArray::new(code_threshold_scalar(&codes, code_lo)?, codes_len).into_array();
+    let upper_arr =
+        ConstantArray::new(code_threshold_scalar(&codes, code_hi - 1)?, codes_len).into_array();
     Between
-        .try_new_array(codes_len, between_opts, [codes, lower_arr, upper_arr])
+        .try_new_array(
+            codes_len,
+            BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+            [codes, lower_arr, upper_arr],
+        )
         .map(Some)
 }
 

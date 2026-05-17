@@ -16,14 +16,11 @@
 #![expect(clippy::unwrap_used)]
 
 use divan::Bencher;
-use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::DictArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
@@ -158,23 +155,10 @@ fn str_like_middle_plain(bencher: Bencher) { run_like(bencher, false, "%abc%"); 
 fn str_like_middle_sorted(bencher: Bencher) { run_like(bencher, true, "%abc%"); }
 
 // ---------------------------------------------------------------------------
-// lt without bool materialisation.
-//
-// What the dict path costs (22 µs at 100K, 1024) goes mostly to scanning the
-// codes with a SIMD compare and writing the bool buffer. If the column itself
-// is sorted (codes increase monotonically along the row axis), we can replace
-// the per-row compare with a single binary search and emit a contiguous
-// Mask::from_slices — no per-row materialisation at all.
-//
-//   lt_sorted_dict        : binary-search values for `k`, then `codes < k`
-//                           (current sorted-dict pushdown — has bool alloc)
-//   lt_sorted_column_range: binary-search the sorted column for `needle`, emit
-//                           Mask::from_slices(N, [(0, k)])
-//                           (what we'd do if the column were truly sorted)
-//   lt_sorted_column_alltrue: needle past max -> Mask::AllTrue (boundary case)
+// lt on a fully-sorted column: binary-search + Mask::from_slices, no per-row
+// materialisation. Shows what we'd save if the codes were also sorted.
 // ---------------------------------------------------------------------------
 
-// Borrow the slice (avoid Vec clone/drop in the timed section).
 #[divan::bench]
 fn i64_lt_sorted_column_range(bencher: Bencher) {
     let arr: Vec<i64> = (0..N as i64).collect();
@@ -201,7 +185,6 @@ fn i64_lt_sorted_column_alltrue(bencher: Bencher) {
     });
 }
 
-// Binary search alone (no Mask alloc).
 #[divan::bench]
 fn i64_lt_sorted_column_search_only(bencher: Bencher) {
     let arr: Vec<i64> = (0..N as i64).collect();
@@ -210,16 +193,8 @@ fn i64_lt_sorted_column_search_only(bencher: Bencher) {
 }
 
 // ---------------------------------------------------------------------------
-// SIMD compare: pack vs sum vs byte-mask materialisation.
-//
-// All three iterate the same N u16 codes comparing against a scalar. They
-// differ only in what they DO with each bool:
-//   - pack: shift-and-or 8 results into a byte, write to BitBuffer (12.5KB for 100K)
-//   - sum:  cast bool to u64 and accumulate (returns count, 8 bytes)
-//   - byte: write 1 byte (0 or 1) per element to Vec<u8> (100KB for 100K)
-//
-// Each variant operates on the exact same input so the difference is purely
-// the materialisation strategy.
+// SIMD compare: pack-to-bits vs sum-only vs byte-per-bool. Same N u16 codes,
+// only the materialisation differs.
 // ---------------------------------------------------------------------------
 
 fn make_codes(len: usize) -> Vec<u16> {
@@ -227,7 +202,7 @@ fn make_codes(len: usize) -> Vec<u16> {
     use rand::prelude::StdRng;
     use rand::RngExt;
     let mut rng = StdRng::seed_from_u64(0);
-    (0..len).map(|_| rng.random_range(0..1024) as u16).collect()
+    (0..len).map(|_| rng.random_range(0u16..1024)).collect()
 }
 
 #[divan::bench]
@@ -235,25 +210,24 @@ fn cmp_pack_bits(bencher: Bencher) {
     let codes = make_codes(N);
     let needle = 512u16;
     bencher.bench(|| {
-        // Chunked 8-at-a-time pack: one byte per 8 cmps.
         let chunks = N / 8;
         let tail = N % 8;
         let mut out: Vec<u8> = Vec::with_capacity(chunks + usize::from(tail > 0));
-        let mut i = 0;
+        let mut idx = 0;
         for _ in 0..chunks {
-            let mut b: u8 = 0;
+            let mut byte: u8 = 0;
             for j in 0..8 {
-                b |= u8::from(codes[i + j] < needle) << j;
+                byte |= u8::from(codes[idx + j] < needle) << j;
             }
-            out.push(b);
-            i += 8;
+            out.push(byte);
+            idx += 8;
         }
         if tail > 0 {
-            let mut b: u8 = 0;
+            let mut byte: u8 = 0;
             for j in 0..tail {
-                b |= u8::from(codes[i + j] < needle) << j;
+                byte |= u8::from(codes[idx + j] < needle) << j;
             }
-            out.push(b);
+            out.push(byte);
         }
         out
     });
@@ -306,8 +280,6 @@ fn cmp_byte_mask(bencher: Bencher) {
     });
 }
 
-// Vec<bool> writes 1 byte per element too but goes through bool's
-// representation rather than u8 directly — to compare with cmp_byte_mask.
 #[divan::bench]
 fn cmp_vec_bool(bencher: Bencher) {
     let codes = make_codes(N);
@@ -362,10 +334,3 @@ where
 fn i64_is_sorted_plain(bencher: Bencher) { run_is_sorted::<i64>(bencher, false); }
 #[divan::bench]
 fn i64_is_sorted_sorted(bencher: Bencher) { run_is_sorted::<i64>(bencher, true); }
-
-// Hush divan warnings about unused canonical import.
-const _: fn() = || {
-    let _ = size_of::<Canonical>();
-    let _ = size_of::<DictArray>();
-    let _ = size_of::<PrimitiveArray>();
-};

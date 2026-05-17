@@ -45,9 +45,8 @@ pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&CastReduceAdaptor(Dict)),
     ParentRuleSet::lift(&MaskReduceAdaptor(Dict)),
     ParentRuleSet::lift(&LikeReduceAdaptor(Dict)),
-    // Sorted-values fast paths for compare and between (must fire before the value
-    // push-down rule, which would otherwise eagerly rewrite scalar_fn(dict, const) to
-    // DictArray<codes, scalar_fn(values, const)>).
+    // Sorted-dict fast paths must fire before the value push-down, which would
+    // otherwise eagerly rewrite scalar_fn(dict, const) and prevent the rewrite.
     ParentRuleSet::lift(&DictionarySortedCompareRule),
     ParentRuleSet::lift(&DictionarySortedBetweenRule),
     ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
@@ -55,21 +54,13 @@ pub(crate) const PARENT_RULES: ParentRuleSet<Dict> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&SliceReduceAdaptor(Dict)),
 ]);
 
-/// Common precondition for both sorted-aware rules. Returns true if `array` is a sorted
-/// dict whose values are non-nullable; we bail otherwise so the existing value-push-down
-/// rule handles the predicate.
 #[inline]
 fn sorted_precondition(array: ArrayView<'_, Dict>) -> bool {
     array.has_sorted_values() && !array.values().dtype().is_nullable()
 }
 
-/// Reduce rule for `compare(dict, const)` on a sorted-values dict.
-///
-/// Resolves the predicate to a code-domain integer comparison (running through the
-/// chunked SIMD `CompareKernel for Primitive`) or to a constant bool array when the
-/// boundary collapses. Returns `Ok(None)` to fall through to the value push-down rule
-/// when the dict isn't sorted, the sibling isn't constant, or the values type isn't
-/// supported by the typed scan.
+/// Reduce `compare(dict, const)` on a sorted-values dict to a codes-domain compare (or a
+/// constant when the boundary collapses).
 #[derive(Debug)]
 struct DictionarySortedCompareRule;
 
@@ -82,7 +73,6 @@ impl ArrayParentReduceRule<Dict> for DictionarySortedCompareRule {
         parent: ScalarFnArrayView<'_, Binary>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Only compare operators.
         let Ok(cmp_op) = CompareOperator::try_from(*parent.options) else {
             return Ok(None);
         };
@@ -90,8 +80,7 @@ impl ArrayParentReduceRule<Dict> for DictionarySortedCompareRule {
             return Ok(None);
         }
 
-        // Resolve the sibling and normalise so the dict is always the LHS, swapping the
-        // operator if it's on the RHS.
+        // Normalise so the dict is always the LHS, swapping the operator if it was on the RHS.
         let scalar_fn = parent
             .as_opt::<ScalarFn>()
             .vortex_expect("ExactScalarFn matcher confirmed parent is ScalarFnArray");
@@ -111,7 +100,7 @@ impl ArrayParentReduceRule<Dict> for DictionarySortedCompareRule {
     }
 }
 
-/// Reduce rule for `between(dict, lower, upper)` on a sorted-values dict.
+/// Reduce `between(dict, lower, upper)` on a sorted-values dict to a codes-domain compare.
 #[derive(Debug)]
 struct DictionarySortedBetweenRule;
 
@@ -124,8 +113,7 @@ impl ArrayParentReduceRule<Dict> for DictionarySortedBetweenRule {
         parent: ScalarFnArrayView<'_, Between>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Between has three children: [arr, lower, upper]. Only fire when the dict is the
-        // arr child (index 0).
+        // Between children are [arr, lower, upper]; only fire on the arr child.
         if child_idx != 0 || !sorted_precondition(array) {
             return Ok(None);
         }
