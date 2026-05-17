@@ -174,7 +174,7 @@ impl FileSink for VortexSink {
 /// first writer error wins.
 ///
 /// On success returns the per-task results in completion order.
-async fn drain_writers_with_cleanup<T>(
+async fn drain_writers_with_cleanup<T: 'static>(
     mut file_write_tasks: JoinSet<DFResult<T>>,
     demux_task: SpawnedTask<DFResult<()>>,
 ) -> DFResult<Vec<T>> {
@@ -498,6 +498,117 @@ mod tests {
                     || location.prefix_matches(&"c1=world".into())
             );
         }
+
+        Ok(())
+    }
+
+    /// Spawn three writer tasks (one fails quickly, two succeed slowly) and
+    /// verify that the drain helper waits for every spawned task to complete
+    /// before returning the first writer error. On the pre-fix code path, an
+    /// early `?` would have dropped the slow tasks before they could bump the
+    /// shared counter; with the drain-on-error semantics all three must run.
+    #[tokio::test]
+    async fn test_drain_writers_with_cleanup_drains_all_on_failure() -> anyhow::Result<()> {
+        let completed = Arc::new(AtomicUsize::new(0));
+
+        let mut joinset: JoinSet<datafusion_common::Result<u64>> = JoinSet::new();
+
+        let c = Arc::clone(&completed);
+        joinset.spawn(async move {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            c.fetch_add(1, Ordering::SeqCst);
+            Err(exec_datafusion_err!("writer A failed"))
+        });
+
+        for value in [100u64, 200u64] {
+            let c = Arc::clone(&completed);
+            joinset.spawn(async move {
+                tokio::time::sleep(Duration::from_millis(80)).await;
+                c.fetch_add(1, Ordering::SeqCst);
+                Ok(value)
+            });
+        }
+
+        let demux: SpawnedTask<datafusion_common::Result<()>> =
+            SpawnedTask::spawn(async { Ok(()) });
+
+        let err = drain_writers_with_cleanup(joinset, demux)
+            .await
+            .expect_err("expected the writer error to propagate");
+        assert!(
+            err.to_string().contains("writer A failed"),
+            "unexpected error: {err}"
+        );
+
+        assert_eq!(
+            completed.load(Ordering::SeqCst),
+            3,
+            "expected all three writer tasks to run to completion, observed {}",
+            completed.load(Ordering::SeqCst)
+        );
+
+        Ok(())
+    }
+
+    /// When every writer succeeds but the demux task fails, the helper must
+    /// surface the demux error rather than silently swallowing it.
+    #[tokio::test]
+    async fn test_drain_writers_with_cleanup_surfaces_demux_error() -> anyhow::Result<()> {
+        let mut joinset: JoinSet<datafusion_common::Result<u64>> = JoinSet::new();
+        joinset.spawn(async { Ok(1u64) });
+        joinset.spawn(async { Ok(2u64) });
+
+        let demux: SpawnedTask<datafusion_common::Result<()>> =
+            SpawnedTask::spawn(async { Err(exec_datafusion_err!("demux failed")) });
+
+        let err = drain_writers_with_cleanup(joinset, demux)
+            .await
+            .expect_err("expected the demux error to propagate");
+        assert!(
+            err.to_string().contains("demux failed"),
+            "unexpected error: {err}"
+        );
+
+        Ok(())
+    }
+
+    /// On full success, the helper returns the collected per-task values.
+    #[tokio::test]
+    async fn test_drain_writers_with_cleanup_returns_values_on_success() -> anyhow::Result<()> {
+        let mut joinset: JoinSet<datafusion_common::Result<u64>> = JoinSet::new();
+        joinset.spawn(async { Ok(10u64) });
+        joinset.spawn(async { Ok(20u64) });
+        joinset.spawn(async { Ok(30u64) });
+
+        let demux: SpawnedTask<datafusion_common::Result<()>> =
+            SpawnedTask::spawn(async { Ok(()) });
+
+        let mut values = drain_writers_with_cleanup(joinset, demux).await?;
+        values.sort_unstable();
+        assert_eq!(values, vec![10, 20, 30]);
+
+        Ok(())
+    }
+
+    /// When both a writer task and the demux task fail, the writer error wins
+    /// (it is the more actionable signal — demux can't make progress when its
+    /// consumer dies).
+    #[tokio::test]
+    async fn test_drain_writers_with_cleanup_prefers_writer_error() -> anyhow::Result<()> {
+        let mut joinset: JoinSet<datafusion_common::Result<u64>> = JoinSet::new();
+        joinset.spawn(async { Err(exec_datafusion_err!("writer boom")) });
+        joinset.spawn(async { Ok(5u64) });
+
+        let demux: SpawnedTask<datafusion_common::Result<()>> =
+            SpawnedTask::spawn(async { Err(exec_datafusion_err!("demux boom")) });
+
+        let err = drain_writers_with_cleanup(joinset, demux)
+            .await
+            .expect_err("expected the writer error to propagate");
+        assert!(
+            err.to_string().contains("writer boom"),
+            "expected writer error to win, got: {err}"
+        );
 
         Ok(())
     }
