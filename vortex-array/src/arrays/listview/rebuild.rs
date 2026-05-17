@@ -195,14 +195,18 @@ impl ListViewArray {
         let elements = self.elements().take(take_indices.into_array())?;
         let offsets = new_offsets.into_array();
         let sizes = new_sizes.into_array();
+        let elements_len = elements.len() as u64;
 
         // SAFETY: same invariants as `rebuild_list_by_list` — offsets are sequential and
         // non-overlapping, all (offset, size) pairs reference valid elements, and the validity
         // array is preserved from the original.
+        //
+        // The rebuilt elements buffer is exactly the reachable set, so the bound is exact.
         Ok(unsafe {
             ListViewArray::new_unchecked(elements, offsets, sizes, self.validity()?)
                 .with_zero_copy_to_list(true)
-        })
+        }
+        .with_reachable_elements_bound(Some(elements_len)))
     }
 
     /// Rebuilds elements list-by-list: canonicalize elements upfront, then for each list `slice`
@@ -277,6 +281,8 @@ impl ListViewArray {
             "The accumulated elements somehow had the wrong length"
         );
 
+        let elements_len = elements.len() as u64;
+
         // SAFETY:
         // - All offsets are sequential and non-overlapping (`n_elements` tracks running total).
         // - Each `offset[i] + size[i]` equals `offset[i+1]` for all valid indices (including null
@@ -288,7 +294,8 @@ impl ListViewArray {
         Ok(unsafe {
             ListViewArray::new_unchecked(elements, offsets, sizes, self.validity()?)
                 .with_zero_copy_to_list(true)
-        })
+        }
+        .with_reachable_elements_bound(Some(elements_len)))
     }
 
     /// Rebuilds a [`ListViewArray`] by trimming any unused / unreferenced leading and trailing
@@ -365,6 +372,9 @@ impl ListViewArray {
         // maxes that all adjusted offsets + sizes are within the correct bounds), so the parameters
         // are valid. And if the original array was zero-copyable to list, trimming elements doesn't
         // change that property.
+        // Trim doesn't change reachable count — it just slices off unreferenced elements. So
+        // the new bound equals the new elements length (which is exactly the live window).
+        let new_elements_len = sliced_elements.len() as u64;
         Ok(unsafe {
             ListViewArray::new_unchecked(
                 sliced_elements,
@@ -373,7 +383,8 @@ impl ListViewArray {
                 self.validity()?,
             )
             .with_zero_copy_to_list(self.is_zero_copy_to_list())
-        })
+        }
+        .with_reachable_elements_bound(Some(new_elements_len)))
     }
 
     fn rebuild_make_exact(&self) -> VortexResult<ListViewArray> {

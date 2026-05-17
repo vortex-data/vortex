@@ -3546,9 +3546,13 @@ pub fn vortex_array::arrays::listview::ListViewData::new() -> Self
 
 pub unsafe fn vortex_array::arrays::listview::ListViewData::new_unchecked() -> Self
 
+pub fn vortex_array::arrays::listview::ListViewData::reachable_elements_bound(&self) -> core::option::Option<u64>
+
 pub fn vortex_array::arrays::listview::ListViewData::try_new() -> vortex_error::VortexResult<Self>
 
 pub fn vortex_array::arrays::listview::ListViewData::validate(&vortex_array::ArrayRef, &vortex_array::ArrayRef, &vortex_array::ArrayRef, &vortex_array::validity::Validity) -> vortex_error::VortexResult<()>
+
+pub fn vortex_array::arrays::listview::ListViewData::with_reachable_elements_bound(self, core::option::Option<u64>) -> Self
 
 pub unsafe fn vortex_array::arrays::listview::ListViewData::with_zero_copy_to_list(self, bool) -> Self
 
@@ -3606,6 +3610,8 @@ pub fn vortex_array::arrays::listview::ListViewArrayExt::offset_at(&self, usize)
 
 pub fn vortex_array::arrays::listview::ListViewArrayExt::offsets(&self) -> &vortex_array::ArrayRef
 
+pub fn vortex_array::arrays::listview::ListViewArrayExt::reachable_elements_bound(&self) -> core::option::Option<u64>
+
 pub fn vortex_array::arrays::listview::ListViewArrayExt::size_at(&self, usize) -> usize
 
 pub fn vortex_array::arrays::listview::ListViewArrayExt::sizes(&self) -> &vortex_array::ArrayRef
@@ -3625,6 +3631,8 @@ pub fn T::nullability(&self) -> vortex_array::dtype::Nullability
 pub fn T::offset_at(&self, usize) -> usize
 
 pub fn T::offsets(&self) -> &vortex_array::ArrayRef
+
+pub fn T::reachable_elements_bound(&self) -> core::option::Option<u64>
 
 pub fn T::size_at(&self, usize) -> usize
 
@@ -23081,6 +23089,8 @@ pub fn vortex_array::Array<vortex_array::arrays::ListView>::new(vortex_array::Ar
 pub unsafe fn vortex_array::Array<vortex_array::arrays::ListView>::new_unchecked(vortex_array::ArrayRef, vortex_array::ArrayRef, vortex_array::ArrayRef, vortex_array::validity::Validity) -> Self
 
 pub fn vortex_array::Array<vortex_array::arrays::ListView>::try_new(vortex_array::ArrayRef, vortex_array::ArrayRef, vortex_array::ArrayRef, vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_array::Array<vortex_array::arrays::ListView>::with_reachable_elements_bound(self, core::option::Option<u64>) -> Self
 
 pub unsafe fn vortex_array::Array<vortex_array::arrays::ListView>::with_zero_copy_to_list(self, bool) -> Self
 

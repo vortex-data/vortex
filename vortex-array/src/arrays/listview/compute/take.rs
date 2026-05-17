@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use num_traits::AsPrimitive;
 use num_traits::Zero;
 use vortex_error::VortexResult;
 
@@ -92,7 +93,29 @@ fn apply_take(array: ArrayView<'_, ListView>, indices: &ArrayRef) -> VortexResul
     // - `new_offsets` and `new_sizes` are non-nullable.
     // - `new_offsets` and `new_sizes` have the same length (both taken with the same `indices`).
     // - Validity correctly reflects the combination of array and indices validity.
-    Ok(unsafe {
+    let result = unsafe {
         ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
-    })
+    };
+    // Stamp an upper bound on reachable elements: it can't exceed the sum of the new sizes
+    // (overlaps among `indices` can shrink the true count further, never grow it). We compute
+    // this opportunistically — if the new sizes already canonicalise as a host primitive we
+    // sum them in O(kept_rows); otherwise we leave the bound unset.
+    let bound = sum_sizes_if_cheap(result.sizes());
+    Ok(result.with_reachable_elements_bound(bound))
+}
+
+/// Best-effort sum-of-sizes computation. Returns `Some(sum)` only when the sizes array is
+/// already a host primitive — we never force an execute purely to refine the hint.
+pub(super) fn sum_sizes_if_cheap(sizes: &ArrayRef) -> Option<u64> {
+    if !sizes.is_host() {
+        return None;
+    }
+    let prim = sizes.as_opt::<crate::arrays::Primitive>()?;
+    let s: u64 = match_each_integer_ptype!(prim.ptype(), |S| {
+        prim.as_slice::<S>()
+            .iter()
+            .map(|s| AsPrimitive::<u64>::as_(*s))
+            .sum()
+    });
+    Some(s)
 }

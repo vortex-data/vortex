@@ -10,11 +10,22 @@
 //! referenced.
 //!
 //! [`maybe_prune_unreferenced_elements`] estimates how much of the elements buffer is reachable
-//! by summing `sizes` and, if a sizable fraction is unreferenced, delegates to
+//! and, if a sizable fraction is unreferenced, delegates to
 //! [`rebuild`](super::ListViewArray::rebuild) with
 //! [`ListViewRebuildMode::MakeZeroCopyToList`]. The rebuild path uses `take` to materialise only
 //! the referenced positions, which means compressed elements stay compressed for the discarded
 //! ones.
+//!
+//! ### How the reachable estimate is obtained
+//!
+//! The decision walk consults [`ListViewArrayExt::reachable_elements_bound`] first. The bound is
+//! maintained by `rebuild`, `take`, `slice`, and `prune_unreferenced_elements` as their byproduct
+//! — each of these ops already touches `sizes`, so summing the kept sizes adds only the
+//! per-element work. The result is an upper bound on the reachable count (overlapping or
+//! duplicate views in `take` can shrink the true count further).
+//!
+//! If the bound is `None` (e.g. the array was constructed directly without going through one of
+//! the ops above), we fall back to materialising `sizes` and computing the sum here.
 
 use num_traits::AsPrimitive;
 use vortex_error::VortexResult;
@@ -72,17 +83,22 @@ pub fn maybe_prune_unreferenced_elements(
         return Ok(None);
     }
 
-    // Sum the sizes to bound the number of reachable elements. We have to canonicalize sizes
-    // first; this is cheap because the sizes array is bounded by `array.len()` (the number of
-    // rows in the surviving listview, typically <= DuckDB's vector size).
-    let sizes = array.sizes().clone().execute::<PrimitiveArray>(ctx)?;
-    let total_referenced: u64 = match_each_integer_ptype!(sizes.ptype(), |S| {
-        sizes
-            .as_slice::<S>()
-            .iter()
-            .map(|s| AsPrimitive::<u64>::as_(*s))
-            .sum()
-    });
+    // Bound on the reachable element count. First consult the metadata hint that
+    // `take`/`slice`/`rebuild` maintain — if present it's O(1) here. Otherwise canonicalise
+    // `sizes` and sum, which is bounded by `num_lists` (usually <= DuckDB's vector size).
+    let total_referenced: u64 = match array.reachable_elements_bound() {
+        Some(b) => b,
+        None => {
+            let sizes = array.sizes().clone().execute::<PrimitiveArray>(ctx)?;
+            match_each_integer_ptype!(sizes.ptype(), |S| {
+                sizes
+                    .as_slice::<S>()
+                    .iter()
+                    .map(|s| AsPrimitive::<u64>::as_(*s))
+                    .sum()
+            })
+        }
+    };
 
     let elements_len_u64 = elements_len as u64;
     // Strict upper bound on the rebuild output size. If even this exceeds the threshold there's

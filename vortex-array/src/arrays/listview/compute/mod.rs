@@ -5,7 +5,7 @@ mod cast;
 mod mask;
 pub(crate) mod rules;
 mod slice;
-mod take;
+pub(crate) mod take;
 
 /// The threshold below which we rebuild the elements of a listview.
 ///

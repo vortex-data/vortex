@@ -125,11 +125,28 @@ pub struct ListViewData {
     /// `offsets[i] + sizes[i]` are in order), conversions can bypass the very expensive rebuild
     /// process which must rebuild the array from scratch.
     is_zero_copy_to_list: bool,
+    /// Optional upper bound on the number of *reachable* positions in `elements` — i.e. positions
+    /// covered by at least one `(offsets[i], sizes[i])` view. `None` means we have no estimate.
+    ///
+    /// This is an *upper* bound, not exact: duplicate or overlapping views can make
+    /// `sum(sizes)` exceed the true unique-reached count, so the field is in spirit
+    /// `sum(sizes)` for the rows actually present in this array. After `rebuild` (which dedups
+    /// overlaps and enforces sequential offsets) the bound equals `elements.len()` exactly.
+    ///
+    /// Producers stamp this when they cheaply compute the sum as part of their own work
+    /// (`rebuild`, `prune_unreferenced_elements`, the take/slice/filter compute kernels). The
+    /// listview prune helper consults it as an O(1) signal to decide whether to commit to a
+    /// rebuild without walking sizes again.
+    reachable_elements_bound: Option<u64>,
 }
 
 impl Display for ListViewData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "is_zero_copy_to_list: {}", self.is_zero_copy_to_list)
+        write!(
+            f,
+            "is_zero_copy_to_list: {}, reachable_elements_bound: {:?}",
+            self.is_zero_copy_to_list, self.reachable_elements_bound
+        )
     }
 }
 
@@ -174,6 +191,7 @@ impl ListViewData {
     pub fn new() -> Self {
         Self {
             is_zero_copy_to_list: false,
+            reachable_elements_bound: None,
         }
     }
 
@@ -303,6 +321,19 @@ impl ListViewData {
     pub fn is_zero_copy_to_list(&self) -> bool {
         self.is_zero_copy_to_list
     }
+
+    /// Attach an upper bound on the number of reachable element positions. Advisory only;
+    /// consumers should treat it as `≥ true_reachable_count`.
+    pub fn with_reachable_elements_bound(mut self, bound: Option<u64>) -> Self {
+        self.reachable_elements_bound = bound;
+        self
+    }
+
+    /// Returns the current reachable-elements upper bound, if any.
+    #[inline]
+    pub fn reachable_elements_bound(&self) -> Option<u64> {
+        self.reachable_elements_bound
+    }
 }
 
 impl Default for ListViewData {
@@ -317,6 +348,13 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             DType::List(_, nullability) => *nullability,
             _ => unreachable!("ListViewArrayExt requires a list dtype"),
         }
+    }
+
+    /// Returns the current upper bound on reachable element positions, if known.
+    /// Advisory; never sound to rely on for correctness.
+    #[inline]
+    fn reachable_elements_bound(&self) -> Option<u64> {
+        self.reachable_elements_bound
     }
 
     fn elements(&self) -> &ArrayRef {
@@ -474,6 +512,20 @@ impl Array<ListView> {
         let len = self.len();
         let slots: ArraySlots = self.slots().iter().cloned().collect();
         let data = unsafe { self.into_data().with_zero_copy_to_list(is_zctl) };
+        unsafe {
+            Array::from_parts_unchecked(
+                ArrayParts::new(ListView, dtype, len, data).with_slots(slots),
+            )
+        }
+    }
+
+    /// Attach an upper bound on the reachable elements count. Advisory only; never affects
+    /// correctness.
+    pub fn with_reachable_elements_bound(self, bound: Option<u64>) -> Self {
+        let dtype = self.dtype().clone();
+        let len = self.len();
+        let slots: ArraySlots = self.slots().iter().cloned().collect();
+        let data = self.into_data().with_reachable_elements_bound(bound);
         unsafe {
             Array::from_parts_unchecked(
                 ArrayParts::new(ListView, dtype, len, data).with_slots(slots),

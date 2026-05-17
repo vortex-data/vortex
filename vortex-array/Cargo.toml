@@ -106,6 +106,10 @@ name = "compute_then_export"
 harness = false
 
 [[bench]]
+name = "listview_compute_export"
+harness = false
+
+[[bench]]
 name = "cast_primitive"
 harness = false
 
