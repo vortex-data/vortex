@@ -15,6 +15,7 @@ use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewDataParts;
+use crate::arrays::listview::maybe_prune_unreferenced_elements;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::arrow::session::ArrowSessionExt;
 use crate::builtins::ArrayBuiltins;
@@ -43,6 +44,13 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
+    // When the live views cover only a small fraction of the elements buffer, the downstream
+    // `execute_arrow(elements, …)` would convert every unreferenced element too. Rebuild via
+    // take first when sparse enough.
+    let array = match maybe_prune_unreferenced_elements(&array, ctx)? {
+        Some(pruned) => pruned,
+        None => array,
+    };
     let ListViewDataParts {
         elements,
         offsets,

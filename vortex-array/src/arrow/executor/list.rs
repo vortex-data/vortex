@@ -23,6 +23,7 @@ use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::chunked::ChunkedArrayExt;
 use crate::arrays::list::ListArrayExt;
+use crate::arrays::list::maybe_trim_unreferenced_elements;
 use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
@@ -87,6 +88,19 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    // Trim leading/trailing unreferenced elements before the elements conversion: the
+    // downstream `execute_arrow(elements, …)` walks every element regardless of whether any
+    // list points at it, so chopping the buffer down to the live `[offsets[0], offsets[len]]`
+    // window pays back the offsets rewrite for any sizable sparse prefix/suffix.
+    let trimmed;
+    let array = match maybe_trim_unreferenced_elements(array, ctx)? {
+        Some(t) => {
+            trimmed = t;
+            &trimmed
+        }
+        None => array,
+    };
+
     // We must cast the offsets to the required offset type.
     let offsets = array
         .offsets()

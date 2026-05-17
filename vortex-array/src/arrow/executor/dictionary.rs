@@ -21,7 +21,9 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
+use crate::arrays::Primitive;
 use crate::arrays::dict::DictArraySlotsExt;
+use crate::arrays::dict::maybe_prune_unreferenced_values;
 use crate::arrow::ArrowArrayExecutor;
 
 pub(super) fn to_arrow_dictionary(
@@ -78,6 +80,22 @@ fn dict_to_dict(
     values_type: &DataType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    // When the codes only cover a small subset of the values, building an Arrow dict whose
+    // values is the full Vortex values buffer pays the per-element conversion cost for every
+    // unreferenced entry. Prune first when the values are non-primitive (primitive values
+    // convert near zero-copy regardless of length, so the prune overhead doesn't pay back).
+    let pruned;
+    let array = if array.values().is::<Primitive>() {
+        &array
+    } else {
+        match maybe_prune_unreferenced_values(&array, ctx)? {
+            Some(p) => {
+                pruned = p;
+                &pruned
+            }
+            None => &array,
+        }
+    };
     let codes = array.codes().clone().execute_arrow(Some(codes_type), ctx)?;
     let values = array
         .values()
