@@ -27,7 +27,10 @@ use crate::multi_file::VortexMultiFileScanList;
 mod convert;
 mod datasource;
 pub mod duckdb;
+#[cfg(not(feature = "_bench"))]
 mod exporter;
+#[cfg(feature = "_bench")]
+pub mod exporter;
 mod filesystem;
 mod multi_file;
 
@@ -43,7 +46,11 @@ mod e2e_test;
 
 // A global runtime for Vortex operations within DuckDB.
 static RUNTIME: LazyLock<CurrentThreadRuntime> = LazyLock::new(CurrentThreadRuntime::new);
+#[cfg(not(feature = "_bench"))]
 static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
+#[cfg(feature = "_bench")]
+pub static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
 
 // Duckdb's logger requires a *Context as first argument which

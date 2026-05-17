@@ -41,14 +41,37 @@ url = { workspace = true }
 vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
+[features]
+# Exposes internal modules (exporter, SESSION) for use from benchmarks. Not for
+# external consumers; the exported surface is not considered stable.
+_bench = []
+
 [dev-dependencies]
 anyhow = { workspace = true }
+divan = { workspace = true }
 jiff = { workspace = true }
+rand = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-duckdb = { path = ".", features = ["_bench"] }
 vortex-runend = { workspace = true }
 vortex-sequence = { workspace = true }
+
+[[bench]]
+name = "exporter_dict"
+harness = false
+required-features = ["_bench"]
+
+[[bench]]
+name = "exporter_list_view"
+harness = false
+required-features = ["_bench"]
+
+[[bench]]
+name = "exporter_list"
+harness = false
+required-features = ["_bench"]
 
 [lints]
 workspace = true

@@ -165,7 +165,18 @@ pub trait ColumnExporter: 'static {
     ) -> VortexResult<()>;
 }
 
+#[cfg(not(feature = "_bench"))]
 fn new_array_exporter(
+    array: ArrayRef,
+    cache: &ConversionCache,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    new_array_exporter_with_flatten(array, cache, ctx, false)
+}
+
+/// Create a top-level DuckDB exporter for the given Vortex array. Exposed for benchmarking.
+#[cfg(feature = "_bench")]
+pub fn new_array_exporter(
     array: ArrayRef,
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
