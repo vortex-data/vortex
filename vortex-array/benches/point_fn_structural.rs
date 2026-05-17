@@ -14,6 +14,7 @@
 //! `PointSession::search_sorted` (uses the encoding's vtable override).
 
 #![expect(clippy::unwrap_used)]
+#![expect(clippy::cast_possible_truncation)]
 
 use divan::Bencher;
 use rand::RngExt;
