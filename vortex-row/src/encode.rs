@@ -21,6 +21,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
@@ -317,12 +318,146 @@ fn dispatch_encode_fixed_arith(
             &canonical, field, col_prefix, row_stride, var_prefix, width, out, ctx,
         );
     }
-    // For other fixed columns route through canonicalization and the codec helpers. The
-    // Constant fast path is layered on in a follow-up commit.
+    // Constant fast path: write the same scalar bytes at each per-row position.
+    if let Some(view) = col.as_opt::<Constant>() {
+        return encode_constant_arith(view, field, col_prefix, row_stride, var_prefix, width, out);
+    }
+    // For other fixed columns route through canonicalization and the codec helpers.
     let canonical = col.clone().execute::<Canonical>(ctx)?;
     codec::field_encode_fixed_arithmetic(
         &canonical, field, col_prefix, row_stride, var_prefix, width, out, ctx,
     )
+}
+
+/// Constant-specific arithmetic writer. Encodes the scalar bytes once, then writes the same
+/// bytes into each per-row slot via direct register-sized stores for the common small
+/// lengths (2/5/9/17), or `copy_nonoverlapping` as a fallback.
+fn encode_constant_arith(
+    view: ArrayView<'_, Constant>,
+    field: SortField,
+    col_prefix: u32,
+    row_stride: u32,
+    var_prefix: Option<&[u32]>,
+    _width: u32,
+    out: &mut [u8],
+) -> VortexResult<()> {
+    let bytes = codec::encode_scalar(view.scalar(), field)?;
+    let len = bytes.len();
+    if len == 0 {
+        return Ok(());
+    }
+    let n = view.len();
+    // SAFETY: encoded scalar length matches the per-row width contributed to the size pass,
+    // so `pos + len <= out.len()` by buffer construction. For small fixed lengths (the
+    // common case: bool=2, i32=5, i64=9, i128=17) we hoist the encoded bytes into
+    // register-sized loads before the loop and emit direct write_unaligned stores per row.
+    // This is faster than copy_nonoverlapping for small `len` because the compiler emits a
+    // real memcpy call rather than inlining the 1- or 2-word store sequence.
+    unsafe {
+        let src = bytes.as_ptr();
+        let stride = row_stride as usize;
+        match (var_prefix, len) {
+            // i64-typical: 1 sentinel + 8 value bytes = 9 bytes, no varlen prefix.
+            (None, 9) => {
+                let v_lo = std::ptr::read_unaligned(src as *const u64);
+                let v_hi = *src.add(8);
+                let mut dst = out.as_mut_ptr().add(col_prefix as usize);
+                for _ in 0..n {
+                    std::ptr::write_unaligned(dst as *mut u64, v_lo);
+                    *dst.add(8) = v_hi;
+                    dst = dst.add(stride);
+                }
+            }
+            // i32-typical: 1 sentinel + 4 value bytes = 5 bytes, no varlen prefix.
+            (None, 5) => {
+                let v_lo = std::ptr::read_unaligned(src as *const u32);
+                let v_hi = *src.add(4);
+                let mut dst = out.as_mut_ptr().add(col_prefix as usize);
+                for _ in 0..n {
+                    std::ptr::write_unaligned(dst as *mut u32, v_lo);
+                    *dst.add(4) = v_hi;
+                    dst = dst.add(stride);
+                }
+            }
+            // bool / i8: 1 sentinel + 1 value byte = 2 bytes, no varlen prefix.
+            (None, 2) => {
+                let v = std::ptr::read_unaligned(src as *const u16);
+                let mut dst = out.as_mut_ptr().add(col_prefix as usize);
+                for _ in 0..n {
+                    std::ptr::write_unaligned(dst as *mut u16, v);
+                    dst = dst.add(stride);
+                }
+            }
+            // i128: 1 sentinel + 16 value bytes = 17 bytes, no varlen prefix.
+            (None, 17) => {
+                let v_lo = std::ptr::read_unaligned(src as *const u128);
+                let v_hi = *src.add(16);
+                let mut dst = out.as_mut_ptr().add(col_prefix as usize);
+                for _ in 0..n {
+                    std::ptr::write_unaligned(dst as *mut u128, v_lo);
+                    *dst.add(16) = v_hi;
+                    dst = dst.add(stride);
+                }
+            }
+            // General fallback for other lengths.
+            (None, _) => {
+                let mut dst = out.as_mut_ptr().add(col_prefix as usize);
+                for _ in 0..n {
+                    std::ptr::copy_nonoverlapping(src, dst, len);
+                    dst = dst.add(stride);
+                }
+            }
+            (Some(vp), 9) => {
+                let v_lo = std::ptr::read_unaligned(src as *const u64);
+                let v_hi = *src.add(8);
+                let base = out.as_mut_ptr();
+                for i in 0..n {
+                    let pos = (i as u32) * row_stride + col_prefix + vp[i];
+                    let dst = base.add(pos as usize);
+                    std::ptr::write_unaligned(dst as *mut u64, v_lo);
+                    *dst.add(8) = v_hi;
+                }
+            }
+            (Some(vp), 5) => {
+                let v_lo = std::ptr::read_unaligned(src as *const u32);
+                let v_hi = *src.add(4);
+                let base = out.as_mut_ptr();
+                for i in 0..n {
+                    let pos = (i as u32) * row_stride + col_prefix + vp[i];
+                    let dst = base.add(pos as usize);
+                    std::ptr::write_unaligned(dst as *mut u32, v_lo);
+                    *dst.add(4) = v_hi;
+                }
+            }
+            (Some(vp), 2) => {
+                let v = std::ptr::read_unaligned(src as *const u16);
+                let base = out.as_mut_ptr();
+                for i in 0..n {
+                    let pos = (i as u32) * row_stride + col_prefix + vp[i];
+                    std::ptr::write_unaligned(base.add(pos as usize) as *mut u16, v);
+                }
+            }
+            (Some(vp), 17) => {
+                let v_lo = std::ptr::read_unaligned(src as *const u128);
+                let v_hi = *src.add(16);
+                let base = out.as_mut_ptr();
+                for i in 0..n {
+                    let pos = (i as u32) * row_stride + col_prefix + vp[i];
+                    let dst = base.add(pos as usize);
+                    std::ptr::write_unaligned(dst as *mut u128, v_lo);
+                    *dst.add(16) = v_hi;
+                }
+            }
+            (Some(vp), _) => {
+                let base = out.as_mut_ptr();
+                for i in 0..n {
+                    let pos = (i as u32) * row_stride + col_prefix + vp[i];
+                    std::ptr::copy_nonoverlapping(src, base.add(pos as usize), len);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Dispatch a single column's encoding into the shared `out` buffer.
