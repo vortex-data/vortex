@@ -405,17 +405,28 @@ fn encode_constant_arith(
         return Ok(());
     }
     let n = view.len();
-    match var_prefix {
-        None => {
-            for i in 0..n {
-                let pos = ((i as u32) * row_stride + col_prefix) as usize;
-                out[pos..pos + len].copy_from_slice(&bytes);
+    // SAFETY: encoded scalar length matches the per-row width contributed to the size pass,
+    // so `pos + len <= out.len()` by buffer construction. copy_nonoverlapping elides the
+    // bounds check + slice creation that copy_from_slice would do per row. For the no-
+    // var_prefix case we also walk a running pointer with constant stride, avoiding the
+    // per-row index recomputation entirely.
+    unsafe {
+        let src = bytes.as_ptr();
+        match var_prefix {
+            None => {
+                let mut dst = out.as_mut_ptr().add(col_prefix as usize);
+                let stride = row_stride as usize;
+                for _ in 0..n {
+                    std::ptr::copy_nonoverlapping(src, dst, len);
+                    dst = dst.add(stride);
+                }
             }
-        }
-        Some(vp) => {
-            for i in 0..n {
-                let pos = ((i as u32) * row_stride + col_prefix + vp[i]) as usize;
-                out[pos..pos + len].copy_from_slice(&bytes);
+            Some(vp) => {
+                let base = out.as_mut_ptr();
+                for i in 0..n {
+                    let pos = (i as u32) * row_stride + col_prefix + vp[i];
+                    std::ptr::copy_nonoverlapping(src, base.add(pos as usize), len);
+                }
             }
         }
     }

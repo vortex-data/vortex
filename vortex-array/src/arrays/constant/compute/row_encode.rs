@@ -49,10 +49,18 @@ impl RowEncodeKernel for Constant {
         if len == 0 {
             return Ok(Some(()));
         }
-        for i in 0..n {
-            let pos = (offsets[i] + cursors[i]) as usize;
-            out[pos..pos + len].copy_from_slice(&bytes);
-            cursors[i] += len_u32;
+        // SAFETY: bytes is len bytes; offsets[i] + cursors[i] + len <= out.len() by
+        // construction of the buffer (the size pass already accounted for this column's
+        // contribution). copy_nonoverlapping elides the bounds check + slice creation
+        // that copy_from_slice would do per row.
+        unsafe {
+            let src = bytes.as_ptr();
+            let out_ptr = out.as_mut_ptr();
+            for i in 0..n {
+                let pos = (offsets[i] + cursors[i]) as usize;
+                std::ptr::copy_nonoverlapping(src, out_ptr.add(pos), len);
+                cursors[i] += len_u32;
+            }
         }
         Ok(Some(()))
     }
