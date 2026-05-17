@@ -213,12 +213,21 @@ fn df_timer(name: String, value: Duration) -> DatafusionMetricValue {
 
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "truncation is checked before cast"
+    reason = "value already verified to fit in usize (<= 2^53)"
 )]
 fn f_to_u(f: f64) -> Option<usize> {
-    (f.is_finite() && f >= usize::MIN as f64 && f <= usize::MAX as f64).then(||
-        // After the range check, truncation is guaranteed to keep the value in usize bounds.
-        f.trunc() as usize)
+    if !f.is_finite() || f < 0.0 {
+        return None;
+    }
+    // f64 can exactly represent integers up to 2^53. Beyond that, the
+    // implicit `usize::MAX as f64` round-trip used to incorrectly accept
+    // 2^64 as in-range. Reject anything that exceeds the contiguous
+    // integer range of f64; in practice metric values never approach this.
+    const MAX_EXACT: f64 = (1u64 << 53) as f64;
+    if f > MAX_EXACT {
+        return None;
+    }
+    Some(f.trunc() as usize)
 }
 
 #[cfg(test)]
@@ -227,9 +236,27 @@ mod tests {
     use datafusion_datasource::source::DataSourceExec;
     use datafusion_physical_plan::ExecutionPlanVisitor;
     use datafusion_physical_plan::accept;
+    use rstest::rstest;
 
     use super::VortexMetricsFinder;
+    use super::f_to_u;
     use crate::common_tests::TestSessionContext;
+
+    #[rstest]
+    #[case::zero(0.0, Some(0))]
+    #[case::positive_small(42.7, Some(42))]
+    #[case::negative(-1.0, None)]
+    #[case::nan(f64::NAN, None)]
+    #[case::inf(f64::INFINITY, None)]
+    #[case::neg_inf(f64::NEG_INFINITY, None)]
+    #[case::two_to_the_53(9_007_199_254_740_992.0, Some(9_007_199_254_740_992))]
+    #[case::value_that_currently_passes_check_but_overflows_usize(
+        2.0_f64.powi(64),
+        None
+    )]
+    fn f_to_u_cases(#[case] input: f64, #[case] expected: Option<usize>) {
+        assert_eq!(f_to_u(input), expected);
+    }
 
     /// Counts the number of DataSourceExec nodes in a plan.
     struct DataSourceExecCounter(usize);
