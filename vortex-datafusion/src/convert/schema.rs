@@ -103,8 +103,8 @@ fn calculate_physical_field_type(
                     .names()
                     .iter()
                     .zip(struct_dtype.fields())
-                    .map(|(name, field_dtype)| {
-                        match by_name.get(name.as_ref()).copied() {
+                    .map(
+                        |(name, field_dtype)| match by_name.get(name.as_ref()).copied() {
                             Some(logical_field) => {
                                 let arrow_type = calculate_physical_field_type(
                                     &field_dtype,
@@ -123,8 +123,8 @@ fn calculate_physical_field_type(
                                 .map_err(|e| {
                                     exec_datafusion_err!("Failed to convert dtype to arrow: {e}")
                                 }),
-                        }
-                    })
+                        },
+                    )
                     .collect::<DFResult<Vec<_>>>()?;
 
                 DataType::Struct(physical_fields.into())
@@ -430,5 +430,136 @@ mod tests {
                 .to_string()
                 .contains("Expected struct dtype")
         );
+    }
+
+    /// Build a wide flat struct with `n` Int32 fields. Used to exercise the
+    /// per-struct field-lookup path with a non-trivial number of fields.
+    fn build_wide_schema_and_dtype(n: usize) -> (Schema, DType) {
+        let logical_fields: Vec<Field> = (0..n)
+            .map(|i| Field::new(format!("c{i}"), DataType::Int32, false))
+            .collect();
+        let logical_schema = Schema::new(logical_fields);
+
+        let dtype = DType::Struct(
+            StructFields::from_iter((0..n).map(|i| {
+                (
+                    format!("c{i}"),
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                )
+            })),
+            Nullability::NonNullable,
+        );
+
+        (logical_schema, dtype)
+    }
+
+    #[test]
+    fn wide_flat_struct_schema_correctness() {
+        // Correctness check on a wide top-level struct (no nesting) to ensure the
+        // HashMap-based lookup yields a stable, fully populated physical schema.
+        const N: usize = 500;
+        let (logical_schema, dtype) = build_wide_schema_and_dtype(N);
+
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
+
+        assert_eq!(physical_schema.fields().len(), N);
+        for i in 0..N {
+            assert_eq!(physical_schema.field(i).name(), &format!("c{i}"));
+            assert_eq!(physical_schema.field(i).data_type(), &DataType::Int32);
+        }
+    }
+
+    #[test]
+    fn wide_struct_schema_calculation_is_linear() {
+        // This test demonstrates that `calculate_physical_schema` scales well
+        // for wide schemas. Before the fix, the nested-struct branch performed
+        // an O(n) scan of logical fields for every Vortex field, making the
+        // per-level cost O(n^2). After the fix it builds a HashMap once and
+        // lookups are O(1) amortized.
+        //
+        // We compare wide-vs-narrow runtimes for a single nested struct. The
+        // unfixed O(n^2) code yields a ratio of roughly (n_wide / n_narrow)^2;
+        // the fixed O(n) code yields ~(n_wide / n_narrow). The threshold below
+        // is conservative so it doesn't flake under noisy CI while still
+        // demonstrating the asymptotic claim.
+        use std::time::Instant;
+
+        const NARROW: usize = 10;
+        const WIDE: usize = 1000;
+
+        // Build wide and narrow schemas wrapped inside a single top-level
+        // struct so we exercise the nested-struct branch where the original
+        // O(n^2) scan lived.
+        let build_nested = |n: usize| -> (Schema, DType) {
+            let inner_logical_fields: Vec<Field> = (0..n)
+                .map(|i| Field::new(format!("c{i}"), DataType::Int32, false))
+                .collect();
+            let logical_schema = Schema::new(vec![Field::new(
+                "outer",
+                DataType::Struct(Fields::from(inner_logical_fields)),
+                true,
+            )]);
+            let inner_dtype = DType::Struct(
+                StructFields::from_iter((0..n).map(|i| {
+                    (
+                        format!("c{i}"),
+                        DType::Primitive(PType::I32, Nullability::NonNullable),
+                    )
+                })),
+                Nullability::Nullable,
+            );
+            let dtype = DType::Struct(
+                StructFields::from_iter([("outer", inner_dtype)]),
+                Nullability::NonNullable,
+            );
+            (logical_schema, dtype)
+        };
+
+        let (narrow_schema, narrow_dtype) = build_nested(NARROW);
+        let (wide_schema, wide_dtype) = build_nested(WIDE);
+
+        // Warm up so we don't measure first-call overhead.
+        let _ = calculate_physical_schema(&narrow_dtype, &narrow_schema, &ArrowSession::default())
+            .unwrap();
+        let _ =
+            calculate_physical_schema(&wide_dtype, &wide_schema, &ArrowSession::default()).unwrap();
+
+        let narrow_start = Instant::now();
+        let narrow_physical =
+            calculate_physical_schema(&narrow_dtype, &narrow_schema, &ArrowSession::default())
+                .unwrap();
+        let narrow_duration = narrow_start.elapsed();
+
+        let wide_start = Instant::now();
+        let wide_physical =
+            calculate_physical_schema(&wide_dtype, &wide_schema, &ArrowSession::default()).unwrap();
+        let wide_duration = wide_start.elapsed();
+
+        // Correctness: shapes match.
+        if let DataType::Struct(narrow_inner) = narrow_physical.field(0).data_type() {
+            assert_eq!(narrow_inner.len(), NARROW);
+        } else {
+            panic!("Expected struct for narrow case");
+        }
+        if let DataType::Struct(wide_inner) = wide_physical.field(0).data_type() {
+            assert_eq!(wide_inner.len(), WIDE);
+        } else {
+            panic!("Expected struct for wide case");
+        }
+
+        // Perf assertion: the ratio of wide / narrow runtimes should be far
+        // less than (WIDE/NARROW)^2 = 10_000. The fixed code gives ~10x; the
+        // pre-fix code gives ~10_000x. Use 1000x as a generous ceiling to
+        // avoid flakes from timing jitter at very small narrow durations.
+        if narrow_duration.as_nanos() > 0 {
+            let ratio = wide_duration.as_nanos() / narrow_duration.as_nanos().max(1);
+            assert!(
+                ratio < 1000,
+                "calculate_physical_schema scales worse than expected: \
+                 narrow ({NARROW} fields) took {narrow_duration:?}, \
+                 wide ({WIDE} fields) took {wide_duration:?}, ratio {ratio}x",
+            );
+        }
     }
 }
