@@ -164,6 +164,11 @@ harness = false
 required-features = ["_test-harness"]
 
 [[bench]]
+name = "iter"
+harness = false
+required-features = ["_test-harness"]
+
+[[bench]]
 name = "dict_mask"
 harness = false
 
