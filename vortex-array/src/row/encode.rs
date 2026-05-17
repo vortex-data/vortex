@@ -205,19 +205,17 @@ fn execute_row_encode(
     }
     let total_len = total as usize;
     let mut out_buf: BufferMut<u8> = BufferMut::with_capacity(total_len);
-    // Pure-fixed inputs are written byte-for-byte (sentinel + value or sentinel +
-    // zero-fill for nulls) by the encoders, so we can skip the zero-init memset. Mixed
-    // inputs rely on a zeroed buffer for padding inside varlen partial blocks and for
-    // null-struct/null-FSL bodies in the cursor-based encode path.
-    if first_varlen_idx.is_some() {
-        out_buf.push_n(0u8, total_len);
-    } else {
-        // Reserve space without zero-filling; encoders write every byte.
-        // SAFETY: we just allocated `total_len` capacity above; setting len is safe as
-        // long as every byte is written before the buffer is read, which is enforced by
-        // the encoders below (they cover every row's [i*stride, (i+1)*stride) range).
-        unsafe { out_buf.set_len(total_len) };
-    }
+    // Every encoder writes every byte in its row range: non-null values are written
+    // directly; null fixed-width slots are sentinel + explicit zero-fill; varlen partial
+    // blocks zero-pad via write_bytes; null struct/FSL bodies are zero-filled after the
+    // child encoders run. So the pre-zero-init of the buffer is redundant; skipping it
+    // saves a memset of `total_len` bytes per call (significant for varlen-heavy inputs
+    // where total_len reaches multiple MB).
+    //
+    // SAFETY: we just allocated `total_len` capacity. By the size-pass + encoder
+    // contract every byte in [0, total_len) is written before the buffer is read out.
+    let _ = first_varlen_idx;
+    unsafe { out_buf.set_len(total_len) };
 
     // ===== Phase 3: per-row write context =====
     // We build a single per-row `listview_offsets` array: the absolute byte offset where
