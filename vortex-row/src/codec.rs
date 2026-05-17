@@ -76,6 +76,33 @@ const fn encoded_size_for_fixed(value_bytes: u32) -> u32 {
     1 + value_bytes
 }
 
+/// Pre-resolved per-row validity for the row encoders.
+///
+/// Encoders pattern-match on this once before their inner loop so the
+/// no-nulls fast path avoids per-row `mask.value(i)` branches entirely,
+/// and the nullable path holds the materialized mask exactly once.
+pub(crate) enum ValidityKind {
+    /// Column statically has no nulls (`Validity::NonNullable` or `AllValid`); no mask
+    /// allocation needed.
+    AllValid,
+    /// Column may have nulls; the materialized per-row mask is included.
+    Mask(vortex_mask::Mask),
+}
+
+/// Resolve a [`Validity`] into a [`ValidityKind`], materializing the mask only when
+/// the column may actually have nulls.
+#[inline]
+pub(crate) fn resolve_validity(
+    validity: Validity,
+    len: usize,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ValidityKind> {
+    Ok(match validity {
+        Validity::NonNullable | Validity::AllValid => ValidityKind::AllValid,
+        other => ValidityKind::Mask(other.execute_mask(len, ctx)?),
+    })
+}
+
 /// Per-row width classification for a column.
 ///
 /// `Fixed(w)` means every row encodes to exactly `w` bytes (sentinel + value), regardless
@@ -311,23 +338,21 @@ fn add_size_varbinview(
     sizes: &mut [u32],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let validity = arr.as_ref().validity()?;
     let views = arr.views();
-
-    // Fast path: no nulls possible, skip mask.
-    if matches!(validity, Validity::NonNullable | Validity::AllValid) {
-        for (i, view) in views.iter().enumerate() {
-            sizes[i] += encoded_size_for_varlen(view.len() as usize);
+    match resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)? {
+        ValidityKind::AllValid => {
+            for (i, view) in views.iter().enumerate() {
+                sizes[i] += encoded_size_for_varlen(view.len() as usize);
+            }
         }
-        return Ok(());
-    }
-
-    let mask = validity.execute_mask(arr.len(), ctx)?;
-    for (i, view) in views.iter().enumerate() {
-        if mask.value(i) {
-            sizes[i] += encoded_size_for_varlen(view.len() as usize);
-        } else {
-            sizes[i] += 1; // sentinel only
+        ValidityKind::Mask(mask) => {
+            for (i, view) in views.iter().enumerate() {
+                if mask.value(i) {
+                    sizes[i] += encoded_size_for_varlen(view.len() as usize);
+                } else {
+                    sizes[i] += 1; // sentinel only
+                }
+            }
         }
     }
     Ok(())
@@ -410,36 +435,34 @@ fn encode_bool(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let validity = arr.as_ref().validity()?;
     let bits = arr.clone().into_bit_buffer();
     let non_null = field.non_null_sentinel();
     let xor = if field.descending { 0xFF } else { 0x00 };
-
-    // Fast path: no nulls, skip mask allocation and per-row branch.
-    if matches!(validity, Validity::NonNullable | Validity::AllValid) {
-        for i in 0..bits.len() {
-            let pos = (row_offsets[i] + col_offset[i]) as usize;
-            out[pos] = non_null;
-            let raw = if bits.value(i) { 0x02u8 } else { 0x01u8 };
-            out[pos + 1] = raw ^ xor;
-            col_offset[i] += BOOL_ENCODED_SIZE;
+    match resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)? {
+        ValidityKind::AllValid => {
+            for i in 0..bits.len() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                out[pos] = non_null;
+                let raw = if bits.value(i) { 0x02u8 } else { 0x01u8 };
+                out[pos + 1] = raw ^ xor;
+                col_offset[i] += BOOL_ENCODED_SIZE;
+            }
         }
-        return Ok(());
-    }
-
-    let mask = validity.execute_mask(arr.len(), ctx)?;
-    let null = field.null_sentinel();
-    for i in 0..bits.len() {
-        let pos = (row_offsets[i] + col_offset[i]) as usize;
-        if mask.value(i) {
-            out[pos] = non_null;
-            let raw = if bits.value(i) { 0x02u8 } else { 0x01u8 };
-            out[pos + 1] = raw ^ xor;
-        } else {
-            out[pos] = null;
-            out[pos + 1] = 0;
+        ValidityKind::Mask(mask) => {
+            let null = field.null_sentinel();
+            for i in 0..bits.len() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                if mask.value(i) {
+                    out[pos] = non_null;
+                    let raw = if bits.value(i) { 0x02u8 } else { 0x01u8 };
+                    out[pos + 1] = raw ^ xor;
+                } else {
+                    out[pos] = null;
+                    out[pos + 1] = 0;
+                }
+                col_offset[i] += BOOL_ENCODED_SIZE;
+            }
         }
-        col_offset[i] += BOOL_ENCODED_SIZE;
     }
     Ok(())
 }
@@ -466,38 +489,35 @@ fn encode_primitive_typed<T: NativePType + RowEncode>(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let validity = arr.as_ref().validity()?;
     let slice: &[T] = arr.as_slice();
     let non_null = field.non_null_sentinel();
     let value_bytes = size_of::<T>();
     let stride = encoded_size_for_fixed(value_bytes as u32);
-
-    // Fast path: no nulls possible, skip mask allocation and per-row branch.
-    if matches!(validity, Validity::NonNullable | Validity::AllValid) {
-        for (i, &v) in slice.iter().enumerate() {
-            let pos = (row_offsets[i] + col_offset[i]) as usize;
-            out[pos] = non_null;
-            v.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
-            col_offset[i] += stride;
-        }
-        return Ok(());
-    }
-
-    // Nullable path
-    let mask = validity.execute_mask(arr.len(), ctx)?;
-    let null = field.null_sentinel();
-    for (i, &v) in slice.iter().enumerate() {
-        let pos = (row_offsets[i] + col_offset[i]) as usize;
-        if mask.value(i) {
-            out[pos] = non_null;
-            v.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
-        } else {
-            out[pos] = null;
-            for b in &mut out[pos + 1..pos + 1 + value_bytes] {
-                *b = 0;
+    match resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)? {
+        ValidityKind::AllValid => {
+            for (i, &v) in slice.iter().enumerate() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                out[pos] = non_null;
+                v.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
+                col_offset[i] += stride;
             }
         }
-        col_offset[i] += stride;
+        ValidityKind::Mask(mask) => {
+            let null = field.null_sentinel();
+            for (i, &v) in slice.iter().enumerate() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                if mask.value(i) {
+                    out[pos] = non_null;
+                    v.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
+                } else {
+                    out[pos] = null;
+                    for b in &mut out[pos + 1..pos + 1 + value_bytes] {
+                        *b = 0;
+                    }
+                }
+                col_offset[i] += stride;
+            }
+        }
     }
     Ok(())
 }
@@ -580,58 +600,55 @@ fn encode_varbinview(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let validity = arr.as_ref().validity()?;
     let non_null = field.non_null_sentinel();
     let descending = field.descending;
     let views = arr.views();
     let n_buffers = arr.data_buffers().len();
-
-    // Fast path: no nulls possible. Walk views directly (bypass with_iterator's
-    // closure dispatch) and resolve view bytes inline.
-    if matches!(validity, Validity::NonNullable | Validity::AllValid) {
-        // Cache data-buffer slices once. For inlined views (len <= 12), bytes live
-        // inside the view itself.
-        let buffers: smallvec::SmallVec<[&[u8]; 4]> =
-            (0..n_buffers).map(|i| arr.buffer(i).as_slice()).collect();
-        for (i, view) in views.iter().enumerate() {
-            let pos = (row_offsets[i] + col_offset[i]) as usize;
-            out[pos] = non_null;
-            let len = view.len() as usize;
-            // SAFETY: BinaryView's inlined-vs-ref discriminant is its `size` field
-            // (read by `view.len()`); for len <= 12 the bytes are inline in the view
-            // (we read from `as_inlined().value()`); for larger we index into the
-            // pre-validated buffer at `view_ref.offset..offset+size`. Both reads
-            // produce a slice of exactly `len` valid bytes.
-            let bytes: &[u8] = if view.is_inlined() {
-                view.as_inlined().value()
-            } else {
-                let r = view.as_view();
-                let off = r.offset as usize;
-                &buffers[r.buffer_index as usize][off..off + len]
-            };
-            let written = encode_varlen_value(bytes, &mut out[pos + 1..], descending);
-            col_offset[i] += 1 + written;
-        }
-        return Ok(());
-    }
-
-    // Nullable path: with the mask, fall back to the with_iterator-based loop.
-    let mask = validity.execute_mask(arr.len(), ctx)?;
-    let null = field.null_sentinel();
-    arr.with_iterator(|iter| {
-        for (i, maybe) in iter.enumerate() {
-            let pos = (row_offsets[i] + col_offset[i]) as usize;
-            if !mask.value(i) {
-                out[pos] = null;
-                col_offset[i] += 1;
-                continue;
+    match resolve_validity(arr.as_ref().validity()?, arr.len(), ctx)? {
+        ValidityKind::AllValid => {
+            // Cache data-buffer slices once. For inlined views (len <= 12), bytes live
+            // inside the view itself.
+            let buffers: smallvec::SmallVec<[&[u8]; 4]> =
+                (0..n_buffers).map(|i| arr.buffer(i).as_slice()).collect();
+            for (i, view) in views.iter().enumerate() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                out[pos] = non_null;
+                let len = view.len() as usize;
+                // SAFETY: BinaryView's inlined-vs-ref discriminant is its `size` field
+                // (read by `view.len()`); for len <= 12 the bytes are inline in the view
+                // (we read from `as_inlined().value()`); for larger we index into the
+                // pre-validated buffer at `view_ref.offset..offset+size`. Both reads
+                // produce a slice of exactly `len` valid bytes.
+                let bytes: &[u8] = if view.is_inlined() {
+                    view.as_inlined().value()
+                } else {
+                    let r = view.as_view();
+                    let off = r.offset as usize;
+                    &buffers[r.buffer_index as usize][off..off + len]
+                };
+                let written = encode_varlen_value(bytes, &mut out[pos + 1..], descending);
+                col_offset[i] += 1 + written;
             }
-            let bytes: &[u8] = maybe.unwrap_or(&[]);
-            out[pos] = non_null;
-            let written = encode_varlen_value(bytes, &mut out[pos + 1..], descending);
-            col_offset[i] += 1 + written;
         }
-    });
+        ValidityKind::Mask(mask) => {
+            // Nullable path: fall back to the with_iterator-based loop.
+            let null = field.null_sentinel();
+            arr.with_iterator(|iter| {
+                for (i, maybe) in iter.enumerate() {
+                    let pos = (row_offsets[i] + col_offset[i]) as usize;
+                    if !mask.value(i) {
+                        out[pos] = null;
+                        col_offset[i] += 1;
+                        continue;
+                    }
+                    let bytes: &[u8] = maybe.unwrap_or(&[]);
+                    out[pos] = non_null;
+                    let written = encode_varlen_value(bytes, &mut out[pos + 1..], descending);
+                    col_offset[i] += 1 + written;
+                }
+            });
+        }
+    }
     Ok(())
 }
 
