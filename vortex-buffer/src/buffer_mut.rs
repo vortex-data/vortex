@@ -433,7 +433,12 @@ impl<T> BufferMut<T> {
             size_of::<R>(),
             "Size of T and R do not match"
         );
-        // SAFETY: we have checked that `size_of::<T>` == `size_of::<R>`.
+        assert_eq!(
+            align_of::<T>(),
+            align_of::<R>(),
+            "Buffer type alignment mismatch"
+        );
+        // SAFETY: `size_of::<T>` == `size_of::<R>` and `align_of::<T>` == `align_of::<R>`.
         let mut buf: BufferMut<R> = unsafe { std::mem::transmute(self) };
         buf.iter_mut()
             .for_each(|item| *item = f(unsafe { std::mem::transmute_copy(item) }));
@@ -878,6 +883,14 @@ mod test {
 
         BufMut::put_slice(&mut buf, b"world");
         assert_eq!(buf.as_slice(), b"helloworld");
+    }
+
+    #[test]
+    #[should_panic(expected = "alignment")]
+    fn map_each_in_place_rejects_alignment_mismatch() {
+        let buf: BufferMut<[u8; 4]> = BufferMut::from_iter([[0u8, 0, 0, 0], [1, 0, 0, 0]]);
+        let mapped: BufferMut<u32> = buf.map_each_in_place(u32::from_le_bytes);
+        drop(mapped);
     }
 
     #[test]
