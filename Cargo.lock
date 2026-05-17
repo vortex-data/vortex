@@ -11064,6 +11064,7 @@ dependencies = [
  "arrow-array 58.2.0",
  "arrow-schema 58.2.0",
  "codspeed-divan-compat",
+ "inventory",
  "itertools 0.14.0",
  "num-traits",
  "prost 0.14.3",
@@ -11073,6 +11074,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-mask",
+ "vortex-row",
  "vortex-session",
 ]
 
