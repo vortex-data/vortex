@@ -220,22 +220,27 @@ impl VortexDataSourceBuilder {
 
         // Apply any selection and create a projection expression.
         if let Some(indices) = self.projection {
-            let fields = indices.iter().map(|&i| {
-                let name = arrow_schema.field(i).name().clone();
+            // Walk `indices` once to collect both the field names (used to build the
+            // projection expression) and the projected Arrow fields (used to rebuild
+            // the Arrow schema).
+            let (names, projected_fields): (Vec<_>, Vec<_>) = indices
+                .iter()
+                .map(|&i| {
+                    let field = arrow_schema.field(i).clone();
+                    (field.name().clone(), field)
+                })
+                .unzip();
+
+            let expr_pairs = names.iter().map(|name| {
                 let expr = get_item(name.as_str(), root());
-                (name, expr)
+                (name.clone(), expr)
             });
 
             // Update the projection expression
-            projection = pack(fields, Nullability::NonNullable);
+            projection = pack(expr_pairs, Nullability::NonNullable);
 
             // Update the arrow schema
-            arrow_schema = Arc::new(Schema::new(
-                indices
-                    .iter()
-                    .map(|&i| arrow_schema.field(i).clone())
-                    .collect::<Vec<_>>(),
-            ));
+            arrow_schema = Arc::new(Schema::new(projected_fields));
         }
 
         let DType::Struct(fields, ..) = projection.return_dtype(self.data_source.dtype())? else {
@@ -496,7 +501,10 @@ impl DataSource for VortexDataSource {
     ) -> DFResult<Option<Arc<dyn DataSource>>> {
         // Vortex handles parallelism internally — always use a single partition.
         let mut this = self.clone();
-        this.num_partitions = target_partitions;
+        // Clamp to at least one partition: a zero target would propagate into
+        // `buffered(0)` and `try_flatten_unordered(Some(0))` in `open()`, starving
+        // concurrency and effectively stalling the stream.
+        this.num_partitions = target_partitions.max(1);
         this.ordered |= output_ordering.is_some();
         Ok(Some(Arc::new(this)))
     }
@@ -670,5 +678,130 @@ fn estimate_to_df_precision(est: Option<&Precision<u64>>) -> DFPrecision<usize> 
             DFPrecision::Inexact(usize::try_from(*v).unwrap_or(usize::MAX))
         }
         None => DFPrecision::Absent,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_schema::DataType as ArrowDataType;
+    use arrow_schema::Field as ArrowField;
+    use async_trait::async_trait;
+    use vortex::array::dtype::PType;
+    use vortex::array::dtype::StructFields;
+    use vortex::array::stats::StatsSet;
+    use vortex::scan::DataSource as VortexDataSourceTrait;
+    use vortex::scan::DataSourceScanRef;
+
+    use super::*;
+
+    /// A minimal stub `DataSource` whose dtype is a fixed struct so that the
+    /// builder can resolve a projection and statistics without performing I/O.
+    struct StubDataSource {
+        dtype: DType,
+    }
+
+    #[async_trait]
+    impl VortexDataSourceTrait for StubDataSource {
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        async fn scan(&self, _scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+            vortex_bail!("StubDataSource::scan is not implemented")
+        }
+
+        async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
+            Ok(StatsSet::default())
+        }
+    }
+
+    fn stub_struct_dtype() -> DType {
+        DType::Struct(
+            StructFields::from_iter([
+                ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                ("b", DType::Primitive(PType::I64, Nullability::NonNullable)),
+                ("c", DType::Utf8(Nullability::NonNullable)),
+            ]),
+            Nullability::NonNullable,
+        )
+    }
+
+    fn stub_arrow_schema() -> SchemaRef {
+        Arc::new(Schema::new(vec![
+            ArrowField::new("a", ArrowDataType::Int32, false),
+            ArrowField::new("b", ArrowDataType::Int64, false),
+            ArrowField::new("c", ArrowDataType::Utf8, false),
+        ]))
+    }
+
+    async fn build_test_source(projection: Option<Vec<usize>>) -> VortexDataSource {
+        let data_source: DataSourceRef = Arc::new(StubDataSource {
+            dtype: stub_struct_dtype(),
+        });
+
+        let mut builder = VortexDataSource::builder(data_source, VortexSession::empty())
+            .with_arrow_schema(stub_arrow_schema());
+        if let Some(indices) = projection {
+            builder = builder.with_projection(indices);
+        }
+        builder.build().await.expect("builder should succeed")
+    }
+
+    #[tokio::test]
+    async fn repartitioned_clamps_zero_to_one() -> VortexResult<()> {
+        let source = build_test_source(None).await;
+
+        let repartitioned = DataSource::repartitioned(&source, 0, 0, None)
+            .expect("repartitioned should succeed")
+            .expect("repartitioned should return Some");
+
+        let repartitioned = repartitioned
+            .as_any()
+            .downcast_ref::<VortexDataSource>()
+            .expect("expected VortexDataSource");
+
+        // A zero target would propagate into `buffered(0)` /
+        // `try_flatten_unordered(Some(0))` and stall the stream; the clamp
+        // guarantees we keep at least one partition's worth of concurrency.
+        assert!(
+            repartitioned.num_partitions >= 1,
+            "num_partitions must be clamped to at least 1, got {}",
+            repartitioned.num_partitions,
+        );
+        assert_eq!(repartitioned.num_partitions, 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn repartitioned_preserves_nonzero_target() -> VortexResult<()> {
+        let source = build_test_source(None).await;
+
+        let repartitioned = DataSource::repartitioned(&source, 7, 0, None)
+            .expect("repartitioned should succeed")
+            .expect("repartitioned should return Some");
+
+        let repartitioned = repartitioned
+            .as_any()
+            .downcast_ref::<VortexDataSource>()
+            .expect("expected VortexDataSource");
+
+        assert_eq!(repartitioned.num_partitions, 7);
+        Ok(())
+    }
+
+    /// Regression test for the single-pass refactor in
+    /// `VortexDataSourceBuilder::build`: the projected schema must contain the
+    /// fields named by the projection indices, in the order they were given.
+    #[tokio::test]
+    async fn build_with_projection_produces_expected_schema() -> VortexResult<()> {
+        let source = build_test_source(Some(vec![2, 0])).await;
+
+        let schema = &source.projected_schema;
+        assert_eq!(schema.fields().len(), 2);
+        assert_eq!(schema.field(0).name(), "c");
+        assert_eq!(schema.field(1).name(), "a");
+        assert_eq!(schema.field(0).data_type(), &ArrowDataType::Utf8);
+        assert_eq!(schema.field(1).data_type(), &ArrowDataType::Int32);
+        Ok(())
     }
 }
