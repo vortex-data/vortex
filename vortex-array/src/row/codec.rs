@@ -39,6 +39,7 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::extension::ExtensionArrayExt;
+use crate::validity::Validity;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
 use crate::arrays::struct_::StructArrayExt;
 use crate::dtype::DType;
@@ -309,15 +310,23 @@ fn add_size_varbinview(
     sizes: &mut [u32],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
+    let validity = arr.as_ref().validity()?;
     let views = arr.views();
+
+    // Fast path: no nulls possible, skip mask.
+    if matches!(validity, Validity::NonNullable | Validity::AllValid) {
+        for (i, view) in views.iter().enumerate() {
+            sizes[i] += encoded_size_for_varlen(view.len() as usize);
+        }
+        return Ok(());
+    }
+
+    let mask = validity.execute_mask(arr.len(), ctx)?;
     for (i, view) in views.iter().enumerate() {
-        let valid = mask.value(i);
-        if !valid {
-            sizes[i] += 1; // sentinel only
+        if mask.value(i) {
+            sizes[i] += encoded_size_for_varlen(view.len() as usize);
         } else {
-            let len = view.len() as usize;
-            sizes[i] += encoded_size_for_varlen(len);
+            sizes[i] += 1; // sentinel only
         }
     }
     Ok(())
@@ -443,11 +452,26 @@ fn encode_primitive_typed<T: NativePType + RowEncode>(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
+    let validity = arr.as_ref().validity()?;
     let slice: &[T] = arr.as_slice();
     let non_null = field.non_null_sentinel();
-    let null = field.null_sentinel();
     let value_bytes = size_of::<T>();
+    let stride = encoded_size_for_fixed(value_bytes as u32);
+
+    // Fast path: no nulls possible, skip mask allocation and per-row branch.
+    if matches!(validity, Validity::NonNullable | Validity::AllValid) {
+        for (i, &v) in slice.iter().enumerate() {
+            let pos = (row_offsets[i] + col_offset[i]) as usize;
+            out[pos] = non_null;
+            v.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
+            col_offset[i] += stride;
+        }
+        return Ok(());
+    }
+
+    // Nullable path
+    let mask = validity.execute_mask(arr.len(), ctx)?;
+    let null = field.null_sentinel();
     for (i, &v) in slice.iter().enumerate() {
         let pos = (row_offsets[i] + col_offset[i]) as usize;
         if mask.value(i) {
@@ -455,12 +479,11 @@ fn encode_primitive_typed<T: NativePType + RowEncode>(
             v.encode_to(&mut out[pos + 1..pos + 1 + value_bytes], field.descending);
         } else {
             out[pos] = null;
-            // Zero-fill the value bytes.
             for b in &mut out[pos + 1..pos + 1 + value_bytes] {
                 *b = 0;
             }
         }
-        col_offset[i] += encoded_size_for_fixed(value_bytes as u32);
+        col_offset[i] += stride;
     }
     Ok(())
 }
@@ -535,10 +558,26 @@ fn encode_varbinview(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
+    let validity = arr.as_ref().validity()?;
     let non_null = field.non_null_sentinel();
-    let null = field.null_sentinel();
 
+    // Fast path: no nulls possible, skip mask allocation and per-row branch.
+    if matches!(validity, Validity::NonNullable | Validity::AllValid) {
+        arr.with_iterator(|iter| {
+            for (i, maybe) in iter.enumerate() {
+                let pos = (row_offsets[i] + col_offset[i]) as usize;
+                let bytes: &[u8] = maybe.unwrap_or(&[]);
+                out[pos] = non_null;
+                let written = encode_varlen_value(bytes, &mut out[pos + 1..], field.descending);
+                col_offset[i] += 1 + written;
+            }
+        });
+        return Ok(());
+    }
+
+    // Nullable path
+    let mask = validity.execute_mask(arr.len(), ctx)?;
+    let null = field.null_sentinel();
     arr.with_iterator(|iter| {
         for (i, maybe) in iter.enumerate() {
             let pos = (row_offsets[i] + col_offset[i]) as usize;
