@@ -92,6 +92,8 @@ pub fn vortex_row::codec::encode_scalar_null(vortex_row::options::SortField, boo
 
 pub fn vortex_row::codec::encode_scalar_primitive(vortex_array::dtype::ptype::PType, vortex_array::scalar::typed_view::primitive::pvalue::PValue, vortex_row::options::SortField, bool, &mut vortex_buffer::ByteBufferMut) -> vortex_error::VortexResult<()>
 
+pub fn vortex_row::codec::encode_scalar_varlen(core::option::Option<&[u8]>, vortex_row::options::SortField, &mut vortex_buffer::ByteBufferMut)
+
 pub fn vortex_row::codec::encoded_size_for_scalar(&vortex_array::scalar::Scalar, vortex_row::options::SortField) -> vortex_error::VortexResult<u32>
 
 pub fn vortex_row::codec::field_encode(&vortex_array::canonical::Canonical, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
