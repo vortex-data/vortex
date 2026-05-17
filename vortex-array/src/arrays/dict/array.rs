@@ -27,6 +27,47 @@ use crate::dtype::DType;
 use crate::dtype::PType;
 use crate::match_each_integer_ptype;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DensityHint {
+    /// Every dictionary value is referenced by at least one code.
+    ///
+    /// Set by `dict_encode`; preserved by ops that don't change which codes survive (e.g.
+    /// validity-only masks). Cleared by `filter`/`take`/`slice` since they can leave a previously
+    /// referenced value orphaned.
+    AllReferenced,
+    /// Approximate fraction of values referenced, in `[0.0, 1.0]`. Allowed to be either an upper
+    /// bound (from O(1) bounds propagation) or a sampled estimate (from the cheap sniff path).
+    /// Consumers should treat this as advisory, not a guarantee.
+    Estimated(f32),
+    /// Density has never been measured.
+    Unknown,
+}
+
+impl Default for DensityHint {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+impl DensityHint {
+    /// Returns the density as a fraction in `[0.0, 1.0]` if known, or `None` if `Unknown`.
+    /// `AllReferenced` is mapped to `1.0`.
+    #[inline]
+    pub fn as_ratio(&self) -> Option<f32> {
+        match self {
+            Self::AllReferenced => Some(1.0),
+            Self::Estimated(r) => Some(*r),
+            Self::Unknown => None,
+        }
+    }
+
+    /// True iff the hint definitely indicates that every value is referenced.
+    #[inline]
+    pub fn is_all_referenced(&self) -> bool {
+        matches!(self, Self::AllReferenced)
+    }
+}
+
 #[derive(Clone, prost::Message)]
 pub struct DictMetadata {
     #[prost(uint32, tag = "1")]
@@ -59,11 +100,29 @@ pub struct DictData {
     /// In case this is incorrect never use this to enable memory unsafe behaviour just semantically
     /// incorrect behaviour.
     pub(super) all_values_referenced: bool,
+    /// Runtime hint about what fraction of values are reachable through the codes.
+    ///
+    /// This is *advisory*. It exists so that compute-time decisions about whether to compact a
+    /// dict (prune unreferenced values before export, fold a dict-of-dict, etc.) can avoid both
+    /// a full O(codes.len() + values.len()) referenced-mask scan and the regressions that come
+    /// from making a static threshold-based decision.
+    ///
+    /// Producers:
+    /// - `dict_encode` sets `AllReferenced`.
+    /// - `filter` / `take` / `slice` *downgrade* the hint, because they can leave values
+    ///   orphaned.
+    /// - `prune_unreferenced_values` sets `AllReferenced` on its result.
+    /// - The sampling sniff in the exporter writes back an `Estimated(_)` once it's computed.
+    pub(super) density_hint: DensityHint,
 }
 
 impl Display for DictData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "all_values_referenced: {}", self.all_values_referenced)
+        write!(
+            f,
+            "all_values_referenced: {}, density: {:?}",
+            self.all_values_referenced, self.density_hint
+        )
     }
 }
 
@@ -77,6 +136,7 @@ impl DictData {
     pub unsafe fn new_unchecked() -> Self {
         Self {
             all_values_referenced: false,
+            density_hint: DensityHint::Unknown,
         }
     }
 
@@ -91,7 +151,28 @@ impl DictData {
     /// that all values are referenced.
     pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
         self.all_values_referenced = all_values_referenced;
+        if all_values_referenced {
+            self.density_hint = DensityHint::AllReferenced;
+        }
         self
+    }
+
+    /// Replace the density hint without otherwise altering the dict.
+    ///
+    /// This is purely advisory and never affects correctness. `AllReferenced` keeps the
+    /// `all_values_referenced` flag in sync; other hint values leave it untouched.
+    pub fn with_density_hint(mut self, hint: DensityHint) -> Self {
+        if matches!(hint, DensityHint::AllReferenced) {
+            self.all_values_referenced = true;
+        }
+        self.density_hint = hint;
+        self
+    }
+
+    /// Read the current density hint.
+    #[inline]
+    pub fn density_hint(&self) -> DensityHint {
+        self.density_hint
     }
 
     /// Build a new `DictArray` from its components, `codes` and `values`.
@@ -126,6 +207,12 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
     #[inline]
     fn has_all_values_referenced(&self) -> bool {
         self.all_values_referenced
+    }
+
+    /// Returns the current density hint for this dict. Advisory only.
+    #[inline]
+    fn density_hint(&self) -> DensityHint {
+        self.density_hint
     }
 
     fn validate_all_values_referenced(&self) -> VortexResult<()> {
@@ -288,6 +375,16 @@ impl Array<Dict> {
         }
 
         array
+    }
+
+    /// Attach an advisory density hint to this dict. Never affects correctness; consumers may
+    /// use it to short-circuit prune/canonicalize decisions.
+    pub fn with_density_hint(self, hint: DensityHint) -> Self {
+        let dtype = self.dtype().clone();
+        let len = self.len();
+        let slots: ArraySlots = self.slots().iter().cloned().collect();
+        let data = self.into_data().with_density_hint(hint);
+        unsafe { Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data).with_slots(slots)) }
     }
 }
 

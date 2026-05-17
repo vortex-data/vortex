@@ -102,6 +102,10 @@ name = "arrow_export_sparse"
 harness = false
 
 [[bench]]
+name = "compute_then_export"
+harness = false
+
+[[bench]]
 name = "cast_primitive"
 harness = false
 

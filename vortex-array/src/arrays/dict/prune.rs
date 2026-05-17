@@ -67,6 +67,8 @@ pub fn maybe_prune_unreferenced_values(
     array: &DictArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<DictArray>> {
+    use crate::arrays::dict::DensityHint;
+
     let values_len = array.values().len();
 
     // Cheap rejections.
@@ -77,6 +79,19 @@ pub fn maybe_prune_unreferenced_values(
     // shorter Constant, so let the caller deal with it directly.
     if array.values().is::<Constant>() {
         return Ok(None);
+    }
+    // O(1) density-hint fast path. The hint may be an upper bound (from filter/take/slice
+    // propagation) or a sampled estimate — either way, when it's well below the threshold we
+    // can commit immediately without ever walking the codes to *decide* whether to prune.
+    // Symmetrically, an `AllReferenced` hint is handled by the flag check above.
+    match array.density_hint() {
+        DensityHint::AllReferenced => return Ok(None),
+        DensityHint::Estimated(r)
+            if (r as f64) > (1.0 - PRUNE_DICT_MIN_SAVINGS_RATIO) =>
+        {
+            return Ok(None);
+        }
+        _ => {}
     }
 
     // Walk the codes once. Stop early if we collect enough unique references to make pruning
