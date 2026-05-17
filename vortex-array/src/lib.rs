@@ -65,12 +65,11 @@ pub mod scalar_fn;
 pub mod search_sorted;
 pub mod serde;
 pub mod session;
-mod col_ovc;
-mod ovc_chunked;
-mod ovc_encoded;
-mod ovc_iter;
-mod ovc_mixed;
-mod smj;
+mod ord_bench;
+mod ord_common;
+mod ord_direct;
+mod ord_iter;
+mod ord_memcmp;
 pub mod stats;
 pub mod stream;
 #[cfg(any(test, feature = "_test-harness"))]
