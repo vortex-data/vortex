@@ -17,9 +17,12 @@
 
 use std::sync::Arc;
 
+use arrow_array::DictionaryArray;
 use arrow_array::Int64Array;
+use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
 use arrow_array::StringArray;
 use arrow_array::StructArray as ArrowStructArray;
+use arrow_array::types::Int32Type;
 use arrow_row::RowConverter;
 use arrow_row::SortField as ArrowSortField;
 use arrow_schema::DataType;
@@ -38,6 +41,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::builders::dict::dict_encode;
 use vortex_row::SortField;
 use vortex_row::convert_columns;
 
@@ -207,6 +211,77 @@ fn constant_i64_vortex_without_kernel(bencher: divan::Bencher) {
     bencher.counter(BytesCount::new(total)).bench_local(|| {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let canonical = arr
+            .clone()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
+            .into_array();
+        convert_columns(&[canonical], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+// ---------- dict_utf8 ----------
+
+fn dict_utf8_inputs() -> (Vec<String>, Vec<String>, Vec<i32>, u64) {
+    let n_unique = 1024usize;
+    let unique = gen_words(n_unique, 16, 13);
+    let mut rng = StdRng::seed_from_u64(17);
+    let codes: Vec<i32> = (0..N)
+        .map(|_| rng.random_range(0..n_unique) as i32)
+        .collect();
+    let strings: Vec<String> = codes.iter().map(|&c| unique[c as usize].clone()).collect();
+    let bytes: u64 = strings
+        .iter()
+        .map(|w| 1 + (w.len().div_ceil(32) * 33) as u64)
+        .sum();
+    (unique, strings, codes, bytes)
+}
+
+#[divan::bench]
+fn dict_utf8_arrow_dict(bencher: divan::Bencher) {
+    let (unique, _, codes, total) = dict_utf8_inputs();
+    let values: Arc<dyn arrow_array::Array> = Arc::new(StringArray::from(unique.clone()));
+    let dict_arr: DictionaryArray<Int32Type> =
+        DictionaryArray::new(ArrowPrimitiveArray::from(codes), values);
+    let arr = Arc::new(dict_arr) as arrow_array::ArrayRef;
+    let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Dictionary(
+        Box::new(DataType::Int32),
+        Box::new(DataType::Utf8),
+    ))])
+    .unwrap();
+    bencher
+        .counter(BytesCount::new(total))
+        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
+}
+
+#[divan::bench]
+fn dict_utf8_arrow_canonical(bencher: divan::Bencher) {
+    let (_, strings, _, total) = dict_utf8_inputs();
+    let arr = Arc::new(StringArray::from(strings.clone())) as arrow_array::ArrayRef;
+    let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Utf8)]).unwrap();
+    bencher
+        .counter(BytesCount::new(total))
+        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
+}
+
+#[divan::bench]
+fn dict_utf8_vortex_with_kernel(bencher: divan::Bencher) {
+    let (_, strings, _, total) = dict_utf8_inputs();
+    let raw = VarBinViewArray::from_iter_str(strings.iter().map(String::as_str)).into_array();
+    let dict = dict_encode(&raw).unwrap().into_array();
+    bencher.counter(BytesCount::new(total)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        convert_columns(&[dict.clone()], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+#[divan::bench]
+fn dict_utf8_vortex_without_kernel(bencher: divan::Bencher) {
+    let (_, strings, _, total) = dict_utf8_inputs();
+    let raw = VarBinViewArray::from_iter_str(strings.iter().map(String::as_str)).into_array();
+    let dict = dict_encode(&raw).unwrap().into_array();
+    bencher.counter(BytesCount::new(total)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let canonical = dict
             .clone()
             .execute::<Canonical>(&mut ctx)
             .unwrap()

@@ -20,6 +20,9 @@ use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::builders::dict::dict_encode;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 
 use crate::SortField;
@@ -220,6 +223,26 @@ fn nulls_first_and_last() -> VortexResult<()> {
         let pos = sorted.len() - 1 - i;
         assert_eq!(sorted[pos][0], 0x02);
     }
+    Ok(())
+}
+
+#[test]
+fn dict_path_matches_canonical() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let raw = VarBinViewArray::from_iter(
+        vec![Some("a"), Some("bb"), Some("a"), Some("ccc"), Some("bb")],
+        DType::Utf8(Nullability::NonNullable),
+    )
+    .into_array();
+    let dict_arr = dict_encode(&raw)?.into_array();
+
+    let canonical_enc = convert_columns(&[raw], &[SortField::default()], &mut ctx)?;
+    let dict_enc = convert_columns(&[dict_arr], &[SortField::default()], &mut ctx)?;
+
+    assert_eq!(
+        collect_row_bytes(&canonical_enc),
+        collect_row_bytes(&dict_enc)
+    );
     Ok(())
 }
 
