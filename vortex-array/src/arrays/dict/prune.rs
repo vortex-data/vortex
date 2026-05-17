@@ -67,11 +67,12 @@ pub fn maybe_prune_unreferenced_values(
     array: &DictArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<DictArray>> {
-    use crate::arrays::dict::DensityHint;
-
     let values_len = array.values().len();
 
     // Cheap rejections.
+    //
+    // `has_all_values_referenced()` is the dense fast-path: `dict_encode` sets it; `filter` /
+    // `take` / `slice` correctly clear it (they can orphan values).
     if values_len < PRUNE_DICT_MIN_VALUES || array.has_all_values_referenced() {
         return Ok(None);
     }
@@ -79,19 +80,6 @@ pub fn maybe_prune_unreferenced_values(
     // shorter Constant, so let the caller deal with it directly.
     if array.values().is::<Constant>() {
         return Ok(None);
-    }
-    // O(1) density-hint fast path. The hint may be an upper bound (from filter/take/slice
-    // propagation) or a sampled estimate — either way, when it's well below the threshold we
-    // can commit immediately without ever walking the codes to *decide* whether to prune.
-    // Symmetrically, an `AllReferenced` hint is handled by the flag check above.
-    match array.density_hint() {
-        DensityHint::AllReferenced => return Ok(None),
-        DensityHint::Estimated(r)
-            if (r as f64) > (1.0 - PRUNE_DICT_MIN_SAVINGS_RATIO) =>
-        {
-            return Ok(None);
-        }
-        _ => {}
     }
 
     // Walk the codes once. Stop early if we collect enough unique references to make pruning
@@ -134,39 +122,45 @@ fn collect_referenced_positions(
     // we cap the size early so it can't blow up on dense dicts.
     let mut set = BTreeSet::<u32>::new();
 
-    match codes_validity.bit_buffer() {
-        AllOr::All => {
-            match_each_integer_ptype!(codes.ptype(), |C| {
-                for &c in codes.as_slice::<C>() {
-                    let pos: u32 = AsPrimitive::<u32>::as_(c);
-                    if !set.insert(pos) {
-                        // Already present; saves a redundant tree lookup later.
-                        continue;
-                    }
-                    if set.len() > cap_unique {
-                        return Ok(None);
-                    }
-                }
-            });
-        }
-        AllOr::None => {} // All codes invalid: no referenced positions.
-        AllOr::Some(mask) => {
-            match_each_integer_ptype!(codes.ptype(), |C| {
-                let slice = codes.as_slice::<C>();
-                for idx in mask.set_indices() {
-                    let pos: u32 = AsPrimitive::<u32>::as_(slice[idx]);
-                    if !set.insert(pos) {
-                        continue;
-                    }
-                    if set.len() > cap_unique {
-                        return Ok(None);
-                    }
-                }
-            });
-        }
+    let overflowed = match codes_validity.bit_buffer() {
+        AllOr::All => collect_all(&codes, &mut set, cap_unique),
+        AllOr::None => false,
+        AllOr::Some(mask) => collect_masked(&codes, mask, &mut set, cap_unique),
+    };
+    if overflowed {
+        return Ok(None);
     }
-
     Ok(Some(set.into_iter().collect()))
+}
+
+fn collect_all(codes: &PrimitiveArray, set: &mut BTreeSet<u32>, cap: usize) -> bool {
+    match_each_integer_ptype!(codes.ptype(), |C| {
+        for &c in codes.as_slice::<C>() {
+            let pos: u32 = AsPrimitive::<u32>::as_(c);
+            if set.insert(pos) && set.len() > cap {
+                return true;
+            }
+        }
+    });
+    false
+}
+
+fn collect_masked(
+    codes: &PrimitiveArray,
+    mask: &vortex_buffer::BitBuffer,
+    set: &mut BTreeSet<u32>,
+    cap: usize,
+) -> bool {
+    match_each_integer_ptype!(codes.ptype(), |C| {
+        let slice = codes.as_slice::<C>();
+        for idx in mask.set_indices() {
+            let pos: u32 = AsPrimitive::<u32>::as_(slice[idx]);
+            if set.insert(pos) && set.len() > cap {
+                return true;
+            }
+        }
+    });
+    false
 }
 
 /// Apply a precomputed sorted list of referenced value positions: take the referenced values,

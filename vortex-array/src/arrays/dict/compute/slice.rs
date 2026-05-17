@@ -12,15 +12,12 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
-use crate::arrays::dict::DensityHint;
-use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::slice::SliceReduce;
 use crate::scalar::Scalar;
 
 impl SliceReduce for Dict {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let sliced_len = range.end - range.start;
         let sliced_code = array.codes().slice(range)?;
         // TODO(joe): if the range is size 1 replace with a constant array
         if let Some(code) = sliced_code.as_opt::<Constant>() {
@@ -41,27 +38,15 @@ impl SliceReduce for Dict {
                 ))
             };
         }
-        // SAFETY: slicing the codes preserves invariants. Density hint is downgraded — a slice
-        // can leave values referenced only by codes outside the slice orphaned.
-        let dict = unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()) };
-        let hint = propagate_density_slice(array, sliced_len);
-        Ok(Some(dict.with_density_hint(hint).into_array()))
+        // SAFETY: slicing the codes preserves invariants.
+        //
+        // Note: a slice can leave values referenced only by codes outside the slice orphaned, so
+        // `new_unchecked` leaves `all_values_referenced = false` — we deliberately do *not* try
+        // to preserve the prior value of that flag.
+        Ok(Some(
+            unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()) }.into_array(),
+        ))
     }
-}
-
-fn propagate_density_slice(array: ArrayView<'_, Dict>, sliced_len: usize) -> DensityHint {
-    let values_len = array.values().len();
-    if values_len == 0 || sliced_len == 0 {
-        return DensityHint::Estimated(0.0);
-    }
-    #[expect(clippy::cast_precision_loss)]
-    let bound_from_kept = (sliced_len.min(values_len) as f32) / (values_len as f32);
-    let bound_from_prior = match array.density_hint() {
-        DensityHint::AllReferenced => 1.0,
-        DensityHint::Estimated(r) => r,
-        DensityHint::Unknown => 1.0,
-    };
-    DensityHint::Estimated(bound_from_kept.min(bound_from_prior))
 }
 
 #[cfg(test)]

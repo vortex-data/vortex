@@ -34,14 +34,13 @@ impl TakeExecute for Dict {
         let codes = array.codes().take(indices.clone())?;
         // SAFETY: selecting codes doesn't change the invariants of DictArray.
         //
-        // Note: `take` *can* leave previously-referenced values orphaned. Downgrade the density
-        // hint accordingly — keeping `AllReferenced` here is unsound for consumers that rely
-        // on it (e.g. min/max, prune skips), and was a latent bug under the prior code.
-        let dict = unsafe { DictArray::new_unchecked(codes, array.values().clone()) };
-        Ok(Some(
-            dict.with_density_hint(propagate_density(array, indices.len()))
-                .into_array(),
-        ))
+        // Note: `take` can leave a previously-referenced value orphaned (a surviving subset of
+        // codes may not cover every original value), so we do *not* propagate
+        // `all_values_referenced` here — that would over-claim density and break correctness
+        // for kernels like min/max that consult the flag to skip a referenced-mask scan.
+        Ok(Some(unsafe {
+            DictArray::new_unchecked(codes, array.values().clone()).into_array()
+        }))
     }
 }
 
@@ -49,39 +48,12 @@ impl FilterReduce for Dict {
     fn filter(array: ArrayView<'_, Dict>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let codes = array.codes().filter(mask.clone())?;
 
-        // SAFETY: filtering codes doesn't change invariants. As in `take`, `filter` can leave
-        // a previously-referenced value orphaned, so we downgrade the density hint.
-        let dict = unsafe { DictArray::new_unchecked(codes, array.values().clone()) };
-        Ok(Some(
-            dict.with_density_hint(propagate_density(array, mask.true_count()))
-                .into_array(),
-        ))
+        // SAFETY: filtering codes doesn't change invariants. As in `take`, we deliberately do
+        // *not* preserve `all_values_referenced` — filter can orphan values.
+        Ok(Some(unsafe {
+            DictArray::new_unchecked(codes, array.values().clone()).into_array()
+        }))
     }
-}
-
-/// Propagate the density hint conservatively across operations that filter codes.
-///
-/// The new density is bounded by `min(old_density, kept_codes / values_len)` — the surviving
-/// codes can't reference more unique values than there are surviving codes, and they can't
-/// reference more unique values than the original did. We return that bound as
-/// `DensityHint::Estimated(_)` so downstream consumers know it's advisory.
-fn propagate_density(
-    array: ArrayView<'_, Dict>,
-    kept_codes: usize,
-) -> crate::arrays::dict::DensityHint {
-    use crate::arrays::dict::DensityHint;
-    let values_len = array.values().len();
-    if values_len == 0 || kept_codes == 0 {
-        return DensityHint::Estimated(0.0);
-    }
-    #[expect(clippy::cast_precision_loss)]
-    let bound_from_kept = (kept_codes.min(values_len) as f32) / (values_len as f32);
-    let bound_from_prior = match array.density_hint() {
-        DensityHint::AllReferenced => 1.0,
-        DensityHint::Estimated(r) => r,
-        DensityHint::Unknown => 1.0,
-    };
-    DensityHint::Estimated(bound_from_kept.min(bound_from_prior))
 }
 
 #[cfg(test)]

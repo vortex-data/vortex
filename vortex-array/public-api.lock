@@ -2472,40 +2472,6 @@ pub fn vortex_array::arrays::dict::Dict::mask(vortex_array::ArrayView<'_, vortex
 
 pub type vortex_array::arrays::dict::vtable::DictArray = vortex_array::Array<vortex_array::arrays::dict::Dict>
 
-pub enum vortex_array::arrays::dict::DensityHint
-
-pub vortex_array::arrays::dict::DensityHint::AllReferenced
-
-pub vortex_array::arrays::dict::DensityHint::Estimated(f32)
-
-pub vortex_array::arrays::dict::DensityHint::Unknown
-
-impl vortex_array::arrays::dict::DensityHint
-
-pub fn vortex_array::arrays::dict::DensityHint::as_ratio(&self) -> core::option::Option<f32>
-
-pub fn vortex_array::arrays::dict::DensityHint::is_all_referenced(&self) -> bool
-
-impl core::clone::Clone for vortex_array::arrays::dict::DensityHint
-
-pub fn vortex_array::arrays::dict::DensityHint::clone(&self) -> vortex_array::arrays::dict::DensityHint
-
-impl core::cmp::PartialEq for vortex_array::arrays::dict::DensityHint
-
-pub fn vortex_array::arrays::dict::DensityHint::eq(&self, &vortex_array::arrays::dict::DensityHint) -> bool
-
-impl core::default::Default for vortex_array::arrays::dict::DensityHint
-
-pub fn vortex_array::arrays::dict::DensityHint::default() -> Self
-
-impl core::fmt::Debug for vortex_array::arrays::dict::DensityHint
-
-pub fn vortex_array::arrays::dict::DensityHint::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::marker::Copy for vortex_array::arrays::dict::DensityHint
-
-impl core::marker::StructuralPartialEq for vortex_array::arrays::dict::DensityHint
-
 pub struct vortex_array::arrays::dict::Dict
 
 impl core::clone::Clone for vortex_array::arrays::dict::Dict
@@ -2600,15 +2566,11 @@ pub struct vortex_array::arrays::dict::DictData
 
 impl vortex_array::arrays::dict::DictData
 
-pub fn vortex_array::arrays::dict::DictData::density_hint(&self) -> vortex_array::arrays::dict::DensityHint
-
 pub fn vortex_array::arrays::dict::DictData::new(&vortex_array::dtype::DType) -> Self
 
 pub unsafe fn vortex_array::arrays::dict::DictData::new_unchecked() -> Self
 
 pub unsafe fn vortex_array::arrays::dict::DictData::set_all_values_referenced(self, bool) -> Self
-
-pub fn vortex_array::arrays::dict::DictData::with_density_hint(self, vortex_array::arrays::dict::DensityHint) -> Self
 
 impl core::clone::Clone for vortex_array::arrays::dict::DictData
 
@@ -2750,8 +2712,6 @@ pub trait vortex_array::arrays::dict::DictArrayExt: vortex_array::TypedArrayRef<
 
 pub fn vortex_array::arrays::dict::DictArrayExt::compute_referenced_values_mask(&self, bool) -> vortex_error::VortexResult<vortex_buffer::bit::buf::BitBuffer>
 
-pub fn vortex_array::arrays::dict::DictArrayExt::density_hint(&self) -> vortex_array::arrays::dict::DensityHint
-
 pub fn vortex_array::arrays::dict::DictArrayExt::has_all_values_referenced(&self) -> bool
 
 pub fn vortex_array::arrays::dict::DictArrayExt::validate_all_values_referenced(&self) -> vortex_error::VortexResult<()>
@@ -2759,8 +2719,6 @@ pub fn vortex_array::arrays::dict::DictArrayExt::validate_all_values_referenced(
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::dict::Dict>> vortex_array::arrays::dict::DictArrayExt for T
 
 pub fn T::compute_referenced_values_mask(&self, bool) -> vortex_error::VortexResult<vortex_buffer::bit::buf::BitBuffer>
-
-pub fn T::density_hint(&self) -> vortex_array::arrays::dict::DensityHint
 
 pub fn T::has_all_values_referenced(&self) -> bool
 
@@ -23281,8 +23239,6 @@ pub unsafe fn vortex_array::Array<vortex_array::arrays::dict::Dict>::new_uncheck
 pub unsafe fn vortex_array::Array<vortex_array::arrays::dict::Dict>::set_all_values_referenced(self, bool) -> Self
 
 pub fn vortex_array::Array<vortex_array::arrays::dict::Dict>::try_new(vortex_array::ArrayRef, vortex_array::ArrayRef) -> vortex_error::VortexResult<Self>
-
-pub fn vortex_array::Array<vortex_array::arrays::dict::Dict>::with_density_hint(self, vortex_array::arrays::dict::DensityHint) -> Self
 
 impl vortex_array::Array<vortex_array::arrays::null::Null>
 
