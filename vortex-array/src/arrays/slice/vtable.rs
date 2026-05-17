@@ -168,6 +168,10 @@ impl OperationsVTable<Slice> for Slice {
         array.child().execute_scalar(array.range.start + index, ctx)
     }
 
+    // TODO(point-fn migration): port these point_scalar_at / point_search_sorted
+    // overrides to ScalarAtKernel / SearchSortedKernel impls registered via
+    // `point_kernels()`. Coexists with the kernel-per-op pattern; no
+    // behavioural change blocking this.
     fn point_scalar_at(
         array: ArrayView<'_, Slice>,
         index: usize,

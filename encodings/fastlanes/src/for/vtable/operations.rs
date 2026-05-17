@@ -43,6 +43,10 @@ impl OperationsVTable<FoR> for FoR {
         }))
     }
 
+    // TODO(point-fn migration): port these point_scalar_at / point_search_sorted
+    // overrides to ScalarAtKernel / SearchSortedKernel impls registered via
+    // `point_kernels()`. Coexists with the kernel-per-op pattern; no
+    // behavioural change blocking this.
     /// Recurse: read the encoded delta via the dispatch, then add the
     /// reference value.
     fn point_scalar_at(

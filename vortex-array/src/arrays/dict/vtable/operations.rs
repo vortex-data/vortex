@@ -40,6 +40,10 @@ impl OperationsVTable<Dict> for Dict {
             .vortex_expect("Array dtype will only differ by nullability"))
     }
 
+    // TODO(point-fn migration): port these point_scalar_at / point_search_sorted
+    // overrides to ScalarAtKernel / SearchSortedKernel impls registered via
+    // `point_kernels()`. Coexists with the kernel-per-op pattern; no
+    // behavioural change blocking this.
     /// Recurse via the dispatch: read the code at `index` from `codes`, then look
     /// up the corresponding dict value. Both child calls hit the session's caches.
     fn point_scalar_at(

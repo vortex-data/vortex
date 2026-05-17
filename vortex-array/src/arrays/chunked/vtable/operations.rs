@@ -25,6 +25,10 @@ impl OperationsVTable<Chunked> for Chunked {
         array.chunk(chunk_index).execute_scalar(chunk_offset, ctx)
     }
 
+    // TODO(point-fn migration): port these point_scalar_at / point_search_sorted
+    // overrides to ScalarAtKernel / SearchSortedKernel impls registered via
+    // `point_kernels()`. Coexists with the kernel-per-op pattern; no
+    // behavioural change blocking this.
     /// Route to the chunk containing `index`, then recurse via the dispatch
     /// so the session caches at every level.
     fn point_scalar_at(

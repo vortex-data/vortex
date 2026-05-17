@@ -10,6 +10,8 @@ use crate::array::ArrayView;
 use crate::array::OperationsVTable;
 use crate::arrays::Constant;
 use crate::point_fn::PointDispatch;
+use crate::point_fn::PointKernels;
+use crate::point_fn::SearchSortedKernel;
 use crate::scalar::Scalar;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSortedSide;
@@ -23,16 +25,24 @@ impl OperationsVTable<Constant> for Constant {
         Ok(array.scalar.clone())
     }
 
-    /// `search_sorted` on a constant array is O(1): compare the search value
-    /// against the constant once and decide.
-    fn point_search_sorted(
-        array: ArrayView<'_, Constant>,
+    fn point_kernels() -> Option<&'static PointKernels<Constant>> {
+        Some(&POINT_KERNELS)
+    }
+}
+
+/// `search_sorted` on a constant array is O(1): compare the search value
+/// against the constant once and decide.
+struct ConstantSearchSortedKernel;
+
+impl SearchSortedKernel<Constant> for ConstantSearchSortedKernel {
+    fn execute(
+        view: ArrayView<'_, Constant>,
         value: &Scalar,
         side: SearchSortedSide,
         _d: &mut dyn PointDispatch,
     ) -> VortexResult<SearchResult> {
-        let len = array.as_ref().len();
-        Ok(match array.scalar.partial_cmp(value) {
+        let len = view.as_ref().len();
+        Ok(match view.scalar.partial_cmp(value) {
             Some(Ordering::Equal) => match side {
                 SearchSortedSide::Left => SearchResult::Found(0),
                 SearchSortedSide::Right => SearchResult::Found(len),
@@ -43,3 +53,7 @@ impl OperationsVTable<Constant> for Constant {
         })
     }
 }
+
+const POINT_KERNELS: PointKernels<Constant> = PointKernels::empty().with_search_sorted(
+    PointKernels::lift_search_sorted(&ConstantSearchSortedKernel),
+);
