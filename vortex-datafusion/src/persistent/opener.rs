@@ -44,7 +44,7 @@ use vortex::layout::LayoutReader;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::layout::scan::split_by::SplitBy;
 use vortex::layout::segments::SegmentSource;
-use vortex::layout::v2::scan::Scan as V2Scan;
+use vortex::layout::v2::plans::scan::Scan as V2Scan;
 use vortex::layout::v2::toggle as v2_toggle;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
@@ -522,7 +522,7 @@ impl FileOpener for VortexOpener {
                 // here to satisfy the parameter shape.
                 let parent_demand = vortex::layout::v2::demand::RowDemand::empty(total_rows);
                 let parent_frontier =
-                    vortex::layout::v2::dataflow::OutputFrontier::unbounded(total_rows)
+                    vortex::layout::v2::scheduler::OutputFrontier::unbounded(total_rows)
                         .clone_with_offset(v2_range.clone());
                 let chunk_stream = plan
                     .execute(v2_range, &parent_demand, &parent_frontier, &scan_ctx)

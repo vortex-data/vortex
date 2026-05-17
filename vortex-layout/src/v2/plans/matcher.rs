@@ -2,13 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Pattern-matching for layout plan nodes, used by
-//! [`crate::v2::pushdown::PlanPushdownRule`] to identify candidates.
+//! [`crate::v2::plans::pushdown::PlanPushdownRule`] to identify candidates.
 //!
 //! Parking-lot module: only `AnyPlan` implements `Matcher`, and
 //! nothing calls either today. Lives here so future rule-based
 //! pushdown can build matchers without re-introducing the surface.
 
-use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plans::LayoutPlanRef;
 
 /// A matcher describes a shape of [`LayoutPlanRef`] that a pushdown
 /// rule wants to apply to.

@@ -26,8 +26,8 @@ use crate::display::DisplayLayoutTree;
 use crate::display::display_tree_with_segment_sizes;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PlanArguments;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PlanArguments;
 
 /// A unique identifier for a layout.
 pub type LayoutId = Id;
@@ -73,7 +73,7 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
         session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef>;
 
-    /// Build a [`crate::v2::plan::LayoutPlan`] subtree for this layout
+    /// Build a [`crate::v2::plans::LayoutPlan`] subtree for this layout
     /// against the given expression and selection. See `LAYOUT_PLAN.md`
     /// at the repo root for the design.
     ///

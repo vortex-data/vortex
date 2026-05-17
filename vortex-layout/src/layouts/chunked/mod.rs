@@ -24,9 +24,9 @@ use crate::children::OwnedLayoutChildren;
 use crate::layouts::chunked::reader::ChunkedReader;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
-use crate::v2::chunked::ChunkedPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PlanArguments;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PlanArguments;
+use crate::v2::plans::chunked::ChunkedPlan;
 use crate::vtable;
 
 vtable!(Chunked);

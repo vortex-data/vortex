@@ -92,7 +92,7 @@ pub fn vortex_layout::layouts::chunked::Chunked::nchildren(&Self::Layout) -> usi
 
 pub fn vortex_layout::layouts::chunked::Chunked::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::chunked::Chunked::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::chunked::Chunked::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::chunked::Chunked::row_count(&Self::Layout) -> u64
 
@@ -312,7 +312,7 @@ pub fn vortex_layout::layouts::dict::Dict::nchildren(&Self::Layout) -> usize
 
 pub fn vortex_layout::layouts::dict::Dict::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::dict::Dict::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::dict::Dict::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::dict::Dict::row_count(&Self::Layout) -> u64
 
@@ -480,7 +480,7 @@ pub fn vortex_layout::layouts::flat::Flat::nchildren(&Self::Layout) -> usize
 
 pub fn vortex_layout::layouts::flat::Flat::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::flat::Flat::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::flat::Flat::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::flat::Flat::row_count(&Self::Layout) -> u64
 
@@ -682,7 +682,7 @@ pub fn vortex_layout::layouts::struct_::Struct::nchildren(&Self::Layout) -> usiz
 
 pub fn vortex_layout::layouts::struct_::Struct::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::struct_::Struct::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::struct_::Struct::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::struct_::Struct::row_count(&Self::Layout) -> u64
 
@@ -820,7 +820,7 @@ pub struct vortex_layout::layouts::zoned::ZoneMapResource
 
 impl vortex_layout::layouts::zoned::ZoneMapResource
 
-pub fn vortex_layout::layouts::zoned::ZoneMapResource::new(vortex_layout::v2::plan::LayoutPlanRef, vortex_array::expr::expression::Expression, u64, u64, vortex_session::VortexSession) -> Self
+pub fn vortex_layout::layouts::zoned::ZoneMapResource::new(vortex_layout::v2::plans::LayoutPlanRef, vortex_array::expr::expression::Expression, u64, u64, vortex_session::VortexSession) -> Self
 
 pub fn vortex_layout::layouts::zoned::ZoneMapResource::row_count(&self) -> u64
 
@@ -870,7 +870,7 @@ pub fn vortex_layout::layouts::zoned::Zoned::nchildren(&Self::Layout) -> usize
 
 pub fn vortex_layout::layouts::zoned::Zoned::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::zoned::Zoned::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::zoned::Zoned::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::zoned::Zoned::row_count(&Self::Layout) -> u64
 
@@ -1486,145 +1486,7 @@ pub type vortex_layout::v2::aligned::AlignedArrayStream::Item = core::result::Re
 
 pub fn vortex_layout::v2::aligned::AlignedArrayStream::poll_next(core::pin::Pin<&mut Self>, &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<core::option::Option<Self::Item>>
 
-pub mod vortex_layout::v2::and_bool
-
-pub struct vortex_layout::v2::and_bool::ConjunctInfo
-
-pub vortex_layout::v2::and_bool::ConjunctInfo::cost: u8
-
-pub vortex_layout::v2::and_bool::ConjunctInfo::expr: alloc::string::String
-
-pub vortex_layout::v2::and_bool::ConjunctInfo::original_idx: usize
-
-impl core::clone::Clone for vortex_layout::v2::and_bool::ConjunctInfo
-
-pub fn vortex_layout::v2::and_bool::ConjunctInfo::clone(&self) -> vortex_layout::v2::and_bool::ConjunctInfo
-
-impl core::cmp::Eq for vortex_layout::v2::and_bool::ConjunctInfo
-
-impl core::cmp::PartialEq for vortex_layout::v2::and_bool::ConjunctInfo
-
-pub fn vortex_layout::v2::and_bool::ConjunctInfo::eq(&self, &vortex_layout::v2::and_bool::ConjunctInfo) -> bool
-
-impl core::fmt::Debug for vortex_layout::v2::and_bool::ConjunctInfo
-
-pub fn vortex_layout::v2::and_bool::ConjunctInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_layout::v2::and_bool::ConjunctInfo
-
-pub fn vortex_layout::v2::and_bool::ConjunctInfo::hash<__H: core::hash::Hasher>(&self, &mut __H)
-
-impl core::marker::StructuralPartialEq for vortex_layout::v2::and_bool::ConjunctInfo
-
-pub struct vortex_layout::v2::and_bool::ConjunctPlan
-
-impl vortex_layout::v2::and_bool::ConjunctPlan
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::new(alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>, u64) -> Self
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::with_conjuncts(alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>, alloc::vec::Vec<vortex_layout::v2::and_bool::ConjunctInfo>, u64) -> Self
-
-impl core::cmp::Eq for vortex_layout::v2::and_bool::ConjunctPlan
-
-impl core::cmp::PartialEq for vortex_layout::v2::and_bool::ConjunctPlan
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::eq(&self, &Self) -> bool
-
-impl core::hash::Hash for vortex_layout::v2::and_bool::ConjunctPlan
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::hash<H: core::hash::Hasher>(&self, &mut H)
-
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::and_bool::ConjunctPlan
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::output_ordered(&self) -> bool
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::partition_count(&self) -> usize
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::schema(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub type vortex_layout::v2::and_bool::AndBoolStreamsPlan = vortex_layout::v2::and_bool::ConjunctPlan
-
-pub mod vortex_layout::v2::chunked
-
-pub struct vortex_layout::v2::chunked::ChunkedPlan
-
-impl vortex_layout::v2::chunked::ChunkedPlan
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::new(alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>, alloc::vec::Vec<u64>, vortex_array::dtype::DType) -> Self
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::with_preserve_order(alloc::sync::Arc<Self>, bool) -> alloc::sync::Arc<dyn vortex_layout::v2::plan::LayoutPlan>
-
-impl core::cmp::Eq for vortex_layout::v2::chunked::ChunkedPlan
-
-impl core::cmp::PartialEq for vortex_layout::v2::chunked::ChunkedPlan
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::eq(&self, &Self) -> bool
-
-impl core::hash::Hash for vortex_layout::v2::chunked::ChunkedPlan
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::hash<H: core::hash::Hasher>(&self, &mut H)
-
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::chunked::ChunkedPlan
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::output_ordered(&self) -> bool
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::partition_count(&self) -> usize
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::schema(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::chunked::ChunkedPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub mod vortex_layout::v2::cse
-
-pub fn vortex_layout::v2::cse::cse(vortex_layout::v2::plan::LayoutPlanRef) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
 pub mod vortex_layout::v2::dataflow
-
-pub struct vortex_layout::v2::dataflow::OutputFrontier
-
-impl vortex_layout::v2::dataflow::OutputFrontier
-
-pub fn vortex_layout::v2::dataflow::OutputFrontier::clone_with_offset(&self, core::ops::range::Range<u64>) -> Self
-
-pub fn vortex_layout::v2::dataflow::OutputFrontier::unbounded(u64) -> Self
-
-impl core::clone::Clone for vortex_layout::v2::dataflow::OutputFrontier
-
-pub fn vortex_layout::v2::dataflow::OutputFrontier::clone(&self) -> vortex_layout::v2::dataflow::OutputFrontier
-
-impl core::fmt::Debug for vortex_layout::v2::dataflow::OutputFrontier
-
-pub fn vortex_layout::v2::dataflow::OutputFrontier::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub mod vortex_layout::v2::demand
 
@@ -1684,491 +1546,7 @@ pub fn vortex_layout::layouts::zoned::ZoneMapResource::version(&self) -> u64
 
 pub type vortex_layout::v2::demand::RowRange = core::ops::range::Range<u64>
 
-pub mod vortex_layout::v2::dict
-
-pub struct vortex_layout::v2::dict::DictDecodePlan
-
-impl vortex_layout::v2::dict::DictDecodePlan
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::new(vortex_layout::v2::plan::LayoutPlanRef, vortex_layout::v2::plan::LayoutPlanRef, vortex_array::expr::expression::Expression, vortex_array::dtype::DType, bool) -> Self
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::values_plan(&self) -> &vortex_layout::v2::plan::LayoutPlanRef
-
-impl core::cmp::Eq for vortex_layout::v2::dict::DictDecodePlan
-
-impl core::cmp::PartialEq for vortex_layout::v2::dict::DictDecodePlan
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::eq(&self, &Self) -> bool
-
-impl core::hash::Hash for vortex_layout::v2::dict::DictDecodePlan
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::hash<H: core::hash::Hasher>(&self, &mut H)
-
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::dict::DictDecodePlan
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::output_ordered(&self) -> bool
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::partition_count(&self) -> usize
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::schema(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::dict::DictDecodePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub mod vortex_layout::v2::empty_struct
-
-pub struct vortex_layout::v2::empty_struct::EmptyStructPlan
-
-impl vortex_layout::v2::empty_struct::EmptyStructPlan
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::new(u64) -> Self
-
-impl core::cmp::Eq for vortex_layout::v2::empty_struct::EmptyStructPlan
-
-impl core::cmp::PartialEq for vortex_layout::v2::empty_struct::EmptyStructPlan
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::eq(&self, &Self) -> bool
-
-impl core::hash::Hash for vortex_layout::v2::empty_struct::EmptyStructPlan
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::hash<H: core::hash::Hasher>(&self, &mut H)
-
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::empty_struct::EmptyStructPlan
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::output_ordered(&self) -> bool
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::partition_count(&self) -> usize
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::schema(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub mod vortex_layout::v2::filter
-
-pub struct vortex_layout::v2::filter::FilterPlan
-
-impl vortex_layout::v2::filter::FilterPlan
-
-pub fn vortex_layout::v2::filter::FilterPlan::new(vortex_layout::v2::plan::LayoutPlanRef, vortex_layout::v2::plan::LayoutPlanRef) -> Self
-
-pub fn vortex_layout::v2::filter::FilterPlan::new_or_pushdown(vortex_layout::v2::plan::LayoutPlanRef, vortex_layout::v2::plan::LayoutPlanRef) -> vortex_layout::v2::plan::LayoutPlanRef
-
-impl core::cmp::Eq for vortex_layout::v2::filter::FilterPlan
-
-impl core::cmp::PartialEq for vortex_layout::v2::filter::FilterPlan
-
-pub fn vortex_layout::v2::filter::FilterPlan::eq(&self, &Self) -> bool
-
-impl core::hash::Hash for vortex_layout::v2::filter::FilterPlan
-
-pub fn vortex_layout::v2::filter::FilterPlan::hash<H: core::hash::Hasher>(&self, &mut H)
-
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::filter::FilterPlan
-
-pub fn vortex_layout::v2::filter::FilterPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
-
-pub fn vortex_layout::v2::filter::FilterPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
-
-pub fn vortex_layout::v2::filter::FilterPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::filter::FilterPlan::output_ordered(&self) -> bool
-
-pub fn vortex_layout::v2::filter::FilterPlan::partition_count(&self) -> usize
-
-pub fn vortex_layout::v2::filter::FilterPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
-
-pub fn vortex_layout::v2::filter::FilterPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::filter::FilterPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::filter::FilterPlan::schema(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::v2::filter::FilterPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::filter::FilterPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub mod vortex_layout::v2::filtered_flat
-
-pub struct vortex_layout::v2::filtered_flat::FilteredFlatPlan
-
-impl vortex_layout::v2::filtered_flat::FilteredFlatPlan
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::mask_plan(&self) -> &vortex_layout::v2::plan::LayoutPlanRef
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::new(vortex_layout::segments::SegmentId, u64, vortex_array::dtype::DType, vortex_session::registry::ReadContext, core::option::Option<vortex_buffer::ByteBuffer>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, vortex_array::expr::expression::Expression, vortex_scan::selection::Selection, vortex_array::dtype::DType, vortex_layout::v2::plan::LayoutPlanRef) -> Self
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::segment_id(&self) -> vortex_layout::segments::SegmentId
-
-impl core::cmp::Eq for vortex_layout::v2::filtered_flat::FilteredFlatPlan
-
-impl core::cmp::PartialEq for vortex_layout::v2::filtered_flat::FilteredFlatPlan
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::eq(&self, &Self) -> bool
-
-impl core::hash::Hash for vortex_layout::v2::filtered_flat::FilteredFlatPlan
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::hash<H: core::hash::Hasher>(&self, &mut H)
-
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::filtered_flat::FilteredFlatPlan
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::output_ordered(&self) -> bool
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::partition_count(&self) -> usize
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::schema(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub mod vortex_layout::v2::flat
-
-pub struct vortex_layout::v2::flat::FlatPlan
-
-impl vortex_layout::v2::flat::FlatPlan
-
-pub fn vortex_layout::v2::flat::FlatPlan::expr(&self) -> &vortex_array::expr::expression::Expression
-
-pub fn vortex_layout::v2::flat::FlatPlan::new(vortex_layout::segments::SegmentId, u64, vortex_array::dtype::DType, vortex_session::registry::ReadContext, core::option::Option<vortex_buffer::ByteBuffer>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, vortex_array::expr::expression::Expression, vortex_scan::selection::Selection, vortex_array::dtype::DType) -> Self
-
-pub fn vortex_layout::v2::flat::FlatPlan::segment_id(&self) -> vortex_layout::segments::SegmentId
-
-pub fn vortex_layout::v2::flat::FlatPlan::selection(&self) -> &vortex_scan::selection::Selection
-
-impl core::cmp::Eq for vortex_layout::v2::flat::FlatPlan
-
-impl core::cmp::PartialEq for vortex_layout::v2::flat::FlatPlan
-
-pub fn vortex_layout::v2::flat::FlatPlan::eq(&self, &Self) -> bool
-
-impl core::hash::Hash for vortex_layout::v2::flat::FlatPlan
-
-pub fn vortex_layout::v2::flat::FlatPlan::hash<H: core::hash::Hasher>(&self, &mut H)
-
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::flat::FlatPlan
-
-pub fn vortex_layout::v2::flat::FlatPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
-
-pub fn vortex_layout::v2::flat::FlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
-
-pub fn vortex_layout::v2::flat::FlatPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::flat::FlatPlan::output_ordered(&self) -> bool
-
-pub fn vortex_layout::v2::flat::FlatPlan::partition_count(&self) -> usize
-
-pub fn vortex_layout::v2::flat::FlatPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
-
-pub fn vortex_layout::v2::flat::FlatPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::flat::FlatPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::flat::FlatPlan::schema(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::v2::flat::FlatPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::flat::FlatPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub mod vortex_layout::v2::let_use
-
-pub struct vortex_layout::v2::let_use::LetId(_)
-
-impl vortex_layout::v2::let_use::LetId
-
-pub fn vortex_layout::v2::let_use::LetId::fresh() -> Self
-
-pub fn vortex_layout::v2::let_use::LetId::raw(self) -> u64
-
-impl core::clone::Clone for vortex_layout::v2::let_use::LetId
-
-pub fn vortex_layout::v2::let_use::LetId::clone(&self) -> vortex_layout::v2::let_use::LetId
-
-impl core::cmp::Eq for vortex_layout::v2::let_use::LetId
-
-impl core::cmp::PartialEq for vortex_layout::v2::let_use::LetId
-
-pub fn vortex_layout::v2::let_use::LetId::eq(&self, &vortex_layout::v2::let_use::LetId) -> bool
-
-impl core::fmt::Debug for vortex_layout::v2::let_use::LetId
-
-pub fn vortex_layout::v2::let_use::LetId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl core::hash::Hash for vortex_layout::v2::let_use::LetId
-
-pub fn vortex_layout::v2::let_use::LetId::hash<__H: core::hash::Hasher>(&self, &mut __H)
-
-impl core::marker::Copy for vortex_layout::v2::let_use::LetId
-
-impl core::marker::StructuralPartialEq for vortex_layout::v2::let_use::LetId
-
-pub struct vortex_layout::v2::let_use::LetPlan
-
-impl vortex_layout::v2::let_use::LetPlan
-
-pub fn vortex_layout::v2::let_use::LetPlan::id(&self) -> vortex_layout::v2::let_use::LetId
-
-pub fn vortex_layout::v2::let_use::LetPlan::new(vortex_layout::v2::plan::LayoutPlanRef, vortex_layout::v2::plan::LayoutPlanRef) -> Self
-
-pub fn vortex_layout::v2::let_use::LetPlan::with_id(vortex_layout::v2::let_use::LetId, vortex_layout::v2::plan::LayoutPlanRef, vortex_layout::v2::plan::LayoutPlanRef) -> Self
-
-impl vortex_layout::v2::let_use::LetPlan
-
-pub fn vortex_layout::v2::let_use::LetPlan::publish_mask(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_layout::v2::let_use::LetPlan::publish_stream(&self, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<alloc::sync::Arc<vortex_layout::v2::tee_stream::TeeStream>>
-
-impl core::cmp::Eq for vortex_layout::v2::let_use::LetPlan
-
-impl core::cmp::PartialEq for vortex_layout::v2::let_use::LetPlan
-
-pub fn vortex_layout::v2::let_use::LetPlan::eq(&self, &Self) -> bool
-
-impl core::hash::Hash for vortex_layout::v2::let_use::LetPlan
-
-pub fn vortex_layout::v2::let_use::LetPlan::hash<H: core::hash::Hasher>(&self, &mut H)
-
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::let_use::LetPlan
-
-pub fn vortex_layout::v2::let_use::LetPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
-
-pub fn vortex_layout::v2::let_use::LetPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
-
-pub fn vortex_layout::v2::let_use::LetPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::let_use::LetPlan::output_ordered(&self) -> bool
-
-pub fn vortex_layout::v2::let_use::LetPlan::partition_count(&self) -> usize
-
-pub fn vortex_layout::v2::let_use::LetPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
-
-pub fn vortex_layout::v2::let_use::LetPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::let_use::LetPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::let_use::LetPlan::schema(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::v2::let_use::LetPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::let_use::LetPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub struct vortex_layout::v2::let_use::LetRegistry
-
-impl vortex_layout::v2::let_use::LetRegistry
-
-pub fn vortex_layout::v2::let_use::LetRegistry::get_or_init_stream(&mut self, vortex_layout::v2::let_use::LetId, impl core::ops::function::FnOnce() -> vortex_layout::v2::tee_stream::TeeStream) -> alloc::sync::Arc<vortex_layout::v2::tee_stream::TeeStream>
-
-pub fn vortex_layout::v2::let_use::LetRegistry::get_stream(&self, vortex_layout::v2::let_use::LetId) -> core::option::Option<alloc::sync::Arc<vortex_layout::v2::tee_stream::TeeStream>>
-
-impl core::default::Default for vortex_layout::v2::let_use::LetRegistry
-
-pub fn vortex_layout::v2::let_use::LetRegistry::default() -> vortex_layout::v2::let_use::LetRegistry
-
-impl core::fmt::Debug for vortex_layout::v2::let_use::LetRegistry
-
-pub fn vortex_layout::v2::let_use::LetRegistry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_layout::v2::scan_ctx::ScanCtxValue for vortex_layout::v2::let_use::LetRegistry
-
-pub fn vortex_layout::v2::let_use::LetRegistry::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_layout::v2::let_use::LetRegistry::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
-pub struct vortex_layout::v2::let_use::UsePlan
-
-impl vortex_layout::v2::let_use::UsePlan
-
-pub fn vortex_layout::v2::let_use::UsePlan::id(&self) -> vortex_layout::v2::let_use::LetId
-
-pub fn vortex_layout::v2::let_use::UsePlan::new(vortex_layout::v2::let_use::LetId, vortex_array::dtype::DType, u64) -> Self
-
-impl core::cmp::Eq for vortex_layout::v2::let_use::UsePlan
-
-impl core::cmp::PartialEq for vortex_layout::v2::let_use::UsePlan
-
-pub fn vortex_layout::v2::let_use::UsePlan::eq(&self, &Self) -> bool
-
-impl core::hash::Hash for vortex_layout::v2::let_use::UsePlan
-
-pub fn vortex_layout::v2::let_use::UsePlan::hash<H: core::hash::Hasher>(&self, &mut H)
-
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::let_use::UsePlan
-
-pub fn vortex_layout::v2::let_use::UsePlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
-
-pub fn vortex_layout::v2::let_use::UsePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
-
-pub fn vortex_layout::v2::let_use::UsePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::let_use::UsePlan::output_ordered(&self) -> bool
-
-pub fn vortex_layout::v2::let_use::UsePlan::partition_count(&self) -> usize
-
-pub fn vortex_layout::v2::let_use::UsePlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
-
-pub fn vortex_layout::v2::let_use::UsePlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::let_use::UsePlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::let_use::UsePlan::schema(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::v2::let_use::UsePlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::let_use::UsePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub mod vortex_layout::v2::mask_collect
-
-pub struct vortex_layout::v2::mask_collect::MaskCollectPlan
-
-impl vortex_layout::v2::mask_collect::MaskCollectPlan
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::try_new(vortex_layout::v2::plan::LayoutPlanRef) -> vortex_error::VortexResult<Self>
-
-impl core::cmp::Eq for vortex_layout::v2::mask_collect::MaskCollectPlan
-
-impl core::cmp::PartialEq for vortex_layout::v2::mask_collect::MaskCollectPlan
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::eq(&self, &Self) -> bool
-
-impl core::hash::Hash for vortex_layout::v2::mask_collect::MaskCollectPlan
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::hash<H: core::hash::Hasher>(&self, &mut H)
-
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::mask_collect::MaskCollectPlan
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::output_ordered(&self) -> bool
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::partition_count(&self) -> usize
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::schema(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub mod vortex_layout::v2::mask_slice
-
-pub struct vortex_layout::v2::mask_slice::MaskSlicePlan
-
-impl vortex_layout::v2::mask_slice::MaskSlicePlan
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::new(vortex_layout::v2::plan::LayoutPlanRef, core::ops::range::Range<u64>) -> Self
-
-impl core::cmp::Eq for vortex_layout::v2::mask_slice::MaskSlicePlan
-
-impl core::cmp::PartialEq for vortex_layout::v2::mask_slice::MaskSlicePlan
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::eq(&self, &Self) -> bool
-
-impl core::hash::Hash for vortex_layout::v2::mask_slice::MaskSlicePlan
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::hash<H: core::hash::Hasher>(&self, &mut H)
-
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::mask_slice::MaskSlicePlan
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::output_ordered(&self) -> bool
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::partition_count(&self) -> usize
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::schema(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub mod vortex_layout::v2::matcher
-
-pub struct vortex_layout::v2::matcher::AnyPlan
-
-impl core::fmt::Debug for vortex_layout::v2::matcher::AnyPlan
-
-pub fn vortex_layout::v2::matcher::AnyPlan::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
-impl vortex_layout::v2::matcher::Matcher for vortex_layout::v2::matcher::AnyPlan
-
-pub type vortex_layout::v2::matcher::AnyPlan::Match<'a> = &'a alloc::sync::Arc<dyn vortex_layout::v2::plan::LayoutPlan>
-
-pub fn vortex_layout::v2::matcher::AnyPlan::matches(&vortex_layout::v2::plan::LayoutPlanRef) -> bool
-
-pub fn vortex_layout::v2::matcher::AnyPlan::try_match(&vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<Self::Match>
-
-pub trait vortex_layout::v2::matcher::Matcher
-
-pub type vortex_layout::v2::matcher::Matcher::Match<'a>
-
-pub fn vortex_layout::v2::matcher::Matcher::matches(&vortex_layout::v2::plan::LayoutPlanRef) -> bool
-
-pub fn vortex_layout::v2::matcher::Matcher::try_match(&vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<Self::Match>
-
-impl vortex_layout::v2::matcher::Matcher for vortex_layout::v2::matcher::AnyPlan
-
-pub type vortex_layout::v2::matcher::AnyPlan::Match<'a> = &'a alloc::sync::Arc<dyn vortex_layout::v2::plan::LayoutPlan>
-
-pub fn vortex_layout::v2::matcher::AnyPlan::matches(&vortex_layout::v2::plan::LayoutPlanRef) -> bool
-
-pub fn vortex_layout::v2::matcher::AnyPlan::try_match(&vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<Self::Match>
+pub mod vortex_layout::v2::domain
 
 pub mod vortex_layout::v2::materialised_mask
 
@@ -2176,9 +1554,9 @@ pub struct vortex_layout::v2::materialised_mask::MaskRegistry
 
 impl vortex_layout::v2::materialised_mask::MaskRegistry
 
-pub fn vortex_layout::v2::materialised_mask::MaskRegistry::get(&self, vortex_layout::v2::let_use::LetId, &core::ops::range::Range<u64>) -> core::option::Option<futures_util::future::future::shared::Shared<futures_core::future::BoxFuture<'static, core::result::Result<alloc::sync::Arc<vortex_layout::v2::materialised_mask::MaterialisedMask>, alloc::sync::Arc<vortex_error::VortexError>>>>>
+pub fn vortex_layout::v2::materialised_mask::MaskRegistry::get(&self, vortex_layout::v2::plans::let_use::LetId, &core::ops::range::Range<u64>) -> core::option::Option<futures_util::future::future::shared::Shared<futures_core::future::BoxFuture<'static, core::result::Result<alloc::sync::Arc<vortex_layout::v2::materialised_mask::MaterialisedMask>, alloc::sync::Arc<vortex_error::VortexError>>>>>
 
-pub fn vortex_layout::v2::materialised_mask::MaskRegistry::get_or_init(&mut self, vortex_layout::v2::let_use::LetId, core::ops::range::Range<u64>, impl core::ops::function::FnOnce() -> futures_util::future::future::shared::Shared<futures_core::future::BoxFuture<'static, core::result::Result<alloc::sync::Arc<vortex_layout::v2::materialised_mask::MaterialisedMask>, alloc::sync::Arc<vortex_error::VortexError>>>>) -> futures_util::future::future::shared::Shared<futures_core::future::BoxFuture<'static, core::result::Result<alloc::sync::Arc<vortex_layout::v2::materialised_mask::MaterialisedMask>, alloc::sync::Arc<vortex_error::VortexError>>>>
+pub fn vortex_layout::v2::materialised_mask::MaskRegistry::get_or_init(&mut self, vortex_layout::v2::plans::let_use::LetId, core::ops::range::Range<u64>, impl core::ops::function::FnOnce() -> futures_util::future::future::shared::Shared<futures_core::future::BoxFuture<'static, core::result::Result<alloc::sync::Arc<vortex_layout::v2::materialised_mask::MaterialisedMask>, alloc::sync::Arc<vortex_error::VortexError>>>>) -> futures_util::future::future::shared::Shared<futures_core::future::BoxFuture<'static, core::result::Result<alloc::sync::Arc<vortex_layout::v2::materialised_mask::MaterialisedMask>, alloc::sync::Arc<vortex_error::VortexError>>>>
 
 impl core::default::Default for vortex_layout::v2::materialised_mask::MaskRegistry
 
@@ -2218,595 +1596,1355 @@ pub fn vortex_layout::v2::materialised_mask::build_materialise_future(vortex_arr
 
 pub fn vortex_layout::v2::materialised_mask::slice_to_array(&vortex_layout::v2::materialised_mask::MaterialisedMask, core::ops::range::Range<u64>) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub mod vortex_layout::v2::plan
+pub mod vortex_layout::v2::plans
 
-pub struct vortex_layout::v2::plan::CollectedResources
+pub mod vortex_layout::v2::plans::and_bool
 
-pub vortex_layout::v2::plan::CollectedResources::demand_sources: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>>
+pub struct vortex_layout::v2::plans::and_bool::ConjunctInfo
 
-pub struct vortex_layout::v2::plan::PartitionStats
+pub vortex_layout::v2::plans::and_bool::ConjunctInfo::cost: u8
 
-pub vortex_layout::v2::plan::PartitionStats::byte_size_estimate: core::option::Option<u64>
+pub vortex_layout::v2::plans::and_bool::ConjunctInfo::expr: alloc::string::String
 
-pub vortex_layout::v2::plan::PartitionStats::row_range: core::ops::range::Range<u64>
+pub vortex_layout::v2::plans::and_bool::ConjunctInfo::original_idx: usize
 
-impl vortex_layout::v2::plan::PartitionStats
+impl core::clone::Clone for vortex_layout::v2::plans::and_bool::ConjunctInfo
 
-pub fn vortex_layout::v2::plan::PartitionStats::for_range(core::ops::range::Range<u64>) -> Self
+pub fn vortex_layout::v2::plans::and_bool::ConjunctInfo::clone(&self) -> vortex_layout::v2::plans::and_bool::ConjunctInfo
 
-pub fn vortex_layout::v2::plan::PartitionStats::row_count(&self) -> u64
+impl core::cmp::Eq for vortex_layout::v2::plans::and_bool::ConjunctInfo
 
-pub fn vortex_layout::v2::plan::PartitionStats::with_byte_size_estimate(self, u64) -> Self
+impl core::cmp::PartialEq for vortex_layout::v2::plans::and_bool::ConjunctInfo
 
-impl core::clone::Clone for vortex_layout::v2::plan::PartitionStats
+pub fn vortex_layout::v2::plans::and_bool::ConjunctInfo::eq(&self, &vortex_layout::v2::plans::and_bool::ConjunctInfo) -> bool
 
-pub fn vortex_layout::v2::plan::PartitionStats::clone(&self) -> vortex_layout::v2::plan::PartitionStats
+impl core::fmt::Debug for vortex_layout::v2::plans::and_bool::ConjunctInfo
 
-impl core::fmt::Debug for vortex_layout::v2::plan::PartitionStats
+pub fn vortex_layout::v2::plans::and_bool::ConjunctInfo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_layout::v2::plan::PartitionStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for vortex_layout::v2::plans::and_bool::ConjunctInfo
 
-pub struct vortex_layout::v2::plan::PlanArguments
+pub fn vortex_layout::v2::plans::and_bool::ConjunctInfo::hash<__H: core::hash::Hasher>(&self, &mut __H)
 
-pub vortex_layout::v2::plan::PlanArguments::ctx: vortex_layout::v2::plan::PlanCtx
+impl core::marker::StructuralPartialEq for vortex_layout::v2::plans::and_bool::ConjunctInfo
 
-pub vortex_layout::v2::plan::PlanArguments::expr: vortex_array::expr::expression::Expression
+pub struct vortex_layout::v2::plans::and_bool::ConjunctPlan
 
-pub vortex_layout::v2::plan::PlanArguments::selection: vortex_scan::selection::Selection
+impl vortex_layout::v2::plans::and_bool::ConjunctPlan
 
-impl vortex_layout::v2::plan::PlanArguments
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::new(alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>, u64) -> Self
 
-pub fn vortex_layout::v2::plan::PlanArguments::with_expr(self, vortex_array::expr::expression::Expression) -> Self
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::with_conjuncts(alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>, alloc::vec::Vec<vortex_layout::v2::plans::and_bool::ConjunctInfo>, u64) -> Self
 
-impl core::clone::Clone for vortex_layout::v2::plan::PlanArguments
+impl core::cmp::Eq for vortex_layout::v2::plans::and_bool::ConjunctPlan
 
-pub fn vortex_layout::v2::plan::PlanArguments::clone(&self) -> vortex_layout::v2::plan::PlanArguments
+impl core::cmp::PartialEq for vortex_layout::v2::plans::and_bool::ConjunctPlan
 
-pub struct vortex_layout::v2::plan::PlanCtx
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::eq(&self, &Self) -> bool
 
-pub vortex_layout::v2::plan::PlanCtx::resources: vortex_layout::v2::plan::ResourceCollector
+impl core::hash::Hash for vortex_layout::v2::plans::and_bool::ConjunctPlan
 
-pub vortex_layout::v2::plan::PlanCtx::segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
-pub vortex_layout::v2::plan::PlanCtx::session: vortex_session::VortexSession
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::and_bool::ConjunctPlan
 
-impl vortex_layout::v2::plan::PlanCtx
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plan::PlanCtx::new(alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, vortex_session::VortexSession) -> Self
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
-impl core::clone::Clone for vortex_layout::v2::plan::PlanCtx
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::v2::plan::PlanCtx::clone(&self) -> vortex_layout::v2::plan::PlanCtx
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
-pub struct vortex_layout::v2::plan::ResourceCollector
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::output_ordered(&self) -> bool
 
-impl vortex_layout::v2::plan::ResourceCollector
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::partition_count(&self) -> usize
 
-pub fn vortex_layout::v2::plan::ResourceCollector::push_demand_source(&self, alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>)
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
 
-pub fn vortex_layout::v2::plan::ResourceCollector::take(&self) -> vortex_layout::v2::plan::CollectedResources
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-impl core::clone::Clone for vortex_layout::v2::plan::ResourceCollector
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::plan::ResourceCollector::clone(&self) -> vortex_layout::v2::plan::ResourceCollector
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::schema(&self) -> &vortex_array::dtype::DType
 
-impl core::default::Default for vortex_layout::v2::plan::ResourceCollector
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::plan::ResourceCollector::default() -> vortex_layout::v2::plan::ResourceCollector
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub trait vortex_layout::v2::plan::LayoutPlan: vortex_utils::dyn_traits::DynEq + vortex_utils::dyn_traits::DynHash + core::marker::Send + core::marker::Sync + 'static
+pub type vortex_layout::v2::plans::and_bool::AndBoolStreamsPlan = vortex_layout::v2::plans::and_bool::ConjunctPlan
 
-pub fn vortex_layout::v2::plan::LayoutPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub mod vortex_layout::v2::plans::chunked
 
-pub fn vortex_layout::v2::plan::LayoutPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub struct vortex_layout::v2::plans::chunked::ChunkedPlan
 
-pub fn vortex_layout::v2::plan::LayoutPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+impl vortex_layout::v2::plans::chunked::ChunkedPlan
 
-pub fn vortex_layout::v2::plan::LayoutPlan::output_ordered(&self) -> bool
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::new(alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>, alloc::vec::Vec<u64>, vortex_array::dtype::DType) -> Self
 
-pub fn vortex_layout::v2::plan::LayoutPlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::with_preserve_order(alloc::sync::Arc<Self>, bool) -> alloc::sync::Arc<dyn vortex_layout::v2::plans::LayoutPlan>
 
-pub fn vortex_layout::v2::plan::LayoutPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+impl core::cmp::Eq for vortex_layout::v2::plans::chunked::ChunkedPlan
 
-pub fn vortex_layout::v2::plan::LayoutPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+impl core::cmp::PartialEq for vortex_layout::v2::plans::chunked::ChunkedPlan
 
-pub fn vortex_layout::v2::plan::LayoutPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::eq(&self, &Self) -> bool
 
-pub fn vortex_layout::v2::plan::LayoutPlan::schema(&self) -> &vortex_array::dtype::DType
+impl core::hash::Hash for vortex_layout::v2::plans::chunked::ChunkedPlan
 
-pub fn vortex_layout::v2::plan::LayoutPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
-pub fn vortex_layout::v2::plan::LayoutPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::chunked::ChunkedPlan
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::and_bool::ConjunctPlan
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::output_ordered(&self) -> bool
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::output_ordered(&self) -> bool
 
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::partition_count(&self) -> usize
 
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
 
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::schema(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::schema(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::and_bool::ConjunctPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::chunked::ChunkedPlan
+pub mod vortex_layout::v2::plans::cse
 
-pub fn vortex_layout::v2::chunked::ChunkedPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::plans::cse::cse(vortex_layout::v2::plans::LayoutPlanRef) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::chunked::ChunkedPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub mod vortex_layout::v2::plans::dict
 
-pub fn vortex_layout::v2::chunked::ChunkedPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub struct vortex_layout::v2::plans::dict::DictDecodePlan
 
-pub fn vortex_layout::v2::chunked::ChunkedPlan::output_ordered(&self) -> bool
+impl vortex_layout::v2::plans::dict::DictDecodePlan
 
-pub fn vortex_layout::v2::chunked::ChunkedPlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::new(vortex_layout::v2::plans::LayoutPlanRef, vortex_layout::v2::plans::LayoutPlanRef, vortex_array::expr::expression::Expression, vortex_array::dtype::DType, bool) -> Self
 
-pub fn vortex_layout::v2::chunked::ChunkedPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::values_plan(&self) -> &vortex_layout::v2::plans::LayoutPlanRef
 
-pub fn vortex_layout::v2::chunked::ChunkedPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+impl core::cmp::Eq for vortex_layout::v2::plans::dict::DictDecodePlan
 
-pub fn vortex_layout::v2::chunked::ChunkedPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+impl core::cmp::PartialEq for vortex_layout::v2::plans::dict::DictDecodePlan
 
-pub fn vortex_layout::v2::chunked::ChunkedPlan::schema(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::eq(&self, &Self) -> bool
 
-pub fn vortex_layout::v2::chunked::ChunkedPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+impl core::hash::Hash for vortex_layout::v2::plans::dict::DictDecodePlan
 
-pub fn vortex_layout::v2::chunked::ChunkedPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::dict::DictDecodePlan
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::dict::DictDecodePlan
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::output_ordered(&self) -> bool
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::output_ordered(&self) -> bool
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::partition_count(&self) -> usize
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::schema(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::schema(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::v2::dict::DictDecodePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::empty_struct::EmptyStructPlan
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub mod vortex_layout::v2::plans::empty_struct
 
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub struct vortex_layout::v2::plans::empty_struct::EmptyStructPlan
 
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+impl vortex_layout::v2::plans::empty_struct::EmptyStructPlan
 
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::output_ordered(&self) -> bool
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::new(u64) -> Self
 
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::partition_count(&self) -> usize
+impl core::cmp::Eq for vortex_layout::v2::plans::empty_struct::EmptyStructPlan
 
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+impl core::cmp::PartialEq for vortex_layout::v2::plans::empty_struct::EmptyStructPlan
 
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::eq(&self, &Self) -> bool
 
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+impl core::hash::Hash for vortex_layout::v2::plans::empty_struct::EmptyStructPlan
 
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::schema(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::empty_struct::EmptyStructPlan
 
-pub fn vortex_layout::v2::empty_struct::EmptyStructPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::filter::FilterPlan
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
-pub fn vortex_layout::v2::filter::FilterPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::v2::filter::FilterPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::filter::FilterPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::output_ordered(&self) -> bool
 
-pub fn vortex_layout::v2::filter::FilterPlan::output_ordered(&self) -> bool
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::partition_count(&self) -> usize
 
-pub fn vortex_layout::v2::filter::FilterPlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
 
-pub fn vortex_layout::v2::filter::FilterPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::filter::FilterPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::filter::FilterPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::schema(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::v2::filter::FilterPlan::schema(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::filter::FilterPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::filter::FilterPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub mod vortex_layout::v2::plans::filter
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::filtered_flat::FilteredFlatPlan
+pub struct vortex_layout::v2::plans::filter::FilterPlan
 
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+impl vortex_layout::v2::plans::filter::FilterPlan
 
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::filter::FilterPlan::new(vortex_layout::v2::plans::LayoutPlanRef, vortex_layout::v2::plans::LayoutPlanRef) -> Self
 
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::filter::FilterPlan::new_or_pushdown(vortex_layout::v2::plans::LayoutPlanRef, vortex_layout::v2::plans::LayoutPlanRef) -> vortex_layout::v2::plans::LayoutPlanRef
 
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::output_ordered(&self) -> bool
+impl core::cmp::Eq for vortex_layout::v2::plans::filter::FilterPlan
 
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::partition_count(&self) -> usize
+impl core::cmp::PartialEq for vortex_layout::v2::plans::filter::FilterPlan
 
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::plans::filter::FilterPlan::eq(&self, &Self) -> bool
 
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+impl core::hash::Hash for vortex_layout::v2::plans::filter::FilterPlan
 
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::filter::FilterPlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::schema(&self) -> &vortex_array::dtype::DType
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::filter::FilterPlan
 
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::filter::FilterPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::filtered_flat::FilteredFlatPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::filter::FilterPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::flat::FlatPlan
+pub fn vortex_layout::v2::plans::filter::FilterPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::v2::flat::FlatPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::plans::filter::FilterPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::flat::FlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::filter::FilterPlan::output_ordered(&self) -> bool
 
-pub fn vortex_layout::v2::flat::FlatPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::filter::FilterPlan::partition_count(&self) -> usize
 
-pub fn vortex_layout::v2::flat::FlatPlan::output_ordered(&self) -> bool
+pub fn vortex_layout::v2::plans::filter::FilterPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
 
-pub fn vortex_layout::v2::flat::FlatPlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::plans::filter::FilterPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::flat::FlatPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::plans::filter::FilterPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::flat::FlatPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::filter::FilterPlan::schema(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::v2::flat::FlatPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::filter::FilterPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::flat::FlatPlan::schema(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::v2::plans::filter::FilterPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::flat::FlatPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub mod vortex_layout::v2::plans::filtered_flat
 
-pub fn vortex_layout::v2::flat::FlatPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub struct vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::let_use::LetPlan
+impl vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan
 
-pub fn vortex_layout::v2::let_use::LetPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::mask_plan(&self) -> &vortex_layout::v2::plans::LayoutPlanRef
 
-pub fn vortex_layout::v2::let_use::LetPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::new(vortex_layout::segments::SegmentId, u64, vortex_array::dtype::DType, vortex_session::registry::ReadContext, core::option::Option<vortex_buffer::ByteBuffer>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, vortex_array::expr::expression::Expression, vortex_scan::selection::Selection, vortex_array::dtype::DType, vortex_layout::v2::plans::LayoutPlanRef) -> Self
 
-pub fn vortex_layout::v2::let_use::LetPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::segment_id(&self) -> vortex_layout::segments::SegmentId
 
-pub fn vortex_layout::v2::let_use::LetPlan::output_ordered(&self) -> bool
+impl core::cmp::Eq for vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan
 
-pub fn vortex_layout::v2::let_use::LetPlan::partition_count(&self) -> usize
+impl core::cmp::PartialEq for vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan
 
-pub fn vortex_layout::v2::let_use::LetPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::eq(&self, &Self) -> bool
 
-pub fn vortex_layout::v2::let_use::LetPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+impl core::hash::Hash for vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan
 
-pub fn vortex_layout::v2::let_use::LetPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
-pub fn vortex_layout::v2::let_use::LetPlan::schema(&self) -> &vortex_array::dtype::DType
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan
 
-pub fn vortex_layout::v2::let_use::LetPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::let_use::LetPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::let_use::UsePlan
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::v2::let_use::UsePlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::let_use::UsePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::output_ordered(&self) -> bool
 
-pub fn vortex_layout::v2::let_use::UsePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::partition_count(&self) -> usize
 
-pub fn vortex_layout::v2::let_use::UsePlan::output_ordered(&self) -> bool
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
 
-pub fn vortex_layout::v2::let_use::UsePlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::let_use::UsePlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::let_use::UsePlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::schema(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::v2::let_use::UsePlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::let_use::UsePlan::schema(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::let_use::UsePlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub mod vortex_layout::v2::plans::flat
 
-pub fn vortex_layout::v2::let_use::UsePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub struct vortex_layout::v2::plans::flat::FlatPlan
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::mask_collect::MaskCollectPlan
+impl vortex_layout::v2::plans::flat::FlatPlan
 
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::plans::flat::FlatPlan::expr(&self) -> &vortex_array::expr::expression::Expression
 
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::flat::FlatPlan::new(vortex_layout::segments::SegmentId, u64, vortex_array::dtype::DType, vortex_session::registry::ReadContext, core::option::Option<vortex_buffer::ByteBuffer>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, vortex_array::expr::expression::Expression, vortex_scan::selection::Selection, vortex_array::dtype::DType) -> Self
 
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::flat::FlatPlan::segment_id(&self) -> vortex_layout::segments::SegmentId
 
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::output_ordered(&self) -> bool
+pub fn vortex_layout::v2::plans::flat::FlatPlan::selection(&self) -> &vortex_scan::selection::Selection
 
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::partition_count(&self) -> usize
+impl core::cmp::Eq for vortex_layout::v2::plans::flat::FlatPlan
 
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+impl core::cmp::PartialEq for vortex_layout::v2::plans::flat::FlatPlan
 
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::flat::FlatPlan::eq(&self, &Self) -> bool
 
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+impl core::hash::Hash for vortex_layout::v2::plans::flat::FlatPlan
 
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::schema(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::v2::plans::flat::FlatPlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::flat::FlatPlan
 
-pub fn vortex_layout::v2::mask_collect::MaskCollectPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::flat::FlatPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::mask_slice::MaskSlicePlan
+pub fn vortex_layout::v2::plans::flat::FlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::plans::flat::FlatPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::flat::FlatPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::flat::FlatPlan::output_ordered(&self) -> bool
 
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::output_ordered(&self) -> bool
+pub fn vortex_layout::v2::plans::flat::FlatPlan::partition_count(&self) -> usize
 
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::plans::flat::FlatPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
 
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::plans::flat::FlatPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::flat::FlatPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::flat::FlatPlan::schema(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::schema(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::v2::plans::flat::FlatPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::flat::FlatPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::mask_slice::MaskSlicePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub mod vortex_layout::v2::plans::let_use
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::project::ProjectPlan
+pub struct vortex_layout::v2::plans::let_use::LetId(_)
 
-pub fn vortex_layout::v2::project::ProjectPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+impl vortex_layout::v2::plans::let_use::LetId
 
-pub fn vortex_layout::v2::project::ProjectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::let_use::LetId::fresh() -> Self
 
-pub fn vortex_layout::v2::project::ProjectPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::let_use::LetId::raw(self) -> u64
 
-pub fn vortex_layout::v2::project::ProjectPlan::output_ordered(&self) -> bool
+impl core::clone::Clone for vortex_layout::v2::plans::let_use::LetId
 
-pub fn vortex_layout::v2::project::ProjectPlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::plans::let_use::LetId::clone(&self) -> vortex_layout::v2::plans::let_use::LetId
 
-pub fn vortex_layout::v2::project::ProjectPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+impl core::cmp::Eq for vortex_layout::v2::plans::let_use::LetId
 
-pub fn vortex_layout::v2::project::ProjectPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+impl core::cmp::PartialEq for vortex_layout::v2::plans::let_use::LetId
 
-pub fn vortex_layout::v2::project::ProjectPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::let_use::LetId::eq(&self, &vortex_layout::v2::plans::let_use::LetId) -> bool
 
-pub fn vortex_layout::v2::project::ProjectPlan::schema(&self) -> &vortex_array::dtype::DType
+impl core::fmt::Debug for vortex_layout::v2::plans::let_use::LetId
 
-pub fn vortex_layout::v2::project::ProjectPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::let_use::LetId::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_layout::v2::project::ProjectPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+impl core::hash::Hash for vortex_layout::v2::plans::let_use::LetId
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::scan::ScanPlan
+pub fn vortex_layout::v2::plans::let_use::LetId::hash<__H: core::hash::Hasher>(&self, &mut __H)
 
-pub fn vortex_layout::v2::scan::ScanPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+impl core::marker::Copy for vortex_layout::v2::plans::let_use::LetId
 
-pub fn vortex_layout::v2::scan::ScanPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+impl core::marker::StructuralPartialEq for vortex_layout::v2::plans::let_use::LetId
 
-pub fn vortex_layout::v2::scan::ScanPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub struct vortex_layout::v2::plans::let_use::LetPlan
 
-pub fn vortex_layout::v2::scan::ScanPlan::output_ordered(&self) -> bool
+impl vortex_layout::v2::plans::let_use::LetPlan
 
-pub fn vortex_layout::v2::scan::ScanPlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::plans::let_use::LetPlan::id(&self) -> vortex_layout::v2::plans::let_use::LetId
 
-pub fn vortex_layout::v2::scan::ScanPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::plans::let_use::LetPlan::new(vortex_layout::v2::plans::LayoutPlanRef, vortex_layout::v2::plans::LayoutPlanRef) -> Self
 
-pub fn vortex_layout::v2::scan::ScanPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::let_use::LetPlan::with_id(vortex_layout::v2::plans::let_use::LetId, vortex_layout::v2::plans::LayoutPlanRef, vortex_layout::v2::plans::LayoutPlanRef) -> Self
 
-pub fn vortex_layout::v2::scan::ScanPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+impl vortex_layout::v2::plans::let_use::LetPlan
 
-pub fn vortex_layout::v2::scan::ScanPlan::schema(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::v2::plans::let_use::LetPlan::publish_mask(&self, core::ops::range::Range<u64>, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::v2::scan::ScanPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::let_use::LetPlan::publish_stream(&self, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<alloc::sync::Arc<vortex_layout::v2::tee_stream::TeeStream>>
 
-pub fn vortex_layout::v2::scan::ScanPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+impl core::cmp::Eq for vortex_layout::v2::plans::let_use::LetPlan
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::struct_::StructPlan
+impl core::cmp::PartialEq for vortex_layout::v2::plans::let_use::LetPlan
 
-pub fn vortex_layout::v2::struct_::StructPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::plans::let_use::LetPlan::eq(&self, &Self) -> bool
 
-pub fn vortex_layout::v2::struct_::StructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+impl core::hash::Hash for vortex_layout::v2::plans::let_use::LetPlan
 
-pub fn vortex_layout::v2::struct_::StructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::let_use::LetPlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
-pub fn vortex_layout::v2::struct_::StructPlan::output_ordered(&self) -> bool
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::let_use::LetPlan
 
-pub fn vortex_layout::v2::struct_::StructPlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::plans::let_use::LetPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::struct_::StructPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::plans::let_use::LetPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
-pub fn vortex_layout::v2::struct_::StructPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::let_use::LetPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::v2::struct_::StructPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::let_use::LetPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::struct_::StructPlan::schema(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::v2::plans::let_use::LetPlan::output_ordered(&self) -> bool
 
-pub fn vortex_layout::v2::struct_::StructPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::let_use::LetPlan::partition_count(&self) -> usize
 
-pub fn vortex_layout::v2::struct_::StructPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::let_use::LetPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::zoned::ZonedPruningPlan
+pub fn vortex_layout::v2::plans::let_use::LetPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::plans::let_use::LetPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::let_use::LetPlan::schema(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::let_use::LetPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::output_ordered(&self) -> bool
+pub fn vortex_layout::v2::plans::let_use::LetPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::partition_count(&self) -> usize
+pub struct vortex_layout::v2::plans::let_use::LetRegistry
 
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+impl vortex_layout::v2::plans::let_use::LetRegistry
 
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::let_use::LetRegistry::get_or_init_stream(&mut self, vortex_layout::v2::plans::let_use::LetId, impl core::ops::function::FnOnce() -> vortex_layout::v2::tee_stream::TeeStream) -> alloc::sync::Arc<vortex_layout::v2::tee_stream::TeeStream>
 
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::let_use::LetRegistry::get_stream(&self, vortex_layout::v2::plans::let_use::LetId) -> core::option::Option<alloc::sync::Arc<vortex_layout::v2::tee_stream::TeeStream>>
 
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::schema(&self) -> &vortex_array::dtype::DType
+impl core::default::Default for vortex_layout::v2::plans::let_use::LetRegistry
 
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::let_use::LetRegistry::default() -> vortex_layout::v2::plans::let_use::LetRegistry
 
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+impl core::fmt::Debug for vortex_layout::v2::plans::let_use::LetRegistry
 
-pub fn vortex_layout::v2::plan::hash_plan<H: core::hash::Hasher>(&vortex_layout::v2::plan::LayoutPlanRef, &mut H)
+pub fn vortex_layout::v2::plans::let_use::LetRegistry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_layout::v2::plan::hash_plan_slice<H: core::hash::Hasher>(&[vortex_layout::v2::plan::LayoutPlanRef], &mut H)
+impl vortex_layout::v2::scan_ctx::ScanCtxValue for vortex_layout::v2::plans::let_use::LetRegistry
 
-pub fn vortex_layout::v2::plan::plan_slices_eq(&[vortex_layout::v2::plan::LayoutPlanRef], &[vortex_layout::v2::plan::LayoutPlanRef]) -> bool
+pub fn vortex_layout::v2::plans::let_use::LetRegistry::as_any(&self) -> &dyn core::any::Any
 
-pub fn vortex_layout::v2::plan::plans_eq(&vortex_layout::v2::plan::LayoutPlanRef, &vortex_layout::v2::plan::LayoutPlanRef) -> bool
+pub fn vortex_layout::v2::plans::let_use::LetRegistry::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
-pub fn vortex_layout::v2::plan::with_hash_cache<R>(impl core::ops::function::FnOnce() -> R) -> R
+pub struct vortex_layout::v2::plans::let_use::UsePlan
 
-pub type vortex_layout::v2::plan::LayoutPlanRef = alloc::sync::Arc<dyn vortex_layout::v2::plan::LayoutPlan>
+impl vortex_layout::v2::plans::let_use::UsePlan
 
-pub mod vortex_layout::v2::project
+pub fn vortex_layout::v2::plans::let_use::UsePlan::id(&self) -> vortex_layout::v2::plans::let_use::LetId
 
-pub struct vortex_layout::v2::project::ProjectPlan
+pub fn vortex_layout::v2::plans::let_use::UsePlan::new(vortex_layout::v2::plans::let_use::LetId, vortex_array::dtype::DType, u64) -> Self
 
-impl vortex_layout::v2::project::ProjectPlan
+impl core::cmp::Eq for vortex_layout::v2::plans::let_use::UsePlan
 
-pub fn vortex_layout::v2::project::ProjectPlan::new(vortex_layout::v2::plan::LayoutPlanRef, vortex_array::expr::expression::Expression, vortex_array::dtype::DType) -> Self
+impl core::cmp::PartialEq for vortex_layout::v2::plans::let_use::UsePlan
 
-impl core::cmp::Eq for vortex_layout::v2::project::ProjectPlan
+pub fn vortex_layout::v2::plans::let_use::UsePlan::eq(&self, &Self) -> bool
 
-impl core::cmp::PartialEq for vortex_layout::v2::project::ProjectPlan
+impl core::hash::Hash for vortex_layout::v2::plans::let_use::UsePlan
 
-pub fn vortex_layout::v2::project::ProjectPlan::eq(&self, &Self) -> bool
+pub fn vortex_layout::v2::plans::let_use::UsePlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
-impl core::hash::Hash for vortex_layout::v2::project::ProjectPlan
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::let_use::UsePlan
 
-pub fn vortex_layout::v2::project::ProjectPlan::hash<H: core::hash::Hasher>(&self, &mut H)
+pub fn vortex_layout::v2::plans::let_use::UsePlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::project::ProjectPlan
+pub fn vortex_layout::v2::plans::let_use::UsePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
-pub fn vortex_layout::v2::project::ProjectPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::plans::let_use::UsePlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::v2::project::ProjectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::let_use::UsePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::project::ProjectPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::let_use::UsePlan::output_ordered(&self) -> bool
 
-pub fn vortex_layout::v2::project::ProjectPlan::output_ordered(&self) -> bool
+pub fn vortex_layout::v2::plans::let_use::UsePlan::partition_count(&self) -> usize
 
-pub fn vortex_layout::v2::project::ProjectPlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::plans::let_use::UsePlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
 
-pub fn vortex_layout::v2::project::ProjectPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::plans::let_use::UsePlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::project::ProjectPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::let_use::UsePlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::project::ProjectPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::let_use::UsePlan::schema(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::v2::project::ProjectPlan::schema(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::v2::plans::let_use::UsePlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::project::ProjectPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::let_use::UsePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::project::ProjectPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub mod vortex_layout::v2::plans::mask_collect
 
-pub mod vortex_layout::v2::pushdown
+pub struct vortex_layout::v2::plans::mask_collect::MaskCollectPlan
 
-pub enum vortex_layout::v2::pushdown::RewriteResult
+impl vortex_layout::v2::plans::mask_collect::MaskCollectPlan
 
-pub vortex_layout::v2::pushdown::RewriteResult::Rewritten(vortex_layout::v2::plan::LayoutPlanRef)
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::try_new(vortex_layout::v2::plans::LayoutPlanRef) -> vortex_error::VortexResult<Self>
 
-pub vortex_layout::v2::pushdown::RewriteResult::Unchanged
+impl core::cmp::Eq for vortex_layout::v2::plans::mask_collect::MaskCollectPlan
 
-pub trait vortex_layout::v2::pushdown::PlanPushdownRule
+impl core::cmp::PartialEq for vortex_layout::v2::plans::mask_collect::MaskCollectPlan
 
-pub type vortex_layout::v2::pushdown::PlanPushdownRule::Parent: vortex_layout::v2::matcher::Matcher
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::eq(&self, &Self) -> bool
 
-pub fn vortex_layout::v2::pushdown::PlanPushdownRule::rewrite(&self, vortex_layout::v2::plan::LayoutPlanRef) -> vortex_error::VortexResult<vortex_layout::v2::pushdown::RewriteResult>
+impl core::hash::Hash for vortex_layout::v2::plans::mask_collect::MaskCollectPlan
 
-pub mod vortex_layout::v2::scan
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
-pub struct vortex_layout::v2::scan::Scan
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::mask_collect::MaskCollectPlan
 
-pub vortex_layout::v2::scan::Scan::filter: core::option::Option<vortex_array::expr::expression::Expression>
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub vortex_layout::v2::scan::Scan::layout: vortex_layout::LayoutRef
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
-pub vortex_layout::v2::scan::Scan::projection: vortex_array::expr::expression::Expression
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
-pub vortex_layout::v2::scan::Scan::segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
-pub vortex_layout::v2::scan::Scan::selection: vortex_scan::selection::Selection
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::output_ordered(&self) -> bool
 
-pub vortex_layout::v2::scan::Scan::session: vortex_session::VortexSession
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::partition_count(&self) -> usize
 
-impl vortex_layout::v2::scan::Scan
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
 
-pub fn vortex_layout::v2::scan::Scan::build(&self) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub struct vortex_layout::v2::scan::ScanPlan
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
 
-impl vortex_layout::v2::scan::ScanPlan
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::schema(&self) -> &vortex_array::dtype::DType
 
-pub fn vortex_layout::v2::scan::ScanPlan::new(vortex_layout::v2::plan::LayoutPlanRef, u64) -> Self
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
 
-pub fn vortex_layout::v2::scan::ScanPlan::with_demand_source(self, alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>) -> Self
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
-impl core::cmp::Eq for vortex_layout::v2::scan::ScanPlan
+pub mod vortex_layout::v2::plans::mask_slice
 
-impl core::cmp::PartialEq for vortex_layout::v2::scan::ScanPlan
+pub struct vortex_layout::v2::plans::mask_slice::MaskSlicePlan
 
-pub fn vortex_layout::v2::scan::ScanPlan::eq(&self, &Self) -> bool
+impl vortex_layout::v2::plans::mask_slice::MaskSlicePlan
 
-impl core::hash::Hash for vortex_layout::v2::scan::ScanPlan
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::new(vortex_layout::v2::plans::LayoutPlanRef, core::ops::range::Range<u64>) -> Self
 
-pub fn vortex_layout::v2::scan::ScanPlan::hash<H: core::hash::Hasher>(&self, &mut H)
+impl core::cmp::Eq for vortex_layout::v2::plans::mask_slice::MaskSlicePlan
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::scan::ScanPlan
+impl core::cmp::PartialEq for vortex_layout::v2::plans::mask_slice::MaskSlicePlan
 
-pub fn vortex_layout::v2::scan::ScanPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::eq(&self, &Self) -> bool
 
-pub fn vortex_layout::v2::scan::ScanPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+impl core::hash::Hash for vortex_layout::v2::plans::mask_slice::MaskSlicePlan
 
-pub fn vortex_layout::v2::scan::ScanPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::hash<H: core::hash::Hasher>(&self, &mut H)
 
-pub fn vortex_layout::v2::scan::ScanPlan::output_ordered(&self) -> bool
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::mask_slice::MaskSlicePlan
 
-pub fn vortex_layout::v2::scan::ScanPlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::scan::ScanPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
-pub fn vortex_layout::v2::scan::ScanPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_layout::v2::scan::ScanPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
 
-pub fn vortex_layout::v2::scan::ScanPlan::schema(&self) -> &vortex_array::dtype::DType
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::output_ordered(&self) -> bool
 
-pub fn vortex_layout::v2::scan::ScanPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::partition_count(&self) -> usize
 
-pub fn vortex_layout::v2::scan::ScanPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub mod vortex_layout::v2::plans::matcher
+
+pub struct vortex_layout::v2::plans::matcher::AnyPlan
+
+impl core::fmt::Debug for vortex_layout::v2::plans::matcher::AnyPlan
+
+pub fn vortex_layout::v2::plans::matcher::AnyPlan::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_layout::v2::plans::matcher::Matcher for vortex_layout::v2::plans::matcher::AnyPlan
+
+pub type vortex_layout::v2::plans::matcher::AnyPlan::Match<'a> = &'a alloc::sync::Arc<dyn vortex_layout::v2::plans::LayoutPlan>
+
+pub fn vortex_layout::v2::plans::matcher::AnyPlan::matches(&vortex_layout::v2::plans::LayoutPlanRef) -> bool
+
+pub fn vortex_layout::v2::plans::matcher::AnyPlan::try_match(&vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<Self::Match>
+
+pub trait vortex_layout::v2::plans::matcher::Matcher
+
+pub type vortex_layout::v2::plans::matcher::Matcher::Match<'a>
+
+pub fn vortex_layout::v2::plans::matcher::Matcher::matches(&vortex_layout::v2::plans::LayoutPlanRef) -> bool
+
+pub fn vortex_layout::v2::plans::matcher::Matcher::try_match(&vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<Self::Match>
+
+impl vortex_layout::v2::plans::matcher::Matcher for vortex_layout::v2::plans::matcher::AnyPlan
+
+pub type vortex_layout::v2::plans::matcher::AnyPlan::Match<'a> = &'a alloc::sync::Arc<dyn vortex_layout::v2::plans::LayoutPlan>
+
+pub fn vortex_layout::v2::plans::matcher::AnyPlan::matches(&vortex_layout::v2::plans::LayoutPlanRef) -> bool
+
+pub fn vortex_layout::v2::plans::matcher::AnyPlan::try_match(&vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<Self::Match>
+
+pub mod vortex_layout::v2::plans::project
+
+pub struct vortex_layout::v2::plans::project::ProjectPlan
+
+impl vortex_layout::v2::plans::project::ProjectPlan
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::new(vortex_layout::v2::plans::LayoutPlanRef, vortex_array::expr::expression::Expression, vortex_array::dtype::DType) -> Self
+
+impl core::cmp::Eq for vortex_layout::v2::plans::project::ProjectPlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::plans::project::ProjectPlan
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::plans::project::ProjectPlan
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::hash<H: core::hash::Hasher>(&self, &mut H)
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::project::ProjectPlan
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub mod vortex_layout::v2::plans::pushdown
+
+pub enum vortex_layout::v2::plans::pushdown::RewriteResult
+
+pub vortex_layout::v2::plans::pushdown::RewriteResult::Rewritten(vortex_layout::v2::plans::LayoutPlanRef)
+
+pub vortex_layout::v2::plans::pushdown::RewriteResult::Unchanged
+
+pub trait vortex_layout::v2::plans::pushdown::PlanPushdownRule
+
+pub type vortex_layout::v2::plans::pushdown::PlanPushdownRule::Parent: vortex_layout::v2::plans::matcher::Matcher
+
+pub fn vortex_layout::v2::plans::pushdown::PlanPushdownRule::rewrite(&self, vortex_layout::v2::plans::LayoutPlanRef) -> vortex_error::VortexResult<vortex_layout::v2::plans::pushdown::RewriteResult>
+
+pub mod vortex_layout::v2::plans::scan
+
+pub struct vortex_layout::v2::plans::scan::Scan
+
+pub vortex_layout::v2::plans::scan::Scan::filter: core::option::Option<vortex_array::expr::expression::Expression>
+
+pub vortex_layout::v2::plans::scan::Scan::layout: vortex_layout::LayoutRef
+
+pub vortex_layout::v2::plans::scan::Scan::projection: vortex_array::expr::expression::Expression
+
+pub vortex_layout::v2::plans::scan::Scan::segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>
+
+pub vortex_layout::v2::plans::scan::Scan::selection: vortex_scan::selection::Selection
+
+pub vortex_layout::v2::plans::scan::Scan::session: vortex_session::VortexSession
+
+impl vortex_layout::v2::plans::scan::Scan
+
+pub fn vortex_layout::v2::plans::scan::Scan::build(&self) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub struct vortex_layout::v2::plans::scan::ScanPlan
+
+impl vortex_layout::v2::plans::scan::ScanPlan
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::new(vortex_layout::v2::plans::LayoutPlanRef, u64) -> Self
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::with_demand_source(self, alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>) -> Self
+
+impl core::cmp::Eq for vortex_layout::v2::plans::scan::ScanPlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::plans::scan::ScanPlan
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::plans::scan::ScanPlan
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::hash<H: core::hash::Hasher>(&self, &mut H)
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::scan::ScanPlan
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub mod vortex_layout::v2::plans::struct_
+
+pub struct vortex_layout::v2::plans::struct_::StructPlan
+
+impl vortex_layout::v2::plans::struct_::StructPlan
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::field_names(&self) -> &[vortex_array::dtype::field_names::FieldName]
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::new(alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>, alloc::vec::Vec<vortex_array::dtype::field_names::FieldName>, vortex_array::dtype::DType, u64) -> Self
+
+impl core::cmp::Eq for vortex_layout::v2::plans::struct_::StructPlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::plans::struct_::StructPlan
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::plans::struct_::StructPlan
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::hash<H: core::hash::Hasher>(&self, &mut H)
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::struct_::StructPlan
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub mod vortex_layout::v2::plans::zoned
+
+pub struct vortex_layout::v2::plans::zoned::ZonedPruningPlan
+
+impl vortex_layout::v2::plans::zoned::ZonedPruningPlan
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::new(vortex_layout::v2::plans::LayoutPlanRef, alloc::sync::Arc<vortex_layout::layouts::zoned::ZoneMapResource>) -> Self
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::resource(&self) -> &alloc::sync::Arc<vortex_layout::layouts::zoned::ZoneMapResource>
+
+impl core::cmp::Eq for vortex_layout::v2::plans::zoned::ZonedPruningPlan
+
+impl core::cmp::PartialEq for vortex_layout::v2::plans::zoned::ZonedPruningPlan
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::eq(&self, &Self) -> bool
+
+impl core::hash::Hash for vortex_layout::v2::plans::zoned::ZonedPruningPlan
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::hash<H: core::hash::Hasher>(&self, &mut H)
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::zoned::ZonedPruningPlan
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub struct vortex_layout::v2::plans::CollectedResources
+
+pub vortex_layout::v2::plans::CollectedResources::demand_sources: alloc::vec::Vec<alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>>
+
+pub struct vortex_layout::v2::plans::PartitionStats
+
+pub vortex_layout::v2::plans::PartitionStats::byte_size_estimate: core::option::Option<u64>
+
+pub vortex_layout::v2::plans::PartitionStats::row_range: core::ops::range::Range<u64>
+
+impl vortex_layout::v2::plans::PartitionStats
+
+pub fn vortex_layout::v2::plans::PartitionStats::for_range(core::ops::range::Range<u64>) -> Self
+
+pub fn vortex_layout::v2::plans::PartitionStats::row_count(&self) -> u64
+
+pub fn vortex_layout::v2::plans::PartitionStats::with_byte_size_estimate(self, u64) -> Self
+
+impl core::clone::Clone for vortex_layout::v2::plans::PartitionStats
+
+pub fn vortex_layout::v2::plans::PartitionStats::clone(&self) -> vortex_layout::v2::plans::PartitionStats
+
+impl core::fmt::Debug for vortex_layout::v2::plans::PartitionStats
+
+pub fn vortex_layout::v2::plans::PartitionStats::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub struct vortex_layout::v2::plans::PlanArguments
+
+pub vortex_layout::v2::plans::PlanArguments::ctx: vortex_layout::v2::plans::PlanCtx
+
+pub vortex_layout::v2::plans::PlanArguments::expr: vortex_array::expr::expression::Expression
+
+pub vortex_layout::v2::plans::PlanArguments::selection: vortex_scan::selection::Selection
+
+impl vortex_layout::v2::plans::PlanArguments
+
+pub fn vortex_layout::v2::plans::PlanArguments::with_expr(self, vortex_array::expr::expression::Expression) -> Self
+
+impl core::clone::Clone for vortex_layout::v2::plans::PlanArguments
+
+pub fn vortex_layout::v2::plans::PlanArguments::clone(&self) -> vortex_layout::v2::plans::PlanArguments
+
+pub struct vortex_layout::v2::plans::PlanCtx
+
+pub vortex_layout::v2::plans::PlanCtx::resources: vortex_layout::v2::plans::ResourceCollector
+
+pub vortex_layout::v2::plans::PlanCtx::segment_source: alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>
+
+pub vortex_layout::v2::plans::PlanCtx::session: vortex_session::VortexSession
+
+impl vortex_layout::v2::plans::PlanCtx
+
+pub fn vortex_layout::v2::plans::PlanCtx::new(alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, vortex_session::VortexSession) -> Self
+
+impl core::clone::Clone for vortex_layout::v2::plans::PlanCtx
+
+pub fn vortex_layout::v2::plans::PlanCtx::clone(&self) -> vortex_layout::v2::plans::PlanCtx
+
+pub struct vortex_layout::v2::plans::ResourceCollector
+
+impl vortex_layout::v2::plans::ResourceCollector
+
+pub fn vortex_layout::v2::plans::ResourceCollector::push_demand_source(&self, alloc::sync::Arc<dyn vortex_layout::v2::demand::DemandSource>)
+
+pub fn vortex_layout::v2::plans::ResourceCollector::take(&self) -> vortex_layout::v2::plans::CollectedResources
+
+impl core::clone::Clone for vortex_layout::v2::plans::ResourceCollector
+
+pub fn vortex_layout::v2::plans::ResourceCollector::clone(&self) -> vortex_layout::v2::plans::ResourceCollector
+
+impl core::default::Default for vortex_layout::v2::plans::ResourceCollector
+
+pub fn vortex_layout::v2::plans::ResourceCollector::default() -> vortex_layout::v2::plans::ResourceCollector
+
+pub trait vortex_layout::v2::plans::LayoutPlan: vortex_utils::dyn_traits::DynEq + vortex_utils::dyn_traits::DynHash + core::marker::Send + core::marker::Sync + 'static
+
+pub fn vortex_layout::v2::plans::LayoutPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::LayoutPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::LayoutPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::LayoutPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::LayoutPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::LayoutPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::LayoutPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::LayoutPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::LayoutPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::LayoutPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::LayoutPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::LayoutPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::and_bool::ConjunctPlan
+
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::chunked::ChunkedPlan
+
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::dict::DictDecodePlan
+
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::empty_struct::EmptyStructPlan
+
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::filter::FilterPlan
+
+pub fn vortex_layout::v2::plans::filter::FilterPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::filter::FilterPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::filter::FilterPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::filter::FilterPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::filter::FilterPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::filter::FilterPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::filter::FilterPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::filter::FilterPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::filter::FilterPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::filter::FilterPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::filter::FilterPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::filter::FilterPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan
+
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::flat::FlatPlan
+
+pub fn vortex_layout::v2::plans::flat::FlatPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::flat::FlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::flat::FlatPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::flat::FlatPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::flat::FlatPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::flat::FlatPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::flat::FlatPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::flat::FlatPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::flat::FlatPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::flat::FlatPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::flat::FlatPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::flat::FlatPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::let_use::LetPlan
+
+pub fn vortex_layout::v2::plans::let_use::LetPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::let_use::LetPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::let_use::LetPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::let_use::LetPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::let_use::LetPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::let_use::LetPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::let_use::LetPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::let_use::LetPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::let_use::LetPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::let_use::LetPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::let_use::LetPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::let_use::LetPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::let_use::UsePlan
+
+pub fn vortex_layout::v2::plans::let_use::UsePlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::let_use::UsePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::let_use::UsePlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::let_use::UsePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::let_use::UsePlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::let_use::UsePlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::let_use::UsePlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::let_use::UsePlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::let_use::UsePlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::let_use::UsePlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::let_use::UsePlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::let_use::UsePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::mask_collect::MaskCollectPlan
+
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::mask_slice::MaskSlicePlan
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::project::ProjectPlan
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::project::ProjectPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::scan::ScanPlan
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::scan::ScanPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::struct_::StructPlan
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::struct_::StructPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::zoned::ZonedPruningPlan
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::output_ordered(&self) -> bool
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::partition_count(&self) -> usize
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::PartitionStats>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::schema(&self) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plans::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plans::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
+
+pub fn vortex_layout::v2::plans::hash_plan<H: core::hash::Hasher>(&vortex_layout::v2::plans::LayoutPlanRef, &mut H)
+
+pub fn vortex_layout::v2::plans::hash_plan_slice<H: core::hash::Hasher>(&[vortex_layout::v2::plans::LayoutPlanRef], &mut H)
+
+pub fn vortex_layout::v2::plans::lower_to_single_scheduler(&dyn vortex_layout::v2::plans::LayoutPlan, core::ops::range::Range<u64>) -> vortex_error::VortexResult<vortex_layout::v2::scheduler::LayoutLoweringCtx>
+
+pub fn vortex_layout::v2::plans::plan_slices_eq(&[vortex_layout::v2::plans::LayoutPlanRef], &[vortex_layout::v2::plans::LayoutPlanRef]) -> bool
+
+pub fn vortex_layout::v2::plans::plans_eq(&vortex_layout::v2::plans::LayoutPlanRef, &vortex_layout::v2::plans::LayoutPlanRef) -> bool
+
+pub fn vortex_layout::v2::plans::with_hash_cache<R>(impl core::ops::function::FnOnce() -> R) -> R
+
+pub type vortex_layout::v2::plans::LayoutPlanRef = alloc::sync::Arc<dyn vortex_layout::v2::plans::LayoutPlan>
 
 pub mod vortex_layout::v2::scan_ctx
 
@@ -2872,61 +3010,85 @@ pub fn vortex_layout::v2::scan_ctx::ScanCtxValue::as_any(&self) -> &dyn core::an
 
 pub fn vortex_layout::v2::scan_ctx::ScanCtxValue::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
-impl vortex_layout::v2::scan_ctx::ScanCtxValue for vortex_layout::v2::let_use::LetRegistry
-
-pub fn vortex_layout::v2::let_use::LetRegistry::as_any(&self) -> &dyn core::any::Any
-
-pub fn vortex_layout::v2::let_use::LetRegistry::as_any_mut(&mut self) -> &mut dyn core::any::Any
-
 impl vortex_layout::v2::scan_ctx::ScanCtxValue for vortex_layout::v2::materialised_mask::MaskRegistry
 
 pub fn vortex_layout::v2::materialised_mask::MaskRegistry::as_any(&self) -> &dyn core::any::Any
 
 pub fn vortex_layout::v2::materialised_mask::MaskRegistry::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
-pub mod vortex_layout::v2::struct_
+impl vortex_layout::v2::scan_ctx::ScanCtxValue for vortex_layout::v2::plans::let_use::LetRegistry
 
-pub struct vortex_layout::v2::struct_::StructPlan
+pub fn vortex_layout::v2::plans::let_use::LetRegistry::as_any(&self) -> &dyn core::any::Any
 
-impl vortex_layout::v2::struct_::StructPlan
+pub fn vortex_layout::v2::plans::let_use::LetRegistry::as_any_mut(&mut self) -> &mut dyn core::any::Any
 
-pub fn vortex_layout::v2::struct_::StructPlan::field_names(&self) -> &[vortex_array::dtype::field_names::FieldName]
+pub mod vortex_layout::v2::scheduler
 
-pub fn vortex_layout::v2::struct_::StructPlan::new(alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>, alloc::vec::Vec<vortex_array::dtype::field_names::FieldName>, vortex_array::dtype::DType, u64) -> Self
+pub struct vortex_layout::v2::scheduler::LayoutLoweringCtx
 
-impl core::cmp::Eq for vortex_layout::v2::struct_::StructPlan
+impl vortex_layout::v2::scheduler::LayoutLoweringCtx
 
-impl core::cmp::PartialEq for vortex_layout::v2::struct_::StructPlan
+pub fn vortex_layout::v2::scheduler::LayoutLoweringCtx::drive_to_completion(&mut self) -> vortex_layout::v2::scheduler::LayoutSchedulerRunReport
 
-pub fn vortex_layout::v2::struct_::StructPlan::eq(&self, &Self) -> bool
+pub fn vortex_layout::v2::scheduler::LayoutLoweringCtx::for_single_scheduler(u64) -> Self
 
-impl core::hash::Hash for vortex_layout::v2::struct_::StructPlan
+pub fn vortex_layout::v2::scheduler::LayoutLoweringCtx::leaf_work_count(&self) -> usize
 
-pub fn vortex_layout::v2::struct_::StructPlan::hash<H: core::hash::Hasher>(&self, &mut H)
+pub fn vortex_layout::v2::scheduler::LayoutLoweringCtx::lowered_node_count(&self) -> usize
 
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::struct_::StructPlan
+pub fn vortex_layout::v2::scheduler::LayoutLoweringCtx::pipeline_count(&self) -> usize
 
-pub fn vortex_layout::v2::struct_::StructPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
+pub fn vortex_layout::v2::scheduler::LayoutLoweringCtx::queued_event_count(&self) -> usize
 
-pub fn vortex_layout::v2::struct_::StructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::scheduler::LayoutLoweringCtx::queued_memory_bytes(&self) -> u64
 
-pub fn vortex_layout::v2::struct_::StructPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
+pub struct vortex_layout::v2::scheduler::LayoutSchedulerRunReport
 
-pub fn vortex_layout::v2::struct_::StructPlan::output_ordered(&self) -> bool
+impl vortex_layout::v2::scheduler::LayoutSchedulerRunReport
 
-pub fn vortex_layout::v2::struct_::StructPlan::partition_count(&self) -> usize
+pub fn vortex_layout::v2::scheduler::LayoutSchedulerRunReport::completed_morsels(&self) -> usize
 
-pub fn vortex_layout::v2::struct_::StructPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
+pub fn vortex_layout::v2::scheduler::LayoutSchedulerRunReport::completed_segments(&self) -> usize
 
-pub fn vortex_layout::v2::struct_::StructPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::scheduler::LayoutSchedulerRunReport::pending_segments(&self) -> usize
 
-pub fn vortex_layout::v2::struct_::StructPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
+pub fn vortex_layout::v2::scheduler::LayoutSchedulerRunReport::steps(&self) -> usize
 
-pub fn vortex_layout::v2::struct_::StructPlan::schema(&self) -> &vortex_array::dtype::DType
+impl core::clone::Clone for vortex_layout::v2::scheduler::LayoutSchedulerRunReport
 
-pub fn vortex_layout::v2::struct_::StructPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::v2::scheduler::LayoutSchedulerRunReport::clone(&self) -> vortex_layout::v2::scheduler::LayoutSchedulerRunReport
 
-pub fn vortex_layout::v2::struct_::StructPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+impl core::cmp::Eq for vortex_layout::v2::scheduler::LayoutSchedulerRunReport
+
+impl core::cmp::PartialEq for vortex_layout::v2::scheduler::LayoutSchedulerRunReport
+
+pub fn vortex_layout::v2::scheduler::LayoutSchedulerRunReport::eq(&self, &vortex_layout::v2::scheduler::LayoutSchedulerRunReport) -> bool
+
+impl core::default::Default for vortex_layout::v2::scheduler::LayoutSchedulerRunReport
+
+pub fn vortex_layout::v2::scheduler::LayoutSchedulerRunReport::default() -> vortex_layout::v2::scheduler::LayoutSchedulerRunReport
+
+impl core::fmt::Debug for vortex_layout::v2::scheduler::LayoutSchedulerRunReport
+
+pub fn vortex_layout::v2::scheduler::LayoutSchedulerRunReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_layout::v2::scheduler::LayoutSchedulerRunReport
+
+pub struct vortex_layout::v2::scheduler::OutputFrontier
+
+impl vortex_layout::v2::scheduler::OutputFrontier
+
+pub fn vortex_layout::v2::scheduler::OutputFrontier::clone_with_offset(&self, core::ops::range::Range<u64>) -> Self
+
+pub fn vortex_layout::v2::scheduler::OutputFrontier::unbounded(u64) -> Self
+
+impl core::clone::Clone for vortex_layout::v2::scheduler::OutputFrontier
+
+pub fn vortex_layout::v2::scheduler::OutputFrontier::clone(&self) -> vortex_layout::v2::scheduler::OutputFrontier
+
+impl core::fmt::Debug for vortex_layout::v2::scheduler::OutputFrontier
+
+pub fn vortex_layout::v2::scheduler::OutputFrontier::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub mod vortex_layout::v2::tee_stream
 
@@ -2947,50 +3109,6 @@ pub mod vortex_layout::v2::toggle
 pub const vortex_layout::v2::toggle::ENV_VAR: &str
 
 pub fn vortex_layout::v2::toggle::use_v2_scan() -> bool
-
-pub mod vortex_layout::v2::zoned
-
-pub struct vortex_layout::v2::zoned::ZonedPruningPlan
-
-impl vortex_layout::v2::zoned::ZonedPruningPlan
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::new(vortex_layout::v2::plan::LayoutPlanRef, alloc::sync::Arc<vortex_layout::layouts::zoned::ZoneMapResource>) -> Self
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::resource(&self) -> &alloc::sync::Arc<vortex_layout::layouts::zoned::ZoneMapResource>
-
-impl core::cmp::Eq for vortex_layout::v2::zoned::ZonedPruningPlan
-
-impl core::cmp::PartialEq for vortex_layout::v2::zoned::ZonedPruningPlan
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::eq(&self, &Self) -> bool
-
-impl core::hash::Hash for vortex_layout::v2::zoned::ZonedPruningPlan
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::hash<H: core::hash::Hasher>(&self, &mut H)
-
-impl vortex_layout::v2::plan::LayoutPlan for vortex_layout::v2::zoned::ZonedPruningPlan
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::children(&self) -> &[vortex_layout::v2::plan::LayoutPlanRef]
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::dataflow::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::maintains_input_order(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::output_ordered(&self) -> bool
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::partition_count(&self) -> usize
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::partition_stats(&self, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::PartitionStats>
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::repartition(alloc::sync::Arc<Self>, usize) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::required_input_ordered(&self) -> alloc::vec::Vec<bool>
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::schema(&self) -> &vortex_array::dtype::DType
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::try_pushdown_mask(alloc::sync::Arc<Self>, vortex_layout::v2::plan::LayoutPlanRef) -> core::option::Option<vortex_layout::v2::plan::LayoutPlanRef>
-
-pub fn vortex_layout::v2::zoned::ZonedPruningPlan::with_new_children(alloc::sync::Arc<Self>, alloc::vec::Vec<vortex_layout::v2::plan::LayoutPlanRef>) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
 
 pub mod vortex_layout::vtable
 
@@ -3020,7 +3138,7 @@ pub fn vortex_layout::vtable::VTable::nchildren(&Self::Layout) -> usize
 
 pub fn vortex_layout::vtable::VTable::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::vtable::VTable::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::vtable::VTable::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::vtable::VTable::row_count(&Self::Layout) -> u64
 
@@ -3054,7 +3172,7 @@ pub fn vortex_layout::layouts::chunked::Chunked::nchildren(&Self::Layout) -> usi
 
 pub fn vortex_layout::layouts::chunked::Chunked::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::chunked::Chunked::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::chunked::Chunked::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::chunked::Chunked::row_count(&Self::Layout) -> u64
 
@@ -3088,7 +3206,7 @@ pub fn vortex_layout::layouts::dict::Dict::nchildren(&Self::Layout) -> usize
 
 pub fn vortex_layout::layouts::dict::Dict::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::dict::Dict::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::dict::Dict::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::dict::Dict::row_count(&Self::Layout) -> u64
 
@@ -3122,7 +3240,7 @@ pub fn vortex_layout::layouts::flat::Flat::nchildren(&Self::Layout) -> usize
 
 pub fn vortex_layout::layouts::flat::Flat::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::flat::Flat::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::flat::Flat::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::flat::Flat::row_count(&Self::Layout) -> u64
 
@@ -3156,7 +3274,7 @@ pub fn vortex_layout::layouts::struct_::Struct::nchildren(&Self::Layout) -> usiz
 
 pub fn vortex_layout::layouts::struct_::Struct::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::struct_::Struct::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::struct_::Struct::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::struct_::Struct::row_count(&Self::Layout) -> u64
 
@@ -3190,7 +3308,7 @@ pub fn vortex_layout::layouts::zoned::Zoned::nchildren(&Self::Layout) -> usize
 
 pub fn vortex_layout::layouts::zoned::Zoned::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::zoned::Zoned::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::zoned::Zoned::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::zoned::Zoned::row_count(&Self::Layout) -> u64
 
@@ -3258,7 +3376,7 @@ pub fn vortex_layout::LayoutAdapter<V>::nchildren(&self) -> usize
 
 pub fn vortex_layout::LayoutAdapter<V>::new_reader(&self, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::LayoutAdapter<V>::plan(&self, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::LayoutAdapter<V>::plan(&self, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::LayoutAdapter<V>::row_count(&self) -> u64
 
@@ -3376,7 +3494,7 @@ pub fn vortex_layout::Layout::nchildren(&self) -> usize
 
 pub fn vortex_layout::Layout::new_reader(&self, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::Layout::plan(&self, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::Layout::plan(&self, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::Layout::row_count(&self) -> u64
 
@@ -3404,7 +3522,7 @@ pub fn vortex_layout::LayoutAdapter<V>::nchildren(&self) -> usize
 
 pub fn vortex_layout::LayoutAdapter<V>::new_reader(&self, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::LayoutAdapter<V>::plan(&self, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::LayoutAdapter<V>::plan(&self, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::LayoutAdapter<V>::row_count(&self) -> u64
 
@@ -3576,7 +3694,7 @@ pub fn vortex_layout::VTable::nchildren(&Self::Layout) -> usize
 
 pub fn vortex_layout::VTable::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::VTable::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::VTable::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::VTable::row_count(&Self::Layout) -> u64
 
@@ -3610,7 +3728,7 @@ pub fn vortex_layout::layouts::chunked::Chunked::nchildren(&Self::Layout) -> usi
 
 pub fn vortex_layout::layouts::chunked::Chunked::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::chunked::Chunked::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::chunked::Chunked::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::chunked::Chunked::row_count(&Self::Layout) -> u64
 
@@ -3644,7 +3762,7 @@ pub fn vortex_layout::layouts::dict::Dict::nchildren(&Self::Layout) -> usize
 
 pub fn vortex_layout::layouts::dict::Dict::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::dict::Dict::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::dict::Dict::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::dict::Dict::row_count(&Self::Layout) -> u64
 
@@ -3678,7 +3796,7 @@ pub fn vortex_layout::layouts::flat::Flat::nchildren(&Self::Layout) -> usize
 
 pub fn vortex_layout::layouts::flat::Flat::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::flat::Flat::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::flat::Flat::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::flat::Flat::row_count(&Self::Layout) -> u64
 
@@ -3712,7 +3830,7 @@ pub fn vortex_layout::layouts::struct_::Struct::nchildren(&Self::Layout) -> usiz
 
 pub fn vortex_layout::layouts::struct_::Struct::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::struct_::Struct::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::struct_::Struct::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::struct_::Struct::row_count(&Self::Layout) -> u64
 
@@ -3746,7 +3864,7 @@ pub fn vortex_layout::layouts::zoned::Zoned::nchildren(&Self::Layout) -> usize
 
 pub fn vortex_layout::layouts::zoned::Zoned::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
 
-pub fn vortex_layout::layouts::zoned::Zoned::plan(&Self::Layout, vortex_layout::v2::plan::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plan::LayoutPlanRef>
+pub fn vortex_layout::layouts::zoned::Zoned::plan(&Self::Layout, vortex_layout::v2::plans::PlanArguments) -> vortex_error::VortexResult<vortex_layout::v2::plans::LayoutPlanRef>
 
 pub fn vortex_layout::layouts::zoned::Zoned::row_count(&Self::Layout) -> u64
 

@@ -54,9 +54,9 @@ use crate::layouts::zoned::schema::stats_table_dtype;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::v2::demand::DemandSource;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PlanArguments;
-use crate::v2::zoned::ZonedPruningPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PlanArguments;
+use crate::v2::plans::zoned::ZonedPruningPlan;
 use crate::vtable;
 
 vtable!(Zoned);

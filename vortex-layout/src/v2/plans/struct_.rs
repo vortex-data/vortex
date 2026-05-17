@@ -6,6 +6,8 @@
 //!
 //! See `LAYOUT_PLAN.md` § Per-layout `plan` walkthrough / `StructLayout::plan`.
 
+#![allow(clippy::cognitive_complexity)]
+
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
@@ -26,14 +28,14 @@ use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
 
 use crate::v2::aligned::AlignedArrayStream;
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
 use crate::v2::experiment::trace_flow;
 use crate::v2::placeholder::default_array;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::OutputFrontier;
 
 /// Composes child plans positionally; each child produces values for
 /// one field, and `StructPlan::execute` zips them into struct arrays.
@@ -74,7 +76,7 @@ impl StructPlan {
 
 impl PartialEq for StructPlan {
     fn eq(&self, other: &Self) -> bool {
-        crate::v2::plan::plan_slices_eq(&self.children, &other.children)
+        crate::v2::plans::plan_slices_eq(&self.children, &other.children)
             && self.field_names == other.field_names
             && self.output_dtype == other.output_dtype
             && self.row_count == other.row_count
@@ -85,7 +87,7 @@ impl Eq for StructPlan {}
 
 impl Hash for StructPlan {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        crate::v2::plan::hash_plan_slice(&self.children, state);
+        crate::v2::plans::hash_plan_slice(&self.children, state);
         self.field_names.hash(state);
         self.output_dtype.hash(state);
         self.row_count.hash(state);

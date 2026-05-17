@@ -25,12 +25,12 @@ use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::OutputFrontier;
 
 /// Single-partition plan that emits one chunk of empty struct of the
 /// requested length per `execute` call. Schema is `Struct({},

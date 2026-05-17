@@ -17,7 +17,8 @@
 //!
 //! Cross-conjunct fanout (where this conjunct's pruning lets *other*
 //! plan nodes skip work on the same rows) is implemented by the same
-//! `ZoneMapResource` being registered as a [`DemandSource`] on
+//! `ZoneMapResource` being registered as a
+//! [`DemandSource`](crate::v2::demand::DemandSource) on
 //! `ScanPlan`. Other plan nodes pull `RowDemand`, which intersects
 //! every registered source.
 
@@ -37,13 +38,13 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::layouts::zoned::ZoneMapResource;
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::Resource;
 use crate::v2::demand::RowDemand;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::OutputFrontier;
 
 /// Per-execute pruning over a zoned layout. See module docs.
 pub struct ZonedPruningPlan {
@@ -80,7 +81,7 @@ impl ZonedPruningPlan {
 
 impl PartialEq for ZonedPruningPlan {
     fn eq(&self, other: &Self) -> bool {
-        crate::v2::plan::plans_eq(&self.data_plan, &other.data_plan)
+        crate::v2::plans::plans_eq(&self.data_plan, &other.data_plan)
             // Resources participate by Arc identity — two plans built
             // in different `Scan::build` calls never share resource
             // Arcs, which is the right semantics for CSE.
@@ -93,7 +94,7 @@ impl Eq for ZonedPruningPlan {}
 
 impl std::hash::Hash for ZonedPruningPlan {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        crate::v2::plan::hash_plan(&self.data_plan, state);
+        crate::v2::plans::hash_plan(&self.data_plan, state);
         (Arc::as_ptr(&self.resource) as *const () as usize).hash(state);
         self.output_dtype.hash(state);
     }

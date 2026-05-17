@@ -33,11 +33,11 @@ use crate::children::LayoutChildren;
 use crate::children::OwnedLayoutChildren;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
-use crate::v2::empty_struct::EmptyStructPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PlanArguments;
-use crate::v2::project::ProjectPlan;
-use crate::v2::struct_::StructPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PlanArguments;
+use crate::v2::plans::empty_struct::EmptyStructPlan;
+use crate::v2::plans::project::ProjectPlan;
+use crate::v2::plans::struct_::StructPlan;
 use crate::vtable;
 
 vtable!(Struct);

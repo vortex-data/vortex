@@ -28,9 +28,9 @@ use crate::children::LayoutChildren;
 use crate::layouts::flat::reader::FlatReader;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
-use crate::v2::flat::FlatPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PlanArguments;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PlanArguments;
+use crate::v2::plans::flat::FlatPlan;
 use crate::vtable;
 
 /// Check if inline array node is enabled.

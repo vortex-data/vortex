@@ -4,14 +4,15 @@
 //! [`ScanCtx`] — per-scan execution context.
 //!
 //! A typed key/value map (mirroring [`vortex_session::VortexSession`])
-//! threaded through every [`crate::v2::plan::LayoutPlan::execute`]
+//! threaded through every [`crate::v2::plans::LayoutPlan::execute`]
 //! call so plan nodes can stash arbitrary per-scan state without
 //! holding caches on the plan struct itself. Plans must remain pure
 //! descriptions — see `LAYOUT_PLAN.md` § Model.
 //!
 //! Each variable type has at most one slot per `ScanCtx`. Values that
-//! need to fan out by some sub-key (e.g., the [`crate::v2::let_use`]
-//! `LetId`-keyed registry) wrap an internal map under one type slot.
+//! need to fan out by some sub-key (e.g., the
+//! [`crate::v2::plans::let_use`] `LetId`-keyed registry) wrap an
+//! internal map under one type slot.
 //!
 //! See `LAYOUT_PLAN.md` § Tee and CommonSubplanElimination for how
 //! `Let` / `Use` use this map; future plan nodes can layer their own
@@ -36,7 +37,7 @@ use vortex_session::VortexSession;
 /// key/value map for per-scan state that plan nodes need to share
 /// across `execute` calls. Constructed once by the engine when a scan
 /// begins, then passed by reference into every
-/// [`crate::v2::plan::LayoutPlan::execute`] call for that scan.
+/// [`crate::v2::plans::LayoutPlan::execute`] call for that scan.
 #[derive(Clone, Debug)]
 pub struct ScanCtx {
     session: VortexSession,
@@ -138,7 +139,7 @@ impl ScanCtx {
 /// A value stored in a [`ScanCtx`]. Implementors get a single typed
 /// slot per `ScanCtx`. Use a wrapper type holding an internal map if
 /// you need to fan out by a sub-key (see
-/// [`crate::v2::let_use::LetRegistry`]).
+/// [`crate::v2::plans::let_use::LetRegistry`]).
 pub trait ScanCtxValue: Any + Send + Sync + Debug + 'static {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;

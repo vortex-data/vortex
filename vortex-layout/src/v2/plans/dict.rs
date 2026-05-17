@@ -31,14 +31,14 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::v2::dataflow::LayoutLoweringCtx;
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
 use crate::v2::experiment::trace_flow;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::LayoutLoweringCtx;
+use crate::v2::scheduler::OutputFrontier;
 
 /// Per-execute call: take codes from `codes_plan`, await the dict
 /// values from `values_plan` once at the start of the output stream,
@@ -76,8 +76,8 @@ impl DictDecodePlan {
 
 impl PartialEq for DictDecodePlan {
     fn eq(&self, other: &Self) -> bool {
-        crate::v2::plan::plans_eq(&self.codes_plan, &other.codes_plan)
-            && crate::v2::plan::plans_eq(&self.values_plan, &other.values_plan)
+        crate::v2::plans::plans_eq(&self.codes_plan, &other.codes_plan)
+            && crate::v2::plans::plans_eq(&self.values_plan, &other.values_plan)
             && self.expr == other.expr
             && self.output_dtype == other.output_dtype
             && self.all_values_referenced == other.all_values_referenced
@@ -88,8 +88,8 @@ impl Eq for DictDecodePlan {}
 
 impl std::hash::Hash for DictDecodePlan {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        crate::v2::plan::hash_plan(&self.codes_plan, state);
-        crate::v2::plan::hash_plan(&self.values_plan, state);
+        crate::v2::plans::hash_plan(&self.codes_plan, state);
+        crate::v2::plans::hash_plan(&self.values_plan, state);
         self.expr.hash(state);
         self.output_dtype.hash(state);
         self.all_values_referenced.hash(state);

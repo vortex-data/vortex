@@ -8,14 +8,14 @@
 //! [`ArrayRef`] (the materialised, canonical bool array, sliced to
 //! the caller's `row_range`).
 //!
-//! Used by [`crate::v2::scan::Scan::build`] to wrap the filter mask
-//! before pushdown. Combined with CSE + [`crate::v2::let_use::LetPlan`]
+//! Used by [`crate::v2::plans::scan::Scan::build`] to wrap the filter mask
+//! before pushdown. Combined with CSE + [`crate::v2::plans::let_use::LetPlan`]
 //! sharing, this means:
 //!
 //! 1. The mask source is fully evaluated *once per scan*.
 //! 2. The result is canonicalised to a single `BoolArray` *once per
 //!    scan*.
-//! 3. Each [`crate::v2::filtered_flat::FilteredFlatPlan`] receives a
+//! 3. Each [`crate::v2::plans::filtered_flat::FilteredFlatPlan`] receives a
 //!    cheap `Arc`-cloned slice of the canonical array, sliced to its
 //!    chunk's row range.
 //! 4. The producer-task fan-out is one chunk per consumer (not many
@@ -44,12 +44,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::OutputFrontier;
 
 /// Wraps a Bool-typed child plan; at execute time, drains the
 /// child stream and canonicalises to a single [`BoolArray`].
@@ -80,7 +80,7 @@ impl MaskCollectPlan {
 
 impl PartialEq for MaskCollectPlan {
     fn eq(&self, other: &Self) -> bool {
-        crate::v2::plan::plans_eq(&self.child, &other.child)
+        crate::v2::plans::plans_eq(&self.child, &other.child)
             && self.output_dtype == other.output_dtype
             && self.row_count == other.row_count
     }
@@ -90,7 +90,7 @@ impl Eq for MaskCollectPlan {}
 
 impl Hash for MaskCollectPlan {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        crate::v2::plan::hash_plan(&self.child, state);
+        crate::v2::plans::hash_plan(&self.child, state);
         self.output_dtype.hash(state);
         self.row_count.hash(state);
     }
@@ -224,12 +224,12 @@ mod tests {
 
     use super::MaskCollectPlan;
     use crate::test::SESSION;
-    use crate::v2::dataflow::OutputFrontier;
     use crate::v2::demand::RowDemand;
-    use crate::v2::plan::LayoutPlan;
-    use crate::v2::plan::LayoutPlanRef;
-    use crate::v2::plan::PartitionStats;
+    use crate::v2::plans::LayoutPlan;
+    use crate::v2::plans::LayoutPlanRef;
+    use crate::v2::plans::PartitionStats;
     use crate::v2::scan_ctx::ScanCtx;
+    use crate::v2::scheduler::OutputFrontier;
 
     fn bool_dtype() -> DType {
         DType::Bool(NonNullable)

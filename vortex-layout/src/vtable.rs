@@ -24,8 +24,8 @@ use crate::LayoutRef;
 use crate::children::LayoutChildren;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PlanArguments;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PlanArguments;
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Layout: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Layout> + IntoLayout;

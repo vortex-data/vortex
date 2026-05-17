@@ -4,7 +4,7 @@
 //! [`MaskSlicePlan`] — adapter that re-bases a mask plan into a
 //! sub-range's local row coordinates.
 //!
-//! Used by [`crate::v2::chunked::ChunkedPlan::try_pushdown_mask`] when
+//! Used by [`crate::v2::plans::chunked::ChunkedPlan::try_pushdown_mask`] when
 //! it needs to give each chunk's child plan only the chunk's slice of
 //! a parent mask. The wrapped child sees a plan in its own
 //! coordinate space; at execute time the wrapper translates back to
@@ -22,13 +22,13 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::v2::dataflow::LayoutLoweringCtx;
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::LayoutLoweringCtx;
+use crate::v2::scheduler::OutputFrontier;
 
 /// Re-bases an inner mask plan into a sub-range's local coordinates.
 /// The wrapped plan's row space is `0..slice_len`; `execute` adds
@@ -55,7 +55,7 @@ impl MaskSlicePlan {
 
 impl PartialEq for MaskSlicePlan {
     fn eq(&self, other: &Self) -> bool {
-        crate::v2::plan::plans_eq(&self.inner, &other.inner)
+        crate::v2::plans::plans_eq(&self.inner, &other.inner)
             && self.slice_offset == other.slice_offset
             && self.slice_len == other.slice_len
     }
@@ -65,7 +65,7 @@ impl Eq for MaskSlicePlan {}
 
 impl std::hash::Hash for MaskSlicePlan {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        crate::v2::plan::hash_plan(&self.inner, state);
+        crate::v2::plans::hash_plan(&self.inner, state);
         self.slice_offset.hash(state);
         self.slice_len.hash(state);
     }

@@ -31,18 +31,18 @@ use vortex_error::vortex_bail;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::v2::dataflow::LayoutLoweringCtx;
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
 use crate::v2::experiment::trace_flow;
 use crate::v2::materialised_mask::MaskRegistry;
 use crate::v2::materialised_mask::build_materialise_future;
 use crate::v2::materialised_mask::slice_to_array;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
 use crate::v2::scan_ctx::ScanCtxValue;
+use crate::v2::scheduler::LayoutLoweringCtx;
+use crate::v2::scheduler::OutputFrontier;
 use crate::v2::tee_stream::TeeStream;
 
 /// Identifies a [`LetPlan`] within one scan. IDs are globally unique;
@@ -149,8 +149,8 @@ impl LetPlan {
 impl PartialEq for LetPlan {
     fn eq(&self, other: &Self) -> bool {
         self.id == other.id
-            && crate::v2::plan::plans_eq(&self.source, &other.source)
-            && crate::v2::plan::plans_eq(&self.body, &other.body)
+            && crate::v2::plans::plans_eq(&self.source, &other.source)
+            && crate::v2::plans::plans_eq(&self.body, &other.body)
     }
 }
 
@@ -159,8 +159,8 @@ impl Eq for LetPlan {}
 impl std::hash::Hash for LetPlan {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.id.hash(state);
-        crate::v2::plan::hash_plan(&self.source, state);
-        crate::v2::plan::hash_plan(&self.body, state);
+        crate::v2::plans::hash_plan(&self.source, state);
+        crate::v2::plans::hash_plan(&self.body, state);
     }
 }
 
@@ -407,7 +407,7 @@ fn source_total_rows(source: &LayoutPlanRef) -> u64 {
 /// tee by [`LetId`] and at execute time subscribes for a fresh
 /// cursor, then row-range-slices each chunk.
 ///
-/// Built only by the [`crate::v2::cse`] pass — never by
+/// Built only by the [`crate::v2::plans::cse`] pass — never by
 /// `Layout::plan` directly. The `LetPlan` carrying the matching id
 /// must dominate every `UsePlan(id)` in the plan tree, otherwise
 /// execute fails with an "unregistered LetId" error.
@@ -615,12 +615,18 @@ mod tests {
     use super::LetRegistry;
     use super::UsePlan;
     use crate::test::SESSION;
-    use crate::v2::dataflow::OutputFrontier;
     use crate::v2::demand::RowDemand;
-    use crate::v2::plan::LayoutPlan;
-    use crate::v2::plan::LayoutPlanRef;
-    use crate::v2::plan::PartitionStats;
+    use crate::v2::plans::LayoutPlan;
+    use crate::v2::plans::LayoutPlanRef;
+    use crate::v2::plans::PartitionStats;
     use crate::v2::scan_ctx::ScanCtx;
+    use crate::v2::scheduler::OutputFrontier;
+
+    type CountingBoolPlanParts = (
+        Arc<CountingBoolPlan>,
+        Arc<AtomicUsize>,
+        Arc<Mutex<Vec<Range<u64>>>>,
+    );
 
     fn dtype() -> DType {
         DType::Primitive(PType::I32, NonNullable)
@@ -650,7 +656,7 @@ mod tests {
     }
 
     impl CountingBoolPlan {
-        fn new(row_count: u64) -> (Arc<Self>, Arc<AtomicUsize>, Arc<Mutex<Vec<Range<u64>>>>) {
+        fn new(row_count: u64) -> CountingBoolPlanParts {
             let executes = Arc::new(AtomicUsize::new(0));
             let ranges = Arc::new(Mutex::new(Vec::new()));
             let plan = Arc::new(Self {
@@ -884,7 +890,8 @@ mod tests {
 
             assert_eq!(array.len(), 4);
             assert_eq!(executes.load(Ordering::SeqCst), 1);
-            assert_eq!(ranges.lock().as_slice(), &[3..7]);
+            let expected = 3..7;
+            assert_eq!(ranges.lock().as_slice(), std::slice::from_ref(&expected));
             Ok::<_, VortexError>(())
         })?;
         Ok(())

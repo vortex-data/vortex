@@ -18,7 +18,7 @@
 //!
 //! ## Coordinate translation
 //!
-//! `RowDemand` is passed to [`crate::v2::plan::LayoutPlan::execute`]
+//! `RowDemand` is passed to [`crate::v2::plans::LayoutPlan::execute`]
 //! alongside `row_range`, in the same coordinate system. Layouts that
 //! delegate to children at different row offsets call
 //! [`RowDemand::scope`] to produce a child-local view; layouts in

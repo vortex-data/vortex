@@ -24,7 +24,7 @@
 //! 3. Consumers slice the canonical [`Mask`] in O(1) (Mask::slice is
 //!    cheap on the underlying [`vortex_buffer::BitBuffer`]).
 //!
-//! [`crate::v2::let_use::LetPlan`] dispatches based on its source's
+//! [`crate::v2::plans::let_use::LetPlan`] dispatches based on its source's
 //! schema: `Bool` → `MaskRegistry`, anything else → `TeeStream`.
 //! `TeeStream` stays in place for the (still-hypothetical) future
 //! use case of sharing column streams.
@@ -52,7 +52,7 @@ use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::v2::experiment::trace_flow;
-use crate::v2::let_use::LetId;
+use crate::v2::plans::let_use::LetId;
 use crate::v2::scan_ctx::ScanCtxValue;
 
 /// One partition's filter mask, materialised in canonical form.

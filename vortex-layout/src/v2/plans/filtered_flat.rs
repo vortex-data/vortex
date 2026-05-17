@@ -4,7 +4,7 @@
 //! [`FilteredFlatPlan`] — terminal plan node over one segment with a
 //! pushed-down mask plan.
 //!
-//! Produced by [`crate::v2::flat::FlatPlan::try_pushdown_mask`]
+//! Produced by [`crate::v2::plans::flat::FlatPlan::try_pushdown_mask`]
 //! when a `FilterPlan`'s mask is absorbed into the leaf. At execute
 //! time it folds the mask stream into a single [`Mask`], polls its
 //! pre-registered shared segment future only if the mask keeps rows,
@@ -43,17 +43,17 @@ use vortex_session::registry::ReadContext;
 use crate::mask_debug::log_mask_batch;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
-use crate::v2::dataflow::LayoutLoweringCtx;
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
 use crate::v2::experiment::trace_flow;
-use crate::v2::flat::SharedSegmentFuture;
-use crate::v2::flat::decode_segment;
-use crate::v2::flat::slice_to_range;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
+use crate::v2::plans::flat::SharedSegmentFuture;
+use crate::v2::plans::flat::decode_segment;
+use crate::v2::plans::flat::slice_to_range;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::LayoutLoweringCtx;
+use crate::v2::scheduler::OutputFrontier;
 
 /// Terminal node over one segment with a pushed-down mask. The mask
 /// plan is the sole child — the CSE pass collapses N
@@ -153,7 +153,7 @@ impl PartialEq for FilteredFlatPlan {
                 (Selection::All, Selection::All)
             )
             && self.output_dtype == other.output_dtype
-            && crate::v2::plan::plans_eq(&self.mask_plan, &other.mask_plan)
+            && crate::v2::plans::plans_eq(&self.mask_plan, &other.mask_plan)
     }
 }
 
@@ -171,7 +171,7 @@ impl Hash for FilteredFlatPlan {
             _ => state.write_u8(1),
         }
         self.output_dtype.hash(state);
-        crate::v2::plan::hash_plan(&self.mask_plan, state);
+        crate::v2::plans::hash_plan(&self.mask_plan, state);
     }
 }
 

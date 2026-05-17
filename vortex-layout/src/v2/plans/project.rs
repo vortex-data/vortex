@@ -11,6 +11,8 @@
 //! `StructLayout::plan` reads every field and `ProjectPlan` applies the
 //! caller's expression at the top level.
 
+#![allow(clippy::cognitive_complexity)]
+
 use std::sync::Arc;
 
 use async_stream::try_stream;
@@ -23,14 +25,14 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
 use crate::v2::experiment::trace_flow;
 use crate::v2::placeholder::default_array;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::OutputFrontier;
 
 /// Applies a Vortex [`Expression`] to every batch produced by `child`.
 pub struct ProjectPlan {
@@ -51,7 +53,7 @@ impl ProjectPlan {
 
 impl PartialEq for ProjectPlan {
     fn eq(&self, other: &Self) -> bool {
-        crate::v2::plan::plans_eq(&self.child, &other.child)
+        crate::v2::plans::plans_eq(&self.child, &other.child)
             && self.expr == other.expr
             && self.output_dtype == other.output_dtype
     }
@@ -61,7 +63,7 @@ impl Eq for ProjectPlan {}
 
 impl std::hash::Hash for ProjectPlan {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        crate::v2::plan::hash_plan(&self.child, state);
+        crate::v2::plans::hash_plan(&self.child, state);
         self.expr.hash(state);
         self.output_dtype.hash(state);
     }

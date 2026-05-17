@@ -9,7 +9,7 @@
 //! - Construction: [`ZonedLayout::plan`](super::ZonedLayout) builds
 //!   one of these per filter conjunct that has a falsifiable
 //!   pruning predicate. The resource is registered on the plan-time
-//!   [`PlanCtx::resources`](crate::v2::plan::PlanCtx) collector and
+//!   [`PlanCtx::resources`](crate::v2::plans::PlanCtx) collector and
 //!   also held as an `Arc` by the
 //!   [`ZonedPruningPlan`](super::v2_plan::ZonedPruningPlan) that
 //!   consumes it.
@@ -46,12 +46,12 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::layouts::zoned::zone_map::ZoneMap;
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::DemandSource;
 use crate::v2::demand::Resource;
 use crate::v2::demand::RowDemand;
-use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plans::LayoutPlanRef;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::OutputFrontier;
 
 /// Zone-map-backed [`Resource`] + [`DemandSource`].
 ///

@@ -10,7 +10,7 @@
 //!
 //! When [`LayoutPlan::try_pushdown_mask`] is called and a mask
 //! pushes down successfully, this plan node is replaced with a
-//! [`crate::v2::filtered_flat::FilteredFlatPlan`] — keeping the two
+//! [`crate::v2::plans::filtered_flat::FilteredFlatPlan`] — keeping the two
 //! shapes as separate types avoids `Option<mask>` branching on
 //! every method.
 //!
@@ -44,17 +44,17 @@ use vortex_session::registry::ReadContext;
 
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
-use crate::v2::dataflow::LayoutLoweringCtx;
-use crate::v2::dataflow::OutputEstimate;
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
 use crate::v2::experiment::trace_flow;
-use crate::v2::filtered_flat::FilteredFlatPlan;
 use crate::v2::placeholder::default_array;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
+use crate::v2::plans::filtered_flat::FilteredFlatPlan;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::LayoutLoweringCtx;
+use crate::v2::scheduler::OutputEstimate;
+use crate::v2::scheduler::OutputFrontier;
 
 pub(crate) type SharedSegmentFuture = Shared<BoxFuture<'static, SharedVortexResult<BufferHandle>>>;
 

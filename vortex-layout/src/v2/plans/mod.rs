@@ -6,6 +6,24 @@
 //! A `LayoutPlan` is the unit of recursive plan-tree construction
 //! returned by [`crate::Layout::plan`]. See `LAYOUT_PLAN.md` § Model.
 
+pub mod and_bool;
+pub mod chunked;
+pub mod cse;
+pub mod dict;
+pub mod empty_struct;
+pub mod filter;
+pub mod filtered_flat;
+pub mod flat;
+pub mod let_use;
+pub mod mask_collect;
+pub mod mask_slice;
+pub mod matcher;
+pub mod project;
+pub mod pushdown;
+pub mod scan;
+pub mod struct_;
+pub mod zoned;
+
 use std::any::Any;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -24,11 +42,11 @@ use vortex_utils::dyn_traits::DynEq;
 use vortex_utils::dyn_traits::DynHash;
 
 use crate::segments::SegmentSource;
-use crate::v2::dataflow::LayoutLoweringCtx;
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::DemandSource;
 use crate::v2::demand::RowDemand;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::LayoutLoweringCtx;
+use crate::v2::scheduler::OutputFrontier;
 
 pub type LayoutPlanRef = Arc<dyn LayoutPlan>;
 
@@ -174,7 +192,7 @@ pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {
     /// calls. The plan struct itself must remain a pure description.
     ///
     /// Cross-execute sharing of derived values (e.g. dict values) is
-    /// expressed via [`crate::v2::let_use::LetPlan`], which publishes
+    /// expressed via [`crate::v2::plans::let_use::LetPlan`], which publishes
     /// the value into `ctx` and consumers look it up by `LetId`.
     fn execute(
         &self,
@@ -336,7 +354,7 @@ impl PlanArguments {
 /// Carries the [`SegmentSource`] used to fetch on-disk bytes at
 /// execute time, the [`VortexSession`] used for plan-time setup
 /// that touches the array context, and a [`ResourceCollector`] into
-/// which layouts push any [`Resource`] / [`DemandSource`] handles
+/// which layouts push any resource / demand-source handles
 /// they need active at execute time.
 ///
 /// Notably does *not* carry [`RowDemand`] — that's positional
@@ -373,7 +391,7 @@ impl PlanCtx {
 /// `ZoneMapResource`) call [`Self::push_demand_source`] during their
 /// `Layout::plan` implementation. The same `Arc` is also held by
 /// whatever plan node consumes it. After planning,
-/// [`crate::v2::scan::Scan::build`] drains the collector via
+/// [`crate::v2::plans::scan::Scan::build`] drains the collector via
 /// [`Self::take`] and registers the contents on the resulting
 /// `ScanPlan` so they appear in the per-partition `RowDemand`.
 #[derive(Clone, Default)]

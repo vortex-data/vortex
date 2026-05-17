@@ -32,12 +32,12 @@ use vortex_mask::Mask;
 
 use crate::mask_debug::mask_coordinate_summary;
 use crate::v2::aligned::AlignedArrayStream;
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::OutputFrontier;
 
 /// Combines N bool-stream children into a single bool stream by
 /// progressively AND-ing per row. Each conjunct window sees the mask

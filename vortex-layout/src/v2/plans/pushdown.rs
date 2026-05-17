@@ -13,8 +13,8 @@
 
 use vortex_error::VortexResult;
 
-use crate::v2::matcher::Matcher;
-use crate::v2::plan::LayoutPlanRef;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::matcher::Matcher;
 
 /// A rule that pattern-matches some parent shape in the plan tree and
 /// produces a rewritten subtree. Rules are stateless; they cannot

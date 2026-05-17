@@ -6,6 +6,8 @@
 //!
 //! See `LAYOUT_PLAN.md` § Per-layout `plan` walkthrough / `ChunkedPlan`.
 
+#![allow(clippy::cognitive_complexity)]
+
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::ops::Range;
@@ -19,15 +21,15 @@ use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::v2::dataflow::LayoutLoweringCtx;
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
 use crate::v2::experiment::trace_flow;
-use crate::v2::mask_slice::MaskSlicePlan;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
+use crate::v2::plans::mask_slice::MaskSlicePlan;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::LayoutLoweringCtx;
+use crate::v2::scheduler::OutputFrontier;
 
 /// Routes one partition per child chunk. `partition_count == children.len()`
 /// in the default (ordered) mode; relaxed mode is a follow-up PR.
@@ -81,7 +83,7 @@ impl PartialEq for ChunkedPlan {
         self.chunk_offsets == other.chunk_offsets
             && self.output_dtype == other.output_dtype
             && self.preserve_order == other.preserve_order
-            && crate::v2::plan::plan_slices_eq(&self.children, &other.children)
+            && crate::v2::plans::plan_slices_eq(&self.children, &other.children)
     }
 }
 
@@ -92,7 +94,7 @@ impl Hash for ChunkedPlan {
         self.chunk_offsets.hash(state);
         self.output_dtype.hash(state);
         self.preserve_order.hash(state);
-        crate::v2::plan::hash_plan_slice(&self.children, state);
+        crate::v2::plans::hash_plan_slice(&self.children, state);
     }
 }
 

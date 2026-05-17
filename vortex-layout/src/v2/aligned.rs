@@ -33,9 +33,11 @@
 //! Each step picks the smallest currently-available row count across
 //! children, slices each to that length, emits them. Larger remaining
 //! slices stay buffered. Optionally, callers can request a minimum
-//! batch size via [`Self::with_min_rows`] — the stream concats
+//! batch size via `AlignedArrayStream::with_min_rows` — the stream concats
 //! per-child until each has at least that many rows queued (or hits
 //! EOF), trading a copy for fewer/larger emitted batches.
+
+#![allow(clippy::cognitive_complexity)]
 
 use std::pin::Pin;
 use std::sync::atomic::AtomicU64;

@@ -6,8 +6,8 @@
 //! [`cse`] walks the plan tree, identifies any subtree that appears
 //! more than once (by structural [`PartialEq`] + [`Hash`] of `dyn
 //! LayoutPlan`), and rewrites the duplicates to share a single
-//! materialised result via [`crate::v2::let_use::LetPlan`] /
-//! [`crate::v2::let_use::UsePlan`].
+//! materialised result via [`crate::v2::plans::let_use::LetPlan`] /
+//! [`crate::v2::plans::let_use::UsePlan`].
 //!
 //! The pass is intentionally conservative:
 //! - We only consider subtrees that appear at least twice. Single-use
@@ -32,15 +32,15 @@ use std::sync::Arc;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::v2::let_use::LetId;
-use crate::v2::let_use::LetPlan;
-use crate::v2::let_use::UsePlan;
-use crate::v2::mask_slice::MaskSlicePlan;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::hash_plan;
-use crate::v2::plan::plans_eq;
-use crate::v2::plan::with_hash_cache;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::hash_plan;
+use crate::v2::plans::let_use::LetId;
+use crate::v2::plans::let_use::LetPlan;
+use crate::v2::plans::let_use::UsePlan;
+use crate::v2::plans::mask_slice::MaskSlicePlan;
+use crate::v2::plans::plans_eq;
+use crate::v2::plans::with_hash_cache;
 
 /// Run common-subplan elimination on `plan`. Returns either the
 /// original plan (if no sharing opportunities were found) or a
@@ -186,17 +186,17 @@ mod tests {
     use vortex_error::vortex_bail;
 
     use super::cse;
-    use crate::v2::dataflow::OutputFrontier;
     use crate::v2::demand::RowDemand;
-    use crate::v2::let_use::LetPlan;
-    use crate::v2::let_use::UsePlan;
-    use crate::v2::plan::LayoutPlan;
-    use crate::v2::plan::LayoutPlanRef;
-    use crate::v2::plan::PartitionStats;
-    use crate::v2::plan::hash_plan_slice;
-    use crate::v2::plan::plan_slices_eq;
-    use crate::v2::plan::plans_eq;
+    use crate::v2::plans::LayoutPlan;
+    use crate::v2::plans::LayoutPlanRef;
+    use crate::v2::plans::PartitionStats;
+    use crate::v2::plans::hash_plan_slice;
+    use crate::v2::plans::let_use::LetPlan;
+    use crate::v2::plans::let_use::UsePlan;
+    use crate::v2::plans::plan_slices_eq;
+    use crate::v2::plans::plans_eq;
     use crate::v2::scan_ctx::ScanCtx;
+    use crate::v2::scheduler::OutputFrontier;
 
     fn dtype() -> &'static DType {
         static D: OnceLock<DType> = OnceLock::new();
@@ -452,7 +452,7 @@ mod tests {
     fn cse_skips_already_use_plans() -> VortexResult<()> {
         // A container with two identical UsePlans should be a no-op:
         // `is_trivial` skips already-shared references.
-        let id = crate::v2::let_use::LetId::fresh();
+        let id = crate::v2::plans::let_use::LetId::fresh();
         let u1: LayoutPlanRef = Arc::new(UsePlan::new(id, dtype().clone(), 4));
         let u2: LayoutPlanRef = Arc::new(UsePlan::new(id, dtype().clone(), 4));
         let plan: LayoutPlanRef = ContainerPlan::new(vec![u1, u2]);

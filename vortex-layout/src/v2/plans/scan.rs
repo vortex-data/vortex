@@ -29,21 +29,21 @@ use vortex_session::VortexSession;
 
 use crate::LayoutRef;
 use crate::segments::SegmentSource;
-use crate::v2::and_bool::ConjunctInfo;
-use crate::v2::and_bool::ConjunctPlan;
-use crate::v2::cse::cse;
-use crate::v2::dataflow::OutputFrontier;
-use crate::v2::dataflow::execute_with_single_scheduler;
 use crate::v2::demand::DemandSource;
 use crate::v2::demand::RowDemand;
 use crate::v2::experiment::trace_flow;
-use crate::v2::filter::FilterPlan;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
-use crate::v2::plan::PlanArguments;
-use crate::v2::plan::PlanCtx;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
+use crate::v2::plans::PlanArguments;
+use crate::v2::plans::PlanCtx;
+use crate::v2::plans::and_bool::ConjunctInfo;
+use crate::v2::plans::and_bool::ConjunctPlan;
+use crate::v2::plans::cse::cse;
+use crate::v2::plans::filter::FilterPlan;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::OutputFrontier;
+use crate::v2::scheduler::execute_with_single_scheduler;
 
 /// Scan request for the LayoutPlan v2 path. Mirrors the inputs to
 /// `vortex_layout::scan::scan_builder::ScanBuilder` but produces a
@@ -64,7 +64,7 @@ pub struct Scan {
     pub projection: Expression,
     /// Optional filter expression. Decomposed into top-level AND
     /// conjuncts and combined into a mask plan; the projection plan
-    /// is wrapped with [`crate::v2::filter::FilterPlan`].
+    /// is wrapped with [`crate::v2::plans::filter::FilterPlan`].
     pub filter: Option<Expression>,
     /// Pre-mask selection over the layout's row space.
     pub selection: Selection,
@@ -272,7 +272,7 @@ impl PartialEq for ScanPlan {
         // Demand sources participate by `Arc::ptr_eq` — two ScanPlans
         // built from different `Scan::build` calls never share source
         // Arcs, which matches CSE semantics.
-        crate::v2::plan::plans_eq(&self.body, &other.body)
+        crate::v2::plans::plans_eq(&self.body, &other.body)
             && self.total_rows == other.total_rows
             && self.demand_sources.len() == other.demand_sources.len()
             && self
@@ -287,7 +287,7 @@ impl Eq for ScanPlan {}
 
 impl std::hash::Hash for ScanPlan {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        crate::v2::plan::hash_plan(&self.body, state);
+        crate::v2::plans::hash_plan(&self.body, state);
         self.total_rows.hash(state);
         for s in &self.demand_sources {
             (Arc::as_ptr(s) as *const () as usize).hash(state);
@@ -540,7 +540,7 @@ mod tests {
         Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
     }
 
-    /// Drive the v2 [`Scan`] / [`crate::v2::plan::LayoutPlan`] path.
+    /// Drive the v2 [`Scan`] / [`crate::v2::plans::LayoutPlan`] path.
     fn read_v2(segments: Arc<dyn SegmentSource>, layout: &LayoutRef) -> VortexResult<ArrayRef> {
         read_v2_with(segments, layout, root(), None)
     }
@@ -573,7 +573,7 @@ mod tests {
             // chunking/slicing it needs. ScanPlan installs a fresh
             // demand internally; the parent demand we pass is detached.
             let parent_demand = crate::v2::demand::RowDemand::empty(row_count);
-            let parent_frontier = crate::v2::dataflow::OutputFrontier::unbounded(row_count);
+            let parent_frontier = crate::v2::scheduler::OutputFrontier::unbounded(row_count);
             let mut stream =
                 plan.execute(0..row_count, &parent_demand, &parent_frontier, &scan_ctx)?;
             while let Some(chunk) = stream.next().await {
@@ -610,7 +610,7 @@ mod tests {
             let mut chunks = Vec::new();
             for range in ranges {
                 let scan_ctx = crate::v2::scan_ctx::ScanCtx::new(session.clone());
-                let parent_frontier = crate::v2::dataflow::OutputFrontier::unbounded(row_count)
+                let parent_frontier = crate::v2::scheduler::OutputFrontier::unbounded(row_count)
                     .clone_with_offset(range.clone());
                 let mut stream =
                     plan.execute(range, &parent_demand, &parent_frontier, &scan_ctx)?;
@@ -679,8 +679,8 @@ mod tests {
         use std::hash::Hasher;
 
         use crate::segments::SegmentSource;
-        use crate::v2::plan::PlanArguments;
-        use crate::v2::plan::PlanCtx;
+        use crate::v2::plans::PlanArguments;
+        use crate::v2::plans::PlanCtx;
 
         let (segments, layout, _) = build_chunked_struct_layout();
         let session = SESSION.clone();
@@ -701,14 +701,14 @@ mod tests {
         );
         // ...but structurally equal under `dyn LayoutPlan: Eq`.
         assert!(
-            crate::v2::plan::plans_eq(&plan_a, &plan_b),
+            crate::v2::plans::plans_eq(&plan_a, &plan_b),
             "two Layout::plan calls should produce structurally-equal plans",
         );
         // And produce the same hash.
         let mut h_a = DefaultHasher::new();
         let mut h_b = DefaultHasher::new();
-        crate::v2::plan::hash_plan(&plan_a, &mut h_a);
-        crate::v2::plan::hash_plan(&plan_b, &mut h_b);
+        crate::v2::plans::hash_plan(&plan_a, &mut h_a);
+        crate::v2::plans::hash_plan(&plan_b, &mut h_b);
         assert_eq!(h_a.finish(), h_b.finish());
         Ok(())
     }

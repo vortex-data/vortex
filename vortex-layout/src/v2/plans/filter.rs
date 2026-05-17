@@ -31,14 +31,14 @@ use vortex_mask::Mask;
 
 use crate::mask_debug::log_mask_batch;
 use crate::v2::aligned::AlignedArrayStream;
-use crate::v2::dataflow::LayoutLoweringCtx;
-use crate::v2::dataflow::OutputFrontier;
 use crate::v2::demand::RowDemand;
 use crate::v2::experiment::trace_flow;
-use crate::v2::plan::LayoutPlan;
-use crate::v2::plan::LayoutPlanRef;
-use crate::v2::plan::PartitionStats;
+use crate::v2::plans::LayoutPlan;
+use crate::v2::plans::LayoutPlanRef;
+use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
+use crate::v2::scheduler::LayoutLoweringCtx;
+use crate::v2::scheduler::OutputFrontier;
 
 /// Applies `mask` to `values` per row. Output dtype matches the
 /// value plan's schema; output row count is the number of `true`
@@ -100,8 +100,8 @@ impl FilterPlan {
 
 impl PartialEq for FilterPlan {
     fn eq(&self, other: &Self) -> bool {
-        crate::v2::plan::plans_eq(&self.values, &other.values)
-            && crate::v2::plan::plans_eq(&self.mask, &other.mask)
+        crate::v2::plans::plans_eq(&self.values, &other.values)
+            && crate::v2::plans::plans_eq(&self.mask, &other.mask)
             && self.output_dtype == other.output_dtype
     }
 }
@@ -110,8 +110,8 @@ impl Eq for FilterPlan {}
 
 impl std::hash::Hash for FilterPlan {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        crate::v2::plan::hash_plan(&self.values, state);
-        crate::v2::plan::hash_plan(&self.mask, state);
+        crate::v2::plans::hash_plan(&self.values, state);
+        crate::v2::plans::hash_plan(&self.mask, state);
         self.output_dtype.hash(state);
     }
 }

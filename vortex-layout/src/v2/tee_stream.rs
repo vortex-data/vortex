@@ -28,7 +28,7 @@
 //!    All subscribers must register before [`TeeStream::start`].
 //! 3. [`TeeStream::start`] — spawns the producer task. Idempotent.
 //!
-//! For [`crate::v2::let_use::LetPlan`], the wrapping is:
+//! For [`crate::v2::plans::let_use::LetPlan`], the wrapping is:
 //! `LetPlan::execute` calls `publish_stream` (creating the tee),
 //! then `body.execute` (which synchronously calls
 //! `UsePlan::execute` → `tee.subscribe` for every consumer in the
@@ -37,12 +37,14 @@
 //!
 //! ## Use case
 //!
-//! Backs streaming [`crate::v2::let_use::LetPlan`] /
-//! [`crate::v2::let_use::UsePlan`]: one source plan, many consumers,
+//! Backs streaming [`crate::v2::plans::let_use::LetPlan`] /
+//! [`crate::v2::plans::let_use::UsePlan`]: one source plan, many consumers,
 //! each interested in a specific row range. Common case after CSE:
 //! 16 fields × N chunks all sharing one filter mask, 16N
 //! subscribers each interested in one chunk's slice — source still
 //! produces N chunks once, fans out to 16 subscribers per chunk.
+
+#![allow(clippy::cognitive_complexity)]
 
 use std::ops::Range;
 use std::sync::Arc;
