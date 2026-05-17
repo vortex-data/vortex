@@ -8,9 +8,12 @@
 
 pub mod codec;
 pub mod options;
+pub mod size;
 
 pub use options::RowEncodeOptions;
 pub use options::SortField;
+pub use size::RowSize;
+pub use size::RowSizeKernel;
 use vortex_session::VortexSession;
 
 /// Register the row-encoding scalar functions on the given session.
