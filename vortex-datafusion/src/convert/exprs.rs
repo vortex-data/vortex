@@ -1005,4 +1005,97 @@ mod tests {
         assert_eq!(df_as_arrow, vec![0, 0, 50, 100, 100]);
         assert_eq!(vortex_as_arrow, df_as_arrow);
     }
+
+    #[test]
+    fn convert_empty_in_list_does_not_panic() {
+        let schema = Schema::new(vec![Field::new("id", DataType::Int32, false)]);
+        let value = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
+        let in_list = df_expr::InListExpr::try_new(value, vec![], false, &schema)
+            .expect("InListExpr::try_new with empty list should succeed");
+
+        let result = DefaultExpressionConvertor::default().convert(&in_list);
+        assert!(
+            result.is_err(),
+            "expected error converting empty IN list, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn can_be_pushed_down_empty_in_list_returns_false() {
+        let schema = Schema::new(vec![Field::new("id", DataType::Int32, false)]);
+        let value = Arc::new(df_expr::Column::new("id", 0)) as Arc<dyn PhysicalExpr>;
+        let in_list = Arc::new(
+            df_expr::InListExpr::try_new(value, vec![], false, &schema)
+                .expect("InListExpr::try_new with empty list should succeed"),
+        ) as Arc<dyn PhysicalExpr>;
+
+        assert!(!can_be_pushed_down_impl(&in_list, &schema));
+    }
+
+    #[test]
+    fn split_projection_dedups_columns() {
+        use vortex::scalar_fn::fns::pack::Pack;
+
+        // Build an input schema with three decimal columns so the decimal-vs-decimal
+        // branch in `split_projection` fires twice on overlapping column sets.
+        let input_schema = Schema::new(vec![
+            Field::new("a", DataType::Decimal128(10, 2), false),
+            Field::new("b", DataType::Decimal128(10, 2), false),
+            Field::new("c", DataType::Decimal128(10, 2), false),
+        ]);
+
+        let col = |name: &str, idx: usize| {
+            Arc::new(df_expr::Column::new(name, idx)) as Arc<dyn PhysicalExpr>
+        };
+
+        // a + b (both decimal) -> hits the decimal branch.
+        let a_plus_b = Arc::new(df_expr::BinaryExpr::new(
+            col("a", 0),
+            DFOperator::Plus,
+            col("b", 1),
+        )) as Arc<dyn PhysicalExpr>;
+        // a + c (both decimal) -> hits the decimal branch again; column "a" is shared.
+        let a_plus_c = Arc::new(df_expr::BinaryExpr::new(
+            col("a", 0),
+            DFOperator::Plus,
+            col("c", 2),
+        )) as Arc<dyn PhysicalExpr>;
+
+        let source_projection: ProjectionExprs = vec![
+            ProjectionExpr {
+                expr: a_plus_b,
+                alias: "ab".to_string(),
+            },
+            ProjectionExpr {
+                expr: a_plus_c,
+                alias: "ac".to_string(),
+            },
+        ]
+        .into();
+
+        // Output schema reflects the projection aliases (types don't matter for this test).
+        let output_schema = Schema::new(vec![
+            Field::new("ab", DataType::Decimal128(10, 2), true),
+            Field::new("ac", DataType::Decimal128(10, 2), true),
+        ]);
+
+        let result = DefaultExpressionConvertor::default()
+            .split_projection(source_projection, &input_schema, &output_schema)
+            .expect("split_projection should succeed");
+
+        let pack_opts = result
+            .scan_projection
+            .as_opt::<Pack>()
+            .expect("scan_projection should be a Pack expression");
+
+        let names: Vec<String> = pack_opts.names.iter().map(|n| n.to_string()).collect();
+        let mut unique = names.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(
+            names.len(),
+            unique.len(),
+            "Pack field names should be unique, got {names:?}"
+        );
+    }
 }

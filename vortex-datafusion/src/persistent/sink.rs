@@ -151,39 +151,88 @@ impl FileSink for VortexSink {
             });
         }
 
+        let results = drain_writers_with_cleanup(file_write_tasks, demux_task).await?;
+
         let mut row_count = 0;
-
-        while let Some(result) = file_write_tasks.join_next().await {
-            match result {
-                Ok(r) => {
-                    let (path, summary) = r?;
-
-                    row_count += summary.row_count();
-
-                    tracing::info!(path = %path, "Successfully written file");
-                }
-                Err(e) => {
-                    if e.is_panic() {
-                        std::panic::resume_unwind(e.into_panic());
-                    } else {
-                        unreachable!();
-                    }
-                }
-            }
+        for (path, summary) in results {
+            row_count += summary.row_count();
+            tracing::info!(path = %path, "Successfully written file");
         }
-
-        demux_task
-            .join_unwind()
-            .await
-            .map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))??;
 
         Ok(row_count)
     }
 }
 
+/// Drain a `JoinSet` of writer tasks to completion, then await the demux task.
+///
+/// Unlike a naive `?` inside the join loop, this never aborts in-flight writer
+/// tasks when the first error appears. It captures the first writer error,
+/// continues draining the remaining tasks (so every spawned write either
+/// completes or surfaces its own error), logs subsequent writer errors at
+/// warn level, and only then awaits the demux task. If demux failed and no
+/// writer error was captured, the demux error is surfaced; otherwise the
+/// first writer error wins.
+///
+/// On success returns the per-task results in completion order.
+async fn drain_writers_with_cleanup<T>(
+    mut file_write_tasks: JoinSet<DFResult<T>>,
+    demux_task: SpawnedTask<DFResult<()>>,
+) -> DFResult<Vec<T>> {
+    let mut successes: Vec<T> = Vec::new();
+    let mut first_writer_err: Option<DataFusionError> = None;
+
+    while let Some(result) = file_write_tasks.join_next().await {
+        match result {
+            Ok(Ok(value)) => successes.push(value),
+            Ok(Err(e)) => {
+                if first_writer_err.is_none() {
+                    first_writer_err = Some(e);
+                } else {
+                    tracing::warn!(error = %e, "additional writer task error suppressed");
+                }
+            }
+            Err(e) => {
+                if e.is_panic() {
+                    std::panic::resume_unwind(e.into_panic());
+                } else {
+                    // Cancelled join errors should not occur because we never
+                    // call `abort_all` on this JoinSet, but surface them rather
+                    // than panic.
+                    let join_err = DataFusionError::ExecutionJoin(Box::new(e));
+                    if first_writer_err.is_none() {
+                        first_writer_err = Some(join_err);
+                    } else {
+                        tracing::warn!(error = %join_err, "additional writer task error suppressed");
+                    }
+                }
+            }
+        }
+    }
+
+    let demux_result = demux_task
+        .join_unwind()
+        .await
+        .map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))
+        .and_then(|inner| inner);
+
+    if let Some(err) = first_writer_err {
+        if let Err(demux_err) = demux_result {
+            tracing::warn!(error = %demux_err, "demux task error suppressed");
+        }
+        return Err(err);
+    }
+
+    demux_result?;
+
+    Ok(successes)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
 
     use arrow_schema::DataType;
     use arrow_schema::Field;
@@ -199,10 +248,14 @@ mod tests {
     use datafusion::logical_expr::Values;
     use datafusion::logical_expr::dml::InsertOp;
     use datafusion_common::ScalarValue;
+    use datafusion_common::exec_datafusion_err;
+    use datafusion_common_runtime::JoinSet;
+    use datafusion_common_runtime::SpawnedTask;
     use datafusion_datasource::file_format::format_as_file_type;
     use futures::TryStreamExt;
     use rstest::rstest;
 
+    use super::drain_writers_with_cleanup;
     use crate::common_tests::TestSessionContext;
     use crate::persistent::VortexFormatFactory;
 
