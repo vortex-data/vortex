@@ -2,3 +2,4 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod cast;
+pub(crate) mod row_encode;
