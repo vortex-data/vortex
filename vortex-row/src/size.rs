@@ -42,6 +42,7 @@ use crate::options::RowEncodeOptions;
 use crate::options::SortField;
 use crate::options::deserialize_row_encode_options;
 use crate::options::serialize_row_encode_options;
+use crate::registry;
 
 /// Classification of a single input column for the size pass.
 ///
@@ -280,6 +281,11 @@ pub fn dispatch_size(
     }
     if let Some(view) = col.as_opt::<Patched>()
         && Patched::row_size_contribution(view, field, sizes, ctx)?.is_some()
+    {
+        return Ok(());
+    }
+    if let Some((size_fn, _)) = registry::lookup(&col.encoding_id())
+        && size_fn(col, field, sizes, ctx)?.is_some()
     {
         return Ok(());
     }

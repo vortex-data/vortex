@@ -240,6 +240,24 @@ impl core::marker::StructuralPartialEq for vortex_row::options::SortField
 
 pub const vortex_row::options::FIELDS_INLINE: usize
 
+pub mod vortex_row::registry
+
+pub struct vortex_row::registry::RowEncodeRegistration
+
+pub vortex_row::registry::RowEncodeRegistration::encode: vortex_row::registry::DynEncodeFn
+
+pub vortex_row::registry::RowEncodeRegistration::id: fn() -> vortex_array::array::ArrayId
+
+pub vortex_row::registry::RowEncodeRegistration::size: vortex_row::registry::DynSizeFn
+
+impl inventory::Collect for vortex_row::registry::RowEncodeRegistration
+
+pub fn vortex_row::registry::lookup(&vortex_array::array::ArrayId) -> core::option::Option<(vortex_row::registry::DynSizeFn, vortex_row::registry::DynEncodeFn)>
+
+pub type vortex_row::registry::DynEncodeFn = fn(&vortex_array::array::erased::ArrayRef, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+pub type vortex_row::registry::DynSizeFn = fn(&vortex_array::array::erased::ArrayRef, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
 pub mod vortex_row::size
 
 pub struct vortex_row::size::RowSize
@@ -355,6 +373,16 @@ impl core::hash::Hash for vortex_row::options::RowEncodeOptions
 pub fn vortex_row::options::RowEncodeOptions::hash<__H: core::hash::Hasher>(&self, &mut __H)
 
 impl core::marker::StructuralPartialEq for vortex_row::options::RowEncodeOptions
+
+pub struct vortex_row::RowEncodeRegistration
+
+pub vortex_row::RowEncodeRegistration::encode: vortex_row::registry::DynEncodeFn
+
+pub vortex_row::RowEncodeRegistration::id: fn() -> vortex_array::array::ArrayId
+
+pub vortex_row::RowEncodeRegistration::size: vortex_row::registry::DynSizeFn
+
+impl inventory::Collect for vortex_row::registry::RowEncodeRegistration
 
 pub struct vortex_row::RowSize
 

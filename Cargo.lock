@@ -11043,6 +11043,7 @@ dependencies = [
  "arrow-schema 58.2.0",
  "bytes",
  "codspeed-divan-compat",
+ "inventory",
  "mimalloc",
  "rand 0.10.1",
  "rstest",
@@ -11052,6 +11053,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-session",
+ "vortex-utils",
 ]
 
 [[package]]

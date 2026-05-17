@@ -30,6 +30,7 @@ pub mod convert;
 pub mod encode;
 mod kernels;
 pub mod options;
+pub mod registry;
 pub mod size;
 
 #[cfg(test)]
@@ -41,6 +42,7 @@ pub use encode::RowEncode;
 pub use encode::RowEncodeKernel;
 pub use options::RowEncodeOptions;
 pub use options::SortField;
+pub use registry::RowEncodeRegistration;
 pub use size::RowSize;
 pub use size::RowSizeKernel;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;

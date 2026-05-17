@@ -18,12 +18,14 @@ workspace = true
 
 [dependencies]
 bytes = { workspace = true }
+inventory = { workspace = true }
 smallvec = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
+vortex-utils = { workspace = true, features = ["dyn-traits"] }
 
 [dev-dependencies]
 arrow-array = { workspace = true }

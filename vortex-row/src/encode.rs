@@ -48,6 +48,7 @@ use crate::options::RowEncodeOptions;
 use crate::options::SortField;
 use crate::options::deserialize_row_encode_options;
 use crate::options::serialize_row_encode_options;
+use crate::registry;
 use crate::size::ColKind;
 use crate::size::compute_sizes;
 
@@ -487,6 +488,11 @@ pub fn dispatch_encode(
     }
     if let Some(view) = col.as_opt::<Patched>()
         && Patched::row_encode_into(view, field, offsets, cursors, out, ctx)?.is_some()
+    {
+        return Ok(());
+    }
+    if let Some((_, encode_fn)) = registry::lookup(&col.encoding_id())
+        && encode_fn(col, field, offsets, cursors, out, ctx)?.is_some()
     {
         return Ok(());
     }
