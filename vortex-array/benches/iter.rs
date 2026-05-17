@@ -11,6 +11,7 @@
 //! so the loop body cannot be eliminated.
 
 #![expect(clippy::unwrap_used)]
+#![expect(clippy::many_single_char_names)]
 #![expect(deprecated)]
 
 use divan::Bencher;
@@ -20,16 +21,21 @@ use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical as _;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::arrays::varbin::VarBinArrayExt;
 use vortex_array::dtype::Nullability;
+use vortex_array::iter_array::IterArray;
+use vortex_array::iter_array::IterArrayValue;
 use vortex_array::validity::Validity;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
@@ -91,17 +97,46 @@ fn build_struct(len: usize) -> StructArray {
     StructArray::try_from_iter([("a", ints), ("b", strs)]).unwrap()
 }
 
+fn build_bool(len: usize, with_nulls: bool) -> BoolArray {
+    let mut bits = BitBufferMut::new_unset(len);
+    for i in 0..len {
+        if i % 3 == 0 {
+            bits.set(i);
+        }
+    }
+    let validity = if with_nulls {
+        let mut mask = BitBufferMut::new_set(len);
+        for i in (0..len).step_by(7) {
+            mask.set_to(i, false);
+        }
+        Validity::from_bit_buffer(mask.freeze(), Nullability::Nullable)
+    } else {
+        Validity::NonNullable
+    };
+    BoolArray::new(bits.freeze(), validity)
+}
+
 // ---------- primitive: with_iterator vs raw slice --------------------------
 
 #[divan::bench(args = LENGTHS)]
 fn primitive_i32_current_nonnull(b: Bencher, len: usize) {
     let arr = build_primitive_i32(len, false);
     b.bench_local(|| {
-        let s: i64 = arr.with_iterator(
-            |it: &mut dyn Iterator<Item = Option<&i32>>| {
-                it.flatten().map(|v| *v as i64).sum()
-            },
-        );
+        let s: i64 = arr.with_iterator(|it: &mut dyn Iterator<Item = Option<&i32>>| {
+            it.flatten().map(|v| *v as i64).sum()
+        });
+        black_box(s)
+    });
+}
+
+#[divan::bench(args = LENGTHS)]
+fn primitive_i32_new_nonnull(b: Bencher, len: usize) {
+    let arr = build_primitive_i32(len, false);
+    b.bench_local(|| {
+        let s: i64 = IterArray::<i32>::iter(&arr)
+            .flatten()
+            .map(|v| *v as i64)
+            .sum();
         black_box(s)
     });
 }
@@ -122,6 +157,17 @@ fn primitive_i32_current_nullable(b: Bencher, len: usize) {
         let s: i64 = arr.with_iterator(|it: &mut dyn Iterator<Item = Option<&i32>>| {
             it.map(|opt| opt.copied().unwrap_or(0) as i64).sum()
         });
+        black_box(s)
+    });
+}
+
+#[divan::bench(args = LENGTHS)]
+fn primitive_i32_new_nullable(b: Bencher, len: usize) {
+    let arr = build_primitive_i32(len, true);
+    b.bench_local(|| {
+        let s: i64 = IterArray::<i32>::iter(&arr)
+            .map(|opt| opt.copied().unwrap_or(0) as i64)
+            .sum();
         black_box(s)
     });
 }
@@ -164,6 +210,18 @@ fn varbin_current_nonnull(b: Bencher, len: usize) {
 }
 
 #[divan::bench(args = LENGTHS)]
+fn varbin_new_nonnull(b: Bencher, len: usize) {
+    let arr = build_varbin(len, false);
+    b.bench_local(|| {
+        let s: usize = IterArray::<[u8]>::iter(&arr)
+            .flatten()
+            .map(|b| b.len())
+            .sum();
+        black_box(s)
+    });
+}
+
+#[divan::bench(args = LENGTHS)]
 fn varbin_manual_nonnull(b: Bencher, len: usize) {
     let arr = build_varbin(len, false);
     // Materialize offsets once. The existing `with_iterator` does
@@ -196,6 +254,18 @@ fn varbinview_current_nonnull(b: Bencher, len: usize) {
         let s: usize = arr.with_iterator(|it: &mut dyn Iterator<Item = Option<&[u8]>>| {
             it.flatten().map(|b| b.len()).sum()
         });
+        black_box(s)
+    });
+}
+
+#[divan::bench(args = LENGTHS)]
+fn varbinview_new_nonnull(b: Bencher, len: usize) {
+    let arr = build_varbinview(len, false);
+    b.bench_local(|| {
+        let s: usize = IterArray::<[u8]>::iter(&arr)
+            .flatten()
+            .map(|b| b.len())
+            .sum();
         black_box(s)
     });
 }
@@ -267,6 +337,62 @@ fn struct_row_with_iterator_zip(b: Bencher, len: usize) {
                 }
             }
         });
+        black_box(count)
+    });
+}
+
+// ---------- bool: new iter vs raw BitBuffer ------------------------------
+//
+// BoolArray had NO with_iterator impl before, so the comparison is between
+// the new IterArrayValue and the most direct raw-BitBuffer walk.
+
+#[divan::bench(args = LENGTHS)]
+fn bool_new_nonnull(b: Bencher, len: usize) {
+    let arr = build_bool(len, false);
+    b.bench_local(|| {
+        let count: u64 = arr.iter_value().filter(|opt| opt == &Some(true)).count() as u64;
+        black_box(count)
+    });
+}
+
+#[divan::bench(args = LENGTHS)]
+fn bool_manual_nonnull(b: Bencher, len: usize) {
+    let arr = build_bool(len, false);
+    let bits: BitBuffer = arr.to_bit_buffer();
+    b.bench_local(|| {
+        let count: u64 = bits.iter().filter(|b| *b).count() as u64;
+        black_box(count)
+    });
+}
+
+#[divan::bench(args = LENGTHS)]
+fn bool_new_nullable(b: Bencher, len: usize) {
+    let arr = build_bool(len, true);
+    b.bench_local(|| {
+        let count: u64 = arr.iter_value().filter(|opt| opt == &Some(true)).count() as u64;
+        black_box(count)
+    });
+}
+
+#[divan::bench(args = LENGTHS)]
+fn struct_row_new_iter_zip(b: Bencher, len: usize) {
+    // New IterArray: zip per-field concrete iterators. This is the
+    // recommended row-iteration pattern.
+    let s = build_struct(len);
+    let int_col = s.unmasked_field(0).clone().to_primitive();
+    let str_col = s.unmasked_field(1).clone().to_varbinview();
+    b.bench_local(|| {
+        let int_iter = IterArray::<i32>::iter(&int_col);
+        let str_iter = IterArray::<[u8]>::iter(&str_col);
+        let mut count = 0u64;
+        for (a_opt, b_opt) in int_iter.zip(str_iter) {
+            if let (Some(a), Some(bv)) = (a_opt, b_opt)
+                && *a % 2 == 0
+                && bv.len() > 8
+            {
+                count += 1;
+            }
+        }
         black_box(count)
     });
 }

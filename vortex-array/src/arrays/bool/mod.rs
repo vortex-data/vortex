@@ -2,7 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
+mod iter;
 mod patch;
+pub use iter::BoolIter;
 
 pub use array::BoolArrayExt;
 pub use array::BoolData;

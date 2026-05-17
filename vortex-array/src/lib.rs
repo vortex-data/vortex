@@ -50,6 +50,7 @@ mod expression;
 pub mod extension;
 mod hash;
 pub mod iter;
+pub mod iter_array;
 pub mod kernel;
 pub mod mask;
 mod mask_future;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod array;
+pub(crate) mod array;
 pub use array::PrimitiveArrayExt;
 pub use array::PrimitiveData;
 pub use array::PrimitiveDataParts;

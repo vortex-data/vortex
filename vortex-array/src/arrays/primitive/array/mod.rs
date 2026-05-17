@@ -3,7 +3,7 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::iter;
+use std::iter as std_iter;
 
 use smallvec::smallvec;
 use vortex_buffer::Alignment;
@@ -36,6 +36,7 @@ use crate::validity::Validity;
 mod accessor;
 mod cast;
 mod conversion;
+pub(crate) mod iter;
 mod patch;
 mod top_value;
 
@@ -495,10 +496,10 @@ impl Array<Primitive> {
 
         let buffer = match &validity {
             Validity::NonNullable | Validity::AllValid => {
-                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(true)).map(f))
+                BufferMut::<R>::from_iter(buf_iter.zip(std_iter::repeat(true)).map(f))
             }
             Validity::AllInvalid => {
-                BufferMut::<R>::from_iter(buf_iter.zip(iter::repeat(false)).map(f))
+                BufferMut::<R>::from_iter(buf_iter.zip(std_iter::repeat(false)).map(f))
             }
             Validity::Array(val) => {
                 #[expect(deprecated)]

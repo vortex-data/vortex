@@ -15,6 +15,8 @@ pub use vtable::VarBin;
 pub mod builder;
 
 mod accessor;
+mod iter;
+pub use iter::VarBinIter;
 
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;

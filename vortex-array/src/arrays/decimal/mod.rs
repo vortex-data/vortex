@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
+mod iter;
 pub use array::DecimalArrayExt;
 pub use array::DecimalData;
 pub use array::DecimalDataParts;
+pub use iter::DecimalIter;
 pub use vtable::DecimalArray;
 
 pub(crate) mod compute;
