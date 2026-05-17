@@ -246,6 +246,49 @@ impl<'a> VarBinIter<'a> {
     }
 }
 
+/// Multi-column iter: composes K inner iters whose values pack together
+/// into one u64 of OVC head value. For 2 i32 columns we put col0 in the
+/// high 32 bits, col1 in the low 32 bits — a single u64 compare resolves
+/// the full key. Real multi-col OVC would split offset bits as well and
+/// fall back to cmp_full on tie; this is the simplest composition that
+/// captures the merge-driver shape.
+pub struct MultiColI32Iter<'a> {
+    col0: &'a [i32],
+    col1: &'a [i32],
+    pos: usize,
+}
+
+impl<'a> MultiColI32Iter<'a> {
+    pub fn new(col0: &'a [i32], col1: &'a [i32]) -> Self {
+        assert_eq!(col0.len(), col1.len());
+        Self { col0, col1, pos: 0 }
+    }
+}
+
+impl OrdIter for MultiColI32Iter<'_> {
+    fn ord_len(&self) -> usize {
+        self.col0.len()
+    }
+    fn next_chunk<'s>(&mut self, max_rows: usize, scratch: &'s mut Scratch) -> Option<OrdChunk<'s>> {
+        if self.pos >= self.col0.len() {
+            return None;
+        }
+        let take = max_rows.min(self.col0.len() - self.pos);
+        let c0 = &self.col0[self.pos..self.pos + take];
+        let c1 = &self.col1[self.pos..self.pos + take];
+        for i in 0..take {
+            let u0 = (c0[i] as u32) ^ (1u32 << 31);
+            let u1 = (c1[i] as u32) ^ (1u32 << 31);
+            scratch.dense[i] = (u64::from(u0) << 32) | u64::from(u1);
+        }
+        self.pos += take;
+        Some(OrdChunk::Dense(&scratch.dense[..take]))
+    }
+    fn skip(&mut self, n: usize) {
+        self.pos = (self.pos + n).min(self.col0.len());
+    }
+}
+
 impl OrdIter for VarBinIter<'_> {
     fn ord_len(&self) -> usize {
         self.offsets.len().saturating_sub(1)
@@ -610,6 +653,126 @@ mod tests {
             let mut iters: Vec<Box<dyn OrdIter + '_>> = vb_sides
                 .iter()
                 .map(|v| Box::new(VarBinIter::new(v.offsets, v.data)) as Box<dyn OrdIter + '_>)
+                .collect();
+            merge_n_way_iter(&mut iters, CHUNK) as u64
+        });
+    }
+
+    /// Workload variants beyond fully-disjoint:
+    ///   * DENSE: every side has identical data → every emit is a tie
+    ///     across all 8 sides. Tests how bulk-emit handles cross-side ties.
+    ///   * LESS_DENSE: 50% overlap on the leading column across consecutive
+    ///     sides → partial ties, mixed pattern.
+    ///   * MULTI-COL: 2-column key packed into one OVC u64.
+    #[test]
+    #[ignore = "benchmark, run explicitly"]
+    #[allow(clippy::cast_precision_loss)]
+    fn bench_iter_dense_and_multicol() {
+        const N: usize = 50_000;
+        const N_SIDES: usize = 8;
+        const ITERS: u32 = 10;
+        const CHUNK: usize = 1024;
+
+        fn run_one(label: &str, iters: u32, total_rows: u64, mut f: impl FnMut() -> u64) {
+            let _ = f();
+            let t = Instant::now();
+            let mut acc = 0u64;
+            for _ in 0..iters {
+                acc = acc.wrapping_add(std::hint::black_box(f()));
+            }
+            let ns = t.elapsed().as_nanos() as f64 / (u64::from(iters) * total_rows) as f64;
+            println!("    {:<40} {:>8.2} ns/row   acc={acc}", label, ns);
+        }
+
+        let total_rows = (N * N_SIDES) as u64;
+
+        // ===== DENSE: every side has identical data =====
+        println!("\n== DENSE (all 8 sides identical content) ==");
+
+        // Primitive — same sorted values on every side
+        let prim_dense: Vec<i64> = (0..N as i64).collect();
+        println!("\n-- DENSE PRIMITIVE --");
+        run_one("OrdIter dense prim", ITERS, total_rows, || {
+            let mut iters: Vec<Box<dyn OrdIter + '_>> = (0..N_SIDES)
+                .map(|_| Box::new(PrimIter::new(&prim_dense)) as Box<dyn OrdIter + '_>)
+                .collect();
+            merge_n_way_iter(&mut iters, CHUNK) as u64
+        });
+
+        // RunEnd — same runs on every side; bulk-emit should still fire per side
+        let runs = 500;
+        let run_len = N / runs;
+        let re_ends: Vec<u32> = (1..=runs).map(|r| (r * run_len) as u32).collect();
+        let re_values: Vec<i64> = (0..runs).map(|r| r as i64 * 13).collect();
+        println!("\n-- DENSE RUN-END (100/run, all sides identical) --");
+        run_one("OrdIter dense runend", ITERS, total_rows, || {
+            let mut iters: Vec<Box<dyn OrdIter + '_>> = (0..N_SIDES)
+                .map(|_| {
+                    Box::new(RunEndIter::new(&re_ends, &re_values, runs * run_len))
+                        as Box<dyn OrdIter + '_>
+                })
+                .collect();
+            merge_n_way_iter(&mut iters, CHUNK) as u64
+        });
+
+        // Constant — every row on every side has the same value. Bulk-emit should
+        // collapse this to N_SIDES iterations total.
+        println!("\n-- DENSE CONSTANT (one value, all sides) --");
+        run_one("OrdIter dense constant", ITERS, total_rows, || {
+            let mut iters: Vec<Box<dyn OrdIter + '_>> = (0..N_SIDES)
+                .map(|_| Box::new(ConstantIter::new(42, N)) as Box<dyn OrdIter + '_>)
+                .collect();
+            merge_n_way_iter(&mut iters, CHUNK) as u64
+        });
+
+        // ===== LESS DENSE: 50% overlap between adjacent sides =====
+        println!("\n== LESS-DENSE (50% overlap between adjacent sides) ==");
+        let prim_overlap: Vec<Vec<i64>> = (0..N_SIDES)
+            .map(|i| {
+                let base = (i * N / 2) as i64; // each side shifts by N/2
+                (0..N as i64).map(|j| base + j).collect()
+            })
+            .collect();
+        println!("\n-- LESS-DENSE PRIMITIVE --");
+        run_one("OrdIter less-dense prim", ITERS, total_rows, || {
+            let mut iters: Vec<Box<dyn OrdIter + '_>> = prim_overlap
+                .iter()
+                .map(|d| Box::new(PrimIter::new(d)) as Box<dyn OrdIter + '_>)
+                .collect();
+            merge_n_way_iter(&mut iters, CHUNK) as u64
+        });
+
+        // ===== MULTI-COLUMN: 2 i32 cols packed into one OVC u64 =====
+        // Same data shape as the single-column bench but with two columns.
+        // Disjoint on the leading column.
+        println!("\n== MULTI-COLUMN (2 i32 cols packed into one OVC u64) ==");
+        let mc_col0: Vec<Vec<i32>> = (0..N_SIDES)
+            .map(|i| (0..N as i32).map(|j| (i as i32) * (N as i32) + j).collect())
+            .collect();
+        let mc_col1: Vec<Vec<i32>> = (0..N_SIDES)
+            .map(|_| (0..N as i32).map(|j| j % 13).collect())
+            .collect();
+        println!("\n-- MULTI-COL (2 i32) DISJOINT --");
+        run_one("OrdIter multi-col disjoint", ITERS, total_rows, || {
+            let mut iters: Vec<Box<dyn OrdIter + '_>> = (0..N_SIDES)
+                .map(|i| {
+                    Box::new(MultiColI32Iter::new(&mc_col0[i], &mc_col1[i]))
+                        as Box<dyn OrdIter + '_>
+                })
+                .collect();
+            merge_n_way_iter(&mut iters, CHUNK) as u64
+        });
+
+        // Multi-col DENSE
+        let mc_dense_col0: Vec<i32> = (0..N as i32).collect();
+        let mc_dense_col1: Vec<i32> = (0..N as i32).map(|j| j % 13).collect();
+        println!("\n-- MULTI-COL (2 i32) DENSE --");
+        run_one("OrdIter multi-col dense", ITERS, total_rows, || {
+            let mut iters: Vec<Box<dyn OrdIter + '_>> = (0..N_SIDES)
+                .map(|_| {
+                    Box::new(MultiColI32Iter::new(&mc_dense_col0, &mc_dense_col1))
+                        as Box<dyn OrdIter + '_>
+                })
                 .collect();
             merge_n_way_iter(&mut iters, CHUNK) as u64
         });
