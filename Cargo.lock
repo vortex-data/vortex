@@ -10889,6 +10889,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-key-ord"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "rand 0.10.1",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-layout"
 version = "0.1.0"
 dependencies = [
@@ -11050,7 +11062,9 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-key-ord",
  "vortex-mask",
+ "vortex-runend",
  "vortex-session",
 ]
 

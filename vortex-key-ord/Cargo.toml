@@ -1,0 +1,49 @@
+[package]
+name = "vortex-key-ord"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Stream-kernel architecture for key-ordered operations over Vortex arrays (OVC, sort-merge join, encoding-aware aggregates)"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
+vortex-session = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+rand = { workspace = true }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+
+[[bench]]
+name = "ovc_stream_kernel"
+harness = false
+
+[[bench]]
+name = "ovc_real_dispatch"
+harness = false
+
+[[bench]]
+name = "memory_profile"
+harness = false
+
+[[bench]]
+name = "smj"
+harness = false
+
+[[bench]]
+name = "smj_tpch_shape"
+harness = false
