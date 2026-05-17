@@ -48,10 +48,6 @@ use crate::options::serialize_row_encode_options;
 /// path (no varlen before this column, so the within-row position is constant) and the
 /// cursor-write path.
 #[derive(Clone, Copy, Debug)]
-#[allow(
-    dead_code,
-    reason = "fields read by the RowEncode pipeline in a later commit"
-)]
 pub(crate) enum ColKind {
     /// Column has fixed width `width`. `prefix` is the within-row byte offset of this
     /// column's first byte. If `before_varlen` is true, no variable-length column precedes
@@ -72,15 +68,7 @@ pub(crate) enum ColKind {
 pub(crate) struct SizePassResult {
     pub fixed_per_row: u32,
     pub var_lengths: Option<Vec<u32>>,
-    #[allow(
-        dead_code,
-        reason = "consumed by the arithmetic-write fast path added in PR 2"
-    )]
     pub col_kinds: Vec<ColKind>,
-    #[allow(
-        dead_code,
-        reason = "consumed by the arithmetic-write fast path added in PR 2"
-    )]
     pub first_varlen_idx: Option<usize>,
     pub columns: Vec<ArrayRef>,
 }

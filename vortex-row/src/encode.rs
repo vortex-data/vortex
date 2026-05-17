@@ -22,6 +22,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
 use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
@@ -44,6 +45,7 @@ use crate::options::RowEncodeOptions;
 use crate::options::SortField;
 use crate::options::deserialize_row_encode_options;
 use crate::options::serialize_row_encode_options;
+use crate::size::ColKind;
 use crate::size::compute_sizes;
 
 /// Variadic scalar function that encodes N input columns into a single `List<u8>`
@@ -115,8 +117,8 @@ fn execute_row_encode(
     let crate::size::SizePassResult {
         fixed_per_row,
         var_lengths,
-        col_kinds: _,
-        first_varlen_idx: _,
+        col_kinds,
+        first_varlen_idx,
         columns,
     } = compute_sizes(options, args, ctx, "RowEncode")?;
 
@@ -149,7 +151,23 @@ fn execute_row_encode(
     // listview_offsets[i] is the absolute byte offset where row `i` begins.
     // For pure-fixed: i * fixed_per_row.
     // For mixed: i * fixed_per_row + exclusive prefix sum of var_lengths.
+    //
+    // When fixed-before-varlen columns exist alongside a varlen column, we also build
+    // `var_prefix_for_arith[i] = exclusive cumsum of var_lengths[..i]` and pass it to
+    // the arithmetic encoders so they can compute per-row positions without a cursor.
+    let need_arith_prefix = first_varlen_idx.is_some()
+        && col_kinds.iter().any(|k| {
+            matches!(
+                k,
+                ColKind::Fixed {
+                    before_varlen: true,
+                    ..
+                }
+            )
+        });
+
     let mut listview_offsets: Vec<u32> = Vec::with_capacity(nrows);
+    let mut var_prefix_for_arith: Option<Vec<u32>> = None;
     match var_lengths.as_ref() {
         None => {
             // Pure-fixed: offsets[i] = i * fixed_per_row. Materialize via a tight
@@ -169,34 +187,82 @@ fn execute_row_encode(
             // var_prefix is the exclusive cumsum of varlen lengths. Same raw-pointer
             // write loop as the pure-fixed branch (auto-vectorized); the total was
             // validated to fit in u32 upstream so `wrapping_add` is sound here.
+            let mut vp: Option<Vec<u32>> = need_arith_prefix.then(|| Vec::with_capacity(nrows));
             // SAFETY: we just reserved nrows; writes at indices [0, nrows) are valid.
+            // Likewise `vp` (if Some) has reserved nrows.
             unsafe {
                 let off_ptr = listview_offsets.as_mut_ptr();
+                let vp_ptr = vp.as_mut().map(|p| p.as_mut_ptr());
                 let mut acc: u32 = 0;
                 for (i, &l) in v.iter().enumerate() {
+                    if let Some(p) = vp_ptr {
+                        p.add(i).write(acc);
+                    }
                     off_ptr
                         .add(i)
                         .write((i as u32).wrapping_mul(fixed_per_row).wrapping_add(acc));
                     acc = acc.wrapping_add(l);
                 }
                 listview_offsets.set_len(nrows);
+                if let Some(p) = vp.as_mut() {
+                    p.set_len(nrows);
+                }
             }
+            var_prefix_for_arith = vp;
         }
     }
 
     // Per-row write cursor (also doubles as the ListView `sizes` slot when done).
-    let mut row_cursors = vec![0u32; nrows];
+    //
+    // The cursor path starts at `prefix_at_first_varlen` so that `listview_offsets[i] +
+    // cursors[i]` lands at the position of the first cursor-path column (i.e. after the
+    // bytes already written by the arithmetic path for fixed-before-varlen columns).
+    //
+    // When there are no varlen columns at all, every column went through the arith path,
+    // so the cursor path runs zero iterations. Pre-seeding the cursors with
+    // `fixed_per_row` makes them already correct as per-row sizes in that case.
+    let initial_cursor: u32 = match first_varlen_idx {
+        Some(idx) => match col_kinds[idx] {
+            ColKind::Variable { fixed_prefix } => fixed_prefix,
+            ColKind::Fixed { .. } => unreachable!("first_varlen_idx points to a varlen column"),
+        },
+        None => fixed_per_row,
+    };
+    let mut row_cursors = vec![initial_cursor; nrows];
 
-    // ===== Phase 4: encode columns via the cursor path =====
+    // ===== Phase 4: encode columns =====
+    // Fixed-before-varlen columns take the arithmetic write path (no cursor mutation).
+    // Fixed-after-varlen and varlen columns take the cursor path, which already runs
+    // through `dispatch_encode`.
     for (i, col) in columns.iter().enumerate() {
-        dispatch_encode(
-            col,
-            options.fields[i],
-            &listview_offsets,
-            &mut row_cursors,
-            &mut out_buf,
-            ctx,
-        )?;
+        match col_kinds[i] {
+            ColKind::Fixed {
+                width,
+                prefix,
+                before_varlen: true,
+            } => {
+                dispatch_encode_fixed_arith(
+                    col,
+                    options.fields[i],
+                    prefix,
+                    fixed_per_row,
+                    var_prefix_for_arith.as_deref(),
+                    width,
+                    &mut out_buf,
+                    ctx,
+                )?;
+            }
+            ColKind::Fixed { .. } | ColKind::Variable { .. } => {
+                dispatch_encode(
+                    col,
+                    options.fields[i],
+                    &listview_offsets,
+                    &mut row_cursors,
+                    &mut out_buf,
+                    ctx,
+                )?;
+            }
+        }
     }
 
     // ===== Phase 5: build ListView output =====
@@ -224,6 +290,39 @@ fn execute_row_encode(
         ListViewArray::new_unchecked(elements, offsets_arr, sizes_arr, Validity::NonNullable)
     }
     .into_array())
+}
+
+/// Dispatch a single column's encoding through the arithmetic fast path. This is used for
+/// fixed-width columns that appear before any variable-length column in the row layout: the
+/// within-row write offset is a constant `col_prefix + var_prefix[i]` (or just `col_prefix`
+/// for the pure-fixed case), so we can skip the per-row cursor read/write entirely.
+#[allow(clippy::too_many_arguments)]
+fn dispatch_encode_fixed_arith(
+    col: &ArrayRef,
+    field: SortField,
+    col_prefix: u32,
+    row_stride: u32,
+    var_prefix: Option<&[u32]>,
+    width: u32,
+    out: &mut [u8],
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    // Already-canonical PrimitiveArray: bypass the canonicalization machinery entirely so
+    // the hot loop is reached without going through `execute_until::<AnyCanonical>`.
+    if col.as_opt::<Primitive>().is_some()
+        && let Ok(parr) = col.clone().try_downcast::<Primitive>()
+    {
+        let canonical = Canonical::Primitive(parr);
+        return codec::field_encode_fixed_arithmetic(
+            &canonical, field, col_prefix, row_stride, var_prefix, width, out, ctx,
+        );
+    }
+    // For other fixed columns route through canonicalization and the codec helpers. The
+    // Constant fast path is layered on in a follow-up commit.
+    let canonical = col.clone().execute::<Canonical>(ctx)?;
+    codec::field_encode_fixed_arithmetic(
+        &canonical, field, col_prefix, row_stride, var_prefix, width, out, ctx,
+    )
 }
 
 /// Dispatch a single column's encoding into the shared `out` buffer.
