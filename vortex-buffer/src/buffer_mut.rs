@@ -353,7 +353,11 @@ impl<T> BufferMut<T> {
     /// Panics if either half would have a length that is not a multiple of the alignment.
     pub fn split_off(&mut self, at: usize) -> Self {
         if at > self.capacity() {
-            vortex_panic!("Cannot split buffer of capacity {} at {}", self.len(), at);
+            vortex_panic!(
+                "Cannot split buffer of capacity {} at {}",
+                self.capacity(),
+                at
+            );
         }
 
         let bytes_at = at * size_of::<T>();
@@ -874,5 +878,27 @@ mod test {
 
         BufMut::put_slice(&mut buf, b"world");
         assert_eq!(buf.as_slice(), b"helloworld");
+    }
+
+    #[test]
+    fn split_off_panic_message_reports_capacity() {
+        let mut buf = BufferMut::<i32>::with_capacity(10);
+        let cap = buf.capacity();
+        assert!(cap >= 10);
+        let at = cap.checked_add(1).expect("capacity overflow");
+        let expected = format!("Cannot split buffer of capacity {cap} at {at}");
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            drop(buf.split_off(at));
+        }));
+        let err = result.expect_err("split_off should panic");
+        let msg = err
+            .downcast_ref::<String>()
+            .cloned()
+            .or_else(|| err.downcast_ref::<&str>().map(|s| s.to_string()))
+            .unwrap_or_default();
+        assert!(
+            msg.contains(&expected),
+            "panic message {msg:?} did not contain {expected:?}"
+        );
     }
 }
