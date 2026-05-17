@@ -152,12 +152,16 @@ fn execute_row_encode(
     let mut listview_offsets: Vec<u32> = Vec::with_capacity(nrows);
     match var_lengths.as_ref() {
         None => {
-            for i in 0..nrows {
-                listview_offsets.push(
-                    (i as u32)
-                        .checked_mul(fixed_per_row)
-                        .vortex_expect("row offset overflow (already validated total fits in u32)"),
-                );
+            // Pure-fixed: offsets[i] = i * fixed_per_row. Materialize via a tight
+            // pointer-write loop that LLVM auto-vectorizes; we already validated total
+            // fits in u32 above so the multiplications can't overflow.
+            // SAFETY: reserved nrows; pointers within [0, nrows) are valid.
+            unsafe {
+                let ptr = listview_offsets.as_mut_ptr();
+                for i in 0..nrows {
+                    ptr.add(i).write((i as u32) * fixed_per_row);
+                }
+                listview_offsets.set_len(nrows);
             }
         }
         Some(v) => {
