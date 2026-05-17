@@ -6,7 +6,7 @@ use vortex_error::VortexExpect;
 
 #[inline]
 pub fn count_ones(bytes: &[u8], offset: usize, len: usize) -> usize {
-    if bytes.is_empty() {
+    if bytes.is_empty() || len == 0 {
         return 0;
     }
 
@@ -196,6 +196,14 @@ mod tests {
     use rstest::rstest;
 
     use crate::BitBuffer;
+    use crate::bit::count_ones::count_ones;
+
+    #[test]
+    fn count_ones_zero_len_returns_zero() {
+        assert_eq!(count_ones(&[], 0, 0), 0);
+        assert_eq!(count_ones(&[0xFF], 0, 0), 0);
+        assert_eq!(count_ones(&[0xFF], 5, 0), 0);
+    }
 
     #[cfg_attr(miri, ignore)]
     #[rstest]
