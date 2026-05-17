@@ -40,6 +40,7 @@ use vortex::scalar_fn::fns::binary::Binary;
 use vortex::scalar_fn::fns::like::Like;
 use vortex::scalar_fn::fns::like::LikeOptions;
 use vortex::scalar_fn::fns::operators::Operator;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::convert::FromDataFusion;
 
@@ -249,6 +250,10 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         }
 
         if let Some(in_list) = df.as_any().downcast_ref::<df_expr::InListExpr>() {
+            if in_list.list().is_empty() {
+                return Err(exec_datafusion_err!("Empty IN list cannot be converted"));
+            }
+
             let value = self.convert(in_list.expr().as_ref())?;
             let list_elements: Vec<_> = in_list
                 .list()
@@ -262,11 +267,21 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                 })
                 .try_collect()?;
 
-            let list = Scalar::list(
-                list_elements[0].dtype().clone(),
-                list_elements,
-                Nullability::Nullable,
-            );
+            let element_dtype = list_elements[0].dtype().clone();
+            // Explicitly check all subsequent elements have the same dtype to avoid the
+            // deep panic inside `Scalar::list`.
+            if let Some(mismatch) = list_elements
+                .iter()
+                .skip(1)
+                .find(|s| s.dtype() != &element_dtype)
+            {
+                return Err(exec_datafusion_err!(
+                    "Heterogeneous IN list element dtypes: expected {element_dtype}, got {}",
+                    mismatch.dtype()
+                ));
+            }
+
+            let list = Scalar::list(element_dtype, list_elements, Nullability::Nullable);
             let expr = list_contains(lit(list), value);
 
             return Ok(if in_list.negated() { not(expr) } else { expr });
@@ -291,8 +306,13 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
         input_schema: &Schema,
         output_schema: &Schema,
     ) -> DFResult<ProcessedProjection> {
-        let mut scan_projection = vec![];
+        let mut scan_projection: Vec<(String, Expression)> = vec![];
         let mut leftover_projection: Vec<ProjectionExpr> = vec![];
+        // Track names already added to `scan_projection` so we never feed `pack(...)`
+        // duplicate struct field names. The same column referenced from multiple
+        // unsupported sub-expressions resolves to the identical `get_item(name, root())`
+        // expression, so dropping duplicates is lossless.
+        let mut seen_names: HashSet<String> = HashSet::new();
 
         for projection_expr in source_projection.iter() {
             let r = projection_expr.expr.apply(|node| {
@@ -300,11 +320,12 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                 if let Some(scalar_fn_expr) = node.as_any().downcast_ref::<ScalarFunctionExpr>()
                     && !can_scalar_fn_be_pushed_down(scalar_fn_expr)
                 {
-                    scan_projection.extend(
-                        collect_columns(node)
-                            .into_iter()
-                            .map(|c| (c.name().to_string(), get_item(c.name(), root()))),
-                    );
+                    for c in collect_columns(node) {
+                        let name = c.name().to_string();
+                        if seen_names.insert(name.clone()) {
+                            scan_projection.push((name, get_item(c.name(), root())));
+                        }
+                    }
 
                     leftover_projection.push(projection_expr.clone());
                     return Ok(TreeNodeRecursion::Stop);
@@ -317,11 +338,12 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                     && (is_decimal(&binary_expr.left().data_type(input_schema)?)
                         && is_decimal(&binary_expr.right().data_type(input_schema)?))
                 {
-                    scan_projection.extend(
-                        collect_columns(node)
-                            .into_iter()
-                            .map(|c| (c.name().to_string(), get_item(c.name(), root()))),
-                    );
+                    for c in collect_columns(node) {
+                        let name = c.name().to_string();
+                        if seen_names.insert(name.clone()) {
+                            scan_projection.push((name, get_item(c.name(), root())));
+                        }
+                    }
 
                     leftover_projection.push(projection_expr.clone());
                     return Ok(TreeNodeRecursion::Stop);
@@ -332,10 +354,11 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
 
             // if we didn't stop early
             if matches!(r, TreeNodeRecursion::Continue) {
-                scan_projection.push((
-                    projection_expr.alias.clone(),
-                    self.convert(projection_expr.expr.as_ref())?,
-                ));
+                let alias = projection_expr.alias.clone();
+                let converted = self.convert(projection_expr.expr.as_ref())?;
+                if seen_names.insert(alias.clone()) {
+                    scan_projection.push((alias, converted));
+                }
                 leftover_projection.push(ProjectionExpr {
                     expr: Arc::new(df_expr::Column::new_with_schema(
                         projection_expr.alias.as_str(),
@@ -437,7 +460,8 @@ fn can_be_pushed_down_impl(df_expr: &Arc<dyn PhysicalExpr>, schema: &Schema) -> 
     } else if let Some(is_not_null) = expr.downcast_ref::<df_expr::IsNotNullExpr>() {
         can_be_pushed_down_impl(is_not_null.arg(), schema)
     } else if let Some(in_list) = expr.downcast_ref::<df_expr::InListExpr>() {
-        can_be_pushed_down_impl(in_list.expr(), schema)
+        !in_list.list().is_empty()
+            && can_be_pushed_down_impl(in_list.expr(), schema)
             && in_list
                 .list()
                 .iter()
