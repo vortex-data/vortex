@@ -128,6 +128,9 @@ impl FileOpener for VortexOpener {
 
         let unified_file_schema = Arc::clone(self.table_schema.file_schema());
         let batch_size = self.batch_size;
+        if batch_size == 0 {
+            return Err(exec_datafusion_err!("batch_size must be greater than 0"));
+        }
         let limit = self.limit;
         let layout_reader = Arc::clone(&self.layout_readers);
         let natural_split_ranges = Arc::clone(&self.natural_split_ranges);
@@ -462,17 +465,14 @@ fn natural_split_ranges_for_file(
     path: &Path,
     layout_reader: &Arc<dyn LayoutReader>,
 ) -> DFResult<Arc<[Range<u64>]>> {
-    if let Some(split_ranges) = natural_split_ranges.get(path) {
-        return Ok(Arc::clone(split_ranges.value()));
-    }
-
-    let split_ranges = compute_natural_split_ranges(layout_reader.as_ref())?;
-
+    // Hold the entry's bucket-level lock across the (potentially expensive) compute so that
+    // concurrent callers for the same path do not duplicate work. The Occupied branch never
+    // recomputes; only the first Vacant caller pays the cost.
     match natural_split_ranges.entry(path.clone()) {
-        Entry::Occupied(entry) => Ok(Arc::clone(entry.get())),
-        Entry::Vacant(entry) => {
-            entry.insert(Arc::clone(&split_ranges));
-            Ok(split_ranges)
+        Entry::Occupied(occupied) => Ok(Arc::clone(occupied.get())),
+        Entry::Vacant(vacant) => {
+            let split_ranges = compute_natural_split_ranges(layout_reader.as_ref())?;
+            Ok(Arc::clone(vacant.insert(split_ranges).value()))
         }
     }
 }
@@ -773,6 +773,73 @@ mod tests {
         let data = stream.try_collect::<Vec<_>>().await?;
 
         assert_eq!(data.len(), 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    // Regression: repeated lookups against `natural_split_ranges_for_file` must hit the cache
+    // after the first call. This guards the single-entry pattern that protects callers from
+    // duplicate compute under concurrent access.
+    async fn natural_split_ranges_for_file_is_cached() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "/path/cached_splits.vortex";
+        let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+
+        let reader = DefaultVortexReaderFactory::new(Arc::clone(&object_store))
+            .create_reader(
+                &PartitionedFile::new(file_path.to_string(), data_size),
+                &SESSION,
+            )?;
+        let vxf = SESSION
+            .open_options()
+            .with_file_size(data_size)
+            .open_read(reader)
+            .await?;
+        let layout_reader = vxf.layout_reader()?;
+
+        let cache: DashMap<Path, Arc<[Range<u64>]>> = DashMap::default();
+        let path = Path::parse(file_path)?;
+
+        let first = natural_split_ranges_for_file(&cache, &path, &layout_reader)?;
+        let second = natural_split_ranges_for_file(&cache, &path, &layout_reader)?;
+
+        // Both calls must return the same cached Arc pointer; if the cache were bypassed
+        // the second call would allocate a fresh `Arc<[Range<u64>]>`.
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "second call should return the cached Arc"
+        );
+        assert_eq!(cache.len(), 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    // Regression: `batch_size == 0` used to panic inside `div_ceil(_, 0)` while slicing
+    // batches in `VortexOpener::open`. The opener should reject the misconfiguration
+    // up front with a clean error instead.
+    async fn opener_rejects_zero_batch_size() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+        let file_path = "part=1/zero_batch.vortex";
+        let batch = record_batch!(("a", Int32, vec![Some(1), Some(2), Some(3)])).unwrap();
+        let data_size =
+            write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
+
+        let file_schema = batch.schema();
+        let file = PartitionedFile::new(file_path.to_string(), data_size);
+        let table_schema = TableSchema::from_file_schema(Arc::clone(&file_schema));
+
+        let mut opener = make_opener(object_store, table_schema, None);
+        opener.batch_size = 0;
+
+        let result = opener.open(file);
+        assert!(
+            result.is_err(),
+            "expected open() to fail with batch_size = 0"
+        );
 
         Ok(())
     }
