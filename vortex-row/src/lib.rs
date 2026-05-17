@@ -7,9 +7,12 @@
 //! This commit only establishes the crate skeleton and an `initialize` stub.
 
 pub mod codec;
+pub mod encode;
 pub mod options;
 pub mod size;
 
+pub use encode::RowEncode;
+pub use encode::RowEncodeKernel;
 pub use options::RowEncodeOptions;
 pub use options::SortField;
 pub use size::RowSize;

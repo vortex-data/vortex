@@ -72,7 +72,15 @@ pub(crate) enum ColKind {
 pub(crate) struct SizePassResult {
     pub fixed_per_row: u32,
     pub var_lengths: Option<Vec<u32>>,
+    #[allow(
+        dead_code,
+        reason = "consumed by the arithmetic-write fast path added in PR 2"
+    )]
     pub col_kinds: Vec<ColKind>,
+    #[allow(
+        dead_code,
+        reason = "consumed by the arithmetic-write fast path added in PR 2"
+    )]
     pub first_varlen_idx: Option<usize>,
     pub columns: Vec<ArrayRef>,
 }
