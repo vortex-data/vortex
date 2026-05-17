@@ -146,6 +146,18 @@ pub trait vortex_row::encode::RowEncodeKernel: vortex_array::array::vtable::VTab
 
 pub fn vortex_row::encode::RowEncodeKernel::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
 
+impl vortex_row::encode::RowEncodeKernel for vortex_array::arrays::constant::vtable::Constant
+
+pub fn vortex_array::arrays::constant::vtable::Constant::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::encode::RowEncodeKernel for vortex_array::arrays::dict::vtable::Dict
+
+pub fn vortex_array::arrays::dict::vtable::Dict::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::encode::RowEncodeKernel for vortex_array::arrays::patched::vtable::Patched
+
+pub fn vortex_array::arrays::patched::vtable::Patched::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
 pub fn vortex_row::encode::dispatch_encode(&vortex_array::array::erased::ArrayRef, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub mod vortex_row::options
@@ -265,6 +277,18 @@ pub fn vortex_row::size::RowSize::serialize(&self, &Self::Options) -> vortex_err
 pub trait vortex_row::size::RowSizeKernel: vortex_array::array::vtable::VTable
 
 pub fn vortex_row::size::RowSizeKernel::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::size::RowSizeKernel for vortex_array::arrays::constant::vtable::Constant
+
+pub fn vortex_array::arrays::constant::vtable::Constant::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::size::RowSizeKernel for vortex_array::arrays::dict::vtable::Dict
+
+pub fn vortex_array::arrays::dict::vtable::Dict::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::size::RowSizeKernel for vortex_array::arrays::patched::vtable::Patched
+
+pub fn vortex_array::arrays::patched::vtable::Patched::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
 
 pub fn vortex_row::size::dispatch_size(&vortex_array::array::erased::ArrayRef, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
@@ -412,9 +436,33 @@ pub trait vortex_row::RowEncodeKernel: vortex_array::array::vtable::VTable
 
 pub fn vortex_row::RowEncodeKernel::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
 
+impl vortex_row::encode::RowEncodeKernel for vortex_array::arrays::constant::vtable::Constant
+
+pub fn vortex_array::arrays::constant::vtable::Constant::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::encode::RowEncodeKernel for vortex_array::arrays::dict::vtable::Dict
+
+pub fn vortex_array::arrays::dict::vtable::Dict::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::encode::RowEncodeKernel for vortex_array::arrays::patched::vtable::Patched
+
+pub fn vortex_array::arrays::patched::vtable::Patched::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
 pub trait vortex_row::RowSizeKernel: vortex_array::array::vtable::VTable
 
 pub fn vortex_row::RowSizeKernel::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::size::RowSizeKernel for vortex_array::arrays::constant::vtable::Constant
+
+pub fn vortex_array::arrays::constant::vtable::Constant::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::size::RowSizeKernel for vortex_array::arrays::dict::vtable::Dict
+
+pub fn vortex_array::arrays::dict::vtable::Dict::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::size::RowSizeKernel for vortex_array::arrays::patched::vtable::Patched
+
+pub fn vortex_array::arrays::patched::vtable::Patched::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
 
 pub fn vortex_row::compute_row_sizes(&[vortex_array::array::erased::ArrayRef], &[vortex_row::options::SortField], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 

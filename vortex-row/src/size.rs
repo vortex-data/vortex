@@ -11,9 +11,12 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VTable;
+use vortex_array::arrays::Constant;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::dict::Dict;
+use vortex_array::arrays::patched::Patched;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
@@ -256,15 +259,30 @@ impl ScalarFnVTable for RowSize {
 
 /// Dispatch a single column's per-row size contribution.
 ///
-/// For PR 1 this is just the canonicalize-then-`codec::field_size` fallback path. In-crate
-/// fast paths for `Constant`/`Dict`/`Patched` and the inventory-based registry for
-/// downstream encodings are added in PR 3.
+/// Tries the in-crate per-encoding fast paths first, then falls back to canonicalization.
+/// Per-encoding kernels currently return `Ok(None)` (stubs added alongside the trait); the
+/// real impls land in follow-up commits. The downstream-encoding registry is added next.
 pub fn dispatch_size(
     col: &ArrayRef,
     field: SortField,
     sizes: &mut [u32],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
+    if let Some(view) = col.as_opt::<Constant>()
+        && Constant::row_size_contribution(view, field, sizes, ctx)?.is_some()
+    {
+        return Ok(());
+    }
+    if let Some(view) = col.as_opt::<Dict>()
+        && Dict::row_size_contribution(view, field, sizes, ctx)?.is_some()
+    {
+        return Ok(());
+    }
+    if let Some(view) = col.as_opt::<Patched>()
+        && Patched::row_size_contribution(view, field, sizes, ctx)?.is_some()
+    {
+        return Ok(());
+    }
     let canonical = col.clone().execute::<Canonical>(ctx)?;
     codec::field_size(&canonical, field, sizes, ctx)
 }

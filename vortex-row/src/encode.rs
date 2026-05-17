@@ -25,6 +25,8 @@ use vortex_array::arrays::Constant;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::dict::Dict;
+use vortex_array::arrays::patched::Patched;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -462,9 +464,9 @@ fn encode_constant_arith(
 
 /// Dispatch a single column's encoding into the shared `out` buffer.
 ///
-/// For PR 1 this is just the canonicalize-then-`codec::field_encode` fallback path.
-/// In-crate fast paths for `Constant`/`Dict`/`Patched` and the inventory-based registry
-/// for downstream encodings are added in PR 3.
+/// Tries the in-crate per-encoding fast paths first, then falls back to canonicalization.
+/// Per-encoding kernels currently return `Ok(None)` (stubs added alongside the trait); the
+/// real impls land in follow-up commits. The downstream-encoding registry is added next.
 pub fn dispatch_encode(
     col: &ArrayRef,
     field: SortField,
@@ -473,6 +475,21 @@ pub fn dispatch_encode(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
+    if let Some(view) = col.as_opt::<Constant>()
+        && Constant::row_encode_into(view, field, offsets, cursors, out, ctx)?.is_some()
+    {
+        return Ok(());
+    }
+    if let Some(view) = col.as_opt::<Dict>()
+        && Dict::row_encode_into(view, field, offsets, cursors, out, ctx)?.is_some()
+    {
+        return Ok(());
+    }
+    if let Some(view) = col.as_opt::<Patched>()
+        && Patched::row_encode_into(view, field, offsets, cursors, out, ctx)?.is_some()
+    {
+        return Ok(());
+    }
     let canonical = col.clone().execute::<Canonical>(ctx)?;
     codec::field_encode(&canonical, field, offsets, cursors, out, ctx)
 }

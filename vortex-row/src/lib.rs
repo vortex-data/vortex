@@ -28,6 +28,7 @@
 pub mod codec;
 pub mod convert;
 pub mod encode;
+mod kernels;
 pub mod options;
 pub mod size;
 
