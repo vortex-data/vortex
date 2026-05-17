@@ -2,9 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
+mod iter;
 pub use array::ListArrayExt;
 pub use array::ListData;
 pub use array::ListDataParts;
+pub use iter::iter_offsets;
+pub use iter::{ListIter, ListOffset, ListTypedIter};
 pub use vtable::ListArray;
 
 pub(crate) mod compute;

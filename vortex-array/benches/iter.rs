@@ -22,6 +22,7 @@ use vortex_array::ToCanonical as _;
 use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinArray;
@@ -29,8 +30,9 @@ use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
+use vortex_array::arrays::list::{ListArrayExt, iter_offsets as list_iter_offsets};
 use vortex_array::arrays::struct_::StructArrayExt;
-use vortex_array::arrays::varbin::{VarBinArrayExt, iter_offsets};
+use vortex_array::arrays::varbin::{VarBinArrayExt, iter_offsets as varbin_iter_offsets};
 use vortex_array::dtype::Nullability;
 use vortex_array::iter_array::IterArray;
 use vortex_array::iter_array::IterArrayValue;
@@ -95,6 +97,36 @@ fn build_struct(len: usize) -> StructArray {
     let ints = gen_primitive_for_dict::<i32>(len, 16).into_array();
     let strs = VarBinViewArray::from_iter_str(gen_varbin_words(len, 64)).into_array();
     StructArray::try_from_iter([("a", ints), ("b", strs)]).unwrap()
+}
+
+fn build_list(len: usize) -> ListArray {
+    // Build a list of i32 with average list length ~4. Offsets are u32
+    // by default, with `len + 1` entries.
+    let mut offsets = Vec::<u32>::with_capacity(len + 1);
+    offsets.push(0);
+    let mut acc: u32 = 0;
+    let mut rng = 0xC0FFEEu32;
+    for _ in 0..len {
+        rng = rng.wrapping_mul(1103515245).wrapping_add(12345);
+        let n = (rng >> 24) & 0x07; // 0..7
+        acc = acc.saturating_add(n);
+        offsets.push(acc);
+    }
+    let total = acc as usize;
+    let elements: PrimitiveArray = (0..total)
+        .map(|i| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+            {
+                i as i32
+            }
+        })
+        .collect();
+    let offsets_arr = PrimitiveArray::new(Buffer::<u32>::from_iter(offsets), Validity::NonNullable);
+    ListArray::new(
+        elements.into_array(),
+        offsets_arr.into_array(),
+        Validity::NonNullable,
+    )
 }
 
 fn build_bool(len: usize, with_nulls: bool) -> BoolArray {
@@ -227,7 +259,10 @@ fn varbin_new_typed_u32_nonnull(b: Bencher, len: usize) {
     // conversion. Per-tick reads u32 and casts to usize (free on x86).
     let arr = build_varbin(len, false);
     b.bench_local(|| {
-        let s: usize = iter_offsets::<u32>(&arr).flatten().map(|b| b.len()).sum();
+        let s: usize = varbin_iter_offsets::<u32>(&arr)
+            .flatten()
+            .map(|b| b.len())
+            .sum();
         black_box(s)
     });
 }
@@ -382,6 +417,52 @@ fn bool_new_nullable(b: Bencher, len: usize) {
     b.bench_local(|| {
         let count: u64 = arr.iter_value().filter(|opt| opt == &Some(true)).count() as u64;
         black_box(count)
+    });
+}
+
+// ---------- list: polymorphic vs typed offsets ---------------------------
+
+#[divan::bench(args = LENGTHS)]
+fn list_new_polymorphic(b: Bencher, len: usize) {
+    // IterArrayValue: polymorphic, upfront u32->usize convert.
+    let arr = build_list(len);
+    b.bench_local(|| {
+        let s: usize = arr
+            .iter_value()
+            .flatten()
+            .map(|(start, end)| end - start)
+            .sum();
+        black_box(s)
+    });
+}
+
+#[divan::bench(args = LENGTHS)]
+fn list_new_typed_u32(b: Bencher, len: usize) {
+    // Typed entry point: zero upfront, per-tick u32->usize cast.
+    let arr = build_list(len);
+    b.bench_local(|| {
+        let s: usize = list_iter_offsets::<u32>(&arr)
+            .flatten()
+            .map(|(start, end)| end - start)
+            .sum();
+        black_box(s)
+    });
+}
+
+#[divan::bench(args = LENGTHS)]
+fn list_manual_u32(b: Bencher, len: usize) {
+    // Manual baseline: grab the offsets buffer once, walk windows.
+    let arr = build_list(len);
+    #[expect(deprecated)]
+    let offsets = arr.offsets().to_primitive();
+    let offsets_buf: Buffer<u32> = offsets.into_buffer::<u32>();
+    b.bench_local(|| {
+        let s: usize = offsets_buf
+            .as_slice()
+            .windows(2)
+            .map(|w| (w[1] - w[0]) as usize)
+            .sum();
+        black_box(s)
     });
 }
 
