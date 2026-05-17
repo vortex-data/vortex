@@ -409,16 +409,29 @@ fn encode_bool(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
+    let validity = arr.as_ref().validity()?;
     let bits = arr.clone().into_bit_buffer();
     let non_null = field.non_null_sentinel();
-    let null = field.null_sentinel();
     let xor = if field.descending { 0xFF } else { 0x00 };
+
+    // Fast path: no nulls, skip mask allocation and per-row branch.
+    if matches!(validity, Validity::NonNullable | Validity::AllValid) {
+        for i in 0..bits.len() {
+            let pos = (row_offsets[i] + col_offset[i]) as usize;
+            out[pos] = non_null;
+            let raw = if bits.value(i) { 0x02u8 } else { 0x01u8 };
+            out[pos + 1] = raw ^ xor;
+            col_offset[i] += BOOL_ENCODED_SIZE;
+        }
+        return Ok(());
+    }
+
+    let mask = validity.execute_mask(arr.len(), ctx)?;
+    let null = field.null_sentinel();
     for i in 0..bits.len() {
         let pos = (row_offsets[i] + col_offset[i]) as usize;
         if mask.value(i) {
             out[pos] = non_null;
-            // false=0x01, true=0x02 so false < true; XOR for descending
             let raw = if bits.value(i) { 0x02u8 } else { 0x01u8 };
             out[pos + 1] = raw ^ xor;
         } else {
@@ -496,7 +509,15 @@ fn encode_decimal(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    let mask = arr.as_ref().validity()?.execute_mask(arr.len(), ctx)?;
+    let validity = arr.as_ref().validity()?;
+    // For NonNullable/AllValid we still need a Mask object for the typed encoders,
+    // but skip allocating one from the validity (use an all-true conceptual mask is
+    // not directly available, so build a cheap one). The typed encoders use
+    // mask.value(i) per row; for the common no-nulls case we'd rather elide that
+    // branch, but the existing per-type loop is shared. Keep the mask allocation
+    // here; the NonNullable savings show up if the validity itself is cheaper to
+    // materialize than an Array-backed validity.
+    let mask = validity.execute_mask(arr.len(), ctx)?;
     match arr.values_type() {
         DecimalType::I8 => {
             encode_decimal_typed::<i8>(arr, &mask, field, row_offsets, col_offset, out)

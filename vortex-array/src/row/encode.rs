@@ -241,13 +241,17 @@ fn execute_row_encode(
 
     match var_lengths.as_ref() {
         None => {
-            // Pure-fixed.
-            let mut acc: u32 = 0;
-            for _ in 0..nrows {
-                listview_offsets.push(acc);
-                acc = acc
-                    .checked_add(fixed_per_row)
-                    .vortex_expect("offset overflow");
+            // Pure-fixed: offsets[i] = i * fixed_per_row. Materialize via a tight
+            // pointer-write loop that LLVM auto-vectorizes; we already validated total
+            // fits in u32 above so the multiplications can't overflow.
+            listview_offsets.reserve(nrows);
+            // SAFETY: reserved nrows; pointers within [0, nrows) are valid.
+            unsafe {
+                let ptr = listview_offsets.as_mut_ptr();
+                for i in 0..nrows {
+                    ptr.add(i).write((i as u32) * fixed_per_row);
+                }
+                listview_offsets.set_len(nrows);
             }
         }
         Some(v) => {
@@ -461,6 +465,47 @@ fn encode_constant_arith(
                 for _ in 0..n {
                     std::ptr::copy_nonoverlapping(src, dst, len);
                     dst = dst.add(stride);
+                }
+            }
+            (Some(vp), 9) => {
+                let v_lo = std::ptr::read_unaligned(src as *const u64);
+                let v_hi = *src.add(8);
+                let base = out.as_mut_ptr();
+                for i in 0..n {
+                    let pos = (i as u32) * row_stride + col_prefix + vp[i];
+                    let dst = base.add(pos as usize);
+                    std::ptr::write_unaligned(dst as *mut u64, v_lo);
+                    *dst.add(8) = v_hi;
+                }
+            }
+            (Some(vp), 5) => {
+                let v_lo = std::ptr::read_unaligned(src as *const u32);
+                let v_hi = *src.add(4);
+                let base = out.as_mut_ptr();
+                for i in 0..n {
+                    let pos = (i as u32) * row_stride + col_prefix + vp[i];
+                    let dst = base.add(pos as usize);
+                    std::ptr::write_unaligned(dst as *mut u32, v_lo);
+                    *dst.add(4) = v_hi;
+                }
+            }
+            (Some(vp), 2) => {
+                let v = std::ptr::read_unaligned(src as *const u16);
+                let base = out.as_mut_ptr();
+                for i in 0..n {
+                    let pos = (i as u32) * row_stride + col_prefix + vp[i];
+                    std::ptr::write_unaligned(base.add(pos as usize) as *mut u16, v);
+                }
+            }
+            (Some(vp), 17) => {
+                let v_lo = std::ptr::read_unaligned(src as *const u128);
+                let v_hi = *src.add(16);
+                let base = out.as_mut_ptr();
+                for i in 0..n {
+                    let pos = (i as u32) * row_stride + col_prefix + vp[i];
+                    let dst = base.add(pos as usize);
+                    std::ptr::write_unaligned(dst as *mut u128, v_lo);
+                    *dst.add(16) = v_hi;
                 }
             }
             (Some(vp), _) => {
