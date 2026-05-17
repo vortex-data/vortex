@@ -10234,7 +10234,6 @@ dependencies = [
  "arrow-cast 58.2.0",
  "arrow-data 58.2.0",
  "arrow-ord 58.2.0",
- "arrow-row 58.2.0",
  "arrow-schema 58.2.0",
  "arrow-select 58.2.0",
  "arrow-string 58.2.0",
@@ -10253,7 +10252,6 @@ dependencies = [
  "inventory",
  "itertools 0.14.0",
  "jiff",
- "mimalloc",
  "multiversion",
  "num-traits",
  "num_enum",
@@ -11037,6 +11035,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-row"
+version = "0.1.0"
+dependencies = [
+ "arrow-array 58.2.0",
+ "arrow-row 58.2.0",
+ "arrow-schema 58.2.0",
+ "bytes",
+ "codspeed-divan-compat",
+ "inventory",
+ "mimalloc",
+ "rand 0.10.1",
+ "rstest",
+ "smallvec",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-error",
+ "vortex-mask",
+ "vortex-session",
+ "vortex-utils",
+]
+
+[[package]]
 name = "vortex-runend"
 version = "0.1.0"
 dependencies = [
@@ -11054,6 +11074,7 @@ dependencies = [
  "vortex-buffer",
  "vortex-error",
  "vortex-mask",
+ "vortex-row",
  "vortex-session",
 ]
 

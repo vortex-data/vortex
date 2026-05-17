@@ -8,15 +8,15 @@
     reason = "row encoding indexes into u32-sized buffers; lengths are validated to fit in u32"
 )]
 
+use vortex_array::ArrayView;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::Constant;
 use vortex_error::VortexResult;
 
-use crate::ExecutionCtx;
-use crate::array::ArrayView;
-use crate::arrays::Constant;
-use crate::row::codec;
-use crate::row::encode::RowEncodeKernel;
-use crate::row::options::SortField;
-use crate::row::size::RowSizeKernel;
+use crate::codec;
+use crate::encode::RowEncodeKernel;
+use crate::options::SortField;
+use crate::size::RowSizeKernel;
 
 impl RowSizeKernel for Constant {
     fn row_size_contribution(

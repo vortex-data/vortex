@@ -21,11 +21,11 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::dtype::NativePType;
 use vortex_array::match_each_integer_ptype;
-use vortex_array::row::RowEncodeRegistration;
-use vortex_array::row::encode::dispatch_encode;
-use vortex_array::row::options::SortField;
-use vortex_array::row::size::dispatch_size;
 use vortex_error::VortexResult;
+use vortex_row::RowEncodeRegistration;
+use vortex_row::encode::dispatch_encode;
+use vortex_row::options::SortField;
+use vortex_row::size::dispatch_size;
 
 use crate::RunEnd;
 use crate::RunEndArrayExt;
@@ -180,10 +180,10 @@ mod tests {
     use vortex_array::arrays::ListViewArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::listview::ListViewArrayExt;
-    use vortex_array::row::SortField;
-    use vortex_array::row::convert_columns;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
+    use vortex_row::SortField;
+    use vortex_row::convert_columns;
 
     use crate::RunEnd;
 

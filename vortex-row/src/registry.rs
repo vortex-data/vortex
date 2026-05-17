@@ -13,13 +13,13 @@
 
 use std::sync::OnceLock;
 
+use vortex_array::ArrayId;
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::array::ArrayId;
-use crate::row::options::SortField;
+use crate::options::SortField;
 
 /// Function pointer signature for an encoding's per-row size contribution.
 pub type DynSizeFn =

@@ -9,8 +9,6 @@ use vortex_session::SessionExt;
 use vortex_session::SessionVar;
 use vortex_session::registry::Registry;
 
-use crate::row::RowEncode;
-use crate::row::RowSize;
 use crate::scalar_fn::ScalarFnPluginRef;
 use crate::scalar_fn::ScalarFnVTable;
 use crate::scalar_fn::fns::between::Between;
@@ -76,8 +74,6 @@ impl Default for ScalarFnSession {
         this.register(Select);
         this.register(StatFn);
         this.register(VariantGet);
-        this.register(RowSize);
-        this.register(RowEncode);
 
         this
     }

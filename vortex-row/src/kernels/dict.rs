@@ -14,21 +14,21 @@
     reason = "row encoding indexes into u32-sized buffers; codes are non-negative indices into the values array"
 )]
 
+use vortex_array::ArrayView;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::dict::Dict;
+use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
+use vortex_array::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
-use super::Dict;
-use crate::ExecutionCtx;
-use crate::array::ArrayView;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::dict::DictArraySlotsExt;
-use crate::dtype::NativePType;
-use crate::dtype::PType;
-use crate::match_each_integer_ptype;
-use crate::row::encode::RowEncodeKernel;
-use crate::row::encode::dispatch_encode;
-use crate::row::options::SortField;
-use crate::row::size::RowSizeKernel;
-use crate::row::size::dispatch_size;
+use crate::encode::RowEncodeKernel;
+use crate::encode::dispatch_encode;
+use crate::options::SortField;
+use crate::size::RowSizeKernel;
+use crate::size::dispatch_size;
 
 impl RowSizeKernel for Dict {
     fn row_size_contribution(

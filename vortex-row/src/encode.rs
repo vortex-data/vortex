@@ -15,42 +15,42 @@
 
 use std::sync::Arc;
 
+use vortex_array::ArrayRef;
+use vortex_array::ArrayView;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::VTable;
+use vortex_array::arrays::Constant;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::Primitive;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::dict::Dict;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
+use vortex_array::scalar::Scalar;
+use vortex_array::scalar_fn::Arity;
+use vortex_array::scalar_fn::ChildName;
+use vortex_array::scalar_fn::ExecutionArgs;
+use vortex_array::scalar_fn::ScalarFnId;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
-use crate::ArrayRef;
-use crate::Canonical;
-use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::array::ArrayView;
-use crate::array::VTable;
-use crate::arrays::Constant;
-use crate::arrays::ConstantArray;
-use crate::arrays::ListViewArray;
-use crate::arrays::Primitive;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::dict::Dict;
-use crate::dtype::DType;
-use crate::dtype::Nullability;
-use crate::dtype::PType;
-use crate::row::codec;
-use crate::row::codec::RowWidth;
-use crate::row::options::RowEncodeOptions;
-use crate::row::options::SortField;
-use crate::row::options::deserialize_row_encode_options;
-use crate::row::options::serialize_row_encode_options;
-use crate::row::registry;
-use crate::row::size::dispatch_size;
-use crate::scalar::Scalar;
-use crate::scalar_fn::Arity;
-use crate::scalar_fn::ChildName;
-use crate::scalar_fn::ExecutionArgs;
-use crate::scalar_fn::ScalarFnId;
-use crate::scalar_fn::ScalarFnVTable;
-use crate::validity::Validity;
+use crate::codec;
+use crate::codec::RowWidth;
+use crate::options::RowEncodeOptions;
+use crate::options::SortField;
+use crate::options::deserialize_row_encode_options;
+use crate::options::serialize_row_encode_options;
+use crate::registry;
+use crate::size::dispatch_size;
 
 /// Variadic scalar function that encodes N input columns into a single `List<u8>`
 /// [`ListViewArray`] where row `i` contains the row-encoded bytes for column values

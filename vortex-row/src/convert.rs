@@ -3,18 +3,18 @@
 
 //! User-facing entry point: turn N columnar arrays into one row-encoded `ListView<u8>`.
 
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::scalar_fn::VecExecutionArgs;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::ArrayRef;
-use crate::ExecutionCtx;
-use crate::arrays::ListViewArray;
-use crate::row::encode::RowEncode;
-use crate::row::options::RowEncodeOptions;
-use crate::row::options::SortField;
-use crate::row::size::RowSize;
-use crate::scalar_fn::ScalarFnVTable;
-use crate::scalar_fn::VecExecutionArgs;
+use crate::encode::RowEncode;
+use crate::options::RowEncodeOptions;
+use crate::options::SortField;
+use crate::size::RowSize;
 
 /// Convert N columnar arrays into a single row-oriented [`ListViewArray`] of `u8` whose
 /// bytes are lexicographically comparable in the same order as a tuple comparison of the

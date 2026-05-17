@@ -44,8 +44,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::dict::dict_encode;
-use vortex_array::row::SortField;
-use vortex_array::row::convert_columns;
+use vortex_row::SortField;
+use vortex_row::convert_columns;
 
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;

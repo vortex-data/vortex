@@ -23,31 +23,32 @@
 //!   bit; negative flips all bits.
 //! - Variable-length bytes use 32-byte chunks with continuation markers.
 
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
+use vortex_array::accessor::ArrayAccessor;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::ExtensionArray;
+use vortex_array::arrays::FixedSizeListArray;
+use vortex_array::arrays::NullArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::extension::ExtensionArrayExt;
+use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
+use vortex_array::arrays::struct_::StructArrayExt;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::DecimalType;
+use vortex_array::dtype::NativePType;
+use vortex_array::dtype::PType;
+use vortex_array::dtype::half::f16;
+use vortex_array::match_each_native_ptype;
+use vortex_array::validity::Validity;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::Canonical;
-use crate::ExecutionCtx;
-use crate::accessor::ArrayAccessor;
-use crate::arrays::BoolArray;
-use crate::arrays::DecimalArray;
-use crate::arrays::ExtensionArray;
-use crate::arrays::FixedSizeListArray;
-use crate::arrays::NullArray;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::StructArray;
-use crate::arrays::VarBinViewArray;
-use crate::arrays::extension::ExtensionArrayExt;
-use crate::validity::Validity;
-use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
-use crate::arrays::struct_::StructArrayExt;
-use crate::dtype::DType;
-use crate::dtype::DecimalType;
-use crate::dtype::NativePType;
-use crate::dtype::PType;
-use crate::dtype::half::f16;
-use crate::row::options::SortField;
+use crate::options::SortField;
 
 /// Size in bytes of the encoded form of a single bool value (sentinel + 1 content byte).
 pub const BOOL_ENCODED_SIZE: u32 = 2;
@@ -149,7 +150,7 @@ pub fn row_width_for_dtype(dtype: &DType) -> VortexResult<RowWidth> {
 /// Thin wrapper over [`row_width_for_dtype`] that takes an array reference. The `field`
 /// argument is accepted for API symmetry with the rest of the codec but does not influence
 /// classification.
-pub fn row_width(column: &crate::ArrayRef, _field: SortField) -> VortexResult<RowWidth> {
+pub fn row_width(column: &vortex_array::ArrayRef, _field: SortField) -> VortexResult<RowWidth> {
     row_width_for_dtype(column.dtype())
 }
 
@@ -451,7 +452,7 @@ fn encode_primitive(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    crate::match_each_native_ptype!(arr.ptype(), |T| {
+    match_each_native_ptype!(arr.ptype(), |T| {
         encode_primitive_typed::<T>(arr, field, row_offsets, col_offset, out, ctx)?;
     });
     Ok(())
@@ -549,7 +550,7 @@ fn encode_decimal_typed<T>(
     col_offset: &mut [u32],
     out: &mut [u8],
 ) where
-    T: crate::dtype::NativeDecimalType + RowEncode,
+    T: vortex_array::dtype::NativeDecimalType + RowEncode,
 {
     let non_null = field.non_null_sentinel();
     let null = field.null_sentinel();
@@ -826,7 +827,7 @@ fn encode_primitive_arith(
     out: &mut [u8],
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<()> {
-    crate::match_each_native_ptype!(arr.ptype(), |T| {
+    match_each_native_ptype!(arr.ptype(), |T| {
         encode_primitive_arith_typed::<T>(
             arr, field, col_prefix, row_stride, var_prefix, out, ctx,
         )?;
@@ -952,7 +953,7 @@ fn encode_decimal_arith_typed<T>(
     var_prefix: Option<&[u32]>,
     out: &mut [u8],
 ) where
-    T: crate::dtype::NativeDecimalType + RowEncode,
+    T: vortex_array::dtype::NativeDecimalType + RowEncode,
 {
     let non_null = field.non_null_sentinel();
     let null = field.null_sentinel();
@@ -1147,7 +1148,7 @@ fn encode_varlen_value(bytes: &[u8], out: &mut [u8], descending: bool) -> u32 {
             // vectorizable inner loop; the tail handles the partial block.
             for _ in 0..full_to_write {
                 xor_copy_block(src, dst);
-                *dst.add(VARLEN_BLOCK_SIZE) = 0xFF ^ 0xFF; // 0x00
+                *dst.add(VARLEN_BLOCK_SIZE) = 0x00; // descending counterpart of 0xFF
                 src = src.add(VARLEN_BLOCK_SIZE);
                 dst = dst.add(VARLEN_BLOCK_TOTAL);
             }
@@ -1294,7 +1295,7 @@ impl RowEncode for f16 {
 /// Encode a single scalar primitive value of a known PType into a buffer slot.
 pub fn encode_scalar_primitive(
     ptype: PType,
-    value: crate::scalar::PValue,
+    value: vortex_array::scalar::PValue,
     field: SortField,
     is_null: bool,
     out: &mut ByteBufferMut,
@@ -1307,7 +1308,7 @@ pub fn encode_scalar_primitive(
     let width = ptype.byte_width();
     let mut tmp = [0u8; 16];
     let buf = &mut tmp[..width];
-    crate::match_each_native_ptype!(
+    match_each_native_ptype!(
         ptype,
         integral: |T| {
             let v: T = T::try_from(value)?;
@@ -1370,10 +1371,9 @@ pub fn encode_scalar_null(field: SortField, is_null: bool, out: &mut ByteBufferM
 
 /// Returns the per-row encoded size for a scalar value (used for the Constant fast path).
 pub fn encoded_size_for_scalar(
-    scalar: &crate::scalar::Scalar,
+    scalar: &vortex_array::scalar::Scalar,
     _field: SortField,
 ) -> VortexResult<u32> {
-    use crate::dtype::DType;
     if scalar.is_null() {
         match scalar.dtype() {
             DType::Null => Ok(1),
@@ -1424,11 +1424,10 @@ pub fn encoded_size_for_scalar(
 
 /// Encode a single scalar value into a fresh `Bytes` buffer.
 pub fn encode_scalar(
-    scalar: &crate::scalar::Scalar,
+    scalar: &vortex_array::scalar::Scalar,
     field: SortField,
 ) -> VortexResult<bytes::Bytes> {
-    use crate::dtype::DType;
-    use crate::scalar::PValue;
+    use vortex_array::scalar::PValue;
     let size = encoded_size_for_scalar(scalar, field)? as usize;
     let mut out = ByteBufferMut::with_capacity(size);
     if scalar.is_null() {
@@ -1479,32 +1478,32 @@ pub fn encode_scalar(
                     .decimal_value()
                     .ok_or_else(|| vortex_error::vortex_err!("missing decimal value"))?;
                 match value {
-                    crate::scalar::DecimalValue::I8(v) => {
+                    vortex_array::scalar::DecimalValue::I8(v) => {
                         let mut tmp = [0u8; 1];
                         v.encode_to(&mut tmp, field.descending);
                         out.extend_from_slice(&tmp);
                     }
-                    crate::scalar::DecimalValue::I16(v) => {
+                    vortex_array::scalar::DecimalValue::I16(v) => {
                         let mut tmp = [0u8; 2];
                         v.encode_to(&mut tmp, field.descending);
                         out.extend_from_slice(&tmp);
                     }
-                    crate::scalar::DecimalValue::I32(v) => {
+                    vortex_array::scalar::DecimalValue::I32(v) => {
                         let mut tmp = [0u8; 4];
                         v.encode_to(&mut tmp, field.descending);
                         out.extend_from_slice(&tmp);
                     }
-                    crate::scalar::DecimalValue::I64(v) => {
+                    vortex_array::scalar::DecimalValue::I64(v) => {
                         let mut tmp = [0u8; 8];
                         v.encode_to(&mut tmp, field.descending);
                         out.extend_from_slice(&tmp);
                     }
-                    crate::scalar::DecimalValue::I128(v) => {
+                    vortex_array::scalar::DecimalValue::I128(v) => {
                         let mut tmp = [0u8; 16];
                         v.encode_to(&mut tmp, field.descending);
                         out.extend_from_slice(&tmp);
                     }
-                    crate::scalar::DecimalValue::I256(_) => {
+                    vortex_array::scalar::DecimalValue::I256(_) => {
                         vortex_bail!("row encoding for Decimal256 is not yet implemented")
                     }
                 }

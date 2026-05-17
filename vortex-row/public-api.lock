@@ -1,0 +1,485 @@
+pub mod vortex_row
+
+pub mod vortex_row::codec
+
+pub enum vortex_row::codec::RowWidth
+
+pub vortex_row::codec::RowWidth::Fixed(u32)
+
+pub vortex_row::codec::RowWidth::Variable
+
+impl core::clone::Clone for vortex_row::codec::RowWidth
+
+pub fn vortex_row::codec::RowWidth::clone(&self) -> vortex_row::codec::RowWidth
+
+impl core::cmp::Eq for vortex_row::codec::RowWidth
+
+impl core::cmp::PartialEq for vortex_row::codec::RowWidth
+
+pub fn vortex_row::codec::RowWidth::eq(&self, &vortex_row::codec::RowWidth) -> bool
+
+impl core::fmt::Debug for vortex_row::codec::RowWidth
+
+pub fn vortex_row::codec::RowWidth::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_row::codec::RowWidth
+
+impl core::marker::StructuralPartialEq for vortex_row::codec::RowWidth
+
+pub const vortex_row::codec::BOOL_ENCODED_SIZE: u32
+
+pub const vortex_row::codec::VARLEN_BLOCK_SIZE: usize
+
+pub const vortex_row::codec::VARLEN_BLOCK_TOTAL: usize
+
+pub trait vortex_row::codec::RowEncode: core::marker::Copy
+
+pub fn vortex_row::codec::RowEncode::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for f32
+
+pub fn f32::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for f64
+
+pub fn f64::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for half::binary16::f16
+
+pub fn half::binary16::f16::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for i128
+
+pub fn i128::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for i16
+
+pub fn i16::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for i32
+
+pub fn i32::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for i64
+
+pub fn i64::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for i8
+
+pub fn i8::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for u16
+
+pub fn u16::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for u32
+
+pub fn u32::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for u64
+
+pub fn u64::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for u8
+
+pub fn u8::encode_to(self, &mut [u8], bool)
+
+pub fn vortex_row::codec::encode_scalar(&vortex_array::scalar::Scalar, vortex_row::options::SortField) -> vortex_error::VortexResult<bytes::bytes::Bytes>
+
+pub fn vortex_row::codec::encode_scalar_bool(core::option::Option<bool>, vortex_row::options::SortField, &mut vortex_buffer::ByteBufferMut)
+
+pub fn vortex_row::codec::encode_scalar_null(vortex_row::options::SortField, bool, &mut vortex_buffer::ByteBufferMut)
+
+pub fn vortex_row::codec::encode_scalar_primitive(vortex_array::dtype::ptype::PType, vortex_array::scalar::typed_view::primitive::pvalue::PValue, vortex_row::options::SortField, bool, &mut vortex_buffer::ByteBufferMut) -> vortex_error::VortexResult<()>
+
+pub fn vortex_row::codec::encode_scalar_varlen(core::option::Option<&[u8]>, vortex_row::options::SortField, &mut vortex_buffer::ByteBufferMut)
+
+pub fn vortex_row::codec::encoded_size_for_scalar(&vortex_array::scalar::Scalar, vortex_row::options::SortField) -> vortex_error::VortexResult<u32>
+
+pub fn vortex_row::codec::field_encode(&vortex_array::canonical::Canonical, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_row::codec::field_encode_fixed_arithmetic(&vortex_array::canonical::Canonical, vortex_row::options::SortField, u32, u32, core::option::Option<&[u32]>, u32, &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_row::codec::field_size(&vortex_array::canonical::Canonical, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_row::codec::row_width(&vortex_array::array::erased::ArrayRef, vortex_row::options::SortField) -> vortex_error::VortexResult<vortex_row::codec::RowWidth>
+
+pub fn vortex_row::codec::row_width_for_dtype(&vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_row::codec::RowWidth>
+
+pub mod vortex_row::convert
+
+pub fn vortex_row::convert::compute_row_sizes(&[vortex_array::array::erased::ArrayRef], &[vortex_row::options::SortField], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_row::convert::convert_columns(&[vortex_array::array::erased::ArrayRef], &[vortex_row::options::SortField], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::listview::vtable::ListViewArray>
+
+pub mod vortex_row::encode
+
+pub struct vortex_row::encode::RowEncode
+
+impl core::clone::Clone for vortex_row::encode::RowEncode
+
+pub fn vortex_row::encode::RowEncode::clone(&self) -> vortex_row::encode::RowEncode
+
+impl core::fmt::Debug for vortex_row::encode::RowEncode
+
+pub fn vortex_row::encode::RowEncode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_row::encode::RowEncode
+
+pub type vortex_row::encode::RowEncode::Options = vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::encode::RowEncode::arity(&self, &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
+
+pub fn vortex_row::encode::RowEncode::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::vtable::ChildName
+
+pub fn vortex_row::encode::RowEncode::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_row::encode::RowEncode::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_row::encode::RowEncode::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_row::encode::RowEncode::is_fallible(&self, &Self::Options) -> bool
+
+pub fn vortex_row::encode::RowEncode::is_null_sensitive(&self, &Self::Options) -> bool
+
+pub fn vortex_row::encode::RowEncode::return_dtype(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_row::encode::RowEncode::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub trait vortex_row::encode::RowEncodeKernel: vortex_array::array::vtable::VTable
+
+pub fn vortex_row::encode::RowEncodeKernel::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::encode::RowEncodeKernel for vortex_array::arrays::constant::vtable::Constant
+
+pub fn vortex_array::arrays::constant::vtable::Constant::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::encode::RowEncodeKernel for vortex_array::arrays::dict::vtable::Dict
+
+pub fn vortex_array::arrays::dict::vtable::Dict::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+pub fn vortex_row::encode::dispatch_encode(&vortex_array::array::erased::ArrayRef, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub mod vortex_row::options
+
+pub struct vortex_row::options::RowEncodeOptions
+
+pub vortex_row::options::RowEncodeOptions::fields: alloc::vec::Vec<vortex_row::options::SortField>
+
+impl vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::new(alloc::vec::Vec<vortex_row::options::SortField>) -> Self
+
+impl core::clone::Clone for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::clone(&self) -> vortex_row::options::RowEncodeOptions
+
+impl core::cmp::Eq for vortex_row::options::RowEncodeOptions
+
+impl core::cmp::PartialEq for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::eq(&self, &vortex_row::options::RowEncodeOptions) -> bool
+
+impl core::fmt::Debug for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_row::options::RowEncodeOptions
+
+pub struct vortex_row::options::SortField
+
+pub vortex_row::options::SortField::descending: bool
+
+pub vortex_row::options::SortField::nulls_first: bool
+
+impl vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::new(bool, bool) -> Self
+
+pub fn vortex_row::options::SortField::non_null_sentinel(&self) -> u8
+
+pub fn vortex_row::options::SortField::null_sentinel(&self) -> u8
+
+impl core::clone::Clone for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::clone(&self) -> vortex_row::options::SortField
+
+impl core::cmp::Eq for vortex_row::options::SortField
+
+impl core::cmp::PartialEq for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::eq(&self, &vortex_row::options::SortField) -> bool
+
+impl core::default::Default for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::default() -> Self
+
+impl core::fmt::Debug for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::Copy for vortex_row::options::SortField
+
+impl core::marker::StructuralPartialEq for vortex_row::options::SortField
+
+pub mod vortex_row::registry
+
+pub struct vortex_row::registry::RowEncodeRegistration
+
+pub vortex_row::registry::RowEncodeRegistration::encode: vortex_row::registry::DynEncodeFn
+
+pub vortex_row::registry::RowEncodeRegistration::id: fn() -> vortex_array::array::ArrayId
+
+pub vortex_row::registry::RowEncodeRegistration::size: vortex_row::registry::DynSizeFn
+
+impl inventory::Collect for vortex_row::registry::RowEncodeRegistration
+
+pub fn vortex_row::registry::lookup(&vortex_array::array::ArrayId) -> core::option::Option<(vortex_row::registry::DynSizeFn, vortex_row::registry::DynEncodeFn)>
+
+pub type vortex_row::registry::DynEncodeFn = fn(&vortex_array::array::erased::ArrayRef, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+pub type vortex_row::registry::DynSizeFn = fn(&vortex_array::array::erased::ArrayRef, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+pub mod vortex_row::size
+
+pub struct vortex_row::size::RowSize
+
+impl core::clone::Clone for vortex_row::size::RowSize
+
+pub fn vortex_row::size::RowSize::clone(&self) -> vortex_row::size::RowSize
+
+impl core::fmt::Debug for vortex_row::size::RowSize
+
+pub fn vortex_row::size::RowSize::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_row::size::RowSize
+
+pub type vortex_row::size::RowSize::Options = vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::size::RowSize::arity(&self, &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
+
+pub fn vortex_row::size::RowSize::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::vtable::ChildName
+
+pub fn vortex_row::size::RowSize::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_row::size::RowSize::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_row::size::RowSize::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_row::size::RowSize::is_fallible(&self, &Self::Options) -> bool
+
+pub fn vortex_row::size::RowSize::is_null_sensitive(&self, &Self::Options) -> bool
+
+pub fn vortex_row::size::RowSize::return_dtype(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_row::size::RowSize::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub trait vortex_row::size::RowSizeKernel: vortex_array::array::vtable::VTable
+
+pub fn vortex_row::size::RowSizeKernel::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::size::RowSizeKernel for vortex_array::arrays::constant::vtable::Constant
+
+pub fn vortex_array::arrays::constant::vtable::Constant::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::size::RowSizeKernel for vortex_array::arrays::dict::vtable::Dict
+
+pub fn vortex_array::arrays::dict::vtable::Dict::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+pub fn vortex_row::size::dispatch_size(&vortex_array::array::erased::ArrayRef, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub struct vortex_row::RowEncode
+
+impl core::clone::Clone for vortex_row::encode::RowEncode
+
+pub fn vortex_row::encode::RowEncode::clone(&self) -> vortex_row::encode::RowEncode
+
+impl core::fmt::Debug for vortex_row::encode::RowEncode
+
+pub fn vortex_row::encode::RowEncode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_row::encode::RowEncode
+
+pub type vortex_row::encode::RowEncode::Options = vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::encode::RowEncode::arity(&self, &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
+
+pub fn vortex_row::encode::RowEncode::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::vtable::ChildName
+
+pub fn vortex_row::encode::RowEncode::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_row::encode::RowEncode::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_row::encode::RowEncode::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_row::encode::RowEncode::is_fallible(&self, &Self::Options) -> bool
+
+pub fn vortex_row::encode::RowEncode::is_null_sensitive(&self, &Self::Options) -> bool
+
+pub fn vortex_row::encode::RowEncode::return_dtype(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_row::encode::RowEncode::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub struct vortex_row::RowEncodeOptions
+
+pub vortex_row::RowEncodeOptions::fields: alloc::vec::Vec<vortex_row::options::SortField>
+
+impl vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::new(alloc::vec::Vec<vortex_row::options::SortField>) -> Self
+
+impl core::clone::Clone for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::clone(&self) -> vortex_row::options::RowEncodeOptions
+
+impl core::cmp::Eq for vortex_row::options::RowEncodeOptions
+
+impl core::cmp::PartialEq for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::eq(&self, &vortex_row::options::RowEncodeOptions) -> bool
+
+impl core::fmt::Debug for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_row::options::RowEncodeOptions
+
+pub struct vortex_row::RowEncodeRegistration
+
+pub vortex_row::RowEncodeRegistration::encode: vortex_row::registry::DynEncodeFn
+
+pub vortex_row::RowEncodeRegistration::id: fn() -> vortex_array::array::ArrayId
+
+pub vortex_row::RowEncodeRegistration::size: vortex_row::registry::DynSizeFn
+
+impl inventory::Collect for vortex_row::registry::RowEncodeRegistration
+
+pub struct vortex_row::RowSize
+
+impl core::clone::Clone for vortex_row::size::RowSize
+
+pub fn vortex_row::size::RowSize::clone(&self) -> vortex_row::size::RowSize
+
+impl core::fmt::Debug for vortex_row::size::RowSize
+
+pub fn vortex_row::size::RowSize::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_array::scalar_fn::vtable::ScalarFnVTable for vortex_row::size::RowSize
+
+pub type vortex_row::size::RowSize::Options = vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::size::RowSize::arity(&self, &Self::Options) -> vortex_array::scalar_fn::vtable::Arity
+
+pub fn vortex_row::size::RowSize::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::vtable::ChildName
+
+pub fn vortex_row::size::RowSize::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
+
+pub fn vortex_row::size::RowSize::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_row::size::RowSize::id(&self) -> vortex_array::scalar_fn::ScalarFnId
+
+pub fn vortex_row::size::RowSize::is_fallible(&self, &Self::Options) -> bool
+
+pub fn vortex_row::size::RowSize::is_null_sensitive(&self, &Self::Options) -> bool
+
+pub fn vortex_row::size::RowSize::return_dtype(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<vortex_array::dtype::DType>
+
+pub fn vortex_row::size::RowSize::serialize(&self, &Self::Options) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+
+pub struct vortex_row::SortField
+
+pub vortex_row::SortField::descending: bool
+
+pub vortex_row::SortField::nulls_first: bool
+
+impl vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::new(bool, bool) -> Self
+
+pub fn vortex_row::options::SortField::non_null_sentinel(&self) -> u8
+
+pub fn vortex_row::options::SortField::null_sentinel(&self) -> u8
+
+impl core::clone::Clone for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::clone(&self) -> vortex_row::options::SortField
+
+impl core::cmp::Eq for vortex_row::options::SortField
+
+impl core::cmp::PartialEq for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::eq(&self, &vortex_row::options::SortField) -> bool
+
+impl core::default::Default for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::default() -> Self
+
+impl core::fmt::Debug for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::Copy for vortex_row::options::SortField
+
+impl core::marker::StructuralPartialEq for vortex_row::options::SortField
+
+pub trait vortex_row::RowEncodeKernel: vortex_array::array::vtable::VTable
+
+pub fn vortex_row::RowEncodeKernel::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::encode::RowEncodeKernel for vortex_array::arrays::constant::vtable::Constant
+
+pub fn vortex_array::arrays::constant::vtable::Constant::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::encode::RowEncodeKernel for vortex_array::arrays::dict::vtable::Dict
+
+pub fn vortex_array::arrays::dict::vtable::Dict::row_encode_into(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+pub trait vortex_row::RowSizeKernel: vortex_array::array::vtable::VTable
+
+pub fn vortex_row::RowSizeKernel::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::size::RowSizeKernel for vortex_array::arrays::constant::vtable::Constant
+
+pub fn vortex_array::arrays::constant::vtable::Constant::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+impl vortex_row::size::RowSizeKernel for vortex_array::arrays::dict::vtable::Dict
+
+pub fn vortex_array::arrays::dict::vtable::Dict::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+pub fn vortex_row::compute_row_sizes(&[vortex_array::array::erased::ArrayRef], &[vortex_row::options::SortField], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_row::convert_columns(&[vortex_array::array::erased::ArrayRef], &[vortex_row::options::SortField], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::listview::vtable::ListViewArray>
+
+pub fn vortex_row::initialize(&vortex_session::VortexSession)

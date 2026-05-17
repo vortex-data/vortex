@@ -88,9 +88,7 @@ serde = ["dep:serde", "vortex-buffer/serde", "vortex-mask/serde"]
 
 [dev-dependencies]
 arrow-cast = { workspace = true }
-arrow-row = { workspace = true }
 divan = { workspace = true }
-mimalloc = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
 rand_distr = { workspace = true }
@@ -211,8 +209,4 @@ harness = false
 
 [[bench]]
 name = "to_arrow"
-harness = false
-
-[[bench]]
-name = "row_encode"
 harness = false

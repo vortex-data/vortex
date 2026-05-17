@@ -11,22 +11,22 @@
 //! Tests for the row encoder.
 
 use rstest::rstest;
+use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::ListViewArray;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::listview::ListViewArrayExt;
+use vortex_array::builders::dict::dict_encode;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
 use vortex_error::VortexResult;
 
-use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
-use crate::arrays::BoolArray;
-use crate::arrays::ConstantArray;
-use crate::arrays::ListViewArray;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::VarBinViewArray;
-use crate::arrays::listview::ListViewArrayExt;
-use crate::builders::dict::dict_encode;
-use crate::dtype::DType;
-use crate::dtype::Nullability;
-use crate::row::SortField;
-use crate::row::convert_columns;
+use crate::SortField;
+use crate::convert_columns;
 
 fn collect_row_bytes(array: &ListViewArray) -> Vec<Vec<u8>> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
@@ -264,7 +264,7 @@ fn constant_path_matches_canonical() -> VortexResult<()> {
 
 #[test]
 fn struct_sort_order() -> VortexResult<()> {
-    use crate::arrays::StructArray;
+    use vortex_array::arrays::StructArray;
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let ids: Vec<i64> = vec![3, 1, 3, 1, 2];
     let names = vec!["b", "a", "a", "b", "z"];
@@ -287,7 +287,7 @@ fn struct_sort_order() -> VortexResult<()> {
 #[test]
 #[allow(clippy::cast_possible_truncation)]
 fn pure_fixed_offsets_arithmetic() -> VortexResult<()> {
-    use crate::arrays::listview::ListViewArrayExt;
+    use vortex_array::arrays::listview::ListViewArrayExt;
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     // Two i64 columns: encoded width = 2 * (1 + 8) = 18 bytes per row.
     let nrows = 16usize;
@@ -313,7 +313,7 @@ fn pure_fixed_offsets_arithmetic() -> VortexResult<()> {
     }
     // And sizes should be the constant `fixed_per_row` (we make this a ConstantArray when
     // there are no varlen columns).
-    use crate::Canonical;
+    use vortex_array::Canonical;
     let sizes_canon = encoded.sizes().clone().execute::<Canonical>(&mut ctx)?;
     match sizes_canon {
         Canonical::Primitive(prim) => {
@@ -328,10 +328,11 @@ fn pure_fixed_offsets_arithmetic() -> VortexResult<()> {
 
 #[test]
 fn row_size_struct_shape() -> VortexResult<()> {
-    use crate::arrays::Constant;
-    use crate::arrays::StructArray;
-    use crate::arrays::struct_::StructArrayExt;
-    use crate::row::compute_row_sizes;
+    use vortex_array::arrays::Constant;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::struct_::StructArrayExt;
+
+    use crate::compute_row_sizes;
 
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let ints: Vec<i32> = vec![1, 2, 3, 4, 5];
@@ -356,7 +357,7 @@ fn row_size_struct_shape() -> VortexResult<()> {
         .expect("fixed field should be a ConstantArray");
     assert_eq!(
         fixed_const.scalar(),
-        &crate::scalar::Scalar::from(5u32),
+        &vortex_array::scalar::Scalar::from(5u32),
         "fixed scalar should be encoded primitive i32 width"
     );
 

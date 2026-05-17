@@ -20,10 +20,15 @@
 //! buffers.
 //!
 //! The user-facing entry point is [`convert_columns`].
+//!
+//! Row-encoding scalar functions are not registered in the default
+//! [`VortexSession`]. Call [`initialize`] on a session to make `RowSize` and `RowEncode`
+//! available via the expression layer.
 
 pub mod codec;
 pub mod convert;
 pub mod encode;
+mod kernels;
 pub mod options;
 pub mod registry;
 pub mod size;
@@ -40,3 +45,15 @@ pub use options::SortField;
 pub use registry::RowEncodeRegistration;
 pub use size::RowSize;
 pub use size::RowSizeKernel;
+use vortex_array::scalar_fn::session::ScalarFnSessionExt;
+use vortex_session::VortexSession;
+
+/// Register the row-encoding scalar functions ([`RowSize`] and [`RowEncode`]) on the given
+/// session.
+///
+/// Call once on session construction if you want row encoding available via the expression
+/// layer or via [`convert_columns`].
+pub fn initialize(session: &VortexSession) {
+    session.scalar_fns().register(RowSize);
+    session.scalar_fns().register(RowEncode);
+}
