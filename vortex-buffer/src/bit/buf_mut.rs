@@ -185,7 +185,7 @@ impl BitBufferMut {
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new `BitBufferMut`
     #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, mut f: F) -> Self {
-        let mut buffer = BufferMut::with_capacity(len.div_ceil(64) * 8);
+        let mut buffer = BufferMut::<u64>::with_capacity(len.div_ceil(64));
 
         let chunks = len / 64;
         let remainder = len % 64;
@@ -211,10 +211,11 @@ impl BitBufferMut {
             unsafe { buffer.push_unchecked(packed) }
         }
 
-        buffer.truncate(len.div_ceil(8));
+        let mut byte_buffer = buffer.into_byte_buffer();
+        byte_buffer.truncate(len.div_ceil(8));
 
         Self {
-            buffer: buffer.into_byte_buffer(),
+            buffer: byte_buffer,
             offset: 0,
             len,
         }
@@ -1116,5 +1117,16 @@ mod tests {
         let one: BitBufferMut = bitbuffer_mut![1];
         assert_eq!(one.len(), 1);
         assert!(one.freeze().value(0));
+    }
+
+    #[test]
+    fn collect_bool_does_not_overallocate() {
+        let bb = BitBufferMut::collect_bool(1024, |_| true);
+        assert_eq!(bb.len(), 1024);
+        assert!(
+            bb.inner().capacity() <= 256,
+            "expected ~128 bytes capacity, got {}",
+            bb.inner().capacity()
+        );
     }
 }
