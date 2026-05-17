@@ -45,6 +45,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::patches::Patches;
+use vortex_fastlanes::BitPackedData;
 use vortex_row::SortField;
 use vortex_row::convert_columns;
 
@@ -367,6 +368,60 @@ fn patched_i32_without_kernel(bencher: divan::Bencher) {
     bencher.counter(BytesCount::new(bytes)).bench_local(|| {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let canonical = arr
+            .clone()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
+            .into_array();
+        convert_columns(&[canonical], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+// ---------- bitpacked_i32 ----------
+
+fn gen_bitpacked_i32_values(n: usize, seed: u64) -> Vec<i32> {
+    // Small positive integers in the 0..255 range so they bit-pack to 8 bits without patches.
+    let mut rng = StdRng::seed_from_u64(seed);
+    (0..n).map(|_| rng.random_range(0i32..256)).collect()
+}
+
+#[divan::bench]
+fn bitpacked_i32_arrow_row(bencher: divan::Bencher) {
+    let v = gen_bitpacked_i32_values(N, 100);
+    let arr = Arc::new(Int32Array::from(v.clone())) as arrow_array::ArrayRef;
+    let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Int32)]).unwrap();
+    let bytes = (N * (1 + 4)) as u64;
+    bencher
+        .counter(BytesCount::new(bytes))
+        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
+}
+
+#[divan::bench]
+fn bitpacked_i32_with_kernel(bencher: divan::Bencher) {
+    let v = gen_bitpacked_i32_values(N, 100);
+    let raw = PrimitiveArray::from_iter(v.clone()).into_array();
+    let mut setup_ctx = LEGACY_SESSION.create_execution_ctx();
+    let bp = BitPackedData::encode(&raw, 8, &mut setup_ctx)
+        .unwrap()
+        .into_array();
+    let bytes = (N * (1 + 4)) as u64;
+    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        convert_columns(&[bp.clone()], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+#[divan::bench]
+fn bitpacked_i32_without_kernel(bencher: divan::Bencher) {
+    let v = gen_bitpacked_i32_values(N, 100);
+    let raw = PrimitiveArray::from_iter(v.clone()).into_array();
+    let mut setup_ctx = LEGACY_SESSION.create_execution_ctx();
+    let bp = BitPackedData::encode(&raw, 8, &mut setup_ctx)
+        .unwrap()
+        .into_array();
+    let bytes = (N * (1 + 4)) as u64;
+    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let canonical = bp
             .clone()
             .execute::<Canonical>(&mut ctx)
             .unwrap()

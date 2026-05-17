@@ -10687,6 +10687,7 @@ version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
  "fastlanes",
+ "inventory",
  "itertools 0.14.0",
  "lending-iterator",
  "num-traits",
@@ -10699,6 +10700,7 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-mask",
+ "vortex-row",
  "vortex-session",
 ]
 
@@ -11051,6 +11053,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-mask",
  "vortex-session",
  "vortex-utils",

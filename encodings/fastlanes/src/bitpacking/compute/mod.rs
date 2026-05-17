@@ -4,6 +4,7 @@
 mod cast;
 mod filter;
 pub(crate) mod is_constant;
+pub(crate) mod row_encode;
 mod slice;
 mod take;
 
