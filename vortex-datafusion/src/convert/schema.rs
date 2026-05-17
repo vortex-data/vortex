@@ -88,12 +88,23 @@ fn calculate_physical_field_type(
         // For struct types, recursively check each field
         DataType::Struct(logical_fields) => {
             if let DType::Struct(struct_dtype, _) = dtype {
+                // Build a name->field lookup once to avoid O(n^2) scans of `logical_fields`
+                // when the struct has many fields.
+                #[expect(
+                    clippy::disallowed_types,
+                    reason = "small short-lived lookup, no need for ahash"
+                )]
+                let by_name: std::collections::HashMap<&str, &Field> = logical_fields
+                    .iter()
+                    .map(|f| (f.name().as_str(), f.as_ref()))
+                    .collect();
+
                 let physical_fields: Vec<Field> = struct_dtype
                     .names()
                     .iter()
                     .zip(struct_dtype.fields())
                     .map(|(name, field_dtype)| {
-                        match logical_fields.iter().find(|f| f.name() == name.as_ref()) {
+                        match by_name.get(name.as_ref()).copied() {
                             Some(logical_field) => {
                                 let arrow_type = calculate_physical_field_type(
                                     &field_dtype,
