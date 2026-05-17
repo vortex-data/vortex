@@ -102,6 +102,10 @@ impl BitBufferMut {
     /// Create new bit buffer from given byte buffer and logical bit length
     pub fn from_buffer(buffer: ByteBufferMut, offset: usize, len: usize) -> Self {
         assert!(
+            offset < 8,
+            "BitBufferMut offset must be less than 8, got {offset}"
+        );
+        assert!(
             len <= buffer.len() * 8,
             "Buffer len {} is too short for the given length {len}",
             buffer.len()
@@ -746,11 +750,11 @@ mod tests {
 
     #[test]
     fn test_with_offset_byte_boundary() {
-        // Test operations with offset=8 (exactly one byte)
-        let buf = buffer_mut![0xFF, 0x00, 0xFF];
-        let mut bit_buf = BitBufferMut::from_buffer(buf, 8, 16);
+        // Test operations starting at byte index 1 (originally tested as offset=8).
+        let buf = buffer_mut![0x00, 0xFF];
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 0, 16);
 
-        // Buffer starts at byte 1, so all bits should be unset initially
+        // Buffer first byte is all unset
         for i in 0..8 {
             assert!(!bit_buf.value(i));
         }
@@ -768,9 +772,9 @@ mod tests {
 
     #[test]
     fn test_with_large_offset() {
-        // Test with offset=13 (one byte + 5 bits)
-        let buf = buffer_mut![0xFF, 0xFF, 0xFF, 0xFF];
-        let mut bit_buf = BitBufferMut::from_buffer(buf, 13, 10);
+        // Original offset 13 = 1 byte + 5 bits; emulate by slicing the buffer.
+        let buf = buffer_mut![0xFF, 0xFF, 0xFF];
+        let mut bit_buf = BitBufferMut::from_buffer(buf, 5, 10);
 
         // All bits should initially be set
         for i in 0..10 {
@@ -1128,5 +1132,11 @@ mod tests {
             "expected ~128 bytes capacity, got {}",
             bb.inner().capacity()
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "offset must be less than 8")]
+    fn from_buffer_rejects_offset_ge_8() {
+        drop(BitBufferMut::from_buffer(BufferMut::zeroed(4), 9, 0));
     }
 }
