@@ -45,12 +45,28 @@ enum ValidityState {
 
 /// Polymorphic iterator over a [`ListArray`]'s per-row `(start, end)`
 /// ranges into the elements array.
+///
+/// Internally specializes on the common offset ptype (`u32`) so the
+/// common path is zero-overhead: refcount-clone of the existing
+/// `Buffer<u32>`, per-tick u32 read + cast to usize. Rare ptypes
+/// (i8/u8/i16/u16/i32/i64/u64) are normalized to `Buffer<usize>` once at
+/// construction.
 pub struct ListIter {
-    offsets: Buffer<usize>,
+    inner: ListIterInner,
     pos: usize,
     len: usize,
     validity: ValidityState,
 }
+
+enum ListIterInner {
+    /// Fast path: refcount-clone of an existing `Buffer<u32>`.
+    U32 { _buf: Buffer<u32>, ptr: *const u32 },
+    /// Fallback path: offsets normalized to `Buffer<usize>` once.
+    Usize { offsets: Buffer<usize> },
+}
+
+// SAFETY: the raw pointer is owned via the adjacent `_buf`.
+unsafe impl Send for ListIterInner {}
 
 /// Typed iterator over `(start, end)` ranges, parameterized over the
 /// physical offset type. No upfront conversion; per tick reads two `O`
@@ -74,9 +90,18 @@ impl Iterator for ListIter {
         if self.pos >= self.len {
             return None;
         }
-        let offsets = self.offsets.as_slice();
-        let start = offsets[self.pos];
-        let end = offsets[self.pos + 1];
+        // The variant tag never changes during iteration, so the branch
+        // predictor pins on one arm and the body inlines as if it were
+        // monomorphic.
+        let (start, end) = match &self.inner {
+            ListIterInner::U32 { ptr, .. } => unsafe {
+                (*ptr.add(self.pos) as usize, *ptr.add(self.pos + 1) as usize)
+            },
+            ListIterInner::Usize { offsets } => {
+                let s = offsets.as_slice();
+                (s[self.pos], s[self.pos + 1])
+            }
+        };
         self.pos += 1;
         let range = (start, end);
         match &mut self.validity {
@@ -153,15 +178,25 @@ impl IterArrayValue<(usize, usize)> for ListArray {
         #[expect(deprecated)]
         let offsets_arr = self.offsets().to_primitive();
         let len = self.len();
-        let offsets: Buffer<usize> = match_each_integer_ptype!(offsets_arr.ptype(), |O| {
-            let src = offsets_arr.as_slice::<O>();
-            Buffer::<usize>::from_iter(src.iter().map(|v| (*v).to_byte_index()))
-        });
+        let inner = if offsets_arr.ptype() == crate::dtype::PType::U32 {
+            // Fast path: refcount-clone the existing Buffer<u32>. No
+            // conversion, no allocation.
+            let buf = offsets_arr.into_buffer::<u32>();
+            let ptr = buf.as_slice().as_ptr();
+            ListIterInner::U32 { _buf: buf, ptr }
+        } else {
+            // Fallback: normalize to Buffer<usize> once.
+            let offsets: Buffer<usize> = match_each_integer_ptype!(offsets_arr.ptype(), |O| {
+                let src = offsets_arr.as_slice::<O>();
+                Buffer::<usize>::from_iter(src.iter().map(|v| (*v).to_byte_index()))
+            });
+            ListIterInner::Usize { offsets }
+        };
         let validity = self
             .validity()
             .vortex_expect("list validity should be derivable");
         ListIter {
-            offsets,
+            inner,
             pos: 0,
             len,
             validity: make_validity(validity),

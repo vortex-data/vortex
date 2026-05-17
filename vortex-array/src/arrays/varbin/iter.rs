@@ -59,15 +59,28 @@ impl_offset!(i8, i16, i32, i64, u8, u16, u32, u64);
 
 /// Polymorphic iterator over a [`VarBinArray`]'s byte slices.
 ///
-/// Returned by [`IterArray::iter`]. Offsets are normalized to `usize`
-/// once at construction; the per-tick path is monomorphic.
+/// Returned by [`IterArray::iter`]. Internally specializes on the common
+/// offset ptype (`u32`) so the common path is zero-overhead: refcount-
+/// clone of the existing `Buffer<u32>`, per-tick u32 read + cast to
+/// usize. Rare ptypes (i8/u8/i16/u16/i32/i64/u64) are normalized to
+/// `Buffer<usize>` once at construction.
 pub struct VarBinIter<'a> {
-    offsets: Buffer<usize>,
+    inner: VarBinIterInner,
     bytes: &'a [u8],
     pos: usize,
     len: usize,
     validity: ValidityState,
 }
+
+enum VarBinIterInner {
+    /// Fast path: refcount-clone of an existing `Buffer<u32>`.
+    U32 { _buf: Buffer<u32>, ptr: *const u32 },
+    /// Fallback: offsets normalized to `Buffer<usize>` once.
+    Usize { offsets: Buffer<usize> },
+}
+
+// SAFETY: the raw pointer is owned via the adjacent `_buf`.
+unsafe impl Send for VarBinIterInner {}
 
 /// Typed iterator over a [`VarBinArray`]'s byte slices.
 ///
@@ -99,9 +112,17 @@ impl<'a> Iterator for VarBinIter<'a> {
         if self.pos >= self.len {
             return None;
         }
-        let offsets = self.offsets.as_slice();
-        let start = offsets[self.pos];
-        let end = offsets[self.pos + 1];
+        // The variant never changes during iteration, so the branch
+        // predictor pins on one arm and the body inlines.
+        let (start, end) = match &self.inner {
+            VarBinIterInner::U32 { ptr, .. } => unsafe {
+                (*ptr.add(self.pos) as usize, *ptr.add(self.pos + 1) as usize)
+            },
+            VarBinIterInner::Usize { offsets } => {
+                let s = offsets.as_slice();
+                (s[self.pos], s[self.pos + 1])
+            }
+        };
         self.pos += 1;
         let slice = &self.bytes[start..end];
         match &mut self.validity {
@@ -185,15 +206,24 @@ impl IterArray<[u8]> for VarBinArray {
         let offsets_arr = self.offsets().to_primitive();
         let bytes: &[u8] = self.bytes().as_slice();
         let len = self.len();
-        let offsets: Buffer<usize> = match_each_integer_ptype!(offsets_arr.ptype(), |O| {
-            let src = offsets_arr.as_slice::<O>();
-            Buffer::<usize>::from_iter(src.iter().map(|v| (*v).to_byte_index()))
-        });
+        let inner = if offsets_arr.ptype() == crate::dtype::PType::U32 {
+            // Fast path: refcount-clone of the existing Buffer<u32>.
+            let buf = offsets_arr.into_buffer::<u32>();
+            let ptr = buf.as_slice().as_ptr();
+            VarBinIterInner::U32 { _buf: buf, ptr }
+        } else {
+            // Fallback: normalize to Buffer<usize> once.
+            let offsets: Buffer<usize> = match_each_integer_ptype!(offsets_arr.ptype(), |O| {
+                let src = offsets_arr.as_slice::<O>();
+                Buffer::<usize>::from_iter(src.iter().map(|v| (*v).to_byte_index()))
+            });
+            VarBinIterInner::Usize { offsets }
+        };
         let validity = self
             .validity()
             .vortex_expect("varbin validity should be derivable");
         VarBinIter {
-            offsets,
+            inner,
             bytes,
             pos: 0,
             len,
