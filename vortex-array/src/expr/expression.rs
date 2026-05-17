@@ -138,18 +138,30 @@ impl Expression {
 
     /// Returns an expression that proves this predicate is definitely false from stats.
     ///
+    /// `scope` is the dtype of the row this expression evaluates over.
+    ///
     /// If the returned expression evaluates to `true` for a stats scope, this expression is
     /// guaranteed to be false for every row in that scope. `false` and `null` are unknown.
-    pub fn falsify(&self, session: &VortexSession) -> VortexResult<Option<Expression>> {
-        crate::stats::rewrite::StatsRewriteCtx::new(session).falsify(self)
+    pub fn falsify(
+        &self,
+        scope: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Expression>> {
+        crate::stats::rewrite::StatsRewriteCtx::new(session, scope).falsify(self)
     }
 
     /// Returns an expression that proves this predicate is definitely true from stats.
     ///
+    /// `scope` is the dtype of the row this expression evaluates over.
+    ///
     /// If the returned expression evaluates to `true` for a stats scope, this expression is
     /// guaranteed to be true for every row in that scope. `false` and `null` are unknown.
-    pub fn satisfy(&self, session: &VortexSession) -> VortexResult<Option<Expression>> {
-        crate::stats::rewrite::StatsRewriteCtx::new(session).satisfy(self)
+    pub fn satisfy(
+        &self,
+        scope: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Expression>> {
+        crate::stats::rewrite::StatsRewriteCtx::new(session, scope).satisfy(self)
     }
 
     /// Returns an expression representing the zoned statistic for the given stat, if available.

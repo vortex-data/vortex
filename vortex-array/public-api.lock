@@ -12918,13 +12918,13 @@ pub fn vortex_array::expr::Expression::children(&self) -> &alloc::sync::Arc<allo
 
 pub fn vortex_array::expr::Expression::display_tree(&self) -> impl core::fmt::Display
 
-pub fn vortex_array::expr::Expression::falsify(&self, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+pub fn vortex_array::expr::Expression::falsify(&self, &vortex_array::dtype::DType, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 pub fn vortex_array::expr::Expression::fmt_sql(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_array::expr::Expression::return_dtype(&self, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
-pub fn vortex_array::expr::Expression::satisfy(&self, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
+pub fn vortex_array::expr::Expression::satisfy(&self, &vortex_array::dtype::DType, &vortex_session::VortexSession) -> vortex_error::VortexResult<core::option::Option<vortex_array::expr::Expression>>
 
 pub fn vortex_array::expr::Expression::scalar_fn(&self) -> &vortex_array::scalar_fn::ScalarFnRef
 
