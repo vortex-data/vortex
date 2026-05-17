@@ -521,11 +521,8 @@ impl FileOpener for VortexOpener {
                 // a fresh per-scan RowDemand internally; pass detached
                 // here to satisfy the parameter shape.
                 let parent_demand = vortex::layout::v2::demand::RowDemand::empty(total_rows);
-                let parent_frontier =
-                    vortex::layout::v2::scheduler::OutputFrontier::unbounded(total_rows)
-                        .clone_with_offset(v2_range.clone());
                 let chunk_stream = plan
-                    .execute(v2_range, &parent_demand, &parent_frontier, &scan_ctx)
+                    .execute(v2_range, &parent_demand, &scan_ctx)
                     .map_err(|e| exec_datafusion_err!("Failed to execute LayoutPlan v2: {e}"))?;
 
                 chunk_stream

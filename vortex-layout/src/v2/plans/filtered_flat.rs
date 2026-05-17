@@ -53,7 +53,6 @@ use crate::v2::plans::flat::decode_segment;
 use crate::v2::plans::flat::slice_to_range;
 use crate::v2::scan_ctx::ScanCtx;
 use crate::v2::scheduler::LayoutLoweringCtx;
-use crate::v2::scheduler::OutputFrontier;
 
 /// Terminal node over one segment with a pushed-down mask. The mask
 /// plan is the sole child — the CSE pass collapses N
@@ -254,14 +253,20 @@ impl LayoutPlan for FilteredFlatPlan {
                 self.layout_row_count
             );
         }
-        let subplan = ctx.register_plan_node(row_range.clone(), self.schema(), 1);
-        self.mask_plan.lower_to_scheduler(row_range.clone(), ctx)?;
+        let operator = ctx.alloc_operator();
+        ctx.with_input_resource_pipeline(
+            operator,
+            0,
+            row_range.clone(),
+            self.mask_plan.schema(),
+            |ctx| self.mask_plan.lower_to_scheduler(row_range.clone(), ctx),
+        )?;
         let pipeline = ctx.close_pipeline_with_segment_source(
-            subplan,
+            operator,
             self.segment_id,
             row_range,
             self.schema(),
-        );
+        )?;
         let global_range = ctx.current_global_range();
         let rows = global_range.end.saturating_sub(global_range.start).max(1);
         ctx.register_segment_task(
@@ -278,7 +283,6 @@ impl LayoutPlan for FilteredFlatPlan {
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
-        frontier: &OutputFrontier,
 
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
@@ -321,7 +325,7 @@ impl LayoutPlan for FilteredFlatPlan {
             );
         }
 
-        let mask_stream = self.mask_plan.execute(row_range, demand, frontier, ctx)?;
+        let mask_stream = self.mask_plan.execute(row_range, demand, ctx)?;
         let demand_for_skip = demand.clone();
         let demand_range = row_range_for_slice.clone();
         let stream = try_stream! {

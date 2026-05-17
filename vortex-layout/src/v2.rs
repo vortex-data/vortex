@@ -12,13 +12,13 @@
 //! See `LAYOUT_PLAN.md` at the repo root for the design.
 
 pub mod aligned;
-pub mod dataflow;
 pub mod demand;
 pub mod domain;
 pub(crate) mod experiment;
 pub mod materialised_mask;
 pub(crate) mod placeholder;
 pub mod plans;
+pub(crate) mod runtime_info;
 pub mod scan_ctx;
 pub mod scheduler;
 pub mod tee_stream;

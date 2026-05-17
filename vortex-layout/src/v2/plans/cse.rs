@@ -196,8 +196,6 @@ mod tests {
     use crate::v2::plans::plan_slices_eq;
     use crate::v2::plans::plans_eq;
     use crate::v2::scan_ctx::ScanCtx;
-    use crate::v2::scheduler::OutputFrontier;
-
     fn dtype() -> &'static DType {
         static D: OnceLock<DType> = OnceLock::new();
         D.get_or_init(|| DType::Primitive(PType::I32, NonNullable))
@@ -271,7 +269,6 @@ mod tests {
             &self,
             _row_range: std::ops::Range<u64>,
             _demand: &RowDemand,
-            _frontier: &OutputFrontier,
             _ctx: &ScanCtx,
         ) -> VortexResult<SendableArrayStream> {
             let arrays: Vec<_> = self
@@ -369,7 +366,6 @@ mod tests {
             &self,
             _row_range: std::ops::Range<u64>,
             _demand: &RowDemand,
-            _frontier: &OutputFrontier,
             _ctx: &ScanCtx,
         ) -> VortexResult<SendableArrayStream> {
             // Only used for structural tests, never executed.

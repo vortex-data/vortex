@@ -1486,8 +1486,6 @@ pub type vortex_layout::v2::aligned::AlignedArrayStream::Item = core::result::Re
 
 pub fn vortex_layout::v2::aligned::AlignedArrayStream::poll_next(core::pin::Pin<&mut Self>, &mut core::task::wake::Context<'_>) -> core::task::poll::Poll<core::option::Option<Self::Item>>
 
-pub mod vortex_layout::v2::dataflow
-
 pub mod vortex_layout::v2::demand
 
 pub struct vortex_layout::v2::demand::RowDemand
@@ -1650,7 +1648,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::and_bool
 
 pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -1698,7 +1696,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::chunked:
 
 pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -1748,7 +1746,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::dict::Di
 
 pub fn vortex_layout::v2::plans::dict::DictDecodePlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::dict::DictDecodePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::dict::DictDecodePlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -1792,7 +1790,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::empty_st
 
 pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -1838,7 +1836,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::filter::
 
 pub fn vortex_layout::v2::plans::filter::FilterPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::filter::FilterPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::filter::FilterPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::filter::FilterPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -1886,7 +1884,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::filtered
 
 pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -1936,7 +1934,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::flat::Fl
 
 pub fn vortex_layout::v2::plans::flat::FlatPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::flat::FlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::flat::FlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::flat::FlatPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2020,7 +2018,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::let_use:
 
 pub fn vortex_layout::v2::plans::let_use::LetPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::let_use::LetPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::let_use::LetPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::let_use::LetPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2086,7 +2084,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::let_use:
 
 pub fn vortex_layout::v2::plans::let_use::UsePlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::let_use::UsePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::let_use::UsePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::let_use::UsePlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2130,7 +2128,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::mask_col
 
 pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2174,7 +2172,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::mask_sli
 
 pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2250,7 +2248,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::project:
 
 pub fn vortex_layout::v2::plans::project::ProjectPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::project::ProjectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::project::ProjectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::project::ProjectPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2328,7 +2326,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::scan::Sc
 
 pub fn vortex_layout::v2::plans::scan::ScanPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::scan::ScanPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::scan::ScanPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::scan::ScanPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2374,7 +2372,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::struct_:
 
 pub fn vortex_layout::v2::plans::struct_::StructPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::struct_::StructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::struct_::StructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::struct_::StructPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2420,7 +2418,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::zoned::Z
 
 pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2520,7 +2518,7 @@ pub trait vortex_layout::v2::plans::LayoutPlan: vortex_utils::dyn_traits::DynEq 
 
 pub fn vortex_layout::v2::plans::LayoutPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::LayoutPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::LayoutPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::LayoutPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2546,7 +2544,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::and_bool
 
 pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::and_bool::ConjunctPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2572,7 +2570,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::chunked:
 
 pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::chunked::ChunkedPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2598,7 +2596,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::dict::Di
 
 pub fn vortex_layout::v2::plans::dict::DictDecodePlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::dict::DictDecodePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::dict::DictDecodePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::dict::DictDecodePlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2624,7 +2622,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::empty_st
 
 pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::empty_struct::EmptyStructPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2650,7 +2648,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::filter::
 
 pub fn vortex_layout::v2::plans::filter::FilterPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::filter::FilterPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::filter::FilterPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::filter::FilterPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2676,7 +2674,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::filtered
 
 pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::filtered_flat::FilteredFlatPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2702,7 +2700,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::flat::Fl
 
 pub fn vortex_layout::v2::plans::flat::FlatPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::flat::FlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::flat::FlatPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::flat::FlatPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2728,7 +2726,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::let_use:
 
 pub fn vortex_layout::v2::plans::let_use::LetPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::let_use::LetPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::let_use::LetPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::let_use::LetPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2754,7 +2752,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::let_use:
 
 pub fn vortex_layout::v2::plans::let_use::UsePlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::let_use::UsePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::let_use::UsePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::let_use::UsePlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2780,7 +2778,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::mask_col
 
 pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::mask_collect::MaskCollectPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2806,7 +2804,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::mask_sli
 
 pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::mask_slice::MaskSlicePlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2832,7 +2830,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::project:
 
 pub fn vortex_layout::v2::plans::project::ProjectPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::project::ProjectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::project::ProjectPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::project::ProjectPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2858,7 +2856,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::scan::Sc
 
 pub fn vortex_layout::v2::plans::scan::ScanPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::scan::ScanPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::scan::ScanPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::scan::ScanPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2884,7 +2882,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::struct_:
 
 pub fn vortex_layout::v2::plans::struct_::StructPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::struct_::StructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::struct_::StructPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::struct_::StructPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -2910,7 +2908,7 @@ impl vortex_layout::v2::plans::LayoutPlan for vortex_layout::v2::plans::zoned::Z
 
 pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::children(&self) -> &[vortex_layout::v2::plans::LayoutPlanRef]
 
-pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scheduler::OutputFrontier, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
+pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::execute(&self, core::ops::range::Range<u64>, &vortex_layout::v2::demand::RowDemand, &vortex_layout::v2::scan_ctx::ScanCtx) -> vortex_error::VortexResult<vortex_array::stream::SendableArrayStream>
 
 pub fn vortex_layout::v2::plans::zoned::ZonedPruningPlan::lower_to_scheduler(&self, core::ops::range::Range<u64>, &mut vortex_layout::v2::scheduler::LayoutLoweringCtx) -> vortex_error::VortexResult<()>
 
@@ -3032,9 +3030,7 @@ pub fn vortex_layout::v2::scheduler::LayoutLoweringCtx::drive_to_completion(&mut
 
 pub fn vortex_layout::v2::scheduler::LayoutLoweringCtx::for_single_scheduler(u64) -> Self
 
-pub fn vortex_layout::v2::scheduler::LayoutLoweringCtx::leaf_work_count(&self) -> usize
-
-pub fn vortex_layout::v2::scheduler::LayoutLoweringCtx::lowered_node_count(&self) -> usize
+pub fn vortex_layout::v2::scheduler::LayoutLoweringCtx::initial_work_count(&self) -> usize
 
 pub fn vortex_layout::v2::scheduler::LayoutLoweringCtx::pipeline_count(&self) -> usize
 
@@ -3073,22 +3069,6 @@ impl core::fmt::Debug for vortex_layout::v2::scheduler::LayoutSchedulerRunReport
 pub fn vortex_layout::v2::scheduler::LayoutSchedulerRunReport::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 impl core::marker::StructuralPartialEq for vortex_layout::v2::scheduler::LayoutSchedulerRunReport
-
-pub struct vortex_layout::v2::scheduler::OutputFrontier
-
-impl vortex_layout::v2::scheduler::OutputFrontier
-
-pub fn vortex_layout::v2::scheduler::OutputFrontier::clone_with_offset(&self, core::ops::range::Range<u64>) -> Self
-
-pub fn vortex_layout::v2::scheduler::OutputFrontier::unbounded(u64) -> Self
-
-impl core::clone::Clone for vortex_layout::v2::scheduler::OutputFrontier
-
-pub fn vortex_layout::v2::scheduler::OutputFrontier::clone(&self) -> vortex_layout::v2::scheduler::OutputFrontier
-
-impl core::fmt::Debug for vortex_layout::v2::scheduler::OutputFrontier
-
-pub fn vortex_layout::v2::scheduler::OutputFrontier::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub mod vortex_layout::v2::tee_stream
 

@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Older vectorized dataflow prototype pieces for runtime information.
+//! Runtime information coverage and permit heuristics for the
+//! scheduler prototype.
 //!
-//! The live scheduler bridge is in [`crate::v2::scheduler`]. This module keeps
-//! the lower-level demand/coverage model that the scheduler experiments still use.
+//! These types model row-domain information that can let adjacent
+//! operators run ahead or wait: known demand coverage, speculative
+//! permits, and work estimates used by scheduler priority controllers.
 
 #![allow(dead_code)]
 

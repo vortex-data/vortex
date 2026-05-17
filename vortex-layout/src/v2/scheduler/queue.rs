@@ -4,7 +4,9 @@
 //! Partition-local scheduler queue, priorities, and task types.
 
 use std::collections::BinaryHeap;
+use std::fmt;
 use std::ops::Range;
+use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
@@ -14,14 +16,9 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 
 use crate::segments::SegmentId;
-use crate::v2::demand::RowDemand;
 use crate::v2::domain::DomainId;
-use crate::v2::domain::SubplanId;
 use crate::v2::experiment::trace_flow;
-use crate::v2::plans::LayoutPlanRef;
 use crate::v2::plans::flat::SharedSegmentFuture;
-use crate::v2::scan_ctx::ScanCtx;
-use crate::v2::scheduler::frontier::OutputFrontier;
 
 /// Stable identifier for one DataFusion partition-local scheduler.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -93,7 +90,7 @@ pub(crate) enum MorselRole {
     InformationConsumer,
     /// Produces projected values.
     ValueProducer,
-    /// Combines sibling streams or masks.
+    /// Combines sibling morsels or masks.
     Combiner,
     /// Sits on an output retirement path.
     Sink,
@@ -111,75 +108,107 @@ impl MorselRole {
     }
 }
 
-/// Source that closes a lowered pipeline.
-#[derive(Clone)]
-pub(crate) enum SchedulerPipelineSource {
-    /// Synthetic source used by structural tests and non-segment
-    /// leaves while the prototype is still abstract.
-    Leaf {
-        subplan: SubplanId,
-        local_range: Range<u64>,
-        global_range: Range<u64>,
-        schema: String,
-        role: MorselRole,
-    },
-    /// Real flat/filtered-flat segment source. The segment future
-    /// itself is queued as a [`SchedulerTask::Segment`].
-    Segment {
-        subplan: SubplanId,
-        segment_id: SegmentId,
-        local_range: Range<u64>,
-        global_range: Range<u64>,
-        schema: String,
-    },
-    /// Compatibility source for the first runnable scheduler path.
-    /// The plan is held in scheduler pipeline state, not in a task;
-    /// tasks only carry the `PipelineId` that indexes this state.
-    ExecutePlan {
-        plan: LayoutPlanRef,
-        row_range: Range<u64>,
-        demand: RowDemand,
-        frontier: OutputFrontier,
-        ctx: ScanCtx,
-    },
+/// Source operator carried by a lowered scheduler pipeline.
+pub(crate) trait SchedulerSourceNode: Send + Sync + 'static {
+    /// Human-readable operator label for traces and diagnostics.
+    fn label(&self) -> &str;
+
+    /// Scheduling role for the first morsel admitted for this source.
+    fn role(&self) -> MorselRole;
 }
 
-impl std::fmt::Debug for SchedulerPipelineSource {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Leaf {
-                subplan,
-                local_range,
-                global_range,
-                schema,
-                role,
-            } => f
-                .debug_struct("Leaf")
-                .field("subplan", subplan)
-                .field("local_range", local_range)
-                .field("global_range", global_range)
-                .field("schema", schema)
-                .field("role", role)
-                .finish(),
-            Self::Segment {
-                subplan,
-                segment_id,
-                local_range,
-                global_range,
-                schema,
-            } => f
-                .debug_struct("Segment")
-                .field("subplan", subplan)
-                .field("segment_id", segment_id)
-                .field("local_range", local_range)
-                .field("global_range", global_range)
-                .field("schema", schema)
-                .finish(),
-            Self::ExecutePlan { row_range, .. } => f
-                .debug_struct("ExecutePlan")
-                .field("row_range", row_range)
-                .finish_non_exhaustive(),
+/// Transform operator carried by a lowered scheduler pipeline.
+pub(crate) trait SchedulerTransformNode: Send + Sync + 'static {
+    /// Human-readable operator label for traces and diagnostics.
+    fn label(&self) -> &str;
+}
+
+/// Sink operator that terminates a lowered scheduler pipeline.
+pub(crate) trait SchedulerSinkNode: Send + Sync + 'static {
+    /// Human-readable operator label for traces and diagnostics.
+    fn label(&self) -> &str;
+}
+
+/// Source that closes a lowered pipeline.
+#[derive(Clone)]
+pub(crate) struct SchedulerPipelineSource {
+    node: Arc<dyn SchedulerSourceNode>,
+}
+
+impl SchedulerPipelineSource {
+    pub(crate) fn new(node: impl SchedulerSourceNode) -> Self {
+        Self {
+            node: Arc::new(node),
         }
+    }
+
+    pub(crate) fn label(&self) -> &str {
+        self.node.label()
+    }
+
+    pub(crate) fn role(&self) -> MorselRole {
+        self.node.role()
+    }
+}
+
+impl fmt::Debug for SchedulerPipelineSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SchedulerPipelineSource")
+            .field("label", &self.label())
+            .field("role", &self.role())
+            .finish()
+    }
+}
+
+/// Transform carried by a lowered pipeline.
+#[derive(Clone)]
+pub(crate) struct SchedulerPipelineTransform {
+    node: Arc<dyn SchedulerTransformNode>,
+}
+
+impl SchedulerPipelineTransform {
+    pub(crate) fn new(node: impl SchedulerTransformNode) -> Self {
+        Self {
+            node: Arc::new(node),
+        }
+    }
+
+    pub(crate) fn label(&self) -> &str {
+        self.node.label()
+    }
+}
+
+impl fmt::Debug for SchedulerPipelineTransform {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SchedulerPipelineTransform")
+            .field("label", &self.label())
+            .finish()
+    }
+}
+
+/// Sink that terminates a lowered pipeline.
+#[derive(Clone)]
+pub(crate) struct SchedulerPipelineSink {
+    node: Arc<dyn SchedulerSinkNode>,
+}
+
+impl SchedulerPipelineSink {
+    pub(crate) fn new(node: impl SchedulerSinkNode) -> Self {
+        Self {
+            node: Arc::new(node),
+        }
+    }
+
+    pub(crate) fn label(&self) -> &str {
+        self.node.label()
+    }
+}
+
+impl fmt::Debug for SchedulerPipelineSink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SchedulerPipelineSink")
+            .field("label", &self.label())
+            .finish()
     }
 }
 
@@ -187,11 +216,33 @@ impl std::fmt::Debug for SchedulerPipelineSource {
 #[derive(Clone, Debug)]
 pub(crate) struct SchedulerPipelineState {
     source: SchedulerPipelineSource,
+    transforms: Vec<SchedulerPipelineTransform>,
+    sink: SchedulerPipelineSink,
 }
 
 impl SchedulerPipelineState {
-    fn new(source: SchedulerPipelineSource) -> Self {
-        Self { source }
+    fn new(
+        source: SchedulerPipelineSource,
+        transforms: Vec<SchedulerPipelineTransform>,
+        sink: SchedulerPipelineSink,
+    ) -> Self {
+        Self {
+            source,
+            transforms,
+            sink,
+        }
+    }
+
+    pub(super) fn source(&self) -> &SchedulerPipelineSource {
+        &self.source
+    }
+
+    pub(super) fn transforms(&self) -> &[SchedulerPipelineTransform] {
+        &self.transforms
+    }
+
+    pub(super) fn sink(&self) -> &SchedulerPipelineSink {
+        &self.sink
     }
 }
 
@@ -378,8 +429,8 @@ pub(crate) struct SchedulerSegmentTask {
     segment_future: Option<SharedSegmentFuture>,
 }
 
-impl std::fmt::Debug for SchedulerSegmentTask {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for SchedulerSegmentTask {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SchedulerSegmentTask")
             .field("id", &self.id)
             .field("pipeline", &self.pipeline)
@@ -763,21 +814,28 @@ impl PartitionScheduler {
         self.pipelines.len()
     }
 
-    /// Close a lowered pipeline with its source and return the
-    /// scheduler-local opaque id.
+    /// Close a lowered pipeline by attaching its source and return
+    /// the scheduler-local opaque id.
     pub(crate) fn close_pipeline_with_source(
         &mut self,
         source: SchedulerPipelineSource,
+        transforms: Vec<SchedulerPipelineTransform>,
+        sink: SchedulerPipelineSink,
     ) -> PipelineId {
         let id = PipelineId::new(self.pipelines.len());
-        self.pipelines.push(SchedulerPipelineState::new(source));
+        self.pipelines
+            .push(SchedulerPipelineState::new(source, transforms, sink));
         id
     }
 
     pub(super) fn pipeline_source(&self, pipeline: PipelineId) -> Option<&SchedulerPipelineSource> {
         self.pipelines
             .get(pipeline.index())
-            .map(|state| &state.source)
+            .map(SchedulerPipelineState::source)
+    }
+
+    pub(super) fn pipeline_state(&self, pipeline: PipelineId) -> Option<&SchedulerPipelineState> {
+        self.pipelines.get(pipeline.index())
     }
 
     pub(super) fn pop_task(&mut self, now_tick: u64) -> Option<SchedulerTask> {

@@ -53,8 +53,6 @@ use crate::v2::plans::PartitionStats;
 use crate::v2::plans::filtered_flat::FilteredFlatPlan;
 use crate::v2::scan_ctx::ScanCtx;
 use crate::v2::scheduler::LayoutLoweringCtx;
-use crate::v2::scheduler::OutputEstimate;
-use crate::v2::scheduler::OutputFrontier;
 
 pub(crate) type SharedSegmentFuture = Shared<BoxFuture<'static, SharedVortexResult<BufferHandle>>>;
 
@@ -250,13 +248,13 @@ impl LayoutPlan for FlatPlan {
                 self.layout_row_count
             );
         }
-        let subplan = ctx.register_plan_node(row_range.clone(), self.schema(), 0);
+        let operator = ctx.alloc_operator();
         let pipeline = ctx.close_pipeline_with_segment_source(
-            subplan,
+            operator,
             self.segment_id,
             row_range,
             self.schema(),
-        );
+        )?;
         let global_range = ctx.current_global_range();
         let rows = global_range.end.saturating_sub(global_range.start).max(1);
         ctx.register_segment_task(
@@ -273,8 +271,6 @@ impl LayoutPlan for FlatPlan {
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
-        frontier: &OutputFrontier,
-
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
         if !matches!(self.selection, Selection::All) {
@@ -300,7 +296,6 @@ impl LayoutPlan for FlatPlan {
         let session = ctx.session().clone();
         let row_range_for_slice = row_range;
         let demand = demand.clone();
-        let mut frontier = frontier.clone();
         if trace_flow() {
             tracing::debug!(
                 target: "vortex_layout::v2::flow",
@@ -315,46 +310,24 @@ impl LayoutPlan for FlatPlan {
 
         let inner = try_stream! {
             let requested_rows = row_range_for_slice.end - row_range_for_slice.start;
-            let mut decoded: Option<ArrayRef> = None;
-            let mut cursor = 0;
-            while cursor < requested_rows {
-                let remaining = requested_rows - cursor;
-                let grant = frontier
-                    .grant_next_async(remaining, OutputEstimate::new(remaining, remaining))
-                    .await?;
-                if grant.range().start >= grant.range().end {
-                    continue;
-                }
-                let grant_len = grant.range().end - grant.range().start;
-                let local_range = (row_range_for_slice.start + grant.range().start)
-                    ..(row_range_for_slice.start + grant.range().end);
-                let demanded_rows = demand.cardinality(local_range.clone()).await?;
-                if demanded_rows == 0 {
-                    let len = usize::try_from(grant_len).map_err(|_| {
-                        vortex_err!("FlatPlan: grant length exceeds usize: {grant_len}")
-                    })?;
-                    yield default_array(&output_dtype, len);
-                    cursor = grant.range().end;
-                    continue;
-                }
-                if decoded.is_none() {
-                    decoded = Some(decode_segment(
-                        segment_fut.clone(),
-                        array_tree.clone(),
-                        layout_dtype.clone(),
-                        layout_row_count,
-                        array_ctx.clone(),
-                        &session,
-                    )
-                    .await?);
-                }
-                let array = decoded
-                    .as_ref()
-                    .ok_or_else(|| vortex_err!("FlatPlan decoded array missing"))?
-                    .clone();
-                let array = slice_to_range(array, &local_range)?;
+            let demanded_rows = demand.cardinality(row_range_for_slice.clone()).await?;
+            if demanded_rows == 0 {
+                let len = usize::try_from(requested_rows).map_err(|_| {
+                    vortex_err!("FlatPlan: requested row count exceeds usize: {requested_rows}")
+                })?;
+                yield default_array(&output_dtype, len);
+            } else {
+                let array = decode_segment(
+                    segment_fut.clone(),
+                    array_tree.clone(),
+                    layout_dtype.clone(),
+                    layout_row_count,
+                    array_ctx.clone(),
+                    &session,
+                )
+                .await?;
+                let array = slice_to_range(array, &row_range_for_slice)?;
                 yield array.apply(&expr)?;
-                cursor = grant.range().end;
             }
         };
         Ok(Box::pin(ArrayStreamAdapter::new(dtype, inner)))

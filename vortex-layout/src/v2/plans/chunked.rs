@@ -29,7 +29,6 @@ use crate::v2::plans::PartitionStats;
 use crate::v2::plans::mask_slice::MaskSlicePlan;
 use crate::v2::scan_ctx::ScanCtx;
 use crate::v2::scheduler::LayoutLoweringCtx;
-use crate::v2::scheduler::OutputFrontier;
 
 /// Routes one partition per child chunk. `partition_count == children.len()`
 /// in the default (ordered) mode; relaxed mode is a follow-up PR.
@@ -240,7 +239,7 @@ impl LayoutPlan for ChunkedPlan {
             );
         }
 
-        ctx.register_plan_node(row_range.clone(), self.schema(), self.children.len());
+        let operator = ctx.alloc_operator();
         for idx in 0..self.children.len() {
             let chunk_start = self.chunk_offsets[idx];
             let chunk_end = self.chunk_offsets[idx + 1];
@@ -252,9 +251,16 @@ impl LayoutPlan for ChunkedPlan {
             let intersect_end = chunk_end.min(row_range.end);
             let child_range = (intersect_start - chunk_start)..(intersect_end - chunk_start);
             ctx.with_global_range(intersect_start..intersect_end, |ctx| {
-                self.children[idx].lower_to_scheduler(child_range, ctx)
+                ctx.with_input_resource_pipeline(
+                    operator,
+                    idx,
+                    child_range.clone(),
+                    self.children[idx].schema(),
+                    |ctx| self.children[idx].lower_to_scheduler(child_range, ctx),
+                )
             })?;
         }
+        ctx.close_node_output_pipeline(operator, row_range, self.schema(), self.children.len())?;
         Ok(())
     }
 
@@ -262,7 +268,6 @@ impl LayoutPlan for ChunkedPlan {
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
-        frontier: &OutputFrontier,
 
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
@@ -312,9 +317,6 @@ impl LayoutPlan for ChunkedPlan {
             // coordinates, even when the requested parent range
             // starts in the middle of the chunk.
             let child_demand = demand.scope(chunk_start..chunk_end);
-            let output_start = intersect_start - row_range.start;
-            let output_end = intersect_end - row_range.start;
-            let child_frontier = frontier.clone_with_offset(output_start..output_end);
             if trace {
                 tracing::debug!(
                     target: "vortex_layout::v2::flow",
@@ -326,12 +328,7 @@ impl LayoutPlan for ChunkedPlan {
                     "chunked child execute"
                 );
             }
-            child_streams.push(self.children[idx].execute(
-                child_range,
-                &child_demand,
-                &child_frontier,
-                ctx,
-            )?);
+            child_streams.push(self.children[idx].execute(child_range, &child_demand, ctx)?);
         }
 
         let dtype = self.output_dtype.clone();

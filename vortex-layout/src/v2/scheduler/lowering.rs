@@ -1,67 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Layout-plan lowering and the current single-scheduler execution bridge.
+//! Layout-plan lowering for the single-scheduler prototype.
 
 #![allow(clippy::cognitive_complexity)]
 
 use std::ops::Range;
-use std::sync::Arc;
-use std::time::Instant;
 
-use async_stream::try_stream;
-use futures::StreamExt;
-use vortex_array::ArrayRef;
 use vortex_array::dtype::DType;
-use vortex_array::stream::ArrayStreamAdapter;
-use vortex_array::stream::SendableArrayStream;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_io::session::RuntimeSessionExt;
 
 use crate::segments::SegmentId;
-use crate::v2::demand::RowDemand;
 use crate::v2::domain::DomainId;
-use crate::v2::domain::SubplanId;
-use crate::v2::experiment::trace_flow;
-use crate::v2::plans::LayoutPlanRef;
+use crate::v2::domain::OperatorId;
 use crate::v2::plans::flat::SharedSegmentFuture;
-use crate::v2::scan_ctx::ScanCtx;
-use crate::v2::scheduler::frontier::OutputFrontier;
 use crate::v2::scheduler::queue::*;
 
-/// A lowered layout-plan node recorded by the scheduler prototype.
-///
-/// This is intentionally descriptive metadata, not an executable plan
-/// node. The executable unit in this prototype is the scheduler event
-/// registered by leaves.
+/// One initial work item produced when a lowered pipeline is closed.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct LoweredLayoutNode {
-    id: SubplanId,
-    local_range: Range<u64>,
-    global_range: Range<u64>,
-    schema: String,
-    child_count: usize,
-}
-
-impl LoweredLayoutNode {
-    pub(crate) fn id(&self) -> SubplanId {
-        self.id
-    }
-
-    pub(crate) fn child_count(&self) -> usize {
-        self.child_count
-    }
-
-    pub(crate) fn global_range(&self) -> &Range<u64> {
-        &self.global_range
-    }
-}
-
-/// One initial leaf work item produced by layout lowering.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct LoweredLeafWork {
-    subplan: SubplanId,
+pub(crate) struct InitialPipelineWork {
+    source_label: String,
+    operator: OperatorId,
     pipeline: PipelineId,
     morsel: MorselId,
     local_range: Range<u64>,
@@ -70,7 +30,11 @@ pub(crate) struct LoweredLeafWork {
     schema: String,
 }
 
-impl LoweredLeafWork {
+impl InitialPipelineWork {
+    pub(crate) fn source_label(&self) -> &str {
+        &self.source_label
+    }
+
     pub(crate) fn pipeline(&self) -> PipelineId {
         self.pipeline
     }
@@ -89,6 +53,76 @@ impl LoweredLeafWork {
 
     pub(crate) fn global_range(&self) -> &Range<u64> {
         &self.global_range
+    }
+}
+
+#[derive(Clone, Debug)]
+struct OpenPipeline {
+    transforms_rev: Vec<SchedulerPipelineTransform>,
+    sink: SchedulerPipelineSink,
+}
+
+impl OpenPipeline {
+    fn new(sink: SchedulerPipelineSink) -> Self {
+        Self {
+            transforms_rev: Vec::new(),
+            sink,
+        }
+    }
+
+    fn prepend_transform(&mut self, transform: SchedulerPipelineTransform) {
+        self.transforms_rev.push(transform);
+    }
+
+    fn into_parts(self) -> (Vec<SchedulerPipelineTransform>, SchedulerPipelineSink) {
+        let mut transforms = self.transforms_rev;
+        transforms.reverse();
+        (transforms, self.sink)
+    }
+}
+
+struct RootSinkNode {
+    label: String,
+}
+
+impl SchedulerSinkNode for RootSinkNode {
+    fn label(&self) -> &str {
+        &self.label
+    }
+}
+
+struct ResourceSinkNode {
+    label: String,
+}
+
+impl SchedulerSinkNode for ResourceSinkNode {
+    fn label(&self) -> &str {
+        &self.label
+    }
+}
+
+struct PlanTransformNode {
+    label: String,
+}
+
+impl SchedulerTransformNode for PlanTransformNode {
+    fn label(&self) -> &str {
+        &self.label
+    }
+}
+
+struct PrototypeSourceNode {
+    label: String,
+    role: MorselRole,
+}
+
+impl SchedulerSourceNode for PrototypeSourceNode {
+    fn label(&self) -> &str {
+        &self.label
+    }
+
+    fn role(&self) -> MorselRole {
+        self.role
     }
 }
 
@@ -127,20 +161,20 @@ impl LayoutSchedulerRunReport {
 
 /// Lowering context for the single-scheduler layout prototype.
 ///
-/// This is the bridge between the recursive [`crate::v2::plans::LayoutPlan`]
-/// tree and the scheduler sketch above. Plan nodes record metadata;
-/// leaves enqueue initial morsels into one partition-local scheduler.
-/// The scheduler can then be driven by repeatedly popping the highest
-/// priority event and executing one abstract stage.
+/// This maps the recursive [`crate::v2::plans::LayoutPlan`] tree into
+/// the scheduler sketch above. Layout nodes lower into open pipelines:
+/// transform nodes are pushed into the currently open pipeline,
+/// multi-input nodes open resource pipelines, and source nodes close
+/// the current pipeline into scheduler-owned pipeline state.
 pub struct LayoutLoweringCtx {
     scheduler: PartitionScheduler,
     domain: DomainId,
     current_global_range: Range<u64>,
-    next_subplan: u32,
+    next_operator: u32,
     next_morsel: u64,
     next_io_request: u64,
-    nodes: Vec<LoweredLayoutNode>,
-    leaves: Vec<LoweredLeafWork>,
+    open_pipeline: Option<OpenPipeline>,
+    initial_work: Vec<InitialPipelineWork>,
 }
 
 impl LayoutLoweringCtx {
@@ -155,11 +189,11 @@ impl LayoutLoweringCtx {
             scheduler: PartitionScheduler::new(PartitionSchedulerId::new(0), budget),
             domain: DomainId::new(0),
             current_global_range: 0..total_rows,
-            next_subplan: 1,
+            next_operator: 1,
             next_morsel: 1,
             next_io_request: 1,
-            nodes: Vec::new(),
-            leaves: Vec::new(),
+            open_pipeline: None,
+            initial_work: Vec::new(),
         }
     }
 
@@ -180,40 +214,91 @@ impl LayoutLoweringCtx {
         self.current_global_range.clone()
     }
 
-    /// Record a plan node and return its prototype sub-plan id.
-    pub(crate) fn register_plan_node(
+    /// Open the final output pipeline for one scheduler partition.
+    pub(crate) fn open_root_pipeline(&mut self, global_range: Range<u64>, schema: &DType) {
+        debug_assert!(
+            self.open_pipeline.is_none(),
+            "attempted to open a root pipeline while another pipeline is open"
+        );
+        self.open_pipeline = Some(OpenPipeline::new(SchedulerPipelineSink::new(
+            RootSinkNode {
+                label: format!("root:{global_range:?}:{}", schema),
+            },
+        )));
+    }
+
+    /// Run `f` with a resource sink open for one input of `operator`.
+    pub(crate) fn with_input_resource_pipeline<R>(
         &mut self,
+        operator: OperatorId,
+        input: usize,
+        local_range: Range<u64>,
+        schema: &DType,
+        f: impl FnOnce(&mut Self) -> VortexResult<R>,
+    ) -> VortexResult<R> {
+        let previous = self.open_pipeline.take();
+        let global_range = self.current_global_range.clone();
+        self.open_pipeline = Some(OpenPipeline::new(SchedulerPipelineSink::new(
+            ResourceSinkNode {
+                label: format!(
+                    "resource:operator{}:input{input}:{local_range:?}->{global_range:?}:{}",
+                    operator.raw(),
+                    schema
+                ),
+            },
+        )));
+
+        let result = f(self);
+        if result.is_ok() && self.open_pipeline.is_some() {
+            self.open_pipeline = previous;
+            vortex_bail!("resource pipeline for input {input} of {operator:?} was not closed");
+        }
+        self.open_pipeline = previous;
+        result
+    }
+
+    /// Prepend a plan-node transform to the currently open pipeline.
+    pub(crate) fn push_plan_node(
+        &mut self,
+        operator: OperatorId,
         local_range: Range<u64>,
         schema: &DType,
         child_count: usize,
-    ) -> SubplanId {
-        let id = self.alloc_subplan();
-        self.nodes.push(LoweredLayoutNode {
-            id,
-            local_range,
-            global_range: self.current_global_range.clone(),
-            schema: schema.to_string(),
-            child_count,
-        });
-        id
+    ) -> VortexResult<()> {
+        let Some(open_pipeline) = self.open_pipeline.as_mut() else {
+            vortex_bail!("cannot push plan node without an open pipeline");
+        };
+        let global_range = self.current_global_range.clone();
+        open_pipeline.prepend_transform(SchedulerPipelineTransform::new(PlanTransformNode {
+            label: format!(
+                "operator{}:{local_range:?}->{global_range:?}:{}:{child_count}children",
+                operator.raw(),
+                schema
+            ),
+        }));
+        Ok(())
     }
 
-    /// Register initial work for a leaf in the current global range.
-    pub(crate) fn register_leaf_work(
+    /// Close the current pipeline with a prototype leaf source and admit
+    /// its first morsel to the scheduler.
+    pub(crate) fn close_leaf_pipeline(
         &mut self,
-        subplan: SubplanId,
+        operator: OperatorId,
         local_range: Range<u64>,
         schema: &DType,
     ) -> VortexResult<()> {
         let role = role_for_schema(schema);
         let global_range = self.current_global_range.clone();
-        let pipeline = self.close_pipeline_with_source(SchedulerPipelineSource::Leaf {
-            subplan,
-            local_range: local_range.clone(),
-            global_range: global_range.clone(),
-            schema: schema.to_string(),
-            role,
-        });
+        let source_label = format!(
+            "operator{}:leaf:{local_range:?}->{global_range:?}:{}",
+            operator.raw(),
+            schema
+        );
+        let pipeline =
+            self.close_pipeline_with_source(SchedulerPipelineSource::new(PrototypeSourceNode {
+                label: source_label.clone(),
+                role,
+            }))?;
         let morsel_id = self.alloc_morsel();
         let estimate = estimate_for_leaf(&global_range, schema);
         let priority = priority_for_leaf(role, &global_range, estimate);
@@ -231,12 +316,13 @@ impl LayoutLoweringCtx {
 
         if !self.scheduler.enqueue(SchedulerTask::Work(work), 0) {
             vortex_bail!(
-                "layout scheduler queue full while registering leaf work for {global_range:?}"
+                "layout scheduler queue full while admitting leaf pipeline work for {global_range:?}"
             );
         }
 
-        self.leaves.push(LoweredLeafWork {
-            subplan,
+        self.initial_work.push(InitialPipelineWork {
+            source_label,
+            operator,
             pipeline,
             morsel: morsel_id,
             local_range,
@@ -247,50 +333,98 @@ impl LayoutLoweringCtx {
         Ok(())
     }
 
-    /// Close a pipeline with an abstract leaf source.
+    /// Close the current pipeline with a synthetic source for a plan node
+    /// whose inputs were lowered into resource pipelines.
+    pub(crate) fn close_node_output_pipeline(
+        &mut self,
+        operator: OperatorId,
+        local_range: Range<u64>,
+        schema: &DType,
+        child_count: usize,
+    ) -> VortexResult<MorselId> {
+        let global_range = self.current_global_range.clone();
+        let role = MorselRole::Combiner;
+        let source_label = format!(
+            "operator{}:node-output:{local_range:?}->{global_range:?}:{}:{child_count}children",
+            operator.raw(),
+            schema
+        );
+        let pipeline =
+            self.close_pipeline_with_source(SchedulerPipelineSource::new(PrototypeSourceNode {
+                label: source_label.clone(),
+                role,
+            }))?;
+        let morsel_id = self.alloc_morsel();
+        let estimate = estimate_for_leaf(&global_range, schema);
+        let priority = MorselPriority::value_work(
+            global_range
+                .end
+                .saturating_sub(global_range.start)
+                .max(1)
+                .saturating_mul(5),
+            estimate.cpu_ns.saturating_add(estimate.io_bytes).max(1),
+            0,
+        );
+        let morsel = SchedulerMorsel::new(
+            morsel_id,
+            self.domain,
+            global_range.clone(),
+            role,
+            1,
+            estimate,
+            priority,
+        );
+        let work = SchedulerWorkTask::new(pipeline, morsel);
+        if !self.scheduler.enqueue(SchedulerTask::Work(work), 0) {
+            vortex_bail!(
+                "layout scheduler queue full while admitting node-output pipeline work for {global_range:?}"
+            );
+        }
+        self.initial_work.push(InitialPipelineWork {
+            source_label,
+            operator,
+            pipeline,
+            morsel: morsel_id,
+            local_range,
+            global_range,
+            role,
+            schema: schema.to_string(),
+        });
+        Ok(morsel_id)
+    }
+
+    /// Close a pipeline by attaching a source to the currently open pipeline.
     pub(crate) fn close_pipeline_with_source(
         &mut self,
         source: SchedulerPipelineSource,
-    ) -> PipelineId {
-        self.scheduler.close_pipeline_with_source(source)
+    ) -> VortexResult<PipelineId> {
+        let Some(open_pipeline) = self.open_pipeline.take() else {
+            vortex_bail!("cannot close pipeline without an open pipeline");
+        };
+        let (transforms, sink) = open_pipeline.into_parts();
+        Ok(self
+            .scheduler
+            .close_pipeline_with_source(source, transforms, sink))
     }
 
     /// Close a pipeline with a segment source and return its
     /// scheduler-local pipeline id.
     pub(crate) fn close_pipeline_with_segment_source(
         &mut self,
-        subplan: SubplanId,
+        operator: OperatorId,
         segment_id: SegmentId,
         local_range: Range<u64>,
         schema: &DType,
-    ) -> PipelineId {
-        self.close_pipeline_with_source(SchedulerPipelineSource::Segment {
-            subplan,
-            segment_id,
-            local_range,
-            global_range: self.current_global_range.clone(),
-            schema: schema.to_string(),
-        })
-    }
-
-    /// Close a pipeline whose source runs an already-built plan into
-    /// the scheduler sink. This is the first runnable bridge; finer
-    /// lowering can replace it one plan node at a time.
-    pub(crate) fn close_pipeline_with_execute_source(
-        &mut self,
-        plan: LayoutPlanRef,
-        row_range: Range<u64>,
-        demand: RowDemand,
-        frontier: OutputFrontier,
-        ctx: ScanCtx,
-    ) -> PipelineId {
-        self.close_pipeline_with_source(SchedulerPipelineSource::ExecutePlan {
-            plan,
-            row_range,
-            demand,
-            frontier,
-            ctx,
-        })
+    ) -> VortexResult<PipelineId> {
+        let global_range = self.current_global_range.clone();
+        self.close_pipeline_with_source(SchedulerPipelineSource::new(PrototypeSourceNode {
+            label: format!(
+                "operator{}:segment:{segment_id:?}:{local_range:?}->{global_range:?}:{}",
+                operator.raw(),
+                schema
+            ),
+            role: role_for_schema(schema),
+        }))
     }
 
     /// Enqueue work for an already-closed pipeline.
@@ -365,14 +499,10 @@ impl LayoutLoweringCtx {
         Ok(request_id)
     }
 
-    /// Number of lowered plan nodes.
-    pub fn lowered_node_count(&self) -> usize {
-        self.nodes.len()
-    }
-
-    /// Number of initial leaf work items.
-    pub fn leaf_work_count(&self) -> usize {
-        self.leaves.len()
+    /// Number of initial scheduler work items emitted by closing
+    /// lowered pipelines.
+    pub fn initial_work_count(&self) -> usize {
+        self.initial_work.len()
     }
 
     /// Number of queued scheduler events.
@@ -390,12 +520,23 @@ impl LayoutLoweringCtx {
         self.scheduler.queued_memory_bytes()
     }
 
-    pub(crate) fn lowered_nodes(&self) -> &[LoweredLayoutNode] {
-        &self.nodes
+    pub(crate) fn initial_work(&self) -> &[InitialPipelineWork] {
+        &self.initial_work
     }
 
-    pub(crate) fn leaf_work(&self) -> &[LoweredLeafWork] {
-        &self.leaves
+    pub(crate) fn pipeline_transforms(
+        &self,
+        pipeline: PipelineId,
+    ) -> Option<&[SchedulerPipelineTransform]> {
+        self.scheduler
+            .pipeline_state(pipeline)
+            .map(|state| state.transforms())
+    }
+
+    pub(crate) fn pipeline_sink(&self, pipeline: PipelineId) -> Option<&SchedulerPipelineSink> {
+        self.scheduler
+            .pipeline_state(pipeline)
+            .map(|state| state.sink())
     }
 
     /// Drive the scheduler until no events remain.
@@ -429,189 +570,11 @@ impl LayoutLoweringCtx {
         steps
     }
 
-    async fn drive_to_sink(
-        mut self,
-        sink: kanal::AsyncSender<VortexResult<ArrayRef>>,
-    ) -> VortexResult<LayoutSchedulerRunReport> {
-        let mut report = LayoutSchedulerRunReport::default();
-        let mut tick = 0;
-        let trace = trace_flow();
-        if trace {
-            tracing::debug!(
-                target: "vortex_layout::v2::flow",
-                scheduler_id = self.scheduler.id().raw(),
-                pipelines = self.scheduler.pipeline_count(),
-                queued_events = self.scheduler.len(),
-                queued_memory_bytes = self.scheduler.queued_memory_bytes(),
-                "scheduler driver start"
-            );
-        }
-        while let Some(task) = self.scheduler.pop_task(tick) {
-            report.steps += 1;
-            match task {
-                SchedulerTask::Work(mut work) => {
-                    match self.scheduler.pipeline_source(work.pipeline).cloned() {
-                        Some(SchedulerPipelineSource::ExecutePlan {
-                            plan,
-                            row_range,
-                            demand,
-                            frontier,
-                            ctx,
-                        }) => {
-                            report.completed_morsels += 1;
-                            let row_start = row_range.start;
-                            let row_end = row_range.end;
-                            if trace {
-                                tracing::debug!(
-                                    target: "vortex_layout::v2::flow",
-                                    scheduler_id = self.scheduler.id().raw(),
-                                    tick,
-                                    pipeline = work.pipeline.index(),
-                                    morsel_id = work.morsel.id.raw(),
-                                    row_start,
-                                    row_end,
-                                    rows = row_end.saturating_sub(row_start),
-                                    "scheduler execute plan start"
-                                );
-                            }
-                            let execute_start = Instant::now();
-                            let mut stream = plan.execute(row_range, &demand, &frontier, &ctx)?;
-                            let mut array_idx = 0usize;
-                            let mut total_rows = 0usize;
-                            loop {
-                                let next_start = Instant::now();
-                                let Some(item) = stream.next().await else {
-                                    break;
-                                };
-                                let next_elapsed_ms = next_start.elapsed().as_secs_f64() * 1000.0;
-                                let array = item?;
-                                let rows = array.len();
-                                total_rows = total_rows.saturating_add(rows);
-                                if trace {
-                                    tracing::debug!(
-                                        target: "vortex_layout::v2::flow",
-                                        scheduler_id = self.scheduler.id().raw(),
-                                        tick,
-                                        pipeline = work.pipeline.index(),
-                                        morsel_id = work.morsel.id.raw(),
-                                        array_idx,
-                                        rows,
-                                        total_rows,
-                                        elapsed_ms = next_elapsed_ms,
-                                        "scheduler execute stream next"
-                                    );
-                                }
-                                let send_start = Instant::now();
-                                if sink.send(Ok(array)).await.is_err() {
-                                    if trace {
-                                        tracing::debug!(
-                                            target: "vortex_layout::v2::flow",
-                                            scheduler_id = self.scheduler.id().raw(),
-                                            tick,
-                                            pipeline = work.pipeline.index(),
-                                            morsel_id = work.morsel.id.raw(),
-                                            array_idx,
-                                            rows,
-                                            send_elapsed_ms =
-                                                send_start.elapsed().as_secs_f64() * 1000.0,
-                                            "scheduler sink closed"
-                                        );
-                                    }
-                                    return Ok(report);
-                                }
-                                if trace {
-                                    tracing::debug!(
-                                        target: "vortex_layout::v2::flow",
-                                        scheduler_id = self.scheduler.id().raw(),
-                                        tick,
-                                        pipeline = work.pipeline.index(),
-                                        morsel_id = work.morsel.id.raw(),
-                                        array_idx,
-                                        rows,
-                                        send_elapsed_ms =
-                                            send_start.elapsed().as_secs_f64() * 1000.0,
-                                        "scheduler sink sent"
-                                    );
-                                }
-                                array_idx = array_idx.saturating_add(1);
-                            }
-                            if trace {
-                                tracing::debug!(
-                                    target: "vortex_layout::v2::flow",
-                                    scheduler_id = self.scheduler.id().raw(),
-                                    tick,
-                                    pipeline = work.pipeline.index(),
-                                    morsel_id = work.morsel.id.raw(),
-                                    arrays = array_idx,
-                                    rows = total_rows,
-                                    elapsed_ms = execute_start.elapsed().as_secs_f64() * 1000.0,
-                                    "scheduler execute plan done"
-                                );
-                            }
-                        }
-                        _ => {
-                            let morsel_id = work.morsel.id;
-                            let pipeline = work.pipeline;
-                            if work.morsel.advance_one_stage().is_some() {
-                                if !self.scheduler.enqueue(SchedulerTask::Work(work), tick) {
-                                    vortex_bail!(
-                                        "layout scheduler queue full while requeueing work for {pipeline:?}"
-                                    );
-                                }
-                                report.advanced_morsels += 1;
-                            } else {
-                                let _ = morsel_id;
-                                report.completed_morsels += 1;
-                            }
-                        }
-                    }
-                }
-                SchedulerTask::Segment(mut segment) => {
-                    let wait_start = Instant::now();
-                    let _bytes = segment.wait().await?;
-                    report.completed_segments += 1;
-                    if trace {
-                        tracing::debug!(
-                            target: "vortex_layout::v2::flow",
-                            scheduler_id = self.scheduler.id().raw(),
-                            tick,
-                            pipeline = segment.pipeline.index(),
-                            request_id = segment.id.raw(),
-                            segment_id = ?segment.segment_id,
-                            row_start = segment.range.start,
-                            row_end = segment.range.end,
-                            rows = segment.range.end.saturating_sub(segment.range.start),
-                            bytes = segment.bytes,
-                            elapsed_ms = wait_start.elapsed().as_secs_f64() * 1000.0,
-                            "scheduler segment done"
-                        );
-                    }
-                    // The next step is to store the segment bytes in
-                    // this pipeline's local state and enqueue pipeline
-                    // work that decodes and pushes to the sink.
-                }
-                SchedulerTask::Control(_) => report.control_events += 1,
-            }
-            tick = tick.saturating_add(1);
-        }
-        if trace {
-            tracing::debug!(
-                target: "vortex_layout::v2::flow",
-                scheduler_id = self.scheduler.id().raw(),
-                steps = report.steps,
-                completed_morsels = report.completed_morsels,
-                completed_segments = report.completed_segments,
-                pending_segments = report.pending_segments,
-                control_events = report.control_events,
-                "scheduler driver done"
-            );
-        }
-        Ok(report)
-    }
-
-    fn alloc_subplan(&mut self) -> SubplanId {
-        let id = SubplanId::new(self.next_subplan);
-        self.next_subplan = self.next_subplan.saturating_add(1);
+    /// Allocate a stable id for a lowered operator/source within this
+    /// scheduler instance.
+    pub(crate) fn alloc_operator(&mut self) -> OperatorId {
+        let id = OperatorId::new(self.next_operator);
+        self.next_operator = self.next_operator.saturating_add(1);
         id
     }
 
@@ -626,89 +589,6 @@ impl LayoutLoweringCtx {
         self.next_io_request = self.next_io_request.saturating_add(1);
         id
     }
-}
-
-/// Execute one partition by spawning a scheduler driver and returning
-/// a stream over its sink queue.
-///
-/// This is intentionally a compatibility bridge: the root pipeline
-/// source delegates to the existing `LayoutPlan::execute` so the
-/// scheduler/queue shape can run end-to-end before every plan node has
-/// a native pipeline implementation.
-pub(crate) fn execute_with_single_scheduler(
-    plan: LayoutPlanRef,
-    row_range: Range<u64>,
-    demand: RowDemand,
-    frontier: OutputFrontier,
-    ctx: ScanCtx,
-) -> VortexResult<SendableArrayStream> {
-    let dtype = plan.schema().clone();
-    let mut lowering = LayoutLoweringCtx::for_single_scheduler(row_range.end);
-    let trace = trace_flow();
-    let pipeline = lowering.close_pipeline_with_execute_source(
-        Arc::clone(&plan),
-        row_range.clone(),
-        demand,
-        frontier,
-        ctx.clone(),
-    );
-    let morsel_id = lowering.enqueue_pipeline_work(pipeline, row_range.clone(), &dtype)?;
-
-    if trace {
-        tracing::debug!(
-            target: "vortex_layout::v2::flow",
-            pipeline = pipeline.index(),
-            morsel_id = morsel_id.raw(),
-            row_start = row_range.start,
-            row_end = row_range.end,
-            rows = row_range.end.saturating_sub(row_range.start),
-            pipelines = lowering.pipeline_count(),
-            queued_events = lowering.queued_event_count(),
-            queued_memory_bytes = lowering.queued_memory_bytes(),
-            dtype = %dtype,
-            "scheduler execute registered"
-        );
-    }
-
-    let (sink_tx, sink_rx) = kanal::bounded_async::<VortexResult<ArrayRef>>(2);
-    let driver_tx = sink_tx;
-    ctx.session()
-        .handle()
-        .spawn(async move {
-            if let Err(err) = lowering.drive_to_sink(driver_tx.clone()).await {
-                drop(driver_tx.send(Err(err)).await);
-            }
-        })
-        .detach();
-
-    let stream = try_stream! {
-        let mut array_idx = 0usize;
-        while let Ok(item) = sink_rx.recv().await {
-            if trace {
-                match &item {
-                    Ok(array) => {
-                        tracing::debug!(
-                            target: "vortex_layout::v2::flow",
-                            array_idx,
-                            rows = array.len(),
-                            "scheduler sink received"
-                        );
-                    }
-                    Err(err) => {
-                        tracing::debug!(
-                            target: "vortex_layout::v2::flow",
-                            array_idx,
-                            error = %err,
-                            "scheduler sink received error"
-                        );
-                    }
-                }
-            }
-            array_idx = array_idx.saturating_add(1);
-            yield item?;
-        }
-    };
-    Ok(Box::pin(ArrayStreamAdapter::new(dtype, stream)))
 }
 
 fn role_for_schema(schema: &DType) -> MorselRole {

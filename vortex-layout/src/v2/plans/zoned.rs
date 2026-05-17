@@ -44,7 +44,6 @@ use crate::v2::plans::LayoutPlan;
 use crate::v2::plans::LayoutPlanRef;
 use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
-use crate::v2::scheduler::OutputFrontier;
 
 /// Per-execute pruning over a zoned layout. See module docs.
 pub struct ZonedPruningPlan {
@@ -156,7 +155,6 @@ impl LayoutPlan for ZonedPruningPlan {
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
-        frontier: &OutputFrontier,
 
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
@@ -172,7 +170,6 @@ impl LayoutPlan for ZonedPruningPlan {
         let data_plan = Arc::clone(&self.data_plan);
         let ctx_for_stream = ctx.clone();
         let demand_for_stream = demand.clone();
-        let frontier = frontier.clone();
         let resource = Arc::clone(&self.resource);
 
         let stream = try_stream! {
@@ -207,7 +204,7 @@ impl LayoutPlan for ZonedPruningPlan {
                     // (data plan shares the row coord system).
                     let intersect = intersect_start..intersect_end;
                     let mut data_stream =
-                        data_plan.execute(intersect, &demand_for_stream, &frontier, &ctx_for_stream)?;
+                        data_plan.execute(intersect, &demand_for_stream, &ctx_for_stream)?;
                     while let Some(item) = data_stream.next().await {
                         yield item?;
                     }

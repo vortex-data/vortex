@@ -4,33 +4,16 @@
 //! Scheduler prototype for LayoutPlan V2.
 //!
 //! This module contains the current partition-local scheduler experiment:
-//! output-frontier grants, a priority queue for CPU/I/O/control work, and the
-//! compatibility bridge that drives an existing [`crate::v2::plans::LayoutPlan`]
-//! into a scheduler-owned sink.
+//! a priority queue for CPU/I/O/control work plus lowering support for
+//! building morsel pipelines from a [`crate::v2::plans::LayoutPlan`].
 
 #![allow(dead_code)]
 
-pub(crate) mod frontier;
 mod lowering;
 pub(crate) mod queue;
 
-#[cfg(test)]
-pub(crate) use frontier::ConjunctFrontierController;
-#[cfg(test)]
-pub(crate) use frontier::ConjunctFrontierPolicy;
-#[cfg(test)]
-pub(crate) use frontier::FrontierSource;
-pub(crate) use frontier::OutputEstimate;
-pub use frontier::OutputFrontier;
-#[cfg(test)]
-pub(crate) use frontier::OutputGrantReason;
-#[cfg(test)]
-pub(crate) use frontier::OutputGrantRequest;
-#[cfg(test)]
-pub(crate) use frontier::OutputGrantor;
 pub use lowering::LayoutLoweringCtx;
 pub use lowering::LayoutSchedulerRunReport;
-pub(crate) use lowering::execute_with_single_scheduler;
 #[cfg(test)]
 pub(crate) use queue::IoRequestId;
 #[cfg(test)]

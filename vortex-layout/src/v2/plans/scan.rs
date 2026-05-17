@@ -42,8 +42,6 @@ use crate::v2::plans::and_bool::ConjunctPlan;
 use crate::v2::plans::cse::cse;
 use crate::v2::plans::filter::FilterPlan;
 use crate::v2::scan_ctx::ScanCtx;
-use crate::v2::scheduler::OutputFrontier;
-use crate::v2::scheduler::execute_with_single_scheduler;
 
 /// Scan request for the LayoutPlan v2 path. Mirrors the inputs to
 /// `vortex_layout::scan::scan_builder::ScanBuilder` but produces a
@@ -349,7 +347,6 @@ impl LayoutPlan for ScanPlan {
         &self,
         row_range: std::ops::Range<u64>,
         _demand: &RowDemand,
-        _frontier: &OutputFrontier,
 
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
@@ -385,15 +382,7 @@ impl LayoutPlan for ScanPlan {
                 .detach();
         }
 
-        let frontier =
-            OutputFrontier::unbounded(self.total_rows).clone_with_offset(row_range.clone());
-        execute_with_single_scheduler(
-            Arc::clone(&self.body),
-            row_range,
-            demand,
-            frontier,
-            ctx.clone(),
-        )
+        self.body.execute(row_range, &demand, ctx)
     }
 }
 
@@ -573,9 +562,7 @@ mod tests {
             // chunking/slicing it needs. ScanPlan installs a fresh
             // demand internally; the parent demand we pass is detached.
             let parent_demand = crate::v2::demand::RowDemand::empty(row_count);
-            let parent_frontier = crate::v2::scheduler::OutputFrontier::unbounded(row_count);
-            let mut stream =
-                plan.execute(0..row_count, &parent_demand, &parent_frontier, &scan_ctx)?;
+            let mut stream = plan.execute(0..row_count, &parent_demand, &scan_ctx)?;
             while let Some(chunk) = stream.next().await {
                 chunks.push(chunk?);
             }
@@ -610,10 +597,7 @@ mod tests {
             let mut chunks = Vec::new();
             for range in ranges {
                 let scan_ctx = crate::v2::scan_ctx::ScanCtx::new(session.clone());
-                let parent_frontier = crate::v2::scheduler::OutputFrontier::unbounded(row_count)
-                    .clone_with_offset(range.clone());
-                let mut stream =
-                    plan.execute(range, &parent_demand, &parent_frontier, &scan_ctx)?;
+                let mut stream = plan.execute(range, &parent_demand, &scan_ctx)?;
                 while let Some(chunk) = stream.next().await {
                     chunks.push(chunk?);
                 }

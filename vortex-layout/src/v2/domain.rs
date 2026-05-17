@@ -18,12 +18,12 @@ impl DomainId {
     }
 }
 
-/// Stable identifier for a plan node or runtime sub-plan.
+/// Stable identifier for a plan node or runtime operator.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub(crate) struct SubplanId(u32);
+pub(crate) struct OperatorId(u32);
 
-impl SubplanId {
-    /// Construct a sub-plan identifier.
+impl OperatorId {
+    /// Construct an operator identifier.
     pub(crate) const fn new(id: u32) -> Self {
         Self(id)
     }
@@ -31,35 +31,6 @@ impl SubplanId {
     /// Return the raw identifier.
     pub(crate) const fn raw(self) -> u32 {
         self.0
-    }
-}
-
-/// A grant frontier is scoped by both row domain and sub-plan.
-///
-/// This lets a parent show different frontiers to children over the
-/// same row domain. For example, a conjunct driver can let a cheap
-/// selective predicate run ahead while keeping expensive predicates
-/// close to the demand frontier.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub(crate) struct GrantKey {
-    domain: DomainId,
-    subplan: SubplanId,
-}
-
-impl GrantKey {
-    /// Construct a grant key.
-    pub(crate) const fn new(domain: DomainId, subplan: SubplanId) -> Self {
-        Self { domain, subplan }
-    }
-
-    /// Domain controlled by this grant.
-    pub(crate) fn domain(self) -> DomainId {
-        self.domain
-    }
-
-    /// Sub-plan controlled by this grant.
-    pub(crate) fn subplan(self) -> SubplanId {
-        self.subplan
     }
 }
 

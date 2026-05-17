@@ -46,7 +46,6 @@ use crate::v2::demand::DemandSource;
 use crate::v2::demand::RowDemand;
 use crate::v2::scan_ctx::ScanCtx;
 use crate::v2::scheduler::LayoutLoweringCtx;
-use crate::v2::scheduler::OutputFrontier;
 
 pub type LayoutPlanRef = Arc<dyn LayoutPlan>;
 
@@ -141,9 +140,12 @@ pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {
 
     /// Lower this plan into the experimental single-scheduler model.
     ///
-    /// This is deliberately not wired into DataFusion. It records plan
-    /// metadata, lets leaves enqueue their initial scheduler work, and
-    /// leaves execution to [`LayoutLoweringCtx::drive_to_completion`].
+    /// This is deliberately not the DataFusion scan path. The caller
+    /// owns the currently open pipeline: operators push transforms,
+    /// multi-input operators create resource pipelines for side
+    /// inputs, and sources close the current pipeline into
+    /// scheduler-owned state. Tests can then inspect or drive the
+    /// resulting scheduler.
     ///
     /// The default lowering assumes every child shares the same row
     /// coordinate space as its parent. Plans that translate row
@@ -154,15 +156,31 @@ pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {
         row_range: Range<u64>,
         ctx: &mut LayoutLoweringCtx,
     ) -> VortexResult<()> {
-        let subplan =
-            ctx.register_plan_node(row_range.clone(), self.schema(), self.children().len());
+        let operator = ctx.alloc_operator();
         if self.children().is_empty() {
-            return ctx.register_leaf_work(subplan, row_range, self.schema());
+            return ctx.close_leaf_pipeline(operator, row_range, self.schema());
         }
 
-        for child in self.children() {
-            child.lower_to_scheduler(row_range.clone(), ctx)?;
+        if self.children().len() == 1 {
+            ctx.push_plan_node(
+                operator,
+                row_range.clone(),
+                self.schema(),
+                self.children().len(),
+            )?;
+            return self.children()[0].lower_to_scheduler(row_range, ctx);
         }
+
+        for (input, child) in self.children().iter().enumerate() {
+            ctx.with_input_resource_pipeline(
+                operator,
+                input,
+                row_range.clone(),
+                child.schema(),
+                |ctx| child.lower_to_scheduler(row_range.clone(), ctx),
+            )?;
+        }
+        ctx.close_node_output_pipeline(operator, row_range, self.schema(), self.children().len())?;
         Ok(())
     }
 
@@ -178,13 +196,6 @@ pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {
     /// row spaces (e.g. a stats child) should pass
     /// [`RowDemand::empty`] instead.
     ///
-    /// `frontier` is the matching output-production frontier for this
-    /// row domain. The default implementation used today grants every
-    /// requested row, preserving current stream behavior. Future
-    /// schedulers can wrap it to expose different visible frontiers to
-    /// different sub-plans while leaf operators keep asking the same
-    /// local "may I produce the next N rows?" question.
-    ///
     /// `ctx` is the per-scan execution context (see
     /// [`crate::v2::scan_ctx::ScanCtx`]). It carries the
     /// [`vortex_session::VortexSession`] for this scan plus a typed
@@ -198,7 +209,6 @@ pub trait LayoutPlan: DynEq + DynHash + Send + Sync + 'static {
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
-        frontier: &OutputFrontier,
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream>;
 }
@@ -228,13 +238,14 @@ impl Hash for dyn LayoutPlan {
 ///
 /// This helper is intentionally detached from the DataFusion scan
 /// path. It gives tests and local experiments a one-call way to build
-/// the scheduler prototype, inspect queued leaf work, and drive it to
+/// the scheduler prototype, inspect queued pipeline work, and drive it to
 /// completion.
 pub fn lower_to_single_scheduler(
     plan: &dyn LayoutPlan,
     row_range: Range<u64>,
 ) -> VortexResult<LayoutLoweringCtx> {
     let mut ctx = LayoutLoweringCtx::for_single_scheduler(row_range.end);
+    ctx.open_root_pipeline(row_range.clone(), plan.schema());
     ctx.with_global_range(row_range.clone(), |ctx| {
         plan.lower_to_scheduler(row_range, ctx)
     })?;

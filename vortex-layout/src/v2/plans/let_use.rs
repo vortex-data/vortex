@@ -42,7 +42,6 @@ use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
 use crate::v2::scan_ctx::ScanCtxValue;
 use crate::v2::scheduler::LayoutLoweringCtx;
-use crate::v2::scheduler::OutputFrontier;
 use crate::v2::tee_stream::TeeStream;
 
 /// Identifies a [`LetPlan`] within one scan. IDs are globally unique;
@@ -223,8 +222,16 @@ impl LayoutPlan for LetPlan {
         row_range: Range<u64>,
         ctx: &mut LayoutLoweringCtx,
     ) -> VortexResult<()> {
-        ctx.register_plan_node(row_range.clone(), self.schema(), 2);
-        self.source.lower_to_scheduler(row_range.clone(), ctx)?;
+        let operator = ctx.alloc_operator();
+        ctx.with_input_resource_pipeline(
+            operator,
+            0,
+            row_range.clone(),
+            self.source.schema(),
+            |ctx| self.source.lower_to_scheduler(row_range.clone(), ctx),
+        )?;
+
+        ctx.push_plan_node(operator, row_range.clone(), self.schema(), 2)?;
         self.body.lower_to_scheduler(row_range, ctx)
     }
 
@@ -232,7 +239,6 @@ impl LayoutPlan for LetPlan {
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
-        frontier: &OutputFrontier,
 
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
@@ -252,7 +258,7 @@ impl LayoutPlan for LetPlan {
                 );
             }
             self.publish_mask(row_range.clone(), ctx)?;
-            return self.body.execute(row_range, demand, frontier, ctx);
+            return self.body.execute(row_range, demand, ctx);
         }
         // Two-phase setup for streaming TeeStream:
         //   1. publish_stream — register the (not-yet-started) tee.
@@ -261,7 +267,7 @@ impl LayoutPlan for LetPlan {
         //   3. tee.start — spawn the producer task now that all
         //      subscribers are registered.
         let tee = self.publish_stream(ctx)?;
-        let body_stream = self.body.execute(row_range, demand, frontier, ctx)?;
+        let body_stream = self.body.execute(row_range, demand, ctx)?;
         tee.start();
         Ok(body_stream)
     }
@@ -315,17 +321,11 @@ impl LetPlan {
         // those keep their local full range because the root
         // row_range is in a different coordinate space.
         let source_demand = RowDemand::empty(total_rows);
-        let source_frontier = OutputFrontier::unbounded(total_rows);
         let source_range = source_row_range.clone();
         let materialised_range = source_row_range.clone();
         let mut registry = ctx.get_mut::<MaskRegistry>();
         drop(registry.get_or_init(self.id, source_row_range, || {
-            match source.execute(
-                source_range,
-                &source_demand,
-                &source_frontier,
-                &ctx_for_init,
-            ) {
+            match source.execute(source_range, &source_demand, &ctx_for_init) {
                 Ok(stream) => build_materialise_future(stream, session, materialised_range),
                 Err(e) => {
                     init_err = Some(e);
@@ -365,15 +365,9 @@ impl LetPlan {
         // Source operates in its full row space, decoupled from any
         // particular caller's row_range — pass detached demand.
         let source_demand = RowDemand::empty(total_rows);
-        let source_frontier = OutputFrontier::unbounded(total_rows);
         let mut registry = ctx.get_mut::<LetRegistry>();
         let arc = registry.get_or_init_stream(self.id, || {
-            match source.execute(
-                0..total_rows,
-                &source_demand,
-                &source_frontier,
-                &ctx_for_init,
-            ) {
+            match source.execute(0..total_rows, &source_demand, &ctx_for_init) {
                 Ok(stream) => TeeStream::new(stream, handle.clone()),
                 Err(e) => {
                     init_err = Some(e);
@@ -497,7 +491,6 @@ impl LayoutPlan for UsePlan {
         &self,
         row_range: Range<u64>,
         _demand: &RowDemand,
-        _frontier: &OutputFrontier,
 
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
@@ -620,7 +613,6 @@ mod tests {
     use crate::v2::plans::LayoutPlanRef;
     use crate::v2::plans::PartitionStats;
     use crate::v2::scan_ctx::ScanCtx;
-    use crate::v2::scheduler::OutputFrontier;
 
     type CountingBoolPlanParts = (
         Arc<CountingBoolPlan>,
@@ -716,7 +708,6 @@ mod tests {
             &self,
             row_range: Range<u64>,
             _demand: &RowDemand,
-            _frontier: &OutputFrontier,
             _ctx: &ScanCtx,
         ) -> VortexResult<SendableArrayStream> {
             self.executes.fetch_add(1, Ordering::SeqCst);
@@ -794,7 +785,6 @@ mod tests {
             &self,
             _row_range: Range<u64>,
             _demand: &RowDemand,
-            _frontier: &OutputFrontier,
             _ctx: &ScanCtx,
         ) -> VortexResult<SendableArrayStream> {
             self.executes.fetch_add(1, Ordering::SeqCst);
@@ -863,8 +853,7 @@ mod tests {
             let plan: LayoutPlanRef =
                 Arc::new(LetPlan::with_id(id, Arc::clone(&source) as _, body));
             let demand = RowDemand::empty(8);
-            let frontier = OutputFrontier::unbounded(8).clone_with_offset(2..6);
-            let stream = plan.execute(2..6, &demand, &frontier, &ctx)?;
+            let stream = plan.execute(2..6, &demand, &ctx)?;
             let values = collect_i32(stream).await?;
             assert_eq!(values, vec![3, 4, 5, 6]);
             Ok::<_, VortexError>(())
@@ -884,8 +873,7 @@ mod tests {
                 Arc::new(LetPlan::with_id(id, Arc::clone(&source) as _, body));
 
             let demand = RowDemand::empty(10);
-            let frontier = OutputFrontier::unbounded(10).clone_with_offset(3..7);
-            let stream = plan.execute(3..7, &demand, &frontier, &ctx)?;
+            let stream = plan.execute(3..7, &demand, &ctx)?;
             let array = stream.read_all().await?;
 
             assert_eq!(array.len(), 4);
@@ -907,8 +895,7 @@ mod tests {
             let plan = LetPlan::new(Arc::clone(&source) as _, Arc::clone(&body) as _);
 
             let demand = RowDemand::empty(3);
-            let frontier = OutputFrontier::unbounded(3);
-            let mut stream = plan.execute(0..3, &demand, &frontier, &ctx)?;
+            let mut stream = plan.execute(0..3, &demand, &ctx)?;
             let mut total = 0;
             while let Some(item) = stream.next().await {
                 total += item?.len();

@@ -35,7 +35,6 @@ use crate::v2::plans::LayoutPlan;
 use crate::v2::plans::LayoutPlanRef;
 use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
-use crate::v2::scheduler::OutputFrontier;
 
 /// Composes child plans positionally; each child produces values for
 /// one field, and `StructPlan::execute` zips them into struct arrays.
@@ -221,7 +220,6 @@ impl LayoutPlan for StructPlan {
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
-        frontier: &OutputFrontier,
 
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
@@ -236,7 +234,6 @@ impl LayoutPlan for StructPlan {
         let output_dtype = self.output_dtype.clone();
         let dtype = output_dtype.clone();
         let demand = demand.clone();
-        let frontier = frontier.clone();
         let ctx = ctx.clone();
         let stream = try_stream! {
             let demanded_rows = demand.cardinality(row_range.clone()).await?;
@@ -257,7 +254,7 @@ impl LayoutPlan for StructPlan {
                 );
             }
             for child in &children {
-                child_streams.push(child.execute(row_range.clone(), &demand, &frontier, &ctx)?);
+                child_streams.push(child.execute(row_range.clone(), &demand, &ctx)?);
             }
 
             let names: FieldNames = FieldNames::from(field_names.as_slice());

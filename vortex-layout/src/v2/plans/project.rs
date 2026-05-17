@@ -32,7 +32,6 @@ use crate::v2::plans::LayoutPlan;
 use crate::v2::plans::LayoutPlanRef;
 use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
-use crate::v2::scheduler::OutputFrontier;
 
 /// Applies a Vortex [`Expression`] to every batch produced by `child`.
 pub struct ProjectPlan {
@@ -164,7 +163,6 @@ impl LayoutPlan for ProjectPlan {
         &self,
         row_range: std::ops::Range<u64>,
         demand: &RowDemand,
-        frontier: &OutputFrontier,
 
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
@@ -173,7 +171,6 @@ impl LayoutPlan for ProjectPlan {
         let dtype = self.output_dtype.clone();
         let output_dtype = dtype.clone();
         let demand = demand.clone();
-        let frontier = frontier.clone();
         let ctx = ctx.clone();
         let stream = try_stream! {
             let demanded_rows = demand.cardinality(row_range.clone()).await?;
@@ -183,7 +180,7 @@ impl LayoutPlan for ProjectPlan {
                 return;
             }
 
-            let mut inner = child.execute(row_range, &demand, &frontier, &ctx)?;
+            let mut inner = child.execute(row_range, &demand, &ctx)?;
             while let Some(chunk) = inner.next().await {
                 yield chunk?.apply(&expr)?;
             }

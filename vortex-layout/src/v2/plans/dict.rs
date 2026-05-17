@@ -38,7 +38,6 @@ use crate::v2::plans::LayoutPlanRef;
 use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
 use crate::v2::scheduler::LayoutLoweringCtx;
-use crate::v2::scheduler::OutputFrontier;
 
 /// Per-execute call: take codes from `codes_plan`, await the dict
 /// values from `values_plan` once at the start of the output stream,
@@ -191,14 +190,21 @@ impl LayoutPlan for DictDecodePlan {
         row_range: Range<u64>,
         ctx: &mut LayoutLoweringCtx,
     ) -> VortexResult<()> {
-        ctx.register_plan_node(row_range.clone(), self.schema(), 2);
+        let operator = ctx.alloc_operator();
 
         let values_total = self.values_plan.partition_stats(0)?.row_count();
         let global_range = ctx.current_global_range();
         ctx.with_global_range(global_range, |ctx| {
-            self.values_plan.lower_to_scheduler(0..values_total, ctx)
+            ctx.with_input_resource_pipeline(
+                operator,
+                1,
+                0..values_total,
+                self.values_plan.schema(),
+                |ctx| self.values_plan.lower_to_scheduler(0..values_total, ctx),
+            )
         })?;
 
+        ctx.push_plan_node(operator, row_range.clone(), self.schema(), 2)?;
         self.codes_plan.lower_to_scheduler(row_range, ctx)
     }
 
@@ -206,7 +212,6 @@ impl LayoutPlan for DictDecodePlan {
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
-        frontier: &OutputFrontier,
 
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
@@ -224,23 +229,20 @@ impl LayoutPlan for DictDecodePlan {
         let codes_plan = Arc::clone(&self.codes_plan);
         let values_plan = Arc::clone(&self.values_plan);
         let demand = demand.clone();
-        let frontier = frontier.clone();
         let ctx_for_stream = ctx.clone();
         let expr = self.expr.clone();
         let dtype = self.output_dtype.clone();
         let all_values_referenced = self.all_values_referenced;
         let stream = try_stream! {
-            let mut codes_stream = codes_plan.execute(row_range, &demand, &frontier, &ctx_for_stream)?;
+            let mut codes_stream = codes_plan.execute(row_range, &demand, &ctx_for_stream)?;
             let Some(first_codes) = codes_stream.next().await else {
                 return;
             };
 
             let values_demand = RowDemand::empty(values_total);
-            let values_frontier = OutputFrontier::unbounded(values_total);
             let values_stream = values_plan.execute(
                 0..values_total,
                 &values_demand,
-                &values_frontier,
                 &ctx_for_stream,
             )?;
 

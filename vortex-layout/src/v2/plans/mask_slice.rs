@@ -28,7 +28,6 @@ use crate::v2::plans::LayoutPlanRef;
 use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
 use crate::v2::scheduler::LayoutLoweringCtx;
-use crate::v2::scheduler::OutputFrontier;
 
 /// Re-bases an inner mask plan into a sub-range's local coordinates.
 /// The wrapped plan's row space is `0..slice_len`; `execute` adds
@@ -137,9 +136,10 @@ impl LayoutPlan for MaskSlicePlan {
         }
 
         let global_range = ctx.current_global_range();
-        ctx.register_plan_node(row_range.clone(), self.schema(), 1);
+        let operator = ctx.alloc_operator();
         let abs_start = self.slice_offset + row_range.start;
         let abs_end = self.slice_offset + row_range.end;
+        ctx.push_plan_node(operator, row_range.clone(), self.schema(), 1)?;
         ctx.with_global_range(global_range, |ctx| {
             self.inner.lower_to_scheduler(abs_start..abs_end, ctx)
         })
@@ -149,7 +149,6 @@ impl LayoutPlan for MaskSlicePlan {
         &self,
         row_range: Range<u64>,
         _demand: &RowDemand,
-        frontier: &OutputFrontier,
 
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
@@ -165,7 +164,6 @@ impl LayoutPlan for MaskSlicePlan {
         // range) than what we received; pass detached so it doesn't
         // mis-attribute publishes against our parent's narrow scope.
         let inner_demand = RowDemand::empty(abs_end);
-        self.inner
-            .execute(abs_start..abs_end, &inner_demand, frontier, ctx)
+        self.inner.execute(abs_start..abs_end, &inner_demand, ctx)
     }
 }

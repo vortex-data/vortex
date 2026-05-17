@@ -38,7 +38,6 @@ use crate::v2::plans::LayoutPlanRef;
 use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
 use crate::v2::scheduler::LayoutLoweringCtx;
-use crate::v2::scheduler::OutputFrontier;
 
 /// Applies `mask` to `values` per row. Output dtype matches the
 /// value plan's schema; output row count is the number of `true`
@@ -174,8 +173,16 @@ impl LayoutPlan for FilterPlan {
         row_range: Range<u64>,
         ctx: &mut LayoutLoweringCtx,
     ) -> VortexResult<()> {
-        ctx.register_plan_node(row_range.clone(), self.schema(), 2);
-        self.mask.lower_to_scheduler(row_range.clone(), ctx)?;
+        let operator = ctx.alloc_operator();
+        ctx.with_input_resource_pipeline(
+            operator,
+            1,
+            row_range.clone(),
+            self.mask.schema(),
+            |ctx| self.mask.lower_to_scheduler(row_range.clone(), ctx),
+        )?;
+
+        ctx.push_plan_node(operator, row_range.clone(), self.schema(), 2)?;
         self.values.lower_to_scheduler(row_range, ctx)
     }
 
@@ -183,7 +190,6 @@ impl LayoutPlan for FilterPlan {
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
-        frontier: &OutputFrontier,
 
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
@@ -199,10 +205,8 @@ impl LayoutPlan for FilterPlan {
                 "filter execute"
             );
         }
-        let values_stream = self
-            .values
-            .execute(row_range.clone(), demand, frontier, ctx)?;
-        let mask_stream = self.mask.execute(row_range, demand, frontier, ctx)?;
+        let values_stream = self.values.execute(row_range.clone(), demand, ctx)?;
+        let mask_stream = self.mask.execute(row_range, demand, ctx)?;
 
         let session = ctx.session().clone();
         let dtype = self.output_dtype.clone();

@@ -37,7 +37,6 @@ use crate::v2::plans::LayoutPlan;
 use crate::v2::plans::LayoutPlanRef;
 use crate::v2::plans::PartitionStats;
 use crate::v2::scan_ctx::ScanCtx;
-use crate::v2::scheduler::OutputFrontier;
 
 /// Combines N bool-stream children into a single bool stream by
 /// progressively AND-ing per row. Each conjunct window sees the mask
@@ -174,7 +173,6 @@ impl LayoutPlan for ConjunctPlan {
         &self,
         row_range: Range<u64>,
         demand: &RowDemand,
-        frontier: &OutputFrontier,
 
         ctx: &ScanCtx,
     ) -> VortexResult<SendableArrayStream> {
@@ -183,7 +181,7 @@ impl LayoutPlan for ConjunctPlan {
         let conjuncts = self.conjuncts.clone();
         let mut child_streams = Vec::with_capacity(children.len());
         for child in &children {
-            child_streams.push(child.execute(row_range.clone(), demand, frontier, ctx)?);
+            child_streams.push(child.execute(row_range.clone(), demand, ctx)?);
         }
         let demand = demand.clone();
         let session = ctx.session().clone();
