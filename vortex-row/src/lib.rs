@@ -6,6 +6,7 @@
 //! Subsequent commits add the encoder, decoder helpers, and per-encoding fast paths.
 //! This commit only establishes the crate skeleton and an `initialize` stub.
 
+pub mod codec;
 pub mod options;
 
 pub use options::RowEncodeOptions;

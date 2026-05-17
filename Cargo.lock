@@ -11038,8 +11038,12 @@ dependencies = [
 name = "vortex-row"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "smallvec",
+ "vortex-array",
+ "vortex-buffer",
  "vortex-error",
+ "vortex-mask",
  "vortex-session",
 ]
 

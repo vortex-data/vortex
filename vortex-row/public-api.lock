@@ -1,5 +1,105 @@
 pub mod vortex_row
 
+pub mod vortex_row::codec
+
+pub enum vortex_row::codec::RowWidth
+
+pub vortex_row::codec::RowWidth::Fixed(u32)
+
+pub vortex_row::codec::RowWidth::Variable
+
+impl core::clone::Clone for vortex_row::codec::RowWidth
+
+pub fn vortex_row::codec::RowWidth::clone(&self) -> vortex_row::codec::RowWidth
+
+impl core::cmp::Eq for vortex_row::codec::RowWidth
+
+impl core::cmp::PartialEq for vortex_row::codec::RowWidth
+
+pub fn vortex_row::codec::RowWidth::eq(&self, &vortex_row::codec::RowWidth) -> bool
+
+impl core::fmt::Debug for vortex_row::codec::RowWidth
+
+pub fn vortex_row::codec::RowWidth::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_row::codec::RowWidth
+
+impl core::marker::StructuralPartialEq for vortex_row::codec::RowWidth
+
+pub const vortex_row::codec::BOOL_ENCODED_SIZE: u32
+
+pub const vortex_row::codec::VARLEN_BLOCK_SIZE: usize
+
+pub const vortex_row::codec::VARLEN_BLOCK_TOTAL: usize
+
+pub trait vortex_row::codec::RowEncode: core::marker::Copy
+
+pub fn vortex_row::codec::RowEncode::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for f32
+
+pub fn f32::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for f64
+
+pub fn f64::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for half::binary16::f16
+
+pub fn half::binary16::f16::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for i128
+
+pub fn i128::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for i16
+
+pub fn i16::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for i32
+
+pub fn i32::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for i64
+
+pub fn i64::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for i8
+
+pub fn i8::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for u16
+
+pub fn u16::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for u32
+
+pub fn u32::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for u64
+
+pub fn u64::encode_to(self, &mut [u8], bool)
+
+impl vortex_row::codec::RowEncode for u8
+
+pub fn u8::encode_to(self, &mut [u8], bool)
+
+pub fn vortex_row::codec::encode_scalar(&vortex_array::scalar::Scalar, vortex_row::options::SortField) -> vortex_error::VortexResult<bytes::bytes::Bytes>
+
+pub fn vortex_row::codec::encode_scalar_bool(core::option::Option<bool>, vortex_row::options::SortField, &mut vortex_buffer::ByteBufferMut)
+
+pub fn vortex_row::codec::encode_scalar_null(vortex_row::options::SortField, bool, &mut vortex_buffer::ByteBufferMut)
+
+pub fn vortex_row::codec::encode_scalar_primitive(vortex_array::dtype::ptype::PType, vortex_array::scalar::typed_view::primitive::pvalue::PValue, vortex_row::options::SortField, bool, &mut vortex_buffer::ByteBufferMut) -> vortex_error::VortexResult<()>
+
+pub fn vortex_row::codec::encoded_size_for_scalar(&vortex_array::scalar::Scalar, vortex_row::options::SortField) -> vortex_error::VortexResult<u32>
+
+pub fn vortex_row::codec::field_encode(&vortex_array::canonical::Canonical, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_row::codec::field_size(&vortex_array::canonical::Canonical, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+
+pub fn vortex_row::codec::row_width_for_dtype(&vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_row::codec::RowWidth>
+
 pub mod vortex_row::options
 
 pub struct vortex_row::options::RowEncodeOptions
