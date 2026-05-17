@@ -102,6 +102,12 @@ pub fn vortex_row::codec::field_size(&vortex_array::canonical::Canonical, vortex
 
 pub fn vortex_row::codec::row_width_for_dtype(&vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_row::codec::RowWidth>
 
+pub mod vortex_row::convert
+
+pub fn vortex_row::convert::compute_row_sizes(&[vortex_array::array::erased::ArrayRef], &[vortex_row::options::SortField], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_row::convert::convert_columns(&[vortex_array::array::erased::ArrayRef], &[vortex_row::options::SortField], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::listview::vtable::ListViewArray>
+
 pub mod vortex_row::encode
 
 pub struct vortex_row::encode::RowEncode
@@ -409,5 +415,9 @@ pub fn vortex_row::RowEncodeKernel::row_encode_into(vortex_array::array::view::A
 pub trait vortex_row::RowSizeKernel: vortex_array::array::vtable::VTable
 
 pub fn vortex_row::RowSizeKernel::row_size_contribution(vortex_array::array::view::ArrayView<'_, Self>, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<()>>
+
+pub fn vortex_row::compute_row_sizes(&[vortex_array::array::erased::ArrayRef], &[vortex_row::options::SortField], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
+
+pub fn vortex_row::convert_columns(&[vortex_array::array::erased::ArrayRef], &[vortex_row::options::SortField], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::listview::vtable::ListViewArray>
 
 pub fn vortex_row::initialize(&vortex_session::VortexSession)

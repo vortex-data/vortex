@@ -11038,7 +11038,14 @@ dependencies = [
 name = "vortex-row"
 version = "0.1.0"
 dependencies = [
+ "arrow-array 58.2.0",
+ "arrow-row 58.2.0",
+ "arrow-schema 58.2.0",
  "bytes",
+ "codspeed-divan-compat",
+ "mimalloc",
+ "rand 0.10.1",
+ "rstest",
  "smallvec",
  "vortex-array",
  "vortex-buffer",
