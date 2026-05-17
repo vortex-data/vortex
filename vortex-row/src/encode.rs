@@ -191,14 +191,31 @@ fn execute_row_encode(
             }
         }
         Some(v) => {
+            // Mixed path: offsets[i] = i * fixed_per_row + var_prefix[i] where
+            // var_prefix is the exclusive cumsum of varlen lengths. Same raw-pointer
+            // write loop as the pure-fixed branch (auto-vectorized); the total was
+            // validated to fit in u32 upstream so `wrapping_add` is sound here.
+            listview_offsets.reserve(nrows);
             let mut vp: Option<Vec<u32>> = need_arith_prefix.then(|| Vec::with_capacity(nrows));
-            let mut acc: u32 = 0;
-            for (i, &l) in v.iter().enumerate() {
-                if let Some(p) = vp.as_mut() {
-                    p.push(acc);
+            // SAFETY: we just reserved nrows; writes at indices [0, nrows) are valid.
+            // Likewise `vp` (if Some) has reserved nrows.
+            unsafe {
+                let off_ptr = listview_offsets.as_mut_ptr();
+                let vp_ptr = vp.as_mut().map(|p| p.as_mut_ptr());
+                let mut acc: u32 = 0;
+                for (i, &l) in v.iter().enumerate() {
+                    if let Some(p) = vp_ptr {
+                        p.add(i).write(acc);
+                    }
+                    off_ptr
+                        .add(i)
+                        .write((i as u32).wrapping_mul(fixed_per_row).wrapping_add(acc));
+                    acc = acc.wrapping_add(l);
                 }
-                listview_offsets.push((i as u32) * fixed_per_row + acc);
-                acc = acc.checked_add(l).vortex_expect("var prefix overflow");
+                listview_offsets.set_len(nrows);
+                if let Some(p) = vp.as_mut() {
+                    p.set_len(nrows);
+                }
             }
             var_prefix_for_arith = vp;
         }
