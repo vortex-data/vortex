@@ -520,10 +520,13 @@ mod tests {
         let (wide_schema, wide_dtype) = build_nested(WIDE);
 
         // Warm up so we don't measure first-call overhead.
-        let _ = calculate_physical_schema(&narrow_dtype, &narrow_schema, &ArrowSession::default())
-            .unwrap();
-        let _ =
-            calculate_physical_schema(&wide_dtype, &wide_schema, &ArrowSession::default()).unwrap();
+        drop(
+            calculate_physical_schema(&narrow_dtype, &narrow_schema, &ArrowSession::default())
+                .unwrap(),
+        );
+        drop(
+            calculate_physical_schema(&wide_dtype, &wide_schema, &ArrowSession::default()).unwrap(),
+        );
 
         let narrow_start = Instant::now();
         let narrow_physical =
