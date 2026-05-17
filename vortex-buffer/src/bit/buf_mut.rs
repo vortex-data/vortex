@@ -1106,4 +1106,15 @@ mod tests {
             assert_eq!(bit_buf.value(i), i % 2 == 0);
         }
     }
+
+    #[test]
+    fn bitbuffer_mut_single_bit_returns_mut_type() {
+        let zero: BitBufferMut = bitbuffer_mut![0];
+        assert_eq!(zero.len(), 1);
+        assert!(!zero.freeze().value(0));
+
+        let one: BitBufferMut = bitbuffer_mut![1];
+        assert_eq!(one.len(), 1);
+        assert!(one.freeze().value(0));
+    }
 }

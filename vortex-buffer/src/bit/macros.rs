@@ -58,10 +58,10 @@ macro_rules! bitbuffer_mut {
     // We capture single-element 0/1 cases to avoid ambiguity with the
     // comma-separated expression case.
     (0) => {
-        $crate::BitBuffer::from_iter([false])
+        $crate::BitBufferMut::from_iter([false])
     };
     (1) => {
-        $crate::BitBuffer::from_iter([true])
+        $crate::BitBufferMut::from_iter([true])
     };
 
     ($elem:expr; $n:expr) => (
