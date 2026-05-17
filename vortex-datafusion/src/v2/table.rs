@@ -19,15 +19,14 @@ use datafusion_common::ColumnStatistics;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::Statistics;
-use datafusion_common::stats::Precision;
 use datafusion_datasource::source::DataSourceExec;
 use datafusion_expr::Expr;
 use datafusion_expr::TableType;
 use datafusion_physical_plan::ExecutionPlan;
-use vortex::expr::stats::Precision as VortexPrecision;
 use vortex::scan::DataSourceRef;
 use vortex::session::VortexSession;
 
+use crate::PrecisionExt;
 use crate::v2::source::VortexDataSource;
 
 /// DataFusion [`TableProvider`] backed by a Vortex
@@ -156,19 +155,17 @@ impl TableProvider for VortexTable {
     // NOTE(ngates): it's not obvious these are actually used? I think DataFusion does join
     //  planning over stats from the physical plan?
     fn statistics(&self) -> Option<Statistics> {
-        let num_rows = match self.data_source.row_count() {
-            Some(VortexPrecision::Exact(v)) => {
-                usize::try_from(v).map(Precision::Exact).unwrap_or_default()
-            }
-            _ => Precision::Absent,
-        };
+        let num_rows = self
+            .data_source
+            .row_count()
+            .map(|p| p.map(|v| usize::try_from(v).unwrap_or(usize::MAX)))
+            .to_df();
 
-        let total_byte_size = match self.data_source.byte_size() {
-            Some(VortexPrecision::Exact(v)) => {
-                usize::try_from(v).map(Precision::Exact).unwrap_or_default()
-            }
-            _ => Precision::Absent,
-        };
+        let total_byte_size = self
+            .data_source
+            .byte_size()
+            .map(|p| p.map(|v| usize::try_from(v).unwrap_or(usize::MAX)))
+            .to_df();
 
         let column_statistics =
             vec![ColumnStatistics::new_unknown(); self.arrow_schema.fields.len()];
@@ -178,5 +175,114 @@ impl TableProvider for VortexTable {
             total_byte_size,
             column_statistics,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_schema::Schema;
+    use async_trait::async_trait;
+    use datafusion_common::stats::Precision;
+    use vortex::array::dtype::DType;
+    use vortex::array::dtype::FieldPath;
+    use vortex::array::dtype::Nullability;
+    use vortex::array::stats::StatsSet;
+    use vortex::error::VortexResult;
+    use vortex::error::vortex_bail;
+    use vortex::expr::stats::Precision as VortexPrecision;
+    use vortex::scan::DataSource;
+    use vortex::scan::DataSourceRef;
+    use vortex::scan::DataSourceScanRef;
+    use vortex::scan::ScanRequest;
+    use vortex::session::VortexSession;
+
+    use super::*;
+
+    /// A minimal stub `DataSource` used to verify that `VortexTable::statistics`
+    /// preserves precision instead of dropping `Inexact` values.
+    struct StubDataSource {
+        dtype: DType,
+        row_count: Option<VortexPrecision<u64>>,
+        byte_size: Option<VortexPrecision<u64>>,
+    }
+
+    #[async_trait]
+    impl DataSource for StubDataSource {
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> Option<VortexPrecision<u64>> {
+            self.row_count
+        }
+
+        fn byte_size(&self) -> Option<VortexPrecision<u64>> {
+            self.byte_size
+        }
+
+        async fn scan(&self, _scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+            vortex_bail!("StubDataSource::scan is not implemented")
+        }
+
+        async fn field_statistics(&self, _field_path: &FieldPath) -> VortexResult<StatsSet> {
+            Ok(StatsSet::default())
+        }
+    }
+
+    #[test]
+    fn statistics_preserves_inexact_precision() {
+        let data_source: DataSourceRef = Arc::new(StubDataSource {
+            dtype: DType::Bool(Nullability::NonNullable),
+            row_count: Some(VortexPrecision::Inexact(1000)),
+            byte_size: Some(VortexPrecision::Inexact(50_000)),
+        });
+
+        let table = VortexTable::new(
+            data_source,
+            VortexSession::empty(),
+            Arc::new(Schema::empty()),
+        );
+
+        let stats = table.statistics().expect("statistics should be Some");
+        assert_eq!(stats.num_rows, Precision::Inexact(1000));
+        assert_eq!(stats.total_byte_size, Precision::Inexact(50_000));
+    }
+
+    #[test]
+    fn statistics_preserves_exact_precision() {
+        let data_source: DataSourceRef = Arc::new(StubDataSource {
+            dtype: DType::Bool(Nullability::NonNullable),
+            row_count: Some(VortexPrecision::Exact(42)),
+            byte_size: Some(VortexPrecision::Exact(4096)),
+        });
+
+        let table = VortexTable::new(
+            data_source,
+            VortexSession::empty(),
+            Arc::new(Schema::empty()),
+        );
+
+        let stats = table.statistics().expect("statistics should be Some");
+        assert_eq!(stats.num_rows, Precision::Exact(42));
+        assert_eq!(stats.total_byte_size, Precision::Exact(4096));
+    }
+
+    #[test]
+    fn statistics_absent_when_source_has_none() {
+        let data_source: DataSourceRef = Arc::new(StubDataSource {
+            dtype: DType::Bool(Nullability::NonNullable),
+            row_count: None,
+            byte_size: None,
+        });
+
+        let table = VortexTable::new(
+            data_source,
+            VortexSession::empty(),
+            Arc::new(Schema::empty()),
+        );
+
+        let stats = table.statistics().expect("statistics should be Some");
+        assert_eq!(stats.num_rows, Precision::Absent);
+        assert_eq!(stats.total_byte_size, Precision::Absent);
     }
 }
