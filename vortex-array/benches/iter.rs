@@ -30,7 +30,7 @@ use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::dict_test::gen_primitive_for_dict;
 use vortex_array::arrays::dict_test::gen_varbin_words;
 use vortex_array::arrays::struct_::StructArrayExt;
-use vortex_array::arrays::varbin::VarBinArrayExt;
+use vortex_array::arrays::varbin::{VarBinArrayExt, iter_offsets};
 use vortex_array::dtype::Nullability;
 use vortex_array::iter_array::IterArray;
 use vortex_array::iter_array::IterArrayValue;
@@ -217,6 +217,17 @@ fn varbin_new_nonnull(b: Bencher, len: usize) {
             .flatten()
             .map(|b| b.len())
             .sum();
+        black_box(s)
+    });
+}
+
+#[divan::bench(args = LENGTHS)]
+fn varbin_new_typed_u32_nonnull(b: Bencher, len: usize) {
+    // Typed escape hatch: caller knows offsets are u32, no upfront
+    // conversion. Per-tick reads u32 and casts to usize (free on x86).
+    let arr = build_varbin(len, false);
+    b.bench_local(|| {
+        let s: usize = iter_offsets::<u32>(&arr).flatten().map(|b| b.len()).sum();
         black_box(s)
     });
 }

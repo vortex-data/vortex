@@ -16,7 +16,8 @@ pub mod builder;
 
 mod accessor;
 mod iter;
-pub use iter::VarBinIter;
+pub use iter::iter_offsets;
+pub use iter::{VarBinIter, VarBinOffset, VarBinTypedIter};
 
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
