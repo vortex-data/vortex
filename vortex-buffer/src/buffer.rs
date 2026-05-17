@@ -468,6 +468,13 @@ impl<T> Buffer<T> {
 
     /// Return a `Buffer<T>` with the given alignment. Where possible, this will be zero-copy.
     pub fn aligned(mut self, alignment: Alignment) -> Self {
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            vortex_panic!(
+                "Alignment {} must align to the scalar type's alignment {}",
+                alignment,
+                Alignment::of::<T>()
+            );
+        }
         if self.as_ptr().align_offset(*alignment) == 0 {
             self.alignment = alignment;
             self
@@ -485,6 +492,13 @@ impl<T> Buffer<T> {
 
     /// Return a `Buffer<T>` with the given alignment. Panics if the buffer is not aligned.
     pub fn ensure_aligned(mut self, alignment: Alignment) -> Self {
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            vortex_panic!(
+                "Alignment {} must align to the scalar type's alignment {}",
+                alignment,
+                Alignment::of::<T>()
+            );
+        }
         if self.as_ptr().align_offset(*alignment) == 0 {
             self.alignment = alignment;
             self
@@ -739,6 +753,20 @@ mod test {
         let aligned = buf.aligned(Alignment::new(32));
         assert_eq!(aligned.alignment(), Alignment::new(32));
         assert_eq!(aligned.as_slice(), &[0, 1, 2]);
+    }
+
+    #[test]
+    #[should_panic(expected = "align")]
+    fn aligned_below_t() {
+        let buf = buffer![0i64, 1, 2];
+        drop(buf.aligned(Alignment::new(1)));
+    }
+
+    #[test]
+    #[should_panic(expected = "align")]
+    fn ensure_aligned_below_t() {
+        let buf = buffer![0i64, 1, 2];
+        drop(buf.ensure_aligned(Alignment::new(1)));
     }
 
     #[test]

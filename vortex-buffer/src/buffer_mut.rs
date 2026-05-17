@@ -451,6 +451,13 @@ impl<T> BufferMut<T> {
     ///
     /// If the data is not aligned, we copy it into a new allocation.
     pub fn aligned(self, alignment: Alignment) -> Self {
+        if !alignment.is_aligned_to(Alignment::of::<T>()) {
+            vortex_panic!(
+                "Alignment {} must align to the scalar type's alignment {}",
+                alignment,
+                Alignment::of::<T>()
+            );
+        }
         if self.as_ptr().align_offset(*alignment) == 0 {
             Self {
                 bytes: self.bytes,
@@ -883,6 +890,13 @@ mod test {
 
         BufMut::put_slice(&mut buf, b"world");
         assert_eq!(buf.as_slice(), b"helloworld");
+    }
+
+    #[test]
+    #[should_panic(expected = "align")]
+    fn aligned_below_t_panics() {
+        let buf = buffer_mut![0i64, 1, 2];
+        drop(buf.aligned(Alignment::new(1)));
     }
 
     #[test]
