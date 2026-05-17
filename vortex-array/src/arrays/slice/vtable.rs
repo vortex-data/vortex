@@ -168,35 +168,51 @@ impl OperationsVTable<Slice> for Slice {
         array.child().execute_scalar(array.range.start + index, ctx)
     }
 
-    // TODO(point-fn migration): port these point_scalar_at / point_search_sorted
-    // overrides to ScalarAtKernel / SearchSortedKernel impls registered via
-    // `point_kernels()`. Coexists with the kernel-per-op pattern; no
-    // behavioural change blocking this.
-    fn point_scalar_at(
-        array: ArrayView<'_, Slice>,
+    fn point_kernels() -> Option<&'static crate::point_fn::PointKernels<Slice>> {
+        Some(&POINT_KERNELS)
+    }
+}
+
+const POINT_KERNELS: crate::point_fn::PointKernels<Slice> = crate::point_fn::PointKernels::empty()
+    .with_scalar_at(crate::point_fn::PointKernels::lift_scalar_at(
+        &SliceScalarAtKernel,
+    ))
+    .with_search_sorted(crate::point_fn::PointKernels::lift_search_sorted(
+        &SliceSearchSortedKernel,
+    ));
+
+/// Push through to the child so the session's caches apply at both
+/// levels (slice-level and child-level).
+struct SliceScalarAtKernel;
+
+impl crate::point_fn::ScalarAtKernel<Slice> for SliceScalarAtKernel {
+    fn execute(
+        view: ArrayView<'_, Slice>,
         index: usize,
         d: &mut dyn crate::point_fn::PointDispatch,
     ) -> VortexResult<Scalar> {
-        // Push through to the child so the session's caches apply at both
-        // levels (slice-level and child-level).
-        d.scalar_at(array.child(), array.range.start + index)
+        d.scalar_at(view.child(), view.range.start + index)
     }
+}
 
-    /// Search the child once, then clamp the result into the slice's local
-    /// coordinate space. The child must be sorted for this to be meaningful;
-    /// that precondition is inherited from the slice array.
-    fn point_search_sorted(
-        array: ArrayView<'_, Slice>,
+/// Search the child once, then clamp the result into the slice's local
+/// coordinate space. The child must be sorted for this to be meaningful;
+/// that precondition is inherited from the slice array.
+struct SliceSearchSortedKernel;
+
+impl crate::point_fn::SearchSortedKernel<Slice> for SliceSearchSortedKernel {
+    fn execute(
+        view: ArrayView<'_, Slice>,
         value: &Scalar,
         side: crate::search_sorted::SearchSortedSide,
         d: &mut dyn crate::point_fn::PointDispatch,
     ) -> VortexResult<crate::search_sorted::SearchResult> {
         use crate::search_sorted::SearchResult;
-        let offset = array.range.start;
-        let stop = array.range.end;
+        let offset = view.range.start;
+        let stop = view.range.end;
         let len = stop - offset;
 
-        let child_result = d.search_sorted(array.child(), value, side)?;
+        let child_result = d.search_sorted(view.child(), value, side)?;
         let raw = child_result.to_index();
 
         // Map child's position into the slice's [0, len] range. A child position

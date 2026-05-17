@@ -40,45 +40,60 @@ impl OperationsVTable<Dict> for Dict {
             .vortex_expect("Array dtype will only differ by nullability"))
     }
 
-    // TODO(point-fn migration): port these point_scalar_at / point_search_sorted
-    // overrides to ScalarAtKernel / SearchSortedKernel impls registered via
-    // `point_kernels()`. Coexists with the kernel-per-op pattern; no
-    // behavioural change blocking this.
-    /// Recurse via the dispatch: read the code at `index` from `codes`, then look
-    /// up the corresponding dict value. Both child calls hit the session's caches.
-    fn point_scalar_at(
-        array: ArrayView<'_, Dict>,
+    fn point_kernels() -> Option<&'static crate::point_fn::PointKernels<Dict>> {
+        Some(&POINT_KERNELS)
+    }
+}
+
+const POINT_KERNELS: crate::point_fn::PointKernels<Dict> = crate::point_fn::PointKernels::empty()
+    .with_scalar_at(crate::point_fn::PointKernels::lift_scalar_at(
+        &DictScalarAtKernel,
+    ))
+    .with_search_sorted(crate::point_fn::PointKernels::lift_search_sorted(
+        &DictSearchSortedKernel,
+    ));
+
+/// Recurse via the dispatch: read the code at `index` from `codes`, then look
+/// up the corresponding dict value. Both child calls hit the session's caches.
+struct DictScalarAtKernel;
+
+impl crate::point_fn::ScalarAtKernel<Dict> for DictScalarAtKernel {
+    fn execute(
+        view: ArrayView<'_, Dict>,
         index: usize,
         d: &mut dyn PointDispatch,
     ) -> VortexResult<Scalar> {
         let Some(dict_index) = d
-            .scalar_at(array.codes(), index)?
+            .scalar_at(view.codes(), index)?
             .as_primitive()
             .as_::<usize>()
         else {
-            return Ok(Scalar::null(array.dtype().clone()));
+            return Ok(Scalar::null(view.dtype().clone()));
         };
-        Ok(d.scalar_at(array.values(), dict_index)?
-            .cast(array.dtype())
+        Ok(d.scalar_at(view.values(), dict_index)?
+            .cast(view.dtype())
             .vortex_expect("Array dtype will only differ by nullability"))
     }
+}
 
-    /// `search_sorted` on a Dict whose dict (values) **and** codes are both sorted:
-    /// search the (typically tiny) dict first, then translate to codes-space.
-    ///
-    /// Precondition (caller's responsibility): both `dict.values()` and
-    /// `dict.codes()` are individually sorted, so the logical array is sorted.
-    /// The default `OperationsVTable::point_search_sorted` (generic binary
-    /// search) still works correctly for any Dict shape; this override is a
-    /// strict speedup only when the precondition holds.
-    fn point_search_sorted(
-        array: ArrayView<'_, Dict>,
+/// `search_sorted` on a Dict whose dict (values) **and** codes are both sorted:
+/// search the (typically tiny) dict first, then translate to codes-space.
+///
+/// Precondition (caller's responsibility): both `dict.values()` and
+/// `dict.codes()` are individually sorted, so the logical array is sorted.
+/// The default generic binary search still works correctly for any Dict
+/// shape; this override is a strict speedup only when the precondition holds.
+struct DictSearchSortedKernel;
+
+impl crate::point_fn::SearchSortedKernel<Dict> for DictSearchSortedKernel {
+    fn execute(
+        view: ArrayView<'_, Dict>,
         value: &Scalar,
         side: SearchSortedSide,
         dispatch: &mut dyn PointDispatch,
     ) -> VortexResult<SearchResult> {
-        let dict = array.values();
-        let codes = array.codes();
+        let dict = view.values();
+        let codes = view.codes();
         // Always search dict with Left side to get the canonical matching dict
         // index (or insertion point). Apply the original `side` on the codes
         // search to pick the correct boundary in codes-space.
@@ -86,16 +101,10 @@ impl OperationsVTable<Dict> for Dict {
 
         match dict_search {
             SearchResult::Found(matching_dict_idx) => {
-                // Target value is in the dict at this index. Find the run of
-                // rows that map to this code: codes.search_sorted(_, side).
                 let code_scalar = usize_as_scalar(codes, matching_dict_idx)?;
                 dispatch.search_sorted(codes, &code_scalar, side)
             }
             SearchResult::NotFound(insertion_dict_idx) => {
-                // Target value is missing from the dict. Insertion would be at
-                // dict[insertion_dict_idx]. In codes-space the insertion point
-                // is the first row whose code is ≥ insertion_dict_idx — i.e.
-                // codes.search_sorted(insertion_dict_idx, Left).
                 if insertion_dict_idx == 0 {
                     return Ok(SearchResult::NotFound(0));
                 }
