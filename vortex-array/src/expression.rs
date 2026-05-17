@@ -3,6 +3,7 @@
 
 use itertools::Itertools;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -39,5 +40,35 @@ impl ArrayRef {
 
         // Optimize the resulting array's root.
         array.optimize()
+    }
+
+    /// Apply the expression with a session, so session-registered
+    /// `ArrayKernels` rewrites are consulted during optimisation.
+    ///
+    /// Use this instead of [`Self::apply`] when downstream encodings or
+    /// scalar functions install kernels through the runtime registry --
+    /// the session-less [`Self::apply`] silently ignores those kernels
+    /// at the `reduce_parent` step, allowing static rules (e.g.
+    /// `ChunkedUnaryScalarFnPushDownRule`) to win and discard
+    /// encoding-aware output a session kernel would have produced.
+    pub fn apply_ctx(
+        self,
+        expr: &Expression,
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        if expr.is::<Root>() {
+            return Ok(self);
+        }
+        if let Some(scalar) = expr.as_opt::<Literal>() {
+            return Ok(ConstantArray::new(scalar.clone(), self.len()).into_array());
+        }
+        let children: Vec<_> = expr
+            .children()
+            .iter()
+            .map(|e| self.clone().apply_ctx(e, session))
+            .try_collect()?;
+        let array =
+            ScalarFnArray::try_new(expr.scalar_fn().clone(), children, self.len())?.into_array();
+        array.optimize_ctx(session)
     }
 }
