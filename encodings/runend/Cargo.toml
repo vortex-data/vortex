@@ -22,6 +22,7 @@ prost = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
+vortex-key-ord = { workspace = true, optional = true }
 vortex-mask = { workspace = true }
 vortex-session = { workspace = true }
 
@@ -36,10 +37,12 @@ itertools = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-runend = { path = ".", features = ["_test-harness"] }
 
 [features]
 arbitrary = ["dep:arbitrary", "vortex-array/arbitrary"]
 arrow = ["dep:arrow-array"]
+_test-harness = ["vortex-array/_test-harness", "dep:vortex-key-ord"]
 
 [[bench]]
 name = "run_end_null_count"
@@ -51,4 +54,8 @@ harness = false
 
 [[bench]]
 name = "run_end_decode"
+harness = false
+
+[[bench]]
+name = "ovc_stream_kernel"
 harness = false

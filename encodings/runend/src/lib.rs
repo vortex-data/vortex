@@ -17,6 +17,8 @@ pub mod decompress_bool;
 mod iter;
 mod kernel;
 mod ops;
+#[cfg(any(test, feature = "_test-harness"))]
+pub mod prototype_ovc;
 mod rules;
 
 #[doc(hidden)]
