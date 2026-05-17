@@ -165,14 +165,21 @@ fn execute_row_encode(
             }
         }
         Some(v) => {
-            let mut acc: u32 = 0;
-            for (i, &l) in v.iter().enumerate() {
-                let off = (i as u32)
-                    .checked_mul(fixed_per_row)
-                    .and_then(|t| t.checked_add(acc))
-                    .vortex_expect("row offset overflow");
-                listview_offsets.push(off);
-                acc = acc.checked_add(l).vortex_expect("varlen prefix overflow");
+            // Mixed path: offsets[i] = i * fixed_per_row + var_prefix[i] where
+            // var_prefix is the exclusive cumsum of varlen lengths. Same raw-pointer
+            // write loop as the pure-fixed branch (auto-vectorized); the total was
+            // validated to fit in u32 upstream so `wrapping_add` is sound here.
+            // SAFETY: we just reserved nrows; writes at indices [0, nrows) are valid.
+            unsafe {
+                let off_ptr = listview_offsets.as_mut_ptr();
+                let mut acc: u32 = 0;
+                for (i, &l) in v.iter().enumerate() {
+                    off_ptr
+                        .add(i)
+                        .write((i as u32).wrapping_mul(fixed_per_row).wrapping_add(acc));
+                    acc = acc.wrapping_add(l);
+                }
+                listview_offsets.set_len(nrows);
             }
         }
     }
