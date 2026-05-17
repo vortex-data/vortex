@@ -10898,6 +10898,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "bit-vec",
+ "codspeed-divan-compat",
  "flatbuffers",
  "futures",
  "itertools 0.14.0",

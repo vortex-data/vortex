@@ -54,6 +54,7 @@ vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
 
 [dev-dependencies]
+divan = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
 temp-env = { workspace = true }
@@ -67,6 +68,10 @@ tokio = ["dep:tokio", "vortex-error/tokio"]
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "flatbuffer_verify"
+harness = false
 
 [package.metadata.cargo-machete]
 ignored = ["uuid"]
