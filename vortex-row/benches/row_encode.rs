@@ -20,6 +20,7 @@
 use std::sync::Arc;
 
 use arrow_array::DictionaryArray;
+use arrow_array::Int32Array;
 use arrow_array::Int64Array;
 use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
 use arrow_array::StringArray;
@@ -40,10 +41,16 @@ use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::dict::dict_encode;
+use vortex_array::patches::Patches;
+use vortex_array::scalar::Scalar;
+use vortex_fastlanes::BitPackedData;
+use vortex_fastlanes::Delta;
+use vortex_fastlanes::FoR;
 use vortex_row::SortField;
 use vortex_row::convert_columns;
 
@@ -289,5 +296,275 @@ fn struct_mixed_vortex(bencher: divan::Bencher) {
     bencher.counter(BytesCount::new(total)).bench_local(|| {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         convert_columns(&[struct_arr.clone()], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+// ---------- bitpacked_i32 ----------
+
+fn gen_bitpacked_i32_values(n: usize, seed: u64) -> Vec<i32> {
+    // Small positive integers in the 0..255 range so they bit-pack to 8 bits without patches.
+    let mut rng = StdRng::seed_from_u64(seed);
+    (0..n).map(|_| rng.random_range(0i32..256)).collect()
+}
+
+#[divan::bench]
+fn bitpacked_i32_arrow_row(bencher: divan::Bencher) {
+    let v = gen_bitpacked_i32_values(N, 100);
+    let arr = Arc::new(Int32Array::from(v.clone())) as arrow_array::ArrayRef;
+    let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Int32)]).unwrap();
+    let bytes = (N * (1 + 4)) as u64;
+    bencher
+        .counter(BytesCount::new(bytes))
+        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
+}
+
+#[divan::bench]
+fn bitpacked_i32_with_kernel(bencher: divan::Bencher) {
+    let v = gen_bitpacked_i32_values(N, 100);
+    let raw = PrimitiveArray::from_iter(v.clone()).into_array();
+    let mut setup_ctx = LEGACY_SESSION.create_execution_ctx();
+    let bp = BitPackedData::encode(&raw, 8, &mut setup_ctx)
+        .unwrap()
+        .into_array();
+    let bytes = (N * (1 + 4)) as u64;
+    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        convert_columns(&[bp.clone()], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+#[divan::bench]
+fn bitpacked_i32_without_kernel(bencher: divan::Bencher) {
+    let v = gen_bitpacked_i32_values(N, 100);
+    let raw = PrimitiveArray::from_iter(v.clone()).into_array();
+    let mut setup_ctx = LEGACY_SESSION.create_execution_ctx();
+    let bp = BitPackedData::encode(&raw, 8, &mut setup_ctx)
+        .unwrap()
+        .into_array();
+    let bytes = (N * (1 + 4)) as u64;
+    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let canonical = bp
+            .clone()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
+            .into_array();
+        convert_columns(&[canonical], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+// ---------- for_i64 ----------
+
+fn gen_for_i64_values(n: usize, seed: u64) -> Vec<i64> {
+    // Tightly clustered values around a base — FoR will store small deltas.
+    let mut rng = StdRng::seed_from_u64(seed);
+    (0..n)
+        .map(|_| 1_000_000_000i64 + rng.random_range(0i64..65536))
+        .collect()
+}
+
+#[divan::bench]
+fn for_i64_arrow_row(bencher: divan::Bencher) {
+    let v = gen_for_i64_values(N, 200);
+    let arr = Arc::new(Int64Array::from(v)) as arrow_array::ArrayRef;
+    let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Int64)]).unwrap();
+    let bytes = (N * (1 + 8)) as u64;
+    bencher
+        .counter(BytesCount::new(bytes))
+        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
+}
+
+#[divan::bench]
+fn for_i64_with_kernel(bencher: divan::Bencher) {
+    let v = gen_for_i64_values(N, 200);
+    let raw = PrimitiveArray::from_iter(v.clone()).into_array();
+    // Build a FoR around a BitPacked array. The encoded form is `value - reference`
+    // bit-packed to fit the deltas (16 bits suffices for the 0..65536 range above).
+    let deltas: Vec<u64> = v.iter().map(|&x| (x - 1_000_000_000) as u64).collect();
+    let mut setup_ctx = LEGACY_SESSION.create_execution_ctx();
+    let bp = BitPackedData::encode(
+        &PrimitiveArray::from_iter(deltas).into_array(),
+        17,
+        &mut setup_ctx,
+    )
+    .unwrap()
+    .into_array();
+    drop(raw);
+    let arr = FoR::try_new(bp, Scalar::from(1_000_000_000u64))
+        .unwrap()
+        .into_array();
+    let bytes = (N * (1 + 8)) as u64;
+    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        convert_columns(&[arr.clone()], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+#[divan::bench]
+fn for_i64_without_kernel(bencher: divan::Bencher) {
+    let v = gen_for_i64_values(N, 200);
+    let deltas: Vec<u64> = v.iter().map(|&x| (x - 1_000_000_000) as u64).collect();
+    let mut setup_ctx = LEGACY_SESSION.create_execution_ctx();
+    let bp = BitPackedData::encode(
+        &PrimitiveArray::from_iter(deltas).into_array(),
+        17,
+        &mut setup_ctx,
+    )
+    .unwrap()
+    .into_array();
+    let arr = FoR::try_new(bp, Scalar::from(1_000_000_000u64))
+        .unwrap()
+        .into_array();
+    let bytes = (N * (1 + 8)) as u64;
+    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let canonical = arr
+            .clone()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
+            .into_array();
+        convert_columns(&[canonical], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+// ---------- delta_i64 ----------
+
+fn gen_delta_i64_values(n: usize, seed: u64) -> Vec<i64> {
+    // Monotonic-ish sequence with small step sizes (a common shape for sorted IDs / timestamps).
+    let mut rng = StdRng::seed_from_u64(seed);
+    let mut v = Vec::with_capacity(n);
+    let mut cur: i64 = 1_700_000_000_000;
+    for _ in 0..n {
+        cur = cur.wrapping_add(rng.random_range(1i64..100));
+        v.push(cur);
+    }
+    v
+}
+
+#[divan::bench]
+fn delta_i64_arrow_row(bencher: divan::Bencher) {
+    let v = gen_delta_i64_values(N, 300);
+    let arr = Arc::new(Int64Array::from(v)) as arrow_array::ArrayRef;
+    let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Int64)]).unwrap();
+    let bytes = (N * (1 + 8)) as u64;
+    bencher
+        .counter(BytesCount::new(bytes))
+        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
+}
+
+#[divan::bench]
+fn delta_i64_with_kernel(bencher: divan::Bencher) {
+    let v = gen_delta_i64_values(N, 300);
+    let p = PrimitiveArray::from_iter(v.clone());
+    let mut setup_ctx = LEGACY_SESSION.create_execution_ctx();
+    let arr = Delta::try_from_primitive_array(&p, &mut setup_ctx)
+        .unwrap()
+        .into_array();
+    let bytes = (N * (1 + 8)) as u64;
+    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        convert_columns(&[arr.clone()], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+#[divan::bench]
+fn delta_i64_without_kernel(bencher: divan::Bencher) {
+    let v = gen_delta_i64_values(N, 300);
+    let p = PrimitiveArray::from_iter(v);
+    let mut setup_ctx = LEGACY_SESSION.create_execution_ctx();
+    let arr = Delta::try_from_primitive_array(&p, &mut setup_ctx)
+        .unwrap()
+        .into_array();
+    let bytes = (N * (1 + 8)) as u64;
+    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let canonical = arr
+            .clone()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
+            .into_array();
+        convert_columns(&[canonical], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+// ---------- patched_i32 ----------
+
+fn gen_patched_i32_inputs() -> (Vec<i32>, Vec<i32>, u64) {
+    let mut rng = StdRng::seed_from_u64(400);
+    // Inner is mostly zero, with random patches at ~5% of positions.
+    let mut inner = vec![0i32; N];
+    let mut values = Vec::new();
+    for slot in inner.iter_mut().take(N) {
+        if rng.random_range(0u32..100) < 5 {
+            let v = rng.random_range(1i32..1_000_000);
+            *slot = v;
+            values.push(v);
+        }
+    }
+    let bytes = (N * (1 + 4)) as u64;
+    (inner, values, bytes)
+}
+
+#[divan::bench]
+fn patched_i32_arrow_row(bencher: divan::Bencher) {
+    let (inner, _, bytes) = gen_patched_i32_inputs();
+    let arr = Arc::new(Int32Array::from(inner)) as arrow_array::ArrayRef;
+    let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Int32)]).unwrap();
+    bencher
+        .counter(BytesCount::new(bytes))
+        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
+}
+
+fn patched_i32_array() -> (vortex_array::ArrayRef, u64) {
+    let mut rng = StdRng::seed_from_u64(400);
+    let mut indices: Vec<u32> = Vec::new();
+    let mut values: Vec<i32> = Vec::new();
+    let mut inner = vec![0i32; N];
+    for i in 0..N {
+        if rng.random_range(0u32..100) < 5 {
+            let v = rng.random_range(1i32..1_000_000);
+            inner[i] = v;
+            indices.push(i as u32);
+            values.push(v);
+        }
+    }
+    let inner_arr = PrimitiveArray::from_iter(vec![0i32; N]).into_array();
+    let patches = Patches::new(
+        N,
+        0,
+        PrimitiveArray::from_iter(indices).into_array(),
+        PrimitiveArray::from_iter(values).into_array(),
+        None,
+    )
+    .unwrap();
+    let mut setup_ctx = LEGACY_SESSION.create_execution_ctx();
+    let patched = Patched::from_array_and_patches(inner_arr, &patches, &mut setup_ctx)
+        .unwrap()
+        .into_array();
+    drop(inner);
+    let bytes = (N * (1 + 4)) as u64;
+    (patched, bytes)
+}
+
+#[divan::bench]
+fn patched_i32_with_kernel(bencher: divan::Bencher) {
+    let (arr, bytes) = patched_i32_array();
+    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        convert_columns(&[arr.clone()], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+#[divan::bench]
+fn patched_i32_without_kernel(bencher: divan::Bencher) {
+    let (arr, bytes) = patched_i32_array();
+    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let canonical = arr
+            .clone()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
+            .into_array();
+        convert_columns(&[canonical], &[SortField::default()], &mut ctx).unwrap()
     })
 }

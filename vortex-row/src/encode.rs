@@ -27,6 +27,7 @@ use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::Primitive;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::Dict;
+use vortex_array::arrays::patched::Patched;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
@@ -536,6 +537,11 @@ pub fn dispatch_encode(
     }
     if let Some(view) = col.as_opt::<Dict>()
         && Dict::row_encode_into(view, field, offsets, cursors, out, ctx)?.is_some()
+    {
+        return Ok(());
+    }
+    if let Some(view) = col.as_opt::<Patched>()
+        && Patched::row_encode_into(view, field, offsets, cursors, out, ctx)?.is_some()
     {
         return Ok(());
     }

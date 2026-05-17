@@ -16,6 +16,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::dict::Dict;
+use vortex_array::arrays::patched::Patched;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
 use vortex_array::dtype::FieldNames;
@@ -193,6 +194,11 @@ pub fn dispatch_size(
     }
     if let Some(view) = col.as_opt::<Dict>()
         && Dict::row_size_contribution(view, field, sizes, ctx)?.is_some()
+    {
+        return Ok(());
+    }
+    if let Some(view) = col.as_opt::<Patched>()
+        && Patched::row_size_contribution(view, field, sizes, ctx)?.is_some()
     {
         return Ok(());
     }
