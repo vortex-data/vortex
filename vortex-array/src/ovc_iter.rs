@@ -314,11 +314,20 @@ impl<'a> From<&VarBin<'a>> for VarBinIter<'a> {
 
 enum SideState {
     Empty,
-    Constant { value: u64, remaining: usize },
+    Constant { remaining: usize },
     RunEnd { run_idx: usize, n_runs: usize, within: usize, run_len: usize },
     Dense { pos: usize, fill: usize },
 }
 
+/// n-way merge driver with two optimisations beyond the basic version:
+///   1. `heads: Vec<u64>` keeps the current ord value per side in a flat
+///      array, so the min-search is a tight u64 loop — no per-iteration
+///      enum match.
+///   2. **Bulk emit on the winner** when its current head stays constant
+///      for a known span (Constant chunk: entire remaining; RunEnd: rest of
+///      the current run). All those rows are emitted in one operation —
+///      no per-row min recheck, no per-row state update. Safe because the
+///      other sides' heads are unchanged while only the winner advances.
 pub fn merge_n_way_iter(iters: &mut [Box<dyn OrdIter + '_>], chunk_size: usize) -> usize {
     let n = iters.len();
     if n == 0 {
@@ -326,86 +335,104 @@ pub fn merge_n_way_iter(iters: &mut [Box<dyn OrdIter + '_>], chunk_size: usize) 
     }
     let mut scratches: Vec<Scratch> = (0..n).map(|_| Scratch::new(chunk_size)).collect();
     let mut state: Vec<SideState> = (0..n).map(|_| SideState::Empty).collect();
+    let mut heads: Vec<u64> = vec![u64::MAX; n];
 
-    // Refill side i: pull a new chunk, set state.
     fn refill(
         i: usize,
         iters: &mut [Box<dyn OrdIter + '_>],
         scratches: &mut [Scratch],
         state: &mut [SideState],
+        heads: &mut [u64],
         chunk_size: usize,
     ) {
         let chunk = iters[i].next_chunk(chunk_size, &mut scratches[i]);
-        state[i] = match chunk {
-            None => SideState::Empty,
-            Some(OrdChunk::Constant { value, len }) => SideState::Constant { value, remaining: len },
+        match chunk {
+            None => {
+                state[i] = SideState::Empty;
+                heads[i] = u64::MAX;
+            }
+            Some(OrdChunk::Constant { value, len }) => {
+                state[i] = SideState::Constant { remaining: len };
+                heads[i] = value;
+            }
             Some(OrdChunk::RunEnd { run_ends, values: _, len: _ }) => {
                 let n_runs = run_ends.len();
                 let first_run_len = if n_runs > 0 { run_ends[0] as usize } else { 0 };
-                SideState::RunEnd { run_idx: 0, n_runs, within: 0, run_len: first_run_len }
+                state[i] = SideState::RunEnd { run_idx: 0, n_runs, within: 0, run_len: first_run_len };
+                heads[i] = scratches[i].run_values[0];
             }
-            Some(OrdChunk::Dense(buf)) => SideState::Dense { pos: 0, fill: buf.len() },
-        };
+            Some(OrdChunk::Dense(buf)) => {
+                let fill = buf.len();
+                state[i] = SideState::Dense { pos: 0, fill };
+                heads[i] = scratches[i].dense[0];
+            }
+        }
     }
 
     for i in 0..n {
-        refill(i, iters, &mut scratches, &mut state, chunk_size);
+        refill(i, iters, &mut scratches, &mut state, &mut heads, chunk_size);
     }
 
     let mut count = 0usize;
     loop {
-        // Find the minimum head across sides.
+        // Tight typed min-search across heads.
         let mut min_v = u64::MAX;
         let mut min_side = usize::MAX;
         for i in 0..n {
-            let cur = match &state[i] {
-                SideState::Empty => continue,
-                SideState::Constant { value, .. } => *value,
-                SideState::RunEnd { run_idx, .. } => scratches[i].run_values[*run_idx],
-                SideState::Dense { pos, .. } => scratches[i].dense[*pos],
-            };
-            if cur < min_v {
-                min_v = cur;
+            if heads[i] < min_v {
+                min_v = heads[i];
                 min_side = i;
             }
         }
         if min_side == usize::MAX {
             break;
         }
-        count += 1;
-        // Advance winner.
+
+        // Determine how many consecutive rows the winner can emit while
+        // its value stays at min_v. For Constant / RunEnd this can be the
+        // whole remaining span; for Dense it's 1 (consecutive Dense values
+        // may differ).
+        let runway = match &state[min_side] {
+            SideState::Constant { remaining } => *remaining,
+            SideState::RunEnd { within, run_len, .. } => *run_len - *within,
+            SideState::Dense { .. } => 1,
+            SideState::Empty => unreachable!(),
+        };
+        count += runway;
+
+        // Advance the winner's state by `runway` rows. May exhaust the
+        // chunk, triggering a refill (which updates heads[min_side]).
         let mut needs_refill = false;
         match &mut state[min_side] {
-            SideState::Constant { remaining, .. } => {
-                *remaining -= 1;
-                if *remaining == 0 {
-                    needs_refill = true;
-                }
+            SideState::Constant { remaining } => {
+                *remaining = 0; // we just emitted all of it
+                needs_refill = true;
             }
             SideState::RunEnd { run_idx, n_runs, within, run_len } => {
-                *within += 1;
-                if *within >= *run_len {
-                    *run_idx += 1;
-                    if *run_idx >= *n_runs {
-                        needs_refill = true;
-                    } else {
-                        let prev = scratches[min_side].run_ends[*run_idx - 1] as usize;
-                        let cur = scratches[min_side].run_ends[*run_idx] as usize;
-                        *within = 0;
-                        *run_len = cur - prev;
-                    }
+                *within = *run_len; // finished current run
+                *run_idx += 1;
+                if *run_idx >= *n_runs {
+                    needs_refill = true;
+                } else {
+                    let prev = scratches[min_side].run_ends[*run_idx - 1] as usize;
+                    let cur = scratches[min_side].run_ends[*run_idx] as usize;
+                    *within = 0;
+                    *run_len = cur - prev;
+                    heads[min_side] = scratches[min_side].run_values[*run_idx];
                 }
             }
             SideState::Dense { pos, fill } => {
                 *pos += 1;
                 if *pos >= *fill {
                     needs_refill = true;
+                } else {
+                    heads[min_side] = scratches[min_side].dense[*pos];
                 }
             }
             SideState::Empty => unreachable!(),
         }
         if needs_refill {
-            refill(min_side, iters, &mut scratches, &mut state, chunk_size);
+            refill(min_side, iters, &mut scratches, &mut state, &mut heads, chunk_size);
         }
     }
     count
