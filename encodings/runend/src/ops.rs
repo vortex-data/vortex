@@ -6,6 +6,9 @@ use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::match_each_native_ptype;
 use vortex_array::point_fn::PointDispatch;
+use vortex_array::point_fn::PointKernels;
+use vortex_array::point_fn::ScalarAtKernel;
+use vortex_array::point_fn::SearchSortedKernel;
 use vortex_array::scalar::PValue;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar::ScalarValue;
@@ -29,37 +32,53 @@ impl OperationsVTable<RunEnd> for RunEnd {
             .execute_scalar(array.find_physical_index(index)?, ctx)
     }
 
-    /// Recurse via the dispatch: search `ends` (typically small, sorted by
-    /// construction), then read `values` at the resulting run index. Both
-    /// child calls hit the session's caches.
-    fn point_scalar_at(
-        array: ArrayView<'_, RunEnd>,
+    fn point_kernels() -> Option<&'static PointKernels<RunEnd>> {
+        Some(&POINT_KERNELS)
+    }
+}
+
+const POINT_KERNELS: PointKernels<RunEnd> = PointKernels::empty()
+    .with_scalar_at(PointKernels::lift_scalar_at(&RunEndScalarAtKernel))
+    .with_search_sorted(PointKernels::lift_search_sorted(&RunEndSearchSortedKernel));
+
+/// Recurse via the dispatch: search `ends` (typically small, sorted by
+/// construction), then read `values` at the resulting run index. Both child
+/// calls hit the session's caches.
+struct RunEndScalarAtKernel;
+
+impl ScalarAtKernel<RunEnd> for RunEndScalarAtKernel {
+    fn execute(
+        view: ArrayView<'_, RunEnd>,
         index: usize,
         d: &mut dyn PointDispatch,
     ) -> VortexResult<Scalar> {
-        let logical = index + array.offset();
-        let logical_scalar = usize_as_scalar(array.ends(), logical)?;
-        let run_search = d.search_sorted(array.ends(), &logical_scalar, SearchSortedSide::Right)?;
-        let run_idx = run_search.to_ends_index(array.ends().len());
-        d.scalar_at(array.values(), run_idx)
+        let logical = index + view.offset();
+        let logical_scalar = usize_as_scalar(view.ends(), logical)?;
+        let run_search = d.search_sorted(view.ends(), &logical_scalar, SearchSortedSide::Right)?;
+        let run_idx = run_search.to_ends_index(view.ends().len());
+        d.scalar_at(view.values(), run_idx)
     }
+}
 
-    /// `search_sorted` on a RunEnd whose `values` is sorted is `O(log num_runs)`:
-    /// binary-search `values` directly, then translate the resulting run index
-    /// back to a logical position via `ends`.
-    ///
-    /// Precondition: the array's logical values must be sorted, which on a
-    /// RunEnd-encoded array means `values` is sorted.
-    fn point_search_sorted(
-        array: ArrayView<'_, RunEnd>,
+/// `search_sorted` on a RunEnd whose `values` is sorted is `O(log num_runs)`:
+/// binary-search `values` directly, then translate the resulting run index
+/// back to a logical position via `ends`.
+///
+/// Precondition: the array's logical values must be sorted, which on a
+/// RunEnd-encoded array means `values` is sorted.
+struct RunEndSearchSortedKernel;
+
+impl SearchSortedKernel<RunEnd> for RunEndSearchSortedKernel {
+    fn execute(
+        view: ArrayView<'_, RunEnd>,
         value: &Scalar,
         side: SearchSortedSide,
         d: &mut dyn PointDispatch,
     ) -> VortexResult<SearchResult> {
-        let values = array.values();
-        let ends = array.ends();
-        let offset = array.offset();
-        let logical_len = array.as_ref().len();
+        let values = view.values();
+        let ends = view.ends();
+        let offset = view.offset();
+        let logical_len = view.as_ref().len();
 
         let vrun = d.search_sorted(values, value, side)?;
 
