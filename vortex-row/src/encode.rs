@@ -133,12 +133,17 @@ fn execute_row_encode(
     }
     let total_len = total as usize;
 
-    // Allocate the elements buffer (zero-initialized). The zero-init lets every encoder
-    // assume previously-untouched bytes are zero, simplifying the null-row fill paths.
-    // PR 2 skips this memset because every byte in the output range is written by some
-    // encoder.
     let mut out_buf: BufferMut<u8> = BufferMut::with_capacity(total_len);
-    out_buf.push_n(0u8, total_len);
+    // Every encoder writes every byte in its row range: non-null values are written
+    // directly; null fixed-width slots are sentinel + explicit zero-fill; varlen partial
+    // blocks zero-pad via the encoder's own loop; null struct/FSL bodies are zero-filled
+    // after the child encoders run. So the pre-zero-init of the buffer is redundant;
+    // skipping it saves a memset of `total_len` bytes per call (significant for
+    // varlen-heavy inputs where total_len reaches multiple MB).
+    //
+    // SAFETY: we just allocated `total_len` capacity. By the size-pass + encoder
+    // contract every byte in [0, total_len) is written before the buffer is read out.
+    unsafe { out_buf.set_len(total_len) };
 
     // ===== Phase 3: per-row offsets =====
     // listview_offsets[i] is the absolute byte offset where row `i` begins.
