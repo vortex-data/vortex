@@ -11,6 +11,9 @@ use crate::arrays::masked::MaskedArraySlotsExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Masked> for Masked {
+    // Transparent wrapper that defers to a child; skip wrapper-level cache.
+    const FAST_SCALAR_AT: bool = true;
+
     fn scalar_at(
         array: ArrayView<'_, Masked>,
         index: usize,

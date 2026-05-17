@@ -16,6 +16,18 @@ use crate::search_sorted::SearchSortedSide;
 use crate::vtable::NotSupported;
 
 pub trait OperationsVTable<V: VTable> {
+    /// Hint that this encoding's `scalar_at` is cheap enough (O(1) memory read,
+    /// no decode work) that the dispatch layer should skip caching it.
+    ///
+    /// Defaults to `false` (assume expensive). Leaves like `Primitive`, `Bool`,
+    /// `VarBin`, `Constant`, `Sequence`, and `Null` override to `true`. The
+    /// session's [`scalar_at`](crate::point_fn::PointDispatch::scalar_at) checks
+    /// this and bypasses the scalar cache for fast leaves — avoiding both the
+    /// hash lookup and the insert. View encodings (Slice, Extension, …) that
+    /// recurse into a fast child also avoid the redundant wrapper-level cache
+    /// entry.
+    const FAST_SCALAR_AT: bool = false;
+
     /// Fetch the scalar at the given index.
     ///
     /// ## Preconditions

@@ -12,6 +12,8 @@ use crate::arrays::varbin::varbin_scalar;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<VarBin> for VarBin {
+    const FAST_SCALAR_AT: bool = true;
+
     fn scalar_at(
         array: ArrayView<'_, VarBin>,
         index: usize,

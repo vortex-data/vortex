@@ -151,6 +151,8 @@ impl Array<Null> {
 }
 
 impl OperationsVTable<Null> for Null {
+    const FAST_SCALAR_AT: bool = true;
+
     fn scalar_at(
         _array: ArrayView<'_, Null>,
         _index: usize,

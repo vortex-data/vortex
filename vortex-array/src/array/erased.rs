@@ -107,6 +107,15 @@ impl ArrayRef {
         Arc::as_ptr(&self.0).addr()
     }
 
+    /// Whether this array's `scalar_at` is cheap enough that callers should
+    /// skip the session scalar cache.
+    ///
+    /// See [`OperationsVTable::FAST_SCALAR_AT`](crate::array::OperationsVTable::FAST_SCALAR_AT).
+    #[inline]
+    pub fn has_fast_scalar_at(&self) -> bool {
+        self.0.data.has_fast_scalar_at()
+    }
+
     /// Downcast the inner to a concrete `ArrayInner<ArrayData<V>>`.
     ///
     /// Uses the same raw-pointer technique as `Arc::downcast`.

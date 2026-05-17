@@ -160,6 +160,11 @@ impl VTable for Slice {
     }
 }
 impl OperationsVTable<Slice> for Slice {
+    // Slice is a transparent 1:1 wrapper. Its scalar_at recurses to the child;
+    // caching at the slice level just duplicates whatever the child's cache
+    // would do. Always skip the wrapper cache.
+    const FAST_SCALAR_AT: bool = true;
+
     fn scalar_at(
         array: ArrayView<'_, Slice>,
         index: usize,

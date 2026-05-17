@@ -28,6 +28,24 @@ fn sorted_primitive() -> crate::ArrayRef {
     .into_array()
 }
 
+/// A non-FAST array suitable for testing the scalar cache. Built as a Dict
+/// over a primitive: Dict's scalar_at is non-trivial (read code, read dict)
+/// so the session does cache it.
+fn cached_array() -> crate::ArrayRef {
+    use crate::arrays::DictArray;
+    let dict = PrimitiveArray::new(
+        buffer![10i32, 20, 30, 40, 50],
+        crate::validity::Validity::NonNullable,
+    )
+    .into_array();
+    let codes = PrimitiveArray::new(
+        buffer![0u32, 0, 1, 1, 2, 2, 3, 3, 4, 4],
+        crate::validity::Validity::NonNullable,
+    )
+    .into_array();
+    DictArray::try_new(codes, dict).unwrap().into_array()
+}
+
 #[test]
 fn runtime_scalar_at_matches_execute_scalar() -> VortexResult<()> {
     let arr = sorted_primitive();
@@ -44,36 +62,64 @@ fn runtime_scalar_at_matches_execute_scalar() -> VortexResult<()> {
 }
 
 #[test]
-fn session_scalar_at_caches_repeated_lookups() -> VortexResult<()> {
+fn session_bypasses_cache_for_fast_leaves() -> VortexResult<()> {
+    // Primitive has FAST_SCALAR_AT = true, so the session never inserts.
     let arr = sorted_primitive();
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mut session = PointSession::new(&mut ctx);
 
     let first = session.scalar_at(&arr, 3)?;
-    assert_eq!(session.scalar_cache_len(), 1);
+    assert_eq!(
+        session.scalar_cache_len(),
+        0,
+        "fast leaf bypasses scalar cache"
+    );
 
     let again = session.scalar_at(&arr, 3)?;
-    assert_eq!(session.scalar_cache_len(), 1, "no new entry on cache hit");
-    assert_eq!(first, again);
+    assert_eq!(first, again, "values agree across calls (no cache needed)");
+    assert_eq!(session.scalar_cache_len(), 0);
+    Ok(())
+}
 
-    let _scalar = session.scalar_at(&arr, 7)?;
-    assert_eq!(session.scalar_cache_len(), 2);
+#[test]
+fn session_scalar_at_caches_repeated_lookups() -> VortexResult<()> {
+    // Dict has FAST_SCALAR_AT = false (default), so the session does cache.
+    let arr = cached_array();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut session = PointSession::new(&mut ctx);
+
+    let first = session.scalar_at(&arr, 3)?;
+    assert!(session.scalar_cache_len() >= 1);
+
+    let cache_after_first = session.scalar_cache_len();
+    let again = session.scalar_at(&arr, 3)?;
+    assert_eq!(
+        session.scalar_cache_len(),
+        cache_after_first,
+        "no new entry on cache hit"
+    );
+    assert_eq!(first, again);
     Ok(())
 }
 
 #[test]
 fn session_scalar_cache_evicts_when_full() -> VortexResult<()> {
-    let arr = sorted_primitive();
+    // Use Dict so caching is exercised. Note Dict's point_scalar_at also
+    // caches the recursive codes/values reads, so we look at the dict
+    // array's own cache entries only (its addr is what the loop reuses).
+    let arr = cached_array();
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    // Capacity 3 across both dict-level entries and the inner non-fast
+    // recursions. Verify the cache never grows past 3.
     let mut session = PointSession::with_capacities(&mut ctx, 3, 8);
 
-    for i in 0..5 {
+    for i in 0..arr.len() {
         let _scalar = session.scalar_at(&arr, i)?;
     }
-    assert_eq!(
-        session.scalar_cache_len(),
-        3,
-        "FIFO eviction caps at capacity"
+    assert!(
+        session.scalar_cache_len() <= 3,
+        "FIFO eviction caps at capacity ({} > 3)",
+        session.scalar_cache_len()
     );
     Ok(())
 }
@@ -121,29 +167,28 @@ fn runtime_search_sorted_matches_legacy_left() -> VortexResult<()> {
 }
 
 #[test]
-fn session_search_sorted_hits_scalar_cache() -> VortexResult<()> {
-    let arr = sorted_primitive();
+fn session_caches_non_fast_scalar_at_calls() -> VortexResult<()> {
+    let arr = cached_array();
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mut session = PointSession::new(&mut ctx);
 
-    // search for an exact value; the binary search probes ~log2(15) ≈ 4 unique
-    // indices, plus the side-refinement may revisit some — those revisits should
-    // be cache hits.
-    let _result = session.search_sorted(&arr, &Scalar::from(2i32), SearchSortedSide::Left)?;
+    // Direct scalar_at on the Dict (non-FAST) populates the cache.
+    let first = session.scalar_at(&arr, 5)?;
+    let len_after_first = session.scalar_cache_len();
+    assert!(
+        len_after_first >= 1,
+        "Dict scalar_at populates the scalar cache"
+    );
 
-    // After one search, the cache should hold at most as many entries as unique
-    // indices probed, capped by the default capacity.
-    let len_after_search = session.scalar_cache_len();
-    assert!(len_after_search > 0, "search populated the cache");
-
-    // A second identical search should re-use everything from the cache:
-    // cache size should not grow.
-    let _result = session.search_sorted(&arr, &Scalar::from(2i32), SearchSortedSide::Left)?;
+    // Same index again — cache hit, no new entry.
+    let again = session.scalar_at(&arr, 5)?;
+    assert_eq!(first, again);
     assert_eq!(
         session.scalar_cache_len(),
-        len_after_search,
-        "second identical search reused cache entirely"
+        len_after_first,
+        "cache hit produces no new entry"
     );
+
     Ok(())
 }
 
@@ -203,18 +248,18 @@ fn slice_recurses_through_dispatch() -> VortexResult<()> {
     let v = session.scalar_at(&slice, 0)?;
     assert_eq!(v, Scalar::from(2i32));
 
-    // After the slice scalar_at, the cache should hold entries at BOTH levels:
-    // one for the slice array and one for the inner array (the recursion target).
+    // Both Slice and Primitive are FAST_SCALAR_AT — the session bypasses the
+    // scalar cache at every level, avoiding redundant wrapper-level entries.
     assert_eq!(
         session.scalar_cache_len(),
-        2,
-        "recursion populated caches at slice and inner levels"
+        0,
+        "fast wrapper over fast leaf skips both cache levels"
     );
 
-    // Re-fetching slice[0] should hit the slice-level cache (no recursion).
+    // The recursion still produces the right value on a second call.
     let v2 = session.scalar_at(&slice, 0)?;
     assert_eq!(v2, Scalar::from(2i32));
-    assert_eq!(session.scalar_cache_len(), 2, "no new entries");
+    assert_eq!(session.scalar_cache_len(), 0);
     Ok(())
 }
 

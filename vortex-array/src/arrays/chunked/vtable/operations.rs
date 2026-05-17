@@ -55,10 +55,10 @@ impl crate::point_fn::ScalarAtKernel<Chunked> for ChunkedScalarAtKernel {
     }
 }
 
-/// `search_sorted` on a cross-chunk-monotonic Chunked array: identify the
-/// candidate chunk by inspecting each chunk's last element (one scalar_at
-/// per chunk), then descend into that one chunk and translate the result
-/// back to logical (whole-array) coordinates.
+/// `search_sorted` on a cross-chunk-monotonic Chunked array: binary-search
+/// the chunks by their last element to find the candidate chunk
+/// (`O(log nchunks)` probes), then descend into that one chunk and translate
+/// the result back to logical (whole-array) coordinates.
 ///
 /// Precondition (caller's responsibility): the chunks taken together are
 /// sorted, i.e. each chunk's max ≤ the next chunk's min. The default
@@ -77,27 +77,38 @@ impl crate::point_fn::SearchSortedKernel<Chunked> for ChunkedSearchSortedKernel 
         let offsets = view.chunk_offsets();
         let total_len = view.as_ref().len();
 
-        for chunk_idx in 0..nchunks {
-            let chunk = view.chunk(chunk_idx).clone();
+        // Binary search the chunks by their last element. Find the first chunk
+        // whose `last >= value`. Empty chunks are skipped by advancing `lo`.
+        let mut lo = 0usize;
+        let mut hi = nchunks;
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            let chunk = view.chunk(mid).clone();
             let chunk_len = chunk.len();
             if chunk_len == 0 {
+                // Empty chunk: treat as < value so we skip past it.
+                lo = mid + 1;
                 continue;
             }
             let last = d.scalar_at(&chunk, chunk_len - 1)?;
-            // Chunk's last < target → target is in a later chunk; skip.
             if matches!(last.partial_cmp(value), Some(Ordering::Less)) {
-                let _ = side;
-                continue;
+                lo = mid + 1;
+            } else {
+                hi = mid;
             }
-            let local = d.search_sorted(&chunk, value, side)?;
-            let chunk_start = offsets[chunk_idx];
-            return Ok(match local {
-                SearchResult::Found(i) => SearchResult::Found(i + chunk_start),
-                SearchResult::NotFound(i) => SearchResult::NotFound(i + chunk_start),
-            });
         }
 
-        Ok(SearchResult::NotFound(total_len))
+        if lo >= nchunks {
+            return Ok(SearchResult::NotFound(total_len));
+        }
+
+        let chunk = view.chunk(lo).clone();
+        let local = d.search_sorted(&chunk, value, side)?;
+        let chunk_start = offsets[lo];
+        Ok(match local {
+            SearchResult::Found(i) => SearchResult::Found(i + chunk_start),
+            SearchResult::NotFound(i) => SearchResult::NotFound(i + chunk_start),
+        })
     }
 }
 

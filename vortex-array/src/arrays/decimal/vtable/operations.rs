@@ -12,6 +12,8 @@ use crate::scalar::DecimalValue;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Decimal> for Decimal {
+    const FAST_SCALAR_AT: bool = true;
+
     fn scalar_at(
         array: ArrayView<'_, Decimal>,
         index: usize,

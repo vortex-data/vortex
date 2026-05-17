@@ -17,6 +17,8 @@ use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSortedSide;
 
 impl OperationsVTable<Constant> for Constant {
+    const FAST_SCALAR_AT: bool = true;
+
     fn scalar_at(
         array: ArrayView<'_, Constant>,
         _index: usize,

@@ -50,6 +50,8 @@ pub fn vortex_bytebool::ByteBool::validate(&self, &Self::TypedArrayData, &vortex
 
 impl vortex_array::array::vtable::operations::OperationsVTable<vortex_bytebool::ByteBool> for vortex_bytebool::ByteBool
 
+pub const vortex_bytebool::ByteBool::FAST_SCALAR_AT: bool
+
 pub fn vortex_bytebool::ByteBool::scalar_at(vortex_array::array::view::ArrayView<'_, vortex_bytebool::ByteBool>, usize, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 impl vortex_array::array::vtable::validity::ValidityVTable<vortex_bytebool::ByteBool> for vortex_bytebool::ByteBool

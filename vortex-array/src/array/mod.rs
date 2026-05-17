@@ -222,6 +222,11 @@ pub(crate) trait DynArrayData: 'static + private::Sealed + Send + Sync + Debug {
         side: crate::search_sorted::SearchSortedSide,
         d: &mut dyn crate::point_fn::PointDispatch,
     ) -> VortexResult<crate::search_sorted::SearchResult>;
+
+    /// Whether this encoding's `scalar_at` is cheap enough that the session
+    /// scalar cache should skip caching it. See
+    /// [`OperationsVTable::FAST_SCALAR_AT`](crate::array::OperationsVTable::FAST_SCALAR_AT).
+    fn has_fast_scalar_at(&self) -> bool;
 }
 
 /// Trait for converting a type into a Vortex [`ArrayRef`].
@@ -570,6 +575,10 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
             return kernel.execute(view, value, side, d);
         }
         <V::OperationsVTable as OperationsVTable<V>>::point_search_sorted(view, value, side, d)
+    }
+
+    fn has_fast_scalar_at(&self) -> bool {
+        <V::OperationsVTable as OperationsVTable<V>>::FAST_SCALAR_AT
     }
 }
 

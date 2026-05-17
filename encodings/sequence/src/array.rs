@@ -350,6 +350,9 @@ impl VTable for Sequence {
 }
 
 impl OperationsVTable<Sequence> for Sequence {
+    // Closed-form `start + i * step`; cheaper than a cache lookup.
+    const FAST_SCALAR_AT: bool = true;
+
     fn scalar_at(
         array: ArrayView<'_, Sequence>,
         index: usize,

@@ -675,19 +675,15 @@ const POINT_KERNELS: vortex_array::point_fn::PointKernels<Pco> =
         vortex_array::point_fn::PointKernels::lift_scalar_at(&PcoScalarAtKernel),
     );
 
-/// Point-fn-aware kernel: decode the full PCO array once per session and
-/// cache it as an `Arc<ArrayRef>`. Subsequent `scalar_at` / `search_sorted`
-/// calls within the same session amortize the decode across all probes.
+/// Point-fn-aware kernel: decode the **page** containing the target index and
+/// cache that page as an `Arc<ArrayRef>` keyed by page index. Subsequent
+/// probes that fall into the same page (typical for binary-search
+/// convergence) hit the cache; probes that fall into different pages each
+/// decode their own page.
 ///
-/// Tradeoff (Phase 1d POC):
-///
-/// - A single one-shot `scalar_at(idx)` decodes the whole array (slower
-///   than the legacy per-call `_slice(idx, idx+1).decompress`).
-/// - Any sequence of ≥2 point-fn calls within a session is faster.
-/// - `search_sorted` (log(n) probes) is dramatically faster.
-///
-/// Phase 2 will introduce page-granular caching to avoid the single-shot
-/// regression.
+/// This avoids the whole-array decode regression on one-shot calls and
+/// still gives `search_sorted` a strong amortization win across the
+/// log(n) probes that converge.
 struct PcoScalarAtKernel;
 
 impl vortex_array::point_fn::ScalarAtKernel<Pco> for PcoScalarAtKernel {
@@ -699,26 +695,56 @@ impl vortex_array::point_fn::ScalarAtKernel<Pco> for PcoScalarAtKernel {
         use vortex_array::point_fn::BlockKey;
         use vortex_array::point_fn::PointDispatchExt;
 
-        // Tag 0 = "whole array" cache slot; Phase 2 will use per-page keys.
-        let key = (view.array().addr(), BlockKey::new(0, 0));
+        // The dispatch `index` is in slice-local coords; PCO's `_slice` works in
+        // (sliced_start, sliced_stop) terms where slice_start is relative to
+        // the array's current slice window, so we pass `index, index + 1` and
+        // let the existing `_slice` semantics handle it.
+        //
+        // To cache page-granular, we compute which logical page `index` lives
+        // in. We use the array's first chunk's first page n_values as the
+        // page size — PCO produces uniform-size pages from PagingSpec, so
+        // this is exact for all-but-last-page; the last page may be smaller
+        // but rounding the index down still produces the correct page id.
+        let page_size = first_page_size(view.data());
+        let page_idx = if page_size == 0 { 0 } else { index / page_size };
+        let page_start_slice = page_idx.saturating_mul(page_size);
+        let page_end_slice = page_start_slice
+            .saturating_add(page_size)
+            .min(view.as_ref().len());
+        let in_page = index - page_start_slice;
+
+        let key = (view.array().addr(), BlockKey::new(0, page_idx as u64));
         let unsliced_validity =
             child_to_validity(view.slots()[0].as_ref(), view.dtype().nullability());
         let view_owned = view.into_owned();
-        // Clone the ctx for the closure: needed to satisfy the borrow checker
-        // (d is borrowed by cached_block, so the decode closure can't reborrow
-        // d.ctx()). The clone is cheap — ExecutionCtx is small.
         let mut decode_ctx = d.ctx().clone();
         let decoded: std::sync::Arc<ArrayRef> = d.cached_block(key, || {
+            // Decode only the page-sized slice — typically 1024 values vs the
+            // whole array.
             let arr = view_owned
                 .data()
+                ._slice(page_start_slice, page_end_slice)
                 .decompress(&unsliced_validity, &mut decode_ctx)?
                 .into_array();
             VortexResult::Ok(std::sync::Arc::new(arr))
         })?;
-        // The decoded array is the canonical primitive form — defer to its
-        // scalar_at via the dispatch so its cache (if any) applies too.
-        d.scalar_at(&decoded, index)
+        d.scalar_at(&decoded, in_page)
     }
+}
+
+/// Returns the (logical, slice-relative) page size for a PCO array.
+///
+/// Uses the first chunk's first page's `n_values`. PCO `PagingSpec` produces
+/// uniform-size pages, so this is exact except for the trailing page in a
+/// chunk (which may be smaller but doesn't affect page-id arithmetic at
+/// non-tail indices).
+fn first_page_size(data: &PcoData) -> usize {
+    data.metadata
+        .chunks
+        .first()
+        .and_then(|c| c.pages.first())
+        .map(|p| p.n_values as usize)
+        .unwrap_or(0)
 }
 
 #[cfg(test)]

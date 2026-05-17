@@ -11,6 +11,8 @@ use crate::arrays::bool::BoolArrayExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Bool> for Bool {
+    const FAST_SCALAR_AT: bool = true;
+
     fn scalar_at(
         array: ArrayView<'_, Bool>,
         index: usize,

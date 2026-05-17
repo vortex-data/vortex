@@ -11,6 +11,9 @@ use crate::arrays::extension::ExtensionArrayExt;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Extension> for Extension {
+    // Transparent 1:1 wrapper over `storage`; defer caching to the child.
+    const FAST_SCALAR_AT: bool = true;
+
     fn scalar_at(
         array: ArrayView<'_, Extension>,
         index: usize,

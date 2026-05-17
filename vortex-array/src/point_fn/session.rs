@@ -76,14 +76,20 @@ impl PointDispatch for PointSession<'_> {
     }
 
     fn scalar_at(&mut self, arr: &ArrayRef, idx: usize) -> VortexResult<Scalar> {
+        // Bypass the scalar cache for encodings that have a fast `scalar_at`
+        // (Primitive, Bool, VarBin, Constant, …): the cache lookup + insert
+        // overhead exceeds the cost of computing the value directly. View
+        // encodings that recurse into a fast leaf transparently avoid the
+        // redundant wrapper-level cache entry too — the inner call sees the
+        // fast leaf, bypasses, returns; the outer call would have inserted a
+        // duplicate entry but the path here checks the outer array's flag.
+        if arr.has_fast_scalar_at() {
+            return arr.point_execute_scalar(idx, self);
+        }
         let key = (arr.addr(), idx);
         if let Some(v) = self.scalar_cache.get(&key) {
             return Ok(v.clone());
         }
-        // Route through the encoding's `point_scalar_at` vtable hook (default:
-        // forward to scalar_at). View encodings recurse via d.scalar_at which
-        // re-enters this method at the child level, so the cache applies at
-        // every level of the tree.
         let v = arr.point_execute_scalar(idx, self)?;
         self.scalar_cache.put(key, v.clone());
         Ok(v)

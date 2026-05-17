@@ -11,6 +11,8 @@ use crate::match_each_native_ptype;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Primitive> for Primitive {
+    const FAST_SCALAR_AT: bool = true;
+
     fn scalar_at(
         array: ArrayView<'_, Primitive>,
         index: usize,
