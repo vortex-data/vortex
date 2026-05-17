@@ -32,6 +32,7 @@
 mod access;
 pub mod algorithms;
 mod dispatch;
+mod kernels;
 #[cfg(test)]
 mod runtime;
 mod session;
@@ -41,8 +42,16 @@ mod tests;
 pub use access::RepeatedAccess;
 pub use dispatch::AnyBlock;
 pub use dispatch::BlockKey;
+pub use dispatch::CacheArrayId;
 pub use dispatch::PointDispatch;
 pub use dispatch::PointDispatchExt;
+pub use kernels::DynScalarAtKernel;
+pub use kernels::DynSearchSortedKernel;
+pub use kernels::PointKernels;
+pub use kernels::ScalarAtKernel;
+pub use kernels::ScalarAtKernelAdapter;
+pub use kernels::SearchSortedKernel;
+pub use kernels::SearchSortedKernelAdapter;
 #[cfg(test)]
 pub(crate) use runtime::PointRuntime;
 pub(crate) use session::PointSession;

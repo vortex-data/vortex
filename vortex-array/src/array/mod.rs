@@ -544,6 +544,15 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         d: &mut dyn crate::point_fn::PointDispatch,
     ) -> VortexResult<Scalar> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        // Consult the per-encoding kernel set first; fall through to the
+        // legacy `point_scalar_at` method if no kernel is registered. This
+        // lets encodings migrate to the kernel-per-op pattern without
+        // forcing all encodings to do so at once.
+        if let Some(kernels) = <V::OperationsVTable as OperationsVTable<V>>::point_kernels()
+            && let Some(kernel) = kernels.scalar_at()
+        {
+            return kernel.execute(view, index, d);
+        }
         <V::OperationsVTable as OperationsVTable<V>>::point_scalar_at(view, index, d)
     }
 
@@ -555,6 +564,11 @@ impl<V: VTable> DynArrayData for ArrayData<V> {
         d: &mut dyn crate::point_fn::PointDispatch,
     ) -> VortexResult<crate::search_sorted::SearchResult> {
         let view = unsafe { ArrayView::new_unchecked(this, &self.data) };
+        if let Some(kernels) = <V::OperationsVTable as OperationsVTable<V>>::point_kernels()
+            && let Some(kernel) = kernels.search_sorted()
+        {
+            return kernel.execute(view, value, side, d);
+        }
         <V::OperationsVTable as OperationsVTable<V>>::point_search_sorted(view, value, side, d)
     }
 }

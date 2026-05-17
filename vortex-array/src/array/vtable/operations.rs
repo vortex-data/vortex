@@ -8,6 +8,7 @@ use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::point_fn::PointDispatch;
+use crate::point_fn::PointKernels;
 use crate::point_fn::algorithms::generic_search_sorted;
 use crate::scalar::Scalar;
 use crate::search_sorted::SearchResult;
@@ -68,6 +69,24 @@ pub trait OperationsVTable<V: VTable> {
         d: &mut dyn PointDispatch,
     ) -> VortexResult<SearchResult> {
         generic_search_sorted(array.as_ref(), value, side, d)
+    }
+
+    /// Per-encoding registry of point-fn kernels.
+    ///
+    /// Encodings can register
+    /// [`ScalarAtKernel`](crate::point_fn::ScalarAtKernel) and
+    /// [`SearchSortedKernel`](crate::point_fn::SearchSortedKernel) impls in a
+    /// static [`PointKernels`] and return a reference to it here. The
+    /// framework consults the kernel set before falling through to
+    /// [`point_scalar_at`](Self::point_scalar_at) /
+    /// [`point_search_sorted`](Self::point_search_sorted) (which in turn
+    /// default to the legacy [`scalar_at`](Self::scalar_at) /
+    /// `generic_search_sorted`).
+    ///
+    /// The default returns `None`, preserving legacy behaviour for unmigrated
+    /// encodings.
+    fn point_kernels() -> Option<&'static PointKernels<V>> {
+        None
     }
 }
 
