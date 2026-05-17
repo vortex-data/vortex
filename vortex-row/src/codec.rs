@@ -691,36 +691,94 @@ fn encode_extension(
 
 /// Encode a variable-length byte slice into `out` in 32-byte blocks with
 /// continuation markers. Returns the number of bytes written.
+///
+/// For the ascending path (descending == false), the hot loop is a `copy_nonoverlapping`
+/// of 32 bytes per block plus one stamped continuation byte — no per-byte work. For the
+/// descending path, the hot loop reads u64-at-a-time and XORs with 0xFF to give LLVM
+/// a vectorizable inner loop.
 fn encode_varlen_value(bytes: &[u8], out: &mut [u8], descending: bool) -> u32 {
-    let xor = if descending { 0xFFu8 } else { 0x00 };
     if bytes.is_empty() {
-        // Single zero terminator.
-        out[0] = xor;
+        // Single zero terminator (descending flips it to 0xFF).
+        out[0] = if descending { 0xFF } else { 0 };
         return 1;
     }
-    let mut written = 0usize;
-    let mut remaining = bytes;
-    while remaining.len() > VARLEN_BLOCK_SIZE {
-        // Full block, continuation marker 0xFF (then XORed if descending).
-        let block = &remaining[..VARLEN_BLOCK_SIZE];
-        for (i, &b) in block.iter().enumerate() {
-            out[written + i] = b ^ xor;
+    let len = bytes.len();
+    let full_blocks = len / VARLEN_BLOCK_SIZE;
+    let partial = len % VARLEN_BLOCK_SIZE;
+    let (full_to_write, partial_block_len) = if partial == 0 {
+        // Length is an exact multiple of 32. The spec emits (full_blocks-1) full blocks
+        // with 0xFF continuation, plus a final block whose continuation byte is 32.
+        (full_blocks - 1, VARLEN_BLOCK_SIZE)
+    } else {
+        (full_blocks, partial)
+    };
+    let total = (full_to_write + 1) * VARLEN_BLOCK_TOTAL;
+    debug_assert!(out.len() >= total);
+
+    // SAFETY: bounds checked above. The encoder always invokes us with `out.len()`
+    // >= encoded_size_for_varlen(bytes.len()) - 1 (the leading sentinel is written by the
+    // caller and not counted here).
+    unsafe {
+        let mut src = bytes.as_ptr();
+        let mut dst = out.as_mut_ptr();
+
+        if !descending {
+            // Ascending fast path: full blocks are memcpy + a single 0xFF stamp.
+            for _ in 0..full_to_write {
+                std::ptr::copy_nonoverlapping(src, dst, VARLEN_BLOCK_SIZE);
+                *dst.add(VARLEN_BLOCK_SIZE) = 0xFF;
+                src = src.add(VARLEN_BLOCK_SIZE);
+                dst = dst.add(VARLEN_BLOCK_TOTAL);
+            }
+            // Final block: copy the partial data, zero-pad the tail, write the
+            // length byte as the continuation marker.
+            std::ptr::copy_nonoverlapping(src, dst, partial_block_len);
+            std::ptr::write_bytes(
+                dst.add(partial_block_len),
+                0,
+                VARLEN_BLOCK_SIZE - partial_block_len,
+            );
+            *dst.add(VARLEN_BLOCK_SIZE) = partial_block_len as u8;
+        } else {
+            // Descending: invert all value bytes. u64-stride XOR gives LLVM a
+            // vectorizable inner loop; the tail handles the partial block.
+            for _ in 0..full_to_write {
+                xor_copy_block(src, dst);
+                *dst.add(VARLEN_BLOCK_SIZE) = 0x00; // descending counterpart of 0xFF
+                src = src.add(VARLEN_BLOCK_SIZE);
+                dst = dst.add(VARLEN_BLOCK_TOTAL);
+            }
+            // Final block: XOR-copy the partial data, fill the tail with 0xFF
+            // (which is 0x00 XOR 0xFF), then write the inverted length byte.
+            for i in 0..partial_block_len {
+                *dst.add(i) = *src.add(i) ^ 0xFF;
+            }
+            std::ptr::write_bytes(
+                dst.add(partial_block_len),
+                0xFF,
+                VARLEN_BLOCK_SIZE - partial_block_len,
+            );
+            *dst.add(VARLEN_BLOCK_SIZE) = (partial_block_len as u8) ^ 0xFF;
         }
-        out[written + VARLEN_BLOCK_SIZE] = 0xFF ^ xor;
-        written += VARLEN_BLOCK_TOTAL;
-        remaining = &remaining[VARLEN_BLOCK_SIZE..];
     }
-    // Final partial block: pad with zeros, last byte = remaining.len() (1..=32).
-    let n = remaining.len();
-    for (i, &b) in remaining.iter().enumerate() {
-        out[written + i] = b ^ xor;
+    total as u32
+}
+
+/// Copy 32 bytes from `src` to `dst`, XORing each with 0xFF. Auto-vectorized by LLVM
+/// into SIMD on x86 (verified via cargo asm in earlier iterations).
+///
+/// # Safety
+/// `src` must be valid for 32 reads; `dst` must be valid for 32 writes; the regions
+/// may not overlap.
+#[inline(always)]
+unsafe fn xor_copy_block(src: *const u8, dst: *mut u8) {
+    // Use u64 chunks (4 lanes of 8 bytes = 32 bytes total).
+    for i in 0..4 {
+        let off = i * 8;
+        // SAFETY: caller upholds the contract that src/dst are valid for 32 bytes.
+        let v = unsafe { std::ptr::read_unaligned(src.add(off) as *const u64) };
+        unsafe { std::ptr::write_unaligned(dst.add(off) as *mut u64, v ^ u64::MAX) };
     }
-    for j in n..VARLEN_BLOCK_SIZE {
-        out[written + j] = xor;
-    }
-    out[written + VARLEN_BLOCK_SIZE] = (n as u8) ^ xor;
-    written += VARLEN_BLOCK_TOTAL;
-    written as u32
 }
 
 /// Internal trait for encoding a fixed-width native value into byte slots.
