@@ -60,7 +60,6 @@ impl VTable for Dict {
             DictLayoutMetadata::new(PType::try_from(layout.codes.dtype()).vortex_expect("ptype"));
         metadata.is_nullable_codes = Some(layout.codes.dtype().is_nullable());
         metadata.all_values_referenced = Some(layout.all_values_referenced);
-        metadata.sorted_values = Some(layout.sorted_values);
         ProstMetadata(metadata)
     }
 
@@ -123,7 +122,6 @@ impl VTable for Dict {
         Ok(unsafe {
             DictLayout::new(values, codes)
                 .set_all_values_referenced(metadata.all_values_referenced.unwrap_or(false))
-                .set_sorted_values(metadata.sorted_values.unwrap_or(false))
         })
     }
 
@@ -155,14 +153,9 @@ pub struct DictLayoutEncoding;
 pub struct DictLayout {
     values: LayoutRef,
     codes: LayoutRef,
-    /// Indicates whether all dictionary values are definitely referenced by at least one code.
-    /// `true` = all values are referenced (computed during encoding).
-    /// `false` = unknown/might have unreferenced values.
+    /// `true` if every dictionary value is referenced by at least one code. An incorrect
+    /// value here can cause incorrect query results (e.g. min/max) but never UB.
     all_values_referenced: bool,
-    /// Indicates whether the dictionary values are sorted in ascending order.
-    /// `true` = codes are an order-preserving encoding of the original column.
-    /// `false` = no ordering guarantee on values.
-    sorted_values: bool,
 }
 
 impl DictLayout {
@@ -171,20 +164,14 @@ impl DictLayout {
             values,
             codes,
             all_values_referenced: false,
-            sorted_values: false,
         }
     }
 
     /// Set whether all dictionary values are definitely referenced.
     ///
     /// # Safety
-    /// The caller must ensure that when setting `all_values_referenced = true`, ALL dictionary
-    /// values are actually referenced by at least one valid code. Setting this incorrectly can
-    /// lead to incorrect query results in operations like min/max.
-    ///
-    /// This is typically only set to `true` during dictionary encoding when we know for certain
-    /// that all values are referenced.
-    /// See `DictArray::set_all_values_referenced`.
+    /// See `DictArray::set_all_values_referenced`. An incorrect value can produce
+    /// incorrect query results (e.g. min/max) but never UB.
     pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
         self.all_values_referenced = all_values_referenced;
         self
@@ -192,21 +179,6 @@ impl DictLayout {
 
     pub fn has_all_values_referenced(&self) -> bool {
         self.all_values_referenced
-    }
-
-    /// Set whether the dictionary values are sorted in ascending order.
-    ///
-    /// # Safety
-    /// See `DictArray::set_sorted_values`. Setting this incorrectly leads to incorrect query
-    /// results in operations that exploit a sorted dictionary (min/max, is_sorted, range
-    /// pushdown), but never memory unsafety.
-    pub unsafe fn set_sorted_values(mut self, sorted_values: bool) -> Self {
-        self.sorted_values = sorted_values;
-        self
-    }
-
-    pub fn has_sorted_values(&self) -> bool {
-        self.sorted_values
     }
 }
 
@@ -224,12 +196,6 @@ pub struct DictLayoutMetadata {
     // see `DictArray::all_values_referenced`
     #[prost(optional, bool, tag = "3")]
     pub(crate) all_values_referenced: Option<bool>,
-    // sorted_values is optional for backward compatibility
-    // true = dictionary values are stored in ascending order; codes are an order-preserving
-    //        encoding of the original column
-    // false/None = no ordering guarantee on values (conservative default)
-    #[prost(optional, bool, tag = "4")]
-    pub(crate) sorted_values: Option<bool>,
 }
 
 impl DictLayoutMetadata {

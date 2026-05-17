@@ -12,7 +12,6 @@ use crate::arrays::Constant;
 use crate::arrays::ConstantArray;
 use crate::arrays::Dict;
 use crate::arrays::DictArray;
-use crate::arrays::dict::DictArrayExt;
 use crate::arrays::dict::DictArraySlotsExt;
 use crate::arrays::slice::SliceReduce;
 use crate::scalar::Scalar;
@@ -39,14 +38,9 @@ impl SliceReduce for Dict {
                 ))
             };
         }
-        // SAFETY: slicing the codes preserves invariants.
-        // The values array is unchanged, so `sorted_values` is preserved.
+        // SAFETY: slicing the codes preserves invariants; values unchanged.
         Ok(Some(
-            unsafe {
-                DictArray::new_unchecked(sliced_code, array.values().clone())
-                    .set_sorted_values(array.has_sorted_values())
-            }
-            .into_array(),
+            unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()) }.into_array(),
         ))
     }
 }

@@ -57,9 +57,9 @@ pub fn dict_encode_sorted_with_constraints(
     sort_dict(dict)
 }
 
-/// Sort the values of an existing `DictArray` and remap its codes.
-///
-/// Preserves `all_values_referenced`. Sets `sorted_values = true` on the result.
+/// Sort the values of an existing `DictArray` and remap its codes. The resulting values
+/// array has `Stat::IsSorted = Exact(true)` cached so `dict.has_sorted_values()` returns
+/// true without any further work.
 pub fn sort_dict(dict: DictArray) -> VortexResult<DictArray> {
     let all_values_referenced = dict.has_all_values_referenced();
 
@@ -71,10 +71,7 @@ pub fn sort_dict(dict: DictArray) -> VortexResult<DictArray> {
     let codes = dict.codes().clone();
 
     if values.is_empty() {
-        return Ok(unsafe {
-            dict.set_sorted_values(true)
-                .set_all_values_referenced(all_values_referenced)
-        });
+        return Ok(unsafe { dict.set_all_values_referenced(all_values_referenced) });
     }
 
     // perm[new_idx] = old_idx
@@ -83,10 +80,18 @@ pub fn sort_dict(dict: DictArray) -> VortexResult<DictArray> {
     let sorted_values = take_values(&values, &perm)?;
     let remapped_codes = remap_codes(&codes, &perm)?;
 
+    // Stat is the single source of truth for sortedness — set it on the values so the
+    // dict's `has_sorted_values()` picks it up. The stat persists through the layout
+    // writer / reader and through transforms that share the values Arc.
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
+    sorted_values
+        .statistics()
+        .set(Stat::IsSorted, Precision::Exact(true.into()));
+
     Ok(unsafe {
         DictArray::new_unchecked(remapped_codes, sorted_values)
             .set_all_values_referenced(all_values_referenced)
-            .set_sorted_values(true)
     })
 }
 

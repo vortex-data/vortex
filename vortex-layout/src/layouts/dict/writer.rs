@@ -191,8 +191,7 @@ impl LayoutStrategy for DictStrategy {
         let dict_stream = dict_encode_stream(stream, options.constraints.into());
 
         // If sorted-values mode is enabled, transparently sort each run.
-        let sort_values = options.sort_values;
-        let dict_stream = if sort_values {
+        let dict_stream = if options.sort_values {
             sort_dict_stream(dict_stream)
         } else {
             dict_stream
@@ -247,20 +246,13 @@ impl LayoutStrategy for DictStrategy {
             }
         };
 
+        // Sortedness rides on the values array's `Stat::IsSorted` (set by sort_dict and
+        // serialized by the values layout); no flag on DictLayout is needed.
         let mut child_layouts = child_layouts
             .buffered(usize::MAX)
             .map(|result| {
                 let (codes_layout, values_layout) = result?;
-                // All values are referenced when created via dictionary encoding.
-                // Tag `sorted_values` if the writer ran the sorted-values transform.
                 let layout = DictLayout::new(values_layout, codes_layout);
-                let layout = if sort_values {
-                    // SAFETY: codes were remapped through the sort permutation in
-                    // sort_dict_stream, so values are in ascending order for each run.
-                    unsafe { layout.set_sorted_values(true) }
-                } else {
-                    layout
-                };
                 Ok::<_, VortexError>(layout.into_layout())
             })
             .try_collect::<Vec<_>>()

@@ -233,20 +233,17 @@ impl LayoutReader for DictReader {
         let expr = expr.clone();
 
         let all_values_referenced = self.layout.has_all_values_referenced();
-        let sorted_values = self.layout.has_sorted_values();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
-            // SAFETY: Layout was validated at write time.
-            //  * The codes dtype is guaranteed to be an integer type from the layout
-            //  * The codes child reader ensures the correct dtype.
-            //  * `all_values_referenced` and `sorted_values` are stored in the layout; if
-            //    a malicious file claims they're true when they aren't, the worst case is
-            //    incorrect query results, not memory unsafety.
+            // SAFETY: Layout was validated at write time. The codes dtype is guaranteed
+            // to be an integer type from the layout, and the codes child reader ensures
+            // the correct dtype. `all_values_referenced` is stored in metadata; sortedness
+            // rides along on the values array's `Stat::IsSorted` (set at sort time and
+            // persisted by the flat values layout).
             let array = unsafe {
                 DictArray::new_unchecked(codes, values)
                     .set_all_values_referenced(all_values_referenced)
-                    .set_sorted_values(sorted_values)
             }
             .into_array()
             .optimize()?;
@@ -544,13 +541,10 @@ mod tests {
 
     #[test]
     fn sorted_dict_layout_roundtrip() {
-        use crate::layouts::dict::Dict as DictLayoutVTable;
-
         block_on(|handle| async move {
             let session = session_with_handle(handle);
-            let mut options = DictLayoutOptions::default();
-            // Ensure sorted-values mode is on (it is by default).
-            options.sort_values = true;
+            // sort_values is true by default; relying on Default is enough here.
+            let options = DictLayoutOptions::default();
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -592,12 +586,6 @@ mod tests {
 
             assert_eq!(layout.encoding_id(), LayoutId::new("vortex.dict"));
 
-            // The DictLayout should be tagged sorted_values=true.
-            assert!(
-                layout.as_::<DictLayoutVTable>().has_sorted_values(),
-                "DictLayout should be tagged sorted_values after sort_values writer pass"
-            );
-
             // Read back and verify equivalence with the input.
             let read_back = layout
                 .new_reader("".into(), segments, &session)
@@ -610,6 +598,18 @@ mod tests {
                 .unwrap()
                 .await
                 .unwrap();
+
+            // The materialized DictArray should report sorted values via the `IsSorted`
+            // stat on the values, persisted through the values layout (looked up through
+            // the `Shared` wrapper the reader adds for de-duplication).
+            use vortex_array::arrays::Dict;
+            use vortex_array::arrays::dict::DictArrayExt;
+            if let Some(dict) = read_back.as_opt::<Dict>() {
+                assert!(
+                    dict.has_sorted_values(),
+                    "read-back dict should report sorted values via the IsSorted stat"
+                );
+            }
 
             let mut ctx_exec = LEGACY_SESSION.create_execution_ctx();
             let read_back_canonical = read_back

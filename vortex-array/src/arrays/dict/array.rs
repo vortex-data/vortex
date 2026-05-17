@@ -41,12 +41,6 @@ pub struct DictMetadata {
     // false/None = unknown whether all values are referenced (conservative default).
     #[prost(optional, bool, tag = "4")]
     pub(super) all_values_referenced: Option<bool>,
-    // sorted_values is optional for backward compatibility.
-    // true = the dictionary values are stored in ascending order, so codes are an
-    //        order-preserving encoding of the original column.
-    // false/None = no ordering guarantee on values.
-    #[prost(optional, bool, tag = "5")]
-    pub(super) sorted_values: Option<bool>,
 }
 
 #[array_slots(Dict)]
@@ -62,18 +56,14 @@ pub struct DictData {
     /// `true` if every dictionary value is referenced by at least one code. An incorrect
     /// value here can cause incorrect query results (e.g. min/max) but never UB.
     pub(super) all_values_referenced: bool,
-    /// `true` if the dictionary values are in ascending order, making `codes` an
-    /// order-preserving encoding. Incorrect setting can cause incorrect query results
-    /// (e.g. min/max, is_sorted, range pushdown) but never UB.
-    pub(super) sorted_values: bool,
 }
 
 impl Display for DictData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "all_values_referenced: {}, sorted_values: {}",
-            self.all_values_referenced, self.sorted_values
+            "all_values_referenced: {}",
+            self.all_values_referenced
         )
     }
 }
@@ -88,7 +78,6 @@ impl DictData {
     pub unsafe fn new_unchecked() -> Self {
         Self {
             all_values_referenced: false,
-            sorted_values: false,
         }
     }
 
@@ -99,16 +88,6 @@ impl DictData {
     /// incorrect results from operations like min/max.
     pub unsafe fn set_all_values_referenced(mut self, all_values_referenced: bool) -> Self {
         self.all_values_referenced = all_values_referenced;
-        self
-    }
-
-    /// Set whether the dictionary values are in ascending order.
-    ///
-    /// # Safety
-    /// Setting `true` when the values aren't sorted does not cause UB but will produce
-    /// incorrect results from min/max, is_sorted, and the sorted-dict pushdowns.
-    pub unsafe fn set_sorted_values(mut self, sorted_values: bool) -> Self {
-        self.sorted_values = sorted_values;
         self
     }
 
@@ -146,29 +125,15 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
         self.all_values_referenced
     }
 
-    /// Returns whether the dictionary values are sorted in ascending order.
+    /// Returns whether the dictionary values are sorted in ascending order. Sourced
+    /// entirely from the values array's `Stat::IsSorted` (plus O(1) structural fallbacks
+    /// — empty, single-element, or constant). Never scans values.
     ///
-    /// When `true`, the codes are an order-preserving encoding of the original column.
-    #[inline]
+    /// `sort_dict` and the sorted-dict writer cache `Stat::IsSorted = true` on the values
+    /// they produce; transforms that preserve the values array (take/filter/slice) reuse
+    /// the same stats cache via Arc-cloning, so propagation is automatic.
     fn has_sorted_values(&self) -> bool {
-        self.sorted_values
-    }
-
-    /// Validate that the values are actually sorted if `has_sorted_values()` is set.
-    fn validate_sorted_values(&self) -> VortexResult<()> {
-        if !self.has_sorted_values() {
-            return Ok(());
-        }
-        if !self.values().is_host() {
-            return Ok(());
-        }
-        use crate::aggregate_fn::fns::is_sorted::is_sorted as _is_sorted;
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        vortex_ensure!(
-            _is_sorted(self.values(), &mut ctx)?,
-            "dict values flagged sorted_values but are not in ascending order"
-        );
-        Ok(())
+        infer_sorted_values(self.values())
     }
 
     fn validate_all_values_referenced(&self) -> VortexResult<()> {
@@ -233,6 +198,41 @@ pub trait DictArrayExt: TypedArrayRef<Dict> + DictArraySlotsExt {
     }
 }
 impl<T: TypedArrayRef<Dict>> DictArrayExt for T {}
+
+/// O(1) inference of whether `values` is sorted, used when the explicit flag isn't set.
+/// Checks only structural conditions and cached stats; never scans the values.
+///
+/// The dict reader wraps the materialized values in a `Shared` array for de-duplication;
+/// look through that wrapper to read the underlying array's stats.
+fn infer_sorted_values(values: &ArrayRef) -> bool {
+    use crate::arrays::Constant;
+    use crate::arrays::Shared;
+    use crate::arrays::shared::SharedArrayExt;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
+    use crate::expr::stats::StatsProviderExt;
+
+    // The dict reader wraps materialized values in `Shared`; check the underlying
+    // source inside the if-let so the typed view stays alive while we read stats.
+    if let Some(shared) = values.as_opt::<Shared>() {
+        let src = shared.source();
+        if src.len() <= 1 || src.is::<Constant>() {
+            return true;
+        }
+        return matches!(
+            src.statistics().get_as::<bool>(Stat::IsSorted),
+            Some(Precision::Exact(true))
+        );
+    }
+
+    if values.len() <= 1 || values.is::<Constant>() {
+        return true;
+    }
+    matches!(
+        values.statistics().get_as::<bool>(Stat::IsSorted),
+        Some(Precision::Exact(true))
+    )
+}
 
 /// Concrete parts of a [`DictArray`](super::DictArray) after iterative execution.
 pub struct DictParts {
@@ -333,29 +333,6 @@ impl Array<Dict> {
         array
     }
 
-    /// Set whether the dictionary values are sorted in ascending order.
-    ///
-    /// # Safety
-    ///
-    /// See [`DictData::set_sorted_values`].
-    pub unsafe fn set_sorted_values(self, sorted_values: bool) -> Self {
-        let dtype = self.dtype().clone();
-        let len = self.len();
-        let slots: ArraySlots = self.slots().iter().cloned().collect();
-        let data = unsafe { self.into_data().set_sorted_values(sorted_values) };
-        let array = unsafe {
-            Array::from_parts_unchecked(ArrayParts::new(Dict, dtype, len, data).with_slots(slots))
-        };
-
-        #[cfg(debug_assertions)]
-        if sorted_values {
-            array
-                .validate_sorted_values()
-                .vortex_expect("validation should succeed when sorted_values is set");
-        }
-
-        array
-    }
 }
 
 #[cfg(test)]
@@ -562,9 +539,40 @@ mod test {
                 values_len: u32::MAX,
                 is_nullable_codes: None,
                 all_values_referenced: None,
-                sorted_values: None,
             }
             .encode_to_vec(),
         );
+    }
+
+    #[test]
+    fn sorted_values_inferred_for_constant_values() -> VortexResult<()> {
+        use crate::arrays::ConstantArray;
+        use crate::arrays::dict::DictArrayExt;
+        // ConstantArray values: only one logical value, trivially sorted.
+        let values = ConstantArray::new(42i32, 1).into_array();
+        let codes = buffer![0u32, 0, 0].into_array();
+        let dict = DictArray::try_new(codes, values)?;
+        assert!(dict.has_sorted_values());
+        Ok(())
+    }
+
+    #[test]
+    fn sorted_values_inferred_from_is_sorted_stat() -> VortexResult<()> {
+        use crate::arrays::dict::DictArrayExt;
+        use crate::expr::stats::Precision;
+        use crate::expr::stats::Stat;
+        // Values are sorted in fact but the flag isn't set. Once the IsSorted stat is
+        // cached on the values array, the dict's inference picks it up.
+        let values = buffer![1i32, 2, 3].into_array();
+        let codes = buffer![0u32, 1, 2, 1, 0].into_array();
+        let dict = DictArray::try_new(codes, values.clone())?;
+        // Before the stat is set, the bare flag is false and no other cheap signal
+        // applies — inference returns false.
+        assert!(!dict.has_sorted_values());
+        values
+            .statistics()
+            .set(Stat::IsSorted, Precision::Exact(true.into()));
+        assert!(dict.has_sorted_values());
+        Ok(())
     }
 }
