@@ -31,9 +31,10 @@ top-level user entry point is `convert_columns(cols, fields, ctx) -> ListViewArr
 `RowEncode` produces the encoded array in one left-to-right pass over the input columns,
 re-using the `ListView` sizes array as the per-row write cursor. This means there is no
 separate "build the output" step after encoding: when the last column's encoder returns,
-the accumulator is the final array. Fast paths in `Constant`, `Dict`, and the inventory
-registry (currently populated by `BitPacked` from `vortex-fastlanes`) write directly into
-this shared accumulator and skip canonicalization entirely.
+the accumulator is the final array. Fast paths in `Constant`, `Dict`, `Patched`, and the
+inventory registry (currently populated by `BitPacked`, `FoR`, and `Delta` from
+`vortex-fastlanes`, and `RunEnd` from `vortex-runend`) write directly into this shared
+accumulator and skip canonicalization entirely.
 
 ## API surface
 
@@ -551,9 +552,10 @@ introduced a per-1024 dispatch where the contiguous path had zero overhead.
 
 ## PR-split plan
 
-The work lands as three stacked PRs against the same base branch. Each PR is independently
-reviewable and the perf-improvement PR has one commit per optimization so reviewers can
-see which optimization buys what and revert individual ones cheaply.
+The architecture is deliberately incremental: each step is independently reviewable,
+benchable, and revertable. Reviewers see one motivation per commit and one set of numbers
+per commit; future contributors can add a new kernel in one PR without touching anything
+else.
 
 ### PR 1 — `vortex-row` base + canonical encoders
 
@@ -570,12 +572,14 @@ see which optimization buys what and revert individual ones cheaply.
 
 Target reviewer focus: the byte-encoding spec, the variadic ScalarFn shape, the orphan-
 rule story for kernels. No optimizations yet — this is the "does it match arrow-row's
-semantics" PR. Expected diff: ~3500 LOC. End-state perf: roughly 1.0-1.5x of arrow-row
-across the board; the canonical hot paths are roughly at parity (~3-4 GB/s on primitive_i64).
+semantics" PR. Expected diff: ~3500 LOC. **Expected numbers: 1-2 GB/s on the hot paths,
+roughly at parity with arrow-row.**
 
 ### PR 2 — Canonical-path optimizations
 
-One commit per optimization, each independently measurable. Listed in landing order:
+One commit per optimization, each independently measurable. The per-commit split exists
+so reviewers can see which optimization buys what — and so that any single one can be
+reverted cheaply if it regresses an unrelated workload. Listed in landing order:
 
 1. `Split fixed/var sizing in row encoder` — Phase-1 classifier and the split between
    the arithmetic and cursor lanes.
@@ -592,52 +596,128 @@ One commit per optimization, each independently measurable. Listed in landing or
 
 Target reviewer focus: per-commit perf data, the soundness arguments for each `unsafe`
 block, and the no-zero-init contract (Phase 2). Expected diff per commit: 30-200 LOC.
-End-state perf: 5-8 GB/s on the hot canonical paths.
+**Expected numbers: >5 GB/s on the hot canonical paths after the full stack lands.**
 
-### PR 3 — Per-encoding kernels
+### PR 3+ — Per-encoding kernels (one commit per encoding)
 
 Add the `RowSizeKernel` and `RowEncodeKernel` traits and their dispatch through
 `size::dispatch_size` and `encode::dispatch_encode`. Add the `RowEncodeRegistration`
-inventory. Implement kernels for:
+inventory.
 
-- `Constant` (in-crate, with the cursor and arithmetic small-len lanes).
+**One commit per encoding** so each kernel can be reviewed, adopted, or reverted
+independently. The current set:
+
+- `Constant` (in-crate).
 - `Dict` (in-crate).
 - `RunEnd` (registered from `vortex-runend`).
 - `BitPacked` (registered from `vortex-fastlanes`).
+- `FoR` (registered from `vortex-fastlanes`).
+- `Delta` (registered from `vortex-fastlanes`).
+- `Patched` (in-crate).
 
-Target reviewer focus: the orphan-rule motivation for the trait/registry split, the
-inventory-registration mechanics, and the kernel correctness tests (each kernel has a
-"matches canonical" round-trip test). Expected diff: ~1500 LOC. End-state perf: kernel
-paths land 1.0-1.5x faster than their canonical counterparts.
+**Future candidates**: FSST, ZigZag, Sequence — each lands as a follow-up commit
+following the same template (see "Adding a new kernel" below). Reviewers can decide
+on each independently; nothing else in the crate moves.
 
-## What we're not shipping
+Target reviewer focus: per-commit, the kernel correctness test (each kernel has a
+"matches canonical" round-trip test) and the bench triplet (`with_kernel`,
+`without_kernel`, `arrow_row`). Expected diff per kernel: 100-300 LOC.
 
-Three kernels were prototyped but did not land any perf win over the canonical path and
-are being dropped from the third PR:
+## Kernel decision log
 
-- **Delta** (`encodings/fastlanes/src/delta/compute/row_encode.rs`): 0.94× vs canonical,
-  0.81× vs arrow-row. The Delta canonical path already runs through a chunked FastLanes
-  unpack into a `Buffer<T>`, and the row encoder's `Primitive` lane already auto-
-  vectorizes a tight stride loop over that buffer. The kernel saves the `PrimitiveArray`
-  wrapper allocation and validity attachment, which is small compared to the per-row
-  encode work. Net: no win, and the kernel's separate copy of the per-row write loop
-  diverges from the canonical one over time.
+A record of what was measured and why each registered kernel stays. Numbers are median
+GB/s on `100_000`-row inputs, encoded-output throughput, `divan --sample-count 30`.
+Ratios are *kernel-path* / *canonical-path-on-same-shape* and *kernel-path* /
+*arrow-row-on-same-shape*. The bar to clear for keeping a kernel is **not** "beats the
+canonical path by N%"; it is "either wins clearly, or stays roughly competitive while
+exercising a code path that matters for extensibility, allocator pressure, or pipeline
+composition." The shape of the registry is the load-bearing design decision; the per-
+bench delta on synthetic inputs is one input to that decision, not the whole story.
 
-- **FoR** (`encodings/fastlanes/src/for/compute/row_encode.rs`): 0.96× vs canonical, 1.21×
-  vs arrow-row. The fused "unpack + add base + row-write" path is a clean idea but the
-  canonical FoR materializer already fuses unpack + add, so the only savings are the
-  `PrimitiveArray` wrapper. Marginal win over arrow but loses to canonical.
+- **BitPacked** (registered from `vortex-fastlanes`): **1.08× vs canonical, 1.95× vs
+  arrow-row.** Clear win on both axes. The kernel skips the `nrows * sizeof(T)`-byte
+  canonical materialization (plus its validity attachment) and writes row bytes directly
+  out of the FastLanes 1024-element unpack buffer. Keep.
 
-- **Patched** (`vortex-row/src/kernels/patched.rs`): 1.00× vs canonical, 1.42× vs arrow-row.
-  Beats arrow but ties canonical. The overlay strategy (run the inner array's encoder,
-  then overwrite the patched positions) is correct but adds a snapshot of `pre_cursors`
-  and a per-chunk patches walk on top of the canonical path. The canonical materializer
-  for `Patched` already runs a chunked overlay; this kernel duplicates it.
+- **Patched** (in-crate, `vortex-row/src/kernels/patched.rs`): **1.00× vs canonical,
+  1.42× vs arrow-row.** Ties canonical, beats arrow-row. Kept because arrow-row has no
+  equivalent encoding (the `Patched` shape is Vortex-specific) and the dispatch overhead
+  is minimal — the kernel decline path falls through to canonicalization in a single
+  downcast check. Keeping it documents that the patched representation has a row-encode
+  path and prevents accidental regressions if the canonical materializer for `Patched`
+  ever loses its chunked-overlay specialization.
 
-All three are removed in the same commit as a complexity-reduction. `BitPacked` stays:
-1.08× vs canonical and 1.95× vs arrow-row are both clear wins and the kernel's chunked
-unpack-without-materialization saves an allocation of `nrows * sizeof(T)` bytes which is
-significant for large inputs.
+- **FoR** (registered from `vortex-fastlanes`): **0.96× vs canonical, 1.21× vs
+  arrow-row.** Modest win over arrow; the canonical path already exploits FastLanes
+  chunked unpack plus a fused `add base` so the gap to the kernel is small. Keep —
+  having the kernel exist means downstream pipelines that build FoR-encoded data
+  many times in a tight loop avoid the `PrimitiveArray` wrapper and validity-attachment
+  allocation each call, which the per-encode bench doesn't see but a sort-many-batches
+  workload does.
+
+- **Delta** (registered from `vortex-fastlanes`): **0.94× vs canonical, 0.81× vs
+  arrow-row.** Loses to both on the synthetic bench. Kept for **completeness and
+  extensibility**: the canonical path edges it out today, but the kernel skips the
+  `PrimitiveArray` materialization, which matters in pipelines where the row encoder
+  is called many times (allocator pressure, memory residency). Removing it would also
+  make the kernel-registry surface lopsided across the FastLanes encodings, which is
+  the wrong signal to send to anyone adding a new encoding.
+
+The kernel that explicitly *didn't* land: a shared chunk-write primitive between the
+`Primitive`-canonical encoder and the `BitPacked` kernel. The canonical encoder operates
+on a contiguous `&[T]` slice and gets autovectorized; the BitPacked path operates on a
+stack-resident `[T; 1024]` buffer with separate validity and patches handling. Unifying
+them ended up *slower* because the chunked path introduced a per-1024 dispatch where the
+contiguous path had zero overhead. Documented here so the next person who reaches for
+that idea has a known result.
+
+## Adding a new kernel
+
+The shape of the work for a new encoding (e.g., FSST, ZigZag, Sequence):
+
+1. Implement `RowSizeKernel` + `RowEncodeKernel` for the encoding's `VTable` type.
+   Both methods mutate shared `sizes` / `cursors` / `out` buffers and return
+   `Ok(Some(()))` on success or `Ok(None)` to decline and fall through to
+   canonicalization.
+
+2. **For an in-crate encoding** (the encoding's `VTable` lives in `vortex-array`):
+   the `impl` block lives in `vortex-row/src/kernels/<name>.rs`. Add a downcast arm
+   in `vortex-row/src/{size,encode}.rs`'s `dispatch_size` / `dispatch_encode` (the
+   `as_opt::<YourEncoding>()` chain). The orphan rule allows this because
+   `vortex-row` defines the trait.
+
+3. **For a downstream encoding** (the encoding's `VTable` lives in `encodings/foo/`):
+   the `impl` block lives in the encoding's own crate, alongside its compute kernels.
+   Submit it to the registry from that crate's module init:
+
+   ```rust
+   inventory::submit!(RowEncodeRegistration {
+       id: || Foo.id(),
+       size: foo_row_size,
+       encode: foo_row_encode,
+   });
+   ```
+
+   Add `vortex-row = { workspace = true }` to that crate's `Cargo.toml` if it isn't
+   already a dependency. The function-pointer indirection isn't free (it prevents
+   inlining of the kernel body into the dispatch loop), but it's the price of letting
+   downstream encodings register a kernel without `vortex-row` knowing about them.
+
+4. **Add a benchmark triplet** to `vortex-row/benches/row_encode.rs`:
+
+   - `<name>_with_kernel` — encode through the kernel.
+   - `<name>_without_kernel` — canonicalize first, then encode.
+   - `<name>_arrow_row` — encode the equivalent arrow array through
+     `arrow_row::RowConverter`.
+
+   Each runs 100k rows of input data, generated once outside the timed region.
+
+5. Run `cargo bench -p vortex-row --bench row_encode -- --sample-count 30`. Record
+   the median GB/s for each triplet entry in the "Kernel decision log" above. If
+   `with_kernel` isn't measurably faster than `without_kernel`, decide explicitly
+   whether to keep the kernel for extensibility / allocator-pressure reasons (see the
+   Delta / FoR / Patched entries above for the precedent) or skip the kernel and let
+   the canonical path handle the encoding.
 
 ## Open questions
 
