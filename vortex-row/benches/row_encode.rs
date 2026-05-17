@@ -30,9 +30,11 @@ use rand::RngExt;
 use rand::SeedableRng;
 use rand::distr::Alphanumeric;
 use rand::rngs::StdRng;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -173,5 +175,42 @@ fn struct_mixed_vortex(bencher: divan::Bencher) {
     bencher.counter(BytesCount::new(total)).bench_local(|| {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         convert_columns(&[struct_arr.clone()], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+// ---------- constant_i64 ----------
+
+#[divan::bench]
+fn constant_i64_arrow_row(bencher: divan::Bencher) {
+    let arr = Arc::new(Int64Array::from(vec![42i64; N])) as arrow_array::ArrayRef;
+    let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Int64)]).unwrap();
+    let total = (N * (1 + 8)) as u64;
+    bencher
+        .counter(BytesCount::new(total))
+        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
+}
+
+#[divan::bench]
+fn constant_i64_vortex_with_kernel(bencher: divan::Bencher) {
+    let arr = ConstantArray::new(42i64, N).into_array();
+    let total = (N * (1 + 8)) as u64;
+    bencher.counter(BytesCount::new(total)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        convert_columns(&[arr.clone()], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+#[divan::bench]
+fn constant_i64_vortex_without_kernel(bencher: divan::Bencher) {
+    let arr = ConstantArray::new(42i64, N).into_array();
+    let total = (N * (1 + 8)) as u64;
+    bencher.counter(BytesCount::new(total)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let canonical = arr
+            .clone()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
+            .into_array();
+        convert_columns(&[canonical], &[SortField::default()], &mut ctx).unwrap()
     })
 }

@@ -15,6 +15,7 @@ use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
@@ -219,6 +220,22 @@ fn nulls_first_and_last() -> VortexResult<()> {
         let pos = sorted.len() - 1 - i;
         assert_eq!(sorted[pos][0], 0x02);
     }
+    Ok(())
+}
+
+#[test]
+fn constant_path_matches_canonical() -> VortexResult<()> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let nrows = 8usize;
+    let const_arr = ConstantArray::new(42i64, nrows).into_array();
+    let canonical = PrimitiveArray::from_iter(vec![42i64; nrows]).into_array();
+
+    let from_const = convert_columns(&[const_arr], &[SortField::default()], &mut ctx)?;
+    let from_canon = convert_columns(&[canonical], &[SortField::default()], &mut ctx)?;
+    assert_eq!(
+        collect_row_bytes(&from_const),
+        collect_row_bytes(&from_canon)
+    );
     Ok(())
 }
 
