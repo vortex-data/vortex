@@ -326,6 +326,37 @@ mod tests {
             drain_iter(&mut it, &mut sc)
         });
 
+        // (c+++) Wide VarBin with LONG SHARED PREFIX — exercises bytes_at
+        // tie resolution. First 64 bytes are constant; only bytes 64+
+        // differ. Without tie resolution, the merge produces wrong order.
+        println!("\n-- VARBIN 256B with 64-byte SHARED PREFIX (tie-heavy) --");
+        let shared_prefix = vec![0xAAu8; 64];
+        let mut sp_data = Vec::with_capacity(N * 256);
+        let mut sp_off = vec![0u32];
+        for row in 0..N {
+            sp_data.extend_from_slice(&shared_prefix);
+            // Discriminator goes in bytes 64..72; row number encodes it.
+            sp_data.extend_from_slice(&(row as u64).to_be_bytes());
+            // Pad to 256 bytes total.
+            sp_data.extend_from_slice(&[0xBBu8; 256 - 64 - 8]);
+            sp_off.push(sp_data.len() as u32);
+        }
+        let sp_v = VarBin { offsets: &sp_off, data: &sp_data };
+        run_n(
+            "OrdIter (first-8B prefix only; ALL tie!)",
+            N,
+            || {
+                let mut it = VarBinIter::new(&sp_off, &sp_data);
+                let mut sc = Scratch::new(CHUNK);
+                drain_iter(&mut it, &mut sc)
+            },
+        );
+        run_n("direct (returns wrong u64; ALL tie)", N, || drain_direct_varbin(&sp_v));
+        run_n("memcmp (escapes whole row)", N, || {
+            let buf = materialize_varbin(&sp_v, 256);
+            drain_memcmp_buf(&buf, 256)
+        });
+
         // (d) VarBin 1KB values (URLs, paths)
         let (off_1k, data_1k) = build_varbin(N / 10, 1024, 0);
         let v_1k = VarBin { offsets: &off_1k, data: &data_1k };
