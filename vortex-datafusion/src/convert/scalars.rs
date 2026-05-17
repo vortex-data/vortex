@@ -101,9 +101,10 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                     }
                 }
             }
-            // SAFETY: By construction Utf8 scalar values are utf8
-            DType::Utf8(_) => ScalarValue::Utf8(self.as_utf8().value().cloned().map(|s| unsafe {
-                String::from_utf8_unchecked(Vec::<u8>::from(s.into_inner().into_inner()))
+            DType::Utf8(_) => ScalarValue::Utf8(self.as_utf8().value().cloned().map(|s| {
+                String::from_utf8(Vec::<u8>::from(s.into_inner().into_inner()))
+                    .ok()
+                    .vortex_expect("Utf8 scalar should contain valid UTF-8")
             })),
             DType::Binary(_) => ScalarValue::Binary(
                 self.as_binary()
@@ -690,5 +691,18 @@ mod tests {
             .into_inner()
             .into();
         assert_eq!(result_bytes, vec![1u8, 2, 3, 4, 5]);
+    }
+
+    #[rstest]
+    #[case::ascii("hello world")]
+    #[case::accented("café")]
+    #[case::emoji("crab \u{1F980}")]
+    #[case::mixed("héllo \u{1F980} world")]
+    fn test_utf8_round_trip_multibyte(#[case] s: &str) -> VortexResult<()> {
+        let df_scalar = ScalarValue::Utf8(Some(s.to_string()));
+        let vortex_scalar = Scalar::from_df(&df_scalar);
+        let round_trip = vortex_scalar.try_to_df()?;
+        assert_eq!(round_trip, df_scalar);
+        Ok(())
     }
 }
