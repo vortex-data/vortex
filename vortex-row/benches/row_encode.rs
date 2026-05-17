@@ -18,6 +18,7 @@
 use std::sync::Arc;
 
 use arrow_array::DictionaryArray;
+use arrow_array::Int32Array;
 use arrow_array::Int64Array;
 use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
 use arrow_array::StringArray;
@@ -38,10 +39,12 @@ use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::Patched;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::builders::dict::dict_encode;
+use vortex_array::patches::Patches;
 use vortex_row::SortField;
 use vortex_row::convert_columns;
 
@@ -282,6 +285,88 @@ fn dict_utf8_vortex_without_kernel(bencher: divan::Bencher) {
     bencher.counter(BytesCount::new(total)).bench_local(|| {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let canonical = dict
+            .clone()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
+            .into_array();
+        convert_columns(&[canonical], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+// ---------- patched_i32 ----------
+
+fn gen_patched_i32_inputs() -> (Vec<i32>, Vec<i32>, u64) {
+    let mut rng = StdRng::seed_from_u64(400);
+    // Inner is mostly zero, with random patches at ~5% of positions.
+    let mut inner = vec![0i32; N];
+    let mut values = Vec::new();
+    for slot in inner.iter_mut().take(N) {
+        if rng.random_range(0u32..100) < 5 {
+            let v = rng.random_range(1i32..1_000_000);
+            *slot = v;
+            values.push(v);
+        }
+    }
+    let bytes = (N * (1 + 4)) as u64;
+    (inner, values, bytes)
+}
+
+#[divan::bench]
+fn patched_i32_arrow_row(bencher: divan::Bencher) {
+    let (inner, _, bytes) = gen_patched_i32_inputs();
+    let arr = Arc::new(Int32Array::from(inner)) as arrow_array::ArrayRef;
+    let conv = RowConverter::new(vec![ArrowSortField::new(DataType::Int32)]).unwrap();
+    bencher
+        .counter(BytesCount::new(bytes))
+        .bench_local(|| conv.convert_columns(&[arr.clone()]).unwrap())
+}
+
+fn patched_i32_array() -> (vortex_array::ArrayRef, u64) {
+    let mut rng = StdRng::seed_from_u64(400);
+    let mut indices: Vec<u32> = Vec::new();
+    let mut values: Vec<i32> = Vec::new();
+    let mut inner = vec![0i32; N];
+    for i in 0..N {
+        if rng.random_range(0u32..100) < 5 {
+            let v = rng.random_range(1i32..1_000_000);
+            inner[i] = v;
+            indices.push(i as u32);
+            values.push(v);
+        }
+    }
+    let inner_arr = PrimitiveArray::from_iter(vec![0i32; N]).into_array();
+    let patches = Patches::new(
+        N,
+        0,
+        PrimitiveArray::from_iter(indices).into_array(),
+        PrimitiveArray::from_iter(values).into_array(),
+        None,
+    )
+    .unwrap();
+    let mut setup_ctx = LEGACY_SESSION.create_execution_ctx();
+    let patched = Patched::from_array_and_patches(inner_arr, &patches, &mut setup_ctx)
+        .unwrap()
+        .into_array();
+    drop(inner);
+    let bytes = (N * (1 + 4)) as u64;
+    (patched, bytes)
+}
+
+#[divan::bench]
+fn patched_i32_with_kernel(bencher: divan::Bencher) {
+    let (arr, bytes) = patched_i32_array();
+    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        convert_columns(&[arr.clone()], &[SortField::default()], &mut ctx).unwrap()
+    })
+}
+
+#[divan::bench]
+fn patched_i32_without_kernel(bencher: divan::Bencher) {
+    let (arr, bytes) = patched_i32_array();
+    bencher.counter(BytesCount::new(bytes)).bench_local(|| {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let canonical = arr
             .clone()
             .execute::<Canonical>(&mut ctx)
             .unwrap()
