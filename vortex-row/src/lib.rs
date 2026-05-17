@@ -6,6 +6,10 @@
 //! Subsequent commits add the encoder, decoder helpers, and per-encoding fast paths.
 //! This commit only establishes the crate skeleton and an `initialize` stub.
 
+pub mod options;
+
+pub use options::RowEncodeOptions;
+pub use options::SortField;
 use vortex_session::VortexSession;
 
 /// Register the row-encoding scalar functions on the given session.

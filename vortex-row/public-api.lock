@@ -1,3 +1,159 @@
 pub mod vortex_row
 
+pub mod vortex_row::options
+
+pub struct vortex_row::options::RowEncodeOptions
+
+pub vortex_row::options::RowEncodeOptions::fields: smallvec::SmallVec<[vortex_row::options::SortField; 4]>
+
+impl vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::new(impl core::iter::traits::collect::IntoIterator<Item = vortex_row::options::SortField>) -> Self
+
+impl core::clone::Clone for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::clone(&self) -> vortex_row::options::RowEncodeOptions
+
+impl core::cmp::Eq for vortex_row::options::RowEncodeOptions
+
+impl core::cmp::PartialEq for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::eq(&self, &vortex_row::options::RowEncodeOptions) -> bool
+
+impl core::fmt::Debug for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_row::options::RowEncodeOptions
+
+pub struct vortex_row::options::SortField
+
+pub vortex_row::options::SortField::descending: bool
+
+pub vortex_row::options::SortField::nulls_first: bool
+
+impl vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::new(bool, bool) -> Self
+
+pub fn vortex_row::options::SortField::non_null_sentinel(&self) -> u8
+
+pub fn vortex_row::options::SortField::null_sentinel(&self) -> u8
+
+impl core::clone::Clone for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::clone(&self) -> vortex_row::options::SortField
+
+impl core::cmp::Eq for vortex_row::options::SortField
+
+impl core::cmp::PartialEq for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::eq(&self, &vortex_row::options::SortField) -> bool
+
+impl core::default::Default for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::default() -> Self
+
+impl core::fmt::Debug for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::Copy for vortex_row::options::SortField
+
+impl core::marker::StructuralPartialEq for vortex_row::options::SortField
+
+pub const vortex_row::options::FIELDS_INLINE: usize
+
+pub struct vortex_row::RowEncodeOptions
+
+pub vortex_row::RowEncodeOptions::fields: smallvec::SmallVec<[vortex_row::options::SortField; 4]>
+
+impl vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::new(impl core::iter::traits::collect::IntoIterator<Item = vortex_row::options::SortField>) -> Self
+
+impl core::clone::Clone for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::clone(&self) -> vortex_row::options::RowEncodeOptions
+
+impl core::cmp::Eq for vortex_row::options::RowEncodeOptions
+
+impl core::cmp::PartialEq for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::eq(&self, &vortex_row::options::RowEncodeOptions) -> bool
+
+impl core::fmt::Debug for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_row::options::RowEncodeOptions
+
+pub fn vortex_row::options::RowEncodeOptions::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::StructuralPartialEq for vortex_row::options::RowEncodeOptions
+
+pub struct vortex_row::SortField
+
+pub vortex_row::SortField::descending: bool
+
+pub vortex_row::SortField::nulls_first: bool
+
+impl vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::new(bool, bool) -> Self
+
+pub fn vortex_row::options::SortField::non_null_sentinel(&self) -> u8
+
+pub fn vortex_row::options::SortField::null_sentinel(&self) -> u8
+
+impl core::clone::Clone for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::clone(&self) -> vortex_row::options::SortField
+
+impl core::cmp::Eq for vortex_row::options::SortField
+
+impl core::cmp::PartialEq for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::eq(&self, &vortex_row::options::SortField) -> bool
+
+impl core::default::Default for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::default() -> Self
+
+impl core::fmt::Debug for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::fmt::Display for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::hash::Hash for vortex_row::options::SortField
+
+pub fn vortex_row::options::SortField::hash<__H: core::hash::Hasher>(&self, &mut __H)
+
+impl core::marker::Copy for vortex_row::options::SortField
+
+impl core::marker::StructuralPartialEq for vortex_row::options::SortField
+
 pub fn vortex_row::initialize(&vortex_session::VortexSession)
