@@ -16,9 +16,11 @@
 //! Element types covered:
 //!  - `primitive (i64)` — zero-copy export, so the prune should *not* fire and we should see
 //!    no overhead vs the dense baseline at the same row count.
+//!  - `primitive (i32)` — same shape, half-width buffer.
 //!  - `varbinview (utf8)` — heavy per-element conversion to Arrow, so the prune should
 //!    dominate at low selectivities.
-//!  - `decimal128` — wider primitives via the decimal export path.
+//!  - `varbinview (utf8) — long strings` — same path, but with backing-buffer dominated
+//!    work so the savings are larger in absolute terms.
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -33,14 +35,12 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
-use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::builders::dict::dict_encode;
-use vortex_array::dtype::DecimalDType;
-use vortex_mask::Mask;
 use vortex_buffer::BitBuffer;
+use vortex_mask::Mask;
 
 fn main() {
     divan::main();
@@ -54,37 +54,36 @@ const CARDINALITY: usize = 8_192;
 
 // ---- Source builders -------------------------------------------------------------------------
 
-fn make_primitive(rng: &mut StdRng) -> ArrayRef {
+fn make_prim_i64(rng: &mut StdRng) -> ArrayRef {
     PrimitiveArray::from_iter((0..ROWS).map(|_| rng.random_range(0..CARDINALITY) as i64))
         .into_array()
 }
 
-fn make_varbinview(rng: &mut StdRng) -> ArrayRef {
-    // A cardinality table of length CARDINALITY, with a mix of short and long strings so the
-    // varbinview backing buffer is non-trivial.
-    let dict: Vec<String> = (0..CARDINALITY)
-        .map(|i| {
-            if i % 3 == 0 {
-                format!("a-longer-string-value-{i:08}")
-            } else {
-                format!("s{i}")
-            }
-        })
-        .collect();
+fn make_prim_i32(rng: &mut StdRng) -> ArrayRef {
+    PrimitiveArray::from_iter((0..ROWS).map(|_| rng.random_range(0..CARDINALITY) as i32))
+        .into_array()
+}
+
+/// Short-string mix (avg ~12 bytes/value). Most strings fit inline in a `BinaryView`, so the
+/// backing buffer stays small.
+fn make_varbinview_short(rng: &mut StdRng) -> ArrayRef {
+    let dict: Vec<String> = (0..CARDINALITY).map(|i| format!("s{i}")).collect();
     let strings: Vec<&str> = (0..ROWS)
         .map(|_| dict[rng.random_range(0..CARDINALITY)].as_str())
         .collect();
     VarBinViewArray::from_iter_str(strings).into_array()
 }
 
-fn make_decimal(rng: &mut StdRng) -> ArrayRef {
-    let table: Vec<i128> = (0..CARDINALITY).map(|i| i as i128 * 1_000_003).collect();
-    let dtype = DecimalDType::new(38, 10);
-    DecimalArray::from_iter(
-        (0..ROWS).map(|_| table[rng.random_range(0..CARDINALITY)]),
-        dtype,
-    )
-    .into_array()
+/// Long-string mix (avg ~40 bytes/value). Every string exceeds the 12-byte inline limit, so the
+/// backing buffer dominates and per-value Arrow conversion cost is high.
+fn make_varbinview_long(rng: &mut StdRng) -> ArrayRef {
+    let dict: Vec<String> = (0..CARDINALITY)
+        .map(|i| format!("a-longer-string-value-padded-out-{i:08}"))
+        .collect();
+    let strings: Vec<&str> = (0..ROWS)
+        .map(|_| dict[rng.random_range(0..CARDINALITY)].as_str())
+        .collect();
+    VarBinViewArray::from_iter_str(strings).into_array()
 }
 
 // ---- Compute primitives ----------------------------------------------------------------------
@@ -110,18 +109,19 @@ fn random_take_indices(rng: &mut StdRng, total: usize, pick: usize) -> ArrayRef 
 
 fn arrow_type_for(name: &str) -> DataType {
     match name {
-        "primitive" => DataType::Int64,
-        "varbinview" => DataType::Utf8View,
-        "decimal" => DataType::Decimal128(38, 10),
+        "prim_i64" => DataType::Int64,
+        "prim_i32" => DataType::Int32,
+        "varbin_short" | "varbin_long" => DataType::Utf8View,
         _ => panic!("unknown element type"),
     }
 }
 
 fn make_source(name: &str, rng: &mut StdRng) -> ArrayRef {
     match name {
-        "primitive" => make_primitive(rng),
-        "varbinview" => make_varbinview(rng),
-        "decimal" => make_decimal(rng),
+        "prim_i64" => make_prim_i64(rng),
+        "prim_i32" => make_prim_i32(rng),
+        "varbin_short" => make_varbinview_short(rng),
+        "varbin_long" => make_varbinview_long(rng),
         _ => panic!("unknown element type"),
     }
 }
@@ -145,7 +145,7 @@ fn export_arrow(array: ArrayRef, target_data_type: DataType) {
 // and the parameterisation is exactly what makes the impact of the density hint visible at the
 // boundary.
 
-const ELEM_TYPES: [&str; 3] = ["primitive", "varbinview", "decimal"];
+const ELEM_TYPES: [&str; 4] = ["prim_i32", "prim_i64", "varbin_short", "varbin_long"];
 const SELECTIVITIES: [f64; 3] = [0.01, 0.05, 0.5];
 
 #[divan::bench(args = product(ELEM_TYPES, SELECTIVITIES))]
