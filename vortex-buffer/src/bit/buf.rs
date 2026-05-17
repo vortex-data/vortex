@@ -203,10 +203,11 @@ impl BitBuffer {
             unsafe { buffer.push_unchecked(packed) }
         }
 
-        buffer.truncate(len.div_ceil(8));
+        let mut byte_buffer = buffer.into_byte_buffer();
+        byte_buffer.truncate(len.div_ceil(8));
 
         Self {
-            buffer: buffer.freeze().into_byte_buffer(),
+            buffer: byte_buffer.freeze(),
             offset: 0,
             len,
         }
@@ -783,6 +784,20 @@ mod tests {
         for i in 0..len {
             assert_eq!(!buf.value(i), mapped.value(i), "Mismatch at index {}", i);
         }
+    }
+
+    #[test]
+    fn test_map_cmp_truncates_byte_length() {
+        let len = 100;
+        let buf = BitBuffer::collect_bool(len, |i| i % 2 == 0);
+        let mapped = buf.map_cmp(|_, b| b);
+        assert_eq!(
+            mapped.inner().len(),
+            len.div_ceil(8),
+            "expected inner byte length {} got {}",
+            len.div_ceil(8),
+            mapped.inner().len()
+        );
     }
 
     #[test]
