@@ -3,6 +3,7 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::num::NonZeroUsize;
 
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
@@ -30,12 +31,12 @@ use crate::scalar::lower_bound;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BoundedMinOptions {
     /// Maximum byte length for UTF8/Binary bounds.
-    pub max_bytes: usize,
+    pub max_bytes: NonZeroUsize,
 }
 
 impl Display for BoundedMinOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.max_bytes)
+        write!(f, "{}", self.max_bytes.get())
     }
 }
 
@@ -47,7 +48,7 @@ pub struct BoundedMin;
 pub struct BoundedMinPartial {
     min: Option<Scalar>,
     element_dtype: DType,
-    max_bytes: usize,
+    max_bytes: NonZeroUsize,
 }
 
 impl BoundedMinPartial {
@@ -74,7 +75,7 @@ impl AggregateFnVTable for BoundedMin {
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        let max_bytes = u64::try_from(options.max_bytes)?;
+        let max_bytes = u64::try_from(options.max_bytes.get())?;
         Ok(Some(max_bytes.to_le_bytes().to_vec()))
     }
 
@@ -93,7 +94,9 @@ impl AggregateFnVTable for BoundedMin {
         bytes.copy_from_slice(metadata);
         let max_bytes = usize::try_from(u64::from_le_bytes(bytes))?;
         vortex_ensure!(max_bytes > 0, "BoundedMin requires max_bytes > 0");
-        Ok(BoundedMinOptions { max_bytes })
+        Ok(BoundedMinOptions {
+            max_bytes: NonZeroUsize::new(max_bytes).vortex_expect("checked non-zero max_bytes"),
+        })
     }
 
     fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -150,7 +153,7 @@ impl AggregateFnVTable for BoundedMin {
         let Some(result) = min_max(&array, ctx)? else {
             return Ok(());
         };
-        if let Some(bound) = truncate_min(result.min, partial.max_bytes)? {
+        if let Some(bound) = truncate_min(result.min, partial.max_bytes.get())? {
             partial.merge(bound);
         }
         Ok(())
@@ -165,11 +168,7 @@ impl AggregateFnVTable for BoundedMin {
     }
 }
 
-fn supported_dtype<'a>(options: &BoundedMinOptions, input_dtype: &'a DType) -> Option<&'a DType> {
-    if options.max_bytes == 0 {
-        return None;
-    }
-
+fn supported_dtype<'a>(_options: &BoundedMinOptions, input_dtype: &'a DType) -> Option<&'a DType> {
     MinMax
         .return_dtype(&EmptyOptions, input_dtype)
         .map(|_| input_dtype)
@@ -196,7 +195,10 @@ fn truncate_min(value: Scalar, max_bytes: usize) -> VortexResult<Option<Scalar>>
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -214,6 +216,10 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    fn max_bytes(value: usize) -> NonZeroUsize {
+        NonZeroUsize::new(value).vortex_expect("non-zero max_bytes")
+    }
+
     #[test]
     fn bounded_min_truncates_utf8_to_lower_bound() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
@@ -221,7 +227,9 @@ mod tests {
             VarBinViewArray::from_iter_str(["snowman⛄️snowman", "untruncated"]).into_array();
         let mut acc = Accumulator::try_new(
             BoundedMin,
-            BoundedMinOptions { max_bytes: 9 },
+            BoundedMinOptions {
+                max_bytes: max_bytes(9),
+            },
             array.dtype().clone(),
         )?;
 
@@ -240,7 +248,9 @@ mod tests {
         let array = PrimitiveArray::new(buffer![10i32, 20, 5], Validity::NonNullable).into_array();
         let mut acc = Accumulator::try_new(
             BoundedMin,
-            BoundedMinOptions { max_bytes: 9 },
+            BoundedMinOptions {
+                max_bytes: max_bytes(9),
+            },
             array.dtype().clone(),
         )?;
 
@@ -255,7 +265,9 @@ mod tests {
 
     #[test]
     fn bounded_min_options_round_trip() -> VortexResult<()> {
-        let options = BoundedMinOptions { max_bytes: 64 };
+        let options = BoundedMinOptions {
+            max_bytes: max_bytes(64),
+        };
         let metadata = BoundedMin
             .serialize(&options)?
             .expect("serializable options");

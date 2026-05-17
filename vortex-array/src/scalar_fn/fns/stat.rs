@@ -162,7 +162,7 @@ fn stat_array(
             .map(ScalarValue::Bool)
     } else if aggregate_fn.is::<AllNan>() {
         let len = u64::try_from(len)?;
-        if !has_nans(array.dtype()) {
+        if !matches!(array.dtype(), DType::Primitive(ptype, _) if ptype.is_float()) {
             Some(false)
         } else {
             array
@@ -175,7 +175,7 @@ fn stat_array(
         }
         .map(ScalarValue::Bool)
     } else if aggregate_fn.is::<AllNonNan>() {
-        if !has_nans(array.dtype()) {
+        if !matches!(array.dtype(), DType::Primitive(ptype, _) if ptype.is_float()) {
             Some(true)
         } else {
             array
@@ -205,8 +205,4 @@ fn stat_array(
 
     let scalar = Scalar::try_new(dtype, value)?;
     Ok(ConstantArray::new(scalar, len).into_array())
-}
-
-fn has_nans(dtype: &DType) -> bool {
-    matches!(dtype, DType::Primitive(ptype, _) if ptype.is_float())
 }

@@ -15,6 +15,8 @@ use crate::dtype::Nullability;
 use crate::scalar::Scalar;
 
 /// Compute whether every value in an array is null.
+///
+/// Like other `all` aggregates, this is vacuously true for empty input.
 #[derive(Clone, Debug)]
 pub struct AllNull;
 
@@ -137,6 +139,19 @@ mod tests {
         acc.accumulate(&batch, &mut ctx)?;
 
         assert!(!bool::try_from(&acc.finish()?)?);
+        Ok(())
+    }
+
+    #[test]
+    fn all_null_true_for_empty_input() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let dtype = DType::Primitive(PType::I32, Nullability::Nullable);
+        let mut acc = Accumulator::try_new(AllNull, EmptyOptions, dtype)?;
+
+        let batch = PrimitiveArray::empty::<i32>(Nullability::Nullable).into_array();
+        acc.accumulate(&batch, &mut ctx)?;
+
+        assert!(bool::try_from(&acc.finish()?)?);
         Ok(())
     }
 }

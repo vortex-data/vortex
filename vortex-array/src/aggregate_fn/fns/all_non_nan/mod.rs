@@ -17,6 +17,8 @@ use crate::scalar::Scalar;
 
 /// Compute whether every value in an array is not NaN.
 ///
+/// Like other `all` aggregates, this is vacuously true for empty input.
+///
 /// This is a pruning aggregate, not just a convenience wrapper around
 /// [`NanCount`][crate::aggregate_fn::fns::nan_count::NanCount]. Pruning aggregates must prove a
 /// row-wise fact for every value in the scope, so their partials remain valid when a stats column is
@@ -39,7 +41,8 @@ impl AggregateFnVTable for AllNonNan {
     }
 
     fn return_dtype(&self, _options: &Self::Options, input_dtype: &DType) -> Option<DType> {
-        has_nans(input_dtype).then_some(DType::Bool(Nullability::Nullable))
+        matches!(input_dtype, DType::Primitive(ptype, _) if ptype.is_float())
+            .then_some(DType::Bool(Nullability::Nullable))
     }
 
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -102,10 +105,6 @@ impl AggregateFnVTable for AllNonNan {
     fn finalize_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         self.to_scalar(partial)
     }
-}
-
-fn has_nans(dtype: &DType) -> bool {
-    matches!(dtype, DType::Primitive(ptype, _) if ptype.is_float())
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::num::NonZeroUsize;
 
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
@@ -30,12 +31,12 @@ use crate::scalar::upper_bound;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct BoundedMaxOptions {
     /// Maximum byte length for UTF8/Binary bounds.
-    pub max_bytes: usize,
+    pub max_bytes: NonZeroUsize,
 }
 
 impl Display for BoundedMaxOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.max_bytes)
+        write!(f, "{}", self.max_bytes.get())
     }
 }
 
@@ -53,7 +54,7 @@ enum BoundedMaxState {
 pub struct BoundedMaxPartial {
     state: BoundedMaxState,
     element_dtype: DType,
-    max_bytes: usize,
+    max_bytes: NonZeroUsize,
 }
 
 impl BoundedMaxPartial {
@@ -86,7 +87,7 @@ impl AggregateFnVTable for BoundedMax {
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
-        let max_bytes = u64::try_from(options.max_bytes)?;
+        let max_bytes = u64::try_from(options.max_bytes.get())?;
         Ok(Some(max_bytes.to_le_bytes().to_vec()))
     }
 
@@ -105,7 +106,9 @@ impl AggregateFnVTable for BoundedMax {
         bytes.copy_from_slice(metadata);
         let max_bytes = usize::try_from(u64::from_le_bytes(bytes))?;
         vortex_ensure!(max_bytes > 0, "BoundedMax requires max_bytes > 0");
-        Ok(BoundedMaxOptions { max_bytes })
+        Ok(BoundedMaxOptions {
+            max_bytes: NonZeroUsize::new(max_bytes).vortex_expect("checked non-zero max_bytes"),
+        })
     }
 
     fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -162,7 +165,7 @@ impl AggregateFnVTable for BoundedMax {
         let Some(result) = min_max(&array, ctx)? else {
             return Ok(());
         };
-        match truncate_max(result.max, partial.max_bytes)? {
+        match truncate_max(result.max, partial.max_bytes.get())? {
             Some(bound) => partial.merge(bound),
             None => partial.unknown(),
         }
@@ -178,11 +181,7 @@ impl AggregateFnVTable for BoundedMax {
     }
 }
 
-fn supported_dtype<'a>(options: &BoundedMaxOptions, input_dtype: &'a DType) -> Option<&'a DType> {
-    if options.max_bytes == 0 {
-        return None;
-    }
-
+fn supported_dtype<'a>(_options: &BoundedMaxOptions, input_dtype: &'a DType) -> Option<&'a DType> {
     MinMax
         .return_dtype(&EmptyOptions, input_dtype)
         .map(|_| input_dtype)
@@ -209,7 +208,10 @@ fn truncate_max(value: Scalar, max_bytes: usize) -> VortexResult<Option<Scalar>>
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroUsize;
+
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
@@ -227,13 +229,19 @@ mod tests {
     use crate::scalar::Scalar;
     use crate::validity::Validity;
 
+    fn max_bytes(value: usize) -> NonZeroUsize {
+        NonZeroUsize::new(value).vortex_expect("non-zero max_bytes")
+    }
+
     #[test]
     fn bounded_max_truncates_utf8_to_upper_bound() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = VarBinViewArray::from_iter_str(["aardvark", "char🪩"]).into_array();
         let mut acc = Accumulator::try_new(
             BoundedMax,
-            BoundedMaxOptions { max_bytes: 5 },
+            BoundedMaxOptions {
+                max_bytes: max_bytes(5),
+            },
             array.dtype().clone(),
         )?;
 
@@ -249,7 +257,9 @@ mod tests {
         let array = VarBinViewArray::from_iter_bin([&[255u8, 255, 255][..]]).into_array();
         let mut acc = Accumulator::try_new(
             BoundedMax,
-            BoundedMaxOptions { max_bytes: 2 },
+            BoundedMaxOptions {
+                max_bytes: max_bytes(2),
+            },
             array.dtype().clone(),
         )?;
 
@@ -260,12 +270,57 @@ mod tests {
     }
 
     #[test]
+    fn bounded_max_empty_does_not_poison_later_values() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let empty = VarBinViewArray::from_iter_bin(Vec::<&[u8]>::new()).into_array();
+        let values = VarBinViewArray::from_iter_bin([&[1u8][..]]).into_array();
+        let mut acc = Accumulator::try_new(
+            BoundedMax,
+            BoundedMaxOptions {
+                max_bytes: max_bytes(2),
+            },
+            empty.dtype().clone(),
+        )?;
+
+        acc.accumulate(&empty, &mut ctx)?;
+        acc.accumulate(&values, &mut ctx)?;
+
+        assert_eq!(
+            acc.finish()?,
+            Scalar::binary(buffer![1u8], Nullability::Nullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn bounded_max_unknown_poisons_later_values() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let unknown = VarBinViewArray::from_iter_bin([&[255u8, 255, 255][..]]).into_array();
+        let values = VarBinViewArray::from_iter_bin([&[1u8][..]]).into_array();
+        let mut acc = Accumulator::try_new(
+            BoundedMax,
+            BoundedMaxOptions {
+                max_bytes: max_bytes(2),
+            },
+            unknown.dtype().clone(),
+        )?;
+
+        acc.accumulate(&unknown, &mut ctx)?;
+        acc.accumulate(&values, &mut ctx)?;
+
+        assert_eq!(acc.finish()?, Scalar::null(unknown.dtype().as_nullable()));
+        Ok(())
+    }
+
+    #[test]
     fn bounded_max_keeps_fixed_width_values_exact() -> VortexResult<()> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let array = PrimitiveArray::new(buffer![10i32, 20, 5], Validity::NonNullable).into_array();
         let mut acc = Accumulator::try_new(
             BoundedMax,
-            BoundedMaxOptions { max_bytes: 9 },
+            BoundedMaxOptions {
+                max_bytes: max_bytes(9),
+            },
             array.dtype().clone(),
         )?;
 
@@ -280,7 +335,9 @@ mod tests {
 
     #[test]
     fn bounded_max_options_round_trip() -> VortexResult<()> {
-        let options = BoundedMaxOptions { max_bytes: 64 };
+        let options = BoundedMaxOptions {
+            max_bytes: max_bytes(64),
+        };
         let metadata = BoundedMax
             .serialize(&options)?
             .expect("serializable options");

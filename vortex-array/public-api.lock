@@ -468,7 +468,7 @@ pub fn vortex_array::aggregate_fn::fns::bounded_max::BoundedMax::try_accumulate(
 
 pub struct vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions
 
-pub vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions::max_bytes: usize
+pub vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions::max_bytes: core::num::nonzero::NonZeroUsize
 
 impl core::clone::Clone for vortex_array::aggregate_fn::fns::bounded_max::BoundedMaxOptions
 
@@ -546,7 +546,7 @@ pub fn vortex_array::aggregate_fn::fns::bounded_min::BoundedMin::try_accumulate(
 
 pub struct vortex_array::aggregate_fn::fns::bounded_min::BoundedMinOptions
 
-pub vortex_array::aggregate_fn::fns::bounded_min::BoundedMinOptions::max_bytes: usize
+pub vortex_array::aggregate_fn::fns::bounded_min::BoundedMinOptions::max_bytes: core::num::nonzero::NonZeroUsize
 
 impl core::clone::Clone for vortex_array::aggregate_fn::fns::bounded_min::BoundedMinOptions
 

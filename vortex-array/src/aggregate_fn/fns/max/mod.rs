@@ -137,7 +137,10 @@ mod tests {
     use crate::dtype::DType;
     use crate::dtype::Nullability;
     use crate::dtype::PType;
+    use crate::expr::stats::Precision;
+    use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
+    use crate::scalar::ScalarValue;
     use crate::validity::Validity;
 
     #[test]
@@ -167,6 +170,24 @@ mod tests {
         assert_eq!(
             acc.finish()?,
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn max_casts_nonnullable_legacy_stat_to_nullable_partial() -> VortexResult<()> {
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let batch = PrimitiveArray::new(buffer![10i32, 20], Validity::NonNullable).into_array();
+        batch
+            .statistics()
+            .set(Stat::Max, Precision::Exact(ScalarValue::from(25i32)));
+        let mut acc = Accumulator::try_new(Max, EmptyOptions, batch.dtype().clone())?;
+
+        acc.accumulate(&batch, &mut ctx)?;
+
+        assert_eq!(
+            acc.finish()?,
+            Scalar::primitive(25i32, Nullability::Nullable)
         );
         Ok(())
     }

@@ -335,6 +335,108 @@ mod tests {
     }
 
     #[test]
+    fn stat_expr_reads_cached_all_nan_from_nan_count() -> VortexResult<()> {
+        let array =
+            PrimitiveArray::from_option_iter([Some(f32::NAN), Some(f32::NAN), Some(f32::NAN)])
+                .into_array();
+        array
+            .statistics()
+            .set(Stat::NaNCount, Precision::exact(ScalarValue::from(3u64)));
+
+        let result = array
+            .apply(&super::all_nan(root()))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+
+        let expected =
+            ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stat_expr_reads_cached_all_nan_false_from_inexact_low_nan_count() -> VortexResult<()> {
+        let array =
+            PrimitiveArray::from_option_iter([Some(f32::NAN), Some(1.0f32), Some(f32::NAN)])
+                .into_array();
+        array
+            .statistics()
+            .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(2u64)));
+
+        let result = array
+            .apply(&super::all_nan(root()))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+
+        let expected =
+            ConstantArray::new(Scalar::bool(false, Nullability::Nullable), 3).into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stat_expr_returns_null_for_inexact_full_nan_count_as_all_nan() -> VortexResult<()> {
+        let array =
+            PrimitiveArray::from_option_iter([Some(f32::NAN), Some(1.0f32), Some(f32::NAN)])
+                .into_array();
+        array
+            .statistics()
+            .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(3u64)));
+
+        let result = array
+            .apply(&super::all_nan(root()))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+
+        let expected =
+            ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 3).into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stat_expr_reads_cached_all_non_nan_true_from_inexact_zero_nan_count() -> VortexResult<()> {
+        let array = buffer![1.0f32, 2.0, 3.0].into_array();
+        array
+            .statistics()
+            .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(0u64)));
+
+        let result = array
+            .apply(&super::all_non_nan(root()))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+
+        let expected =
+            ConstantArray::new(Scalar::bool(true, Nullability::Nullable), 3).into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn stat_expr_returns_null_for_inexact_nonzero_nan_count_as_all_non_nan() -> VortexResult<()> {
+        let array = PrimitiveArray::from_option_iter([Some(1.0f32), Some(f32::NAN), Some(3.0)])
+            .into_array();
+        array
+            .statistics()
+            .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(1u64)));
+
+        let result = array
+            .apply(&super::all_non_nan(root()))?
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .into_array();
+
+        let expected =
+            ConstantArray::new(Scalar::null(DType::Bool(Nullability::Nullable)), 3).into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
     fn stat_expr_reads_cached_min_and_max() -> VortexResult<()> {
         let array = buffer![3i32, 1, 2].into_array();
         array
