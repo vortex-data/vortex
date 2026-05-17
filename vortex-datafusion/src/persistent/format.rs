@@ -51,7 +51,6 @@ use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
-use vortex::error::vortex_err;
 use vortex::expr::stats;
 use vortex::expr::stats::Stat;
 use vortex::file::EOF_SIZE;
@@ -500,9 +499,7 @@ impl FileFormat for VortexFormat {
                 // If the file has no column stats, the best we can do is return a row count.
                 return Ok(Statistics {
                     num_rows: Precision::Exact(
-                        usize::try_from(row_count)
-                            .map_err(|_| vortex_err!("Row count overflow"))
-                            .vortex_expect("Row count overflow"),
+                        usize::try_from(row_count).vortex_expect("Row count overflow"),
                     ),
                     total_byte_size: Precision::Absent,
                     column_statistics: vec![
@@ -574,9 +571,7 @@ impl FileFormat for VortexFormat {
 
             Ok(Statistics {
                 num_rows: Precision::Exact(
-                    usize::try_from(row_count)
-                        .map_err(|_| vortex_err!("Row count overflow"))
-                        .vortex_expect("Row count overflow"),
+                    usize::try_from(row_count).vortex_expect("Row count overflow"),
                 ),
                 total_byte_size,
                 column_statistics,
