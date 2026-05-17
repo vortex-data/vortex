@@ -66,9 +66,11 @@ pub mod search_sorted;
 pub mod serde;
 pub mod session;
 mod ord_bench;
-mod ord_common;
+#[doc(hidden)]
+pub mod ord_common;
 mod ord_direct;
-mod ord_iter;
+#[doc(hidden)]
+pub mod ord_iter;
 mod ord_memcmp;
 pub mod stats;
 pub mod stream;

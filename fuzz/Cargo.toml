@@ -104,3 +104,11 @@ name = "compress_gpu"
 path = "fuzz_targets/compress_gpu.rs"
 test = false
 required-features = ["native", "cuda"]
+
+[[bin]]
+bench = false
+doc = false
+name = "ord_merge"
+path = "fuzz_targets/ord_merge.rs"
+test = false
+required-features = ["native"]
