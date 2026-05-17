@@ -46,7 +46,7 @@ pub fn convert_columns(
         }
     }
 
-    let options = RowEncodeOptions::new(fields.to_vec());
+    let options = RowEncodeOptions::new(fields.iter().copied());
     let args = VecExecutionArgs::new(cols.to_vec(), nrows);
     let result = RowEncode.execute(&options, &args, ctx)?;
     result.execute::<ListViewArray>(ctx)
@@ -69,7 +69,7 @@ pub fn compute_row_sizes(
         vortex_bail!("compute_row_sizes: at least one column is required");
     }
     let nrows = cols[0].len();
-    let options = RowEncodeOptions::new(fields.to_vec());
+    let options = RowEncodeOptions::new(fields.iter().copied());
     let args = VecExecutionArgs::new(cols.to_vec(), nrows);
     RowSize.execute(&options, &args, ctx)
 }

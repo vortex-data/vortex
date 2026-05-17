@@ -4,6 +4,8 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use smallvec::SmallVec;
+
 /// Per-column options for the row-oriented byte encoder.
 ///
 /// These options control how a single column is encoded into row bytes:
@@ -71,21 +73,30 @@ impl SortField {
     }
 }
 
+/// Inline capacity for [`RowEncodeOptions::fields`]. Up to this many [`SortField`]s
+/// are held inline without a heap allocation; beyond, the storage spills.
+pub const FIELDS_INLINE: usize = 4;
+
 /// Options for the variadic [`RowSize`] and [`RowEncode`] scalar functions:
 /// one [`SortField`] per input column.
+///
+/// Stored in a [`SmallVec`] so that typical 1–4 column keys avoid a heap
+/// allocation; longer field lists spill to the heap transparently.
 ///
 /// [`RowSize`]: super::size::RowSize
 /// [`RowEncode`]: super::encode::RowEncode
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RowEncodeOptions {
     /// Per-column sort fields, in left-to-right column order.
-    pub fields: Vec<SortField>,
+    pub fields: SmallVec<[SortField; FIELDS_INLINE]>,
 }
 
 impl RowEncodeOptions {
-    /// Construct a new `RowEncodeOptions` from a `Vec<SortField>`.
-    pub fn new(fields: Vec<SortField>) -> Self {
-        Self { fields }
+    /// Construct a new `RowEncodeOptions` from any iterator of [`SortField`]s.
+    pub fn new(fields: impl IntoIterator<Item = SortField>) -> Self {
+        Self {
+            fields: fields.into_iter().collect(),
+        }
     }
 }
 
@@ -133,7 +144,7 @@ pub(crate) fn deserialize_row_encode_options(
             expected
         );
     }
-    let mut fields = Vec::with_capacity(n);
+    let mut fields: SmallVec<[SortField; FIELDS_INLINE]> = SmallVec::with_capacity(n);
     let mut i = 4;
     for _ in 0..n {
         fields.push(SortField {
