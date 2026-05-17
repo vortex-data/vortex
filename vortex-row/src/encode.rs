@@ -45,13 +45,13 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::codec;
-use crate::codec::RowWidth;
 use crate::options::RowEncodeOptions;
 use crate::options::SortField;
 use crate::options::deserialize_row_encode_options;
 use crate::options::serialize_row_encode_options;
 use crate::registry;
-use crate::size::dispatch_size;
+use crate::size::ColKind;
+use crate::size::compute_sizes;
 
 /// Variadic scalar function that encodes N input columns into a single `List<u8>`
 /// [`ListViewArray`] where row `i` contains the row-encoded bytes for column values
@@ -111,87 +111,22 @@ impl ScalarFnVTable for RowEncode {
     }
 }
 
-/// Classification of a single input column at row-encode time.
-#[derive(Clone, Copy, Debug)]
-enum ColKind {
-    /// Column has fixed width `width`. `prefix` is the within-row byte offset of this
-    /// column's first byte, summed over the widths of preceding fixed columns. If
-    /// `before_varlen` is true, no varlen column precedes this one, so the within-row
-    /// offset is the same constant for every row and we use the arithmetic fast path.
-    Fixed {
-        width: u32,
-        prefix: u32,
-        before_varlen: bool,
-    },
-    /// Column has variable width per row. `fixed_prefix` is the sum of widths of all
-    /// preceding fixed columns (constant). The varlen prefix sum is added per row.
-    Variable { fixed_prefix: u32 },
-}
-
 fn execute_row_encode(
     options: &RowEncodeOptions,
     args: &dyn ExecutionArgs,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
-    let n_inputs = args.num_inputs();
-    if n_inputs == 0 {
-        vortex_bail!("RowEncode requires at least one input column");
-    }
-    if options.fields.len() != n_inputs {
-        vortex_bail!(
-            "RowEncode options.fields.len()={} does not match num_inputs={}",
-            options.fields.len(),
-            n_inputs
-        );
-    }
     let nrows = args.row_count();
 
     // ===== Phase 1: classify + size pass (stack accumulators) =====
-    let mut columns: Vec<ArrayRef> = Vec::with_capacity(n_inputs);
-    let mut col_kinds: Vec<ColKind> = Vec::with_capacity(n_inputs);
-    let mut fixed_per_row: u32 = 0;
-    let mut var_lengths: Option<Vec<u32>> = None;
-    let mut first_varlen_idx: Option<usize> = None;
-    let mut running_fixed_prefix: u32 = 0;
-
-    for i in 0..n_inputs {
-        let col = args.get(i)?;
-        if col.len() != nrows {
-            vortex_bail!(
-                "RowEncode: column {} has length {} but expected {}",
-                i,
-                col.len(),
-                nrows
-            );
-        }
-        let width = codec::row_width_for_dtype(col.dtype())?;
-        match width {
-            RowWidth::Fixed(w) => {
-                col_kinds.push(ColKind::Fixed {
-                    width: w,
-                    prefix: running_fixed_prefix,
-                    before_varlen: first_varlen_idx.is_none(),
-                });
-                fixed_per_row = fixed_per_row
-                    .checked_add(w)
-                    .vortex_expect("row width overflow");
-                running_fixed_prefix = running_fixed_prefix
-                    .checked_add(w)
-                    .vortex_expect("row width overflow");
-            }
-            RowWidth::Variable => {
-                if first_varlen_idx.is_none() {
-                    first_varlen_idx = Some(i);
-                }
-                let v = var_lengths.get_or_insert_with(|| vec![0u32; nrows]);
-                dispatch_size(&col, options.fields[i], v, ctx)?;
-                col_kinds.push(ColKind::Variable {
-                    fixed_prefix: running_fixed_prefix,
-                });
-            }
-        }
-        columns.push(col);
-    }
+    // Shared with RowSize::execute - see crate::size::compute_sizes.
+    let crate::size::SizePassResult {
+        fixed_per_row,
+        var_lengths,
+        col_kinds,
+        first_varlen_idx,
+        columns,
+    } = compute_sizes(options, args, ctx, "RowEncode")?;
 
     // ===== Phase 2: totals + buffer =====
     let var_total: u64 = var_lengths

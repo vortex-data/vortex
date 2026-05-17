@@ -44,6 +44,124 @@ use crate::options::deserialize_row_encode_options;
 use crate::options::serialize_row_encode_options;
 use crate::registry;
 
+/// Classification of a single input column for the size pass.
+///
+/// Tracks each column's within-row byte offset (the constant prefix from all preceding
+/// fixed-width columns) and, for fixed columns, whether any variable-length column has
+/// appeared yet — the encode pass uses this to choose between the arithmetic-write fast
+/// path (no varlen before this column, so the within-row position is constant) and the
+/// cursor-write path.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ColKind {
+    /// Column has fixed width `width`. `prefix` is the within-row byte offset of this
+    /// column's first byte. If `before_varlen` is true, no variable-length column precedes
+    /// this one, so the within-row offset is constant for every row.
+    Fixed {
+        width: u32,
+        prefix: u32,
+        before_varlen: bool,
+    },
+    /// Column has variable per-row width. `fixed_prefix` is the sum of widths of all
+    /// preceding fixed columns; the varlen contribution from earlier varlen columns is
+    /// added per row.
+    Variable { fixed_prefix: u32 },
+}
+
+/// Result of the size pass: enough information for both [`RowSize::execute`] and the
+/// downstream [`RowEncode`](super::encode::RowEncode) pipeline.
+pub(crate) struct SizePassResult {
+    pub fixed_per_row: u32,
+    pub var_lengths: Option<Vec<u32>>,
+    pub col_kinds: Vec<ColKind>,
+    pub first_varlen_idx: Option<usize>,
+    pub columns: Vec<ArrayRef>,
+}
+
+/// Walk N input columns once, classifying each as fixed-width or variable-length and
+/// accumulating per-row size contributions.
+///
+/// Fixed-width columns contribute a single scalar increment to `fixed_per_row`; they do
+/// not touch `var_lengths`. Variable-length columns add per-row contributions into the
+/// lazily-allocated `var_lengths` vec via [`dispatch_size`].
+///
+/// This is shared by [`RowSize::execute`] (which wraps the result into a
+/// `Struct { fixed, var }`) and the [`RowEncode`](super::encode::RowEncode) pipeline
+/// (which uses the full result, including `col_kinds`, to drive the encode pass).
+pub(crate) fn compute_sizes(
+    options: &RowEncodeOptions,
+    args: &dyn ExecutionArgs,
+    ctx: &mut ExecutionCtx,
+    op_name: &'static str,
+) -> VortexResult<SizePassResult> {
+    let n_inputs = args.num_inputs();
+    if n_inputs == 0 {
+        vortex_bail!("{} requires at least one input column", op_name);
+    }
+    if options.fields.len() != n_inputs {
+        vortex_bail!(
+            "{} options.fields.len()={} does not match num_inputs={}",
+            op_name,
+            options.fields.len(),
+            n_inputs
+        );
+    }
+    let nrows = args.row_count();
+
+    let mut columns: Vec<ArrayRef> = Vec::with_capacity(n_inputs);
+    let mut col_kinds: Vec<ColKind> = Vec::with_capacity(n_inputs);
+    let mut fixed_per_row: u32 = 0;
+    let mut var_lengths: Option<Vec<u32>> = None;
+    let mut first_varlen_idx: Option<usize> = None;
+    let mut running_fixed_prefix: u32 = 0;
+
+    for i in 0..n_inputs {
+        let col = args.get(i)?;
+        if col.len() != nrows {
+            vortex_bail!(
+                "{}: column {} has length {} but expected {}",
+                op_name,
+                i,
+                col.len(),
+                nrows
+            );
+        }
+        match codec::row_width_for_dtype(col.dtype())? {
+            RowWidth::Fixed(w) => {
+                col_kinds.push(ColKind::Fixed {
+                    width: w,
+                    prefix: running_fixed_prefix,
+                    before_varlen: first_varlen_idx.is_none(),
+                });
+                fixed_per_row = fixed_per_row
+                    .checked_add(w)
+                    .vortex_expect("row width overflow");
+                running_fixed_prefix = running_fixed_prefix
+                    .checked_add(w)
+                    .vortex_expect("row width overflow");
+            }
+            RowWidth::Variable => {
+                if first_varlen_idx.is_none() {
+                    first_varlen_idx = Some(i);
+                }
+                let v = var_lengths.get_or_insert_with(|| vec![0u32; nrows]);
+                dispatch_size(&col, options.fields[i], v, ctx)?;
+                col_kinds.push(ColKind::Variable {
+                    fixed_prefix: running_fixed_prefix,
+                });
+            }
+        }
+        columns.push(col);
+    }
+
+    Ok(SizePassResult {
+        fixed_per_row,
+        var_lengths,
+        col_kinds,
+        first_varlen_idx,
+        columns,
+    })
+}
+
 /// Variadic scalar function that, given N input columns and per-column [`SortField`]s,
 /// returns a `Struct { fixed: U32, var: U32 }` array of per-row byte sizes for the
 /// row-oriented encoding produced by [`RowEncode`](super::encode::RowEncode).
@@ -113,54 +231,15 @@ impl ScalarFnVTable for RowSize {
         args: &dyn ExecutionArgs,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
-        let n_inputs = args.num_inputs();
-        if n_inputs == 0 {
-            vortex_bail!("RowSize requires at least one input column");
-        }
-        if options.fields.len() != n_inputs {
-            vortex_bail!(
-                "RowSize options.fields.len()={} does not match num_inputs={}",
-                options.fields.len(),
-                n_inputs
-            );
-        }
         let nrows = args.row_count();
-
-        // Per-column accumulation lives entirely in these stack-local variables. Only at the
-        // very end do we materialize the result `StructArray`.
-        let mut fixed_per_row: u32 = 0;
-        let mut var_lengths: Option<Vec<u32>> = None;
-
-        for i in 0..n_inputs {
-            let col = args.get(i)?;
-            if col.len() != nrows {
-                vortex_bail!(
-                    "RowSize: column {} has length {} but expected {}",
-                    i,
-                    col.len(),
-                    nrows
-                );
-            }
-            match codec::row_width_for_dtype(col.dtype())? {
-                RowWidth::Fixed(w) => {
-                    fixed_per_row = fixed_per_row
-                        .checked_add(w)
-                        .vortex_expect("row width overflow")
-                }
-                RowWidth::Variable => {
-                    let v = var_lengths.get_or_insert_with(|| vec![0u32; nrows]);
-                    dispatch_size(&col, options.fields[i], v, ctx)?;
-                }
-            }
-        }
-
-        let fixed_array = ConstantArray::new(Scalar::from(fixed_per_row), nrows).into_array();
-        let var_array = match var_lengths {
+        let result = compute_sizes(options, args, ctx, "RowSize")?;
+        let fixed_array =
+            ConstantArray::new(Scalar::from(result.fixed_per_row), nrows).into_array();
+        let var_array = match result.var_lengths {
             Some(v) => PrimitiveArray::new(Buffer::<u32>::copy_from(&v), Validity::NonNullable)
                 .into_array(),
             None => ConstantArray::new(Scalar::from(0u32), nrows).into_array(),
         };
-
         Ok(StructArray::try_new(
             row_size_field_names(),
             vec![fixed_array, var_array],
