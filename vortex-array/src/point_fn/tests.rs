@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Tests for the `point_fn` module: runtime, session, generic search_sorted.
+//! Tests for the `point_fn` module: PointRuntime / PointSession behavior,
+//! generic_search_sorted, and per-encoding override correctness.
 
 use vortex_buffer::buffer;
 use vortex_error::VortexResult;

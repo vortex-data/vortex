@@ -11,7 +11,8 @@
 //!
 //! Each comparison is legacy `arr.search_sorted(target, side)` (generic binary
 //! search calling `execute_scalar` per probe, with fresh `ExecutionCtx`) vs
-//! `PointSession::search_sorted` (uses the encoding's vtable override).
+//! `arr.repeated_access(ctx).search_sorted(target, side)` (uses the
+//! encoding's vtable override + shared session cache).
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
@@ -33,8 +34,6 @@ use vortex_array::arrays::SliceArray;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::point_fn::PointDispatch;
-use vortex_array::point_fn::PointSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -65,15 +64,14 @@ fn constant_legacy(bencher: Bencher, &len: &usize) {
 }
 
 #[divan::bench(args = SIZES)]
-fn constant_session(bencher: Bencher, &len: &usize) {
+fn constant_repeated_access(bencher: Bencher, &len: &usize) {
     let (arr, target) = build_constant(len);
     bencher
         .with_inputs(|| (&arr, &target))
         .bench_refs(|(arr, target)| {
             let mut ctx = LEGACY_SESSION.create_execution_ctx();
-            let mut session = PointSession::new(&mut ctx);
-            session
-                .search_sorted(arr, target, SearchSortedSide::Left)
+            arr.repeated_access(&mut ctx)
+                .search_sorted(target, SearchSortedSide::Left)
                 .unwrap()
         });
 }
@@ -107,15 +105,14 @@ fn slice_legacy(bencher: Bencher, &len: &usize) {
 }
 
 #[divan::bench(args = SIZES)]
-fn slice_session(bencher: Bencher, &len: &usize) {
+fn slice_repeated_access(bencher: Bencher, &len: &usize) {
     let (arr, target) = build_slice(len);
     bencher
         .with_inputs(|| (&arr, &target))
         .bench_refs(|(arr, target)| {
             let mut ctx = LEGACY_SESSION.create_execution_ctx();
-            let mut session = PointSession::new(&mut ctx);
-            session
-                .search_sorted(arr, target, SearchSortedSide::Left)
+            arr.repeated_access(&mut ctx)
+                .search_sorted(target, SearchSortedSide::Left)
                 .unwrap()
         });
 }
@@ -162,15 +159,14 @@ fn dict_legacy(bencher: Bencher, &len: &usize) {
 }
 
 #[divan::bench(args = SIZES)]
-fn dict_session(bencher: Bencher, &len: &usize) {
+fn dict_repeated_access(bencher: Bencher, &len: &usize) {
     let (arr, target) = build_sorted_dict(len);
     bencher
         .with_inputs(|| (&arr, &target))
         .bench_refs(|(arr, target)| {
             let mut ctx = LEGACY_SESSION.create_execution_ctx();
-            let mut session = PointSession::new(&mut ctx);
-            session
-                .search_sorted(arr, target, SearchSortedSide::Left)
+            arr.repeated_access(&mut ctx)
+                .search_sorted(target, SearchSortedSide::Left)
                 .unwrap()
         });
 }
@@ -220,15 +216,14 @@ fn chunked_legacy(bencher: Bencher, &len: &usize) {
 }
 
 #[divan::bench(args = SIZES)]
-fn chunked_session(bencher: Bencher, &len: &usize) {
+fn chunked_repeated_access(bencher: Bencher, &len: &usize) {
     let (arr, target) = build_sorted_chunked(len, 16);
     bencher
         .with_inputs(|| (&arr, &target))
         .bench_refs(|(arr, target)| {
             let mut ctx = LEGACY_SESSION.create_execution_ctx();
-            let mut session = PointSession::new(&mut ctx);
-            session
-                .search_sorted(arr, target, SearchSortedSide::Left)
+            arr.repeated_access(&mut ctx)
+                .search_sorted(target, SearchSortedSide::Left)
                 .unwrap()
         });
 }

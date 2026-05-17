@@ -24,8 +24,6 @@ use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::point_fn::PointDispatch;
-use vortex_array::point_fn::PointSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -84,15 +82,14 @@ fn legacy_search_sorted(bencher: Bencher, &(len, runs): &(usize, usize)) {
 }
 
 #[divan::bench(args = PARAMS)]
-fn point_session_search_sorted(bencher: Bencher, &(len, runs): &(usize, usize)) {
+fn repeated_access_search_sorted(bencher: Bencher, &(len, runs): &(usize, usize)) {
     let (arr, target) = build_sorted_runend(len, runs);
     bencher
         .with_inputs(|| (&arr, &target))
         .bench_refs(|(arr, target)| {
             let mut ctx = LEGACY_SESSION.create_execution_ctx();
-            let mut session = PointSession::new(&mut ctx);
-            session
-                .search_sorted(arr, target, SearchSortedSide::Left)
+            arr.repeated_access(&mut ctx)
+                .search_sorted(target, SearchSortedSide::Left)
                 .unwrap()
         });
 }

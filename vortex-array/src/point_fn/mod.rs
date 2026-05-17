@@ -9,30 +9,43 @@
 //! on an array — given a small input (a position, a value), produce a small output
 //! (a scalar, an index) — without materializing the array.
 //!
-//! ## Layers
+//! ## Public API
 //!
-//! - [`PointDispatch`] is the trait kernels call to recurse / cache.
-//! - [`PointRuntime`] is the bare, one-shot dispatcher with no caching.
-//! - [`PointSession`] is the caching dispatcher; hold it across many calls to
-//!   amortize block decode and repeated scalar lookups.
-//! - [`algorithms`] contains generic fallbacks like `generic_search_sorted`.
+//! - [`RepeatedAccess`] — the user-facing handle, obtained via
+//!   [`ArrayRef::repeated_access`](crate::ArrayRef::repeated_access).
+//!   Provides `scalar_at`, `search_sorted`, plus procedures (`rank`,
+//!   `position_of`, `search_range`, `count_in_range`).
+//! - [`PointDispatch`] / [`PointDispatchExt`] — the trait that encoding
+//!   kernels see; `point_scalar_at` / `point_search_sorted` overrides receive
+//!   `&mut dyn PointDispatch` and recurse via `d.scalar_at` /
+//!   `d.search_sorted` / [`PointDispatchExt::cached_block`].
+//! - [`algorithms`] — generic fallbacks like `generic_search_sorted`.
+//!
+//! ## Internals
+//!
+//! - `PointSession` and `PointRuntime` are the two concrete `PointDispatch`
+//!   implementations (caching and one-shot respectively). They're
+//!   `pub(crate)` — external users go through [`RepeatedAccess`].
 //!
 //! See `docs/developer-guide/internals/point-fn.md` for the full design rationale.
 
+mod access;
 pub mod algorithms;
 mod dispatch;
-mod dispatch_table;
+#[cfg(test)]
 mod runtime;
 mod session;
 #[cfg(test)]
 mod tests;
 
+pub use access::RepeatedAccess;
 pub use dispatch::AnyBlock;
 pub use dispatch::BlockKey;
 pub use dispatch::PointDispatch;
 pub use dispatch::PointDispatchExt;
-pub use runtime::PointRuntime;
-pub use session::PointSession;
+#[cfg(test)]
+pub(crate) use runtime::PointRuntime;
+pub(crate) use session::PointSession;
 
 // Re-export the existing search result types so callers find them under the
 // new module path too. These will move into this module in a later phase.

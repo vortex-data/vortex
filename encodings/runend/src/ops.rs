@@ -256,8 +256,6 @@ mod tests {
 
     #[test]
     fn point_search_sorted_through_dispatch() {
-        use vortex_array::point_fn::PointDispatch;
-        use vortex_array::point_fn::PointRuntime;
         use vortex_array::scalar::Scalar;
         use vortex_array::search_sorted::SearchResult;
         use vortex_array::search_sorted::SearchSortedSide;
@@ -273,55 +271,64 @@ mod tests {
         .unwrap()
         .into_array();
         let mut ctx2 = LEGACY_SESSION.create_execution_ctx();
-        let mut rt = PointRuntime::new(&mut ctx2);
+        let mut access = arr.repeated_access(&mut ctx2);
 
         // Found cases: each value lives in a contiguous run.
         assert_eq!(
-            rt.search_sorted(&arr, &Scalar::from(1i32), SearchSortedSide::Left)
+            access
+                .search_sorted(&Scalar::from(1i32), SearchSortedSide::Left)
                 .unwrap(),
             SearchResult::Found(0)
         );
         assert_eq!(
-            rt.search_sorted(&arr, &Scalar::from(2i32), SearchSortedSide::Left)
+            access
+                .search_sorted(&Scalar::from(2i32), SearchSortedSide::Left)
                 .unwrap(),
             SearchResult::Found(3)
         );
         assert_eq!(
-            rt.search_sorted(&arr, &Scalar::from(4i32), SearchSortedSide::Left)
+            access
+                .search_sorted(&Scalar::from(4i32), SearchSortedSide::Left)
                 .unwrap(),
             SearchResult::Found(6)
         );
         assert_eq!(
-            rt.search_sorted(&arr, &Scalar::from(7i32), SearchSortedSide::Left)
+            access
+                .search_sorted(&Scalar::from(7i32), SearchSortedSide::Left)
                 .unwrap(),
             SearchResult::Found(8)
         );
 
         // Right side returns one past the rightmost match.
         assert_eq!(
-            rt.search_sorted(&arr, &Scalar::from(2i32), SearchSortedSide::Right)
+            access
+                .search_sorted(&Scalar::from(2i32), SearchSortedSide::Right)
                 .unwrap(),
             SearchResult::Found(6)
         );
         assert_eq!(
-            rt.search_sorted(&arr, &Scalar::from(7i32), SearchSortedSide::Right)
+            access
+                .search_sorted(&Scalar::from(7i32), SearchSortedSide::Right)
                 .unwrap(),
             SearchResult::Found(12)
         );
 
         // NotFound cases.
         assert_eq!(
-            rt.search_sorted(&arr, &Scalar::from(0i32), SearchSortedSide::Left)
+            access
+                .search_sorted(&Scalar::from(0i32), SearchSortedSide::Left)
                 .unwrap(),
             SearchResult::NotFound(0)
         );
         assert_eq!(
-            rt.search_sorted(&arr, &Scalar::from(3i32), SearchSortedSide::Left)
+            access
+                .search_sorted(&Scalar::from(3i32), SearchSortedSide::Left)
                 .unwrap(),
             SearchResult::NotFound(6)
         );
         assert_eq!(
-            rt.search_sorted(&arr, &Scalar::from(99i32), SearchSortedSide::Left)
+            access
+                .search_sorted(&Scalar::from(99i32), SearchSortedSide::Left)
                 .unwrap(),
             SearchResult::NotFound(12)
         );
@@ -329,9 +336,6 @@ mod tests {
 
     #[test]
     fn point_scalar_at_through_dispatch() {
-        use vortex_array::point_fn::PointDispatch;
-        use vortex_array::point_fn::PointRuntime;
-
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // Logical: [1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]
         let arr = RunEnd::try_new(
@@ -342,11 +346,11 @@ mod tests {
         .unwrap()
         .into_array();
         let mut ctx2 = LEGACY_SESSION.create_execution_ctx();
-        let mut rt = PointRuntime::new(&mut ctx2);
+        let mut access = arr.repeated_access(&mut ctx2);
 
         let expected: Vec<i32> = vec![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5];
         for (i, expected_v) in expected.iter().enumerate() {
-            let got = rt.scalar_at(&arr, i).unwrap();
+            let got = access.scalar_at(i).unwrap();
             assert_eq!(got, (*expected_v).into(), "mismatch at idx {i}");
         }
     }

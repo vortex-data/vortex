@@ -325,21 +325,21 @@ impl ArrayRef {
             .point_execute_search_sorted(self, value, side, d)
     }
 
-    /// Open a caching [`PointSession`](crate::point_fn::PointSession) for this array.
+    /// Open a [`RepeatedAccess`](crate::point_fn::RepeatedAccess) handle for
+    /// this array.
     ///
-    /// Hold the returned session across multiple point-fn calls (`scalar_at`,
-    /// `search_sorted`, etc.) to share work via the per-session scalar and
-    /// decoded-block caches. For a single one-shot call, construct a
-    /// [`PointRuntime`](crate::point_fn::PointRuntime) directly instead.
-    pub fn point_session<'a>(
+    /// Hold the returned handle across multiple point-fn calls
+    /// (`scalar_at`, `search_sorted`, `search_range`, etc.). The handle's
+    /// internal cache amortizes block decode and scalar lookups across all
+    /// calls; it is dropped when the handle goes out of scope.
+    ///
+    /// For a single one-shot call, simply chain:
+    /// `arr.repeated_access(ctx).scalar_at(idx)`.
+    pub fn repeated_access<'a>(
         &'a self,
         ctx: &'a mut ExecutionCtx,
-    ) -> crate::point_fn::PointSession<'a> {
-        // `self` is intentionally unused here — the session is array-agnostic and the
-        // caller passes arrays into its methods. This lifetime tie keeps the session
-        // borrow associated with this array's lifetime for ergonomic call sites.
-        let _ = self;
-        crate::point_fn::PointSession::new(ctx)
+    ) -> crate::point_fn::RepeatedAccess<'a> {
+        crate::point_fn::RepeatedAccess::new(self, ctx)
     }
 
     /// Returns whether the item at `index` is valid.

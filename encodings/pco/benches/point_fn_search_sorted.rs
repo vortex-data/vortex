@@ -1,13 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Benchmark `search_sorted` on a PCO-encoded sorted array, comparing the legacy
-//! path (per-probe `ExecutionCtx` construction, no caching) against a [`PointSession`]
-//! (one ctx, scalar cache for repeated probes).
-//!
-//! Phase 1b: this benchmark measures the win from execution-context reuse and the
-//! scalar cache, before PCO is ported to use [`PointDispatch::cached_block`]. Phase
-//! 1d/e will add a block-cache benchmark once the PCO kernel is migrated.
+//! Benchmark `search_sorted` on a PCO-encoded sorted array, comparing the
+//! legacy path (per-probe `ExecutionCtx` construction, no caching) against
+//! [`ArrayRef::repeated_access`] (caches block decode + scalar lookups).
 
 #![expect(clippy::unwrap_used)]
 
@@ -22,9 +18,6 @@ use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::SliceArray;
-use vortex_array::point_fn::PointDispatch;
-use vortex_array::point_fn::PointRuntime;
-use vortex_array::point_fn::PointSession;
 use vortex_array::scalar::Scalar;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -55,46 +48,26 @@ fn legacy_search_sorted(bencher: Bencher, &len: &usize) {
     let (arr, target) = build_pco_sorted(len);
     bencher
         .with_inputs(|| (&arr, &target))
-        .bench_refs(|(arr, target)| {
-            // Legacy path: IndexOrd<Scalar> for ArrayRef constructs a fresh
-            // ExecutionCtx per probe via LEGACY_SESSION.create_execution_ctx().
-            arr.search_sorted(target, SearchSortedSide::Left).unwrap()
-        });
+        .bench_refs(|(arr, target)| arr.search_sorted(target, SearchSortedSide::Left).unwrap());
 }
 
 #[divan::bench(args = SIZES)]
-fn point_runtime_search_sorted(bencher: Bencher, &len: &usize) {
+fn repeated_access_search_sorted(bencher: Bencher, &len: &usize) {
     let (arr, target) = build_pco_sorted(len);
     bencher
         .with_inputs(|| (&arr, &target))
         .bench_refs(|(arr, target)| {
-            // PointRuntime: one ctx reused across all probes. No caching.
             let mut ctx = LEGACY_SESSION.create_execution_ctx();
-            let mut rt = PointRuntime::new(&mut ctx);
-            rt.search_sorted(arr, target, SearchSortedSide::Left)
+            arr.repeated_access(&mut ctx)
+                .search_sorted(target, SearchSortedSide::Left)
                 .unwrap()
         });
 }
 
+/// Many searches reusing the same access handle — the realistic "batch of
+/// probes" pattern that benefits most from the session caches.
 #[divan::bench(args = SIZES)]
-fn point_session_search_sorted(bencher: Bencher, &len: &usize) {
-    let (arr, target) = build_pco_sorted(len);
-    bencher
-        .with_inputs(|| (&arr, &target))
-        .bench_refs(|(arr, target)| {
-            // PointSession: one ctx + scalar cache (helps the side-refinement pass).
-            let mut ctx = LEGACY_SESSION.create_execution_ctx();
-            let mut session = PointSession::new(&mut ctx);
-            session
-                .search_sorted(arr, target, SearchSortedSide::Left)
-                .unwrap()
-        });
-}
-
-/// Many searches reusing the same session — the realistic "batch of probes"
-/// pattern that benefits most from the session caches.
-#[divan::bench(args = SIZES)]
-fn point_session_batched(bencher: Bencher, &len: &usize) {
+fn repeated_access_batched(bencher: Bencher, &len: &usize) {
     let (arr, _) = build_pco_sorted(len);
     let mut rng = StdRng::seed_from_u64(42);
     let range = Uniform::new(0i32, i32::MAX / 2).unwrap();
@@ -104,11 +77,11 @@ fn point_session_batched(bencher: Bencher, &len: &usize) {
         .with_inputs(|| (&arr, &targets))
         .bench_refs(|(arr, targets)| {
             let mut ctx = LEGACY_SESSION.create_execution_ctx();
-            let mut session = PointSession::new(&mut ctx);
+            let mut access = arr.repeated_access(&mut ctx);
             let mut result = 0usize;
             for t in *targets {
-                result += session
-                    .search_sorted(arr, t, SearchSortedSide::Left)
+                result += access
+                    .search_sorted(t, SearchSortedSide::Left)
                     .unwrap()
                     .to_index();
             }
@@ -117,12 +90,9 @@ fn point_session_batched(bencher: Bencher, &len: &usize) {
 }
 
 /// Slice(PCO) — verifies the full recursive descent works end to end.
-/// `Slice.point_scalar_at` recurses via `d.scalar_at(child, idx + offset)`,
-/// which routes into PCO's `point_scalar_at`, which uses `cached_block`.
 fn build_slice_of_pco(len: usize) -> (ArrayRef, Scalar) {
     let (pco, _) = build_pco_sorted(len * 2);
     let slice = SliceArray::new(pco, (len / 2)..(len / 2 + len)).into_array();
-    // pick a target somewhere in the middle of the slice's value range.
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let mid = slice.execute_scalar(len / 3, &mut ctx).unwrap();
     (slice, mid)
@@ -137,15 +107,14 @@ fn slice_of_pco_legacy_search_sorted(bencher: Bencher, &len: &usize) {
 }
 
 #[divan::bench(args = SIZES)]
-fn slice_of_pco_session_search_sorted(bencher: Bencher, &len: &usize) {
+fn slice_of_pco_repeated_access_search_sorted(bencher: Bencher, &len: &usize) {
     let (arr, target) = build_slice_of_pco(len);
     bencher
         .with_inputs(|| (&arr, &target))
         .bench_refs(|(arr, target)| {
             let mut ctx = LEGACY_SESSION.create_execution_ctx();
-            let mut session = PointSession::new(&mut ctx);
-            session
-                .search_sorted(arr, target, SearchSortedSide::Left)
+            arr.repeated_access(&mut ctx)
+                .search_sorted(target, SearchSortedSide::Left)
                 .unwrap()
         });
 }

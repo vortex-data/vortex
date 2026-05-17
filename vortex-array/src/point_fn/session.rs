@@ -14,37 +14,34 @@ use crate::point_fn::BlockKey;
 use crate::point_fn::PointDispatch;
 use crate::point_fn::dispatch::AnyBlock;
 use crate::point_fn::dispatch::CacheArrayId;
-use crate::point_fn::dispatch_table;
 use crate::scalar::Scalar;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSortedSide;
 
 /// Default capacity for the per-session scalar cache.
-pub const DEFAULT_SCALAR_CACHE_CAPACITY: usize = 64;
+pub(crate) const DEFAULT_SCALAR_CACHE_CAPACITY: usize = 64;
 
 /// Default capacity for the per-session decoded-block cache.
-pub const DEFAULT_BLOCK_CACHE_CAPACITY: usize = 8;
+pub(crate) const DEFAULT_BLOCK_CACHE_CAPACITY: usize = 8;
 
 /// A caching point-fn dispatcher. Holds a bounded scalar cache and a bounded
 /// decoded-block cache that persist for the lifetime of the session.
 ///
-/// Construct via [`ArrayRef::point_session`](crate::ArrayRef::point_session) or via
-/// [`PointSession::new`]. Hold the session across multiple point-fn calls to share
-/// block decode work (Pco/Fsst/Delta/Zstd) and scalar lookups.
+/// Internal implementation detail; users go through
+/// [`RepeatedAccess`](super::RepeatedAccess) which wraps a session.
 ///
 /// ## Eviction policy
 ///
 /// Phase 1 uses FIFO eviction with a fixed capacity. A future change may upgrade
 /// to LRU; the public API does not assume a specific policy.
-pub struct PointSession<'a> {
+pub(crate) struct PointSession<'a> {
     ctx: &'a mut ExecutionCtx,
     scalar_cache: BoundedFifo<(CacheArrayId, usize), Scalar>,
     block_cache: BoundedFifo<(CacheArrayId, BlockKey), AnyBlock>,
 }
 
 impl<'a> PointSession<'a> {
-    /// Construct a session with default cache capacities.
-    pub fn new(ctx: &'a mut ExecutionCtx) -> Self {
+    pub(crate) fn new(ctx: &'a mut ExecutionCtx) -> Self {
         Self::with_capacities(
             ctx,
             DEFAULT_SCALAR_CACHE_CAPACITY,
@@ -52,8 +49,7 @@ impl<'a> PointSession<'a> {
         )
     }
 
-    /// Construct a session with explicit cache capacities.
-    pub fn with_capacities(
+    pub(crate) fn with_capacities(
         ctx: &'a mut ExecutionCtx,
         scalar_capacity: usize,
         block_capacity: usize,
@@ -65,13 +61,11 @@ impl<'a> PointSession<'a> {
         }
     }
 
-    /// Number of entries currently in the scalar cache. Exposed for tests/benches.
-    pub fn scalar_cache_len(&self) -> usize {
+    pub(crate) fn scalar_cache_len(&self) -> usize {
         self.scalar_cache.len()
     }
 
-    /// Number of entries currently in the block cache. Exposed for tests/benches.
-    pub fn block_cache_len(&self) -> usize {
+    pub(crate) fn block_cache_len(&self) -> usize {
         self.block_cache.len()
     }
 }
@@ -86,9 +80,11 @@ impl PointDispatch for PointSession<'_> {
         if let Some(v) = self.scalar_cache.get(&key) {
             return Ok(v.clone());
         }
-        // Route via the dispatch table so view encodings (Slice today; Dict /
-        // RunEnd / Chunked / etc. in later phases) push down through children.
-        let v = dispatch_table::dispatch_scalar_at(arr, idx, self)?;
+        // Route through the encoding's `point_scalar_at` vtable hook (default:
+        // forward to scalar_at). View encodings recurse via d.scalar_at which
+        // re-enters this method at the child level, so the cache applies at
+        // every level of the tree.
+        let v = arr.point_execute_scalar(idx, self)?;
         self.scalar_cache.put(key, v.clone());
         Ok(v)
     }
@@ -99,7 +95,7 @@ impl PointDispatch for PointSession<'_> {
         value: &Scalar,
         side: SearchSortedSide,
     ) -> VortexResult<SearchResult> {
-        dispatch_table::dispatch_search_sorted(arr, value, side, self)
+        arr.point_execute_search_sorted(value, side, self)
     }
 
     fn cached_block_dyn(

@@ -14676,43 +14676,27 @@ impl core::marker::Copy for vortex_array::point_fn::BlockKey
 
 impl core::marker::StructuralPartialEq for vortex_array::point_fn::BlockKey
 
-pub struct vortex_array::point_fn::PointRuntime<'a>
+pub struct vortex_array::point_fn::RepeatedAccess<'a>
 
-impl<'a> vortex_array::point_fn::PointRuntime<'a>
+impl<'a> vortex_array::point_fn::RepeatedAccess<'a>
 
-pub fn vortex_array::point_fn::PointRuntime<'a>::new(&'a mut vortex_array::ExecutionCtx) -> Self
+pub fn vortex_array::point_fn::RepeatedAccess<'a>::block_cache_len(&self) -> usize
 
-impl vortex_array::point_fn::PointDispatch for vortex_array::point_fn::PointRuntime<'_>
+pub fn vortex_array::point_fn::RepeatedAccess<'a>::count_in_range(&mut self, &vortex_array::scalar::Scalar, &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<usize>
 
-pub fn vortex_array::point_fn::PointRuntime<'_>::cached_block_dyn(&mut self, (usize, vortex_array::point_fn::BlockKey), &mut dyn core::ops::function::FnMut() -> vortex_error::VortexResult<vortex_array::point_fn::AnyBlock>) -> vortex_error::VortexResult<vortex_array::point_fn::AnyBlock>
+pub fn vortex_array::point_fn::RepeatedAccess<'a>::position_of(&mut self, &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<usize>>
 
-pub fn vortex_array::point_fn::PointRuntime<'_>::ctx(&mut self) -> &mut vortex_array::ExecutionCtx
+pub fn vortex_array::point_fn::RepeatedAccess<'a>::rank(&mut self, &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<usize>
 
-pub fn vortex_array::point_fn::PointRuntime<'_>::scalar_at(&mut self, &vortex_array::ArrayRef, usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
+pub fn vortex_array::point_fn::RepeatedAccess<'a>::scalar_at(&mut self, usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
-pub fn vortex_array::point_fn::PointRuntime<'_>::search_sorted(&mut self, &vortex_array::ArrayRef, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
+pub fn vortex_array::point_fn::RepeatedAccess<'a>::scalar_cache_len(&self) -> usize
 
-pub struct vortex_array::point_fn::PointSession<'a>
+pub fn vortex_array::point_fn::RepeatedAccess<'a>::search_range(&mut self, &vortex_array::scalar::Scalar, &vortex_array::scalar::Scalar) -> vortex_error::VortexResult<(vortex_array::search_sorted::SearchResult, vortex_array::search_sorted::SearchResult)>
 
-impl<'a> vortex_array::point_fn::PointSession<'a>
+pub fn vortex_array::point_fn::RepeatedAccess<'a>::search_sorted(&mut self, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
 
-pub fn vortex_array::point_fn::PointSession<'a>::block_cache_len(&self) -> usize
-
-pub fn vortex_array::point_fn::PointSession<'a>::new(&'a mut vortex_array::ExecutionCtx) -> Self
-
-pub fn vortex_array::point_fn::PointSession<'a>::scalar_cache_len(&self) -> usize
-
-pub fn vortex_array::point_fn::PointSession<'a>::with_capacities(&'a mut vortex_array::ExecutionCtx, usize, usize) -> Self
-
-impl vortex_array::point_fn::PointDispatch for vortex_array::point_fn::PointSession<'_>
-
-pub fn vortex_array::point_fn::PointSession<'_>::cached_block_dyn(&mut self, (usize, vortex_array::point_fn::BlockKey), &mut dyn core::ops::function::FnMut() -> vortex_error::VortexResult<vortex_array::point_fn::AnyBlock>) -> vortex_error::VortexResult<vortex_array::point_fn::AnyBlock>
-
-pub fn vortex_array::point_fn::PointSession<'_>::ctx(&mut self) -> &mut vortex_array::ExecutionCtx
-
-pub fn vortex_array::point_fn::PointSession<'_>::scalar_at(&mut self, &vortex_array::ArrayRef, usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::point_fn::PointSession<'_>::search_sorted(&mut self, &vortex_array::ArrayRef, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
+pub fn vortex_array::point_fn::RepeatedAccess<'a>::with_capacities(&'a vortex_array::ArrayRef, &'a mut vortex_array::ExecutionCtx, usize, usize) -> Self
 
 pub trait vortex_array::point_fn::PointDispatch
 
@@ -14723,26 +14707,6 @@ pub fn vortex_array::point_fn::PointDispatch::ctx(&mut self) -> &mut vortex_arra
 pub fn vortex_array::point_fn::PointDispatch::scalar_at(&mut self, &vortex_array::ArrayRef, usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
 pub fn vortex_array::point_fn::PointDispatch::search_sorted(&mut self, &vortex_array::ArrayRef, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
-
-impl vortex_array::point_fn::PointDispatch for vortex_array::point_fn::PointRuntime<'_>
-
-pub fn vortex_array::point_fn::PointRuntime<'_>::cached_block_dyn(&mut self, (usize, vortex_array::point_fn::BlockKey), &mut dyn core::ops::function::FnMut() -> vortex_error::VortexResult<vortex_array::point_fn::AnyBlock>) -> vortex_error::VortexResult<vortex_array::point_fn::AnyBlock>
-
-pub fn vortex_array::point_fn::PointRuntime<'_>::ctx(&mut self) -> &mut vortex_array::ExecutionCtx
-
-pub fn vortex_array::point_fn::PointRuntime<'_>::scalar_at(&mut self, &vortex_array::ArrayRef, usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::point_fn::PointRuntime<'_>::search_sorted(&mut self, &vortex_array::ArrayRef, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
-
-impl vortex_array::point_fn::PointDispatch for vortex_array::point_fn::PointSession<'_>
-
-pub fn vortex_array::point_fn::PointSession<'_>::cached_block_dyn(&mut self, (usize, vortex_array::point_fn::BlockKey), &mut dyn core::ops::function::FnMut() -> vortex_error::VortexResult<vortex_array::point_fn::AnyBlock>) -> vortex_error::VortexResult<vortex_array::point_fn::AnyBlock>
-
-pub fn vortex_array::point_fn::PointSession<'_>::ctx(&mut self) -> &mut vortex_array::ExecutionCtx
-
-pub fn vortex_array::point_fn::PointSession<'_>::scalar_at(&mut self, &vortex_array::ArrayRef, usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
-
-pub fn vortex_array::point_fn::PointSession<'_>::search_sorted(&mut self, &vortex_array::ArrayRef, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
 
 pub trait vortex_array::point_fn::PointDispatchExt: vortex_array::point_fn::PointDispatch
 
@@ -23962,11 +23926,11 @@ pub fn vortex_array::ArrayRef::point_execute_scalar(&self, usize, &mut dyn vorte
 
 pub fn vortex_array::ArrayRef::point_execute_search_sorted(&self, &vortex_array::scalar::Scalar, vortex_array::search_sorted::SearchSortedSide, &mut dyn vortex_array::point_fn::PointDispatch) -> vortex_error::VortexResult<vortex_array::search_sorted::SearchResult>
 
-pub fn vortex_array::ArrayRef::point_session<'a>(&'a self, &'a mut vortex_array::ExecutionCtx) -> vortex_array::point_fn::PointSession<'a>
-
 pub fn vortex_array::ArrayRef::reduce(&self) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 pub fn vortex_array::ArrayRef::reduce_parent(&self, &vortex_array::ArrayRef, usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+pub fn vortex_array::ArrayRef::repeated_access<'a>(&'a self, &'a mut vortex_array::ExecutionCtx) -> vortex_array::point_fn::RepeatedAccess<'a>
 
 pub fn vortex_array::ArrayRef::scalar_at(&self, usize) -> vortex_error::VortexResult<vortex_array::scalar::Scalar>
 
