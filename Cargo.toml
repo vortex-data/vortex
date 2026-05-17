@@ -7,6 +7,7 @@ members = [
     "vortex-mask",
     "vortex-utils",
     "vortex-session",
+    "vortex-row",
     "vortex-flatbuffers",
     "vortex-metrics",
     "vortex-io",
@@ -291,6 +292,7 @@ vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = fa
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
+vortex-row = { version = "0.1.0", path = "./vortex-row", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }

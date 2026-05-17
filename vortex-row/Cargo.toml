@@ -1,0 +1,20 @@
+[package]
+name = "vortex-row"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Row-oriented byte encoder for Vortex arrays, analogous to arrow-row."
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+vortex-session = { workspace = true }

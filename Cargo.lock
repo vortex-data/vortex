@@ -11035,6 +11035,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-row"
+version = "0.1.0"
+dependencies = [
+ "vortex-session",
+]
+
+[[package]]
 name = "vortex-runend"
 version = "0.1.0"
 dependencies = [
