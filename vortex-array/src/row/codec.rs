@@ -560,22 +560,40 @@ fn encode_varbinview(
 ) -> VortexResult<()> {
     let validity = arr.as_ref().validity()?;
     let non_null = field.non_null_sentinel();
+    let descending = field.descending;
+    let views = arr.views();
+    let n_buffers = arr.data_buffers().len();
 
-    // Fast path: no nulls possible, skip mask allocation and per-row branch.
+    // Fast path: no nulls possible. Walk views directly (bypass with_iterator's
+    // closure dispatch) and resolve view bytes inline.
     if matches!(validity, Validity::NonNullable | Validity::AllValid) {
-        arr.with_iterator(|iter| {
-            for (i, maybe) in iter.enumerate() {
-                let pos = (row_offsets[i] + col_offset[i]) as usize;
-                let bytes: &[u8] = maybe.unwrap_or(&[]);
-                out[pos] = non_null;
-                let written = encode_varlen_value(bytes, &mut out[pos + 1..], field.descending);
-                col_offset[i] += 1 + written;
-            }
-        });
+        // Cache data-buffer slices once. For inlined views (len <= 12), bytes live
+        // inside the view itself.
+        let buffers: smallvec::SmallVec<[&[u8]; 4]> =
+            (0..n_buffers).map(|i| arr.buffer(i).as_slice()).collect();
+        for (i, view) in views.iter().enumerate() {
+            let pos = (row_offsets[i] + col_offset[i]) as usize;
+            out[pos] = non_null;
+            let len = view.len() as usize;
+            // SAFETY: BinaryView's inlined-vs-ref discriminant is its `size` field
+            // (read by `view.len()`); for len <= 12 the bytes are inline in the view
+            // (we read from `as_inlined().value()`); for larger we index into the
+            // pre-validated buffer at `view_ref.offset..offset+size`. Both reads
+            // produce a slice of exactly `len` valid bytes.
+            let bytes: &[u8] = if view.is_inlined() {
+                view.as_inlined().value()
+            } else {
+                let r = view.as_view();
+                let off = r.offset as usize;
+                &buffers[r.buffer_index as usize][off..off + len]
+            };
+            let written = encode_varlen_value(bytes, &mut out[pos + 1..], descending);
+            col_offset[i] += 1 + written;
+        }
         return Ok(());
     }
 
-    // Nullable path
+    // Nullable path: with the mask, fall back to the with_iterator-based loop.
     let mask = validity.execute_mask(arr.len(), ctx)?;
     let null = field.null_sentinel();
     arr.with_iterator(|iter| {
@@ -588,7 +606,7 @@ fn encode_varbinview(
             }
             let bytes: &[u8] = maybe.unwrap_or(&[]);
             out[pos] = non_null;
-            let written = encode_varlen_value(bytes, &mut out[pos + 1..], field.descending);
+            let written = encode_varlen_value(bytes, &mut out[pos + 1..], descending);
             col_offset[i] += 1 + written;
         }
     });
