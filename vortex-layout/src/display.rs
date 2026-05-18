@@ -262,7 +262,7 @@ mod tests {
 
     /// Test display_tree for a struct layout (fallback rendering, no inline array_tree).
     #[test]
-    fn test_display_tree_inline_array_tree() {
+    fn test_display_tree_struct_layout_fallback() {
         block_on(|handle| async move {
             let session = SESSION.clone().with_handle(handle);
             let ctx = ArrayContext::empty();

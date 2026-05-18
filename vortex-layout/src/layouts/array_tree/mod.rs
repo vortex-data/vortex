@@ -124,9 +124,7 @@ impl ArrayTreeLayout {
     ) -> VortexResult<LayoutReaderContext> {
         // Construct the array_trees auxiliary reader using the unmodified incoming context —
         // the array_trees subtree is a vanilla struct of (u32, bytes) and needs no overrides.
-        let array_trees_child = self
-            .children
-            .child(1, &Self::array_trees_dtype())?;
+        let array_trees_child = self.children.child(1, &Self::array_trees_dtype())?;
         let trees_reader = array_trees_child.new_reader_in_ctx(
             Arc::from(format!("{name}/array_trees")),
             segment_source,

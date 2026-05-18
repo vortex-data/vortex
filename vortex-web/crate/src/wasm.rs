@@ -316,6 +316,7 @@ impl VortexFileHandle {
             node_id,
             Some((&segment_source, &self.session)),
         )
+        .map_err(|e| JsValue::from_str(&e.to_string()))?
         .ok_or_else(|| JsValue::from_str(&format!("Layout node not found: {node_id}")))?;
 
         let reader = layout
@@ -709,7 +710,12 @@ fn build_array_encoding_tree_from_array(
 /// IDs match the format: "root.field_name.chunked.[0]" where each segment
 /// corresponds to a `LayoutChildType::name()`.
 fn find_layout_by_id(root: &LayoutRef, node_id: &str) -> Option<LayoutRef> {
-    find_layout_with_ctx(root, node_id, None).map(|(layout, _)| layout)
+    match find_layout_with_ctx(root, node_id, None) {
+        Ok(Some((layout, _))) => Some(layout),
+        Ok(None) => None,
+        // No derivation requested → derive_reader_ctx is never called, so this can't fail.
+        Err(_) => None,
+    }
 }
 
 /// Like [`find_layout_by_id`], but also builds a [`LayoutReaderContext`] that registers a
@@ -726,36 +732,55 @@ fn find_layout_by_id(root: &LayoutRef, node_id: &str) -> Option<LayoutRef> {
 /// Pass `Some((segment_source, session))` to actually derive the context. When passed
 /// `None`, the function still navigates the tree and returns an empty context — useful for
 /// callers that only need the layout reference.
+///
+/// Return shape:
+/// - `Ok(Some((layout, ctx)))` — target found.
+/// - `Ok(None)` — `node_id` does not resolve to a layout in the tree (bad path).
+/// - `Err(e)` — `derive_reader_ctx` failed on some ancestor (e.g. the trees segment is
+///   unreadable). Surfaces the real cause instead of silently producing a ctx that would
+///   make the leaf bail with "missing override".
 fn find_layout_with_ctx(
     root: &LayoutRef,
     node_id: &str,
-    derive: Option<(&Arc<dyn vortex::layout::segments::SegmentSource>, &VortexSession)>,
-) -> Option<(LayoutRef, LayoutReaderContext)> {
+    derive: Option<(
+        &Arc<dyn vortex::layout::segments::SegmentSource>,
+        &VortexSession,
+    )>,
+) -> VortexResult<Option<(LayoutRef, LayoutReaderContext)>> {
     let segments: Vec<&str> = node_id.split('.').collect();
     if segments.is_empty() || segments[0] != "root" {
-        return None;
+        return Ok(None);
     }
 
     let mut current = root.clone();
     let mut current_id = String::from("root");
     let mut ctx = LayoutReaderContext::new();
 
-    let maybe_derive = |layout: &LayoutRef, name: &str, ctx: &LayoutReaderContext| {
+    // For every layout we walk through, if it's an ArrayTree and we have the deps to derive,
+    // overlay its source-injecting override onto the ctx; any other layout is a passthrough.
+    let try_derive = |layout: &LayoutRef,
+                      name: &str,
+                      ctx: &LayoutReaderContext|
+     -> VortexResult<LayoutReaderContext> {
         let Some((segment_source, session)) = derive else {
-            return Some(ctx.clone());
+            return Ok(ctx.clone());
         };
-        layout.as_opt::<ArrayTree>().and_then(|atl| {
-            atl.derive_reader_ctx(name, Arc::clone(segment_source), session, ctx).ok()
-        }).or_else(|| Some(ctx.clone()))
+        match layout.as_opt::<ArrayTree>() {
+            Some(atl) => atl.derive_reader_ctx(name, Arc::clone(segment_source), session, ctx),
+            None => Ok(ctx.clone()),
+        }
     };
 
-    ctx = maybe_derive(&current, &current_id, &ctx)?;
+    ctx = try_derive(&current, &current_id, &ctx)?;
     if segments.len() == 1 {
-        return Some((current, ctx));
+        return Ok(Some((current, ctx)));
     }
 
     for seg in &segments[1..] {
-        let children = current.children().ok()?;
+        let children = match current.children() {
+            Ok(c) => c,
+            Err(_) => return Ok(None),
+        };
         let mut found = None;
         for (i, child) in children.into_iter().enumerate() {
             let name = current.child_type(i).name();
@@ -764,13 +789,13 @@ fn find_layout_with_ctx(
                 break;
             }
         }
-        let child = found?;
+        let Some(child) = found else { return Ok(None) };
         current = child;
         current_id.push('.');
         current_id.push_str(seg);
-        ctx = maybe_derive(&current, &current_id, &ctx)?;
+        ctx = try_derive(&current, &current_id, &ctx)?;
     }
-    Some((current, ctx))
+    Ok(Some((current, ctx)))
 }
 
 /// Downgrade Arrow `*View` types to their non-view equivalents so the JS

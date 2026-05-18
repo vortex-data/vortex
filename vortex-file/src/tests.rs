@@ -1910,37 +1910,28 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
 
     check_zoned_ordering(root.as_ref(), segment_specs);
 
-    // Additionally: all zone map segments across all columns should appear after
-    // all data segments across all columns. Array tree segments (if present) appear
-    // between data and zones.
+    // Additionally: every zone-map segment across all columns must appear after every data
+    // segment across all columns. This holds even with cross-column interleaving inside the
+    // metadata phase because the root writer splits the sequence universe — chunk data uses
+    // IDs derived from `ptr` and all metadata (zones, etc.) derives from `eof`, with
+    // `ptr < eof` so all data segments globally precede all metadata segments.
+    //
+    // Per-column `data < array_trees < zones` ordering for the new `ArrayTreeLayout` is
+    // covered separately by the array-tree-specific ordering tests.
     let mut all_data_offsets = Vec::new();
-    let mut all_array_tree_offsets = Vec::new();
     let mut all_zones_offsets = Vec::new();
 
     fn collect_all_zoned(
         layout: &dyn Layout,
         segment_specs: &[SegmentSpec],
         all_data: &mut Vec<u64>,
-        all_array_trees: &mut Vec<u64>,
         all_zones: &mut Vec<u64>,
     ) {
         if layout.encoding_id().as_ref() == "vortex.stats" {
-            // child 0 = data (may contain array_tree layouts), child 1 = zones
-            let data_child = layout.child(0).unwrap();
-            // If the data child is an array_tree layout, split its segments.
-            if data_child.encoding_id().as_ref() == "vortex.array_tree" {
-                // child 0 = actual data, child 1 = array_trees auxiliary
-                all_data.extend(collect_segment_offsets(
-                    data_child.child(0).unwrap().as_ref(),
-                    segment_specs,
-                ));
-                all_array_trees.extend(collect_segment_offsets(
-                    data_child.child(1).unwrap().as_ref(),
-                    segment_specs,
-                ));
-            } else {
-                all_data.extend(collect_segment_offsets(data_child.as_ref(), segment_specs));
-            }
+            all_data.extend(collect_segment_offsets(
+                layout.child(0).unwrap().as_ref(),
+                segment_specs,
+            ));
             all_zones.extend(collect_segment_offsets(
                 layout.child(1).unwrap().as_ref(),
                 segment_specs,
@@ -1948,13 +1939,7 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
             return;
         }
         for child in layout.children().unwrap() {
-            collect_all_zoned(
-                child.as_ref(),
-                segment_specs,
-                all_data,
-                all_array_trees,
-                all_zones,
-            );
+            collect_all_zoned(child.as_ref(), segment_specs, all_data, all_zones);
         }
     }
 
@@ -1962,24 +1947,13 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
         root.as_ref(),
         segment_specs,
         &mut all_data_offsets,
-        &mut all_array_tree_offsets,
         &mut all_zones_offsets,
     );
 
-    // The root writer splits the sequence universe into two: data chunks use IDs from `ptr`
-    // and all metadata (array trees, zones) derive from `eof`. Since ptr < eof, all data
-    // segments are globally before all metadata segments.
-    //
-    // Within the eof universe, per-column ordering guarantees array_trees < zones within
-    // each column, but cross-column interleaving means we cannot assert
-    // all_array_trees < all_zones globally.
-    let mut all_metadata_offsets = all_array_tree_offsets;
-    all_metadata_offsets.extend(&all_zones_offsets);
-
     assert_offsets_ordered(
         &all_data_offsets,
-        &all_metadata_offsets,
-        "global: all data segments should come before all metadata segments (array trees + zone maps)",
+        &all_zones_offsets,
+        "global: all data segments should come before all zone-map segments",
     );
 
     Ok(())
@@ -2143,6 +2117,80 @@ async fn test_segment_ordering_array_trees_before_zones() -> VortexResult<()> {
         found_any,
         "test setup expected the default write strategy to produce at least one Zoned wrapping an ArrayTree"
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_roundtrip_array_tree_layout() -> VortexResult<()> {
+    // End-to-end coverage of the new ArrayTreeLayout: write a multi-column struct with
+    // `with_array_tree(true)`, then read it back through the override-registration path and
+    // assert the data matches. Exercises:
+    //   - ArrayTreeCollectorStrategy collecting compact trees via the side-channel sink
+    //   - ArrayTreeLayout::new_reader deriving a ctx with the source-injecting override
+    //   - ArrayTreeFlatReader looking up its compact tree from ArrayTreesSource by segment_id
+    //   - SerializedArray::from_flatbuffer_and_segment decoding the data segment
+    let mut ctx = SESSION.create_execution_ctx();
+
+    let n = 10_000;
+    let strings_in: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(strings_in.clone()).into_array();
+    let numbers_in: Vec<i32> = (0..n as i32).collect();
+    let numbers = PrimitiveArray::from_iter(numbers_in.iter().copied()).into_array();
+
+    let st = StructArray::from_fields(&[("strings", strings), ("numbers", numbers)])?.into_array();
+    let dtype = st.dtype().clone();
+
+    let mut buf = ByteBufferMut::empty();
+    let strategy = crate::WriteStrategyBuilder::default()
+        .with_array_tree(true)
+        .build();
+    SESSION
+        .write_options()
+        .with_strategy(strategy)
+        .write(&mut buf, st.to_array_stream())
+        .await?;
+
+    // Sanity-check that we actually wrote ArrayTreeLayout nodes — otherwise the test would
+    // silently pass on the default code path.
+    let file = SESSION.open_options().open_buffer(buf)?;
+    fn has_array_tree(layout: &dyn Layout) -> bool {
+        if layout.encoding_id().as_ref() == "vortex.array_tree" {
+            return true;
+        }
+        layout
+            .children()
+            .map(|cs| cs.iter().any(|c| has_array_tree(c.as_ref())))
+            .unwrap_or(false)
+    }
+    assert!(
+        has_array_tree(file.footer().layout().as_ref()),
+        "test expected ArrayTreeLayout in the written file"
+    );
+
+    // Read back and assert structure + data round-trip cleanly.
+    let result = file.scan()?.into_array_stream()?.read_all().await?;
+    assert_eq!(result.len(), n);
+    assert_eq!(result.dtype(), &dtype);
+
+    let struct_array = result.execute::<StructArray>(&mut ctx)?;
+
+    let read_numbers = struct_array.unmasked_field_by_name("numbers").cloned()?;
+    let expected_numbers = PrimitiveArray::from_iter(numbers_in.iter().copied()).into_array();
+    assert_arrays_eq!(read_numbers, expected_numbers);
+
+    let read_strings = struct_array
+        .unmasked_field_by_name("strings")
+        .cloned()?
+        .execute::<VarBinViewArray>(&mut ctx)?
+        .with_iterator(|iter| {
+            iter.map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
+                .collect::<Vec<_>>()
+        });
+    let expected_strings: Vec<Option<String>> =
+        strings_in.iter().map(|s| Some((*s).to_string())).collect();
+    assert_eq!(read_strings, expected_strings);
 
     Ok(())
 }
