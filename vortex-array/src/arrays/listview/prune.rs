@@ -37,36 +37,56 @@ use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::match_each_integer_ptype;
 
-/// Minimum elements buffer length before pruning is even considered.
+/// Minimum elements buffer length before pruning is even considered, when elements are in a
+/// canonical (host) encoding.
 ///
-/// The rebuild itself is bounded by the number of referenced elements (random reads against the
-/// elements buffer), so its cost is bounded above by `O(num_lists * avg_list_size)`. For small
-/// elements buffers the baseline export — `Vector::with_capacity(elements.len())` + an
-/// encoding-specific export — is already cheap, so the rebuild's fixed cost dominates.
-pub const PRUNE_LISTVIEW_MIN_ELEMENTS: usize = 64 * 1024;
+/// For canonical elements the downstream export is close to a `memcpy` — the rebuild's fixed
+/// cost only pays back on sizable buffers. Calibrated conservatively against an export of
+/// `Vector::with_capacity(elements.len())`.
+pub const PRUNE_LISTVIEW_MIN_ELEMENTS_CANONICAL: usize = 64 * 1024;
+
+/// Minimum elements buffer length before pruning is even considered, when elements are
+/// **non-canonical** (e.g. `Dict`, `Fsst`, `RunEnd`, …).
+///
+/// Compressed elements pay per-position decompression at export time, but the rebuild itself
+/// has fixed overhead (allocations, the child encoding's own take + post-take pruning). For
+/// very small compressed buffers the linear export cost is comparable to or smaller than the
+/// rebuild's fixed cost, so we still skip there.
+pub const PRUNE_LISTVIEW_MIN_ELEMENTS_COMPRESSED: usize = 16 * 1024;
 
 /// Maximum fraction of `elements.len()` that may be reachable via `sizes` and still be worth
-/// pruning. `sum(sizes)` is a strict upper bound on the survivor count (overlaps reduce it
-/// further, but never increase it), so this is a sufficient signal to decide.
+/// pruning, for canonical elements.
 ///
-/// Calibrated to be very conservative: the rebuild does a random-access `take` over the
-/// elements buffer, which is bandwidth-bound. The savings from a smaller downstream export
-/// only outweigh this work when the unreferenced portion is overwhelming. Below ~2% reachable
-/// the rebuild is reliably a net win; above that it can match or beat the baseline depending on
-/// the element encoding.
-pub const PRUNE_LISTVIEW_MAX_REFERENCED_RATIO: f64 = 0.02;
+/// For canonical export the per-element cost is roughly a `memcpy`, so the rebuild only wins
+/// when the unreferenced portion is overwhelming.
+pub const PRUNE_LISTVIEW_MAX_REFERENCED_RATIO_CANONICAL: f64 = 0.02;
+
+/// Maximum fraction of `elements.len()` that may be reachable via `sizes` and still be worth
+/// pruning, for compressed elements.
+///
+/// Compressed exports do per-position decompression, but the rebuild itself runs the child
+/// encoding's take + post-take prune, which has its own per-element cost. Empirically the
+/// break-even ratio sits around 30–40% for dict-encoded varbin; 10% leaves comfortable slack so
+/// the rebuild reliably pays back without trimming the genuine wins (sparse compressed sources
+/// at <5% reachable still trip easily).
+pub const PRUNE_LISTVIEW_MAX_REFERENCED_RATIO_COMPRESSED: f64 = 0.10;
 
 /// Inspect `array` and, if a sizable fraction of the elements buffer is unreferenced, return a
 /// rebuilt [`ListViewArray`] whose elements contain only the referenced positions.
 ///
-/// Decisions are made in two stages:
+/// Decisions are made in three stages:
 ///
-/// 1. **Cheap rejections.** Skip when the elements buffer is small, or when the array is
-///    already `is_zero_copy_to_list` (offsets are sequential with no gaps or overlaps), so a
-///    rebuild would not change the elements buffer.
-/// 2. **Sum sniff.** Canonicalize `sizes` (cheap — it's bounded by `array.len()`, typically the
-///    DuckDB vector size) and compute the total. `sum(sizes)` is an upper bound on the
-///    elements that survive the rebuild, so a small ratio is a sufficient signal to commit.
+/// 1. **Encoding-aware thresholds.** Pick `MIN_ELEMENTS` / `MAX_REFERENCED_RATIO` based on
+///    whether `elements` is in a canonical encoding (cheap to export) or a compressed one
+///    (per-position decompression dominates). Compressed children justify a much more
+///    aggressive prune.
+/// 2. **Cheap rejections.** Skip when the elements buffer is below the chosen `MIN_ELEMENTS`,
+///    or when the array is already `is_zero_copy_to_list` (offsets are sequential with no gaps
+///    or overlaps), so a rebuild would not change the elements buffer.
+/// 3. **Sum sniff.** Read the propagated `reachable_elements_bound` (O(1)) or, if absent,
+///    canonicalise `sizes` and compute the total — bounded by `array.len()`, typically
+///    DuckDB's vector size. `sum(sizes)` is a strict upper bound on the survivor count, so a
+///    small ratio is a sufficient signal to commit.
 ///
 /// Returns `Ok(None)` to mean "no change worth making"; callers should keep the original array.
 pub fn maybe_prune_unreferenced_elements(
@@ -74,7 +94,15 @@ pub fn maybe_prune_unreferenced_elements(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ListViewArray>> {
     let elements_len = array.elements().len();
-    if elements_len < PRUNE_LISTVIEW_MIN_ELEMENTS {
+    let canonical_elements = array.elements().is_canonical();
+    let (min_elements, max_ratio_inv): (usize, u64) = if canonical_elements {
+        // 1.0 / 0.02 = 50
+        (PRUNE_LISTVIEW_MIN_ELEMENTS_CANONICAL, 50)
+    } else {
+        // 1.0 / 0.10 = 10
+        (PRUNE_LISTVIEW_MIN_ELEMENTS_COMPRESSED, 10)
+    };
+    if elements_len < min_elements {
         return Ok(None);
     }
     // Already zero-copy: sequential offsets, no gaps, no overlaps. The rebuild path would just
@@ -102,9 +130,9 @@ pub fn maybe_prune_unreferenced_elements(
 
     let elements_len_u64 = elements_len as u64;
     // Strict upper bound on the rebuild output size. If even this exceeds the threshold there's
-    // no point continuing.
-    if elements_len_u64 == 0 || total_referenced * 50 >= elements_len_u64 {
-        // total / elements >= 0.02
+    // no point continuing. `total_referenced * (1/max_ratio) >= elements_len` iff
+    // `referenced/elements >= max_ratio`.
+    if elements_len_u64 == 0 || total_referenced * max_ratio_inv >= elements_len_u64 {
         return Ok(None);
     }
 

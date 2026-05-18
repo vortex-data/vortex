@@ -3592,9 +3592,13 @@ pub vortex_array::arrays::listview::ListViewDataParts::sizes: vortex_array::Arra
 
 pub vortex_array::arrays::listview::ListViewDataParts::validity: vortex_array::validity::Validity
 
-pub const vortex_array::arrays::listview::PRUNE_LISTVIEW_MAX_REFERENCED_RATIO: f64
+pub const vortex_array::arrays::listview::PRUNE_LISTVIEW_MAX_REFERENCED_RATIO_CANONICAL: f64
 
-pub const vortex_array::arrays::listview::PRUNE_LISTVIEW_MIN_ELEMENTS: usize
+pub const vortex_array::arrays::listview::PRUNE_LISTVIEW_MAX_REFERENCED_RATIO_COMPRESSED: f64
+
+pub const vortex_array::arrays::listview::PRUNE_LISTVIEW_MIN_ELEMENTS_CANONICAL: usize
+
+pub const vortex_array::arrays::listview::PRUNE_LISTVIEW_MIN_ELEMENTS_COMPRESSED: usize
 
 pub trait vortex_array::arrays::listview::ListViewArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::ListView>
 
