@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::StreamExt as _;
+use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -27,7 +28,6 @@ use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::layouts::array_tree::ArrayTreeLayout;
-use crate::layouts::array_tree::flat::ArrayTreeFlat;
 use crate::layouts::array_tree::flat::ArrayTreeFlatLayout;
 use crate::layouts::flat::FlatLayout;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -37,22 +37,35 @@ use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
 use crate::sequence::SequentialArrayStreamExt;
 
+/// Side channel for shipping `(segment_id, compact_tree)` pairs from leaf strategies to the
+/// collector strategy.
+///
+/// Each leaf pushes after `segment_sink.write` resolves (so the leaf's `SequenceId` has been
+/// dropped before we touch the sink). The collector drains the sink only after the entire
+/// data subtree has completed, which means every leaf has already pushed.
+type Sink = Arc<Mutex<Vec<(SegmentId, ByteBuffer)>>>;
+
 /// Creates a cooperating pair of strategies for array tree collection.
 ///
 /// Returns `(collector, leaf)` where:
-/// - `leaf` replaces [`FlatLayoutStrategy`] in the data pipeline — it serializes chunks and
-///   produces compact flatbuffers attached to [`ArrayTreeFlatLayout`].
-/// - `collector` wraps the data pipeline — after data is written, it walks the layout tree to
-///   collect compact flatbuffers from all [`ArrayTreeFlatLayout`] leaves and writes them as a
-///   struct array (`{segment_id, compact_tree}`) via the configured `array_trees_strategy`.
+/// - `leaf` replaces [`FlatLayoutStrategy`] in the data pipeline — it serializes chunks,
+///   produces compact flatbuffers, and pushes them onto the shared sink.
+/// - `collector` wraps the data pipeline — after data is written, it drains the sink and
+///   writes the collected pairs as a struct array (`{segment_id, compact_tree}`) via the
+///   configured `array_trees_strategy`.
 pub fn writer(
     flat: FlatLayoutStrategy,
     array_trees_strategy: Arc<dyn LayoutStrategy>,
 ) -> (ArrayTreeCollectorStrategy, ArrayTreeFlatStrategy) {
-    let leaf = ArrayTreeFlatStrategy { flat };
+    let sink: Sink = Arc::new(Mutex::new(Vec::new()));
+    let leaf = ArrayTreeFlatStrategy {
+        flat,
+        sink: Arc::clone(&sink),
+    };
     let collector = ArrayTreeCollectorStrategy {
         child: None,
         array_trees_strategy,
+        sink,
     };
     (collector, leaf)
 }
@@ -60,11 +73,12 @@ pub fn writer(
 /// Leaf strategy (TX) that replaces [`FlatLayoutStrategy`].
 ///
 /// For each chunk, it produces both the compact flatbuffer (encoding tree + buffer
-/// descriptors, no stats) and the full data segment, and returns an [`ArrayTreeFlatLayout`]
-/// with the compact tree attached for later collection.
+/// descriptors, no stats) and the full data segment, then pushes `(segment_id, compact_tree)`
+/// onto the shared sink for the collector to consume.
 #[derive(Clone)]
 pub struct ArrayTreeFlatStrategy {
     flat: FlatLayoutStrategy,
+    sink: Sink,
 }
 
 #[async_trait]
@@ -117,21 +131,28 @@ impl LayoutStrategy for ArrayTreeFlatStrategy {
             },
         )?;
         assert!(buffers.len() >= 2);
+
+        // IMPORTANT ORDERING CONSTRAINT: write the segment first, then push to the sink.
+        //
+        // `segment_sink.write` consumes our `SequenceId` and only drops it on return. Pushing
+        // to the sink before that point would risk holding the sink mutex while later leaves
+        // are blocked on `SequenceId::collapse`, creating a dependency from "later leaf is
+        // ready to write" → "earlier leaf must drop its SequenceId" → "earlier leaf must
+        // finish its sink push" → mutex contention with the later leaf. Doing the push after
+        // `await?` resolves means our SequenceId is already gone before we touch the sink.
         let segment_id = segment_sink.write(sequence_id, buffers).await?;
+        self.sink.lock().push((segment_id, compact_tree));
 
         let None = stream.next().await else {
             vortex_bail!("array tree flat layout received stream with more than a single chunk");
         };
 
-        Ok(ArrayTreeFlatLayout::new(
-            FlatLayout::new(
-                row_count,
-                stream.dtype().clone(),
-                segment_id,
-                ReadContext::new(ctx.to_ids()),
-            ),
-            compact_tree,
-        )
+        Ok(ArrayTreeFlatLayout::new(FlatLayout::new(
+            row_count,
+            stream.dtype().clone(),
+            segment_id,
+            ReadContext::new(ctx.to_ids()),
+        ))
         .into_layout())
     }
 
@@ -142,13 +163,13 @@ impl LayoutStrategy for ArrayTreeFlatStrategy {
 
 /// Collector strategy (RX) that wraps the data pipeline.
 ///
-/// After the data child completes, walks the returned layout tree to extract compact
-/// flatbuffers and segment IDs from all [`ArrayTreeFlatLayout`] leaves, builds a struct
-/// array of `{segment_id, compact_tree}`, and writes it as an auxiliary child via the
-/// configured `array_trees_strategy`.
+/// After the data child completes, drains the shared sink and writes the collected
+/// `(segment_id, compact_tree)` pairs as a struct array via the configured
+/// `array_trees_strategy`.
 pub struct ArrayTreeCollectorStrategy {
     child: Option<Arc<dyn LayoutStrategy>>,
     array_trees_strategy: Arc<dyn LayoutStrategy>,
+    sink: Sink,
 }
 
 impl ArrayTreeCollectorStrategy {
@@ -186,17 +207,9 @@ impl LayoutStrategy for ArrayTreeCollectorStrategy {
             )
             .await?;
 
-        // Walk the layout tree to collect (segment_id, compact_tree) pairs from
-        // ArrayTreeFlatLayout leaves.
-        let mut entries: Vec<(SegmentId, ByteBuffer)> = Vec::new();
-        for layout_ref in data_layout.depth_first_traversal() {
-            let layout_ref = layout_ref?;
-            if let Some(atf) = layout_ref.as_opt::<ArrayTreeFlat>()
-                && let Some(tree) = atf.compact_tree()
-            {
-                entries.push((atf.inner().segment_id(), tree.clone()));
-            }
-        }
+        // By the time the data subtree future resolves, every leaf has finished its
+        // `segment_sink.write().await?` and pushed onto the sink. Drain it now.
+        let mut entries = std::mem::take(&mut *self.sink.lock());
 
         // Sort by segment ID so the on-disk order matches segment-write order — this gives
         // good locality and predictable lookup-table layout.

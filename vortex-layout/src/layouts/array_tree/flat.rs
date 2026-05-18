@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
@@ -32,11 +31,11 @@ vtable!(ArrayTreeFlat);
 pub struct ArrayTreeFlatLayoutEncoding;
 
 /// A flat layout variant that retrieves its compact encoding tree from a sibling layout's
-/// VarBin payload rather than from the data segment trailer.
+/// payload rather than from the data segment trailer.
 ///
-/// At write time, the compact flatbuffer (encoding tree + buffer descriptors, no stats) is
-/// attached to this layout in memory and later collected by [`super::ArrayTreeLayout`] into
-/// a struct array keyed by segment ID.
+/// At write time, the compact flatbuffer is produced by the leaf strategy and pushed into a
+/// side channel shared with the collector strategy — the layout itself just carries the same
+/// state as a vanilla [`FlatLayout`].
 ///
 /// At read time, this layout's reader looks up its compact tree in a shared
 /// [`super::ArrayTreesSource`] using its own [`SegmentId`]. Construction requires that an
@@ -45,23 +44,12 @@ pub struct ArrayTreeFlatLayoutEncoding;
 #[derive(Clone, Debug)]
 pub struct ArrayTreeFlatLayout {
     inner: FlatLayout,
-    /// The compact flatbuffer produced at write time. Not persisted — only used to communicate
-    /// between the leaf strategy and the collector strategy via the layout tree.
-    compact_tree: Option<ByteBuffer>,
 }
 
 impl ArrayTreeFlatLayout {
-    /// Creates a new layout at write time with a compact flatbuffer.
-    pub fn new(inner: FlatLayout, compact_tree: ByteBuffer) -> Self {
-        Self {
-            inner,
-            compact_tree: Some(compact_tree),
-        }
-    }
-
-    /// Returns the compact flatbuffer, if available (write-time only).
-    pub fn compact_tree(&self) -> Option<&ByteBuffer> {
-        self.compact_tree.as_ref()
+    /// Creates a new layout from the inner flat layout.
+    pub fn new(inner: FlatLayout) -> Self {
+        Self { inner }
     }
 
     /// Returns the inner flat layout.
@@ -142,7 +130,6 @@ impl VTable for ArrayTreeFlat {
         }
         Ok(ArrayTreeFlatLayout {
             inner: FlatLayout::new(row_count, dtype.clone(), segment_ids[0], ctx.clone()),
-            compact_tree: None,
         })
     }
 }

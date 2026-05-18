@@ -2112,10 +2112,8 @@ async fn test_segment_ordering_array_trees_before_zones() -> VortexResult<()> {
 
             if data_child.encoding_id().as_ref() == "vortex.array_tree" {
                 *found_any = true;
-                let array_trees_offsets = collect_segment_offsets(
-                    data_child.child(1).unwrap().as_ref(),
-                    segment_specs,
-                );
+                let array_trees_offsets =
+                    collect_segment_offsets(data_child.child(1).unwrap().as_ref(), segment_specs);
                 let zones_offsets = collect_segment_offsets(zones_child.as_ref(), segment_specs);
 
                 assert_offsets_ordered(
