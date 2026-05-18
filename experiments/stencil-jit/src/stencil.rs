@@ -126,6 +126,65 @@ __stencil_jit_bulk_end_jmp:
     .hidden __stencil_jit_bulk_end
 __stencil_jit_bulk_end:
 
+    # ============ specialized eq stencil (4x unrolled) ============
+    #
+    # All constants baked at JIT-compile time. Algebraic simplification
+    # folds the FFoR-add into the broadcast constant: the kernel computes
+    # `(x == c')` directly, where c' = c - ffor_ref (mod 256). The loop
+    # body is one memory-operand `vpcmpeqb` per block — no separate load,
+    # no separate add.
+    #
+    # ABI:
+    #   rdi = const u8*  (n_blocks * 32 bytes; n_blocks must be multiple of 4)
+    #   rsi =       u32* (n_blocks * 4 bytes of output masks)
+    #   rdx =       u64  (n_blocks)
+    #
+    # Prologue patches: the broadcast of `c'` into ymm1 — patched by the
+    # JIT after rustc emits a placeholder.
+
+    .p2align 4, 0x90
+    .globl  __stencil_jit_spec_start
+    .hidden __stencil_jit_spec_start
+__stencil_jit_spec_start:
+    # 5-byte slot for `mov al, c'` (the JIT patches the immediate byte).
+    .globl  __stencil_jit_spec_const_start
+    .hidden __stencil_jit_spec_const_start
+__stencil_jit_spec_const_start:
+    nop ; nop ; nop ; nop ; nop
+    .globl  __stencil_jit_spec_const_end
+    .hidden __stencil_jit_spec_const_end
+__stencil_jit_spec_const_end:
+    vmovd        xmm1, eax
+    vpbroadcastb ymm1, xmm1            # ymm1 = broadcast(c')
+    test         rdx, rdx
+    je           __stencil_jit_spec_end_jmp
+    .p2align 5, 0x90
+__stencil_jit_spec_loop:
+    # 4-way unroll: blocks at [rdi+0], [rdi+32], [rdi+64], [rdi+96].
+    # Each is a single memory-operand vpcmpeqb writing to a distinct ymm.
+    vpcmpeqb     ymm0, ymm1, ymmword ptr [rdi + 0]
+    vpcmpeqb     ymm4, ymm1, ymmword ptr [rdi + 32]
+    vpcmpeqb     ymm5, ymm1, ymmword ptr [rdi + 64]
+    vpcmpeqb     ymm6, ymm1, ymmword ptr [rdi + 96]
+    vpmovmskb    eax, ymm0
+    mov          dword ptr [rsi + 0], eax
+    vpmovmskb    eax, ymm4
+    mov          dword ptr [rsi + 4], eax
+    vpmovmskb    eax, ymm5
+    mov          dword ptr [rsi + 8], eax
+    vpmovmskb    eax, ymm6
+    mov          dword ptr [rsi + 12], eax
+    add          rdi, 128
+    add          rsi, 16
+    sub          rdx, 4
+    jne          __stencil_jit_spec_loop
+__stencil_jit_spec_end_jmp:
+    vzeroupper
+    ret
+    .globl  __stencil_jit_spec_end
+    .hidden __stencil_jit_spec_end
+__stencil_jit_spec_end:
+
     .section .text
 "#
 );
@@ -164,6 +223,15 @@ unsafe extern "C" {
     static BULK_OP_B_END: c_void;
     #[link_name = "__stencil_jit_bulk_end"]
     static BULK_END: c_void;
+
+    #[link_name = "__stencil_jit_spec_start"]
+    static SPEC_START: c_void;
+    #[link_name = "__stencil_jit_spec_const_start"]
+    static SPEC_CONST_START: c_void;
+    #[link_name = "__stencil_jit_spec_const_end"]
+    static SPEC_CONST_END: c_void;
+    #[link_name = "__stencil_jit_spec_end"]
+    static SPEC_END: c_void;
 }
 
 // ---- single-block patches (operate on ymm0) ----
@@ -255,6 +323,29 @@ pub(crate) fn bulk_ffor_b_offset() -> usize {
 }
 pub(crate) fn bulk_op_b_offset() -> usize {
     offset(&raw const BULK_START, &raw const BULK_OP_B_START)
+}
+
+// ---- specialized-stencil descriptors ----
+
+pub(crate) fn spec_bytes() -> &'static [u8] {
+    bytes_between(&raw const SPEC_START, &raw const SPEC_END)
+}
+pub(crate) fn spec_const_offset() -> usize {
+    offset(&raw const SPEC_START, &raw const SPEC_CONST_START)
+}
+pub(crate) fn spec_const_len() -> usize {
+    offset(&raw const SPEC_CONST_START, &raw const SPEC_CONST_END)
+}
+
+/// Build the 5-byte patch that loads the constant `c` into AL:
+/// `mov al, imm8` is 2 bytes (`B0 imm8`); pad with multi-byte NOP.
+/// Followed by `vmovd xmm1, eax; vpbroadcastb ymm1, xmm1` in the stencil body.
+pub(crate) fn spec_const_patch(c: u8) -> [u8; 5] {
+    // mov al, c  =  B0 imm8 (2 bytes)
+    // nopl 0x0(%rax)  =  0F 1F 00 ? actually nopw is 66 90, 3-byte nop is 0F 1F 00.
+    // We need 3 more bytes of NOP after the 2-byte mov. Use `nop dword ptr [rax]`
+    // = 0F 1F 00 (3 bytes, 1 µop).
+    [0xB0, c, 0x0F, 0x1F, 0x00]
 }
 
 fn bytes_between(start: *const c_void, end: *const c_void) -> &'static [u8] {

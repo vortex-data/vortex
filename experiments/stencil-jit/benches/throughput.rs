@@ -20,7 +20,7 @@ use std::arch::x86_64::*;
 use std::hint::black_box;
 
 use divan::{Bencher, counter::BytesCount};
-use stencil_jit::{BulkKernel, ChainConfig, CmpOp, Kernel};
+use stencil_jit::{BulkKernel, ChainConfig, CmpOp, Kernel, SpecializedKernel};
 
 /// Working-set sizes (in 32-byte blocks) chosen to span L1, L2, and beyond.
 /// 128   blocks = 4 KB     (well inside L1)
@@ -172,6 +172,30 @@ fn stencil_jit_fused(bencher: Bencher, n_blocks: usize) {
                 black_box(42u8),
                 black_box(out.as_mut_ptr()),
                 black_box(7u8),
+                n_blocks,
+            )
+        };
+        black_box(out[0])
+    });
+}
+
+// ---------- Stencil-JIT specialized (constants baked, no FFoR slot, 4x unroll) ---
+//
+// The JIT-only win: at kernel-compile time we know both `ffor_ref` and
+// `constant`, so `(x + r) == c` is algebraically folded into `x == (c - r)`.
+// The loop body collapses to one memory-operand `vpcmpeqb` per block.
+
+#[divan::bench(args = SIZES)]
+fn stencil_jit_specialized(bencher: Bencher, n_blocks: usize) {
+    let kernel = SpecializedKernel::compile_eq(black_box(42u8), black_box(7u8)).unwrap();
+    let input = make_input(n_blocks);
+    let mut out = vec![0u32; n_blocks];
+    bencher.counter(counter(n_blocks)).bench_local(|| {
+        // SAFETY: buffers sized for n_blocks * 32 / n_blocks * 4; n_blocks multiple of 4.
+        unsafe {
+            kernel.call(
+                black_box(input.as_ptr()),
+                black_box(out.as_mut_ptr()),
                 n_blocks,
             )
         };

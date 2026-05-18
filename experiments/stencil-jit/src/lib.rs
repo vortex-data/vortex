@@ -301,6 +301,68 @@ impl Drop for BulkKernel {
     }
 }
 
+// =================== Specialized eq kernel (constants baked) ===================
+//
+// JIT-only win: the constants are known at kernel-compile time (the query
+// planner supplies them), so the FFoR-add `(x + r) == c` is algebraically
+// folded into `x == (c - r mod 256)`. The kernel body becomes a single
+// memory-operand `vpcmpeqb` per block — no separate add, no separate load.
+// AOT can't do this if the constants are runtime parameters.
+
+/// A specialized fused kernel for `(x + ffor_ref) == constant` with both
+/// constants baked in at JIT-compile time. 4x unrolled bulk loop.
+pub struct SpecializedKernel {
+    page: NonNull<u8>,
+    page_len: usize,
+    entry: unsafe extern "sysv64" fn(*const u8, *mut u32, u64),
+}
+
+unsafe impl Send for SpecializedKernel {}
+unsafe impl Sync for SpecializedKernel {}
+
+impl SpecializedKernel {
+    /// Compile a specialized kernel that computes `(x + ffor_ref) == constant`
+    /// for each lane. Both arguments are baked into the emitted code.
+    pub fn compile_eq(constant: u8, ffor_ref: u8) -> io::Result<Self> {
+        let effective_const = constant.wrapping_sub(ffor_ref);
+        let bytes = stencil::spec_bytes();
+        let patch = stencil::spec_const_patch(effective_const);
+        let patches = [(stencil::spec_const_offset(), &patch[..])];
+        let page_len = page_size();
+        // SAFETY: patch lies inside bytes.
+        let page = unsafe { materialize(bytes, &patches, page_len)? };
+        // SAFETY: emitted page holds a valid sysv64 function.
+        let entry: unsafe extern "sysv64" fn(*const u8, *mut u32, u64) =
+            unsafe { core::mem::transmute(page.as_ptr()) };
+        Ok(Self {
+            page,
+            page_len,
+            entry,
+        })
+    }
+
+    /// Run the kernel on `n_blocks` 32-byte blocks. `n_blocks` must be a
+    /// multiple of 4 (the unroll factor).
+    ///
+    /// # Safety
+    /// `packed` must point to at least `n_blocks * 32` readable bytes; `out`
+    /// to at least `n_blocks * 4` writable bytes; `n_blocks % 4 == 0`.
+    pub unsafe fn call(&self, packed: *const u8, out: *mut u32, n_blocks: usize) {
+        debug_assert!(n_blocks.is_multiple_of(4), "specialized kernel requires 4-block multiples");
+        // SAFETY: caller upholds buffer windows.
+        unsafe { (self.entry)(packed, out, n_blocks as u64) }
+    }
+}
+
+impl Drop for SpecializedKernel {
+    fn drop(&mut self) {
+        // SAFETY: page + page_len from materialize.
+        unsafe {
+            libc::munmap(self.page.as_ptr().cast(), self.page_len);
+        }
+    }
+}
+
 pub mod debug {
     use super::{CmpOp, op_patch, stencil};
 

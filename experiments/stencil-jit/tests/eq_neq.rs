@@ -137,6 +137,34 @@ fn bulk_kernel_matches_single_block() {
 }
 
 #[test]
+fn specialized_kernel_matches_reference() {
+    use stencil_jit::SpecializedKernel;
+    // n_blocks must be a multiple of 4.
+    const N: usize = 20;
+    let mut packed = vec![0u8; N * 32];
+    for (i, b) in packed.iter_mut().enumerate() {
+        *b = (i as u8).wrapping_mul(17).wrapping_add(11);
+    }
+    for &(c, r) in &[(42u8, 7u8), (0, 0), (255, 1), (128, 200), (1, 255)] {
+        let kernel = SpecializedKernel::compile_eq(c, r).unwrap();
+        let mut out = vec![0u32; N];
+        // SAFETY: N*32 readable, N*4 writable, N multiple of 4.
+        unsafe { kernel.call(packed.as_ptr(), out.as_mut_ptr(), N) };
+        // Reference: (x + r) == c
+        for i in 0..N {
+            let block: &[u8; 32] = (&packed[i * 32..(i + 1) * 32]).try_into().unwrap();
+            let mut want = 0u32;
+            for (j, &b) in block.iter().enumerate() {
+                if b.wrapping_add(r) == c {
+                    want |= 1u32 << j;
+                }
+            }
+            assert_eq!(out[i], want, "specialized mismatch at block {i} c={c} r={r}");
+        }
+    }
+}
+
+#[test]
 fn bulk_kernel_zero_blocks_is_noop() {
     let bulk = BulkKernel::compile(ChainConfig::compare_only(CmpOp::Eq)).unwrap();
     // SAFETY: pointers unused when n_blocks == 0.

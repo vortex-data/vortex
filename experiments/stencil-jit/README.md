@@ -105,43 +105,55 @@ Variants:
 * **`stencil_jit_per_block`** — the JIT called once per 32-byte block,
   paying the function-call tax every block.
 
-Median GB/s (stable across multiple runs; `aot_fused` jittered in this
-sandbox between 16 and 76 GB/s for the same call, so reporting fastest
-for it):
+A fourth variant — **`stencil_jit_specialized` (D-spec)** — bakes both
+constants into the kernel at JIT-compile time and algebraically
+simplifies: since `(x + r) == c` ⟺ `x == (c - r) (mod 256)`, the FFoR-add
+disappears entirely. The loop body collapses to one memory-operand
+`vpcmpeqb ymm0, ymm1, [rdi]` per block. This is the **JIT-only win** —
+AOT can't fold `c - r` if `c` and `r` are query-planner parameters.
 
-| n_blocks | size   | **C (chunked)** | **D (stencil-JIT)** | D / C | per-block JIT | aot_fused (fastest) |
-|---------:|-------:|----------------:|--------------------:|------:|--------------:|--------------------:|
-|    128   |  4 KB  | 14.0            | 65.6                | 4.7×  | 11.7          | 16–66 (jittery)     |
-|   1024   | 32 KB  | 41–44           | 69.8                | 1.7×  | 12.0          | 18–76 (jittery)     |
-|   8192   | 256 KB | 36.9            | 71.3                | 1.9×  | 12.0          | 60.7                |
-|  32768   |  1 MB  | 32.2            | 58.8                | 1.8×  | 12.0          | 53.9                |
-| 131072   |  4 MB  | 25.8            | 29.1                | 1.1×  | 11.8          | 27.7                |
+Median GB/s (stable across multiple runs):
 
-The trend is stable across runs: **D beats C by ~1.7–2× at L1- and
-L2-resident sizes**, and both **converge to RAM-bandwidth limit beyond
-L2** (~28 GB/s). At very small sizes (n=128 = 4 chunks) C pays per-chunk
-function-call overhead more times than D's bulk kernel does; at very
-large sizes both are gated by memory bandwidth.
+| n_blocks | size   | **C (chunked)** | D (generic JIT) | **D-spec**  | **D-spec / C** | aot_fused (fastest) |
+|---------:|-------:|----------------:|----------------:|------------:|---------------:|--------------------:|
+|    128   |  4 KB  | 14.0            | 65.3            | **83.9**    | **6.0×**       | 63.6                |
+|   1024   | 32 KB  | 41–44           | 69.8            | **100.4**   | **2.4×**       | 74.5                |
+|   8192   | 256 KB | 36.9            | 71.5            | **90.9**    | **2.5×**       | 59.3                |
+|  32768   |  1 MB  | 32.2            | 56.9            | **63.6**    | **2.0×**       | 53.4                |
+| 131072   |  4 MB  | 25.8            | 30.7            | 31.2        | 1.2×           | 30.5                |
 
-**Why D beats C even when C's scratch stays in L1:** L1 traffic isn't
-free. Per 32-byte block, C does ~2 SIMD ops in stage 1 plus a 32-byte L1
-store, then a 32-byte L1 load plus ~2 SIMD ops in stage 2. D keeps the
-intermediate register-resident and emits only a 4-byte mask store. C pays
-roughly 32 bytes of L1 round trip per block that D skips. At cache-port
-bandwidth, that's a few cycles per block of pure overhead C can't avoid.
+**D-spec beats AOT-fused at every cache-resident size** — AOT-fused still
+pays a runtime `vpaddb` for the FFoR offset; D-spec doesn't.
 
-**`aot_fused` jitter:** the same call shows 16 GB/s in one run and 76 in
-another. This appears to be CPU frequency/thermal noise in the sandbox
-affecting `.text`-resident code. The JIT's mmap'd-anonymous pages and
-the chunked-unfused are both stable. The cleanest signal is the D-vs-C
-comparison; AOT-fused stays in the table as a "what's the ceiling when
-you can AOT it" reference.
+**Per-block work, by variant:**
 
-**Headline:** for runtime-defined chains, a copy-and-patch JIT delivers
-**~1.7–2× speedup over chunked AOT-intrinsics at the cache-resident
-sizes that matter**, at no binary-size cost beyond a small stencil
-library, and converges to AOT-fused in every regime where AOT-fused is
-itself meaningful.
+| Variant      | SIMD ops per 32-byte block | Notes                                |
+|--------------|---------------------------:|--------------------------------------|
+| C (chunked)  | 4 + L1 round trip          | load+vpaddb+store, then load+vpcmpeqb+vpmovmskb+store |
+| D (generic)  | 3                          | vpaddb-mem-operand + vpcmpeqb + vpmovmskb            |
+| **D-spec**   | **2**                      | **vpcmpeqb-mem-operand + vpmovmskb**                 |
+| aot_fused    | 3                          | vmovdqu + vpaddb + vpcmpeqb + vpmovmskb              |
+
+**Why D-spec beats AOT-fused:** AOT-fused takes `ffor_ref` and `constant`
+as runtime parameters (the chain isn't known at Rust-compile time), so
+it can't fold them. The 4× unroll also helps: D-spec runs four
+independent compare chains in flight; AOT-fused unrolls 2.
+
+**At very small sizes (n=128 = 4 chunks):** D-spec hits **6× over C**
+because C pays 4 function-call invocations per stage (8 calls total),
+while D-spec is one call total with a tight 4×-unrolled body.
+
+**At memory-bound sizes (4 MB):** everything converges at ~30 GB/s — RAM
+bandwidth wins.
+
+**Headline:** for runtime-defined chains where the constants are query-
+time-known, a copy-and-patch JIT with constant-folding delivers **2.0–
+6.0× speedup over chunked AOT-intrinsics** at every cache-resident size,
+**beats AOT-fused** because AOT-fused can't bake runtime constants. This
+is the structural advantage of JIT over AOT — not "the JIT happens to
+write the same instructions faster," but "the JIT can emit fewer
+instructions because more is known at kernel-materialize time."
+
 
 ## D vs F — the only difference is the source of the stencil bytes
 
