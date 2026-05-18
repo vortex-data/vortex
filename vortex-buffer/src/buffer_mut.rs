@@ -65,11 +65,10 @@ impl<T> BufferMut<T> {
 
     /// Create a new zeroed `BufferMut`.
     pub fn zeroed_aligned(len: usize, alignment: Alignment) -> Self {
-        let size_t = size_of::<T>();
-        let mut bytes = BytesMut::zeroed((len * size_t) + *alignment);
+        let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *alignment);
         bytes.advance(bytes.as_ptr().align_offset(*alignment));
-        unsafe { bytes.set_len(len * size_t) };
-        let actual_len = if size_t == 0 { 0 } else { bytes.len() / size_t };
+        unsafe { bytes.set_len(len * size_of::<T>()) };
+        let actual_len = if size_of::<T>() == 0 { 0 } else { bytes.len() / size_of::<T>() };
         Self {
             bytes,
             length: actual_len,
