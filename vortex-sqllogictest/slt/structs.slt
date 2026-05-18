@@ -3,7 +3,7 @@
 
 # Struct filtering tests - test filtering on nested struct fields
 
-include ./setup.slt
+include ./setup.slt.no
 
 # Create a file with nested struct data
 query I

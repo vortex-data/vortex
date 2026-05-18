@@ -61,6 +61,10 @@ from ._lib.dtype import (  # pyright: ignore[reportMissingModuleSource]
     utf8,
 )
 from ._lib.iter import ArrayIterator  # pyright: ignore[reportMissingModuleSource]
+from ._lib.runtime import (  # pyright: ignore[reportMissingModuleSource]
+    set_worker_threads,
+    worker_threads,
+)
 from ._lib.scalar import (  # pyright: ignore[reportMissingModuleSource]
     BinaryScalar,
     BoolScalar,
@@ -178,7 +182,7 @@ __all__ = [
     # Serde
     "ArrayContext",
     "SerializedArray",
-    # Pickle
+    # Pickle support
     "_unpickle_array",
     # File
     "VortexFile",
@@ -187,6 +191,9 @@ __all__ = [
     "ArrayIterator",
     # Scan
     "RepeatedScan",
+    # Runtime
+    "set_worker_threads",
+    "worker_threads",
     # Version
     "__version__",
 ]

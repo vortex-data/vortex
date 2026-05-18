@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::f64;
+
 use vortex::array::ArrayId;
 use vortex::array::ArrayRef;
 use vortex::array::ArrayVTable;
@@ -57,7 +59,7 @@ impl FlatLayoutFixture for PcoFixture {
                 if i % 257 == 0 {
                     1_000_000.0 + i as f64
                 } else {
-                    std::f64::consts::PI
+                    f64::consts::PI
                 }
             })
             .collect();

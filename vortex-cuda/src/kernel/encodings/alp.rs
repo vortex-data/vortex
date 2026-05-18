@@ -137,6 +137,9 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::f32;
+    use std::f64;
+
     use vortex::array::IntoArray;
     use vortex::array::LEGACY_SESSION;
     use vortex::array::VortexSessionExecute;
@@ -160,8 +163,8 @@ mod tests {
 
     /// Irrational values ALP cannot encode losslessly, guaranteed to land
     /// in the exception list on round-trip through `alp_encode`.
-    const UNENCODABLE: f64 = std::f64::consts::PI;
-    const UNENCODABLE_F32: f32 = std::f32::consts::PI;
+    const UNENCODABLE: f64 = f64::consts::PI;
+    const UNENCODABLE_F32: f32 = f32::consts::PI;
 
     /// Small manually-constructed ALP array with patches. Exercises the
     /// custom-construction path (as opposed to going through `alp_encode`).

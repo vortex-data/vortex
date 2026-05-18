@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-include ../setup.slt
+include ../setup.slt.no
 
 query I
 COPY (SELECT * FROM (VALUES ('Hello'), ('Hi'), ) AS t(str)) TO '$__TEST_DIR__/file_index_1.vortex';

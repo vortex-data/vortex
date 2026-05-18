@@ -238,7 +238,7 @@ mod tests {
     use crate::arrays::Struct;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinView;
-    use crate::arrow::ArrowArrayExecutor;
+    use crate::arrow::ArrowSessionExt;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::BufferGrowthStrategy;
@@ -446,19 +446,25 @@ mod tests {
 
         let mut arrow_ctx = LEGACY_SESSION.create_execution_ctx();
         let expected = arrow_zip(
-            mask.into_array()
-                .execute_arrow(None, &mut arrow_ctx)
+            LEGACY_SESSION
+                .arrow()
+                .execute_arrow(mask.into_array(), None, &mut arrow_ctx)
                 .unwrap()
                 .as_boolean(),
-            &if_true.execute_arrow(None, &mut arrow_ctx).unwrap(),
-            &if_false.execute_arrow(None, &mut arrow_ctx).unwrap(),
+            &LEGACY_SESSION
+                .arrow()
+                .execute_arrow(if_true, None, &mut arrow_ctx)
+                .unwrap(),
+            &LEGACY_SESSION
+                .arrow()
+                .execute_arrow(if_false, None, &mut arrow_ctx)
+                .unwrap(),
         )
         .unwrap();
 
-        let actual = zipped
-            .array()
-            .clone()
-            .execute_arrow(None, &mut arrow_ctx)
+        let actual = LEGACY_SESSION
+            .arrow()
+            .execute_arrow(zipped.array().clone(), None, &mut arrow_ctx)
             .unwrap();
         assert_eq!(actual.as_ref(), expected.as_ref());
     }

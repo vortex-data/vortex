@@ -4,7 +4,7 @@
 # Check projection pushdowns with different sets of pre- and
 # post-filter column set
 
-include ./setup.slt
+include ./setup.slt.no
 
 query I
 COPY (SELECT 0 AS i) TO '$__TEST_DIR__/projection-pushdown.vortex';

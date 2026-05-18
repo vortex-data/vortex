@@ -36,6 +36,7 @@ Use :func:`~vortex.io.write` to write the Vortex array to disk:
 .. doctest::
 
    >>> import vortex as vx
+   >>>
    >>> vx.io.write(vtx, "example.vortex")  # doctest: +SKIP
 
 Small Vortex files (this one is just 71KiB) currently have substantial overhead relative to their
@@ -56,6 +57,7 @@ Use :func:`~vortex.open` to open and read the Vortex array from disk:
 .. doctest::
 
    >>> import vortex as vx
+   >>>
    >>> cvtx = vx.open("example.vortex").scan().read_all()  # doctest: +SKIP
 
 
@@ -68,6 +70,7 @@ IO and decoding and read just the data that is relevant to you:
 .. doctest::
 
     >>> import vortex as vx
+    >>>
     >>> vf = vx.open("example.vortex")  # doctest: +SKIP
     >>> # row indices must be ordered and unique
     >>> indices = vx.array([1, 2, 10])

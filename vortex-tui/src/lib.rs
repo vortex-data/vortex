@@ -123,11 +123,15 @@ mod native_cli {
     ) -> anyhow::Result<()> {
         let _ = env_logger::try_init();
 
-        let cli = Cli::parse_from(args);
+        // Use `try_parse_from` rather than `parse_from` so we never call
+        // `std::process::exit` from library code — that segfaults when
+        // `launch_from` runs inside a Python-loaded dylib.
+        // See https://github.com/vortex-data/vortex/issues/7910.
+        let cli = Cli::try_parse_from(args)?;
 
         let path = cli.command.file_path();
         if !std::fs::exists(path)? {
-            Cli::command()
+            return Err(Cli::command()
                 .error(
                     clap::error::ErrorKind::Io,
                     format!(
@@ -135,7 +139,7 @@ mod native_cli {
                         path.to_str().vortex_expect("file path")
                     ),
                 )
-                .exit()
+                .into());
         }
 
         match cli.command {
@@ -148,6 +152,27 @@ mod native_cli {
         };
 
         Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use vortex::VortexSessionDefault;
+        use vortex::session::VortexSession;
+
+        /// Regression test for https://github.com/vortex-data/vortex/issues/7910:
+        /// `vx --help` must surface as a `clap::Error` rather than calling
+        /// `std::process::exit`, which segfaults when invoked via the Python
+        /// binding.
+        #[tokio::test]
+        async fn help_flag_surfaces_clap_error() {
+            let err = super::launch_from(&VortexSession::default(), ["vx", "--help"])
+                .await
+                .expect_err("--help must surface as a clap::Error");
+            assert_eq!(
+                err.downcast_ref::<clap::Error>().map(clap::Error::kind),
+                Some(clap::error::ErrorKind::DisplayHelp),
+            );
+        }
     }
 }
 

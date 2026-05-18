@@ -49,6 +49,7 @@ use vortex::layout::LayoutReader;
 use vortex::layout::LayoutReaderRef;
 use vortex::layout::LayoutRef;
 use vortex::layout::LayoutStrategy;
+use vortex::layout::SplitRange;
 use vortex::layout::VTable;
 use vortex::layout::layouts::SharedArrayFuture;
 use vortex::layout::segments::SegmentId;
@@ -284,10 +285,11 @@ impl LayoutReader for CudaFlatReader {
     fn register_splits(
         &self,
         _field_mask: &[FieldMask],
-        row_range: &Range<u64>,
+        split_range: &SplitRange,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
-        splits.insert(row_range.start + self.layout.row_count);
+        split_range.check_bounds(self.layout.row_count)?;
+        splits.insert(split_range.root_row_range().end);
         Ok(())
     }
 

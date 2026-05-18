@@ -6,6 +6,7 @@ use arrow_schema::Field;
 use arrow_schema::Schema;
 use datafusion_common::Result as DFResult;
 use datafusion_common::exec_datafusion_err;
+use vortex::array::arrow::ArrowSession;
 use vortex::dtype::DType;
 
 /// Calculate the physical Arrow schema for a Vortex file given its DType and the expected logical schema.
@@ -22,6 +23,7 @@ use vortex::dtype::DType;
 pub fn calculate_physical_schema(
     dtype: &DType,
     reference_logical_schema: &Schema,
+    arrow_session: &ArrowSession,
 ) -> DFResult<Schema> {
     let DType::Struct(struct_dtype, _) = dtype else {
         return Err(exec_datafusion_err!(
@@ -34,23 +36,23 @@ pub fn calculate_physical_schema(
         .iter()
         .zip(struct_dtype.fields())
         .map(|(name, field_dtype)| {
-            let arrow_type = match reference_logical_schema.field_with_name(name.as_ref()).ok() {
+            let logical_field = reference_logical_schema.field_with_name(name.as_ref()).ok();
+            match logical_field {
                 Some(logical_field) => {
-                    calculate_physical_field_type(&field_dtype, logical_field.data_type())?
+                    let arrow_type = calculate_physical_field_type(
+                        &field_dtype,
+                        logical_field.data_type(),
+                        arrow_session,
+                    )?;
+                    Ok(
+                        Field::new(name.to_string(), arrow_type, field_dtype.is_nullable())
+                            .with_metadata(logical_field.metadata().clone()),
+                    )
                 }
-                None => {
-                    // Field not in logical schema, use default conversion
-                    field_dtype.to_arrow_dtype().map_err(|e| {
-                        exec_datafusion_err!("Failed to convert dtype to arrow: {e}")
-                    })?
-                }
-            };
-
-            Ok(Field::new(
-                name.to_string(),
-                arrow_type,
-                field_dtype.is_nullable(),
-            ))
+                None => arrow_session
+                    .to_arrow_field(name.as_ref(), &field_dtype)
+                    .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}")),
+            }
         })
         .collect::<DFResult<Vec<_>>>()?;
 
@@ -59,7 +61,11 @@ pub fn calculate_physical_schema(
 
 /// Calculate the physical Arrow type for a field, preferring the logical type when the
 /// DType doesn't roundtrip cleanly.
-fn calculate_physical_field_type(dtype: &DType, logical_type: &DataType) -> DFResult<DataType> {
+fn calculate_physical_field_type(
+    dtype: &DType,
+    logical_type: &DataType,
+    arrow_session: &ArrowSession,
+) -> DFResult<DataType> {
     // Check if the logical type is one that doesn't roundtrip through DType
     Ok(match logical_type {
         // Dictionary types lose their encoding when converted to DType
@@ -87,22 +93,26 @@ fn calculate_physical_field_type(dtype: &DType, logical_type: &DataType) -> DFRe
                     .iter()
                     .zip(struct_dtype.fields())
                     .map(|(name, field_dtype)| {
-                        let arrow_type =
-                            match logical_fields.iter().find(|f| f.name() == name.as_ref()) {
-                                Some(logical_field) => calculate_physical_field_type(
+                        match logical_fields.iter().find(|f| f.name() == name.as_ref()) {
+                            Some(logical_field) => {
+                                let arrow_type = calculate_physical_field_type(
                                     &field_dtype,
                                     logical_field.data_type(),
-                                )?,
-                                None => field_dtype.to_arrow_dtype().map_err(|e| {
+                                    arrow_session,
+                                )?;
+                                Ok(Field::new(
+                                    name.to_string(),
+                                    arrow_type,
+                                    field_dtype.is_nullable(),
+                                )
+                                .with_metadata(logical_field.metadata().clone()))
+                            }
+                            None => arrow_session
+                                .to_arrow_field(name.as_ref(), &field_dtype)
+                                .map_err(|e| {
                                     exec_datafusion_err!("Failed to convert dtype to arrow: {e}")
-                                })?,
-                            };
-
-                        Ok(Field::new(
-                            name.to_string(),
-                            arrow_type,
-                            field_dtype.is_nullable(),
-                        ))
+                                }),
+                        }
                     })
                     .collect::<DFResult<Vec<_>>>()?;
 
@@ -117,8 +127,11 @@ fn calculate_physical_field_type(dtype: &DType, logical_type: &DataType) -> DFRe
         // For list types, recursively check the element type
         DataType::List(logical_elem) | DataType::LargeList(logical_elem) => {
             if let DType::List(elem_dtype, _) = dtype {
-                let physical_elem_type =
-                    calculate_physical_field_type(elem_dtype, logical_elem.data_type())?;
+                let physical_elem_type = calculate_physical_field_type(
+                    elem_dtype,
+                    logical_elem.data_type(),
+                    arrow_session,
+                )?;
                 let physical_field = Field::new(
                     logical_elem.name(),
                     physical_elem_type,
@@ -139,8 +152,11 @@ fn calculate_physical_field_type(dtype: &DType, logical_type: &DataType) -> DFRe
         // For fixed-size list types, recursively check the element type
         DataType::FixedSizeList(logical_elem, size) => {
             if let DType::FixedSizeList(elem_dtype, ..) = dtype {
-                let physical_elem_type =
-                    calculate_physical_field_type(elem_dtype, logical_elem.data_type())?;
+                let physical_elem_type = calculate_physical_field_type(
+                    elem_dtype,
+                    logical_elem.data_type(),
+                    arrow_session,
+                )?;
                 let physical_field = Field::new(
                     logical_elem.name(),
                     physical_elem_type,
@@ -157,8 +173,11 @@ fn calculate_physical_field_type(dtype: &DType, logical_type: &DataType) -> DFRe
         // For list view types, recursively check the element type
         DataType::ListView(logical_elem) | DataType::LargeListView(logical_elem) => {
             if let DType::List(elem_dtype, _) = dtype {
-                let physical_elem_type =
-                    calculate_physical_field_type(elem_dtype, logical_elem.data_type())?;
+                let physical_elem_type = calculate_physical_field_type(
+                    elem_dtype,
+                    logical_elem.data_type(),
+                    arrow_session,
+                )?;
                 let physical_field = Field::new(
                     logical_elem.name(),
                     physical_elem_type,
@@ -175,10 +194,13 @@ fn calculate_physical_field_type(dtype: &DType, logical_type: &DataType) -> DFRe
                 ));
             }
         }
-        // All other types roundtrip cleanly, use the DType's natural conversion
-        _ => dtype
-            .to_arrow_dtype()
-            .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?,
+        // All other types roundtrip cleanly, use the session-aware Arrow Field inference
+        // (canonical for non-extension dtypes, plugin-routed for extensions like UUID).
+        _ => arrow_session
+            .to_arrow_field("", dtype)
+            .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?
+            .data_type()
+            .clone(),
     })
 }
 
@@ -209,7 +231,8 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let physical_schema = calculate_physical_schema(&dtype, &logical_schema).unwrap();
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
 
         // Should preserve the dictionary type from the logical schema
         assert_eq!(
@@ -239,7 +262,8 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let physical_schema = calculate_physical_schema(&dtype, &logical_schema).unwrap();
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
 
         assert_eq!(physical_schema.field(0).data_type(), &DataType::Utf8);
         assert_eq!(physical_schema.field(1).data_type(), &DataType::LargeUtf8);
@@ -259,7 +283,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = calculate_physical_schema(&dtype, &logical_schema);
+        let result = calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default());
         assert!(
             result
                 .unwrap_err()
@@ -279,7 +303,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = calculate_physical_schema(&dtype, &logical_schema);
+        let result = calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default());
         assert!(
             result
                 .unwrap_err()
@@ -325,7 +349,8 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let physical_schema = calculate_physical_schema(&dtype, &logical_schema).unwrap();
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
 
         // Check outer structure
         assert_eq!(physical_schema.fields().len(), 2);
@@ -366,7 +391,8 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let physical_schema = calculate_physical_schema(&dtype, &logical_schema).unwrap();
+        let physical_schema =
+            calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default()).unwrap();
 
         if let DataType::List(elem_field) = physical_schema.field(0).data_type() {
             assert_eq!(
@@ -385,7 +411,7 @@ mod tests {
 
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
 
-        let result = calculate_physical_schema(&dtype, &logical_schema);
+        let result = calculate_physical_schema(&dtype, &logical_schema, &ArrowSession::default());
         assert!(result.is_err());
         assert!(
             result

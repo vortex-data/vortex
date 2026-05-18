@@ -16,6 +16,10 @@ use std::env::VarError;
 use std::fmt;
 use std::fmt::Display;
 use std::sync::LazyLock;
+#[cfg(debug_assertions)]
+use std::sync::atomic::AtomicUsize;
+#[cfg(debug_assertions)]
+use std::sync::atomic::Ordering;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -314,9 +318,8 @@ impl ExecutionCtx {
             session,
             #[cfg(debug_assertions)]
             id: {
-                static EXEC_CTX_ID: std::sync::atomic::AtomicUsize =
-                    std::sync::atomic::AtomicUsize::new(0);
-                EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
+                EXEC_CTX_ID.fetch_add(1, Ordering::Relaxed)
             },
             #[cfg(debug_assertions)]
             ops: Vec::new(),

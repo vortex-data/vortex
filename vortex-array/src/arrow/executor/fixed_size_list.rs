@@ -12,8 +12,8 @@ use crate::ExecutionCtx;
 use crate::arrays::FixedSizeList;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::fixed_size_list::FixedSizeListArrayExt;
-use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
+use crate::arrow::session::ArrowSessionExt;
 
 pub(super) fn to_arrow_fixed_list(
     array: ArrayRef,
@@ -44,10 +44,11 @@ fn list_to_list(
         list_size
     );
 
-    let elements = array
-        .elements()
-        .clone()
-        .execute_arrow(Some(elements_field.data_type()), ctx)?;
+    let elements = ctx.session().clone().arrow().execute_arrow(
+        array.elements().clone(),
+        Some(elements_field.as_ref()),
+        ctx,
+    )?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert FixedSizeListArray to non-nullable Arrow array when elements are nullable"

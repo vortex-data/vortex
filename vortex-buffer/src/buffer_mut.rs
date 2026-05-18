@@ -68,9 +68,10 @@ impl<T> BufferMut<T> {
         let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *alignment);
         bytes.advance(bytes.as_ptr().align_offset(*alignment));
         unsafe { bytes.set_len(len * size_of::<T>()) };
+        let actual_len = bytes.len().checked_div(size_of::<T>()).unwrap_or(0);
         Self {
             bytes,
-            length: len,
+            length: actual_len,
             alignment,
             _marker: Default::default(),
         }
@@ -861,7 +862,7 @@ mod test {
         assert_eq!(buf.remaining(), 10);
         assert_eq!(buf.chunk(), b"helloworld");
 
-        Buf::advance(&mut buf, 5);
+        buf.advance(5);
         assert_eq!(buf.remaining(), 5);
         assert_eq!(buf.as_slice(), b"world");
         assert_eq!(buf.chunk(), b"world");
@@ -872,7 +873,34 @@ mod test {
         let mut buf = ByteBufferMut::copy_from("hello".as_bytes());
         assert_eq!(BufMut::remaining_mut(&buf), usize::MAX - 5);
 
-        BufMut::put_slice(&mut buf, b"world");
+        buf.put_slice(b"world");
         assert_eq!(buf.as_slice(), b"helloworld");
+    }
+
+    #[test]
+    fn buffer_mut_zeroed() {
+        const LEN: usize = 17;
+
+        let mut buf = BufferMut::<u32>::zeroed(LEN);
+
+        assert_eq!(buf.as_ptr().align_offset(*Alignment::of::<u32>()), 0);
+        assert_eq!(buf.as_slice(), &[0; LEN]);
+
+        buf[3] = 7;
+        assert_eq!(buf.as_slice()[3], 7);
+    }
+
+    #[test]
+    fn buffer_mut_zeroed_aligned() {
+        const LEN: usize = 17;
+        let alignment = Alignment::new(64);
+
+        let mut buf = BufferMut::<u32>::zeroed_aligned(LEN, alignment);
+
+        assert_eq!(buf.as_ptr().align_offset(*alignment), 0);
+        assert_eq!(buf.as_slice(), &[0; LEN]);
+
+        buf[3] = 7;
+        assert_eq!(buf.as_slice()[3], 7);
     }
 }

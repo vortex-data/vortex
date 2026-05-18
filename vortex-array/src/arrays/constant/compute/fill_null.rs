@@ -25,7 +25,7 @@ mod test {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::arrays::ConstantArray;
-    use crate::arrow::ArrowArrayExecutor;
+    use crate::arrow::ArrowSessionExt;
     use crate::builtins::ArrayBuiltins;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -43,8 +43,14 @@ mod test {
 
         assert!(!actual.dtype().is_nullable());
 
-        let actual_arrow = actual.clone().execute_arrow(None, &mut ctx).unwrap();
-        let expected_arrow = expected.clone().execute_arrow(None, &mut ctx).unwrap();
+        let actual_arrow = LEGACY_SESSION
+            .arrow()
+            .execute_arrow(actual.clone(), None, &mut ctx)
+            .unwrap();
+        let expected_arrow = LEGACY_SESSION
+            .arrow()
+            .execute_arrow(expected.clone(), None, &mut ctx)
+            .unwrap();
         assert_eq!(
             &actual_arrow,
             &expected_arrow,
@@ -65,8 +71,14 @@ mod test {
 
         assert!(!actual.dtype().is_nullable());
 
-        let actual_arrow = actual.clone().execute_arrow(None, &mut ctx).unwrap();
-        let expected_arrow = expected.clone().execute_arrow(None, &mut ctx).unwrap();
+        let actual_arrow = LEGACY_SESSION
+            .arrow()
+            .execute_arrow(actual.clone(), None, &mut ctx)
+            .unwrap();
+        let expected_arrow = LEGACY_SESSION
+            .arrow()
+            .execute_arrow(expected.clone(), None, &mut ctx)
+            .unwrap();
         assert_eq!(
             &actual_arrow,
             &expected_arrow,
@@ -92,8 +104,14 @@ mod test {
 
         assert!(actual.dtype().is_nullable());
 
-        let actual_arrow = actual.clone().execute_arrow(None, &mut ctx).unwrap();
-        let expected_arrow = expected.clone().execute_arrow(None, &mut ctx).unwrap();
+        let actual_arrow = LEGACY_SESSION
+            .arrow()
+            .execute_arrow(actual.clone(), None, &mut ctx)
+            .unwrap();
+        let expected_arrow = LEGACY_SESSION
+            .arrow()
+            .execute_arrow(expected.clone(), None, &mut ctx)
+            .unwrap();
         assert_eq!(
             &actual_arrow,
             &expected_arrow,

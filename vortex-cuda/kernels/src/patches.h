@@ -14,7 +14,7 @@ typedef enum { CO_U8 = 0, CO_U16 = 1, CO_U32 = 2, CO_U64 = 3 } ChunkOffsetType;
 
 static const uint32_t PATCH_DERIVE_INDICES_BASE = UINT32_MAX;
 
-/// GPU-resident patches for fused exception patching during bit-unpacking.
+/// GPU-resident patches for fused CUDA exception patching.
 ///
 /// Patches are stored in sorted order within each chunk. The chunk_offsets
 /// array maps each chunk to the start of its range in the indices/values arrays.

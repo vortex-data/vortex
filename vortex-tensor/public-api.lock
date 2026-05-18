@@ -284,8 +284,6 @@ pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::child_nam
 
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::fmt_sql(&self, &Self::Options, &vortex_array::expr::expression::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
 pub fn vortex_tensor::scalar_fns::cosine_similarity::CosineSimilarity::is_fallible(&self, &Self::Options) -> bool
@@ -325,8 +323,6 @@ pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::arity(&self, &Sel
 pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::vtable::ChildName
 
 pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
-
-pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::fmt_sql(&self, &Self::Options, &vortex_array::expr::expression::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_tensor::scalar_fns::inner_product::InnerProduct::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -369,8 +365,6 @@ pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::arity(&self, &Self::Optio
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::vtable::ChildName
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
-
-pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::fmt_sql(&self, &Self::Options, &vortex_array::expr::expression::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_tensor::scalar_fns::l2_denorm::L2Denorm::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -415,8 +409,6 @@ pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::arity(&self, &Self::Options) 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::vtable::ChildName
 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
-
-pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::fmt_sql(&self, &Self::Options, &vortex_array::expr::expression::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_tensor::scalar_fns::l2_norm::L2Norm::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
@@ -504,8 +496,6 @@ pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::child_name(&sel
 
 pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::vtable::ExecutionArgs, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::erased::ArrayRef>
 
-pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::fmt_sql(&self, &Self::Options, &vortex_array::expr::expression::Expression, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-
 pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::id(&self) -> vortex_array::scalar_fn::ScalarFnId
 
 pub fn vortex_tensor::scalar_fns::sorf_transform::SorfTransform::is_fallible(&self, &Self::Options) -> bool
@@ -556,6 +546,24 @@ pub fn vortex_tensor::vector::Vector::hash<__H: core::hash::Hasher>(&self, &mut 
 
 impl core::marker::StructuralPartialEq for vortex_tensor::vector::Vector
 
+impl vortex_array::arrow::session::ArrowExportVTable for vortex_tensor::vector::Vector
+
+pub fn vortex_tensor::vector::Vector::arrow_ext_id(&self) -> vortex_session::registry::Id
+
+pub fn vortex_tensor::vector::Vector::execute_arrow(&self, vortex_array::array::erased::ArrayRef, &arrow_schema::field::Field, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrow::session::ArrowExport>
+
+pub fn vortex_tensor::vector::Vector::to_arrow_field(&self, &str, &vortex_array::dtype::extension::erased::ExtDTypeRef, &vortex_array::arrow::session::ArrowSession) -> vortex_error::VortexResult<core::option::Option<arrow_schema::field::Field>>
+
+pub fn vortex_tensor::vector::Vector::vortex_ext_id(&self) -> vortex_array::dtype::extension::ExtId
+
+impl vortex_array::arrow::session::ArrowImportVTable for vortex_tensor::vector::Vector
+
+pub fn vortex_tensor::vector::Vector::arrow_ext_id(&self) -> vortex_session::registry::Id
+
+pub fn vortex_tensor::vector::Vector::from_arrow_array(&self, arrow_array::array::ArrayRef, &vortex_array::dtype::extension::erased::ExtDTypeRef) -> vortex_error::VortexResult<vortex_array::arrow::session::ArrowImport>
+
+pub fn vortex_tensor::vector::Vector::from_arrow_field(&self, &arrow_schema::field::Field) -> vortex_error::VortexResult<core::option::Option<vortex_array::dtype::DType>>
+
 impl vortex_array::dtype::extension::vtable::ExtVTable for vortex_tensor::vector::Vector
 
 pub type vortex_tensor::vector::Vector::Metadata = vortex_array::extension::EmptyMetadata
@@ -605,6 +613,8 @@ pub fn vortex_tensor::vector::VectorMatcherMetadata::hash<__H: core::hash::Hashe
 impl core::marker::Copy for vortex_tensor::vector::VectorMatcherMetadata
 
 impl core::marker::StructuralPartialEq for vortex_tensor::vector::VectorMatcherMetadata
+
+pub const vortex_tensor::vector::ARROW_VECTOR_EXTENSION_NAME: &str
 
 pub mod vortex_tensor::vector_search
 

@@ -3,7 +3,7 @@
 
 # Projection expression tests - derived from vortex-datafusion schema_evolution.rs
 
-include ./setup.slt
+include ./setup.slt.no
 
 # Create file with numeric columns for arithmetic projections
 query I

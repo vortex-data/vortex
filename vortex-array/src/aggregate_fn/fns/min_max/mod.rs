@@ -298,6 +298,7 @@ mod tests {
     use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::min_max::MinMax;
     use crate::aggregate_fn::fns::min_max::MinMaxResult;
+    use crate::aggregate_fn::fns::min_max::make_minmax_dtype;
     use crate::aggregate_fn::fns::min_max::min_max;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
@@ -451,7 +452,7 @@ mod tests {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
         let mut state = MinMax.empty_partial(&EmptyOptions, &dtype)?;
 
-        let struct_dtype = crate::aggregate_fn::fns::min_max::make_minmax_dtype(&dtype);
+        let struct_dtype = make_minmax_dtype(&dtype);
         let scalar1 = Scalar::struct_(
             struct_dtype.clone(),
             vec![Scalar::from(5i32), Scalar::from(15i32)],

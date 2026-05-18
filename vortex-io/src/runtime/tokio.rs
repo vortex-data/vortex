@@ -174,6 +174,7 @@ mod tests {
 
     use futures::FutureExt;
     use tokio::runtime::Runtime as TokioRt;
+    use tokio::sync::oneshot;
 
     use super::*;
 
@@ -200,7 +201,7 @@ mod tests {
         let c = Arc::clone(&counter);
 
         // Create a channel to ensure the future doesn't complete immediately
-        let (send, recv) = tokio::sync::oneshot::channel::<()>();
+        let (send, recv) = oneshot::channel::<()>();
 
         let fut = async move {
             let _ = recv.await;

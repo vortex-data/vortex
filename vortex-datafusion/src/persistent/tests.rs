@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use datafusion::arrow::array::Int32Array;
+use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::util::pretty::pretty_format_batches;
 use datafusion::datasource::provider::DefaultTableFactory;
 use datafusion::execution::SessionStateBuilder;
@@ -29,6 +30,7 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex::io::VortexWrite;
 use vortex::io::object_store::ObjectStoreReadAt;
 use vortex::io::object_store::ObjectStoreWrite;
+use vortex::io::runtime::Handle;
 use vortex::layout::LayoutStrategy;
 use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
@@ -80,7 +82,7 @@ async fn count_query_partitions(ctx: &SessionContext, sql: &str) -> anyhow::Resu
     Ok(partitions.parse()?)
 }
 
-fn batch_values(batches: &[datafusion::arrow::array::RecordBatch]) -> Vec<i32> {
+fn batch_values(batches: &[RecordBatch]) -> Vec<i32> {
     let mut values = Vec::with_capacity(batches.iter().map(|batch| batch.num_rows()).sum());
 
     for batch in batches {
@@ -148,7 +150,6 @@ async fn test_query_file(#[values(Some(1), None)] limit: Option<usize>) -> anyho
 #[tokio::test]
 async fn test_addition_pushdown() -> anyhow::Result<()> {
     let ctx = TestSessionContext::default();
-    dbg!(&ctx.store);
 
     ctx.session
         .sql(
@@ -383,7 +384,7 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -
     let reader = Arc::new(ObjectStoreReadAt::new(
         Arc::clone(&store),
         path.clone(),
-        vortex::io::runtime::Handle::find().expect("tokio runtime should be available in tests"),
+        Handle::find().expect("tokio runtime should be available in tests"),
     ));
     let vxf = session
         .open_options()
@@ -429,6 +430,142 @@ async fn test_repartitioned_scan_matches_non_repartitioned_for_uneven_splits() -
 
     assert_eq!(serial_values, expected);
     assert_eq!(repartitioned_values, serial_values);
+
+    Ok(())
+}
+
+/// Roundtrip an `arrow.uuid` extension column through a Vortex file: write the column directly
+/// via the session-aware Arrow→Vortex conversion, then `SELECT *` and assert both the field
+/// metadata and the underlying values survive the trip.
+#[tokio::test]
+async fn arrow_uuid_extension_roundtrip() -> anyhow::Result<()> {
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Schema;
+    use arrow_schema::extension::Uuid;
+    use datafusion::arrow::array::FixedSizeBinaryArray;
+    use datafusion::arrow::array::RecordBatch;
+    use datafusion::assert_batches_sorted_eq;
+    use vortex::array::arrow::ArrowSessionExt;
+
+    let ctx = TestSessionContext::default();
+    // Default vortex session has importer/exporter for Arrow UUID
+    let session = VortexSession::default();
+
+    let mut uuid_field = Field::new("id", DataType::FixedSizeBinary(16), false);
+    uuid_field.try_with_extension_type(Uuid)?;
+    let schema = Arc::new(Schema::new(vec![uuid_field]));
+
+    let uuids = FixedSizeBinaryArray::try_from_iter(
+        [*b"0123456789abcdef", *b"fedcba9876543210"].into_iter(),
+    )?;
+    let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(uuids)])?;
+    let array = session.arrow().from_arrow_record_batch(batch, &schema)?;
+
+    let mut writer = ObjectStoreWrite::new(Arc::clone(&ctx.store), &"uuid.vortex".into()).await?;
+    session
+        .write_options()
+        .write(&mut writer, array.to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    let result = ctx
+        .session
+        .sql("SELECT * FROM '/uuid.vortex'")
+        .await?
+        .collect()
+        .await?;
+
+    assert!(
+        result[0]
+            .schema_ref()
+            .field(0)
+            .has_valid_extension_type::<Uuid>()
+    );
+
+    assert_batches_sorted_eq!(
+        [
+            "+----------------------------------+",
+            "| id                               |",
+            "+----------------------------------+",
+            "| 30313233343536373839616263646566 |",
+            "| 66656463626139383736353433323130 |",
+            "+----------------------------------+",
+        ],
+        &result
+    );
+
+    Ok(())
+}
+
+/// Same as [`arrow_uuid_extension_roundtrip`] but with the `arrow.uuid` field nested inside a
+/// top-level `Struct`, exercising recursive session-aware Field/Schema inference: if any layer
+/// falls back to the non-plugin canonical path, the inner field loses its extension metadata.
+#[tokio::test]
+async fn arrow_uuid_extension_roundtrip_nested_struct() -> anyhow::Result<()> {
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use arrow_schema::Fields;
+    use arrow_schema::Schema;
+    use arrow_schema::extension::Uuid;
+    use datafusion::arrow::array::Array;
+    use datafusion::arrow::array::FixedSizeBinaryArray;
+    use datafusion::arrow::array::RecordBatch;
+    use datafusion::arrow::array::StructArray as ArrowStructArray;
+    use datafusion::assert_batches_sorted_eq;
+    use vortex::array::arrow::ArrowSessionExt;
+
+    let ctx = TestSessionContext::default();
+    let session = VortexSession::default();
+
+    let mut inner_uuid_field = Field::new("id", DataType::FixedSizeBinary(16), false);
+    inner_uuid_field.try_with_extension_type(Uuid)?;
+    let payload_fields = Fields::from(vec![inner_uuid_field]);
+    let payload_field = Field::new("payload", DataType::Struct(payload_fields.clone()), false);
+    let schema = Arc::new(Schema::new(vec![payload_field]));
+
+    let uuids: Arc<dyn Array> = Arc::new(FixedSizeBinaryArray::try_from_iter(
+        [*b"0123456789abcdef", *b"fedcba9876543210"].into_iter(),
+    )?);
+    let payload_array = ArrowStructArray::new(payload_fields, vec![uuids], None);
+    let batch = RecordBatch::try_new(Arc::clone(&schema), vec![Arc::new(payload_array)])?;
+    let array = session.arrow().from_arrow_record_batch(batch, &schema)?;
+
+    let mut writer =
+        ObjectStoreWrite::new(Arc::clone(&ctx.store), &"uuid_struct.vortex".into()).await?;
+    session
+        .write_options()
+        .write(&mut writer, array.to_array_stream())
+        .await?;
+    writer.shutdown().await?;
+
+    let result = ctx
+        .session
+        .sql("SELECT payload FROM '/uuid_struct.vortex'")
+        .await?
+        .collect()
+        .await?;
+
+    let read_payload = result[0].schema_ref().field(0);
+    let DataType::Struct(read_inner) = read_payload.data_type() else {
+        panic!(
+            "expected Struct payload, got {:?}",
+            read_payload.data_type()
+        );
+    };
+    assert!(read_inner[0].has_valid_extension_type::<Uuid>());
+
+    assert_batches_sorted_eq!(
+        [
+            "+----------------------------------------+",
+            "| payload                                |",
+            "+----------------------------------------+",
+            "| {id: 30313233343536373839616263646566} |",
+            "| {id: 66656463626139383736353433323130} |",
+            "+----------------------------------------+",
+        ],
+        &result
+    );
 
     Ok(())
 }

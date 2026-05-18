@@ -8,6 +8,8 @@ mod nullable;
 mod roundtrip;
 mod structural;
 
+use std::f32;
+
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand_distr::Distribution;
@@ -106,7 +108,7 @@ fn unwrap_codes_centroids_norms(
 }
 
 fn theoretical_mse_bound(bit_width: u8) -> f32 {
-    let sqrt3_pi_over_2 = (3.0f32).sqrt() * std::f32::consts::PI / 2.0;
+    let sqrt3_pi_over_2 = (3.0f32).sqrt() * f32::consts::PI / 2.0;
     sqrt3_pi_over_2 / (4.0f32).powi(bit_width as i32)
 }
 

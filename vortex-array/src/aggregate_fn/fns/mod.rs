@@ -10,5 +10,6 @@ pub mod last;
 pub mod mean;
 pub mod min_max;
 pub mod nan_count;
+pub mod null_count;
 pub mod sum;
 pub mod uncompressed_size_in_bytes;

@@ -72,6 +72,22 @@ Makefile target is used.
 
 If you touch documentation run doc tests via `cargo test --doc`.
 
+For Python binding changes under `vortex-python/`, run the narrow Python checks that match the
+files touched before broader test suites. Useful checks include:
+
+```bash
+python -m py_compile <changed-python-files>
+uv run --all-packages --reinstall-package vortex-data pytest <changed-python-tests>
+```
+
+If Python docstrings, `docs/api/python/`, or Sphinx configuration change, also run the docs checks
+from a clean Sphinx environment:
+
+```bash
+uv run --all-packages make -C docs clean html
+uv run --all-packages make -C docs clean doctest
+```
+
 ## Linting, Formatting, and Generated Files
 
 Run verification that matches the files changed. Do not run expensive Rust checks for changes that
@@ -79,6 +95,16 @@ only touch Markdown, agent configuration, comments outside Rust code, symlinks, 
 with no Rust/API behavior impact. For docs/config-only changes, validate formatting by inspection
 or with a targeted doc/config command, and verify symlink or path changes with `ls`, `find`, and
 `git status`.
+
+For Python binding changes under `vortex-python/`, run the relevant Python lint and type checks:
+
+```bash
+uv run basedpyright vortex-python
+uv run ruff check <changed-python-files>
+```
+
+If PyO3 Rust files in `vortex-python/src/` change, include `cargo +nightly fmt --check -p
+vortex-python`. Always finish Python binding work with `git diff --check`.
 
 For Rust code, public API, feature flag, or generated-file changes, run these before stopping:
 

@@ -7,6 +7,7 @@
 
 use std::env;
 use std::fs;
+use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -289,6 +290,7 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
         .raw_line("#![allow(non_camel_case_types)]")
         .raw_line("#![allow(non_upper_case_globals)]")
         .raw_line("#![allow(non_snake_case)]")
+        .raw_line("#![allow(clippy::absolute_paths)]")
         .raw_line("#![allow(clippy::suspicious_doc_comments)]")
         .raw_line("#![allow(clippy::enum_variant_names)]")
         // Add the #[must_use] attribute to FFI functions that return results.
@@ -430,7 +432,7 @@ fn main() {
 
     drop(fs::remove_file(&duckdb_dir));
     drop(fs::remove_dir_all(&duckdb_dir));
-    std::os::unix::fs::symlink(&source_dir, &duckdb_dir).unwrap();
+    symlink(&source_dir, &duckdb_dir).unwrap();
 
     let has_debug_env =
         env::var("VX_DUCKDB_DEBUG").is_ok_and(|v| matches!(v.as_str(), "1" | "true"));

@@ -27,7 +27,9 @@ use crate::array::ArrayView;
 use crate::array::VTable;
 use crate::arrays::list::ListArrayExt;
 use crate::arrays::list::ListData;
+use crate::arrays::list::array::ELEMENTS_SLOT;
 use crate::arrays::list::array::NUM_SLOTS;
+use crate::arrays::list::array::OFFSETS_SLOT;
 use crate::arrays::list::array::SLOT_NAMES;
 use crate::arrays::list::compute::PARENT_KERNELS;
 use crate::arrays::list::compute::rules::PARENT_RULES;
@@ -116,10 +118,10 @@ impl VTable for List {
             "ListArray expected {NUM_SLOTS} slots, found {}",
             slots.len()
         );
-        let elements = slots[crate::arrays::list::array::ELEMENTS_SLOT]
+        let elements = slots[ELEMENTS_SLOT]
             .as_ref()
             .vortex_expect("ListArray elements slot");
-        let offsets = slots[crate::arrays::list::array::OFFSETS_SLOT]
+        let offsets = slots[OFFSETS_SLOT]
             .as_ref()
             .vortex_expect("ListArray offsets slot");
         vortex_ensure!(

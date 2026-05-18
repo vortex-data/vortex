@@ -10,7 +10,10 @@
     allow(clippy::unwrap_used, clippy::expect_used, clippy::unwrap_in_result)
 )]
 
+use std::sync::Arc;
+
 use vortex_array::arrays::scalar_fn::plugin::ScalarFnArrayPlugin;
+use vortex_array::arrow::ArrowSessionExt;
 use vortex_array::dtype::session::DTypeSessionExt;
 use vortex_array::scalar_fn::session::ScalarFnSessionExt;
 use vortex_array::session::ArraySessionExt;
@@ -49,6 +52,10 @@ pub const SCALAR_FN_ARRAY_TENSOR_PLUGIN_ENV: &str = "VX_SCALAR_FN_ARRAY_TENSOR_P
 pub fn initialize(session: &VortexSession) {
     session.dtypes().register(Vector);
     session.dtypes().register(FixedShapeTensor);
+
+    let arrow_session = session.arrow();
+    arrow_session.register_exporter(Arc::new(Vector));
+    arrow_session.register_importer(Arc::new(Vector));
 
     let session_fns = session.scalar_fns();
 

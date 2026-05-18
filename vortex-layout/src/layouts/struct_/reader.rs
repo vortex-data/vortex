@@ -43,6 +43,7 @@ use crate::ArrayFuture;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
+use crate::SplitRange;
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSource;
@@ -238,20 +239,20 @@ impl LayoutReader for StructReader {
     fn register_splits(
         &self,
         field_mask: &[FieldMask],
-        row_range: &Range<u64>,
+        split_range: &SplitRange,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
         // In the case of an empty struct, we need to register the end split.
-        splits.insert(row_range.end);
+        splits.insert(split_range.root_row_range().end);
 
         // Register splits for the validity child, if there is one
         if let Some(validity_ref) = self.validity()? {
-            validity_ref.register_splits(field_mask, row_range, splits)?;
+            validity_ref.register_splits(field_mask, split_range, splits)?;
         }
 
         self.layout.matching_fields(field_mask, |mask, idx| {
             self.field_reader_by_index(idx)?
-                .register_splits(&[mask], row_range, splits)
+                .register_splits(&[mask], split_range, splits)
         })
     }
 

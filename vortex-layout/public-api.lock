@@ -636,7 +636,7 @@ pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::projection_evaluatio
 
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::pruning_evaluation(&self, &core::ops::range::Range<u64>, &vortex_array::expr::expression::Expression, vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
 
-pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::register_splits(&self, &[vortex_array::dtype::field_mask::FieldMask], &core::ops::range::Range<u64>, &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::register_splits(&self, &[vortex_array::dtype::field_mask::FieldMask], &vortex_layout::SplitRange, &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
 
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::row_count(&self) -> u64
 
@@ -1712,6 +1712,42 @@ pub fn vortex_layout::LazyReaderChildren::get(&self, usize) -> vortex_error::Vor
 
 pub fn vortex_layout::LazyReaderChildren::new(alloc::sync::Arc<dyn vortex_layout::LayoutChildren>, alloc::vec::Vec<vortex_array::dtype::DType>, alloc::vec::Vec<alloc::sync::Arc<str>>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, vortex_session::VortexSession) -> Self
 
+pub struct vortex_layout::SplitRange
+
+impl vortex_layout::SplitRange
+
+pub fn vortex_layout::SplitRange::check_bounds(&self, u64) -> vortex_error::VortexResult<()>
+
+pub fn vortex_layout::SplitRange::is_empty(&self) -> bool
+
+pub fn vortex_layout::SplitRange::len(&self) -> u64
+
+pub fn vortex_layout::SplitRange::root(core::ops::range::Range<u64>) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_layout::SplitRange::root_row_range(&self) -> core::ops::range::Range<u64>
+
+pub fn vortex_layout::SplitRange::row_offset(&self) -> u64
+
+pub fn vortex_layout::SplitRange::row_range(&self) -> &core::ops::range::Range<u64>
+
+pub fn vortex_layout::SplitRange::try_new(u64, core::ops::range::Range<u64>) -> vortex_error::VortexResult<Self>
+
+impl core::clone::Clone for vortex_layout::SplitRange
+
+pub fn vortex_layout::SplitRange::clone(&self) -> vortex_layout::SplitRange
+
+impl core::cmp::Eq for vortex_layout::SplitRange
+
+impl core::cmp::PartialEq for vortex_layout::SplitRange
+
+pub fn vortex_layout::SplitRange::eq(&self, &vortex_layout::SplitRange) -> bool
+
+impl core::fmt::Debug for vortex_layout::SplitRange
+
+pub fn vortex_layout::SplitRange::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::StructuralPartialEq for vortex_layout::SplitRange
+
 pub trait vortex_layout::ArrayFutureExt
 
 pub fn vortex_layout::ArrayFutureExt::masked(self, vortex_array::mask_future::MaskFuture) -> Self
@@ -1846,7 +1882,7 @@ pub fn vortex_layout::LayoutReader::projection_evaluation(&self, &core::ops::ran
 
 pub fn vortex_layout::LayoutReader::pruning_evaluation(&self, &core::ops::range::Range<u64>, &vortex_array::expr::expression::Expression, vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
 
-pub fn vortex_layout::LayoutReader::register_splits(&self, &[vortex_array::dtype::field_mask::FieldMask], &core::ops::range::Range<u64>, &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::LayoutReader::register_splits(&self, &[vortex_array::dtype::field_mask::FieldMask], &vortex_layout::SplitRange, &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
 
 pub fn vortex_layout::LayoutReader::row_count(&self) -> u64
 
@@ -1864,7 +1900,7 @@ pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::projection_evaluatio
 
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::pruning_evaluation(&self, &core::ops::range::Range<u64>, &vortex_array::expr::expression::Expression, vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
 
-pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::register_splits(&self, &[vortex_array::dtype::field_mask::FieldMask], &core::ops::range::Range<u64>, &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
+pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::register_splits(&self, &[vortex_array::dtype::field_mask::FieldMask], &vortex_layout::SplitRange, &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
 
 pub fn vortex_layout::layouts::row_idx::RowIdxLayoutReader::row_count(&self) -> u64
 

@@ -66,6 +66,7 @@ The {func}`~vortex.array` function constructs a Vortex array from an Arrow array
 
 ```{doctest} pycon
 >>> import pyarrow as pa
+>>>
 >>> arrow = pa.array([1, 2, None, 3])
 >>> arr = vx.array(arrow)
 >>> arr.dtype

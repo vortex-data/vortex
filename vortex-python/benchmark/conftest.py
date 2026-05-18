@@ -17,7 +17,10 @@ import vortex as vx
     params=[{"x"}, {"x", "y"}, {"x", "z"}, {"x", "y", "z"}],
     ids=["int", "int_str", "int_float", "int_str_float"],
 )
-def vxf(tmpdir_factory: pytest.TempPathFactory, request: pytest.FixtureRequest) -> vx.VortexFile:
+def vxf(
+    tmpdir_factory: pytest.TempPathFactory,
+    request: pytest.FixtureRequest,
+) -> vx.VortexFile:
     fname = tmpdir_factory.mktemp("data") / "foo.vortex"
 
     if not os.path.exists(fname):

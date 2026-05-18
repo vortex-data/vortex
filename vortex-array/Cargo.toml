@@ -29,7 +29,7 @@ arrow-buffer = { workspace = true }
 arrow-cast = { workspace = true }
 arrow-data = { workspace = true }
 arrow-ord = { workspace = true }
-arrow-schema = { workspace = true }
+arrow-schema = { workspace = true, features = ["canonical_extension_types"] }
 arrow-select = { workspace = true }
 arrow-string = { workspace = true }
 async-lock = { workspace = true }
@@ -144,6 +144,11 @@ path = "benches/expr/case_when_bench.rs"
 harness = false
 
 [[bench]]
+name = "expr_optimize"
+path = "benches/expr/optimize_bench.rs"
+harness = false
+
+[[bench]]
 name = "chunked_dict_builder"
 harness = false
 required-features = ["_test-harness"]
@@ -200,4 +205,8 @@ harness = false
 
 [[bench]]
 name = "slice_dict_primitive"
+harness = false
+
+[[bench]]
+name = "to_arrow"
 harness = false

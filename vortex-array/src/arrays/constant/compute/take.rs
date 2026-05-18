@@ -66,6 +66,8 @@ impl Constant {
 
 #[cfg(test)]
 mod tests {
+    use std::f64;
+
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_mask::AllOr;
@@ -147,7 +149,7 @@ mod tests {
 
     #[rstest]
     #[case(ConstantArray::new(42i32, 5))]
-    #[case(ConstantArray::new(std::f64::consts::PI, 10))]
+    #[case(ConstantArray::new(f64::consts::PI, 10))]
     #[case(ConstantArray::new(Scalar::from("hello"), 3))]
     #[case(ConstantArray::new(Scalar::null_native::<i64>(), 5))]
     #[case(ConstantArray::new(true, 1))]

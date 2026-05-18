@@ -277,10 +277,10 @@ impl Patches {
             #[cfg(debug_assertions)]
             {
                 use crate::VortexSessionExecute;
+                use crate::aggregate_fn::fns::is_sorted::is_sorted;
                 let mut ctx = LEGACY_SESSION.create_execution_ctx();
                 assert!(
-                    crate::aggregate_fn::fns::is_sorted::is_sorted(&indices, &mut ctx)
-                        .unwrap_or(false),
+                    is_sorted(&indices, &mut ctx).unwrap_or(false),
                     "Patch indices must be sorted"
                 );
             }

@@ -123,6 +123,7 @@ applied directly:
 
 ```{doctest} pycon
 >>> import vortex.expr as ve
+>>>
 >>> arr = vx.array([
 ...     {'name': 'Alice', 'age': 30},
 ...     {'name': 'Bob', 'age': 25},
@@ -139,6 +140,7 @@ applied directly:
 
 ```{doctest} pycon
 >>> import pyarrow.parquet as pq
+>>>
 >>> vx.io.write(pq.read_table("_static/example.parquet"), 'example.vortex')
 >>>
 >>> f = vx.open('example.vortex')
@@ -184,6 +186,54 @@ tip_amount: double
 >>> table = reader.read_all()
 >>> len(table)
 1000
+```
+
+## Threading Model
+
+Vortex uses a shared runtime behind the Python API. When no background workers are configured, the
+Python thread that is reading from a scan also polls the Vortex work needed to produce each batch.
+This means multiple Python threads can make progress independently as long as each thread owns the
+reader it is consuming:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+import pyarrow.compute as pc
+import vortex as vx
+
+
+def sum_column(path: str, column: str) -> int | float:
+    reader = vx.open(path).to_arrow([column], batch_size=64_000)
+    total = 0
+
+    for batch in reader:
+        value = pc.sum(batch.column(column)).as_py()
+        if value is not None:
+            total += value
+
+    return total
+
+
+columns = ["tip_amount", "fare_amount", "total_amount"]
+with ThreadPoolExecutor(max_workers=len(columns)) as threads:
+    totals = list(threads.map(lambda column: sum_column("example.vortex", column), columns))
+```
+
+By default Vortex starts a background worker pool sized to `available_parallelism() - 1`.
+Set `VORTEX_MAX_THREADS=n` to pin the pool to a specific size at startup. To adjust the pool
+at runtime, use {func}`~vortex.set_worker_threads`; passing `None` resets it to the default:
+
+```python
+import vortex as vx
+
+previous_workers = vx.worker_threads()
+vx.set_worker_threads(None)  # reset to available_parallelism() - 1
+
+try:
+    reader = vx.open("example.vortex").to_arrow(batch_size=64_000)
+    table = reader.read_all()
+finally:
+    vx.set_worker_threads(previous_workers)
 ```
 
 ## Conversion

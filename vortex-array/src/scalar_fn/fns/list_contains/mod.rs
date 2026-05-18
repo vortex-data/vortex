@@ -3,7 +3,6 @@
 
 mod kernel;
 
-use std::fmt::Formatter;
 use std::ops::BitOr;
 
 use arrow_buffer::bit_iterator::BitIndexIterator;
@@ -89,19 +88,6 @@ impl ScalarFnVTable for ListContains {
             ),
         }
     }
-    fn fmt_sql(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        f: &mut Formatter<'_>,
-    ) -> std::fmt::Result {
-        write!(f, "contains(")?;
-        expr.child(0).fmt_sql(f)?;
-        write!(f, ", ")?;
-        expr.child(1).fmt_sql(f)?;
-        write!(f, ")")
-    }
-
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let list_dtype = &arg_dtypes[0];
         let needle_dtype = &arg_dtypes[1];
@@ -670,10 +656,10 @@ mod tests {
     #[test]
     pub fn test_display() {
         let expr = list_contains(get_item("tags", root()), lit("urgent"));
-        assert_eq!(expr.to_string(), "contains($.tags, \"urgent\")");
+        assert_eq!(expr.to_string(), "vortex.list.contains($.tags, \"urgent\")");
 
         let expr2 = list_contains(root(), lit(42));
-        assert_eq!(expr2.to_string(), "contains($, 42i32)");
+        assert_eq!(expr2.to_string(), "vortex.list.contains($, 42i32)");
     }
 
     #[test]
