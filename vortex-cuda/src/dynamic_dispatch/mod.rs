@@ -43,6 +43,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
+use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecutionCtx;
 
@@ -479,8 +480,23 @@ impl MaterializedPlan {
             shared_mem_bytes: self.shared_mem_bytes,
         };
 
+        // The packed dispatch plan stores raw input/patch pointers, so those buffers are not
+        // passed through `LaunchArgs` as `CudaView`s. Record reads explicitly so their drops are
+        // ordered after this kernel launch on `stream`. The read records borrow from the views,
+        // so keep both alive until after the kernel is enqueued.
+        let device_buffer_views = self
+            .device_buffers
+            .iter()
+            .map(|buffer| buffer.cuda_view::<u8>())
+            .collect::<VortexResult<Vec<_>>>()?;
+        let stream = ctx.stream().clone();
+        let device_buffer_read_records = device_buffer_views
+            .iter()
+            .map(|view| view.device_ptr(&stream).1)
+            .collect::<Vec<_>>();
+
         let output_ptr = output_buf.offset_ptr();
-        let plan_ptr = device_plan.device_ptr(ctx.stream()).0;
+        let (plan_ptr, plan_read_record) = device_plan.device_ptr(&stream);
         let array_len_u64 = len as u64;
 
         ctx.launch_kernel_config(&cuda_function, config, len, |args| {
@@ -488,6 +504,8 @@ impl MaterializedPlan {
             args.arg(&array_len_u64);
             args.arg(&plan_ptr);
         })?;
+
+        drop((device_buffer_read_records, plan_read_record));
 
         Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
             BufferHandle::new_device(output_buf.slice_typed::<T>(0..len)),
@@ -1980,7 +1998,7 @@ mod tests {
 
     #[crate::test]
     async fn alp_slice_device_patches() -> VortexResult<()> {
-        // Regression test for https://github.com/vortex-data/vortex/issues/7838.
+        // Regression test for https://github.com/vortex-data/vortex/issues/7838#issuecomment-4452796116.
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let len = 4096;
         let exponents = Exponents { e: 0, f: 0 };
