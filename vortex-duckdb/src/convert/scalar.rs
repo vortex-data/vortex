@@ -225,8 +225,9 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                 TimeUnit::Microseconds => Value::new_time(value()?),
                 TimeUnit::Milliseconds => Value::new_time(value()? * 1000),
                 TimeUnit::Seconds => Value::new_time(value()? * 1000 * 1000),
-                TimeUnit::Nanoseconds | TimeUnit::Days => {
-                    vortex_bail!("cannot convert timeunit {unit} to a duckdb MS time")
+                TimeUnit::Nanoseconds => Value::new_time_ns(value()?),
+                TimeUnit::Days => {
+                    vortex_bail!("cannot convert timeunit {unit} to a duckdb time")
                 }
             },
         })
@@ -282,6 +283,13 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
                     Some(ScalarValue::from(micros)),
                 )?,
             )),
+            ExtractedValue::TimeNs(nanos) => Ok(Scalar::extension::<Time>(
+                TimeUnit::Nanoseconds,
+                Scalar::try_new(
+                    DType::Primitive(I64, Nullable),
+                    Some(ScalarValue::from(nanos)),
+                )?,
+            )),
             ExtractedValue::TimestampNs(nanos) => Ok(Scalar::extension::<Timestamp>(
                 TimestampOptions {
                     unit: TimeUnit::Nanoseconds,
@@ -322,6 +330,16 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
                     Some(ScalarValue::from(seconds)),
                 )?,
             )),
+            ExtractedValue::TimestampTz(micros) => Ok(Scalar::extension::<Timestamp>(
+                TimestampOptions {
+                    unit: TimeUnit::Microseconds,
+                    tz: Some("UTC".into()),
+                },
+                Scalar::try_new(
+                    DType::Primitive(I64, Nullable),
+                    Some(ScalarValue::from(micros)),
+                )?,
+            )),
             ExtractedValue::Decimal(precision, scale, value) => Ok(Scalar::decimal(
                 DecimalValue::I128(value),
                 DecimalDType::try_new(precision, scale)?,
@@ -351,9 +369,15 @@ impl<'a> TryFrom<&'a ValueRef> for Scalar {
 
 #[cfg(test)]
 mod tests {
+    use vortex::dtype::DType;
+    use vortex::dtype::Nullability;
+    use vortex::dtype::PType;
+    use vortex::extension::datetime::Time;
+    use vortex::extension::datetime::TimeUnit;
     use vortex::extension::datetime::Timestamp;
     use vortex::extension::datetime::TimestampOptions;
     use vortex::scalar::Scalar;
+    use vortex::scalar::ScalarValue;
 
     use crate::convert::ToDuckDBScalar;
 
@@ -380,13 +404,6 @@ mod tests {
 
     #[test]
     fn test_timestamp_roundtrip() {
-        use vortex::dtype::DType;
-        use vortex::dtype::Nullability;
-        use vortex::dtype::PType;
-        use vortex::extension::datetime::TimeUnit;
-        use vortex::scalar::Scalar;
-        use vortex::scalar::ScalarValue;
-
         #[rustfmt::skip]
         let test_cases = [
             (TimeUnit::Seconds, 1703980800i64),                 // 2023-12-30 16:00:00 UTC
@@ -413,5 +430,46 @@ mod tests {
 
             assert_eq!(original_scalar, roundtrip_scalar);
         }
+    }
+
+    #[test]
+    fn test_timestamp_tz_roundtrip() {
+        // 2023-11-15 12:00:00.000001 UTC in microseconds (~1.7e15).
+        let micros = 1_700_049_600_000_001i64;
+        let original_scalar = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Microseconds,
+                tz: Some("UTC".into()),
+            },
+            Scalar::try_new(
+                DType::Primitive(PType::I64, Nullability::NonNullable),
+                Some(ScalarValue::from(micros)),
+            )
+            .unwrap(),
+        );
+
+        let duckdb_value = original_scalar.try_to_duckdb_scalar().unwrap();
+        let roundtrip_scalar: Scalar = duckdb_value.try_into().unwrap();
+
+        assert_eq!(original_scalar, roundtrip_scalar);
+    }
+
+    #[test]
+    fn test_time_ns_roundtrip() {
+        // 01:00:00.000000001 expressed in nanoseconds (1 ns past one hour).
+        let nanos = 3_600_000_000_001i64;
+        let original_scalar = Scalar::extension::<Time>(
+            TimeUnit::Nanoseconds,
+            Scalar::try_new(
+                DType::Primitive(PType::I64, Nullability::NonNullable),
+                Some(ScalarValue::from(nanos)),
+            )
+            .unwrap(),
+        );
+
+        let duckdb_value = original_scalar.try_to_duckdb_scalar().unwrap();
+        let roundtrip_scalar: Scalar = duckdb_value.try_into().unwrap();
+
+        assert_eq!(original_scalar, roundtrip_scalar);
     }
 }
