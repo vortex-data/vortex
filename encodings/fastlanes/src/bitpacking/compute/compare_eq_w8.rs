@@ -113,9 +113,10 @@ fn scatter_w8(k: usize, out: &mut [u64; 16], rows: [u32; 4]) {
     //   k=5 (rows 20..23): r/8=2, FL_ORDER[2]=2 → bases 544,672,800,928 → u64 8,10,12,14 / off 32
     //   k=6 (rows 24..27): r/8=3, FL_ORDER[3]=6 → bases 96,224,352,480 → u64 1,3,5,7 / off 32
     //   k=7 (rows 28..31): r/8=3, FL_ORDER[3]=6 → bases 608,736,864,992 → u64 9,11,13,15 / off 32
-    let row_base = (k % 2) * 4; // k=0,1 → 0,4 hmm no. Let me derive from FL_ORDER.
-    let fl = FL_ORDER[k / 2]; // r/8 = k/2 because each k has 4 rows and rows 0-7 are r/8=0.
-    let r_mod8 = (k % 2) * 4; // rows 0,1,2,3 (k=0) or 4,5,6,7 (k=1) all have r%8 in [0..8).
+    // r/8 = k/2 because each k has 4 rows and rows 0-7 are r/8=0.
+    let fl = FL_ORDER[k / 2];
+    // rows 0,1,2,3 (k=0) or 4,5,6,7 (k=1) all have r%8 in [0..8).
+    let r_mod8 = (k % 2) * 4;
     // u_base = (fl*16) / 64 + (r_mod8 * 128 / 64) for the first row's u64.
     let u_base = (fl * 16) / 64 + (r_mod8 * 2);
     let bit_off = ((fl * 16) % 64) as u64;
@@ -179,6 +180,11 @@ unsafe fn simd_lt_w8_avx2_bmi2(packed_chunk: &[u32], c: u8, out: &mut [u64; 16])
 // Scalar fallback.
 // ---------------------------------------------------------------------------
 
+#[cfg(not(all(
+    target_arch = "x86_64",
+    target_feature = "avx2",
+    target_feature = "bmi2"
+)))]
 #[inline]
 fn scalar_eq_w8(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
     debug_assert_eq!(packed_chunk.len(), 256);
@@ -204,6 +210,11 @@ fn scalar_eq_w8(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
     }
 }
 
+#[cfg(not(all(
+    target_arch = "x86_64",
+    target_feature = "avx2",
+    target_feature = "bmi2"
+)))]
 #[inline]
 fn scalar_lt_w8(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
     debug_assert_eq!(packed_chunk.len(), 256);

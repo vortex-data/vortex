@@ -112,7 +112,7 @@ unsafe fn simd_eq_w4_avx2(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[inline(always)]
-unsafe fn extract_slot<const SHIFT: i32>(
+pub(super) unsafe fn extract_slot<const SHIFT: i32>(
     z0: std::arch::x86_64::__m256i,
     z1: std::arch::x86_64::__m256i,
     z2: std::arch::x86_64::__m256i,
@@ -133,7 +133,7 @@ unsafe fn extract_slot<const SHIFT: i32>(
 }
 
 #[inline(always)]
-fn scatter_rows(k: usize, out: &mut [u64; 16], rows: [u32; 8]) {
+pub(super) fn scatter_rows(k: usize, out: &mut [u64; 16], rows: [u32; 8]) {
     // For W=4 row r=k*8+s; elem_base = FL_ORDER[k]*16 + s*128. Per-k the 8 row
     // bitmaps go to 8 different u64s at the same bit offset:
     //   k=0 (FL_ORDER[0]=0) → u_base=0, bit_off= 0
@@ -242,6 +242,7 @@ unsafe fn lt_one_ymm(
 // Scalar fallback.
 // ---------------------------------------------------------------------------
 
+#[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
 #[inline]
 fn scalar_eq_w4(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
     debug_assert_eq!(packed_chunk.len(), 128);
@@ -276,6 +277,7 @@ fn scalar_eq_w4(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
     }
 }
 
+#[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
 #[inline]
 fn scalar_lt_w4(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
     debug_assert_eq!(packed_chunk.len(), 128);
