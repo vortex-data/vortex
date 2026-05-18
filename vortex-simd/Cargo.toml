@@ -1,0 +1,34 @@
+[package]
+name = "vortex-simd"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Runtime CPU feature detection and SIMD kernels for Vortex integer compute."
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = "README.md"
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+divan = { workspace = true }
+rstest = { workspace = true }
+
+[[bench]]
+name = "dispatch"
+harness = false
+
+[[bench]]
+name = "kernels"
+harness = false

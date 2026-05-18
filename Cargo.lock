@@ -10057,6 +10057,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-simd"
+version = "0.1.0"
+dependencies = [
+ "codspeed-divan-compat",
+ "rstest",
+]
+
+[[package]]
 name = "vortex-sparse"
 version = "0.1.0"
 dependencies = [

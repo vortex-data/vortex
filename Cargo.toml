@@ -5,6 +5,7 @@ members = [
     "vortex-error",
     "vortex-buffer",
     "vortex-mask",
+    "vortex-simd",
     "vortex-utils",
     "vortex-session",
     "vortex-flatbuffers",
@@ -294,6 +295,7 @@ vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = 
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
 vortex-scan = { version = "0.1.0", path = "./vortex-scan", default-features = false }
 vortex-sequence = { version = "0.1.0", path = "encodings/sequence", default-features = false }
+vortex-simd = { version = "0.1.0", path = "./vortex-simd", default-features = false }
 vortex-session = { version = "0.1.0", path = "./vortex-session", default-features = false }
 vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-features = false }
 vortex-tensor = { version = "0.1.0", path = "./vortex-tensor", default-features = false }
