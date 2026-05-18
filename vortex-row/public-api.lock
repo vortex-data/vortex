@@ -98,6 +98,8 @@ pub fn vortex_row::codec::encoded_size_for_scalar(&vortex_array::scalar::Scalar,
 
 pub fn vortex_row::codec::field_encode(&vortex_array::canonical::Canonical, vortex_row::options::SortField, &[u32], &mut [u32], &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
+pub fn vortex_row::codec::field_encode_fixed_arithmetic(&vortex_array::canonical::Canonical, vortex_row::options::SortField, u32, u32, core::option::Option<&[u32]>, u32, &mut [u8], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
+
 pub fn vortex_row::codec::field_size(&vortex_array::canonical::Canonical, vortex_row::options::SortField, &mut [u32], &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
 
 pub fn vortex_row::codec::row_width_for_dtype(&vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_row::codec::RowWidth>

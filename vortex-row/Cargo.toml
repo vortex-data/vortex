@@ -36,7 +36,10 @@ mimalloc = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
-vortex-fastlanes = { workspace = true }
+# Path-only (no version) so cargo publish doesn't try to look up vortex-fastlanes on
+# crates.io. vortex-fastlanes itself depends on vortex-row, so a versioned dev-dep here
+# would create a publish-time chicken-and-egg. The bench file is the only consumer.
+vortex-fastlanes = { path = "../encodings/fastlanes" }
 
 [[bench]]
 name = "row_encode"
