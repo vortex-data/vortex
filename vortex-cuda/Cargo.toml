@@ -21,6 +21,11 @@ workspace = true
 default = []
 _test-harness = []
 unstable_encodings = ["vortex/unstable_encodings"]
+# Copy-and-Patch CUDA codegen prototype. Builds a thin trampoline kernel at
+# runtime that links pre-compiled stencil PTX modules via cuLink. Demonstrates
+# variant selection (which arith/filter op, which ALP encoding) without
+# recompiling a single line of host code. See `vortex_cuda::copy_patch`.
+copy_patch_demo = []
 
 [dependencies]
 arc-swap = { workspace = true }

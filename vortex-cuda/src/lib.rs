@@ -9,6 +9,8 @@ use tracing::info;
 
 pub mod arrow;
 mod canonical;
+#[cfg(feature = "copy_patch_demo")]
+pub mod copy_patch;
 mod device_buffer;
 mod device_read_at;
 pub mod dynamic_dispatch;

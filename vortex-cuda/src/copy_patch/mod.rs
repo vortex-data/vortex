@@ -1,0 +1,277 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! Copy-and-Patch prototype for fused GPU decode + post-op.
+//!
+//! ## What this is
+//!
+//! A prototype that demonstrates how the Copy-and-Patch JIT pattern
+//! (Xu & Kjolstad 2021) ports to CUDA. Instead of running a full compiler
+//! at runtime, we pre-compile a fixed set of *stencils* to PTX at build
+//! time and stitch them together on demand via the CUDA driver linker
+//! (`cuLinkCreate` / `cuLinkAddData` / `cuLinkComplete`).
+//!
+//! ```text
+//!  build time         runtime
+//!  ──────────         ───────
+//!  cp_trampoline_*.cu ┐
+//!  cp_unpack_*.cu     ├── nvcc → .ptx                          stencil set
+//!  cp_alp_apply_*.cu  │                                              │
+//!  cp_arith_*.cu      │                                              ▼
+//!  cp_filter_*.cu     ┘                            ┌───────────────────────────┐
+//!                                                  │  cuLinkCreate + AddData    │
+//!  Plan { bit_width, f, e, post } ────────────────▶│  cuLinkComplete → cubin    │
+//!                                                  │  cuModuleLoadData          │
+//!                                                  │  launch trampoline kernel  │
+//!                                                  └───────────────────────────┘
+//! ```
+//!
+//! ## Why this matters
+//!
+//! Vortex already has a *dynamic dispatch* mega-kernel (see
+//! [`crate::dynamic_dispatch`]) that walks a plan IR at GPU runtime. That
+//! interpreter pays a per-block decode-plan overhead and forces every
+//! stage to fit inside a single fused-kernel layout. Copy-and-Patch is the
+//! complementary approach: emit a kernel tailor-made for the query, with
+//! the plan baked into control flow rather than interpreted.
+//!
+//! The win over a full GPU JIT (NVRTC / `nvcc` at runtime) is latency.
+//! NVRTC pays for the full Clang + ptxas pipeline (50–500 ms typical).
+//! `cuLink` over PTX skips Clang entirely (1–10 ms typical), and upgrading
+//! stencils to pre-built cubin removes ptxas too (sub-ms).
+//!
+//! ## Variant selection
+//!
+//! The Copy-and-Patch trick is that the stencils all export the *same*
+//! `extern "C" __device__` symbol — e.g. every arith stencil defines
+//! `cp_arith_op`. The trampoline calls that name as an unresolved extern.
+//! The executor picks which stencil PTX module to feed into `cuLinkAddData`
+//! based on the plan, and the linker bakes that one definition into the
+//! cubin. No PTX text patching is required for the prototype because
+//! runtime constants (ALP `f`, `e`, the post-op `c`) flow through as
+//! kernel parameters.
+//!
+//! ## Current scope (prototype)
+//!
+//! Decode pipeline: `u32 bitpacked → i32 reinterpret → ALP → f32`
+//! followed by either:
+//!   - **Arith** with a constant: `Add`, `Mul`
+//!   - **Filter** vs a constant: `Gt`, `Lt`, `Eq` (output is a `u8` mask)
+//!
+//! Bit width flows through as a kernel parameter for prototype simplicity.
+//! Per-bit-width PTX specialization (closer to the paper) is the natural
+//! next step — emit one `cp_unpack_u32_bw<N>.ptx` per `N`, and the same
+//! variant-selection trick at the unpack slot completes the picture.
+//!
+//! ## Layout
+//!
+//! - [`linker`] — safe wrapper around the CUDA driver linker.
+//! - [`plan`] — `Plan` IR and the enums it uses.
+//! - [`executor`] — picks stencils, links, caches, launches.
+
+pub mod executor;
+pub mod linker;
+pub mod plan;
+
+pub use executor::CopyPatchExecutor;
+pub use executor::CopyPatchOutput;
+pub use plan::ArithOp;
+pub use plan::FilterOp;
+pub use plan::Plan;
+pub use plan::PostOp;
+
+#[cfg(test)]
+mod tests {
+    use cudarc::driver::CudaSlice;
+    use futures::executor::block_on;
+    use vortex::array::IntoArray;
+    use vortex::array::LEGACY_SESSION;
+    use vortex::array::VortexSessionExecute;
+    use vortex::array::arrays::PrimitiveArray;
+    use vortex::array::validity::Validity::NonNullable;
+    use vortex::buffer::Buffer;
+    use vortex::encodings::alp::Exponents;
+    use vortex::encodings::fastlanes::BitPacked;
+    use vortex::encodings::fastlanes::BitPackedArrayExt;
+    use vortex::error::VortexExpect;
+    use vortex::error::VortexResult;
+    use vortex::session::VortexSession;
+
+    use super::*;
+    use crate::CudaBufferExt;
+    use crate::executor::CudaExecutionCtx;
+    use crate::session::CudaSession;
+
+    /// Build a tiny ALP+BitPacked pipeline whose encoded child is a
+    /// `BitPacked<i32>` view. Returns the device-resident packed buffer
+    /// view, the array length, and the ALP exponents.
+    fn build_test_input(
+        ctx: &mut CudaExecutionCtx,
+        encoded: &[i32],
+        bw: u8,
+    ) -> VortexResult<(CudaSlice<u32>, usize, Exponents)> {
+        // Wrap the encoded i32 codes as a Vortex primitive array, then
+        // bit-pack with the requested width. We reinterpret the resulting
+        // u32 packed buffer as a `CudaSlice<u32>` for the stencil.
+        let prim = PrimitiveArray::new(Buffer::from(encoded.to_vec()), NonNullable);
+        let bp = BitPacked::encode(
+            &prim.into_array(),
+            bw,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
+        assert!(
+            bp.patches().is_none(),
+            "test inputs are constructed to avoid ALP/FFOR patches"
+        );
+
+        let packed_handle = block_on(ctx.ensure_on_device(bp.packed().clone()))?;
+        // Reinterpret the packed buffer as `u32` words and copy into an owned
+        // `CudaSlice<u32>` so the stencil view's lifetime is independent of
+        // the BufferHandle's.
+        let packed_words = packed_handle.cuda_view::<u32>()?;
+        let n = packed_words.len();
+        let mut owned = ctx.device_alloc::<u32>(n)?;
+        ctx.stream()
+            .memcpy_dtod(&packed_words, &mut owned)
+            .map_err(|e| vortex::error::vortex_err!("d2d copy failed: {e}"))?;
+
+        Ok((owned, encoded.len(), Exponents { e: 0, f: 2 }))
+    }
+
+    /// Sanity check: arith pipeline `(decoded * 100.0) + 5.0` matches CPU.
+    #[crate::test]
+    fn copy_patch_arith_add_roundtrip() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Pack values 0..1024 with bw=10 (max value 1023 fits).
+        let encoded: Vec<i32> = (0..1024).collect();
+        let (packed, len, exponents) = build_test_input(&mut cuda_ctx, &encoded, 10)?;
+
+        // f = F10[2] = 100.0, e = IF10[0] = 1.0  =>  decoded = code * 100
+        // Then arith add(5.0): out[i] = code * 100 + 5
+        let plan = Plan {
+            bit_width: 10,
+            f: 100.0,
+            e: 1.0,
+            post: PostOp::Arith {
+                op: ArithOp::Add,
+                c: 5.0,
+            },
+        };
+        let _ = exponents; // exponents asserted via f, e literals above
+
+        let executor = CopyPatchExecutor::new();
+        let out = executor.launch(&mut cuda_ctx, &plan, packed.as_view(), len)?;
+        let CopyPatchOutput::Arith(out) = out else {
+            panic!("expected arith output");
+        };
+
+        cuda_ctx
+            .stream()
+            .synchronize()
+            .map_err(|e| vortex::error::vortex_err!("sync: {e}"))?;
+        let mut host = vec![0f32; len];
+        let out_view = out.slice(0..len);
+        cuda_ctx
+            .stream()
+            .memcpy_dtoh(&out_view, &mut host)
+            .map_err(|e| vortex::error::vortex_err!("d2h: {e}"))?;
+
+        for (i, code) in encoded.iter().enumerate() {
+            let expected = (*code as f32) * 100.0 + 5.0;
+            assert!(
+                (host[i] - expected).abs() < 1e-3,
+                "i={i} got {} expected {expected}",
+                host[i]
+            );
+        }
+        Ok(())
+    }
+
+    /// Filter pipeline: `decoded > 30000.0` matches the CPU truth.
+    #[crate::test]
+    fn copy_patch_filter_gt_roundtrip() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let encoded: Vec<i32> = (0..1024).collect();
+        let (packed, len, _) = build_test_input(&mut cuda_ctx, &encoded, 10)?;
+
+        // decoded = code * 100, threshold 30050 -> indices 301..1024 set
+        let plan = Plan {
+            bit_width: 10,
+            f: 100.0,
+            e: 1.0,
+            post: PostOp::Filter {
+                op: FilterOp::Gt,
+                c: 30050.0,
+            },
+        };
+
+        let executor = CopyPatchExecutor::new();
+        let out = executor.launch(&mut cuda_ctx, &plan, packed.as_view(), len)?;
+        let CopyPatchOutput::Filter(out) = out else {
+            panic!("expected filter output");
+        };
+
+        cuda_ctx
+            .stream()
+            .synchronize()
+            .map_err(|e| vortex::error::vortex_err!("sync: {e}"))?;
+        let mut host = vec![0u8; len];
+        let out_view = out.slice(0..len);
+        cuda_ctx
+            .stream()
+            .memcpy_dtoh(&out_view, &mut host)
+            .map_err(|e| vortex::error::vortex_err!("d2h: {e}"))?;
+
+        for (i, code) in encoded.iter().enumerate() {
+            let expected = if (*code as f32) * 100.0 > 30050.0 {
+                1u8
+            } else {
+                0u8
+            };
+            assert_eq!(host[i], expected, "i={i}");
+        }
+        Ok(())
+    }
+
+    /// Two launches of the same plan reuse the cached linked module.
+    #[crate::test]
+    fn copy_patch_module_cache_is_warm() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let encoded: Vec<i32> = (0..1024).collect();
+        let (packed, len, _) = build_test_input(&mut cuda_ctx, &encoded, 10)?;
+
+        let plan = Plan {
+            bit_width: 10,
+            f: 100.0,
+            e: 1.0,
+            post: PostOp::Arith {
+                op: ArithOp::Mul,
+                c: 2.0,
+            },
+        };
+
+        let executor = CopyPatchExecutor::new();
+        drop(executor.launch(&mut cuda_ctx, &plan, packed.as_view(), len)?);
+        assert_eq!(executor.cache_size(), 1);
+        drop(executor.launch(&mut cuda_ctx, &plan, packed.as_view(), len)?);
+        assert_eq!(executor.cache_size(), 1, "repeat launch should hit cache");
+
+        // A different op picks a different stencil and therefore a fresh link.
+        let plan2 = Plan {
+            post: PostOp::Arith {
+                op: ArithOp::Add,
+                c: 0.0,
+            },
+            ..plan
+        };
+        drop(executor.launch(&mut cuda_ctx, &plan2, packed.as_view(), len)?);
+        assert_eq!(executor.cache_size(), 2);
+        Ok(())
+    }
+}

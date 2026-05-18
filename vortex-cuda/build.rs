@@ -63,7 +63,8 @@ fn main() {
         return;
     }
 
-    // Watch and compile .cu and .cuh files from kernels/src to PTX in kernels/gen
+    // Watch and compile .cu and .cuh files from kernels/src (top level only) to PTX
+    // in kernels/gen.
     if let Ok(entries) = std::fs::read_dir(&kernels_src) {
         for path in entries.flatten().map(|entry| entry.path()) {
             let is_generated = path
@@ -96,6 +97,41 @@ fn main() {
             }
         }
     }
+
+    // Copy-and-Patch stencils live under kernels/src/copy_patch/. Each .cu is
+    // a separate stencil compiled to its own PTX module so the runtime can
+    // pick which ones to feed into cuLinkAddData.
+    let copy_patch_src = kernels_src.join("copy_patch");
+    if copy_patch_src.is_dir()
+        && let Ok(entries) = std::fs::read_dir(&copy_patch_src)
+    {
+        for path in entries.flatten().map(|entry| entry.path()) {
+            match path.extension().and_then(|e| e.to_str()) {
+                Some("cuh") | Some("h") => {
+                    println!("cargo:rerun-if-changed={}", path.display());
+                }
+                Some("cu") => {
+                    println!("cargo:rerun-if-changed={}", path.display());
+                    nvcc_compile_ptx_with(
+                        &kernels_src,
+                        &kernels_gen,
+                        &path,
+                        &profile,
+                        /*relocatable=*/ true,
+                    )
+                    .map_err(|e| {
+                        format!(
+                            "Failed to compile copy-patch CUDA stencil {}: {}",
+                            path.display(),
+                            e
+                        )
+                    })
+                    .unwrap();
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::Result<PathBuf> {
@@ -120,7 +156,26 @@ fn nvcc_compile_ptx(
     cu_path: &Path,
     profile: &str,
 ) -> io::Result<()> {
+    nvcc_compile_ptx_with(include_dir, output_dir, cu_path, profile, false)
+}
+
+/// Same as `nvcc_compile_ptx` but optionally enables relocatable device code.
+///
+/// `relocatable = true` passes `-rdc=true` to nvcc so cross-PTX `__device__`
+/// function calls are emitted as proper ABI-stable extern references rather
+/// than being inlined or hidden. Required for the Copy-and-Patch stencils
+/// that are stitched together at runtime via `cuLinkAddData`.
+fn nvcc_compile_ptx_with(
+    include_dir: &Path,
+    output_dir: &Path,
+    cu_path: &Path,
+    profile: &str,
+    relocatable: bool,
+) -> io::Result<()> {
     let mut cmd = Command::new("nvcc");
+    if relocatable {
+        cmd.arg("-rdc=true");
+    }
     if profile == "debug" {
         cmd.arg("-O0");
 
