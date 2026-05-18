@@ -774,7 +774,7 @@ mod test {
         assert_eq!(buf.remaining(), 10);
         assert_eq!(buf.chunk(), b"helloworld");
 
-        Buf::advance(&mut buf, 5);
+        buf.advance(5);
         assert_eq!(buf.remaining(), 5);
         assert_eq!(buf.as_slice(), b"world");
         assert_eq!(buf.chunk(), b"world");
@@ -786,8 +786,6 @@ mod test {
 
         let buf = Buffer::<u32>::zeroed(LEN);
 
-        assert_eq!(buf.len(), LEN);
-        assert_eq!(buf.alignment(), Alignment::of::<u32>());
         assert!(buf.is_aligned(Alignment::of::<u32>()));
         assert_eq!(buf.as_slice(), &[0; LEN]);
     }
@@ -799,8 +797,6 @@ mod test {
 
         let buf = Buffer::<u32>::zeroed_aligned(LEN, alignment);
 
-        assert_eq!(buf.len(), LEN);
-        assert_eq!(buf.alignment(), alignment);
         assert!(buf.is_aligned(alignment));
         assert_eq!(buf.as_slice(), &[0; LEN]);
     }

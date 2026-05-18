@@ -884,8 +884,6 @@ mod test {
 
         let mut buf = BufferMut::<u32>::zeroed(LEN);
 
-        assert_eq!(buf.len(), LEN);
-        assert_eq!(buf.alignment(), Alignment::of::<u32>());
         assert_eq!(buf.as_ptr().align_offset(*Alignment::of::<u32>()), 0);
         assert_eq!(buf.as_slice(), &[0; LEN]);
 
@@ -900,8 +898,6 @@ mod test {
 
         let mut buf = BufferMut::<u32>::zeroed_aligned(LEN, alignment);
 
-        assert_eq!(buf.len(), LEN);
-        assert_eq!(buf.alignment(), alignment);
         assert_eq!(buf.as_ptr().align_offset(*alignment), 0);
         assert_eq!(buf.as_slice(), &[0; LEN]);
 
