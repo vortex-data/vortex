@@ -108,3 +108,8 @@ harness = false
 [[bench]]
 name = "fsst_cuda"
 harness = false
+
+[[bench]]
+name = "copy_patch_cuda"
+harness = false
+required-features = ["copy_patch_demo"]

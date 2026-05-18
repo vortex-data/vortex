@@ -90,6 +90,22 @@ impl CopyPatchExecutor {
         self.cache.entries.len()
     }
 
+    /// Link the stencils for `plan` and cache the resulting cubin without
+    /// launching. Useful for benchmarks that want to separate the link
+    /// latency (the headline cost of Copy-and-Patch) from the launch
+    /// latency, and for application startup paths that want to pay link
+    /// cost up-front rather than on the first query.
+    pub fn warm_up(&self, ctx: &CudaExecutionCtx, plan: &Plan) -> VortexResult<()> {
+        if plan.bit_width > 32 {
+            vortex_bail!(
+                "Copy-and-Patch u32 stencil supports bit_width <= 32, got {}",
+                plan.bit_width
+            );
+        }
+        let context = Arc::<CudaContext>::clone(ctx.stream().context());
+        self.get_or_link(&context, plan).map(|_| ())
+    }
+
     /// Link (or fetch from cache) the trampoline kernel needed by `plan`.
     fn get_or_link(
         &self,
