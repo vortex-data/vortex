@@ -185,6 +185,55 @@ __stencil_jit_spec_end_jmp:
     .hidden __stencil_jit_spec_end
 __stencil_jit_spec_end:
 
+    # ============ specialized eq stencil (AVX-512, 4x unrolled) ============
+    #
+    # Uses AVX-512BW's `vpcmpeqb k, zmm, [mem]` which produces a 64-bit
+    # k-mask directly — no vpmovmskb-on-port-0 bottleneck. `kmovq mem, k`
+    # then writes 8 mask bytes per 64-byte block. Each iteration processes
+    # 256 input bytes / 32 output bytes.
+    #
+    # ABI:
+    #   rdi = const u8*  (n_zmm_iters * 64 bytes; n_zmm_iters multiple of 4)
+    #   rsi =       u8*  (n_zmm_iters * 8 bytes of output masks)
+    #   rdx =       u64  (n_zmm_iters; one per 64-byte block)
+    #
+    # Caller side converts from 32-byte-block units: n_zmm_iters = n_blocks / 2.
+
+    .p2align 4, 0x90
+    .globl  __stencil_jit_spec512_start
+    .hidden __stencil_jit_spec512_start
+__stencil_jit_spec512_start:
+    .globl  __stencil_jit_spec512_const_start
+    .hidden __stencil_jit_spec512_const_start
+__stencil_jit_spec512_const_start:
+    nop ; nop ; nop ; nop ; nop                 # 5-byte patch: mov al, imm8 + 3-byte nop
+    .globl  __stencil_jit_spec512_const_end
+    .hidden __stencil_jit_spec512_const_end
+__stencil_jit_spec512_const_end:
+    vpbroadcastb zmm1, eax                       # zmm1 = broadcast(c')
+    test         rdx, rdx
+    je           __stencil_jit_spec512_end_jmp
+    .p2align 5, 0x90
+__stencil_jit_spec512_loop:
+    vpcmpeqb     k1, zmm1, zmmword ptr [rdi + 0]
+    vpcmpeqb     k2, zmm1, zmmword ptr [rdi + 64]
+    vpcmpeqb     k3, zmm1, zmmword ptr [rdi + 128]
+    vpcmpeqb     k4, zmm1, zmmword ptr [rdi + 192]
+    kmovq        qword ptr [rsi + 0], k1
+    kmovq        qword ptr [rsi + 8], k2
+    kmovq        qword ptr [rsi + 16], k3
+    kmovq        qword ptr [rsi + 24], k4
+    add          rdi, 256
+    add          rsi, 32
+    sub          rdx, 4
+    jne          __stencil_jit_spec512_loop
+__stencil_jit_spec512_end_jmp:
+    vzeroupper
+    ret
+    .globl  __stencil_jit_spec512_end
+    .hidden __stencil_jit_spec512_end
+__stencil_jit_spec512_end:
+
     .section .text
 "#
 );
@@ -232,6 +281,15 @@ unsafe extern "C" {
     static SPEC_CONST_END: c_void;
     #[link_name = "__stencil_jit_spec_end"]
     static SPEC_END: c_void;
+
+    #[link_name = "__stencil_jit_spec512_start"]
+    static SPEC512_START: c_void;
+    #[link_name = "__stencil_jit_spec512_const_start"]
+    static SPEC512_CONST_START: c_void;
+    #[link_name = "__stencil_jit_spec512_const_end"]
+    static SPEC512_CONST_END: c_void;
+    #[link_name = "__stencil_jit_spec512_end"]
+    static SPEC512_END: c_void;
 }
 
 // ---- single-block patches (operate on ymm0) ----
@@ -335,6 +393,16 @@ pub(crate) fn spec_const_offset() -> usize {
 }
 pub(crate) fn spec_const_len() -> usize {
     offset(&raw const SPEC_CONST_START, &raw const SPEC_CONST_END)
+}
+
+pub(crate) fn spec512_bytes() -> &'static [u8] {
+    bytes_between(&raw const SPEC512_START, &raw const SPEC512_END)
+}
+pub(crate) fn spec512_const_offset() -> usize {
+    offset(&raw const SPEC512_START, &raw const SPEC512_CONST_START)
+}
+pub(crate) fn spec512_const_len() -> usize {
+    offset(&raw const SPEC512_CONST_START, &raw const SPEC512_CONST_END)
 }
 
 /// Build the 5-byte patch that loads the constant `c` into AL:

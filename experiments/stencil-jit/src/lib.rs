@@ -363,6 +363,72 @@ impl Drop for SpecializedKernel {
     }
 }
 
+// =================== AVX-512 specialized eq kernel ===================
+//
+// Uses AVX-512BW's `vpcmpeqb k, zmm, [mem]` -> kmask + `kmovq` to write
+// 64 bits of mask per 64-byte input block. Doubles the lane width and
+// sidesteps the AVX2 `vpmovmskb` port-0 bottleneck. Theoretical max is
+// ~224 GB/s at 3.5 GHz (vs ~112 GB/s for AVX2 D-spec).
+
+/// AVX-512 variant of the specialized eq kernel. Caller must have verified
+/// `avx512bw + avx512f` at runtime (use `std::is_x86_feature_detected!`).
+pub struct SpecializedKernel512 {
+    page: NonNull<u8>,
+    page_len: usize,
+    entry: unsafe extern "sysv64" fn(*const u8, *mut u8, u64),
+}
+
+unsafe impl Send for SpecializedKernel512 {}
+unsafe impl Sync for SpecializedKernel512 {}
+
+impl SpecializedKernel512 {
+    /// Compile a specialized AVX-512 kernel for `(x + ffor_ref) == constant`.
+    /// Both constants are baked at JIT-compile time and folded:
+    /// `effective_c = constant.wrapping_sub(ffor_ref)`.
+    pub fn compile_eq(constant: u8, ffor_ref: u8) -> io::Result<Self> {
+        let effective_const = constant.wrapping_sub(ffor_ref);
+        let bytes = stencil::spec512_bytes();
+        let patch = stencil::spec_const_patch(effective_const);
+        let patches = [(stencil::spec512_const_offset(), &patch[..])];
+        let page_len = page_size();
+        // SAFETY: patch lies inside bytes.
+        let page = unsafe { materialize(bytes, &patches, page_len)? };
+        // SAFETY: emitted page holds a valid sysv64 function.
+        let entry: unsafe extern "sysv64" fn(*const u8, *mut u8, u64) =
+            unsafe { core::mem::transmute(page.as_ptr()) };
+        Ok(Self {
+            page,
+            page_len,
+            entry,
+        })
+    }
+
+    /// Run on `n_blocks` 32-byte AVX2-equivalent blocks. The kernel
+    /// internally processes 64-byte AVX-512 blocks; `n_blocks` must be a
+    /// multiple of 8.
+    ///
+    /// # Safety
+    /// `packed` must point to at least `n_blocks * 32` readable bytes;
+    /// `out` to at least `n_blocks * 4` writable bytes; `n_blocks % 8 == 0`.
+    /// The caller must have verified AVX-512BW availability before calling.
+    pub unsafe fn call(&self, packed: *const u8, out: *mut u32, n_blocks: usize) {
+        debug_assert!(n_blocks.is_multiple_of(8), "AVX-512 kernel requires 8-block multiples");
+        let n_zmm_iters = (n_blocks / 2) as u64; // each zmm op covers 2 blocks
+        // SAFETY: caller upholds buffer windows; mask output is treated as raw bytes
+        // (still aligned-compatible since u32 alignment <= u64).
+        unsafe { (self.entry)(packed, out.cast::<u8>(), n_zmm_iters) }
+    }
+}
+
+impl Drop for SpecializedKernel512 {
+    fn drop(&mut self) {
+        // SAFETY: page + page_len from materialize.
+        unsafe {
+            libc::munmap(self.page.as_ptr().cast(), self.page_len);
+        }
+    }
+}
+
 pub mod debug {
     use super::{CmpOp, op_patch, stencil};
 

@@ -20,7 +20,7 @@ use std::arch::x86_64::*;
 use std::hint::black_box;
 
 use divan::{Bencher, counter::BytesCount};
-use stencil_jit::{BulkKernel, ChainConfig, CmpOp, Kernel, SpecializedKernel};
+use stencil_jit::{BulkKernel, ChainConfig, CmpOp, Kernel, SpecializedKernel, SpecializedKernel512};
 
 /// Working-set sizes (in 32-byte blocks) chosen to span L1, L2, and beyond.
 /// 128   blocks = 4 KB     (well inside L1)
@@ -192,6 +192,34 @@ fn stencil_jit_specialized(bencher: Bencher, n_blocks: usize) {
     let mut out = vec![0u32; n_blocks];
     bencher.counter(counter(n_blocks)).bench_local(|| {
         // SAFETY: buffers sized for n_blocks * 32 / n_blocks * 4; n_blocks multiple of 4.
+        unsafe {
+            kernel.call(
+                black_box(input.as_ptr()),
+                black_box(out.as_mut_ptr()),
+                n_blocks,
+            )
+        };
+        black_box(out[0])
+    });
+}
+
+// ---------- Stencil-JIT specialized AVX-512 (zmm, vpcmpeqb -> kmask, kmovq) ----
+//
+// AVX-512BW path: vpcmpeqb-on-zmm produces a 64-bit kmask directly, avoiding
+// the AVX2 vpmovmskb port-0 bottleneck. kmovq writes 8 bytes of mask per
+// 64-byte input block.
+
+#[divan::bench(args = SIZES)]
+fn stencil_jit_specialized_avx512(bencher: Bencher, n_blocks: usize) {
+    if !std::is_x86_feature_detected!("avx512bw") {
+        eprintln!("avx512bw not available; skipping");
+        return;
+    }
+    let kernel = SpecializedKernel512::compile_eq(black_box(42u8), black_box(7u8)).unwrap();
+    let input = make_input(n_blocks);
+    let mut out = vec![0u32; n_blocks];
+    bencher.counter(counter(n_blocks)).bench_local(|| {
+        // SAFETY: n_blocks * 32 readable, n_blocks * 4 writable, multiple of 8.
         unsafe {
             kernel.call(
                 black_box(input.as_ptr()),

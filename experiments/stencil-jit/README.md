@@ -112,27 +112,43 @@ disappears entirely. The loop body collapses to one memory-operand
 `vpcmpeqb ymm0, ymm1, [rdi]` per block. This is the **JIT-only win** —
 AOT can't fold `c - r` if `c` and `r` are query-planner parameters.
 
+A fifth variant — **`stencil_jit_specialized_avx512` (D-spec-512)** —
+uses AVX-512BW's `vpcmpeqb k, zmm, [mem]` + `kmovq`. The 64-bit kmask
+avoids the AVX2 `vpmovmskb` port-0 bottleneck entirely, and zmm doubles
+the lane width.
+
 Median GB/s (stable across multiple runs):
 
-| n_blocks | size   | **C (chunked)** | D (generic JIT) | **D-spec**  | **D-spec / C** | aot_fused (fastest) |
-|---------:|-------:|----------------:|----------------:|------------:|---------------:|--------------------:|
-|    128   |  4 KB  | 14.0            | 65.3            | **83.9**    | **6.0×**       | 63.6                |
-|   1024   | 32 KB  | 41–44           | 69.8            | **100.4**   | **2.4×**       | 74.5                |
-|   8192   | 256 KB | 36.9            | 71.5            | **90.9**    | **2.5×**       | 59.3                |
-|  32768   |  1 MB  | 32.2            | 56.9            | **63.6**    | **2.0×**       | 53.4                |
-| 131072   |  4 MB  | 25.8            | 30.7            | 31.2        | 1.2×           | 30.5                |
+| n_blocks | size   | **C (chunked)** | D (generic) | **D-spec (AVX2)** | **D-spec-512** | **D-spec-512 / C** | aot_fused |
+|---------:|-------:|----------------:|------------:|------------------:|---------------:|-------------------:|----------:|
+|    128   |  4 KB  | 14.0            | 67.4        | 90.7              | **162.0**      | **11.6×**          | 68.1      |
+|   1024   | 32 KB  | 41–44           | 70.3        | 89.7              | **141.2**      | **3.4×**           | 69.9      |
+|   8192   | 256 KB | 36.9            | 56.4        | 72.8              | 62.1           | 1.7×               | 57.4      |
+|  32768   |  1 MB  | 32.2            | 56.6        | 55.3              | 59.0           | 1.8×               | 57.8      |
+| 131072   |  4 MB  | 25.8            | 24.1        | 21.4              | 20.2           | 0.8× (memory bound)| 24.7      |
 
 **D-spec beats AOT-fused at every cache-resident size** — AOT-fused still
 pays a runtime `vpaddb` for the FFoR offset; D-spec doesn't.
 
+**D-spec-512 hits 162 GB/s at 4 KB (L1) and 141 GB/s at 32 KB** — that's
+**2× AOT-fused** and **11.6× / 3.4× over C** at those sizes. The 64-bit
+`kmask` from `vpcmpeqb k, zmm, [mem]` sidesteps the AVX2 `vpmovmskb`
+port-0 bottleneck (1/cycle on Skylake) that capped D-spec at ~100 GB/s.
+
+At sizes that overflow L1 (≥ 256 KB) D-spec-512's per-iteration speedup
+shrinks because we're memory-bound; AVX-512 frequency throttling on this
+class of CPU also bites once a sustained AVX-512 workload runs long
+enough.
+
 **Per-block work, by variant:**
 
-| Variant      | SIMD ops per 32-byte block | Notes                                |
-|--------------|---------------------------:|--------------------------------------|
-| C (chunked)  | 4 + L1 round trip          | load+vpaddb+store, then load+vpcmpeqb+vpmovmskb+store |
-| D (generic)  | 3                          | vpaddb-mem-operand + vpcmpeqb + vpmovmskb            |
-| **D-spec**   | **2**                      | **vpcmpeqb-mem-operand + vpmovmskb**                 |
-| aot_fused    | 3                          | vmovdqu + vpaddb + vpcmpeqb + vpmovmskb              |
+| Variant         | SIMD ops per 32-byte block | Notes                                                |
+|-----------------|---------------------------:|------------------------------------------------------|
+| C (chunked)     | 4 + L1 round trip          | load+vpaddb+L1-store, load+vpcmpeqb+vpmovmskb+store  |
+| D (generic)     | 3                          | vpaddb-mem-operand + vpcmpeqb + vpmovmskb            |
+| **D-spec**      | **2**                      | **vpcmpeqb-mem-operand + vpmovmskb**                 |
+| **D-spec-512**  | **1**                      | **vpcmpeqb-mem-operand → kmask** (one 64-byte zmm op covers two 32-byte blocks; `kmovq` shared) |
+| aot_fused       | 3                          | vmovdqu + vpaddb + vpcmpeqb + vpmovmskb              |
 
 **Why D-spec beats AOT-fused:** AOT-fused takes `ffor_ref` and `constant`
 as runtime parameters (the chain isn't known at Rust-compile time), so
@@ -146,13 +162,24 @@ while D-spec is one call total with a tight 4×-unrolled body.
 **At memory-bound sizes (4 MB):** everything converges at ~30 GB/s — RAM
 bandwidth wins.
 
-**Headline:** for runtime-defined chains where the constants are query-
-time-known, a copy-and-patch JIT with constant-folding delivers **2.0–
-6.0× speedup over chunked AOT-intrinsics** at every cache-resident size,
-**beats AOT-fused** because AOT-fused can't bake runtime constants. This
-is the structural advantage of JIT over AOT — not "the JIT happens to
-write the same instructions faster," but "the JIT can emit fewer
-instructions because more is known at kernel-materialize time."
+**Headline:** for runtime-defined chains where constants are query-time-
+known, a copy-and-patch JIT with constant-folding + AVX-512 delivers
+**3.4–11.6× over chunked AOT-intrinsics** at L1-resident sizes and
+**2× AOT-fused** — because AOT-fused can't bake the runtime constants
+and isn't in this build using AVX-512 anyway. This is the structural
+advantage of JIT over AOT: not "the JIT writes the same instructions
+faster," but "the JIT can emit **fewer, wider** instructions because
+more is known at kernel-materialize time and the target ISA is picked
+per machine."
+
+**F (Cranelift-at-build-time) gives you all of this for free** across
+ISAs: Cranelift's x86-64 backend picks AVX-512 vs AVX2 at build time
+per target, applies the same constant-folding semantically (operating
+on its IR), and produces bytes for D's runtime to splice. LLVM would do
+slightly better codegen — by ~5–10% on this size of kernel — but at
+~100× the compile latency. For an interactive JIT that materializes
+many kernels per query, Cranelift's "compile in microseconds at near-
+LLVM quality" is the right tradeoff.
 
 
 ## D vs F — the only difference is the source of the stencil bytes

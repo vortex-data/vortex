@@ -137,6 +137,36 @@ fn bulk_kernel_matches_single_block() {
 }
 
 #[test]
+fn specialized512_kernel_matches_reference() {
+    use stencil_jit::SpecializedKernel512;
+    if !std::is_x86_feature_detected!("avx512bw") {
+        eprintln!("avx512bw not detected; skipping");
+        return;
+    }
+    const N: usize = 24; // multiple of 8
+    let mut packed = vec![0u8; N * 32];
+    for (i, b) in packed.iter_mut().enumerate() {
+        *b = (i as u8).wrapping_mul(13).wrapping_add(5);
+    }
+    for &(c, r) in &[(42u8, 7u8), (0, 0), (255, 1), (128, 200), (1, 255)] {
+        let kernel = SpecializedKernel512::compile_eq(c, r).unwrap();
+        let mut out = vec![0u32; N];
+        // SAFETY: N*32 readable, N*4 writable, N multiple of 8, AVX-512BW verified.
+        unsafe { kernel.call(packed.as_ptr(), out.as_mut_ptr(), N) };
+        for i in 0..N {
+            let block: &[u8; 32] = (&packed[i * 32..(i + 1) * 32]).try_into().unwrap();
+            let mut want = 0u32;
+            for (j, &b) in block.iter().enumerate() {
+                if b.wrapping_add(r) == c {
+                    want |= 1u32 << j;
+                }
+            }
+            assert_eq!(out[i], want, "AVX-512 specialized mismatch at block {i} c={c} r={r}");
+        }
+    }
+}
+
+#[test]
 fn specialized_kernel_matches_reference() {
     use stencil_jit::SpecializedKernel;
     // n_blocks must be a multiple of 4.
