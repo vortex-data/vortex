@@ -6,6 +6,7 @@ mod compare;
 mod compare_block;
 mod compare_eq_w1;
 mod compare_eq_w2;
+mod compare_eq_w3;
 mod compare_eq_w4;
 mod compare_eq_w8;
 mod compare_swar;
