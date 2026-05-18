@@ -36,6 +36,7 @@ use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 use vortex_utils::aliases::hash_map::HashMap;
 
+pub use self::flat::ArrayTreeFlat;
 pub use self::flat::ArrayTreeFlatLayout;
 pub use self::flat::ArrayTreeFlatLayoutEncoding;
 use crate::LayoutChildType;
@@ -47,7 +48,6 @@ use crate::LayoutRef;
 use crate::VTable;
 use crate::children::LayoutChildren;
 use crate::children::OwnedLayoutChildren;
-use crate::layouts::array_tree::flat::ArrayTreeFlat;
 use crate::layouts::array_tree::reader::ArrayTreeFlatReader;
 use crate::layouts::array_tree::reader::ArrayTreeReader;
 use crate::segments::SegmentId;

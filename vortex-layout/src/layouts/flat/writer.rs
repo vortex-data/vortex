@@ -168,16 +168,26 @@ impl LayoutStrategy for FlatLayoutStrategy {
         )?;
         // there is at least the flatbuffer and the length
         assert!(buffers.len() >= 2);
+
+        // DEPRECATED: when the FLAT_LAYOUT_INLINE_ARRAY_NODE env var is set, capture the
+        // trailing compact array-tree flatbuffer (second-to-last buffer in the serialized
+        // form) so we can persist it in this layout's metadata. Prefer
+        // `WriteStrategyBuilder::with_array_tree(true)` for new code; see
+        // [`super::flat_layout_inline_array_node`] for details.
+        let inline_array_tree =
+            super::flat_layout_inline_array_node().then(|| buffers[buffers.len() - 2].clone());
+
         let segment_id = segment_sink.write(sequence_id, buffers).await?;
 
         let None = stream.next().await else {
             vortex_bail!("flat layout received stream with more than a single chunk");
         };
-        Ok(FlatLayout::new(
+        Ok(FlatLayout::new_with_metadata(
             row_count,
             stream.dtype().clone(),
             segment_id,
             ReadContext::new(ctx.to_ids()),
+            inline_array_tree,
         )
         .into_layout())
     }

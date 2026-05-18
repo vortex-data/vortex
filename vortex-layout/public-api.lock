@@ -88,15 +88,51 @@ pub fn vortex_layout::layouts::array_tree::ArrayTree::segment_ids(&Self::Layout)
 
 pub fn vortex_layout::layouts::array_tree::ArrayTree::with_children(&mut Self::Layout, alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
+pub struct vortex_layout::layouts::array_tree::ArrayTreeFlat
+
+impl core::fmt::Debug for vortex_layout::layouts::array_tree::ArrayTreeFlat
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl vortex_layout::VTable for vortex_layout::layouts::array_tree::ArrayTreeFlat
+
+pub type vortex_layout::layouts::array_tree::ArrayTreeFlat::Encoding = vortex_layout::layouts::array_tree::ArrayTreeFlatLayoutEncoding
+
+pub type vortex_layout::layouts::array_tree::ArrayTreeFlat::Layout = vortex_layout::layouts::array_tree::ArrayTreeFlatLayout
+
+pub type vortex_layout::layouts::array_tree::ArrayTreeFlat::Metadata = vortex_array::metadata::EmptyMetadata
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::build(&Self::Encoding, &vortex_array::dtype::DType, u64, &vortex_array::metadata::EmptyMetadata, alloc::vec::Vec<vortex_layout::segments::SegmentId>, &dyn vortex_layout::LayoutChildren, &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::child(&Self::Layout, usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::child_type(&Self::Layout, usize) -> vortex_layout::LayoutChildType
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::dtype(&Self::Layout) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::encoding(&Self::Layout) -> vortex_layout::LayoutEncodingRef
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::id(&Self::Encoding) -> vortex_layout::LayoutId
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::metadata(&Self::Layout) -> Self::Metadata
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::nchildren(&Self::Layout) -> usize
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::row_count(&Self::Layout) -> u64
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::segment_ids(&Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::with_children(&mut Self::Layout, alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+
 pub struct vortex_layout::layouts::array_tree::ArrayTreeFlatLayout
 
 impl vortex_layout::layouts::array_tree::ArrayTreeFlatLayout
 
-pub fn vortex_layout::layouts::array_tree::ArrayTreeFlatLayout::compact_tree(&self) -> core::option::Option<&vortex_buffer::ByteBuffer>
-
 pub fn vortex_layout::layouts::array_tree::ArrayTreeFlatLayout::inner(&self) -> &vortex_layout::layouts::flat::FlatLayout
 
-pub fn vortex_layout::layouts::array_tree::ArrayTreeFlatLayout::new(vortex_layout::layouts::flat::FlatLayout, vortex_buffer::ByteBuffer) -> Self
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlatLayout::new(vortex_layout::layouts::flat::FlatLayout) -> Self
 
 impl core::clone::Clone for vortex_layout::layouts::array_tree::ArrayTreeFlatLayout
 
@@ -1680,6 +1716,38 @@ pub fn vortex_layout::layouts::array_tree::ArrayTree::segment_ids(&Self::Layout)
 
 pub fn vortex_layout::layouts::array_tree::ArrayTree::with_children(&mut Self::Layout, alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
+impl vortex_layout::VTable for vortex_layout::layouts::array_tree::ArrayTreeFlat
+
+pub type vortex_layout::layouts::array_tree::ArrayTreeFlat::Encoding = vortex_layout::layouts::array_tree::ArrayTreeFlatLayoutEncoding
+
+pub type vortex_layout::layouts::array_tree::ArrayTreeFlat::Layout = vortex_layout::layouts::array_tree::ArrayTreeFlatLayout
+
+pub type vortex_layout::layouts::array_tree::ArrayTreeFlat::Metadata = vortex_array::metadata::EmptyMetadata
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::build(&Self::Encoding, &vortex_array::dtype::DType, u64, &vortex_array::metadata::EmptyMetadata, alloc::vec::Vec<vortex_layout::segments::SegmentId>, &dyn vortex_layout::LayoutChildren, &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::child(&Self::Layout, usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::child_type(&Self::Layout, usize) -> vortex_layout::LayoutChildType
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::dtype(&Self::Layout) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::encoding(&Self::Layout) -> vortex_layout::LayoutEncodingRef
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::id(&Self::Encoding) -> vortex_layout::LayoutId
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::metadata(&Self::Layout) -> Self::Metadata
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::nchildren(&Self::Layout) -> usize
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::row_count(&Self::Layout) -> u64
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::segment_ids(&Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::with_children(&mut Self::Layout, alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+
 impl vortex_layout::VTable for vortex_layout::layouts::chunked::Chunked
 
 pub type vortex_layout::layouts::chunked::Chunked::Encoding = vortex_layout::layouts::chunked::ChunkedLayoutEncoding
@@ -2297,6 +2365,38 @@ pub fn vortex_layout::layouts::array_tree::ArrayTree::row_count(&Self::Layout) -
 pub fn vortex_layout::layouts::array_tree::ArrayTree::segment_ids(&Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
 
 pub fn vortex_layout::layouts::array_tree::ArrayTree::with_children(&mut Self::Layout, alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
+
+impl vortex_layout::VTable for vortex_layout::layouts::array_tree::ArrayTreeFlat
+
+pub type vortex_layout::layouts::array_tree::ArrayTreeFlat::Encoding = vortex_layout::layouts::array_tree::ArrayTreeFlatLayoutEncoding
+
+pub type vortex_layout::layouts::array_tree::ArrayTreeFlat::Layout = vortex_layout::layouts::array_tree::ArrayTreeFlatLayout
+
+pub type vortex_layout::layouts::array_tree::ArrayTreeFlat::Metadata = vortex_array::metadata::EmptyMetadata
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::build(&Self::Encoding, &vortex_array::dtype::DType, u64, &vortex_array::metadata::EmptyMetadata, alloc::vec::Vec<vortex_layout::segments::SegmentId>, &dyn vortex_layout::LayoutChildren, &vortex_session::registry::ReadContext) -> vortex_error::VortexResult<Self::Layout>
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::child(&Self::Layout, usize) -> vortex_error::VortexResult<vortex_layout::LayoutRef>
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::child_type(&Self::Layout, usize) -> vortex_layout::LayoutChildType
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::dtype(&Self::Layout) -> &vortex_array::dtype::DType
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::encoding(&Self::Layout) -> vortex_layout::LayoutEncodingRef
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::id(&Self::Encoding) -> vortex_layout::LayoutId
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::metadata(&Self::Layout) -> Self::Metadata
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::nchildren(&Self::Layout) -> usize
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::new_reader(&Self::Layout, alloc::sync::Arc<str>, alloc::sync::Arc<dyn vortex_layout::segments::SegmentSource>, &vortex_session::VortexSession, &vortex_layout::LayoutReaderContext) -> vortex_error::VortexResult<vortex_layout::LayoutReaderRef>
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::row_count(&Self::Layout) -> u64
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::segment_ids(&Self::Layout) -> alloc::vec::Vec<vortex_layout::segments::SegmentId>
+
+pub fn vortex_layout::layouts::array_tree::ArrayTreeFlat::with_children(&mut Self::Layout, alloc::vec::Vec<vortex_layout::LayoutRef>) -> vortex_error::VortexResult<()>
 
 impl vortex_layout::VTable for vortex_layout::layouts::chunked::Chunked
 

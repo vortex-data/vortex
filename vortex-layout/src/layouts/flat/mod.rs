@@ -4,7 +4,9 @@
 mod reader;
 pub mod writer;
 
+use std::env;
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use vortex_array::DeserializeMetadata;
 use vortex_array::ProstMetadata;
@@ -28,6 +30,34 @@ use crate::layouts::flat::reader::FlatReader;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::vtable;
+
+/// Returns `true` if the `FLAT_LAYOUT_INLINE_ARRAY_NODE` environment variable is set to `1`,
+/// instructing the flat writer to inline each chunk's compact encoding tree as a trailing
+/// buffer in its data segment.
+///
+/// # Deprecation
+///
+/// This knob is retained for backward compatibility with files and tooling that depend on the
+/// inline encoding-tree footer. The supported path forward is to opt in to the
+/// `ArrayTreeLayout` outlining feature on the file write strategy
+/// (`WriteStrategyBuilder::with_array_tree(true)`), which consolidates encoding trees into a
+/// single auxiliary segment per column rather than scattering them across data segments.
+/// A one-shot warning is emitted on the first read of the env var so the deprecation is
+/// visible to operators.
+pub(super) fn flat_layout_inline_array_node() -> bool {
+    static FLAT_LAYOUT_INLINE_ARRAY_NODE: LazyLock<bool> = LazyLock::new(|| {
+        let enabled = env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok_and(|v| v == "1");
+        if enabled {
+            tracing::warn!(
+                "FLAT_LAYOUT_INLINE_ARRAY_NODE is deprecated: prefer enabling ArrayTreeLayout \
+                 outlining via WriteStrategyBuilder::with_array_tree(true). The env var path \
+                 will be removed in a future release."
+            );
+        }
+        enabled
+    });
+    *FLAT_LAYOUT_INLINE_ARRAY_NODE
+}
 
 vtable!(Flat);
 

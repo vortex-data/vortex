@@ -348,6 +348,8 @@ pub fn vortex_file::WriteStrategyBuilder::build(self) -> alloc::sync::Arc<dyn vo
 
 pub fn vortex_file::WriteStrategyBuilder::with_allow_encodings(self, vortex_utils::aliases::hash_set::HashSet<vortex_array::array::ArrayId>) -> Self
 
+pub fn vortex_file::WriteStrategyBuilder::with_array_tree(self, bool) -> Self
+
 pub fn vortex_file::WriteStrategyBuilder::with_btrblocks_builder(self, vortex_btrblocks::builder::BtrBlocksCompressorBuilder) -> Self
 
 pub fn vortex_file::WriteStrategyBuilder::with_compressor<C: vortex_layout::layouts::compressed::CompressorPlugin>(self, C) -> Self

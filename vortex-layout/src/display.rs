@@ -10,10 +10,23 @@ use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::LayoutRef;
+use crate::layouts::array_tree::ArrayTreeFlat;
 use crate::layouts::flat::Flat;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+
+/// Returns the inner [`FlatLayout`] that owns a data segment, regardless of whether the
+/// layout is a plain [`Flat`] or an [`ArrayTreeFlat`] (which wraps a [`FlatLayout`]).
+///
+/// Used by display routines that want to render leaf-layout buffer info uniformly across
+/// both encodings — the on-disk data segment shape is identical.
+fn as_flat_view(layout: &LayoutRef) -> Option<&FlatLayout> {
+    if let Some(flat) = layout.as_opt::<Flat>() {
+        return Some(flat);
+    }
+    layout.as_opt::<ArrayTreeFlat>().map(|atf| atf.inner())
+}
 
 /// Display the layout as a tree, fetching segment sizes from the segment source.
 ///
@@ -49,13 +62,18 @@ pub(super) async fn display_tree_with_segment_sizes(
     })
 }
 
-/// Collect segment IDs that need to be fetched (those without inline array_tree).
+/// Collect segment IDs that need to be fetched.
+///
+/// For a [`Flat`] with an inline array_tree (the deprecated env-var path), buffer info can be
+/// parsed directly from the layout metadata — we skip those. Otherwise we fetch the data
+/// segment and parse its trailing flatbuffer. [`ArrayTreeFlat`] leaves have the same on-disk
+/// shape as a plain [`Flat`] (their compact tree is stored separately in the parent's
+/// auxiliary child), so we treat them the same here.
 fn collect_segments_to_fetch(
     layout: &LayoutRef,
     segment_ids: &mut Vec<SegmentId>,
 ) -> VortexResult<()> {
-    // For FlatLayout, only add if there's no inline array_tree
-    if let Some(flat_layout) = layout.as_opt::<Flat>() {
+    if let Some(flat_layout) = as_flat_view(layout) {
         if flat_layout.array_tree().is_none() {
             segment_ids.push(flat_layout.segment_id());
         }
@@ -146,8 +164,8 @@ impl DisplayLayoutTree {
             node_parts.push(format!("rows: {}", layout.row_count()));
         }
 
-        // For FlatLayout, show buffer info
-        if let Some(flat_layout) = layout.as_opt::<Flat>() {
+        // For FlatLayout (and ArrayTreeFlat which wraps one), show buffer info
+        if let Some(flat_layout) = as_flat_view(&layout) {
             node_parts.push(format_flat_layout_buffers(
                 flat_layout,
                 self.segment_buffer_sizes.as_ref(),

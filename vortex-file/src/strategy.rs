@@ -144,6 +144,7 @@ pub struct WriteStrategyBuilder {
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
     allow_encodings: Option<HashSet<ArrayId>>,
     flat_strategy: Option<Arc<dyn LayoutStrategy>>,
+    array_tree: bool,
 }
 
 impl Default for WriteStrategyBuilder {
@@ -156,6 +157,7 @@ impl Default for WriteStrategyBuilder {
             field_writers: HashMap::new(),
             allow_encodings: Some(ALLOWED_ENCODINGS.clone()),
             flat_strategy: None,
+            array_tree: false,
         }
     }
 }
@@ -188,8 +190,28 @@ impl WriteStrategyBuilder {
     ///
     /// By default, this uses [`FlatLayoutStrategy`]. This can be used to substitute a custom
     /// layout strategy, e.g. one that inlines constant array buffers for GPU reads.
+    ///
+    /// Passing a custom flat strategy implicitly disables the array-tree outlining feature
+    /// (see [`Self::with_array_tree`]), since the custom strategy owns the leaf format.
     pub fn with_flat_strategy(mut self, flat: Arc<dyn LayoutStrategy>) -> Self {
         self.flat_strategy = Some(flat);
+        self
+    }
+
+    /// Enable array-tree outlining: each chunk's encoding tree (without per-chunk statistics)
+    /// is collected into a single auxiliary segment per column rather than being inlined
+    /// alongside the chunk's data.
+    ///
+    /// Disabled by default. When enabled, the written file uses two encodings that older
+    /// readers will not understand: [`vortex_layout::layouts::array_tree::ArrayTreeFlatLayout`]
+    /// at the data leaves and a wrapping [`vortex_layout::layouts::array_tree::ArrayTreeLayout`]
+    /// that owns the consolidated auxiliary segment. Once you opt in, files written by this
+    /// builder require a reader that recognizes both encodings.
+    ///
+    /// Has no effect if a custom flat strategy is provided via
+    /// [`Self::with_flat_strategy`] — the user-supplied leaf format wins.
+    pub fn with_array_tree(mut self, array_tree: bool) -> Self {
+        self.array_tree = array_tree;
         self
     }
 
@@ -221,21 +243,22 @@ impl WriteStrategyBuilder {
             Arc::new(FlatLayoutStrategy::default())
         };
 
-        // Build the data pipeline leaf. When the user provides a custom flat strategy, use it
-        // directly — they own the leaf format and array tree wrapping does not apply.
-        // Otherwise, create a TX/RX pair for array tree collection.
-        let (data_leaf, array_tree_collector): (Arc<dyn LayoutStrategy>, _) =
-            if self.flat_strategy.is_some() {
-                (Arc::clone(&flat), None)
+        // Build the data pipeline leaf. Array-tree outlining requires both opt-in via
+        // `with_array_tree(true)` AND no custom flat strategy (the user's strategy owns the
+        // leaf format in that case).
+        let array_tree_enabled = self.array_tree && self.flat_strategy.is_none();
+        let (data_leaf, array_tree_collector): (Arc<dyn LayoutStrategy>, _) = if !array_tree_enabled
+        {
+            (Arc::clone(&flat), None)
+        } else {
+            let data_flat = if let Some(allow_encodings) = &self.allow_encodings {
+                FlatLayoutStrategy::default().with_allow_encodings(allow_encodings.clone())
             } else {
-                let data_flat = if let Some(allow_encodings) = &self.allow_encodings {
-                    FlatLayoutStrategy::default().with_allow_encodings(allow_encodings.clone())
-                } else {
-                    FlatLayoutStrategy::default()
-                };
-                let (collector, leaf) = writer::writer(data_flat, Arc::clone(&flat));
-                (Arc::new(leaf), Some(collector))
+                FlatLayoutStrategy::default()
             };
+            let (collector, leaf) = writer::writer(data_flat, Arc::clone(&flat));
+            (Arc::new(leaf), Some(collector))
+        };
 
         // 7. for each chunk create a flat layout
         let chunked = ChunkedLayoutStrategy::new(data_leaf);

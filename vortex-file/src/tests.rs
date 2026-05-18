@@ -2005,8 +2005,12 @@ async fn test_segment_ordering_array_trees_consolidated_and_after_data() -> Vort
     .unwrap();
 
     let mut buf = ByteBufferMut::empty();
+    let strategy = crate::WriteStrategyBuilder::default()
+        .with_array_tree(true)
+        .build();
     let summary = SESSION
         .write_options()
+        .with_strategy(strategy)
         .write(&mut buf, st.into_array().to_array_stream())
         .await?;
 
@@ -2092,8 +2096,12 @@ async fn test_segment_ordering_array_trees_before_zones() -> VortexResult<()> {
     .unwrap();
 
     let mut buf = ByteBufferMut::empty();
+    let strategy = crate::WriteStrategyBuilder::default()
+        .with_array_tree(true)
+        .build();
     let summary = SESSION
         .write_options()
+        .with_strategy(strategy)
         .write(&mut buf, st.into_array().to_array_stream())
         .await?;
 
