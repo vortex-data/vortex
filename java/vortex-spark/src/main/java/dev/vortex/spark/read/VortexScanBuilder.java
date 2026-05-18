@@ -31,7 +31,8 @@ import org.apache.spark.sql.types.StructType;
 public final class VortexScanBuilder
         implements ScanBuilder, SupportsPushDownRequiredColumns, SupportsPushDownV2Filters {
     private final ImmutableList.Builder<String> paths;
-    private final List<Column> columns;
+    private final List<Column> tableColumns;
+    private final List<Column> readColumns;
     private final Map<String, String> formatOptions;
     private final Set<String> partitionColumnNames;
     private Predicate[] pushedPredicates = new Predicate[0];
@@ -48,10 +49,11 @@ public final class VortexScanBuilder
      */
     public VortexScanBuilder(Map<String, String> formatOptions, Transform[] partitionTransforms) {
         this.paths = ImmutableList.builder();
-        this.columns = new ArrayList<>();
         Map<String, String> options = Maps.newHashMap();
         options.put("vortex.workerThreads", "4");
         options.putAll(formatOptions);
+        this.tableColumns = new ArrayList<>();
+        this.readColumns = new ArrayList<>();
         this.formatOptions = options;
         this.partitionColumnNames = collectPartitionColumnNames(partitionTransforms);
     }
@@ -74,7 +76,8 @@ public final class VortexScanBuilder
      * @return this builder for method chaining
      */
     public VortexScanBuilder addColumn(Column column) {
-        this.columns.add(column);
+        this.tableColumns.add(column);
+        this.readColumns.add(column);
         return this;
     }
 
@@ -97,7 +100,7 @@ public final class VortexScanBuilder
      */
     public VortexScanBuilder addAllColumns(Iterable<Column> columns) {
         for (Column column : columns) {
-            this.columns.add(column);
+            addColumn(column);
         }
         return this;
     }
@@ -116,7 +119,12 @@ public final class VortexScanBuilder
         // Allow empty columns for operations like count() that don't need actual column data
         // If no columns are specified, we'll read the minimal schema needed
 
-        return new VortexScan(paths, List.copyOf(this.columns), this.formatOptions, pushedPredicates);
+        return new VortexScan(
+                paths,
+                List.copyOf(this.tableColumns),
+                List.copyOf(this.readColumns),
+                pushedPredicates,
+                this.formatOptions);
     }
 
     /**
@@ -129,8 +137,8 @@ public final class VortexScanBuilder
      */
     @Override
     public void pruneColumns(StructType requiredSchema) {
-        columns.clear();
-        columns.addAll(Arrays.asList(CatalogV2Util.structTypeToV2Columns(requiredSchema)));
+        readColumns.clear();
+        readColumns.addAll(Arrays.asList(CatalogV2Util.structTypeToV2Columns(requiredSchema)));
     }
 
     /**
@@ -145,7 +153,7 @@ public final class VortexScanBuilder
     @Override
     public Predicate[] pushPredicates(Predicate[] predicates) {
         Map<String, DataType> dataColumnTypes = new HashMap<>();
-        for (Column column : columns) {
+        for (Column column : readColumns) {
             if (!partitionColumnNames.contains(column.name())) {
                 dataColumnTypes.put(column.name(), column.dataType());
             }

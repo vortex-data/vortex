@@ -4,6 +4,7 @@
 package dev.vortex.spark.read;
 
 import com.google.common.collect.ImmutableMap;
+import dev.vortex.api.Session;
 import dev.vortex.jni.NativeFiles;
 import dev.vortex.spark.VortexFilePartition;
 import dev.vortex.spark.VortexSparkSession;
@@ -76,14 +77,19 @@ public final class VortexBatchExec implements Batch {
     }
 
     private List<String> resolvePaths() {
-        var session = VortexSparkSession.get(formatOptions);
+        return resolveVortexPaths(VortexSparkSession.get(formatOptions), paths, formatOptions);
+    }
+
+    /**
+     * Expands directory-like entries to concrete {@code .vortex} files; entries that already name a {@code .vortex}
+     * file are kept as-is. Shared with {@link VortexScan#estimateStatistics()} so planning and execution resolve paths
+     * identically.
+     */
+    static List<String> resolveVortexPaths(Session session, List<String> paths, Map<String, String> formatOptions) {
         return paths.stream()
-                .flatMap(path -> {
-                    if (path.endsWith(".vortex")) {
-                        return Stream.of(path);
-                    }
-                    return NativeFiles.listFiles(session, path, formatOptions).stream();
-                })
+                .flatMap(path -> path.endsWith(".vortex")
+                        ? Stream.of(path)
+                        : NativeFiles.listFiles(session, path, formatOptions).stream())
                 .collect(Collectors.toList());
     }
 
