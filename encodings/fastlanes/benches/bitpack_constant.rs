@@ -41,16 +41,17 @@
 //!   W:                            1     4    12    16    24
 //!   stack_unpack_per1k          5.84  6.44  6.27  6.22  6.02  <- best apples-to-apples
 //!   fl_unpack_cmp_per1k         5.60  6.04  6.01  4.91  6.07
+//!   fl_unpack_cmp_batch         2.93  2.88  2.92  2.86  2.86
 //!   fl_unpack_cmp_collect       2.58  2.59  2.49  2.66  2.52
 //!   stack_unpack_collect        2.66  2.67  2.59  2.62  2.55
 //!   block_batch (mine)          1.72  1.37  1.67  1.68  1.48
 //!   block_batch_avx512_hand    18.90 17.92 12.42 11.65  9.45  <- AVX-512 ceiling
 //! ```
 //!
-//! The `*_per1k` strategies are 2-2.4x faster than the same kernel with per-block
-//! `BitBuffer` heap allocs. The win is L1 locality: the stack `[bool; 1024]`
-//! (or `[u32; 1024]`) stays in L1 between the unpack write and the inline
-//! collect_bool read, no heap traffic in the inner loop.
+//! The `*_per1k` strategies are 2-2.4x faster than the same kernel with a global
+//! 64K-bool buffer or per-block `BitBuffer` heap alloc. The win is L1 locality:
+//! the stack `[bool; 1024]` (or `[u32; 1024]`) stays in L1 between the unpack
+//! write and the inline collect_bool read, no heap traffic in the inner loop.
 //!
 //! Code size per (W, T) specialization (bytes, u32, 32 W values):
 //! ```text
@@ -733,6 +734,26 @@ fn fastlanes_unpack_cmp_collect<const W: usize, const B: usize>(
     BitBufferMut::collect_bool(1024, |i| bools[i]).freeze()
 }
 
+/// Strategy D batched: write all blocks' bools to a single big slice, then
+/// `collect_bool` over the whole thing at the end. Removes per-block heap alloc
+/// but the bool buffer is too large to fit in L1, so the final `collect_bool`
+/// reads cold -- consistently slower than the `*_per1k` variants. Kept for
+/// reference.
+#[inline]
+fn fastlanes_unpack_cmp_batch<const W: usize, const B: usize>(
+    blocks: &[[u32; B]],
+    constant: u32,
+    out_bools: &mut [bool],
+) {
+    debug_assert_eq!(out_bools.len(), 1024 * blocks.len());
+    for (b, blk) in blocks.iter().enumerate() {
+        let slot: &mut [bool; 1024] = (&mut out_bools[b * 1024..b * 1024 + 1024])
+            .try_into()
+            .unwrap();
+        BitPackingCompare::unpack_cmp::<W, B, u32, _>(blk, slot, |a, b| a == b, constant);
+    }
+}
+
 /// Strategy D variant: per-block unpack_cmp into a **stack** `[bool; 1024]`,
 /// then inline-collect 16 `u64`s into a shared output buffer. The bools stay
 /// hot in L1 between the unpack write and the collect_bool read; no per-block
@@ -1114,6 +1135,28 @@ macro_rules! u32_eq_benches {
                             out.append_buffer(&bb);
                         }
                         black_box(out)
+                    });
+            }
+
+            // Batched: share a single 64*1024-byte bools buffer + one final collect_bool.
+            #[divan::bench]
+            fn [<$prefix _fl_unpack_cmp_batch_w $W>](bencher: Bencher) {
+                const W: usize = $W;
+                const B: usize = 32 * W;
+                let value: u32 = ((1u64 << W) - 1) as u32;
+                let blocks = make_constant_packed_blocks::<W, B>(value);
+                let mut bools = vec![false; 1024 * EQ_BLOCKS];
+
+                bencher
+                    .counter(ItemsCount::new(1024usize * EQ_BLOCKS))
+                    .bench_local(|| {
+                        fastlanes_unpack_cmp_batch::<W, B>(
+                            &blocks,
+                            black_box(value),
+                            &mut bools,
+                        );
+                        let bb = BitBufferMut::collect_bool(bools.len(), |i| bools[i]).freeze();
+                        black_box(bb)
                     });
             }
 
