@@ -23,7 +23,10 @@ _test-harness = []
 unstable_encodings = ["vortex/unstable_encodings"]
 
 [dependencies]
+anyhow = { workspace = true }
 arc-swap = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 cudarc = { workspace = true, features = ["f16"] }
@@ -33,8 +36,11 @@ kanal = { workspace = true }
 num-traits = { workspace = true }
 object_store = { workspace = true, features = ["fs"] }
 parking_lot = { workspace = true }
+parquet = { workspace = true, features = ["arrow", "async"] }
 prost = { workspace = true }
-tokio = { workspace = true, features = ["fs"] }
+tokio = { workspace = true, features = ["fs", "macros", "rt-multi-thread", "sync"] }
+tpchgen = { workspace = true }
+tpchgen-arrow = { workspace = true }
 tracing = { workspace = true, features = ["std", "attributes"] }
 vortex = { workspace = true, features = ["zstd"] }
 vortex-array = { workspace = true, features = ["cudarc"] }
@@ -43,14 +49,22 @@ vortex-cuda-macros = { workspace = true }
 vortex-error = { workspace = true, features = ["object_store"] }
 vortex-nvcomp = { path = "nvcomp" }
 
+[[bin]]
+name = "gen_tpch_lineitem"
+path = "src/bin/gen_tpch_lineitem.rs"
+
 [dev-dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
 criterion = { package = "codspeed-criterion-compat-walltime", version = "4.3.0" }
 futures = { workspace = true, features = ["executor"] }
+parquet = { workspace = true, features = ["arrow", "async"] }
 rstest = { workspace = true }
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["rt", "macros", "fs"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-cuda = { path = ".", features = ["_test-harness"] }
 vortex-fsst = { workspace = true, features = ["_test-harness"] }
+vortex-onpair = { workspace = true }
 
 [build-dependencies]
 bindgen = { workspace = true }
@@ -102,4 +116,8 @@ harness = false
 
 [[bench]]
 name = "fsst_cuda"
+harness = false
+
+[[bench]]
+name = "onpair_real_data"
 harness = false

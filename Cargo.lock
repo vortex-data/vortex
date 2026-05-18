@@ -10522,7 +10522,10 @@ dependencies = [
 name = "vortex-cuda"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "arc-swap",
+ "arrow-array 58.2.0",
+ "arrow-schema 58.2.0",
  "async-trait",
  "bindgen",
  "bytes",
@@ -10535,9 +10538,12 @@ dependencies = [
  "num-traits",
  "object_store 0.13.2",
  "parking_lot",
+ "parquet 58.2.0",
  "prost 0.14.3",
  "rstest",
  "tokio",
+ "tpchgen",
+ "tpchgen-arrow",
  "tracing",
  "vortex",
  "vortex-array",
@@ -10547,6 +10553,7 @@ dependencies = [
  "vortex-error",
  "vortex-fsst",
  "vortex-nvcomp",
+ "vortex-onpair",
 ]
 
 [[package]]
