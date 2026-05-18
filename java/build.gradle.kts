@@ -4,7 +4,7 @@
 import net.ltgt.gradle.errorprone.errorprone
 
 plugins {
-    id("com.diffplug.spotless") version "8.4.0"
+    id("com.diffplug.spotless") version "8.5.1"
     id("com.palantir.git-version") version "5.0.0"
     id("com.palantir.java-format") version "2.90.0"
     id("net.ltgt.errorprone") version "5.1.0" apply false
