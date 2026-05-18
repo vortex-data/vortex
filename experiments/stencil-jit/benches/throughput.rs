@@ -246,7 +246,7 @@ fn stencil_jit_specialized_avx512(bencher: Bencher, n_blocks: usize) {
 
 #[divan::bench(args = SIZES)]
 fn stencil_jit_cranelift_built(bencher: Bencher, n_blocks: usize) {
-    let kernel = CraneliftKernel::new().unwrap();
+    let kernel = CraneliftKernel::compile_eq(black_box(42u8), black_box(7u8)).unwrap();
     let input = make_input(n_blocks);
     let mut out = vec![0u32; n_blocks];
     bencher.counter(counter(n_blocks)).bench_local(|| {

@@ -39,11 +39,16 @@ fn main() {
     isa_builder.enable("has_bmi2").unwrap();
     let isa = isa_builder.finish(Flags::new(flag_builder)).unwrap();
 
-    // Function signature: fn(packed: *const u8, out: *mut u32, n_blocks: u64).
+    // Function signature: fn(packed, out, n_halves, effective_const_byte).
+    // The constant is a normal SystemV arg (low byte of rcx); the kernel
+    // broadcasts it into an xmm register once per call. That's amortized
+    // across many blocks — the realistic F shape for runtime-supplied
+    // query constants.
     let mut sig = Signature::new(CallConv::SystemV);
     sig.params.push(AbiParam::new(types::I64));
     sig.params.push(AbiParam::new(types::I64));
     sig.params.push(AbiParam::new(types::I64));
+    sig.params.push(AbiParam::new(types::I8));
 
     let mut func = Function::with_name_signature(UserFuncName::user(0, 0), sig);
     let mut fb_ctx = FunctionBuilderContext::new();
@@ -64,11 +69,11 @@ fn main() {
         let packed = b.block_params(entry)[0];
         let out = b.block_params(entry)[1];
         let n_blocks = b.block_params(entry)[2];
-        // Constant: c - r = 42 - 7 = 35. Build the 32-byte vector via the
-        // constant pool; `splat` from a scalar i8 trips Cranelift 0.118's
-        // verifier ("const0 size 16 vs expected 32") for I8X16 results.
-        let cpool = b.func.dfg.constants.insert([35u8; 16].as_slice().into());
-        let cvec = b.ins().vconst(types::I8X16, cpool);
+        let ec = b.block_params(entry)[3];
+        // Broadcast the runtime-supplied effective constant byte into all
+        // 16 lanes of an xmm register. The broadcast cost is paid once per
+        // call (n_blocks scans share the same xmm constant).
+        let cvec = b.ins().splat(types::I8X16, ec);
         let zero = b.ins().iconst(types::I64, 0);
         b.ins().jump(check, &[zero.into()]);
 

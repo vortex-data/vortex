@@ -187,8 +187,8 @@ LLVM quality" is the right tradeoff.
 `build.rs` uses `cranelift-codegen` 0.118 to compile an IR function:
 
 ```text
-fn eq_kernel(packed: *const u8, out: *mut u32, n_halves: u64) {
-    let c = vconst [35; 16]   // (42 - 7) broadcast into i8x16
+fn eq_kernel(packed: *const u8, out: *mut u32, n_halves: u64, ec: i8) {
+    let c = splat.i8x16 ec     // runtime constant, broadcast once
     for i in 0..n_halves {
         let data = load i8x16, [packed + i*16]
         let mask = vhigh_bits(i16, icmp eq, data, c)
@@ -197,9 +197,17 @@ fn eq_kernel(packed: *const u8, out: *mut u32, n_halves: u64) {
 }
 ```
 
-Cranelift emits **96 bytes of self-contained x86-64 machine code with
-zero relocations**. The runtime is unchanged — `CraneliftKernel::new()`
-hands those bytes straight to the same `materialize()` D-spec uses.
+Cranelift emits **69 bytes of self-contained x86-64 machine code with
+zero relocations**. The compare constant is a **runtime parameter** —
+the runtime call site computes `effective_const = c - r` (the same
+algebraic fold D-spec applies) and passes it as a SystemV arg. Cranelift
+broadcasts it into an xmm register once per call; the broadcast cost is
+amortized across the n_blocks scans each call covers. No relocations,
+no patching, no per-(c, r) build matrix.
+
+`CraneliftKernel::compile_eq(c, r)` materialises the bytes through the
+same `materialize()` D-spec uses; the call signature accepts the
+constants and threads them into the kernel ABI.
 
 | n_blocks | size   | C (chunked) | **F (Cranelift, xmm)** | D-spec (AVX2 ymm) | D-spec-512 (zmm) |
 |---------:|-------:|------------:|-----------------------:|------------------:|-----------------:|
@@ -225,11 +233,13 @@ What F bought us, with zero hand-tuned asm:
   call.
 
 What it didn't buy yet:
-* **Wide vectors** on Cranelift 0.118 — fix is a version bump.
-* **Constant patching** — the `c = 35` is baked into the IR. The
-  follow-up is to emit the constant as a Cranelift `GlobalValue` (which
-  becomes a relocation), capture the reloc offset, and have the runtime
-  patch the byte at that offset like `SpecializedKernel` does today.
+* **Wide vectors** on Cranelift 0.118 — fix is a version bump to ≥ 0.119
+  where the x64 backend handles ymm/zmm.
+* **Constant patching via relocations** — F here threads the constant
+  through the function ABI rather than baking-and-patching. That works
+  for query-time constants (the realistic case) without needing a
+  `MachReloc` walker; a follow-up could emit a `GlobalValue` symbol if
+  saving the per-call broadcast becomes worthwhile.
 
 ## D vs F — the only difference is the source of the stencil bytes
 
