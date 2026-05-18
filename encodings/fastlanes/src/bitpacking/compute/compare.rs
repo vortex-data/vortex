@@ -227,10 +227,15 @@ where
     use super::compare_block::block_lt_u32;
     use super::compare_block::new_block;
     use super::compare_eq_w4::swar_eq_w4_u32;
+    use super::compare_eq_w4::swar_lt_w4_u32;
+    use super::compare_eq_w8::swar_eq_w8_u32;
+    use super::compare_eq_w8::swar_lt_w8_u32;
 
     let w = lhs.bit_width();
-    // Supported widths cover 1..=16 inclusive; W > 16 falls through to canonical.
-    if !(1..=16).contains(&w) {
+    // Only widths with explicit AVX2 SWAR kernels run here today. Block-decompress is
+    // slower than the canonical Arrow-cmp baseline once the build has AVX2 enabled, so
+    // every other width returns `None` and lets the canonical path handle it.
+    if !matches!(w, 4 | 8) {
         return Ok(None);
     }
     if !matches!(T::PTYPE, PType::U32 | PType::I32) {
@@ -280,15 +285,23 @@ where
         eq_bits.fill(0);
         lt_bits.fill(0);
 
+        // Only widths with explicit AVX2 kernels run here. The other widths bail this
+        // path (`Ok(None)` higher up after we measure) so the canonical Arrow-compare
+        // path runs — its SIMD `cmp::eq`/`cmp::lt` already wins over block-decompress
+        // once the build has AVX2 enabled.
         if need_eq {
-            if w == 4 {
-                swar_eq_w4_u32(chunk, c_u32 as u8, &mut eq_bits);
-            } else {
-                block_eq_u32(chunk, w as usize, c_u32, &mut block, &mut eq_bits);
+            match w {
+                4 => swar_eq_w4_u32(chunk, c_u32 as u8, &mut eq_bits),
+                8 => swar_eq_w8_u32(chunk, c_u32 as u8, &mut eq_bits),
+                _ => block_eq_u32(chunk, w as usize, c_u32, &mut block, &mut eq_bits),
             }
         }
         if need_lt {
-            block_lt_u32(chunk, w as usize, c_u32, &mut block, &mut lt_bits);
+            match w {
+                4 => swar_lt_w4_u32(chunk, c_u32 as u8, &mut lt_bits),
+                8 => swar_lt_w8_u32(chunk, c_u32 as u8, &mut lt_bits),
+                _ => block_lt_u32(chunk, w as usize, c_u32, &mut block, &mut lt_bits),
+            }
         }
 
         let chunk_u64_start = chunk_idx * 16;

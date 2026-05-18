@@ -13,11 +13,15 @@
 //!  * AVX2 fast path: 4 ymm registers of `zeros` per word, then 8 ×
 //!    (`slli_epi32`+`movemask_ps`) to extract one row-bitmap per slot.
 //!  * Scalar fallback: hand-unrolled 32-lane inner loop with 8 independent accumulators.
+//!
+//! Lt uses the standard Knuth high/low split per nibble with the same per-slot SIMD
+//! extraction shape.
 
 use fastlanes::FL_ORDER;
 
 const L: u32 = 0x11111111;
 const H: u32 = 0x88888888;
+const M: u32 = 0x77777777;
 
 #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
 #[inline]
@@ -29,6 +33,18 @@ pub(crate) fn swar_eq_w4_u32(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
 #[inline]
 pub(crate) fn swar_eq_w4_u32(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
     scalar_eq_w4(packed_chunk, c, out);
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+#[inline]
+pub(crate) fn swar_lt_w4_u32(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
+    unsafe { simd_lt_w4_avx2(packed_chunk, c, out) }
+}
+
+#[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+#[inline]
+pub(crate) fn swar_lt_w4_u32(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
+    scalar_lt_w4(packed_chunk, c, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -138,6 +154,90 @@ fn scatter_rows(k: usize, out: &mut [u64; 16], rows: [u32; 8]) {
     out[u_base + 14] |= (rows[7] as u64) << bit_offset;
 }
 
+// AVX2 Lt: per-nibble Knuth high/low split.
+//
+//   a < c per nibble iff (a_hi < c_hi) OR (a_hi == c_hi AND a_lo < c_lo)
+//   a_hi  = a & H;  a_lo  = a & M
+//   hi_lt = !a_hi & c_hi
+//   hi_eq = !(a_hi ^ c_hi) & H
+//   lo_le = ((c_lo | H) - a_lo) & H       (Knuth guard-bit subtraction)
+//   lo_eq = ((a_lo ^ c_lo) - L) & !(a_lo ^ c_lo) & H   (broadword zero-test)
+//   lo_lt = lo_le & !lo_eq
+//   lt    = hi_lt | (hi_eq & lo_lt)
+//
+// Result bit lands at the high bit (position 4s+3) of each nibble s.
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+#[inline]
+unsafe fn simd_lt_w4_avx2(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
+    use std::arch::x86_64::*;
+    debug_assert_eq!(packed_chunk.len(), 128);
+
+    let c_low = u32::from(c & 0x0F);
+    let c_packed_word = c_low * L;
+    let c_hi_word = c_packed_word & H;
+    let c_lo_word = c_packed_word & M;
+
+    unsafe {
+        let c_hi = _mm256_set1_epi32(c_hi_word as i32);
+        let c_lo = _mm256_set1_epi32(c_lo_word as i32);
+        let c_lo_or_h = _mm256_set1_epi32((c_lo_word | H) as i32);
+        let h_vec = _mm256_set1_epi32(H as i32);
+        let m_vec = _mm256_set1_epi32(M as i32);
+        let l_vec = _mm256_set1_epi32(L as i32);
+
+        for k in 0..4usize {
+            let p = packed_chunk.as_ptr().add(k * 32).cast::<__m256i>();
+            let p0 = _mm256_loadu_si256(p.add(0));
+            let p1 = _mm256_loadu_si256(p.add(1));
+            let p2 = _mm256_loadu_si256(p.add(2));
+            let p3 = _mm256_loadu_si256(p.add(3));
+
+            let lt0 = lt_one_ymm(p0, c_hi, c_lo, c_lo_or_h, h_vec, m_vec, l_vec);
+            let lt1 = lt_one_ymm(p1, c_hi, c_lo, c_lo_or_h, h_vec, m_vec, l_vec);
+            let lt2 = lt_one_ymm(p2, c_hi, c_lo, c_lo_or_h, h_vec, m_vec, l_vec);
+            let lt3 = lt_one_ymm(p3, c_hi, c_lo, c_lo_or_h, h_vec, m_vec, l_vec);
+
+            let row0 = extract_slot::<28>(lt0, lt1, lt2, lt3);
+            let row1 = extract_slot::<24>(lt0, lt1, lt2, lt3);
+            let row2 = extract_slot::<20>(lt0, lt1, lt2, lt3);
+            let row3 = extract_slot::<16>(lt0, lt1, lt2, lt3);
+            let row4 = extract_slot::<12>(lt0, lt1, lt2, lt3);
+            let row5 = extract_slot::<8>(lt0, lt1, lt2, lt3);
+            let row6 = extract_slot::<4>(lt0, lt1, lt2, lt3);
+            let row7 = extract_slot::<0>(lt0, lt1, lt2, lt3);
+
+            scatter_rows(k, out, [row0, row1, row2, row3, row4, row5, row6, row7]);
+        }
+    }
+}
+
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+#[inline(always)]
+unsafe fn lt_one_ymm(
+    a: std::arch::x86_64::__m256i,
+    c_hi: std::arch::x86_64::__m256i,
+    c_lo: std::arch::x86_64::__m256i,
+    c_lo_or_h: std::arch::x86_64::__m256i,
+    h: std::arch::x86_64::__m256i,
+    m: std::arch::x86_64::__m256i,
+    l: std::arch::x86_64::__m256i,
+) -> std::arch::x86_64::__m256i {
+    use std::arch::x86_64::*;
+    unsafe {
+        let a_hi = _mm256_and_si256(a, h);
+        let a_lo = _mm256_and_si256(a, m);
+        let hi_lt = _mm256_andnot_si256(a_hi, c_hi);
+        let hi_eq_xor = _mm256_xor_si256(a_hi, c_hi);
+        let hi_eq = _mm256_andnot_si256(hi_eq_xor, h);
+        let lo_le = _mm256_and_si256(_mm256_sub_epi32(c_lo_or_h, a_lo), h);
+        let xor_lo = _mm256_xor_si256(a_lo, c_lo);
+        let lo_eq = _mm256_and_si256(_mm256_sub_epi32(xor_lo, l), _mm256_andnot_si256(xor_lo, h));
+        let lo_lt = _mm256_andnot_si256(lo_eq, lo_le);
+        _mm256_or_si256(hi_lt, _mm256_and_si256(hi_eq, lo_lt))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Scalar fallback.
 // ---------------------------------------------------------------------------
@@ -176,6 +276,50 @@ fn scalar_eq_w4(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
     }
 }
 
+#[inline]
+fn scalar_lt_w4(packed_chunk: &[u32], c: u8, out: &mut [u64; 16]) {
+    debug_assert_eq!(packed_chunk.len(), 128);
+    let c_low: u32 = u32::from(c & 0x0F);
+    let c_packed = c_low * L;
+    let c_hi = c_packed & H;
+    let c_lo = c_packed & M;
+
+    for k in 0..4usize {
+        let mut a0 = 0u32;
+        let mut a1 = 0u32;
+        let mut a2 = 0u32;
+        let mut a3 = 0u32;
+        let mut a4 = 0u32;
+        let mut a5 = 0u32;
+        let mut a6 = 0u32;
+        let mut a7 = 0u32;
+
+        for lane in 0..32usize {
+            let a = packed_chunk[k * 32 + lane];
+            let a_hi = a & H;
+            let a_lo = a & M;
+            let hi_lt = !a_hi & c_hi;
+            let hi_eq = !(a_hi ^ c_hi) & H;
+            let lo_le = (c_lo | H).wrapping_sub(a_lo) & H;
+            let xor_lo = a_lo ^ c_lo;
+            let lo_eq = xor_lo.wrapping_sub(L) & !xor_lo & H;
+            let lo_lt = lo_le & !lo_eq;
+            let lt = hi_lt | (hi_eq & lo_lt);
+
+            a0 |= ((lt >> 3) & 1) << lane;
+            a1 |= ((lt >> 7) & 1) << lane;
+            a2 |= ((lt >> 11) & 1) << lane;
+            a3 |= ((lt >> 15) & 1) << lane;
+            a4 |= ((lt >> 19) & 1) << lane;
+            a5 |= ((lt >> 23) & 1) << lane;
+            a6 |= ((lt >> 27) & 1) << lane;
+            a7 |= ((lt >> 31) & 1) << lane;
+        }
+
+        scatter_rows(k, out, [a0, a1, a2, a3, a4, a5, a6, a7]);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use fastlanes::BitPacking;
@@ -207,6 +351,24 @@ mod tests {
             swar_eq_w4_u32(&packed, c, &mut got);
             for i in 0..1024 {
                 let expected = values[i] == c as u32;
+                assert_eq!(bit(&got, i), expected, "i={i}, c={c}, value={}", values[i]);
+            }
+        }
+    }
+
+    #[test]
+    fn lt_w4_matches_naive() {
+        let mut values = [0u32; 1024];
+        for (i, v) in values.iter_mut().enumerate() {
+            *v = ((i * 17 + 3) % 16) as u32;
+        }
+        let packed = pack_u32(&values);
+
+        for c in 0..16u8 {
+            let mut got = [0u64; 16];
+            swar_lt_w4_u32(&packed, c, &mut got);
+            for i in 0..1024 {
+                let expected = values[i] < c as u32;
                 assert_eq!(bit(&got, i), expected, "i={i}, c={c}, value={}", values[i]);
             }
         }
