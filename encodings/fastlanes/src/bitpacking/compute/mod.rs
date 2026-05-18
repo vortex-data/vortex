@@ -4,6 +4,7 @@
 mod cast;
 mod compare;
 mod compare_block;
+mod compare_eq_w4;
 mod compare_swar;
 mod filter;
 pub(crate) mod is_constant;

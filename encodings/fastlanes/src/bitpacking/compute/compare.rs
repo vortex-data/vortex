@@ -226,6 +226,7 @@ where
     use super::compare_block::block_eq_u32;
     use super::compare_block::block_lt_u32;
     use super::compare_block::new_block;
+    use super::compare_eq_w4::swar_eq_w4_u32;
 
     let w = lhs.bit_width();
     // Supported widths cover 1..=16 inclusive; W > 16 falls through to canonical.
@@ -280,7 +281,11 @@ where
         lt_bits.fill(0);
 
         if need_eq {
-            block_eq_u32(chunk, w as usize, c_u32, &mut block, &mut eq_bits);
+            if w == 4 {
+                swar_eq_w4_u32(chunk, c_u32 as u8, &mut eq_bits);
+            } else {
+                block_eq_u32(chunk, w as usize, c_u32, &mut block, &mut eq_bits);
+            }
         }
         if need_lt {
             block_lt_u32(chunk, w as usize, c_u32, &mut block, &mut lt_bits);
