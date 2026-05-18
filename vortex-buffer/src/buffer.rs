@@ -781,23 +781,23 @@ mod test {
     }
 
     #[test]
-    fn byte_buffer_zeroed() {
+    fn buffer_zeroed() {
         const LEN: usize = 17;
 
-        let buf = ByteBuffer::zeroed(LEN);
+        let buf = Buffer::<u32>::zeroed(LEN);
 
         assert_eq!(buf.len(), LEN);
-        assert_eq!(buf.alignment(), Alignment::of::<u8>());
-        assert!(buf.is_aligned(Alignment::of::<u8>()));
+        assert_eq!(buf.alignment(), Alignment::of::<u32>());
+        assert!(buf.is_aligned(Alignment::of::<u32>()));
         assert_eq!(buf.as_slice(), &[0; LEN]);
     }
 
     #[test]
-    fn byte_buffer_zeroed_aligned() {
+    fn buffer_zeroed_aligned() {
         const LEN: usize = 17;
         let alignment = Alignment::new(64);
 
-        let buf = ByteBuffer::zeroed_aligned(LEN, alignment);
+        let buf = Buffer::<u32>::zeroed_aligned(LEN, alignment);
 
         assert_eq!(buf.len(), LEN);
         assert_eq!(buf.alignment(), alignment);
