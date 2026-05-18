@@ -9649,6 +9649,7 @@ dependencies = [
  "itertools 0.14.0",
  "lending-iterator",
  "num-traits",
+ "paste",
  "prost 0.14.3",
  "rand 0.10.1",
  "rstest",

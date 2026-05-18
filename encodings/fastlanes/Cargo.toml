@@ -32,6 +32,7 @@ vortex-session = { workspace = true }
 [dev-dependencies]
 divan = { workspace = true }
 itertools = { workspace = true }
+paste = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-alp = { path = "../alp" }
@@ -62,4 +63,8 @@ required-features = ["_test-harness"]
 
 [[bench]]
 name = "bitpack_compare"
+harness = false
+
+[[bench]]
+name = "bitpack_constant"
 harness = false
