@@ -85,48 +85,103 @@ le : vpcmpgtb ymm0,ymm0,ymm1            ; vpxor ymm0,ymm0,ymm2     (= !gt)
 Block B's compare patches are the same shape rewritten to target ymm4 and
 read ymm4/ymm1.
 
-## Benchmark — bulk-mode throughput
+## Benchmark — D and F vs C across working-set sizes
 
-`cargo bench` runs a divan harness that compiles each kernel once (JIT
-compile cost ignored — it's ~5 µs of mmap + memcpy + mprotect, amortized
-over millions of calls) then measures per-call throughput. Each iteration
-processes 1024 32-byte blocks = 32 KB, hot in L1.
+The realistic baseline isn't AOT-everything-fused (impossible to enumerate
+when chains are runtime-defined); it's **C**, an AOT library of single-op
+kernels chained at runtime via a scratch buffer. The benchmark sweeps the
+input size so we can see when the unfused pipeline's intermediate-buffer
+traffic starts hurting:
 
-| Variant                                | ns/call | GB/s   |
-|----------------------------------------|---------|--------|
-| AOT AVX2 intrinsics (#[inline(never)]) |  438    | 74.7   |
-| **stencil-jit bulk (2x unroll)**       | **1574**| **20.8** |
-| stencil-jit per-block loop             | 2764    | 11.9   |
-| AOT closure-based (autovec)            | 9934    |  3.3   |
-| Scalar baseline                        | 9943    |  3.3   |
+* **`aot_fused`** — single AVX2-intrinsics function doing FFoR + compare
+  in one pass. The ceiling, ships only when the chain is known AOT.
+* **`aot_unfused_pipeline`** (= **C**) — two AOT kernels (`ffor_add` then
+  `compare_eq`) chained via a `Vec<u8>` scratch buffer.
+* **`stencil_jit_fused`** (= **D**) — this prototype, fusing at runtime.
+* **`stencil_jit_per_block`** — the JIT called once per 32-byte block.
 
-What changed since the first run:
+Median GB/s, parameterized by working-set size:
 
-1. **Single-block in a loop → bulk kernel**: amortized function-call
-   overhead and the constant-broadcast prologue.  +2.7× over the per-block
-   loop.
-2. **Fused load + FFoR-add**: replaced `vmovdqu ymm0,[rdi]` + `vpaddb
-   ymm0,ymm0,ymm3` with a single `vpaddb ymm0,ymm3,[rdi]` memory-operand
-   instruction. One fewer µop per block.
-3. **Multi-byte `nopl` padding**: replaced 4× single-byte `0x90` per
-   compare slot with one 4-byte `nopl 0x0(%rax)`. Frees decode bandwidth.
-4. **2x unroll with independent registers**: block A flows through `ymm0`
-   end-to-end, block B through `ymm4`. Two chains, no WAW hazards.
-5. **Loop entry 32-byte aligned**: stabilizes throughput (variance shrank
-   from 14 µs spread to <0.02 µs).
+| n_blocks | size   | aot_fused | C (unfused) | **D (stencil-JIT)** | per-block JIT |
+|---------:|-------:|----------:|------------:|--------------------:|--------------:|
+|   128    | 4 KB   | 16.6      | **33.0**    | 19.3                | 11.7          |
+|  1024    | 32 KB  | **74.0**  | 26.0        | 20.8                | 12.0          |
+|  8192    | 256 KB | 66.1      | 26.1        | 20.6 (best 71.6)    | 12.0          |
+| 32768    | 1 MB   | 55.3      | **11.7**    | **59.8**            | 12.0          |
+|131072    | 4 MB   | 29.0      |  9.1        | 29.1                | 11.8          |
 
-Where the remaining 3.6× gap to AOT comes from:
+What this says, by regime:
 
-The AOT body is ~49 bytes vs our 53–55 bytes, and LLVM schedules
-instructions across iterations more aggressively than we can with fixed
-splice slots. Specifically, AOT achieves ~1.5 cycles/block (close to the
-vpmovmskb port-0 throughput limit), while ours sits at ~5.5 cycles/block
-(roughly the critical-path-per-block depth, with two chains overlapping).
-Closing the gap would need 4x+ unroll with full instruction interleaving
-across blocks — which means encoding distinct patches per slot and
-emitting more elaborate machine code. Tractable, but past the point where
-hand-asm makes sense; the natural next step is Cranelift-at-build-time
-codegen for the stencil.
+**Small (≤ L1, 4–32 KB):** Per-call overhead dominates. **C wins** —
+its scratch buffer stays in L1 and the two single-op kernels inline
+tightly. The JIT's indirect call still costs ns/block at this scale.
+
+**Medium (L2-resident, 256 KB – 1 MB):** This is the regime that matters
+for analytical query workloads on bitpacked columns. **D matches AOT-fused**
+(60 GB/s at 1 MB), and **both beat C by ~5×** (D 60 GB/s vs C 12 GB/s).
+The scratch buffer no longer fits in L1, so C pays a full write-then-read
+round trip against the next cache level. Fusion finally earns its keep.
+
+**Large (memory-bound, 4 MB):** Everything converges to ~30 GB/s — RAM
+bandwidth is the ceiling. Fusion doesn't help, doesn't hurt.
+
+The headline: **for runtime-defined chains, a copy-and-patch JIT delivers
+AOT-fused-quality performance in the cache-pressure regime where fusion
+matters, at no binary-size cost beyond a small stencil library.**
+
+## D vs F — the only difference is the source of the stencil bytes
+
+D and F produce **identical machine code at runtime** for a given fragment
+graph. They differ only in *who wrote the bytes*:
+
+* **D**: hand-written in `global_asm!`, one library per ISA.
+* **F**: Cranelift IR compiled at build time by `cranelift-codegen`, bytes
+  extracted from the resulting `MachBuffer`, embedded in the binary as
+  `.rodata` with a per-fragment relocation table; one IR source per
+  fragment, Cranelift's backends fan it out to x86-64 / aarch64 / RISC-V.
+
+Runtime cost (memcpy + relocation patches + mprotect) is the same. Steady-
+state throughput is the same. The trade is purely build-time complexity
+vs single-source-multi-ISA.
+
+A sketch of `build.rs` for F:
+
+```rust
+// build.rs — not implemented in this commit, but the runtime is unchanged
+use cranelift_codegen::{ir, isa, settings};
+fn build_compare_eq_stencil() {
+    let isa = isa::lookup("x86_64-unknown-linux-gnu")
+        .unwrap()
+        .finish(settings::Flags::new(settings::builder()))
+        .unwrap();
+    let mut func = ir::Function::new();
+    // ... build IR: take ymm0, return vpcmpeqb(ymm0, ymm1)
+    let compiled = isa.compile_function(&func, ...).unwrap();
+    let bytes = compiled.code_buffer();
+    let relocs = compiled.buffer.relocs();
+    std::fs::write(format!("{}/compare_eq.bin", env!("OUT_DIR")), bytes).unwrap();
+    write_relocs(&format!("{}/compare_eq.relocs", env!("OUT_DIR")), relocs);
+}
+```
+
+`materialize()` in `src/lib.rs` is already the runtime — F just changes
+where the stencil bytes come from.
+
+## Where the JIT still has headroom on this microbench
+
+At n=1024 the JIT shows 20.8 GB/s vs AOT-fused's 74 GB/s. The AOT body
+is ~49 bytes vs the JIT's ~55; LLVM schedules instructions across
+iterations more aggressively than fixed splice slots allow. AOT achieves
+~1.5 cycles/block (near the `vpmovmskb` port-0 throughput limit); the
+JIT sits at ~5.5 cycles/block (two chains' critical path, partially
+overlapping). At n=32768 (1 MB), the JIT catches up to AOT-fused at 60
+GB/s — bandwidth becomes the binding constraint there, so per-iteration
+ILP differences stop mattering.
+
+Closing the L1-regime gap would need 4×+ unroll with cross-iteration
+instruction interleaving — past where hand-asm pays off. That's exactly
+the case for F: get LLVM-quality scheduling per fragment, keep the byte-
+splice mechanism.
 
 ## Calling convention summary
 

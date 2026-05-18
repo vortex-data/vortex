@@ -1,10 +1,18 @@
-//! Throughput benchmark: bulk-mode FFoR-add + compare(==) on 32 packed u8
-//! lanes per block, comparing the stencil-JIT kernel against AOT
-//! alternatives.
+//! Throughput benchmark for the FFoR-add + compare(==) chain on packed u8
+//! lanes. Compares:
 //!
-//! Kernels are compiled once (cost ignored). Each measured iteration
-//! processes `N_BLOCKS` 32-byte blocks per call. Throughput in GB/s is the
-//! relevant number; ns/call is also reported.
+//!   * Fused AOT (the ceiling — works only when the chain is known at
+//!     compile time and someone wrote the intrinsics).
+//!   * Unfused AOT pipeline (two single-op kernels chained via an
+//!     intermediate scratch buffer — the realistic baseline when chains
+//!     are runtime-defined).
+//!   * Stencil-JIT bulk kernel (this prototype).
+//!   * Scalar / closure-based reference.
+//!
+//! Each variant runs for several working-set sizes so we can see when the
+//! unfused pipeline's intermediate buffer starts spilling out of cache.
+//! At small sizes (scratch in L1) the unfused pipeline is competitive;
+//! at larger sizes its second pass costs real memory bandwidth.
 
 #![cfg(all(target_arch = "x86_64", target_os = "linux"))]
 
@@ -14,69 +22,29 @@ use std::hint::black_box;
 use divan::{Bencher, counter::BytesCount};
 use stencil_jit::{BulkKernel, ChainConfig, CmpOp, Kernel};
 
-const N_BLOCKS: usize = 1024;
-const BYTES: usize = N_BLOCKS * 32;
+/// Working-set sizes (in 32-byte blocks) chosen to span L1, L2, and beyond.
+/// 128   blocks = 4 KB     (well inside L1)
+/// 1024  blocks = 32 KB    (≈ L1 size on Skylake)
+/// 8192  blocks = 256 KB   (inside L2)
+/// 32768 blocks = 1 MB     (≈ L2 size; intermediate-buffer spill cost is real)
+/// 131072 blocks = 4 MB    (inside L3)
+const SIZES: &[usize] = &[128, 1024, 8192, 32768, 131072];
 
-fn make_input() -> Vec<u8> {
-    (0..BYTES)
+fn make_input(n_blocks: usize) -> Vec<u8> {
+    (0..n_blocks * 32)
         .map(|i| (i as u8).wrapping_mul(17).wrapping_add(3))
         .collect()
 }
 
-fn bytes_counter() -> BytesCount {
-    BytesCount::new(BYTES)
+fn counter(n_blocks: usize) -> BytesCount {
+    BytesCount::new(n_blocks * 32)
 }
 
-// ---------- stencil-JIT, bulk -------------------------------------------------
-
-#[divan::bench]
-fn stencil_jit_bulk(bencher: Bencher) {
-    let kernel = BulkKernel::compile(ChainConfig::ffor_then_compare(CmpOp::Eq)).unwrap();
-    let input = make_input();
-    let mut out = vec![0u32; N_BLOCKS];
-    bencher.counter(bytes_counter()).bench_local(|| {
-        // SAFETY: input is BYTES readable, out is N_BLOCKS * 4 writable.
-        unsafe {
-            kernel.call(
-                black_box(input.as_ptr()),
-                black_box(42u8),
-                black_box(out.as_mut_ptr()),
-                black_box(7u8),
-                N_BLOCKS,
-            )
-        };
-        black_box(out[0])
-    });
-}
-
-// ---------- stencil-JIT, single-block (called in a loop) ----------------------
-
-#[divan::bench]
-fn stencil_jit_per_block_loop(bencher: Bencher) {
-    let kernel = Kernel::compile(ChainConfig::ffor_then_compare(CmpOp::Eq)).unwrap();
-    let input = make_input();
-    let mut out = vec![0u32; N_BLOCKS];
-    bencher.counter(bytes_counter()).bench_local(|| {
-        for i in 0..N_BLOCKS {
-            // SAFETY: 32-byte block + 4-byte u32 out.
-            unsafe {
-                kernel.call(
-                    input.as_ptr().add(i * 32),
-                    black_box(42u8),
-                    out.as_mut_ptr().add(i),
-                    black_box(7u8),
-                );
-            }
-        }
-        black_box(out[0])
-    });
-}
-
-// ---------- AOT: AVX2 intrinsics, bulk loop in Rust ---------------------------
+// ---------- AOT: fused (the ceiling) -----------------------------------------
 
 #[inline(never)]
 #[target_feature(enable = "avx2")]
-unsafe fn aot_intrinsics_bulk(
+unsafe fn aot_intrinsics_fused(
     packed: *const u8,
     ffor_ref: u8,
     constant: u8,
@@ -86,98 +54,135 @@ unsafe fn aot_intrinsics_bulk(
     let r = _mm256_set1_epi8(ffor_ref as i8);
     let c = _mm256_set1_epi8(constant as i8);
     for i in 0..n_blocks {
-        // SAFETY: caller guarantees n_blocks * 32 readable, n_blocks * 4 writable.
+        // SAFETY: caller guarantees buffer sizes.
         let data = unsafe { _mm256_loadu_si256(packed.add(i * 32) as *const __m256i) };
         let shifted = _mm256_add_epi8(data, r);
         let eq = _mm256_cmpeq_epi8(shifted, c);
-        // SAFETY: as above for `out`.
         unsafe { *out.add(i) = _mm256_movemask_epi8(eq) as u32 };
     }
 }
 
-#[divan::bench]
-fn aot_intrinsics(bencher: Bencher) {
-    let input = make_input();
-    let mut out = vec![0u32; N_BLOCKS];
-    bencher.counter(bytes_counter()).bench_local(|| {
+#[divan::bench(args = SIZES)]
+fn aot_fused(bencher: Bencher, n_blocks: usize) {
+    let input = make_input(n_blocks);
+    let mut out = vec![0u32; n_blocks];
+    bencher.counter(counter(n_blocks)).bench_local(|| {
         // SAFETY: buffers sized correctly above.
         unsafe {
-            aot_intrinsics_bulk(
+            aot_intrinsics_fused(
                 black_box(input.as_ptr()),
                 black_box(7u8),
                 black_box(42u8),
                 black_box(out.as_mut_ptr()),
-                N_BLOCKS,
+                n_blocks,
             )
         };
         black_box(out[0])
     });
 }
 
-// ---------- AOT: closure-based scalar (rustc autovec) -------------------------
+// ---------- AOT: unfused pipeline (the realistic baseline) -------------------
 
 #[inline(never)]
-fn aot_closure_bulk<F: Fn(u8, u8) -> bool>(
-    packed: &[u8],
+#[target_feature(enable = "avx2")]
+unsafe fn aot_stage_ffor_add(
+    packed: *const u8,
     ffor_ref: u8,
-    constant: u8,
-    out: &mut [u32],
-    f: F,
+    scratch: *mut u8,
+    n_blocks: usize,
 ) {
-    debug_assert_eq!(out.len() * 32, packed.len());
-    for (block_i, chunk) in packed.chunks_exact(32).enumerate() {
-        let mut mask = 0u32;
-        for (i, &b) in chunk.iter().enumerate() {
-            if f(b.wrapping_add(ffor_ref), constant) {
-                mask |= 1u32 << i;
-            }
-        }
-        out[block_i] = mask;
+    let r = _mm256_set1_epi8(ffor_ref as i8);
+    for i in 0..n_blocks {
+        // SAFETY: caller-sized buffers.
+        let data = unsafe { _mm256_loadu_si256(packed.add(i * 32) as *const __m256i) };
+        let shifted = _mm256_add_epi8(data, r);
+        unsafe { _mm256_storeu_si256(scratch.add(i * 32) as *mut __m256i, shifted) };
     }
 }
 
-#[divan::bench]
-fn aot_closure(bencher: Bencher) {
-    let input = make_input();
-    let mut out = vec![0u32; N_BLOCKS];
-    bencher.counter(bytes_counter()).bench_local(|| {
-        aot_closure_bulk(
-            black_box(input.as_slice()),
-            black_box(7u8),
-            black_box(42u8),
-            out.as_mut_slice(),
-            |a, b| a == b,
-        );
+#[inline(never)]
+#[target_feature(enable = "avx2")]
+unsafe fn aot_stage_compare_eq(
+    data_in: *const u8,
+    constant: u8,
+    out: *mut u32,
+    n_blocks: usize,
+) {
+    let c = _mm256_set1_epi8(constant as i8);
+    for i in 0..n_blocks {
+        // SAFETY: caller-sized buffers.
+        let data = unsafe { _mm256_loadu_si256(data_in.add(i * 32) as *const __m256i) };
+        let eq = _mm256_cmpeq_epi8(data, c);
+        unsafe { *out.add(i) = _mm256_movemask_epi8(eq) as u32 };
+    }
+}
+
+#[divan::bench(args = SIZES)]
+fn aot_unfused_pipeline(bencher: Bencher, n_blocks: usize) {
+    let input = make_input(n_blocks);
+    let mut scratch = vec![0u8; n_blocks * 32];
+    let mut out = vec![0u32; n_blocks];
+    bencher.counter(counter(n_blocks)).bench_local(|| {
+        // SAFETY: all buffers sized for n_blocks * 32 / n_blocks * 4.
+        unsafe {
+            aot_stage_ffor_add(
+                black_box(input.as_ptr()),
+                black_box(7u8),
+                scratch.as_mut_ptr(),
+                n_blocks,
+            );
+            aot_stage_compare_eq(
+                scratch.as_ptr(),
+                black_box(42u8),
+                black_box(out.as_mut_ptr()),
+                n_blocks,
+            );
+        };
         black_box(out[0])
     });
 }
 
-// ---------- Scalar baseline ---------------------------------------------------
+// ---------- Stencil-JIT bulk -------------------------------------------------
 
-#[inline(never)]
-fn scalar_bulk(packed: &[u8], ffor_ref: u8, constant: u8, out: &mut [u32]) {
-    for (block_i, chunk) in packed.chunks_exact(32).enumerate() {
-        let mut mask = 0u32;
-        for (i, &b) in chunk.iter().enumerate() {
-            if b.wrapping_add(ffor_ref) == constant {
-                mask |= 1u32 << i;
-            }
-        }
-        out[block_i] = mask;
-    }
+#[divan::bench(args = SIZES)]
+fn stencil_jit_fused(bencher: Bencher, n_blocks: usize) {
+    let kernel = BulkKernel::compile(ChainConfig::ffor_then_compare(CmpOp::Eq)).unwrap();
+    let input = make_input(n_blocks);
+    let mut out = vec![0u32; n_blocks];
+    bencher.counter(counter(n_blocks)).bench_local(|| {
+        // SAFETY: buffers sized for n_blocks * 32 / n_blocks * 4; n_blocks even.
+        unsafe {
+            kernel.call(
+                black_box(input.as_ptr()),
+                black_box(42u8),
+                black_box(out.as_mut_ptr()),
+                black_box(7u8),
+                n_blocks,
+            )
+        };
+        black_box(out[0])
+    });
 }
 
-#[divan::bench]
-fn scalar(bencher: Bencher) {
-    let input = make_input();
-    let mut out = vec![0u32; N_BLOCKS];
-    bencher.counter(bytes_counter()).bench_local(|| {
-        scalar_bulk(
-            black_box(input.as_slice()),
-            black_box(7u8),
-            black_box(42u8),
-            out.as_mut_slice(),
-        );
+// ---------- Stencil-JIT per-block (the original single-block kernel in a loop) ----
+
+#[divan::bench(args = SIZES)]
+fn stencil_jit_per_block(bencher: Bencher, n_blocks: usize) {
+    let kernel = Kernel::compile(ChainConfig::ffor_then_compare(CmpOp::Eq)).unwrap();
+    let input = make_input(n_blocks);
+    let mut out = vec![0u32; n_blocks];
+    bencher.counter(counter(n_blocks)).bench_local(|| {
+        for i in 0..n_blocks {
+            // SAFETY: 32-byte block + 4-byte out.
+            unsafe {
+                kernel.call(
+                    input.as_ptr().add(i * 32),
+                    black_box(42u8),
+                    out.as_mut_ptr().add(i),
+                    black_box(7u8),
+                );
+            }
+        }
         black_box(out[0])
     });
 }
