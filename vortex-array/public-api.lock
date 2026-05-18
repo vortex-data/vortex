@@ -3394,9 +3394,13 @@ pub vortex_array::arrays::list::ListDataParts::offsets: vortex_array::ArrayRef
 
 pub vortex_array::arrays::list::ListDataParts::validity: vortex_array::validity::Validity
 
-pub const vortex_array::arrays::list::PRUNE_LIST_MIN_ELEMENTS: usize
+pub const vortex_array::arrays::list::PRUNE_LIST_MIN_ELEMENTS_CANONICAL: usize
 
-pub const vortex_array::arrays::list::PRUNE_LIST_MIN_SAVINGS_RATIO: f64
+pub const vortex_array::arrays::list::PRUNE_LIST_MIN_ELEMENTS_COMPRESSED: usize
+
+pub const vortex_array::arrays::list::PRUNE_LIST_MIN_SAVINGS_RATIO_CANONICAL: f64
+
+pub const vortex_array::arrays::list::PRUNE_LIST_MIN_SAVINGS_RATIO_COMPRESSED: f64
 
 pub trait vortex_array::arrays::list::ListArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::List>
 

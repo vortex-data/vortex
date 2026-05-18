@@ -29,22 +29,40 @@ use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 
-/// Minimum elements buffer length before pruning is considered.
+/// Minimum elements buffer length before pruning is considered, when elements are in a
+/// canonical (host) encoding.
 ///
 /// Below this size the original elements buffer is small enough that the baseline duckdb export
 /// (zero-copy reference + a `Vector::with_capacity` allocation) is already cheap, and the trim
 /// (offsets subtraction + slice) has fixed per-call overhead that doesn't pay back.
-pub const PRUNE_LIST_MIN_ELEMENTS: usize = 64 * 1024;
+pub const PRUNE_LIST_MIN_ELEMENTS_CANONICAL: usize = 64 * 1024;
 
-/// Minimum fraction of `elements.len()` that must be unreferenced before we commit to a trim.
+/// Minimum elements buffer length before pruning is considered, when elements are
+/// **non-canonical** (e.g. `Dict`, `Fsst`, `RunEnd`, …).
+///
+/// Compressed elements pay per-position decompression at export time, so smaller buffers
+/// benefit. Calibrated against the offsets-rewrite cost: at ≤16 KiB elements the
+/// `O(num_lists)` binary subtract roughly matches the saved decompression; above ~32 KiB the
+/// savings dominate reliably.
+pub const PRUNE_LIST_MIN_ELEMENTS_COMPRESSED: usize = 32 * 1024;
+
+/// Minimum fraction of `elements.len()` that must be unreferenced before we commit to a trim,
+/// when elements are in a canonical encoding.
 ///
 /// The trim does `O(num_lists)` work to rewrite the offsets via a binary subtract, plus a slice
-/// of the elements (which is metadata-only). Set this aggressively high so we only fire when
-/// the prefix/suffix dominates the elements buffer — typically only after slicing a chunked
-/// list near a chunk boundary, or when loading a list column slice from a file. At lower
-/// savings ratios the offsets-rewrite overhead can outweigh the savings from the smaller
-/// downstream allocation.
-pub const PRUNE_LIST_MIN_SAVINGS_RATIO: f64 = 0.97;
+/// of the elements (which is metadata-only). For canonical export the per-element cost is
+/// roughly a `memcpy`, so we only fire when the prefix/suffix dominates the buffer — typically
+/// after slicing a chunked list near a chunk boundary, or when loading a list column slice from
+/// a file.
+pub const PRUNE_LIST_MIN_SAVINGS_RATIO_CANONICAL: f64 = 0.97;
+
+/// Minimum fraction of `elements.len()` that must be unreferenced before we commit to a trim,
+/// when elements are compressed.
+///
+/// Compressed exports do per-position decompression. Even 50% prefix/suffix waste on a
+/// dict-encoded varbin pays back: the offsets-rewrite is O(num_lists) (cheap), and the saved
+/// decompression dominates.
+pub const PRUNE_LIST_MIN_SAVINGS_RATIO_COMPRESSED: f64 = 0.50;
 
 /// Inspect `array` and, if the prefix/suffix outside `[offsets[0], offsets[len])` exceeds the
 /// savings threshold, return a trimmed [`ListArray`] whose elements contain only the referenced
@@ -52,16 +70,31 @@ pub const PRUNE_LIST_MIN_SAVINGS_RATIO: f64 = 0.97;
 ///
 /// Decisions:
 ///
-/// 1. **Cheap rejections.** Skip when the elements buffer is small.
-/// 2. **Endpoint sniff.** Read `offsets[0]` and `offsets[len]` (O(1) when offsets are host
+/// 1. **Encoding-aware thresholds.** Pick `MIN_ELEMENTS` / `MIN_SAVINGS_RATIO` based on
+///    whether `elements` is in a canonical encoding. Compressed children justify a much more
+///    aggressive trim.
+/// 2. **Cheap rejections.** Skip when the elements buffer is below the chosen `MIN_ELEMENTS`.
+/// 3. **Endpoint sniff.** Read `offsets[0]` and `offsets[len]` (O(1) when offsets are host
 ///    primitive; otherwise we fall back to `execute_scalar`). Compute the trim savings.
-/// 3. **Commit.** Slice the elements buffer and rewrite offsets by subtracting `offsets[0]`.
+/// 4. **Commit.** Slice the elements buffer and rewrite offsets by subtracting `offsets[0]`.
 pub fn maybe_trim_unreferenced_elements(
     array: &ListArray,
     _ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<ListArray>> {
     let elements_len = array.elements().len();
-    if elements_len < PRUNE_LIST_MIN_ELEMENTS {
+    let canonical_elements = array.elements().is_canonical();
+    let (min_elements, min_savings) = if canonical_elements {
+        (
+            PRUNE_LIST_MIN_ELEMENTS_CANONICAL,
+            PRUNE_LIST_MIN_SAVINGS_RATIO_CANONICAL,
+        )
+    } else {
+        (
+            PRUNE_LIST_MIN_ELEMENTS_COMPRESSED,
+            PRUNE_LIST_MIN_SAVINGS_RATIO_COMPRESSED,
+        )
+    };
+    if elements_len < min_elements {
         return Ok(None);
     }
     let len = array.len();
@@ -76,7 +109,7 @@ pub fn maybe_trim_unreferenced_elements(
 
     let referenced = last_offset - first_offset;
     let savings_ratio = 1.0 - (referenced as f64) / (elements_len as f64);
-    if savings_ratio < PRUNE_LIST_MIN_SAVINGS_RATIO {
+    if savings_ratio < min_savings {
         return Ok(None);
     }
 

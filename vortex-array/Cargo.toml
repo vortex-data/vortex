@@ -110,6 +110,10 @@ name = "listview_compute_export"
 harness = false
 
 [[bench]]
+name = "list_slice_export"
+harness = false
+
+[[bench]]
 name = "cast_primitive"
 harness = false
 
