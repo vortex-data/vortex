@@ -58,6 +58,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
     // SAFETY: Since everything came from an existing valid `ListArray`, and the `sizes` were
     // derived from valid and in-order `offsets`, we know these fields are valid.
     // We also just came directly from a `ListArray`, so we know this is zero-copyable.
+    let elements_len = list.elements().len() as u64;
     Ok(unsafe {
         ListViewArray::new_unchecked(
             list.elements().clone(),
@@ -66,7 +67,8 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
             list.validity()?,
         )
         .with_zero_copy_to_list(true)
-    })
+    }
+    .with_reachable_elements_bound(Some(elements_len)))
 }
 
 /// Builds a sizes array from a `ListArray` by computing differences between consecutive offsets.
@@ -201,7 +203,10 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
             let listview_with_converted_elements =
                 if !ArrayRef::ptr_eq(&converted_elements, listview.elements()) {
                     // SAFETY: We are effectively just replacing the child elements array, which
-                    // must have the same length, so all invariants are maintained.
+                    // must have the same length, so all invariants are maintained. The reachable
+                    // bound is preserved — only the element child changes, not the (offset, size)
+                    // shape.
+                    let bound = listview.reachable_elements_bound();
                     unsafe {
                         ListViewArray::new_unchecked(
                             converted_elements,
@@ -211,6 +216,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
                         )
                         .with_zero_copy_to_list(listview.is_zero_copy_to_list())
                     }
+                    .with_reachable_elements_bound(bound)
                 } else {
                     listview
                 };

@@ -24,6 +24,7 @@
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#![expect(clippy::panic)]
 
 use arrow_schema::DataType;
 use arrow_schema::Field;

@@ -11,6 +11,7 @@ use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::dict::TakeReduceAdaptor;
 use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::compute::take::sum_sizes_if_cheap;
 use crate::arrays::slice::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -41,16 +42,19 @@ impl ArrayParentReduceRule<ListView> for ListViewFilterPushDown {
         //  the elements array too. We can create a new Vortex array that represents the explosion
         //  of the parent mask using the offsets/sizes arrays, and then that will be part of the
         //  filter plan.
+        let new_array = unsafe {
+            ListViewArray::new_unchecked(
+                array.elements().clone(),
+                array.offsets().filter(parent.filter_mask().clone())?,
+                array.sizes().filter(parent.filter_mask().clone())?,
+                array.validity()?.filter(parent.filter_mask())?,
+            )
+        };
+        // Filter keeps a subset of rows. If the new sizes are already host-primitive, sum
+        // them to bound the reachable elements; otherwise leave the bound unknown.
+        let bound = sum_sizes_if_cheap(new_array.sizes());
         Ok(Some(
-            unsafe {
-                ListViewArray::new_unchecked(
-                    array.elements().clone(),
-                    array.offsets().filter(parent.filter_mask().clone())?,
-                    array.sizes().filter(parent.filter_mask().clone())?,
-                    array.validity()?.filter(parent.filter_mask())?,
-                )
-            }
-            .into_array(),
+            new_array.with_reachable_elements_bound(bound).into_array(),
         ))
     }
 }

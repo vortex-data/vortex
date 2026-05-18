@@ -18,6 +18,7 @@
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#![expect(clippy::panic)]
 
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -195,12 +196,10 @@ fn slice_then_export(bencher: Bencher, (elem, density, sel): (&str, f64, f64)) {
     let lv = make_source(elem, density, &mut rng).into_array();
     let end = ((NUM_LISTS as f64) * sel).max(1.0) as usize;
     let dt = arrow_type_for(elem);
-    bencher
-        .with_inputs(|| lv.clone())
-        .bench_values(|a| {
-            let sliced = a.slice(0..end).unwrap();
-            export(sliced, &dt);
-        });
+    bencher.with_inputs(|| lv.clone()).bench_values(|a| {
+        let sliced = a.slice(0..end).unwrap();
+        export(sliced, &dt);
+    });
 }
 
 #[divan::bench(args = matrix())]

@@ -142,11 +142,11 @@ pub struct ListViewData {
 
 impl Display for ListViewData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "is_zero_copy_to_list: {}, reachable_elements_bound: {:?}",
-            self.is_zero_copy_to_list, self.reachable_elements_bound
-        )
+        write!(f, "is_zero_copy_to_list: {}", self.is_zero_copy_to_list)?;
+        match self.reachable_elements_bound {
+            Some(b) => write!(f, ", reachable_elements_bound: {}", b),
+            None => write!(f, ", reachable_elements_bound: none"),
+        }
     }
 }
 

@@ -58,6 +58,13 @@ pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) 
     let new_array = unsafe {
         ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
     };
+    // Propagate the reachable-elements bound: filter keeps a subset of rows, so the new bound
+    // is `sum(sizes for surviving rows)`. Compute opportunistically — only if the filtered
+    // sizes array is already host-primitive, otherwise leave as unknown.
+    let new_array = {
+        let bound = listview::compute::take::sum_sizes_if_cheap(new_array.sizes());
+        new_array.with_reachable_elements_bound(bound)
+    };
 
     let kept_row_fraction = selection_mask.true_count() as f32 / array.sizes().len() as f32;
     if kept_row_fraction < listview::compute::REBUILD_DENSITY_THRESHOLD {

@@ -109,6 +109,7 @@ fn mask_validity_varbinview(
 
 fn mask_validity_listview(array: ListViewArray, validity: Validity) -> VortexResult<ListViewArray> {
     let new_validity = Validity::and(array.validity()?, validity)?;
+    let bound = array.reachable_elements_bound();
     // SAFETY: We're only changing validity, not the data structure
     Ok(unsafe {
         ListViewArray::new_unchecked(
@@ -117,7 +118,8 @@ fn mask_validity_listview(array: ListViewArray, validity: Validity) -> VortexRes
             array.sizes().clone(),
             new_validity,
         )
-    })
+    }
+    .with_reachable_elements_bound(bound))
 }
 
 fn mask_validity_fixed_size_list(

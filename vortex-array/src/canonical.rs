@@ -195,18 +195,21 @@ impl Canonical {
                     Validity::from(n),
                 )
             }),
-            DType::List(dtype, n) => Canonical::List(unsafe {
-                ListViewArray::new_unchecked(
-                    Canonical::empty(dtype).into_array(),
-                    Canonical::empty(&DType::Primitive(PType::U8, Nullability::NonNullable))
-                        .into_array(),
-                    Canonical::empty(&DType::Primitive(PType::U8, Nullability::NonNullable))
-                        .into_array(),
-                    Validity::from(n),
-                )
-                // An empty list view is trivially copyable to a list.
-                .with_zero_copy_to_list(true)
-            }),
+            DType::List(dtype, n) => Canonical::List(
+                unsafe {
+                    ListViewArray::new_unchecked(
+                        Canonical::empty(dtype).into_array(),
+                        Canonical::empty(&DType::Primitive(PType::U8, Nullability::NonNullable))
+                            .into_array(),
+                        Canonical::empty(&DType::Primitive(PType::U8, Nullability::NonNullable))
+                            .into_array(),
+                        Validity::from(n),
+                    )
+                    // An empty list view is trivially copyable to a list.
+                    .with_zero_copy_to_list(true)
+                }
+                .with_reachable_elements_bound(Some(0)),
+            ),
             DType::FixedSizeList(elem_dtype, list_size, null) => Canonical::FixedSizeList(unsafe {
                 FixedSizeListArray::new_unchecked(
                     Canonical::empty(elem_dtype).into_array(),
@@ -612,6 +615,7 @@ impl Executable for CanonicalValidity {
             }
             Canonical::List(l) => {
                 let zctl = l.is_zero_copy_to_list();
+                let bound = l.reachable_elements_bound();
                 let ListViewDataParts {
                     elements,
                     offsets,
@@ -619,10 +623,18 @@ impl Executable for CanonicalValidity {
                     validity,
                     ..
                 } = l.into_data_parts();
-                Ok(CanonicalValidity(Canonical::List(unsafe {
-                    ListViewArray::new_unchecked(elements, offsets, sizes, validity.execute(ctx)?)
+                Ok(CanonicalValidity(Canonical::List(
+                    unsafe {
+                        ListViewArray::new_unchecked(
+                            elements,
+                            offsets,
+                            sizes,
+                            validity.execute(ctx)?,
+                        )
                         .with_zero_copy_to_list(zctl)
-                })))
+                    }
+                    .with_reachable_elements_bound(bound),
+                )))
             }
             Canonical::FixedSizeList(fsl) => {
                 let list_size = fsl.list_size();
@@ -759,6 +771,7 @@ impl Executable for RecursiveCanonical {
             }
             Canonical::List(l) => {
                 let zctl = l.is_zero_copy_to_list();
+                let bound = l.reachable_elements_bound();
                 let ListViewDataParts {
                     elements,
                     offsets,
@@ -766,15 +779,18 @@ impl Executable for RecursiveCanonical {
                     validity,
                     ..
                 } = l.into_data_parts();
-                Ok(RecursiveCanonical(Canonical::List(unsafe {
-                    ListViewArray::new_unchecked(
-                        elements.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
-                        offsets.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
-                        sizes.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
-                        validity.execute(ctx)?,
-                    )
-                    .with_zero_copy_to_list(zctl)
-                })))
+                Ok(RecursiveCanonical(Canonical::List(
+                    unsafe {
+                        ListViewArray::new_unchecked(
+                            elements.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
+                            offsets.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
+                            sizes.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
+                            validity.execute(ctx)?,
+                        )
+                        .with_zero_copy_to_list(zctl)
+                    }
+                    .with_reachable_elements_bound(bound),
+                )))
             }
             Canonical::FixedSizeList(fsl) => {
                 let list_size = fsl.list_size();

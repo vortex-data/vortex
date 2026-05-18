@@ -14,7 +14,10 @@ use crate::validity::Validity;
 
 impl MaskReduce for ListView {
     fn mask(array: ArrayView<'_, ListView>, mask: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
-        // SAFETY: masking the validity does not affect the invariants
+        // SAFETY: masking the validity does not affect the invariants. The reachable elements
+        // bound is also preserved: masking only blanks validity bits, it doesn't remove rows
+        // or change `offsets`/`sizes`, so the same set of positions is still referenced.
+        let bound = array.reachable_elements_bound();
         Ok(Some(
             unsafe {
                 ListViewArray::new_unchecked(
@@ -25,6 +28,7 @@ impl MaskReduce for ListView {
                 )
                 .with_zero_copy_to_list(array.is_zero_copy_to_list())
             }
+            .with_reachable_elements_bound(bound)
             .into_array(),
         ))
     }

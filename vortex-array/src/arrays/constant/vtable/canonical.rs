@@ -278,10 +278,14 @@ fn constant_canonical_list_array(scalar: &Scalar, len: usize) -> ListViewArray {
     debug_assert!(!offsets.dtype().is_nullable());
     debug_assert!(!sizes.dtype().is_nullable());
 
+    // All rows share the same overlapping range `[0, list.len())`, so the total reachable
+    // element positions can't exceed `list.len()`.
+    let bound = Some(list.len() as u64);
     // SAFETY: All views point to the same range [0, list.len()) in the elements array.
     // The elements array contains `len` copies of the same value, offsets are all 0,
     // and sizes are all equal to the list length. The validity matches the scalar's nullability.
     unsafe { ListViewArray::new_unchecked(elements, offsets, sizes, validity) }
+        .with_reachable_elements_bound(bound)
 }
 
 fn constant_canonical_fixed_size_list_array(

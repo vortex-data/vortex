@@ -234,10 +234,12 @@ fn swizzle_list_chunks(
     // - Validity came from the outer chunked array so it must have the same length
     // - Since we made sure that all chunks were zero-copyable to a list above, we know that the
     //   final concatenated output is also zero-copyable to a list.
+    let elements_len = chunked_elements.len() as u64;
     Ok(unsafe {
         ListViewArray::new_unchecked(chunked_elements, offsets, sizes, validity)
             .with_zero_copy_to_list(true)
-    })
+    }
+    .with_reachable_elements_bound(Some(elements_len)))
 }
 
 #[cfg(test)]

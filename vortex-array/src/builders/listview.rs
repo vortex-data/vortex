@@ -200,6 +200,10 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
         let sizes = self.sizes_builder.finish();
         let validity = self.nulls.finish_with_nullability(self.dtype.nullability());
 
+        // The builder appends sequentially with no gaps or overlaps, so every position in
+        // `elements` is reachable exactly once.
+        let bound = Some(elements.len() as u64);
+
         // SAFETY:
         // - Both the offsets and the sizes are non-nullable.
         // - The offsets, sizes, and validity have the same length since we always appended the same
@@ -213,6 +217,7 @@ impl<O: IntegerPType, S: IntegerPType> ListViewBuilder<O, S> {
             ListViewArray::new_unchecked(elements, offsets, sizes, validity)
                 .with_zero_copy_to_list(true)
         }
+        .with_reachable_elements_bound(bound)
     }
 
     /// The [`DType`] of the inner elements. Note that this is **not** the same as the [`DType`] of

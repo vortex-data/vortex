@@ -106,7 +106,7 @@ fn apply_take(array: ArrayView<'_, ListView>, indices: &ArrayRef) -> VortexResul
 
 /// Best-effort sum-of-sizes computation. Returns `Some(sum)` only when the sizes array is
 /// already a host primitive — we never force an execute purely to refine the hint.
-pub(super) fn sum_sizes_if_cheap(sizes: &ArrayRef) -> Option<u64> {
+pub(crate) fn sum_sizes_if_cheap(sizes: &ArrayRef) -> Option<u64> {
     if !sizes.is_host() {
         return None;
     }

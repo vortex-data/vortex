@@ -176,16 +176,17 @@ impl<V: AggregateFnVTable> GroupedAccumulator<V> {
                 .or_else(|| kernels_r.get(&(elements.encoding_id(), None)))
                 .and_then(|kernel| {
                     // SAFETY: we assume that elements execution is safe
-                    let groups = unsafe {
+                    let new_groups = unsafe {
                         ListViewArray::new_unchecked(
                             elements.clone(),
                             groups.offsets().clone(),
                             groups.sizes().clone(),
                             groups_validity.clone(),
                         )
-                    };
+                    }
+                    .with_reachable_elements_bound(groups.reachable_elements_bound());
                     kernel
-                        .grouped_aggregate(&self.aggregate_fn, &groups)
+                        .grouped_aggregate(&self.aggregate_fn, &new_groups)
                         .transpose()
                 })
                 .transpose()?

@@ -21,7 +21,10 @@ fn build_with_validity(
     new_elements: ArrayRef,
     validity: Validity,
 ) -> ArrayRef {
-    // SAFETY: Since `cast` is length-preserving, all of the invariants remain the same.
+    // SAFETY: Since `cast` is length-preserving, all of the invariants remain the same. The
+    // reachable elements bound is preserved too — cast only changes the element dtype, not the
+    // set of positions referenced by `(offsets, sizes)`.
+    let bound = array.reachable_elements_bound();
     unsafe {
         ListViewArray::new_unchecked(
             new_elements,
@@ -31,6 +34,7 @@ fn build_with_validity(
         )
         .with_zero_copy_to_list(array.is_zero_copy_to_list())
     }
+    .with_reachable_elements_bound(bound)
     .into_array()
 }
 
