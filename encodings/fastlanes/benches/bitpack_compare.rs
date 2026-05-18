@@ -110,59 +110,114 @@ fn baseline_lt_out_of_range<const BW: u8>(bencher: Bencher, len: usize) {
     });
 }
 
-// In-range SWAR fast path at bit_width = 8.
+// In-range SWAR fast paths, one bench per (op, W).
 
-#[divan::bench(args = LENS)]
-fn fast_eq_in_range_swar_w8(bencher: Bencher, len: usize) {
-    // 127 is in `[0, 255]`, triggers the SWAR Eq path.
-    let (array, rhs, mut ctx) = build_inputs::<8>(len, 127);
-    bencher.counter(ItemsCount::new(len)).bench_local(|| {
-        array
-            .clone()
-            .binary(rhs.clone(), Operator::Eq)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap()
-    });
+const IN_RANGE_LENS: &[usize] = &[1024, 64 * 1024];
+
+macro_rules! in_range_benches {
+    ($w:expr, $constant:expr, $fast_eq:ident, $baseline_eq:ident, $fast_lt:ident, $baseline_lt:ident) => {
+        #[divan::bench(args = IN_RANGE_LENS)]
+        fn $fast_eq(bencher: Bencher, len: usize) {
+            let (array, rhs, mut ctx) = build_inputs::<$w>(len, $constant);
+            bencher.counter(ItemsCount::new(len)).bench_local(|| {
+                array
+                    .clone()
+                    .binary(rhs.clone(), Operator::Eq)
+                    .unwrap()
+                    .execute::<BoolArray>(&mut ctx)
+                    .unwrap()
+            });
+        }
+
+        #[divan::bench(args = IN_RANGE_LENS)]
+        fn $baseline_eq(bencher: Bencher, len: usize) {
+            let (array, rhs, mut ctx) = build_inputs::<$w>(len, $constant);
+            bencher.counter(ItemsCount::new(len)).bench_local(|| {
+                let primitive = array.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
+                primitive
+                    .into_array()
+                    .binary(rhs.clone(), Operator::Eq)
+                    .unwrap()
+                    .execute::<BoolArray>(&mut ctx)
+                    .unwrap()
+            });
+        }
+
+        #[divan::bench(args = IN_RANGE_LENS)]
+        fn $fast_lt(bencher: Bencher, len: usize) {
+            let (array, rhs, mut ctx) = build_inputs::<$w>(len, $constant);
+            bencher.counter(ItemsCount::new(len)).bench_local(|| {
+                array
+                    .clone()
+                    .binary(rhs.clone(), Operator::Lt)
+                    .unwrap()
+                    .execute::<BoolArray>(&mut ctx)
+                    .unwrap()
+            });
+        }
+
+        #[divan::bench(args = IN_RANGE_LENS)]
+        fn $baseline_lt(bencher: Bencher, len: usize) {
+            let (array, rhs, mut ctx) = build_inputs::<$w>(len, $constant);
+            bencher.counter(ItemsCount::new(len)).bench_local(|| {
+                let primitive = array.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
+                primitive
+                    .into_array()
+                    .binary(rhs.clone(), Operator::Lt)
+                    .unwrap()
+                    .execute::<BoolArray>(&mut ctx)
+                    .unwrap()
+            });
+        }
+    };
 }
 
-#[divan::bench(args = LENS)]
-fn baseline_eq_in_range_w8(bencher: Bencher, len: usize) {
-    let (array, rhs, mut ctx) = build_inputs::<8>(len, 127);
-    bencher.counter(ItemsCount::new(len)).bench_local(|| {
-        let primitive = array.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
-        primitive
-            .into_array()
-            .binary(rhs.clone(), Operator::Eq)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap()
-    });
-}
+// W = 1 (boolean-style): constant 1.
+in_range_benches!(
+    1,
+    1,
+    fast_eq_in_range_swar_w1,
+    baseline_eq_in_range_w1,
+    fast_lt_in_range_swar_w1,
+    baseline_lt_in_range_w1
+);
 
-#[divan::bench(args = LENS)]
-fn fast_lt_in_range_swar_w8(bencher: Bencher, len: usize) {
-    let (array, rhs, mut ctx) = build_inputs::<8>(len, 127);
-    bencher.counter(ItemsCount::new(len)).bench_local(|| {
-        array
-            .clone()
-            .binary(rhs.clone(), Operator::Lt)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap()
-    });
-}
+// W = 2: constant 2.
+in_range_benches!(
+    2,
+    2,
+    fast_eq_in_range_swar_w2,
+    baseline_eq_in_range_w2,
+    fast_lt_in_range_swar_w2,
+    baseline_lt_in_range_w2
+);
 
-#[divan::bench(args = LENS)]
-fn baseline_lt_in_range_w8(bencher: Bencher, len: usize) {
-    let (array, rhs, mut ctx) = build_inputs::<8>(len, 127);
-    bencher.counter(ItemsCount::new(len)).bench_local(|| {
-        let primitive = array.clone().execute::<PrimitiveArray>(&mut ctx).unwrap();
-        primitive
-            .into_array()
-            .binary(rhs.clone(), Operator::Lt)
-            .unwrap()
-            .execute::<BoolArray>(&mut ctx)
-            .unwrap()
-    });
-}
+// W = 4: constant 7.
+in_range_benches!(
+    4,
+    7,
+    fast_eq_in_range_swar_w4,
+    baseline_eq_in_range_w4,
+    fast_lt_in_range_swar_w4,
+    baseline_lt_in_range_w4
+);
+
+// W = 8: constant 127.
+in_range_benches!(
+    8,
+    127,
+    fast_eq_in_range_swar_w8,
+    baseline_eq_in_range_w8,
+    fast_lt_in_range_swar_w8,
+    baseline_lt_in_range_w8
+);
+
+// W = 16: constant 32_000.
+in_range_benches!(
+    16,
+    32_000,
+    fast_eq_in_range_swar_w16,
+    baseline_eq_in_range_w16,
+    fast_lt_in_range_swar_w16,
+    baseline_lt_in_range_w16
+);

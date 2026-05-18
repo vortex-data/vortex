@@ -206,14 +206,14 @@ fn apply_patches<T, I>(
     }
 }
 
-/// In-range SWAR / Knuth-broadword fast path. Currently scoped to `bit_width == 8` on
-/// `u32` / `i32` storage; everything else returns `Ok(None)` and lets the canonical
-/// decompress + Arrow compare path run.
+/// In-range SWAR / Knuth-broadword fast path. Currently scoped to power-of-two
+/// `bit_width ∈ {1, 2, 4, 8, 16}` on `u32` / `i32` storage; everything else returns
+/// `Ok(None)` and lets the canonical decompress + Arrow compare path run.
 ///
 /// The kernel walks each 1024-chunk of the packed buffer, runs a Knuth-style broadword
-/// comparison against the byte-replicated constant (no decompress, no unpacked
-/// materialization), scatters per-element result bytes into element order, then packs
-/// the chunk's 1024 booleans into the output `BitBuffer` via `BitBufferMut::collect_bool`.
+/// comparison against the slot-replicated constant (no decompress, no unpacked
+/// materialisation), writes per-element result bits directly into a `[u64; 16]`
+/// element-order chunk bitmap, then pushes those 16 u64s into the result buffer.
 fn compare_in_range_swar<T>(
     lhs: ArrayView<'_, BitPacked>,
     constant: T,
@@ -223,11 +223,12 @@ fn compare_in_range_swar<T>(
 where
     T: NativePType + ToPrimitive,
 {
-    use super::compare_swar::swar_eq_w8_u32;
-    use super::compare_swar::swar_lt_w8_u32;
+    use super::compare_swar::is_supported_pow2_w;
+    use super::compare_swar::swar_eq_pow2_u32;
+    use super::compare_swar::swar_lt_pow2_u32;
 
-    // Scope: bit_width == 8, u32 storage, no patches, no slice offset.
-    if lhs.bit_width() != 8 {
+    let w = lhs.bit_width();
+    if !is_supported_pow2_w(w) {
         return Ok(None);
     }
     if !matches!(T::PTYPE, PType::U32 | PType::I32) {
@@ -239,26 +240,18 @@ where
 
     let len = lhs.len();
     let validity = lhs.validity()?;
-    // SAFETY of the cast: we just checked the constant is in `[0, 2^bit_width - 1]` =
-    // `[0, 255]`.
-    let c: u8 = constant
+    // Safe: `constant_relation_to_packed` returned `None`, so `0 <= c <= 2^W - 1 <= 65535`.
+    let c_u32: u32 = constant
         .to_i128()
-        .vortex_expect("integer constant fits in i128") as u8;
+        .vortex_expect("integer constant fits in i128") as u32;
 
     // Two SWAR primitives: Eq and Lt. The other four operators derive from them:
-    //
-    //   Eq(a, c) = swar_eq_w8(a, c)
-    //   NotEq    = !Eq
-    //   Lt(a, c) = swar_lt_w8(a, c)
-    //   Gte      = !Lt
-    //   Gt(a, c) = Lt(c, a) — but `a` is the packed lane and `c` is the constant. The
-    //              symmetric SWAR isn't directly available; instead we exploit
-    //                Gt(a, c) = NotEq(a, c) AND NOT Lt(a, c).
-    //              On a sliced bit, that's `!lt & !eq`, computed bitwise.
-    //   Lte(a, c) = NOT Gt = Lt OR Eq.
+    //   NotEq = !Eq            Lte = Lt | Eq
+    //   Gt    = !(Lt | Eq)     Gte = !Lt
 
     let packed = lhs.packed_slice::<u32>();
-    let elems_per_chunk = 256; // 128 * 8 / 4
+    // packed_len per chunk = 32 (lanes) * W (words per lane).
+    let elems_per_chunk: usize = 32 * (w as usize);
     let num_chunks = len.div_ceil(1024);
 
     let need_eq = matches!(
@@ -270,9 +263,6 @@ where
         CompareOperator::Lt | CompareOperator::Lte | CompareOperator::Gt | CompareOperator::Gte
     );
 
-    // Accumulate the result as a `BufferMut<u64>` with one chunk's 16 u64 = 1024 bits at
-    // a time. Each SWAR kernel writes its chunk's per-element bits directly here in
-    // element order — no scattered byte writes, no intermediate `Vec<bool>`.
     let n_words = len.div_ceil(64);
     let mut words = vortex_buffer::BufferMut::<u64>::with_capacity(n_words);
 
@@ -285,15 +275,26 @@ where
         lt_bits.fill(0);
 
         if need_eq {
-            swar_eq_w8_u32(chunk, c, &mut eq_bits);
+            match w {
+                1 => swar_eq_pow2_u32::<1>(chunk, c_u32, &mut eq_bits),
+                2 => swar_eq_pow2_u32::<2>(chunk, c_u32, &mut eq_bits),
+                4 => swar_eq_pow2_u32::<4>(chunk, c_u32, &mut eq_bits),
+                8 => swar_eq_pow2_u32::<8>(chunk, c_u32, &mut eq_bits),
+                16 => swar_eq_pow2_u32::<16>(chunk, c_u32, &mut eq_bits),
+                _ => unreachable!(),
+            }
         }
         if need_lt {
-            swar_lt_w8_u32(chunk, c, &mut lt_bits);
+            match w {
+                1 => swar_lt_pow2_u32::<1>(chunk, c_u32, &mut lt_bits),
+                2 => swar_lt_pow2_u32::<2>(chunk, c_u32, &mut lt_bits),
+                4 => swar_lt_pow2_u32::<4>(chunk, c_u32, &mut lt_bits),
+                8 => swar_lt_pow2_u32::<8>(chunk, c_u32, &mut lt_bits),
+                16 => swar_lt_pow2_u32::<16>(chunk, c_u32, &mut lt_bits),
+                _ => unreachable!(),
+            }
         }
 
-        // Compose the chunk's 16 u64 bitmap from `eq_bits` / `lt_bits` per operator and
-        // append to `words`. Trailing zero bits past `len` are masked off at the end of
-        // the function.
         let chunk_u64_start = chunk_idx * 16;
         let chunk_u64_end = (chunk_u64_start + 16).min(n_words);
         for i in chunk_u64_start..chunk_u64_end {
@@ -310,7 +311,6 @@ where
         }
     }
 
-    // Mask off any trailing bits past `len` in the final u64.
     let tail_bits = len % 64;
     if tail_bits != 0 {
         let last_idx = words.len() - 1;
