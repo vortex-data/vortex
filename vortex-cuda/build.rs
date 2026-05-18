@@ -55,6 +55,13 @@ fn main() {
     generate_unpack::<u32>(&kernels_src, 32).expect("Failed to generate unpack for u32");
     generate_unpack::<u64>(&kernels_src, 16).expect("Failed to generate unpack for u64");
 
+    // Copy-and-Patch per-bit-width unpack stencils. One small .cu per BW so
+    // each compiles to its own PTX with the bit-width baked in as a constexpr
+    // — the trampoline picks which PTX to link via the executor's plan and
+    // the symbol `cp_unpack` resolves to that one definition.
+    generate_cp_unpack_u32_stencils(&kernels_src.join("copy_patch"))
+        .expect("Failed to generate Copy-and-Patch unpack stencils");
+
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
     generate_dynamic_dispatch_bindings(&kernels_src, &out_dir);
     generate_patches_bindings(&kernels_src, &out_dir);
@@ -106,12 +113,18 @@ fn main() {
         && let Ok(entries) = std::fs::read_dir(&copy_patch_src)
     {
         for path in entries.flatten().map(|entry| entry.path()) {
+            let is_generated = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("cp_unpack_u32_bw"));
             match path.extension().and_then(|e| e.to_str()) {
                 Some("cuh") | Some("h") => {
                     println!("cargo:rerun-if-changed={}", path.display());
                 }
                 Some("cu") => {
-                    println!("cargo:rerun-if-changed={}", path.display());
+                    if !is_generated {
+                        println!("cargo:rerun-if-changed={}", path.display());
+                    }
                     nvcc_compile_ptx_with(
                         &kernels_src,
                         &kernels_gen,
@@ -291,4 +304,48 @@ fn is_cuda_available() -> bool {
         .arg("--version")
         .output()
         .is_ok_and(|o| o.status.success())
+}
+
+/// Generate the per-bit-width `cp_unpack` Copy-and-Patch stencils.
+///
+/// Each generated file calls `_bit_unpack_32_lane<BW>` directly with a
+/// compile-time `BW`. The compiler picks the right specialization (defined
+/// in `bit_unpack_32_lanes.cuh`) and inlines it; ptxas can then collapse
+/// the per-row bit-extract sequence with the constant `BW`. At runtime the
+/// executor selects which `cp_unpack_u32_bw<N>.ptx` to feed `cuLinkAddData`
+/// based on the plan; all of them export the same symbol name `cp_unpack`,
+/// so the trampoline's extern reference always resolves.
+fn generate_cp_unpack_u32_stencils(output_dir: &Path) -> io::Result<()> {
+    std::fs::create_dir_all(output_dir)?;
+    for bw in 0..=32u32 {
+        let path = output_dir.join(format!("cp_unpack_u32_bw{bw}.cu"));
+        let contents = format!(
+            r#"// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+//
+// GENERATED — do not edit by hand. See `generate_cp_unpack_u32_stencils`
+// in `vortex-cuda/build.rs`. Copy-and-Patch unpack stencil for u32
+// element width with `BW = {bw}` baked in as a compile-time constant.
+
+#include "bit_unpack_32_lanes.cuh"
+#include "fastlanes_common.cuh"
+#include <stdint.h>
+
+extern "C" __device__ void
+cp_unpack(const uint32_t *__restrict in, uint32_t *__restrict enc_buf) {{
+    _bit_unpack_32_lane<{bw}>(in, enc_buf, /*reference=*/0u, /*lane=*/threadIdx.x);
+}}
+"#
+        );
+        // Only rewrite if the contents differ, so cargo's mtime-based
+        // rerun-if-changed doesn't keep triggering nvcc recompiles.
+        let needs_write = match std::fs::read_to_string(&path) {
+            Ok(existing) => existing != contents,
+            Err(_) => true,
+        };
+        if needs_write {
+            std::fs::write(&path, contents)?;
+        }
+    }
+    Ok(())
 }

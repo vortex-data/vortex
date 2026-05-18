@@ -177,7 +177,6 @@ impl CopyPatchExecutor {
             PostOp::Arith { c, .. } => {
                 let out = ctx.device_alloc::<f32>(chunks * 1024)?;
                 let out_view = out.as_view();
-                let bit_width = u32::from(plan.bit_width);
                 let f = plan.f;
                 let e = plan.e;
                 ctx.launch_kernel_config(&trampoline.function, cfg, array_len, |args| {
@@ -185,7 +184,6 @@ impl CopyPatchExecutor {
                         .arg(&out_view)
                         .arg(&array_len_u64)
                         .arg(&enc_stride_words)
-                        .arg(&bit_width)
                         .arg(&f)
                         .arg(&e)
                         .arg(&c);
@@ -195,7 +193,6 @@ impl CopyPatchExecutor {
             PostOp::Filter { c, .. } => {
                 let out = ctx.device_alloc::<u8>(chunks * 1024)?;
                 let out_view = out.as_view();
-                let bit_width = u32::from(plan.bit_width);
                 let f = plan.f;
                 let e = plan.e;
                 ctx.launch_kernel_config(&trampoline.function, cfg, array_len, |args| {
@@ -203,7 +200,6 @@ impl CopyPatchExecutor {
                         .arg(&out_view)
                         .arg(&array_len_u64)
                         .arg(&enc_stride_words)
-                        .arg(&bit_width)
                         .arg(&f)
                         .arg(&e)
                         .arg(&c);

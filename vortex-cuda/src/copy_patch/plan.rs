@@ -64,8 +64,10 @@ pub enum PostOp {
 /// adding more is a matter of new trampoline variants and a wider enum here.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Plan {
-    /// Bit width used to pack the encoded i32 codes. Passed as a kernel param
-    /// to the prototype unpack stencil (per-bw specialization is a follow-up).
+    /// Bit width used to pack the encoded i32 codes (0..=32). Selects which
+    /// `cp_unpack_u32_bw<N>` PTX module the executor links — the constant
+    /// is baked into the stencil at compile time rather than flowing as a
+    /// kernel argument.
     pub bit_width: u8,
     /// ALP factor `F10[exponents.f]`.
     pub f: f32,
@@ -74,6 +76,45 @@ pub struct Plan {
     /// Tail of the pipeline.
     pub post: PostOp,
 }
+
+/// Per-bit-width unpack-stencil module names. Generated at build time by
+/// `vortex-cuda/build.rs::generate_cp_unpack_u32_stencils`. Every entry
+/// exports the same symbol `cp_unpack`; selection happens at link time.
+const CP_UNPACK_U32_MODULES: [&str; 33] = [
+    "cp_unpack_u32_bw0",
+    "cp_unpack_u32_bw1",
+    "cp_unpack_u32_bw2",
+    "cp_unpack_u32_bw3",
+    "cp_unpack_u32_bw4",
+    "cp_unpack_u32_bw5",
+    "cp_unpack_u32_bw6",
+    "cp_unpack_u32_bw7",
+    "cp_unpack_u32_bw8",
+    "cp_unpack_u32_bw9",
+    "cp_unpack_u32_bw10",
+    "cp_unpack_u32_bw11",
+    "cp_unpack_u32_bw12",
+    "cp_unpack_u32_bw13",
+    "cp_unpack_u32_bw14",
+    "cp_unpack_u32_bw15",
+    "cp_unpack_u32_bw16",
+    "cp_unpack_u32_bw17",
+    "cp_unpack_u32_bw18",
+    "cp_unpack_u32_bw19",
+    "cp_unpack_u32_bw20",
+    "cp_unpack_u32_bw21",
+    "cp_unpack_u32_bw22",
+    "cp_unpack_u32_bw23",
+    "cp_unpack_u32_bw24",
+    "cp_unpack_u32_bw25",
+    "cp_unpack_u32_bw26",
+    "cp_unpack_u32_bw27",
+    "cp_unpack_u32_bw28",
+    "cp_unpack_u32_bw29",
+    "cp_unpack_u32_bw30",
+    "cp_unpack_u32_bw31",
+    "cp_unpack_u32_bw32",
+];
 
 impl Plan {
     /// The trampoline PTX module name that this plan dispatches through.
@@ -92,6 +133,13 @@ impl Plan {
         }
     }
 
+    /// Unpack stencil module for this plan's bit width. Panics for widths
+    /// outside `0..=32`; the executor pre-validates so this is a programmer
+    /// error.
+    pub fn unpack_module(&self) -> &'static str {
+        CP_UNPACK_U32_MODULES[self.bit_width as usize]
+    }
+
     /// PTX modules that must be linked to satisfy the trampoline's `extern`
     /// references, in arbitrary order.
     pub fn stencil_modules(&self) -> [&'static str; 3] {
@@ -99,6 +147,6 @@ impl Plan {
             PostOp::Arith { op, .. } => op.stencil_module(),
             PostOp::Filter { op, .. } => op.stencil_module(),
         };
-        ["cp_unpack_u32", "cp_alp_apply_i32_f32", post]
+        [self.unpack_module(), "cp_alp_apply_i32_f32", post]
     }
 }
