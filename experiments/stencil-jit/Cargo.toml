@@ -10,6 +10,11 @@ description = "Research prototype: copy-and-patch JIT for fused SIMD eq/neq."
 [dependencies]
 libc = "0.2"
 
+[build-dependencies]
+cranelift-codegen = { version = "0.118", default-features = false, features = ["x86", "host-arch", "std"] }
+cranelift-frontend = { version = "0.118", default-features = false, features = ["std"] }
+target-lexicon = "0.13"
+
 [dev-dependencies]
 divan = "0.1"
 

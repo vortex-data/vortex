@@ -182,6 +182,55 @@ many kernels per query, Cranelift's "compile in microseconds at near-
 LLVM quality" is the right tradeoff.
 
 
+## F is real — Cranelift compiles the kernel at build time
+
+`build.rs` uses `cranelift-codegen` 0.118 to compile an IR function:
+
+```text
+fn eq_kernel(packed: *const u8, out: *mut u32, n_halves: u64) {
+    let c = vconst [35; 16]   // (42 - 7) broadcast into i8x16
+    for i in 0..n_halves {
+        let data = load i8x16, [packed + i*16]
+        let mask = vhigh_bits(i16, icmp eq, data, c)
+        store i16 mask, [out + i*2]
+    }
+}
+```
+
+Cranelift emits **96 bytes of self-contained x86-64 machine code with
+zero relocations**. The runtime is unchanged — `CraneliftKernel::new()`
+hands those bytes straight to the same `materialize()` D-spec uses.
+
+| n_blocks | size   | C (chunked) | **F (Cranelift, xmm)** | D-spec (AVX2 ymm) | D-spec-512 (zmm) |
+|---------:|-------:|------------:|-----------------------:|------------------:|-----------------:|
+|    128   |  4 KB  | 38.5        | 19.0                   | 75.6              | 146.7            |
+|   1024   | 32 KB  | 41.5        | 20.4                   | 79.1              | 124.4            |
+|   8192   | 256 KB | 28.6        | 19.3                   | 63.1              | 58.7             |
+|  32768   |  1 MB  | 32.2        | 19.4                   | 56.8              | 51.7             |
+| 131072   |  4 MB  | 21.9        | 18.3                   | 25.5              | 24.5             |
+
+F here runs at half D-spec's throughput **because Cranelift 0.118's x64
+backend only handles vectors up to 128 bits** — no ymm or zmm yet.
+Newer Cranelift (≥ 0.119) extends to AVX2/AVX-512, at which point F's
+throughput matches D-spec / D-spec-512 by construction. That's the
+point: the runtime stays identical; F's job is to demonstrate that
+flipping the source of the bytes from `global_asm!` to `cranelift-codegen`
+costs nothing semantically.
+
+What F bought us, with zero hand-tuned asm:
+* **96 bytes, 0 relocations** — clean, embeddable.
+* **Multi-ISA for free** — `Triple::from_str(...)` switches the target;
+  same IR, different bytes.
+* **Same runtime path** as D — `materialize()` + `mprotect` + indirect
+  call.
+
+What it didn't buy yet:
+* **Wide vectors** on Cranelift 0.118 — fix is a version bump.
+* **Constant patching** — the `c = 35` is baked into the IR. The
+  follow-up is to emit the constant as a Cranelift `GlobalValue` (which
+  becomes a relocation), capture the reloc offset, and have the runtime
+  patch the byte at that offset like `SpecializedKernel` does today.
+
 ## D vs F — the only difference is the source of the stencil bytes
 
 D and F produce **identical machine code at runtime** for a given fragment

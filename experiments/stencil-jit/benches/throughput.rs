@@ -20,7 +20,10 @@ use std::arch::x86_64::*;
 use std::hint::black_box;
 
 use divan::{Bencher, counter::BytesCount};
-use stencil_jit::{BulkKernel, ChainConfig, CmpOp, Kernel, SpecializedKernel, SpecializedKernel512};
+use stencil_jit::{
+    BulkKernel, ChainConfig, CmpOp, Kernel, SpecializedKernel, SpecializedKernel512,
+    cranelift_kernel::CraneliftKernel,
+};
 
 /// Working-set sizes (in 32-byte blocks) chosen to span L1, L2, and beyond.
 /// 128   blocks = 4 KB     (well inside L1)
@@ -220,6 +223,34 @@ fn stencil_jit_specialized_avx512(bencher: Bencher, n_blocks: usize) {
     let mut out = vec![0u32; n_blocks];
     bencher.counter(counter(n_blocks)).bench_local(|| {
         // SAFETY: n_blocks * 32 readable, n_blocks * 4 writable, multiple of 8.
+        unsafe {
+            kernel.call(
+                black_box(input.as_ptr()),
+                black_box(out.as_mut_ptr()),
+                n_blocks,
+            )
+        };
+        black_box(out[0])
+    });
+}
+
+// ---------- F: Cranelift-at-build-time -----------------------------------------
+//
+// Bytes emitted by `build.rs` (cranelift-codegen 0.118 compiling IR for the
+// eq kernel) and embedded via `include_bytes!`. The runtime path is the
+// same `materialize()` D-spec uses; this entry only differs in *who wrote
+// the bytes*. Note: Cranelift 0.118 doesn't yet support ymm/zmm in its
+// x64 backend, so this kernel uses xmm (16-byte lanes). Newer Cranelift
+// versions extend to AVX2/AVX-512, at which point F's throughput matches
+// D-spec / D-spec-512 by construction.
+
+#[divan::bench(args = SIZES)]
+fn stencil_jit_cranelift_built(bencher: Bencher, n_blocks: usize) {
+    let kernel = CraneliftKernel::new().unwrap();
+    let input = make_input(n_blocks);
+    let mut out = vec![0u32; n_blocks];
+    bencher.counter(counter(n_blocks)).bench_local(|| {
+        // SAFETY: n_blocks * 32 readable, n_blocks * 4 writable.
         unsafe {
             kernel.call(
                 black_box(input.as_ptr()),

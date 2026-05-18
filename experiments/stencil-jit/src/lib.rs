@@ -51,6 +51,7 @@
 
 #![cfg(all(target_arch = "x86_64", target_os = "linux"))]
 
+pub mod cranelift_kernel;
 pub mod delta;
 mod stencil;
 
@@ -116,7 +117,7 @@ fn op_patch_b(op: CmpOp) -> &'static [u8; 8] {
     }
 }
 
-fn page_size() -> usize {
+pub(crate) fn page_size() -> usize {
     // SAFETY: sysconf is reentrant for _SC_PAGESIZE.
     let v = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if v <= 0 { 4096 } else { v as usize }
@@ -126,7 +127,7 @@ fn page_size() -> usize {
 ///
 /// # Safety
 /// Each `(offset, src)` pair must lie within `bytes`.
-unsafe fn materialize(
+pub(crate) unsafe fn materialize(
     bytes: &[u8],
     patches: &[(usize, &[u8])],
     page_len: usize,
