@@ -10,5 +10,12 @@ description = "Research prototype: copy-and-patch JIT for fused SIMD eq/neq."
 [dependencies]
 libc = "0.2"
 
+[dev-dependencies]
+divan = "0.1"
+
+[[bench]]
+name = "throughput"
+harness = false
+
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
