@@ -173,9 +173,13 @@ impl ListViewArray {
         let mut new_sizes = BufferMut::<S>::with_capacity(len);
         let mut take_indices = BufferMut::<u64>::with_capacity(take_capacity);
 
+        // Hoist validity out of the loop. `is_valid(index)` on `Validity::Array(..)` allocates
+        // a fresh `ExecutionCtx` and runs `execute_scalar` per call — keeping it in the inner
+        // loop would do that `len` times, swamping the actual take work.
+        let validity = self.validity()?;
         let mut n_elements = NewOffset::zero();
         for index in 0..len {
-            if !self.validity()?.is_valid(index)? {
+            if !validity.is_valid(index)? {
                 new_offsets.push(n_elements);
                 new_sizes.push(S::zero());
                 continue;
@@ -203,7 +207,7 @@ impl ListViewArray {
         //
         // The rebuilt elements buffer is exactly the reachable set, so the bound is exact.
         Ok(unsafe {
-            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity()?)
+            ListViewArray::new_unchecked(elements, offsets, sizes, validity)
                 .with_zero_copy_to_list(true)
         }
         .with_reachable_elements_bound(Some(elements_len)))
@@ -248,9 +252,11 @@ impl ListViewArray {
         let mut new_elements_builder =
             builder_with_capacity(element_dtype.as_ref(), self.elements().len());
 
+        // Hoist validity (see `rebuild_with_take` for the same fix).
+        let validity = self.validity()?;
         let mut n_elements = NewOffset::zero();
         for index in 0..len {
-            if !self.validity()?.is_valid(index)? {
+            if !validity.is_valid(index)? {
                 // For NULL lists, place them after the previous item's data to maintain the
                 // no-overlap invariant for zero-copy to `ListArray` arrays.
                 new_offsets.push(n_elements);
@@ -292,7 +298,7 @@ impl ListViewArray {
         // - The array satisfies the zero-copy-to-list property by having sorted offsets, no gaps,
         //   and no overlaps.
         Ok(unsafe {
-            ListViewArray::new_unchecked(elements, offsets, sizes, self.validity()?)
+            ListViewArray::new_unchecked(elements, offsets, sizes, validity)
                 .with_zero_copy_to_list(true)
         }
         .with_reachable_elements_bound(Some(elements_len)))
