@@ -234,6 +234,10 @@ where
     use super::compare_eq_w3::swar_lt_w3_u32;
     use super::compare_eq_w4::swar_eq_w4_u32;
     use super::compare_eq_w4::swar_lt_w4_u32;
+    use super::compare_eq_w5::swar_eq_w5_u32;
+    use super::compare_eq_w5::swar_lt_w5_u32;
+    use super::compare_eq_w7::swar_eq_w7_u32;
+    use super::compare_eq_w7::swar_lt_w7_u32;
     use super::compare_eq_w8::swar_eq_w8_u32;
     use super::compare_eq_w8::swar_lt_w8_u32;
 
@@ -299,6 +303,8 @@ where
                 2 => swar_eq_w2_u32(chunk, c_u32 as u8, &mut eq_bits),
                 3 => swar_eq_w3_u32(chunk, c_u32 as u8, &mut eq_bits),
                 4 => swar_eq_w4_u32(chunk, c_u32 as u8, &mut eq_bits),
+                5 => swar_eq_w5_u32(chunk, c_u32 as u8, &mut eq_bits),
+                7 => swar_eq_w7_u32(chunk, c_u32 as u8, &mut eq_bits),
                 8 => swar_eq_w8_u32(chunk, c_u32 as u8, &mut eq_bits),
                 _ => block_eq_u32(chunk, w as usize, c_u32, &mut block, &mut eq_bits),
             }
@@ -309,6 +315,8 @@ where
                 2 => swar_lt_w2_u32(chunk, c_u32 as u8, &mut lt_bits),
                 3 => swar_lt_w3_u32(chunk, c_u32 as u8, &mut lt_bits),
                 4 => swar_lt_w4_u32(chunk, c_u32 as u8, &mut lt_bits),
+                5 => swar_lt_w5_u32(chunk, c_u32 as u8, &mut lt_bits),
+                7 => swar_lt_w7_u32(chunk, c_u32 as u8, &mut lt_bits),
                 8 => swar_lt_w8_u32(chunk, c_u32 as u8, &mut lt_bits),
                 _ => block_lt_u32(chunk, w as usize, c_u32, &mut block, &mut lt_bits),
             }
