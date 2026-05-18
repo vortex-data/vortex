@@ -1984,3 +1984,159 @@ async fn test_segment_ordering_zonemaps_after_data() -> VortexResult<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_segment_ordering_array_trees_consolidated_and_after_data() -> VortexResult<()> {
+    // Multi-column struct with enough rows to produce chunked data, so each column will have
+    // many ArrayTreeFlat leaves. The collector should consolidate their compact trees into a
+    // single segment per ArrayTreeLayout.
+    let n = 100_000;
+    let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+    let numbers = PrimitiveArray::from_iter(0..n as i32).into_array();
+    let floats = PrimitiveArray::from_iter((0..n).map(|i| i as f64 * 0.1)).into_array();
+
+    let st = StructArray::from_fields(&[
+        ("strings", strings),
+        ("numbers", numbers),
+        ("floats", floats),
+    ])
+    .unwrap();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+
+    let footer = summary.footer();
+    let segment_specs = footer.segment_map();
+    let root = footer.layout();
+
+    // Walk the layout tree and validate every ArrayTreeLayout we find.
+    //
+    // For each ArrayTreeLayout we assert two invariants:
+    //   1. **Consolidation:** the auxiliary `array_trees` child (child idx 1) writes exactly
+    //      one segment — all compact flatbuffers from the leaves should land in a single
+    //      contiguous payload, not be scattered across the file.
+    //   2. **Per-column ordering:** every data segment under child 0 appears before the
+    //      array_trees segment under child 1.
+    fn check_array_tree_layouts(
+        layout: &dyn Layout,
+        segment_specs: &[SegmentSpec],
+        found_any: &mut bool,
+    ) {
+        if layout.encoding_id().as_ref() == "vortex.array_tree" {
+            *found_any = true;
+
+            let data_child = layout.child(0).unwrap();
+            let array_trees_child = layout.child(1).unwrap();
+
+            let data_offsets = collect_segment_offsets(data_child.as_ref(), segment_specs);
+            let array_trees_offsets =
+                collect_segment_offsets(array_trees_child.as_ref(), segment_specs);
+
+            assert_eq!(
+                array_trees_offsets.len(),
+                1,
+                "array_tree: auxiliary child must consolidate to exactly 1 segment, got {} segments at offsets {:?}",
+                array_trees_offsets.len(),
+                array_trees_offsets,
+            );
+
+            assert!(
+                !data_offsets.is_empty(),
+                "array_tree: data child must have at least one segment"
+            );
+
+            assert_offsets_ordered(
+                &data_offsets,
+                &array_trees_offsets,
+                "array_tree: all data segments should come before the array_trees segment",
+            );
+        }
+
+        for child in layout.children().unwrap() {
+            check_array_tree_layouts(child.as_ref(), segment_specs, found_any);
+        }
+    }
+
+    let mut found_any = false;
+    check_array_tree_layouts(root.as_ref(), segment_specs, &mut found_any);
+    assert!(
+        found_any,
+        "test setup expected the default write strategy to produce at least one ArrayTreeLayout"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[cfg_attr(miri, ignore)]
+async fn test_segment_ordering_array_trees_before_zones() -> VortexResult<()> {
+    // The default write strategy wraps every column in `ZonedStrategy { data: ArrayTree, zones }`.
+    // We assert per-Zoned-layout that the array_trees segment (sitting inside the data child)
+    // appears before every zone-map segment in the same column.
+    let n = 100_000;
+    let values: Vec<&str> = (0..n).map(|i| ["alpha", "beta", "gamma"][i % 3]).collect();
+    let strings = VarBinArray::from(values).into_array();
+    let numbers = PrimitiveArray::from_iter(0..n as i32).into_array();
+    let floats = PrimitiveArray::from_iter((0..n).map(|i| i as f64 * 0.1)).into_array();
+
+    let st = StructArray::from_fields(&[
+        ("strings", strings),
+        ("numbers", numbers),
+        ("floats", floats),
+    ])
+    .unwrap();
+
+    let mut buf = ByteBufferMut::empty();
+    let summary = SESSION
+        .write_options()
+        .write(&mut buf, st.into_array().to_array_stream())
+        .await?;
+
+    let footer = summary.footer();
+    let segment_specs = footer.segment_map();
+    let root = footer.layout();
+
+    fn check_zoned_with_array_tree(
+        layout: &dyn Layout,
+        segment_specs: &[SegmentSpec],
+        found_any: &mut bool,
+    ) {
+        if layout.encoding_id().as_ref() == "vortex.stats" {
+            let data_child = layout.child(0).unwrap();
+            let zones_child = layout.child(1).unwrap();
+
+            if data_child.encoding_id().as_ref() == "vortex.array_tree" {
+                *found_any = true;
+                let array_trees_offsets = collect_segment_offsets(
+                    data_child.child(1).unwrap().as_ref(),
+                    segment_specs,
+                );
+                let zones_offsets = collect_segment_offsets(zones_child.as_ref(), segment_specs);
+
+                assert_offsets_ordered(
+                    &array_trees_offsets,
+                    &zones_offsets,
+                    "zoned wrapping array_tree: the array_trees segment should come before zone-map segments",
+                );
+            }
+        }
+
+        for child in layout.children().unwrap() {
+            check_zoned_with_array_tree(child.as_ref(), segment_specs, found_any);
+        }
+    }
+
+    let mut found_any = false;
+    check_zoned_with_array_tree(root.as_ref(), segment_specs, &mut found_any);
+    assert!(
+        found_any,
+        "test setup expected the default write strategy to produce at least one Zoned wrapping an ArrayTree"
+    );
+
+    Ok(())
+}
