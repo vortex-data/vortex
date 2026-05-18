@@ -150,7 +150,11 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::Buffer;
     use vortex::buffer::buffer;
+    use vortex::dtype::DType;
+    use vortex::dtype::PType;
+    use vortex::encodings::runend::RunEnd;
     use vortex::error::VortexExpect;
+    use vortex::error::VortexResult;
 
     use super::*;
     use crate::SESSION;
@@ -160,13 +164,12 @@ mod tests {
 
     #[test]
     fn test_export_empty_list() {
-        let list = unsafe {
-            ListArray::new_unchecked(
-                Buffer::<u32>::empty().into_array(),
-                Buffer::<u32>::empty().into_array(),
-                Validity::AllValid,
-            )
-        }
+        let list = ListArray::try_new(
+            Buffer::<u32>::empty().into_array(),
+            buffer![0u32].into_array(),
+            Validity::AllValid,
+        )
+        .vortex_expect("list creation should succeed")
         .into_array();
 
         let list_type = LogicalType::list_type(LogicalType::uint32())
@@ -189,20 +192,91 @@ mod tests {
     }
 
     #[test]
-    fn test_export_non_empty_list_of_strings() {
-        let list = unsafe {
-            ListArray::new_unchecked(
-                <VarBinArray as FromIterator<_>>::from_iter([
-                    Some("abc"),
-                    Some("def"),
-                    None,
-                    Some("ghi"),
-                ])
-                .into_array(),
-                buffer![0u8, 1, 2, 3, 4].into_array(),
-                Validity::from_iter([true, true, false, true]),
+    fn test_export_u64_list() {
+        let list = ListArray::try_new(
+            buffer![1u64, 2, 3, 4, 5].into_array(),
+            buffer![0u8, 1, 2, 3, 4, 5].into_array(),
+            Validity::AllValid,
+        )
+        .vortex_expect("list creation should succeed")
+        .into_array();
+        assert_eq!(
+            list.dtype(),
+            &DType::List(
+                Arc::new(DType::Primitive(PType::U64, false.into())),
+                true.into()
             )
-        }
+        );
+
+        let list_type = LogicalType::list_type(LogicalType::uint64())
+            .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let mut chunk = DataChunk::new([list_type]);
+
+        let mut ctx = SESSION.create_execution_ctx();
+        new_array_exporter(list, &ConversionCache::default(), &mut ctx)
+            .unwrap()
+            .export(0, 5, chunk.get_vector_mut(0), &mut ctx)
+            .unwrap();
+        chunk.set_len(5);
+
+        assert_eq!(
+            format!("{}", String::try_from(&*chunk).unwrap()),
+            r#"Chunk - [1 Columns]
+- FLAT UBIGINT[]: 5 = [ [1], [2], [3], [4], [5]]
+"#
+        );
+    }
+
+    // Ensure runend-compressed list is properly flattened
+    #[test]
+    fn test_export_list_with_runend_elements() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let elements = RunEnd::encode(buffer![100u32, 100, 200, 200, 200].into_array(), &mut ctx)?;
+
+        let list = ListArray::try_new(
+            elements.into_array(),
+            buffer![0u32, 2, 5].into_array(),
+            Validity::AllValid,
+        )
+        .vortex_expect("list creation should succeed")
+        .into_array();
+
+        let list_type = LogicalType::list_type(LogicalType::uint32())
+            .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let mut chunk = DataChunk::new([list_type]);
+
+        new_array_exporter(list, &ConversionCache::default(), &mut ctx)?.export(
+            0,
+            2,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
+        chunk.set_len(2);
+
+        assert_eq!(
+            format!("{}", String::try_from(&*chunk)?),
+            r#"Chunk - [1 Columns]
+- FLAT UINTEGER[]: 2 = [ [100, 100], [200, 200, 200]]
+"#
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_export_non_empty_list_of_strings() {
+        let list = ListArray::try_new(
+            <VarBinArray as FromIterator<_>>::from_iter([
+                Some("abc"),
+                Some("def"),
+                None,
+                Some("ghi"),
+            ])
+            .into_array(),
+            buffer![0u8, 1, 2, 3, 4].into_array(),
+            Validity::from_iter([true, true, false, true]),
+        )
+        .vortex_expect("list creation should succeed")
         .into_array();
 
         let list_type = LogicalType::list_type(LogicalType::varchar())

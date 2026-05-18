@@ -4,6 +4,7 @@
 mod all_invalid;
 mod bool;
 mod cache;
+mod canonical;
 mod constant;
 mod decimal;
 mod dict;
@@ -22,13 +23,11 @@ mod vector;
 pub use cache::ConversionCache;
 pub use decimal::precision_to_duckdb_storage_size;
 use vortex::array::ArrayRef;
-use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::Constant;
 use vortex::array::arrays::Dict;
 use vortex::array::arrays::List;
 use vortex::array::arrays::StructArray;
-use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::struct_::StructArrayExt;
 use vortex::buffer::BitChunks;
 use vortex::encodings::runend::RunEnd;
@@ -191,7 +190,7 @@ fn new_array_exporter_with_flatten(
     };
 
     let array = match array.try_downcast::<RunEnd>() {
-        Ok(array) => return run_end::new_exporter(array, cache, ctx),
+        Ok(array) => return run_end::new_exporter_with_flatten(array, cache, ctx, flatten),
         Err(array) => array,
     };
 
@@ -205,26 +204,7 @@ fn new_array_exporter_with_flatten(
         Err(array) => array,
     };
 
-    // Otherwise, we fall back to canonical
-    match array.execute::<Canonical>(ctx)? {
-        Canonical::Null(_) => Ok(all_invalid::new_exporter()),
-        Canonical::Bool(array) => bool::new_exporter(array, ctx),
-        Canonical::Primitive(array) => primitive::new_exporter(array, ctx),
-        Canonical::Decimal(array) => decimal::new_exporter(array, ctx),
-        Canonical::VarBinView(array) => varbinview::new_exporter(array, ctx),
-        Canonical::List(array) => list_view::new_exporter(array, cache, ctx),
-        Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(array, cache, ctx),
-        Canonical::Struct(array) => struct_::new_exporter(array, cache, ctx),
-        Canonical::Extension(ext) => {
-            if let Ok(temporal_array) = TemporalArray::try_from(ext) {
-                return temporal::new_exporter(temporal_array, ctx);
-            }
-            vortex_bail!("no non-temporal extension exporter")
-        }
-        Canonical::Variant(_) => {
-            vortex_bail!("Variant arrays can't be exported to DuckDB")
-        }
-    }
+    canonical::new_exporter(array, cache, ctx)
 }
 
 /// Copy the sliced bits from source into target, returning whether all copied bits are zero,
