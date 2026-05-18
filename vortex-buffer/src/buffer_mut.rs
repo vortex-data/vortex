@@ -863,7 +863,7 @@ mod test {
         assert_eq!(buf.remaining(), 10);
         assert_eq!(buf.chunk(), b"helloworld");
 
-        Buf::advance(&mut buf, 5);
+        buf.advance(5);
         assert_eq!(buf.remaining(), 5);
         assert_eq!(buf.as_slice(), b"world");
         assert_eq!(buf.chunk(), b"world");
@@ -874,7 +874,7 @@ mod test {
         let mut buf = ByteBufferMut::copy_from("hello".as_bytes());
         assert_eq!(BufMut::remaining_mut(&buf), usize::MAX - 5);
 
-        BufMut::put_slice(&mut buf, b"world");
+        buf.put_slice(b"world");
         assert_eq!(buf.as_slice(), b"helloworld");
     }
 
