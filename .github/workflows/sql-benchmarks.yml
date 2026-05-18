@@ -256,7 +256,52 @@ on:
           ]
 
 jobs:
+  build:
+    timeout-minutes: 60
+    env:
+      VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
+      FLAT_LAYOUT_INLINE_ARRAY_NODE: "1"
+    runs-on: >-
+      ${{ github.repository == 'vortex-data/vortex'
+          && format('runs-on={0}/runner=bench-dedicated/instance-type={1}/tag=build{2}', github.run_id, inputs.machine_type, (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && '/extras=s3-cache' || '')
+          || 'ubuntu-latest' }}
+    steps:
+      - uses: runs-on/action@v2
+        if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
+        with:
+          sccache: s3
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        if: inputs.mode == 'pr'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        if: inputs.mode != 'pr'
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build binaries
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
+        run: |
+          packages="--bin data-gen --bin datafusion-bench --bin duckdb-bench"
+          if [ "${{ inputs.mode }}" != "pr" ]; then
+            packages="$packages --bin lance-bench"
+          fi
+          cargo build $packages --profile release_debug --features unstable_encodings
+      - name: Upload binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: bench-binaries
+          path: |
+            target/release_debug/libduckdb.so
+            target/release_debug/data-gen
+            target/release_debug/datafusion-bench
+            target/release_debug/duckdb-bench
+            target/release_debug/lance-bench
+
   bench:
+    needs: build
     timeout-minutes: 120
     env:
       VORTEX_EXPERIMENTAL_PATCHED_ARRAY: "1"
@@ -317,16 +362,14 @@ jobs:
             echo '__TARGETS_JSON__'
           } >> "$GITHUB_OUTPUT"
 
-      - name: Build binaries
+      - name: Download binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8
+        with:
+          name: bench-binaries
+          path: target/release_debug/
+      - name: Make binaries executable
         shell: bash
-        env:
-          RUSTFLAGS: "-C target-cpu=native"
-        run: |
-          packages="--bin data-gen --bin datafusion-bench --bin duckdb-bench"
-          if [ "${{ inputs.mode }}" != "pr" ]; then
-            packages="$packages --bin lance-bench"
-          fi
-          cargo build $packages --profile release_debug --features unstable_encodings
+        run: chmod +x target/release_debug/*
 
       - name: Generate data
         shell: bash
