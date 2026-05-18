@@ -40,7 +40,10 @@ pub struct ArrayTreeFlatLayoutEncoding;
 /// At read time, this layout's reader looks up its compact tree in a shared
 /// [`super::ArrayTreesSource`] using its own [`SegmentId`]. Construction requires that an
 /// ancestor [`super::ArrayTreeLayout`] has registered a reader-builder override against
-/// this encoding's ID — this layout has no useful default reader.
+/// this encoding's ID — this layout has no useful default reader. Tools that need to
+/// construct readers at arbitrary points in the layout tree (explorers, debuggers) should
+/// use [`super::ArrayTreeLayout::derive_reader_ctx`] to build a context that registers the
+/// override before descending to the leaf.
 #[derive(Clone, Debug)]
 pub struct ArrayTreeFlatLayout {
     inner: FlatLayout,
@@ -109,10 +112,12 @@ impl VTable for ArrayTreeFlat {
         // ArrayTreeFlatLayout has no useful default reader. It exists to be intercepted by an
         // ancestor ArrayTreeLayout that registers a reader-builder override carrying the
         // shared ArrayTreesSource. If the dispatcher reached this method, no such ancestor
-        // was present in the layout tree.
+        // was present in the layout tree — see `ArrayTreeLayout::derive_reader_ctx` for the
+        // helper tools should call when starting reader construction below the root.
         vortex_bail!(
             "ArrayTreeFlatLayout requires an ancestor ArrayTreeLayout to register a reader \
-             builder override; this layout cannot be read on its own"
+             builder override; call ArrayTreeLayout::derive_reader_ctx on each ArrayTreeLayout \
+             ancestor before constructing a reader for this layout"
         )
     }
 

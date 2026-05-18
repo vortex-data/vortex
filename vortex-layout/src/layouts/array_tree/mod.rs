@@ -14,10 +14,12 @@ use std::sync::OnceLock;
 
 use futures::FutureExt;
 use vortex_array::EmptyMetadata;
+use vortex_array::Executable;
 use vortex_array::MaskFuture;
-use vortex_array::arrays::Primitive;
-use vortex_array::arrays::Struct;
-use vortex_array::arrays::VarBinView;
+use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::struct_::StructArrayExt;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldName;
@@ -102,6 +104,53 @@ impl ArrayTreeLayout {
             Nullability::NonNullable,
         )
     }
+
+    /// Build a [`LayoutReaderContext`] that overlays `ctx` with a source-injecting builder
+    /// override for this layout's [`ArrayTreeFlat`] descendants.
+    ///
+    /// The returned context, when used to construct a reader on a descendant layout, will
+    /// satisfy `ArrayTreeFlat`'s requirement for an injected [`ArrayTreesSource`]. Used by:
+    /// - The normal [`crate::VTable::new_reader`] dispatch on `ArrayTreeLayout` (production path).
+    /// - Tools that construct readers at arbitrary points in the layout tree (explorers,
+    ///   debuggers) — they should walk from the root to the target node, calling this method
+    ///   for each `ArrayTreeLayout` ancestor on the path so the accumulated ctx carries the
+    ///   right override when the leaf is finally constructed.
+    pub fn derive_reader_ctx(
+        &self,
+        name: &str,
+        segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
+        ctx: &LayoutReaderContext,
+    ) -> VortexResult<LayoutReaderContext> {
+        // Construct the array_trees auxiliary reader using the unmodified incoming context —
+        // the array_trees subtree is a vanilla struct of (u32, bytes) and needs no overrides.
+        let array_trees_child = self
+            .children
+            .child(1, &Self::array_trees_dtype())?;
+        let trees_reader = array_trees_child.new_reader_in_ctx(
+            Arc::from(format!("{name}/array_trees")),
+            segment_source,
+            session,
+            ctx,
+        )?;
+        let source = Arc::new(ArrayTreesSource::new(trees_reader, session.clone()));
+
+        Ok(ctx.with_override(
+            ArrayTreeFlat::id(&ArrayTreeFlatLayoutEncoding),
+            Arc::new(move |layout, name, segs, sess, _ctx| {
+                let atf = layout
+                    .as_opt::<ArrayTreeFlat>()
+                    .vortex_expect("ArrayTreeFlat override applied to wrong layout encoding");
+                Ok(Arc::new(ArrayTreeFlatReader::new(
+                    atf.clone(),
+                    name,
+                    segs,
+                    sess.clone(),
+                    Arc::clone(&source),
+                )))
+            }),
+        ))
+    }
 }
 
 impl VTable for ArrayTree {
@@ -160,36 +209,8 @@ impl VTable for ArrayTree {
         session: &VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
-        // Construct the array_trees auxiliary reader using the unmodified incoming context —
-        // the array_trees subtree is a vanilla struct of (u32, bytes) and needs no overrides.
-        let array_trees_child = Self::child(layout, 1)?;
-        let trees_reader = array_trees_child.new_reader_in_ctx(
-            Arc::from(format!("{name}/array_trees")),
-            Arc::clone(&segment_source),
-            session,
-            ctx,
-        )?;
-        let source = Arc::new(ArrayTreesSource::new(trees_reader));
-
-        // Derive a context that intercepts ArrayTreeFlat construction with our source-injecting
-        // builder. The data subtree (and any nested layouts within it) sees this context, so
-        // any ArrayTreeFlat descendant — no matter how deep — gets the source.
-        let derived_ctx = ctx.with_override(
-            ArrayTreeFlat::id(&ArrayTreeFlatLayoutEncoding),
-            Arc::new(move |layout, name, segs, sess, _ctx| {
-                let atf = layout
-                    .as_opt::<ArrayTreeFlat>()
-                    .vortex_expect("ArrayTreeFlat override applied to wrong layout encoding");
-                Ok(Arc::new(ArrayTreeFlatReader::new(
-                    atf.clone(),
-                    name,
-                    segs,
-                    sess.clone(),
-                    Arc::clone(&source),
-                )))
-            }),
-        );
-
+        let derived_ctx =
+            layout.derive_reader_ctx(&name, Arc::clone(&segment_source), session, ctx)?;
         let data_child = Self::child(layout, 0)?;
         let data_reader = data_child.new_reader_in_ctx(
             Arc::clone(&name),
@@ -234,6 +255,10 @@ impl VTable for ArrayTree {
 /// shared across all leaves of the parent [`ArrayTreeLayout`] via a `OnceLock`-cached future.
 pub struct ArrayTreesSource {
     reader: LayoutReaderRef,
+    /// Session used to construct execution contexts when canonicalizing the array_trees
+    /// struct (its fields may be in compressed encodings depending on how the writer's
+    /// `array_trees_strategy` is configured).
+    session: VortexSession,
     /// Lazily initialized shared future for the segment-keyed lookup map.
     map: OnceLock<SharedSegmentMapFuture>,
 }
@@ -253,10 +278,11 @@ impl std::fmt::Debug for ArrayTreesSource {
 }
 
 impl ArrayTreesSource {
-    /// Creates a new source backed by the given array_trees reader.
-    pub fn new(reader: LayoutReaderRef) -> Self {
+    /// Creates a new source backed by the given array_trees reader and session.
+    pub fn new(reader: LayoutReaderRef, session: VortexSession) -> Self {
         Self {
             reader,
+            session,
             map: OnceLock::new(),
         }
     }
@@ -286,6 +312,7 @@ impl ArrayTreesSource {
             .get_or_init(|| {
                 let row_count = self.reader.row_count();
                 let reader = Arc::clone(&self.reader);
+                let session = self.session.clone();
                 async move {
                     let array = reader
                         .projection_evaluation(
@@ -299,7 +326,10 @@ impl ArrayTreesSource {
                         .map_err(Arc::new)?
                         .await
                         .map_err(Arc::new)?;
-                    build_segment_map(array).map(Arc::new).map_err(Arc::new)
+                    let mut ctx = session.create_execution_ctx();
+                    build_segment_map(array, &mut ctx)
+                        .map(Arc::new)
+                        .map_err(Arc::new)
                 }
                 .boxed()
                 .shared()
@@ -309,30 +339,30 @@ impl ArrayTreesSource {
 }
 
 /// Decode the array_trees struct array into a `HashMap<SegmentId, ByteBuffer>`.
+///
+/// The struct array's columns may be in compressed encodings (bitpacked `segment_id`, dict
+/// `compact_tree`, etc.) when read from a file whose array-trees strategy applies compression,
+/// so we canonicalize each field via [`Executable::execute`] before downcasting to the
+/// concrete typed array.
 fn build_segment_map(
     array: vortex_array::ArrayRef,
+    ctx: &mut vortex_array::ExecutionCtx,
 ) -> VortexResult<HashMap<SegmentId, ByteBuffer>> {
-    let struct_array = array
-        .try_downcast::<Struct>()
-        .map_err(|_| vortex_err!("array_trees is not a Struct array"))?;
+    let struct_array = StructArray::execute(array, ctx)?;
 
     let segment_ids_field = struct_array
         .unmasked_field_by_name_opt("segment_id")
-        .ok_or_else(|| vortex_err!("array_trees missing 'segment_id' field"))?;
+        .ok_or_else(|| vortex_err!("array_trees missing 'segment_id' field"))?
+        .clone();
     let trees_field = struct_array
         .unmasked_field_by_name_opt("compact_tree")
-        .ok_or_else(|| vortex_err!("array_trees missing 'compact_tree' field"))?;
+        .ok_or_else(|| vortex_err!("array_trees missing 'compact_tree' field"))?
+        .clone();
 
-    let segment_ids = segment_ids_field
-        .clone()
-        .try_downcast::<Primitive>()
-        .map_err(|_| vortex_err!("array_trees 'segment_id' field is not Primitive"))?;
+    let segment_ids = PrimitiveArray::execute(segment_ids_field, ctx)?;
     let segment_ids = segment_ids.as_slice::<u32>();
 
-    let trees = trees_field
-        .clone()
-        .try_downcast::<VarBinView>()
-        .map_err(|_| vortex_err!("array_trees 'compact_tree' field is not a VarBinView"))?;
+    let trees = VarBinViewArray::execute(trees_field, ctx)?;
 
     let mut map = HashMap::with_capacity(segment_ids.len());
     for (idx, &seg) in segment_ids.iter().enumerate() {

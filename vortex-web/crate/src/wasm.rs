@@ -36,8 +36,12 @@ use vortex::file::VortexFile;
 use vortex::io::CoalesceConfig;
 use vortex::io::VortexReadAt;
 use vortex::layout::LayoutChildType;
+use vortex::layout::LayoutReaderContext;
 use vortex::layout::LayoutRef;
+use vortex::layout::layouts::array_tree::ArrayTree;
+use vortex::layout::layouts::array_tree::ArrayTreeFlat;
 use vortex::layout::layouts::flat::Flat;
+use vortex::layout::layouts::flat::FlatLayout;
 use vortex::layout::scan::scan_builder::ScanBuilder;
 use vortex::session::VortexSession;
 use vortex::session::registry::ReadContext;
@@ -150,7 +154,7 @@ pub async fn open_vortex_file(file: web_sys::File) -> Result<VortexFileHandle, J
 
 /// Walk the layout tree to find the first FlatLayout and extract its ReadContext.
 fn find_array_read_ctx(layout: &LayoutRef) -> Option<ReadContext> {
-    if let Some(flat) = layout.as_opt::<Flat>() {
+    if let Some(flat) = as_flat_view(layout) {
         return Some(flat.array_ctx().clone());
     }
     if let Ok(children) = layout.children() {
@@ -161,6 +165,20 @@ fn find_array_read_ctx(layout: &LayoutRef) -> Option<ReadContext> {
         }
     }
     None
+}
+
+/// Returns the inner [`FlatLayout`] backing this layout, whether it's a plain [`Flat`] or an
+/// [`ArrayTreeFlat`] (which wraps a `FlatLayout` and stores its compact encoding tree in a
+/// sibling `array_trees` segment).
+///
+/// The two encodings produce identical on-disk data segments — the only difference is where
+/// the compact encoding tree lives — so the web explorer can treat them uniformly for
+/// segment fetches, encoding-tree extraction, and previews.
+fn as_flat_view(layout: &LayoutRef) -> Option<&FlatLayout> {
+    if let Some(flat) = layout.as_opt::<Flat>() {
+        return Some(flat);
+    }
+    layout.as_opt::<ArrayTreeFlat>().map(|atf| atf.inner())
 }
 
 /// A handle to an opened Vortex file, exposing metadata to JavaScript.
@@ -288,12 +306,20 @@ impl VortexFileHandle {
         node_id: &str,
         row_limit: u32,
     ) -> Result<js_sys::Uint8Array, JsValue> {
-        let layout = find_layout_by_id(self.vxf.footer().layout(), node_id)
-            .ok_or_else(|| JsValue::from_str(&format!("Layout node not found: {node_id}")))?;
-
         let segment_source = self.vxf.segment_source();
+
+        // Walk root → target, accumulating any reader-builder overrides that
+        // `ArrayTreeLayout` ancestors need to register so descendants like `ArrayTreeFlat`
+        // can construct without bailing on a missing source.
+        let (layout, ctx) = find_layout_with_ctx(
+            self.vxf.footer().layout(),
+            node_id,
+            Some((&segment_source, &self.session)),
+        )
+        .ok_or_else(|| JsValue::from_str(&format!("Layout node not found: {node_id}")))?;
+
         let reader = layout
-            .new_reader(node_id.into(), segment_source, &self.session)
+            .new_reader_in_ctx(node_id.into(), segment_source, &self.session, &ctx)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         let stream = ScanBuilder::new(self.session.clone(), reader)
@@ -332,10 +358,12 @@ impl VortexFileHandle {
         Ok(js_sys::Uint8Array::from(buf.as_slice()))
     }
 
-    /// Fetch the array encoding tree for a flat layout node.
+    /// Fetch the array encoding tree for a flat-style layout node.
     ///
     /// Finds the layout by node ID, reads the segment, fully decodes the array
     /// to extract dtype, child names, and buffer names from the encoding vtables.
+    /// Works for both [`Flat`] and [`ArrayTreeFlat`] — both share the same data-segment
+    /// shape.
     pub async fn fetch_encoding_tree(&self, node_id: String) -> Result<String, JsValue> {
         let ctx = self
             .array_read_ctx
@@ -345,9 +373,8 @@ impl VortexFileHandle {
         let layout = find_layout_by_id(self.vxf.footer().layout(), &node_id)
             .ok_or_else(|| JsValue::from_str(&format!("Layout node not found: {node_id}")))?;
 
-        let flat = layout
-            .as_opt::<Flat>()
-            .ok_or_else(|| JsValue::from_str("Node is not a flat layout"))?;
+        let flat = as_flat_view(&layout)
+            .ok_or_else(|| JsValue::from_str("Node is not a flat-style layout"))?;
 
         let segment_id = flat.segment_id();
         let dtype = layout.dtype().clone();
@@ -393,9 +420,8 @@ impl VortexFileHandle {
                 JsValue::from_str(&format!("Layout node not found: {layout_node_id}"))
             })?;
 
-        let flat = layout
-            .as_opt::<Flat>()
-            .ok_or_else(|| JsValue::from_str("Node is not a flat layout"))?;
+        let flat = as_flat_view(&layout)
+            .ok_or_else(|| JsValue::from_str("Node is not a flat-style layout"))?;
 
         let segment_id = flat.segment_id();
         let dtype = layout.dtype().clone();
@@ -460,9 +486,8 @@ impl VortexFileHandle {
                 JsValue::from_str(&format!("Layout node not found: {layout_node_id}"))
             })?;
 
-        let flat = layout
-            .as_opt::<Flat>()
-            .ok_or_else(|| JsValue::from_str("Node is not a flat layout"))?;
+        let flat = as_flat_view(&layout)
+            .ok_or_else(|| JsValue::from_str("Node is not a flat-style layout"))?;
 
         let segment_id = flat.segment_id();
         let dtype = layout.dtype().clone();
@@ -577,8 +602,14 @@ fn build_layout_tree(
         }
     }
 
-    // For flat layouts, extract the array encoding tree if available.
-    let array_encoding_tree = layout.as_opt::<Flat>().and_then(|flat| {
+    // For flat-style layouts (Flat or ArrayTreeFlat), extract the inline array encoding tree
+    // if available.
+    //
+    // Today only the deprecated env-var Flat path actually populates `array_tree()`. For
+    // `ArrayTreeFlat` the compact tree lives in the sibling `array_trees` auxiliary segment,
+    // not inline — `array_tree()` returns `None`, and the encoding tree is fetched on demand
+    // via `fetch_encoding_tree` instead.
+    let array_encoding_tree = as_flat_view(&layout).and_then(|flat| {
         let tree_buf = flat.array_tree()?;
         let ctx = flat.array_ctx();
         let parts = SerializedArray::from_array_tree(tree_buf.as_ref().to_vec()).ok()?;
@@ -678,31 +709,68 @@ fn build_array_encoding_tree_from_array(
 /// IDs match the format: "root.field_name.chunked.[0]" where each segment
 /// corresponds to a `LayoutChildType::name()`.
 fn find_layout_by_id(root: &LayoutRef, node_id: &str) -> Option<LayoutRef> {
+    find_layout_with_ctx(root, node_id, None).map(|(layout, _)| layout)
+}
+
+/// Like [`find_layout_by_id`], but also builds a [`LayoutReaderContext`] that registers a
+/// source-injecting builder override for every [`ArrayTree`] ancestor on the path from
+/// `root` to the target.
+///
+/// This is required when the explorer constructs a reader at a deep node: the default
+/// reader-construction path on [`ArrayTreeFlat`] bails because it relies on an ancestor's
+/// `new_reader` call to register the override. By walking the path explicitly and calling
+/// [`ArrayTreeLayout::derive_reader_ctx`] on every ancestor we encounter, the returned ctx
+/// satisfies the leaf's requirement when the caller eventually invokes
+/// `target.new_reader_in_ctx(..., &ctx)`.
+///
+/// Pass `Some((segment_source, session))` to actually derive the context. When passed
+/// `None`, the function still navigates the tree and returns an empty context — useful for
+/// callers that only need the layout reference.
+fn find_layout_with_ctx(
+    root: &LayoutRef,
+    node_id: &str,
+    derive: Option<(&Arc<dyn vortex::layout::segments::SegmentSource>, &VortexSession)>,
+) -> Option<(LayoutRef, LayoutReaderContext)> {
     let segments: Vec<&str> = node_id.split('.').collect();
     if segments.is_empty() || segments[0] != "root" {
         return None;
     }
-    if segments.len() == 1 {
-        return Some(root.clone());
-    }
 
     let mut current = root.clone();
+    let mut current_id = String::from("root");
+    let mut ctx = LayoutReaderContext::new();
+
+    let maybe_derive = |layout: &LayoutRef, name: &str, ctx: &LayoutReaderContext| {
+        let Some((segment_source, session)) = derive else {
+            return Some(ctx.clone());
+        };
+        layout.as_opt::<ArrayTree>().and_then(|atl| {
+            atl.derive_reader_ctx(name, Arc::clone(segment_source), session, ctx).ok()
+        }).or_else(|| Some(ctx.clone()))
+    };
+
+    ctx = maybe_derive(&current, &current_id, &ctx)?;
+    if segments.len() == 1 {
+        return Some((current, ctx));
+    }
+
     for seg in &segments[1..] {
         let children = current.children().ok()?;
-        let mut found = false;
+        let mut found = None;
         for (i, child) in children.into_iter().enumerate() {
             let name = current.child_type(i).name();
             if name.as_ref() == *seg {
-                current = child;
-                found = true;
+                found = Some(child);
                 break;
             }
         }
-        if !found {
-            return None;
-        }
+        let child = found?;
+        current = child;
+        current_id.push('.');
+        current_id.push_str(seg);
+        ctx = maybe_derive(&current, &current_id, &ctx)?;
     }
-    Some(current)
+    Some((current, ctx))
 }
 
 /// Downgrade Arrow `*View` types to their non-view equivalents so the JS

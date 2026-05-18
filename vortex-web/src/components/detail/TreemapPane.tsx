@@ -56,7 +56,9 @@ function buildTree(node: LayoutTreeNode, segmentMap: Map<number, SegmentMapEntry
 
   // For layout nodes, skip array children of NON-flat layouts to avoid eager expansion.
   // Flat layouts and array nodes show all their children (array tree is already fetched).
-  const isFlatOrArray = isArray || node.encoding === 'vortex.flat';
+  // `vortex.array_tree_flat` shares the flat data-segment shape and gets the same treatment.
+  const isFlatOrArray =
+    isArray || node.encoding === 'vortex.flat' || node.encoding === 'vortex.array_tree_flat';
   const childrenToShow = isFlatOrArray
     ? node.children
     : node.children.filter((c) => !c.isArrayNode);

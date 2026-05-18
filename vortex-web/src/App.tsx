@@ -85,7 +85,11 @@ function App() {
       setFileState((prev) => {
         if (!prev) return prev;
         const node = findNodeById(prev.layoutTree, nodeId);
-        if (!node || node.encoding !== 'vortex.flat') return prev;
+        if (
+          !node ||
+          (node.encoding !== 'vortex.flat' && node.encoding !== 'vortex.array_tree_flat')
+        )
+          return prev;
         if (node.children.some((c) => c.isArrayNode)) return prev;
 
         const arrayChildren = arrayTreeToLayoutChildren(arrayTree, node);

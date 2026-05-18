@@ -15,6 +15,8 @@ export const ENCODING_STYLES: Record<string, { color: string; label: string }> =
   'vortex.struct': { color: '#5971FD', label: 'struct' },
   'vortex.chunked': { color: '#CEE562', label: 'chunked' },
   'vortex.flat': { color: '#2CB9D1', label: 'flat' },
+  'vortex.array_tree_flat': { color: '#2CB9D1', label: 'array-tree-flat' },
+  'vortex.array_tree': { color: '#A87CC4', label: 'array-tree' },
   'vortex.dict': { color: '#EEB3E1', label: 'dict' },
   'vortex.zonemap': { color: '#FB863D', label: 'zonemap' },
   'vortex.fsst': { color: '#EEB3E1', label: 'fsst' },
@@ -557,10 +559,18 @@ export function arrayTreeToLayoutChildren(
 }
 
 /**
- * Check if a layout node is a flat layout that can have array children.
+ * Check if a layout node is a flat-style layout that can have array children.
+ *
+ * Treats both `vortex.flat` and `vortex.array_tree_flat` as leaves with a single decodable
+ * data segment — they share the same on-disk segment shape, the only difference is whether
+ * the compact encoding tree lives inline (legacy env-var Flat) or in a sibling auxiliary
+ * segment (ArrayTreeFlat).
  */
 export function isFlatLayout(node: LayoutTreeNode): boolean {
-  return node.encoding === 'vortex.flat' && !node.isArrayNode;
+  return (
+    (node.encoding === 'vortex.flat' || node.encoding === 'vortex.array_tree_flat') &&
+    !node.isArrayNode
+  );
 }
 
 /**
