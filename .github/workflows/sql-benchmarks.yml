@@ -252,6 +252,29 @@ on:
                 {"engine": "datafusion", "format": "vortex"}
               ],
               "scale_factor": "1"
+            },
+            {
+              "id": "appian-nvme",
+              "subcommand": "appian",
+              "name": "Appian on NVME",
+              "data_formats": ["parquet", "vortex", "vortex-compact", "duckdb"],
+              "pr_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "duckdb"}
+              ],
+              "develop_targets": [
+                {"engine": "datafusion", "format": "parquet"},
+                {"engine": "datafusion", "format": "vortex"},
+                {"engine": "datafusion", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "parquet"},
+                {"engine": "duckdb", "format": "vortex"},
+                {"engine": "duckdb", "format": "vortex-compact"},
+                {"engine": "duckdb", "format": "duckdb"}
+              ],
+              "iterations": "10"
             }
           ]
 
