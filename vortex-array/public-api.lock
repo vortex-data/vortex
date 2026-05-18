@@ -3394,13 +3394,37 @@ pub vortex_array::arrays::list::ListDataParts::offsets: vortex_array::ArrayRef
 
 pub vortex_array::arrays::list::ListDataParts::validity: vortex_array::validity::Validity
 
-pub const vortex_array::arrays::list::PRUNE_LIST_MIN_ELEMENTS_CANONICAL: usize
+pub struct vortex_array::arrays::list::TrimCostModel
 
-pub const vortex_array::arrays::list::PRUNE_LIST_MIN_ELEMENTS_COMPRESSED: usize
+pub vortex_array::arrays::list::TrimCostModel::canonical_bytes_per_element: usize
 
-pub const vortex_array::arrays::list::PRUNE_LIST_MIN_SAVINGS_RATIO_CANONICAL: f64
+impl vortex_array::arrays::list::TrimCostModel
 
-pub const vortex_array::arrays::list::PRUNE_LIST_MIN_SAVINGS_RATIO_COMPRESSED: f64
+pub const fn vortex_array::arrays::list::TrimCostModel::arrow() -> Self
+
+pub fn vortex_array::arrays::list::TrimCostModel::for_dtype(&vortex_array::dtype::DType) -> Self
+
+impl core::clone::Clone for vortex_array::arrays::list::TrimCostModel
+
+pub fn vortex_array::arrays::list::TrimCostModel::clone(&self) -> vortex_array::arrays::list::TrimCostModel
+
+impl core::fmt::Debug for vortex_array::arrays::list::TrimCostModel
+
+pub fn vortex_array::arrays::list::TrimCostModel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+impl core::marker::Copy for vortex_array::arrays::list::TrimCostModel
+
+pub const vortex_array::arrays::list::PRUNE_LIST_BYTES_SAVED_TARGET: usize
+
+pub const vortex_array::arrays::list::PRUNE_LIST_COMPRESSED_MIN_ELEMENTS: usize
+
+pub const vortex_array::arrays::list::PRUNE_LIST_COMPRESSED_SAVINGS_RATIO: f64
+
+pub const vortex_array::arrays::list::PRUNE_LIST_MIN_ELEMENTS: usize
+
+pub const vortex_array::arrays::list::PRUNE_LIST_OVERWHELMING_MIN_ELEMENTS: usize
+
+pub const vortex_array::arrays::list::PRUNE_LIST_OVERWHELMING_SAVINGS_RATIO: f64
 
 pub trait vortex_array::arrays::list::ListArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::List>
 
@@ -3442,7 +3466,7 @@ pub fn T::reset_offsets(&self, bool) -> vortex_error::VortexResult<vortex_array:
 
 pub fn T::sliced_elements(&self) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
-pub fn vortex_array::arrays::list::maybe_trim_unreferenced_elements(&vortex_array::arrays::ListArray, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::arrays::ListArray>>
+pub fn vortex_array::arrays::list::maybe_trim_unreferenced_elements(&vortex_array::arrays::ListArray, vortex_array::arrays::list::TrimCostModel, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::arrays::ListArray>>
 
 pub type vortex_array::arrays::list::ListArray = vortex_array::Array<vortex_array::arrays::List>
 

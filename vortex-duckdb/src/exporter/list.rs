@@ -8,7 +8,9 @@ use parking_lot::Mutex;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::array::arrays::list::ListArrayExt;
 use vortex::array::arrays::list::ListDataParts;
+use vortex::array::arrays::list::TrimCostModel;
 use vortex::array::arrays::list::maybe_trim_unreferenced_elements;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::validity::Validity;
@@ -46,9 +48,13 @@ pub(crate) fn new_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     // Trim leading/trailing unreferenced elements before materialising the child vector. The
-    // resulting `elements` buffer will be exactly the live window referenced by the offsets,
-    // so the cached `Vector` keys on that smaller buffer.
-    let array = match maybe_trim_unreferenced_elements(&array, ctx)? {
+    // DuckDB exporter copies canonical primitives element-by-element into its vector, so we
+    // pass the element dtype's byte width: wide dtypes amortise the trim's fixed cost faster
+    // and justify firing at lower savings ratios than narrow ones. Variable-width children
+    // (Utf8/Binary/List) fall back to a per-view metadata estimate inside
+    // `TrimCostModel::for_dtype`.
+    let cost = TrimCostModel::for_dtype(array.element_dtype());
+    let array = match maybe_trim_unreferenced_elements(&array, cost, ctx)? {
         Some(trimmed) => trimmed,
         None => array,
     };
