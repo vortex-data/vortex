@@ -68,11 +68,7 @@ impl<T> BufferMut<T> {
         let mut bytes = BytesMut::zeroed((len * size_of::<T>()) + *alignment);
         bytes.advance(bytes.as_ptr().align_offset(*alignment));
         unsafe { bytes.set_len(len * size_of::<T>()) };
-        let actual_len = if size_of::<T>() == 0 {
-            0
-        } else {
-            bytes.len() / size_of::<T>()
-        };
+        let actual_len = bytes.len().checked_div(size_of::<T>()).unwrap_or(0);
         Self {
             bytes,
             length: actual_len,
