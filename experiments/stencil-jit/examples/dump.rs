@@ -1,26 +1,42 @@
-//! Dumps the AOT stencil bytes and all six patched variants. Useful for
-//! sanity-checking the encoding by piping through `ndisasm -b 64`.
+//! Dumps the AOT stencil bytes for every (ffor, op) configuration. Useful
+//! for sanity-checking the encoding via `ndisasm -b 64`.
 
 #[cfg(all(target_arch = "x86_64", target_os = "linux"))]
 fn main() {
-    use stencil_jit::{CmpOp, debug};
+    use stencil_jit::{ChainConfig, CmpOp, debug};
 
     let bytes = debug::stencil_bytes();
-    let off = debug::patch_offset();
-    let len = debug::patch_len();
+    let f_off = debug::ffor_offset();
+    let o_off = debug::op_offset();
 
     println!(
-        "stencil length = {} bytes, patch slot @ {}..{} ({} bytes)",
+        "stencil = {} B, ffor @ {}..{}, op @ {}..{}",
         bytes.len(),
-        off,
-        off + len,
-        len,
+        f_off,
+        f_off + 8,
+        o_off,
+        o_off + 8,
     );
 
-    for op in CmpOp::ALL {
+    let configs = [
+        (false, CmpOp::Eq),
+        (true, CmpOp::Eq),
+        (false, CmpOp::Lt),
+        (true, CmpOp::Lt),
+        (true, CmpOp::Ge),
+    ];
+
+    for (ffor, op) in configs {
         let mut full = bytes.to_vec();
-        full[off..off + len].copy_from_slice(debug::op_patch(op));
-        print!("{:>3?}: ", op);
+        let ffor_src = if ffor {
+            debug::ffor_add_patch()
+        } else {
+            debug::ffor_nop_patch()
+        };
+        full[f_off..f_off + 8].copy_from_slice(ffor_src);
+        full[o_off..o_off + 8].copy_from_slice(debug::op_patch_bytes(op));
+        let _ = ChainConfig { ffor, op }; // doc tie-in
+        print!("ffor={:>5} op={:>3?}: ", ffor, op);
         for b in &full {
             print!("{b:02x} ");
         }

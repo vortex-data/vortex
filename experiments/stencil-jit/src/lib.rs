@@ -1,24 +1,12 @@
-//! Copy-and-patch JIT prototype for fused SIMD eq/neq on packed `u8` lanes.
+//! Copy-and-patch JIT prototype for fused SIMD compare + optional FFoR-add
+//! on packed `u8` lanes. Two splice slots demonstrate fragment chaining.
 //!
-//! See `stencil.rs` for the AOT stencil. This module is the *runtime*: it
-//! allocates an anonymous mmap region, copies the stencil bytes in, patches
-//! the 8-byte op-slot to select eq vs neq, flips the page to PROT_READ |
-//! PROT_EXEC, and exposes the result as a typed function pointer.
+//! Calling convention for the materialized kernel:
+//!   `fn(packed: *const u8, constant: u64, out: *mut u32, ffor_ref: u64)`
 //!
-//! Scope and non-goals:
-//!   * x86-64 Linux, AVX2 only. No Windows, no macOS, no NEON, no AVX-512.
-//!   * bit-width = 8 (no actual bit unpacking — that would require a
-//!     per-width stencil, which is the obvious next step).
-//!   * One patch site, two op kernels. The point is to demonstrate the
-//!     mechanism, not to ship a production code generator.
-//!
-//! Why this isn't snake oil: rustc's monomorphization of fastlanes-rs'
-//! `BitPackingCompare::unpack_cmp<W, B, V, F>` already gets you the AOT
-//! version of the same fused kernels for free. A runtime JIT only earns its
-//! complexity when the op or layout *cannot* be known at compile time —
-//! e.g., user-supplied predicates from a query planner, dictionary code
-//! mappings only known after a scan starts, or fused chains whose Cartesian
-//! product is too large to ship as static code.
+//! `constant` and `ffor_ref` are passed as `u64` so the System V AMD64 ABI
+//! places them in `rsi` and `rcx`; the stencil reads only the low byte
+//! (`sil` / `cl`). `ffor_ref` is ignored when SLOT 1 holds 8 NOPs.
 
 #![cfg(all(target_arch = "x86_64", target_os = "linux"))]
 
@@ -27,25 +15,14 @@ mod stencil;
 use core::ptr::NonNull;
 use std::io;
 
-/// Comparison ops that this prototype can splice in.
-///
-/// Ordering comparisons (`Lt`, `Le`, `Gt`, `Ge`) are *signed* — the
-/// underlying AVX2 instruction is `vpcmpgtb`. Treating bitpacked unsigned
-/// data with these would require an extra sign-bit flip in the prologue;
-/// see the README for the follow-up.
+/// Signed compare ops supported by SLOT 2.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum CmpOp {
-    /// `lane == constant`
     Eq,
-    /// `lane != constant`
     Neq,
-    /// `lane > constant` (signed)
     Gt,
-    /// `lane < constant` (signed)
     Lt,
-    /// `lane >= constant` (signed)
     Ge,
-    /// `lane <= constant` (signed)
     Le,
 }
 
@@ -60,36 +37,47 @@ impl CmpOp {
     ];
 }
 
-/// A compiled kernel sitting in an mmap'd, executable page. The kernel
-/// compares 32 packed `u8` lanes to a broadcast constant and writes a
-/// 32-bit mask to the output pointer.
+/// Composition for a single materialized kernel.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct ChainConfig {
+    /// If `true`, SLOT 1 holds `vpaddb ymm0,ymm0,ymm3` (FFoR-add); else NOPs.
+    pub ffor: bool,
+    /// SLOT 2 always holds one of these.
+    pub op: CmpOp,
+}
+
+impl ChainConfig {
+    pub const fn compare_only(op: CmpOp) -> Self {
+        Self { ffor: false, op }
+    }
+    pub const fn ffor_then_compare(op: CmpOp) -> Self {
+        Self { ffor: true, op }
+    }
+}
+
+/// A materialized kernel in an mmap'd executable page.
 pub struct Kernel {
     page: NonNull<u8>,
     page_len: usize,
-    entry: unsafe extern "sysv64" fn(*const u8, u64, *mut u32),
+    entry: unsafe extern "sysv64" fn(*const u8, u64, *mut u32, u64),
 }
 
-// SAFETY: the page is owned by the Kernel, mprotect made it RX, and we hand
-// out only `&self` to invoke it. The function itself only reads from the
-// caller-supplied pointers.
 unsafe impl Send for Kernel {}
 unsafe impl Sync for Kernel {}
 
 impl Kernel {
-    /// Materialize a kernel for `op` by copying the AOT stencil into a
-    /// fresh executable page and splicing the patch slot.
-    pub fn compile(op: CmpOp) -> io::Result<Self> {
+    /// Compile a kernel for `config`: copy the AOT stencil, splice both
+    /// slots, mprotect to RX.
+    pub fn compile(config: ChainConfig) -> io::Result<Self> {
         let bytes = stencil::stencil_bytes();
-        let patch_off = stencil::patch_offset();
-        let patch_len = stencil::patch_len();
+        let ffor_off = stencil::ffor_offset();
+        let ffor_len = stencil::ffor_len();
+        let op_off = stencil::op_offset();
+        let op_len = stencil::op_len();
 
-        let page_size = page_size();
-        let page_len = page_size; // stencil is ~30 bytes; one page is plenty.
+        let page_len = page_size();
 
-        // mmap PROT_READ | PROT_WRITE. We never mmap as RWX simultaneously,
-        // so the W^X invariant is preserved end-to-end.
-        // SAFETY: mmap with NULL addr and MAP_ANONYMOUS|MAP_PRIVATE is the
-        // standard portable way to allocate fresh pages.
+        // SAFETY: mmap with NULL addr and MAP_ANONYMOUS|MAP_PRIVATE.
         let raw = unsafe {
             libc::mmap(
                 core::ptr::null_mut(),
@@ -105,30 +93,22 @@ impl Kernel {
         }
         let page = NonNull::new(raw as *mut u8).expect("mmap returned non-null on success");
 
-        // Copy the stencil and splice in the op bytes.
-        // SAFETY: we mmap'd `page_len >= bytes.len()` bytes of writable memory.
+        // SAFETY: page_len >= bytes.len(); both patch slots lie within bytes.
         unsafe {
             core::ptr::copy_nonoverlapping(bytes.as_ptr(), page.as_ptr(), bytes.len());
-            let patch_src: &[u8; 8] = match op {
-                CmpOp::Eq => &stencil::EQ_PATCH,
-                CmpOp::Neq => &stencil::NEQ_PATCH,
-                CmpOp::Gt => &stencil::GT_PATCH,
-                CmpOp::Lt => &stencil::LT_PATCH,
-                CmpOp::Ge => &stencil::GE_PATCH,
-                CmpOp::Le => &stencil::LE_PATCH,
+
+            let ffor_src: &[u8; 8] = if config.ffor {
+                &stencil::FFOR_ADD_PATCH
+            } else {
+                &stencil::FFOR_NOP_PATCH
             };
-            core::ptr::copy_nonoverlapping(
-                patch_src.as_ptr(),
-                page.as_ptr().add(patch_off),
-                patch_len,
-            );
+            core::ptr::copy_nonoverlapping(ffor_src.as_ptr(), page.as_ptr().add(ffor_off), ffor_len);
+
+            let op_src: &[u8; 8] = op_patch(config.op);
+            core::ptr::copy_nonoverlapping(op_src.as_ptr(), page.as_ptr().add(op_off), op_len);
         }
 
-        // Flip to PROT_READ | PROT_EXEC. The mprotect syscall is a serializing
-        // operation; subsequent calls in this thread will observe the patched
-        // bytes. x86-64 has coherent instruction caches, so no explicit
-        // icache flush is required.
-        // SAFETY: page came from a successful mmap of `page_len` bytes.
+        // SAFETY: page came from a successful mmap.
         let rc = unsafe {
             libc::mprotect(
                 page.as_ptr().cast(),
@@ -138,18 +118,16 @@ impl Kernel {
         };
         if rc != 0 {
             let err = io::Error::last_os_error();
-            // SAFETY: page came from mmap; munmap the same length we mapped.
+            // SAFETY: page came from mmap; same length.
             unsafe {
                 libc::munmap(page.as_ptr().cast(), page_len);
             }
             return Err(err);
         }
 
-        // SAFETY: the page now holds a valid System V AMD64 function with the
-        // signature `extern "sysv64" fn(*const u8, u64, *mut u32)`. The bytes
-        // came from a stencil we control, and the patched-in instructions are
-        // the only mutation.
-        let entry: unsafe extern "sysv64" fn(*const u8, u64, *mut u32) =
+        // SAFETY: bytes form a valid sysv64 function; relocations are pure
+        // byte substitutions that preserve register/stack discipline.
+        let entry: unsafe extern "sysv64" fn(*const u8, u64, *mut u32, u64) =
             unsafe { core::mem::transmute(page.as_ptr()) };
 
         Ok(Self {
@@ -159,23 +137,19 @@ impl Kernel {
         })
     }
 
-    /// Run the compiled kernel: read 32 `u8`s from `packed`, compare each to
-    /// `constant`, write a 32-bit mask to `out`.
+    /// Invoke the kernel.
     ///
     /// # Safety
-    /// `packed` must point to at least 32 readable bytes. `out` must point to
-    /// 4 writable bytes.
-    pub unsafe fn call(&self, packed: *const u8, constant: u8, out: *mut u32) {
-        // SAFETY: caller upholds the read/write windows; the entry point is
-        // a valid function pointer materialized in `compile`.
-        unsafe { (self.entry)(packed, u64::from(constant), out) }
+    /// `packed` must point to at least 32 readable bytes; `out` to 4 writable.
+    pub unsafe fn call(&self, packed: *const u8, constant: u8, out: *mut u32, ffor_ref: u8) {
+        // SAFETY: caller upholds the buffer windows.
+        unsafe { (self.entry)(packed, u64::from(constant), out, u64::from(ffor_ref)) }
     }
 }
 
 impl Drop for Kernel {
     fn drop(&mut self) {
-        // SAFETY: page + page_len came from a successful mmap and were never
-        // remapped or freed.
+        // SAFETY: page + page_len came from mmap and were never re-mapped.
         unsafe {
             libc::munmap(self.page.as_ptr().cast(), self.page_len);
         }
@@ -183,39 +157,52 @@ impl Drop for Kernel {
 }
 
 fn page_size() -> usize {
-    // SAFETY: sysconf is documented to be reentrant for _SC_PAGESIZE.
+    // SAFETY: sysconf is reentrant for _SC_PAGESIZE.
     let v = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
     if v <= 0 { 4096 } else { v as usize }
 }
 
-/// Inspection helpers, exposed for tests and curious readers.
-pub mod debug {
-    use super::stencil;
+fn op_patch(op: CmpOp) -> &'static [u8; 8] {
+    match op {
+        CmpOp::Eq => &stencil::EQ_PATCH,
+        CmpOp::Neq => &stencil::NEQ_PATCH,
+        CmpOp::Gt => &stencil::GT_PATCH,
+        CmpOp::Lt => &stencil::LT_PATCH,
+        CmpOp::Ge => &stencil::GE_PATCH,
+        CmpOp::Le => &stencil::LE_PATCH,
+    }
+}
 
-    /// The raw stencil bytes, exactly as the linker placed them in `.rodata`.
+/// Inspection helpers for tests and the dump example.
+pub mod debug {
+    use super::{CmpOp, op_patch, stencil};
+
     pub fn stencil_bytes() -> &'static [u8] {
         stencil::stencil_bytes()
     }
 
-    /// Byte offset of the patch slot within the stencil.
-    pub fn patch_offset() -> usize {
-        stencil::patch_offset()
+    pub fn ffor_offset() -> usize {
+        stencil::ffor_offset()
+    }
+    pub fn ffor_len() -> usize {
+        stencil::ffor_len()
+    }
+    pub fn op_offset() -> usize {
+        stencil::op_offset()
+    }
+    pub fn op_len() -> usize {
+        stencil::op_len()
     }
 
-    /// Byte length of the patch slot.
-    pub fn patch_len() -> usize {
-        stencil::patch_len()
+    pub fn op_patch_bytes(op: CmpOp) -> &'static [u8] {
+        op_patch(op)
     }
 
-    /// The 8 bytes the JIT splices in to select a given op.
-    pub fn op_patch(op: super::CmpOp) -> &'static [u8] {
-        match op {
-            super::CmpOp::Eq => &stencil::EQ_PATCH,
-            super::CmpOp::Neq => &stencil::NEQ_PATCH,
-            super::CmpOp::Gt => &stencil::GT_PATCH,
-            super::CmpOp::Lt => &stencil::LT_PATCH,
-            super::CmpOp::Ge => &stencil::GE_PATCH,
-            super::CmpOp::Le => &stencil::LE_PATCH,
-        }
+    pub fn ffor_add_patch() -> &'static [u8] {
+        &stencil::FFOR_ADD_PATCH
+    }
+
+    pub fn ffor_nop_patch() -> &'static [u8] {
+        &stencil::FFOR_NOP_PATCH
     }
 }
