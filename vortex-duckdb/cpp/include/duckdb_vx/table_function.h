@@ -125,6 +125,7 @@ typedef struct {
 
     void (*cardinality)(void *bind_data, duckdb_vx_node_statistics *node_stats_out);
 
+    void (*pushdown_column_type)(void *bind_data, idx_t id, duckdb_logical_type type);
     bool (*pushdown_complex_filter)(void *bind_data, duckdb_vx_expr expr, duckdb_vx_error *error_out);
 
     void (*to_string)(void *bind_data, duckdb_vx_string_map map);

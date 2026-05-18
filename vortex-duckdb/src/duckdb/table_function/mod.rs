@@ -21,6 +21,7 @@ use crate::duckdb::DataChunk;
 use crate::duckdb::DatabaseRef;
 use crate::duckdb::Expression;
 use crate::duckdb::LogicalType;
+use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::Value;
 use crate::duckdb::client_context::ClientContextRef;
 use crate::duckdb::data_chunk::DataChunkRef;
@@ -103,6 +104,12 @@ pub trait TableFunction: Sized + Debug {
     /// Return table scanning progress from 0. to 100.
     fn table_scan_progress(global_state: &Self::GlobalState) -> f64;
 
+    fn pushdown_column_type(
+        bind_data: &mut Self::BindData,
+        column_id: u64,
+        new_type: &LogicalTypeRef
+    );
+
     /// Pushes down a filter expression to the table function.
     ///
     /// Returns `true` if the filter was successfully pushed down (and stored on the bind data),
@@ -157,6 +164,7 @@ impl DatabaseRef {
             function: Some(function::<T>),
             statistics: Some(statistics::<T>),
             cardinality: Some(cardinality_callback::<T>),
+            pushdown_column_type: Some(pushdown_column_type::<T>),
             pushdown_complex_filter: Some(pushdown_complex_filter_callback::<T>),
             to_string: Some(to_string_callback::<T>),
             table_scan_progress: Some(table_scan_progress_callback::<T>),
@@ -223,6 +231,17 @@ unsafe extern "C-unwind" fn get_partition_data_callback<T: TableFunction>(
     out.partition_index = data.partition_index;
     out.file_index_column_pos = data.file_index_column_pos.unwrap_or(usize::MAX);
     out.file_index = data.file_index;
+}
+
+unsafe extern "C-unwind" fn pushdown_column_type<T: TableFunction>(
+    bind_data: *mut c_void,
+    column_id: u64,
+    new_type: cpp::duckdb_logical_type
+) {
+    let bind_data =
+        unsafe { bind_data.cast::<T::BindData>().as_mut() }.vortex_expect("bind_data null pointer");
+    let new_type = unsafe { LogicalType::borrow(new_type) };
+    T::pushdown_column_type(bind_data, column_id, new_type);
 }
 
 unsafe extern "C-unwind" fn pushdown_complex_filter_callback<T: TableFunction>(

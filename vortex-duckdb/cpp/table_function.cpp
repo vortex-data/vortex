@@ -263,6 +263,20 @@ void function(ClientContext &, TableFunctionInput &input, DataChunk &output) {
     }
 }
 
+void type_pushdown(ClientContext &, optional_ptr<FunctionData> bind_data,
+                    const unordered_map<idx_t, LogicalType> &new_column_types) {
+    const auto &bind = bind_data->Cast<CTableBindData>();
+    void *const ffi_bind = bind.ffi_data->DataPtr();
+    for (const auto& [id, type] : new_column_types) {
+        const duckdb_logical_type casted_type = reinterpret_cast<duckdb_logical_type>(
+            // This is a flaw of duckdb api which doesn't allow passing const
+            // LogicalTypes. We guarantee this variable won't be mutated on
+            // Rust side
+            const_cast<LogicalType*>(&type));
+        bind.info.vtab.pushdown_column_type(ffi_bind, id, casted_type);
+    }
+}
+
 void c_pushdown_complex_filter(ClientContext &,
                                LogicalGet &,
                                FunctionData *bind_data,
@@ -394,6 +408,7 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const d
     tf.filter_prune = true;
     tf.sampling_pushdown = false;
 
+    tf.type_pushdown = type_pushdown;
     tf.pushdown_complex_filter = c_pushdown_complex_filter;
     tf.cardinality = c_cardinality;
     tf.get_partition_info = get_partition_info;

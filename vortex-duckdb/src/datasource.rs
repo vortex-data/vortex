@@ -34,6 +34,7 @@ use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
+use vortex::error::vortex_panic;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
 use vortex::expr::col;
@@ -77,6 +78,7 @@ use crate::duckdb::DataChunkRef;
 use crate::duckdb::DuckdbStringMapRef;
 use crate::duckdb::ExpressionRef;
 use crate::duckdb::LogicalType;
+use crate::duckdb::LogicalTypeRef;
 use crate::duckdb::PartitionData;
 use crate::duckdb::TableFilterClass;
 use crate::duckdb::TableFilterSetRef;
@@ -126,6 +128,7 @@ pub struct DataSourceBindData {
     // There exists at least one non-optional table filter or at least one
     // complex filter is pushed down.
     has_non_optional_filter: AtomicBool,
+    //column_casts: Vec<(usize, DType)>,
 }
 
 impl Clone for DataSourceBindData {
@@ -631,6 +634,27 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             let mut filters = bind_data.filter_exprs.iter().map(|f| format!("{f}"));
             map.push("Filters", &filters.join("\n"));
         }
+    }
+
+    fn pushdown_column_type(
+        bind_data: &mut Self::BindData,
+        column_id: u64,
+        new_type: &LogicalTypeRef,
+    ) {
+        // TODO virtual column count?
+        let column_id: usize = column_id.as_();
+        if column_id >= bind_data.column_fields.len() {
+            vortex_panic!("column_id {column_id} >= {}", bind_data.column_fields.len());
+        }
+        // TODO casting?
+        let field = &mut bind_data.column_fields[column_id];
+        let old_dtype = field.dtype.clone();
+        // TODO we don't need a copy?
+        field.logical_type = LogicalType::new(new_type.as_type_id());
+        field.dtype = new_type
+            .try_into()
+            .vortex_expect("logical type -> dtype conversion failed");
+        println!("Cast {} -> {}", old_dtype, field.dtype);
     }
 }
 

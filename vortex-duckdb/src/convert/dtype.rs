@@ -284,6 +284,14 @@ impl TryFrom<&DType> for LogicalType {
     }
 }
 
+impl TryFrom<&LogicalTypeRef> for DType {
+    type Error = VortexError;
+
+    fn try_from(value: &LogicalTypeRef) -> Result<Self, Self::Error> {
+        DType::from_logical_type(value, Nullability::Nullable)
+    }
+}
+
 impl TryFrom<StructFields> for LogicalType {
     type Error = VortexError;
 
