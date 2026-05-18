@@ -117,27 +117,42 @@ unsafe fn aot_stage_compare_eq(
     }
 }
 
+/// Vortex/FastLanes chunk size: 1024 elements per block. For `u8` data
+/// that's 1024 bytes = 32 SIMD blocks of 32 bytes each. The scratch
+/// buffer the unfused pipeline allocates is therefore *always* 1 KB and
+/// always L1-resident, regardless of total dataset size.
+const CHUNK_BLOCKS: usize = 32;
+const CHUNK_BYTES: usize = CHUNK_BLOCKS * 32;
+
+/// AOT, single-op kernels, **chunk-by-chunk** with a 1 KB L1-resident
+/// scratch reused across chunks. This is the realistic baseline: chains
+/// aren't known at compile time, so each op is its own AOT kernel; the
+/// query engine drives the per-chunk loop.
 #[divan::bench(args = SIZES)]
-fn aot_unfused_pipeline(bencher: Bencher, n_blocks: usize) {
+fn aot_chunked_unfused(bencher: Bencher, n_blocks: usize) {
+    assert_eq!(n_blocks % CHUNK_BLOCKS, 0, "n_blocks must be a multiple of chunk size");
     let input = make_input(n_blocks);
-    let mut scratch = vec![0u8; n_blocks * 32];
+    let mut scratch = vec![0u8; CHUNK_BYTES]; // 1 KB, hot in L1 across chunks
     let mut out = vec![0u32; n_blocks];
+    let n_chunks = n_blocks / CHUNK_BLOCKS;
     bencher.counter(counter(n_blocks)).bench_local(|| {
-        // SAFETY: all buffers sized for n_blocks * 32 / n_blocks * 4.
-        unsafe {
-            aot_stage_ffor_add(
-                black_box(input.as_ptr()),
-                black_box(7u8),
-                scratch.as_mut_ptr(),
-                n_blocks,
-            );
-            aot_stage_compare_eq(
-                scratch.as_ptr(),
-                black_box(42u8),
-                black_box(out.as_mut_ptr()),
-                n_blocks,
-            );
-        };
+        for chunk in 0..n_chunks {
+            // SAFETY: input has n_blocks * 32 bytes, out has n_blocks * 4.
+            unsafe {
+                aot_stage_ffor_add(
+                    input.as_ptr().add(chunk * CHUNK_BYTES),
+                    black_box(7u8),
+                    scratch.as_mut_ptr(),
+                    CHUNK_BLOCKS,
+                );
+                aot_stage_compare_eq(
+                    scratch.as_ptr(),
+                    black_box(42u8),
+                    out.as_mut_ptr().add(chunk * CHUNK_BLOCKS),
+                    CHUNK_BLOCKS,
+                );
+            }
+        }
         black_box(out[0])
     });
 }

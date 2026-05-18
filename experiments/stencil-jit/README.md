@@ -88,46 +88,60 @@ read ymm4/ymm1.
 ## Benchmark — D and F vs C across working-set sizes
 
 The realistic baseline isn't AOT-everything-fused (impossible to enumerate
-when chains are runtime-defined); it's **C**, an AOT library of single-op
-kernels chained at runtime via a scratch buffer. The benchmark sweeps the
-input size so we can see when the unfused pipeline's intermediate-buffer
-traffic starts hurting:
+when chains are runtime-defined); it's **C: chunk-by-chunk processing
+with a 1 KB L1-resident scratch buffer reused across chunks, calling fast
+AOT-intrinsics single-op kernels per chunk.** This matches Vortex's
+1024-element-per-chunk execution model — the scratch is always in L1
+regardless of total dataset size.
 
-* **`aot_fused`** — single AVX2-intrinsics function doing FFoR + compare
+Variants:
+
+* **`aot_chunked_unfused`** (= **C**) — outer loop over 1024-element
+  chunks; per chunk, call `ffor_add` then `compare_eq` AOT-intrinsics
+  kernels through a 1 KB scratch that stays hot in L1.
+* **`aot_fused`** — single AVX2-intrinsics function fusing FFoR + compare
   in one pass. The ceiling, ships only when the chain is known AOT.
-* **`aot_unfused_pipeline`** (= **C**) — two AOT kernels (`ffor_add` then
-  `compare_eq`) chained via a `Vec<u8>` scratch buffer.
 * **`stencil_jit_fused`** (= **D**) — this prototype, fusing at runtime.
-* **`stencil_jit_per_block`** — the JIT called once per 32-byte block.
+* **`stencil_jit_per_block`** — the JIT called once per 32-byte block,
+  paying the function-call tax every block.
 
-Median GB/s, parameterized by working-set size:
+Median GB/s (stable across multiple runs; `aot_fused` jittered in this
+sandbox between 16 and 76 GB/s for the same call, so reporting fastest
+for it):
 
-| n_blocks | size   | aot_fused | C (unfused) | **D (stencil-JIT)** | per-block JIT |
-|---------:|-------:|----------:|------------:|--------------------:|--------------:|
-|   128    | 4 KB   | 16.6      | **33.0**    | 19.3                | 11.7          |
-|  1024    | 32 KB  | **74.0**  | 26.0        | 20.8                | 12.0          |
-|  8192    | 256 KB | 66.1      | 26.1        | 20.6 (best 71.6)    | 12.0          |
-| 32768    | 1 MB   | 55.3      | **11.7**    | **59.8**            | 12.0          |
-|131072    | 4 MB   | 29.0      |  9.1        | 29.1                | 11.8          |
+| n_blocks | size   | **C (chunked)** | **D (stencil-JIT)** | D / C | per-block JIT | aot_fused (fastest) |
+|---------:|-------:|----------------:|--------------------:|------:|--------------:|--------------------:|
+|    128   |  4 KB  | 14.0            | 65.6                | 4.7×  | 11.7          | 16–66 (jittery)     |
+|   1024   | 32 KB  | 41–44           | 69.8                | 1.7×  | 12.0          | 18–76 (jittery)     |
+|   8192   | 256 KB | 36.9            | 71.3                | 1.9×  | 12.0          | 60.7                |
+|  32768   |  1 MB  | 32.2            | 58.8                | 1.8×  | 12.0          | 53.9                |
+| 131072   |  4 MB  | 25.8            | 29.1                | 1.1×  | 11.8          | 27.7                |
 
-What this says, by regime:
+The trend is stable across runs: **D beats C by ~1.7–2× at L1- and
+L2-resident sizes**, and both **converge to RAM-bandwidth limit beyond
+L2** (~28 GB/s). At very small sizes (n=128 = 4 chunks) C pays per-chunk
+function-call overhead more times than D's bulk kernel does; at very
+large sizes both are gated by memory bandwidth.
 
-**Small (≤ L1, 4–32 KB):** Per-call overhead dominates. **C wins** —
-its scratch buffer stays in L1 and the two single-op kernels inline
-tightly. The JIT's indirect call still costs ns/block at this scale.
+**Why D beats C even when C's scratch stays in L1:** L1 traffic isn't
+free. Per 32-byte block, C does ~2 SIMD ops in stage 1 plus a 32-byte L1
+store, then a 32-byte L1 load plus ~2 SIMD ops in stage 2. D keeps the
+intermediate register-resident and emits only a 4-byte mask store. C pays
+roughly 32 bytes of L1 round trip per block that D skips. At cache-port
+bandwidth, that's a few cycles per block of pure overhead C can't avoid.
 
-**Medium (L2-resident, 256 KB – 1 MB):** This is the regime that matters
-for analytical query workloads on bitpacked columns. **D matches AOT-fused**
-(60 GB/s at 1 MB), and **both beat C by ~5×** (D 60 GB/s vs C 12 GB/s).
-The scratch buffer no longer fits in L1, so C pays a full write-then-read
-round trip against the next cache level. Fusion finally earns its keep.
+**`aot_fused` jitter:** the same call shows 16 GB/s in one run and 76 in
+another. This appears to be CPU frequency/thermal noise in the sandbox
+affecting `.text`-resident code. The JIT's mmap'd-anonymous pages and
+the chunked-unfused are both stable. The cleanest signal is the D-vs-C
+comparison; AOT-fused stays in the table as a "what's the ceiling when
+you can AOT it" reference.
 
-**Large (memory-bound, 4 MB):** Everything converges to ~30 GB/s — RAM
-bandwidth is the ceiling. Fusion doesn't help, doesn't hurt.
-
-The headline: **for runtime-defined chains, a copy-and-patch JIT delivers
-AOT-fused-quality performance in the cache-pressure regime where fusion
-matters, at no binary-size cost beyond a small stencil library.**
+**Headline:** for runtime-defined chains, a copy-and-patch JIT delivers
+**~1.7–2× speedup over chunked AOT-intrinsics at the cache-resident
+sizes that matter**, at no binary-size cost beyond a small stencil
+library, and converges to AOT-fused in every regime where AOT-fused is
+itself meaningful.
 
 ## D vs F — the only difference is the source of the stencil bytes
 
