@@ -36,6 +36,7 @@ use vortex_array::arrays::primitive::NativeValue;
 use vortex_array::dtype::IntegerPType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::match_each_integer_ptype;
 use vortex_array::match_each_unsigned_integer_ptype;
 use vortex_array::scalar::Scalar;
@@ -125,9 +126,9 @@ where
     T: NativePType + ToPrimitive,
 {
     let Some(relation) = constant_relation_to_packed(constant, lhs.bit_width()) else {
-        // In-range constants currently fall through to the canonical path. See
-        // `docs/inrange_compare_plan.md` for the plan to accelerate Lt/Lte/Gt/Gte here.
-        return Ok(None);
+        // In-range. Try the SWAR fast path for the supported width/storage; fall through
+        // otherwise.
+        return compare_in_range_swar::<T>(lhs, constant, rhs_nullability, operator);
     };
 
     let packed_lane_result = reduce_constant(relation, operator);
@@ -203,6 +204,128 @@ fn apply_patches<T, I>(
             bits.unset(pos);
         }
     }
+}
+
+/// In-range SWAR / Knuth-broadword fast path. Currently scoped to `bit_width == 8` on
+/// `u32` / `i32` storage; everything else returns `Ok(None)` and lets the canonical
+/// decompress + Arrow compare path run.
+///
+/// The kernel walks each 1024-chunk of the packed buffer, runs a Knuth-style broadword
+/// comparison against the byte-replicated constant (no decompress, no unpacked
+/// materialization), scatters per-element result bytes into element order, then packs
+/// the chunk's 1024 booleans into the output `BitBuffer` via `BitBufferMut::collect_bool`.
+fn compare_in_range_swar<T>(
+    lhs: ArrayView<'_, BitPacked>,
+    constant: T,
+    rhs_nullability: Nullability,
+    operator: CompareOperator,
+) -> VortexResult<Option<ArrayRef>>
+where
+    T: NativePType + ToPrimitive,
+{
+    use super::compare_swar::swar_eq_w8_u32;
+    use super::compare_swar::swar_lt_w8_u32;
+
+    // Scope: bit_width == 8, u32 storage, no patches, no slice offset.
+    if lhs.bit_width() != 8 {
+        return Ok(None);
+    }
+    if !matches!(T::PTYPE, PType::U32 | PType::I32) {
+        return Ok(None);
+    }
+    if lhs.offset() != 0 || lhs.patches().is_some() {
+        return Ok(None);
+    }
+
+    let len = lhs.len();
+    let validity = lhs.validity()?;
+    // SAFETY of the cast: we just checked the constant is in `[0, 2^bit_width - 1]` =
+    // `[0, 255]`.
+    let c: u8 = constant
+        .to_i128()
+        .vortex_expect("integer constant fits in i128") as u8;
+
+    // Two SWAR primitives: Eq and Lt. The other four operators derive from them:
+    //
+    //   Eq(a, c) = swar_eq_w8(a, c)
+    //   NotEq    = !Eq
+    //   Lt(a, c) = swar_lt_w8(a, c)
+    //   Gte      = !Lt
+    //   Gt(a, c) = Lt(c, a) — but `a` is the packed lane and `c` is the constant. The
+    //              symmetric SWAR isn't directly available; instead we exploit
+    //                Gt(a, c) = NotEq(a, c) AND NOT Lt(a, c).
+    //              On a sliced bit, that's `!lt & !eq`, computed bitwise.
+    //   Lte(a, c) = NOT Gt = Lt OR Eq.
+
+    let packed = lhs.packed_slice::<u32>();
+    let elems_per_chunk = 256; // 128 * 8 / 4
+    let num_chunks = len.div_ceil(1024);
+
+    let need_eq = matches!(
+        operator,
+        CompareOperator::Eq | CompareOperator::NotEq | CompareOperator::Lte | CompareOperator::Gt
+    );
+    let need_lt = matches!(
+        operator,
+        CompareOperator::Lt | CompareOperator::Lte | CompareOperator::Gt | CompareOperator::Gte
+    );
+
+    // Materialise the per-element comparison result as a `[u8; len]` of 0/1, then bit-pack
+    // it in one `u64`-at-a-time pass via `BitBufferMut::collect_bool`. Doing the bit-pack
+    // up front (one `bits.set` per element) is a measurable bottleneck.
+    let mut bools = vec![0u8; len];
+
+    let mut eq_chunk = [0u8; 1024];
+    let mut lt_chunk = [0u8; 1024];
+
+    for chunk_idx in 0..num_chunks {
+        let chunk = &packed[chunk_idx * elems_per_chunk..][..elems_per_chunk];
+        let base = chunk_idx * 1024;
+        let in_chunk = 1024.min(len - base);
+
+        if need_eq {
+            swar_eq_w8_u32(chunk, c, &mut eq_chunk);
+        }
+        if need_lt {
+            swar_lt_w8_u32(chunk, c, &mut lt_chunk);
+        }
+
+        let dst = &mut bools[base..base + in_chunk];
+        match operator {
+            CompareOperator::Eq => dst.copy_from_slice(&eq_chunk[..in_chunk]),
+            CompareOperator::NotEq => {
+                for (d, &e) in dst.iter_mut().zip(&eq_chunk[..in_chunk]) {
+                    *d = 1 - e;
+                }
+            }
+            CompareOperator::Lt => dst.copy_from_slice(&lt_chunk[..in_chunk]),
+            CompareOperator::Lte => {
+                for (d, (&e, &l)) in dst
+                    .iter_mut()
+                    .zip(eq_chunk[..in_chunk].iter().zip(&lt_chunk[..in_chunk]))
+                {
+                    *d = e | l;
+                }
+            }
+            CompareOperator::Gt => {
+                for (d, (&e, &l)) in dst
+                    .iter_mut()
+                    .zip(eq_chunk[..in_chunk].iter().zip(&lt_chunk[..in_chunk]))
+                {
+                    *d = 1 - (e | l);
+                }
+            }
+            CompareOperator::Gte => {
+                for (d, &l) in dst.iter_mut().zip(&lt_chunk[..in_chunk]) {
+                    *d = 1 - l;
+                }
+            }
+        }
+    }
+
+    let bits = vortex_buffer::BitBuffer::collect_bool(len, |i| bools[i] != 0);
+    let validity = validity.union_nullability(rhs_nullability);
+    Ok(Some(BoolArray::new(bits, validity).into_array()))
 }
 
 #[cfg(test)]
