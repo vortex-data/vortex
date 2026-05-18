@@ -16,7 +16,7 @@
 //! ## Quick start
 //!
 //! ```ignore
-//! use onpair_lib::{Column, KmpAutomaton, OnPairTrainingConfig, and, not};
+//! use vortex_onpair_rs::{Column, KmpAutomaton, OnPairTrainingConfig, and, not};
 //!
 //! let col = Column::compress(&bytes, &offsets, OnPairTrainingConfig {
 //!     bits: 12, threshold: 0.5, seed: 42,

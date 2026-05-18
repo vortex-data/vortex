@@ -24,7 +24,5 @@ version = { workspace = true }
 [lints]
 workspace = true
 
-[dependencies]
-
 [build-dependencies]
 cmake = "0.1"

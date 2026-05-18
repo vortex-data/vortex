@@ -1,5 +1,5 @@
 [package]
-name = "onpair-lib"
+name = "vortex-onpair-rs"
 description = "Pure-Rust port of the OnPair short-string compression library"
 authors = { workspace = true }
 categories = { workspace = true }
@@ -29,10 +29,6 @@ divan = { workspace = true }
 parquet = { workspace = true }
 rstest = { workspace = true }
 vortex-onpair-sys = { workspace = true }
-
-[[test]]
-name = "cross_impl"
-path = "tests/cross_impl.rs"
 
 [[bench]]
 name = "clickbench"

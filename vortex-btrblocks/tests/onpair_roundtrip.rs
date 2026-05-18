@@ -2,9 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 //
 //! End-to-end round-trip through the full Vortex compressor + decompressor
-//! on string arrays. Lives in `vortex-btrblocks` (gated on `onpair`) so it
-//! exercises the same code path the file writer uses, not just the OnPair
-//! crate in isolation.
+//! on string arrays. Lives in `vortex-btrblocks` (gated on `unstable_encodings`)
+//! so it exercises the same code path the file writer uses, not just the
+//! OnPair crate in isolation.
 
 #![cfg(feature = "unstable_encodings")]
 #![allow(

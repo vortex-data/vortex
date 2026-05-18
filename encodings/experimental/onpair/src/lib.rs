@@ -1,11 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
-#![allow(
-    clippy::cast_possible_truncation,
-    clippy::cognitive_complexity,
-    clippy::min_ident_chars,
-    clippy::doc_overindented_list_items
-)]
 
 //! Vortex string array backed by the [OnPair][onpair] short-string
 //! compression library, with compressed-domain predicate pushdown.
@@ -27,6 +21,11 @@ mod lpm;
 mod ops;
 mod rules;
 mod slice;
+#[cfg(test)]
+mod tests;
+
+pub use array::*;
+pub use compress::*;
 
 /// Fixed token-byte over-copy width. Matches OnPair C++'s `MAX_TOKEN_SIZE`:
 /// the decoder copies exactly this many bytes per token and advances the
@@ -34,9 +33,3 @@ mod slice;
 /// 128-bit SIMD store per token on x86_64 / aarch64 instead of a
 /// variable-length memcpy.
 pub const MAX_TOKEN_SIZE: usize = 16;
-
-#[cfg(test)]
-mod tests;
-
-pub use array::*;
-pub use compress::*;

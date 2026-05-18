@@ -322,6 +322,7 @@ fn test_onpair_filter_shares_dict() {
 /// Rebuild an OnPair array, swapping `codes_offsets` for a narrowed
 /// (smaller-ptype) primitive copy. Used by the narrowed-child
 /// regression tests below.
+#[expect(clippy::cognitive_complexity)]
 fn narrow_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPairArray {
     let view = arr.as_view();
     let mut ctx = SESSION.create_execution_ctx();
@@ -336,7 +337,10 @@ fn narrow_codes_offsets(arr: &crate::OnPairArray, target: PType) -> crate::OnPai
         match_each_integer_ptype!(target, |DST| {
             let mut buf = BufferMut::<DST>::with_capacity(src.len());
             for &v in src {
-                #[expect(clippy::unnecessary_cast)]
+                #[allow(
+                    clippy::unnecessary_cast,
+                    reason = "macro-generated SRC may already be u64"
+                )]
                 buf.push(DST::try_from(v as u64).expect("value must fit in target ptype"));
             }
             PrimitiveArray::new(buf.freeze(), Validity::NonNullable).into_array()

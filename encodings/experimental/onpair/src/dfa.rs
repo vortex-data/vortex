@@ -130,6 +130,7 @@ impl PrefixAutomaton {
     /// Build the automaton. Returns `None` if the prefix has a byte
     /// missing from the dict (no row can match) — caller emits an
     /// all-false result.
+    #[expect(clippy::cast_possible_truncation)]
     pub(crate) fn build(dv: &DecodeView<'_>, prefix: &[u8]) -> Option<Self> {
         if prefix.is_empty() {
             // Empty prefix matches everything — caller short-circuits
@@ -229,11 +230,11 @@ impl ContainsBloom {
     }
 
     /// Quick row-level pre-filter:
-    /// * `Some(true)`  — at least one code is in `dict_contains` ⇒
-    ///                   row matches without decoding.
-    /// * `Some(false)` — no codes are in `dict_could_extend` either ⇒
-    ///                   row cannot match, no decode needed.
-    /// * `None`        — uncertain; caller must decode + memmem.
+    /// * `Some(true)` — at least one code is in `dict_contains`,
+    ///   row matches without decoding.
+    /// * `Some(false)` — no codes are in `dict_could_extend` either,
+    ///   row cannot match, no decode needed.
+    /// * `None` — uncertain; caller must decode + memmem.
     #[inline]
     pub(crate) fn classify(&self, codes: &[u16]) -> Option<bool> {
         let mut any_extend = false;

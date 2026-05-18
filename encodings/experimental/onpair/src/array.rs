@@ -215,7 +215,7 @@ pub struct OnPair;
 
 impl OnPair {
     /// Build an [`OnPairArray`] from already-materialised parts.
-    #[allow(clippy::too_many_arguments)] // Vortex shape: every child is a real input.
+    #[expect(clippy::too_many_arguments, reason = "every child is a real input")]
     pub fn try_new(
         dtype: DType,
         dict_bytes: BufferHandle,
@@ -248,7 +248,7 @@ impl OnPair {
         })
     }
 
-    #[allow(clippy::too_many_arguments)] // Vortex shape: every child is a real input.
+    #[expect(clippy::too_many_arguments, reason = "every child is a real input")]
     pub(crate) unsafe fn new_unchecked(
         dtype: DType,
         dict_bytes: BufferHandle,

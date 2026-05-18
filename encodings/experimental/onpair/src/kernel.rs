@@ -9,10 +9,9 @@ use vortex_array::scalar_fn::fns::like::LikeExecuteAdaptor;
 
 use crate::OnPair;
 
-// Compare:  LPM-tokenise the literal once, compare row codes as &[u16].
-// Like:     OnPair-style PrefixAutomaton for `prefix%`, dict-bloom +
-//           memmem for `%substring%`, and token-equality for `'literal'`.
-//           See encodings/onpair/src/dfa.rs and compute/like.rs.
+// TODO: implement TakeExecute for OnPair to add a TakeExecuteAdaptor here
+// (matches the FSST pattern; would dispatch take on the codes child + reuse
+// the dictionary, mirroring the slice path).
 pub(super) const PARENT_KERNELS: ParentKernelSet<OnPair> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&CastExecuteAdaptor(OnPair)),
     ParentKernelSet::lift(&CompareExecuteAdaptor(OnPair)),

@@ -4,7 +4,7 @@
 // Port of `include/onpair/search/automata/token_automaton.h`.
 //
 // Token-level automata that consume the bit-packed token stream of an
-// `onpair_lib::Column` directly. The scan loop in [`Column::scan`] resets
+// `vortex_onpair_rs::Column` directly. The scan loop in [`Column::scan`] resets
 // the automaton at each row, feeds every token, and inspects
 // `is_accepted()` once after the last token (or after `is_dead()` becomes
 // true, whichever is first).

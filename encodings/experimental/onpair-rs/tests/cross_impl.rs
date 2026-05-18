@@ -3,7 +3,7 @@
 #![allow(clippy::tests_outside_test_module)]
 //
 // Cross-implementation comparison tests: train + encode the same input with
-// both the pure-Rust `onpair_lib::Column` and the C++-FFI
+// both the pure-Rust `vortex_onpair_rs::Column` and the C++-FFI
 // `vortex_onpair_sys::Column`, then assert that downstream operations
 // (decompression by row id, equality search, prefix search, substring
 // search) agree.
@@ -21,10 +21,10 @@
 // parts and compare what every downstream Vortex consumer (decode loop,
 // predicate kernels) would see.
 
-use onpair_lib::Column as RustColumn;
-use onpair_lib::OnPairTrainingConfig as RustConfig;
-use onpair_lib::Parts as RustParts;
-use onpair_lib::unpack_codes_to_u16;
+use vortex_onpair_rs::Column as RustColumn;
+use vortex_onpair_rs::OnPairTrainingConfig as RustConfig;
+use vortex_onpair_rs::Parts as RustParts;
+use vortex_onpair_rs::unpack_codes_to_u16;
 use vortex_onpair_sys::Column as CppColumn;
 use vortex_onpair_sys::OnPairTrainingConfig as CppConfig;
 use vortex_onpair_sys::Parts as CppParts;
@@ -528,12 +528,12 @@ mod multi_pattern {
 // ─────────────────────────────────────────────────────────────────────────────
 
 mod token_automata {
-    use onpair_lib::AhoCorasickAutomaton;
-    use onpair_lib::EqAutomaton;
-    use onpair_lib::KmpAutomaton;
-    use onpair_lib::PrefixAutomaton;
-    use onpair_lib::and;
-    use onpair_lib::not;
+    use vortex_onpair_rs::AhoCorasickAutomaton;
+    use vortex_onpair_rs::EqAutomaton;
+    use vortex_onpair_rs::KmpAutomaton;
+    use vortex_onpair_rs::PrefixAutomaton;
+    use vortex_onpair_rs::and;
+    use vortex_onpair_rs::not;
 
     use super::*;
 
@@ -663,7 +663,7 @@ mod token_automata {
 
         let mut eq = EqAutomaton::new(b"guest_001", &dict);
         let mut kmp = KmpAutomaton::new(b"admin", &dict);
-        let token_ids = rs.scan(onpair_lib::or(&mut eq, &mut kmp));
+        let token_ids = rs.scan(vortex_onpair_rs::or(&mut eq, &mut kmp));
 
         let eq_bits = rs.equals_bitmap(b"guest_001");
         let kmp_bits = rs.contains_bitmap(b"admin");

@@ -28,7 +28,7 @@
 //   * the full pipeline   (`train_and_compress`)
 //   * a single op against an already-built `Column`
 //
-// Run with: cargo bench -p onpair-lib --bench clickbench
+// Run with: cargo bench -p vortex-onpair-rs --bench clickbench
 
 use std::env;
 use std::fs::File;
@@ -38,15 +38,15 @@ use std::sync::OnceLock;
 use arrow_array::Array;
 use arrow_array::cast::AsArray;
 use divan::Bencher;
-use onpair_lib::AhoCorasickAutomaton;
-use onpair_lib::Column;
-use onpair_lib::EqAutomaton;
-use onpair_lib::KmpAutomaton;
-use onpair_lib::OnPairTrainingConfig;
-use onpair_lib::PrefixAutomaton;
-use onpair_lib::and;
-use onpair_lib::not;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use vortex_onpair_rs::AhoCorasickAutomaton;
+use vortex_onpair_rs::Column;
+use vortex_onpair_rs::EqAutomaton;
+use vortex_onpair_rs::KmpAutomaton;
+use vortex_onpair_rs::OnPairTrainingConfig;
+use vortex_onpair_rs::PrefixAutomaton;
+use vortex_onpair_rs::and;
+use vortex_onpair_rs::not;
 
 const BITS_CONFIGS: &[u32] = &[12, 16];
 

@@ -293,6 +293,9 @@ vortex-ipc = { version = "0.1.0", path = "./vortex-ipc", default-features = fals
 vortex-layout = { version = "0.1.0", path = "./vortex-layout", default-features = false }
 vortex-mask = { version = "0.1.0", path = "./vortex-mask", default-features = false }
 vortex-metrics = { version = "0.1.0", path = "./vortex-metrics", default-features = false }
+vortex-onpair = { version = "0.1.0", path = "./encodings/experimental/onpair", default-features = false }
+vortex-onpair-rs = { version = "0.1.0", path = "./encodings/experimental/onpair-rs", default-features = false }
+vortex-onpair-sys = { version = "0.1.0", path = "./encodings/experimental/onpair-sys", default-features = false }
 vortex-pco = { version = "0.1.0", path = "./encodings/pco", default-features = false }
 vortex-proto = { version = "0.1.0", path = "./vortex-proto", default-features = false }
 vortex-runend = { version = "0.1.0", path = "./encodings/runend", default-features = false }
@@ -303,9 +306,6 @@ vortex-sparse = { version = "0.1.0", path = "./encodings/sparse", default-featur
 vortex-tensor = { version = "0.1.0", path = "./vortex-tensor", default-features = false }
 vortex-turboquant = { version = "0.1.0", path = "./vortex-turboquant", default-features = false }
 vortex-utils = { version = "0.1.0", path = "./vortex-utils", default-features = false }
-vortex-onpair = { version = "0.1.0", path = "./encodings/experimental/onpair", default-features = false }
-onpair-lib = { version = "0.1.0", path = "./encodings/experimental/onpair-rs", default-features = false }
-vortex-onpair-sys = { version = "0.1.0", path = "./encodings/experimental/onpair-sys", default-features = false }
 vortex-zigzag = { version = "0.1.0", path = "./encodings/zigzag", default-features = false }
 vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features = false }
 # END crates published by this project
