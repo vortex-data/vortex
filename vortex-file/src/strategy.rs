@@ -243,6 +243,27 @@ impl WriteStrategyBuilder {
             Arc::new(FlatLayoutStrategy::default())
         };
 
+        // Data compressor: excludes IntDictScheme because DictStrategy (step 3 below) already
+        // dictionary-encodes columns; allowing it here would redundantly dictionary-encode the
+        // integer codes produced by that earlier step.
+        let data_compressor: Arc<dyn CompressorPlugin> = match &self.compressor {
+            CompressorConfig::BtrBlocks(builder) => Arc::new(
+                builder
+                    .clone()
+                    .exclude_schemes([IntDictScheme.id()])
+                    .build(),
+            ),
+            CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
+        };
+        // Stats compressor: used for zone-map tables, dict values, and array-tree consolidated
+        // segments.
+        let stats_compressor: Arc<dyn CompressorPlugin> = match &self.compressor {
+            CompressorConfig::BtrBlocks(builder) => Arc::new(builder.clone().build()),
+            CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
+        };
+        let compress_then_flat = CompressingStrategy::new(Arc::clone(&flat), stats_compressor);
+        let compress_then_flat_arc: Arc<dyn LayoutStrategy> = Arc::new(compress_then_flat.clone());
+
         // Build the data pipeline leaf. Array-tree outlining requires both opt-in via
         // `with_array_tree(true)` AND no custom flat strategy (the user's strategy owns the
         // leaf format in that case).
@@ -256,7 +277,9 @@ impl WriteStrategyBuilder {
             } else {
                 FlatLayoutStrategy::default()
             };
-            let (collector, leaf) = writer::writer(data_flat, Arc::clone(&flat));
+            // Use the compressed flat strategy for the consolidated array-trees segment — the
+            // struct of (segment_id, compact_tree) dict-encodes and compresses well.
+            let (collector, leaf) = writer::writer(data_flat, Arc::clone(&compress_then_flat_arc));
             (Arc::new(leaf), Some(collector))
         };
 
@@ -266,18 +289,6 @@ impl WriteStrategyBuilder {
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
 
         // 5. compress each chunk.
-        // Exclude IntDictScheme from the data compressor because DictStrategy (step 3) already
-        // dictionary-encodes columns. Allowing IntDictScheme here would redundantly
-        // dictionary-encode the integer codes produced by that earlier step.
-        let data_compressor: Arc<dyn CompressorPlugin> = match &self.compressor {
-            CompressorConfig::BtrBlocks(builder) => Arc::new(
-                builder
-                    .clone()
-                    .exclude_schemes([IntDictScheme.id()])
-                    .build(),
-            ),
-            CompressorConfig::Opaque(compressor) => Arc::clone(compressor),
-        };
         let compressing = CompressingStrategy::new(buffered, data_compressor);
 
         // 4. prior to compression, coalesce up to a minimum size
@@ -296,13 +307,6 @@ impl WriteStrategyBuilder {
                 canonicalize: true,
             },
         );
-
-        // 2.1. | 3.1. compress stats tables and dict values.
-        let stats_compressor: Arc<dyn CompressorPlugin> = match self.compressor {
-            CompressorConfig::BtrBlocks(builder) => Arc::new(builder.build()),
-            CompressorConfig::Opaque(compressor) => compressor,
-        };
-        let compress_then_flat = CompressingStrategy::new(flat, stats_compressor);
 
         // 3. apply dict encoding or fallback
         let dict = DictStrategy::new(
