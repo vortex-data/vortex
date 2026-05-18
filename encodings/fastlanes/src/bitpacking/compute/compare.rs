@@ -232,10 +232,8 @@ where
     use super::compare_eq_w8::swar_lt_w8_u32;
 
     let w = lhs.bit_width();
-    // Only widths with explicit AVX2 SWAR kernels run here today. Block-decompress is
-    // slower than the canonical Arrow-cmp baseline once the build has AVX2 enabled, so
-    // every other width returns `None` and lets the canonical path handle it.
-    if !matches!(w, 4 | 8) {
+    // Supported widths: 1..=16. Anything else returns Ok(None) → canonical.
+    if !(1..=16).contains(&w) {
         return Ok(None);
     }
     if !matches!(T::PTYPE, PType::U32 | PType::I32) {

@@ -12,6 +12,11 @@
 //! never leave the cache line they were unpacked into. Works at every supported bit
 //! width via FastLanes' runtime-W unpack dispatcher; the `width` parameter goes straight
 //! into the FastLanes packing/unpacking match.
+//!
+//! The bit-packing step (turning 1024 element compares into 16 u64 bitmap words) uses
+//! AVX2 `cmpeq_epi32` + `movemask_ps` when available — same pattern Arrow's `cmp::eq`
+//! emits — so the kernel reaches Arrow throughput while keeping the unpacked buffer
+//! L1-resident. Scalar fallback retains the 8-element manual unroll.
 
 use fastlanes::BitPacking;
 
@@ -56,11 +61,73 @@ pub(crate) fn block_lt_u32(
 
 /// Pack `block[i] == c` for `i ∈ 0..1024` into 16 u64 element-order words.
 ///
-/// Structured as eight independent 8-element compare-and-pack runs per `u64` to expose
-/// instruction-level parallelism. The compiler auto-vectorises the `u32x8`-equivalent
-/// inner block on x86_64 (SSE2 `pcmpeqd` + `movmskps`).
+/// AVX2 path: per output u64, 8 `_mm256_cmpeq_epi32` + `_mm256_movemask_ps` cover 64
+/// elements as 8 nibbles of 8 bits each. Scalar fallback unrolls 8 byte-groups manually.
 #[inline]
 fn pack_eq_bits(block: &Block, c: u32, chunk_bits: &mut [u64; 16]) {
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    {
+        // SAFETY: target_feature=avx2 gates compilation here.
+        unsafe {
+            use std::arch::x86_64::*;
+            let c_vec = _mm256_set1_epi32(c as i32);
+            for u in 0..16 {
+                let base = u * 64;
+                let mut word = 0u64;
+                for byte_i in 0..8 {
+                    let off = base + byte_i * 8;
+                    let ymm = _mm256_loadu_si256(block.as_ptr().add(off).cast::<__m256i>());
+                    let cmp = _mm256_cmpeq_epi32(ymm, c_vec);
+                    let mask =
+                        u64::from(_mm256_movemask_ps(_mm256_castsi256_ps(cmp)) as u32 & 0xFF);
+                    word |= mask << (byte_i * 8);
+                }
+                chunk_bits[u] = word;
+            }
+        }
+    }
+    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+    {
+        scalar_pack_eq_bits(block, c, chunk_bits);
+    }
+}
+
+#[inline]
+fn pack_lt_bits(block: &Block, c: u32, chunk_bits: &mut [u64; 16]) {
+    #[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+    {
+        // AVX2 unsigned u32 less-than via the `min_epu32` identity:
+        //   a <= c iff min(a, c) == a
+        //   a <  c iff (a <= c) AND NOT (a == c)
+        unsafe {
+            use std::arch::x86_64::*;
+            let c_vec = _mm256_set1_epi32(c as i32);
+            for u in 0..16 {
+                let base = u * 64;
+                let mut word = 0u64;
+                for byte_i in 0..8 {
+                    let off = base + byte_i * 8;
+                    let ymm = _mm256_loadu_si256(block.as_ptr().add(off).cast::<__m256i>());
+                    let min = _mm256_min_epu32(ymm, c_vec);
+                    let le = _mm256_cmpeq_epi32(min, ymm);
+                    let eq = _mm256_cmpeq_epi32(ymm, c_vec);
+                    let lt = _mm256_andnot_si256(eq, le);
+                    let mask = u64::from(_mm256_movemask_ps(_mm256_castsi256_ps(lt)) as u32 & 0xFF);
+                    word |= mask << (byte_i * 8);
+                }
+                chunk_bits[u] = word;
+            }
+        }
+    }
+    #[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+    {
+        scalar_pack_lt_bits(block, c, chunk_bits);
+    }
+}
+
+#[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
+#[inline]
+fn scalar_pack_eq_bits(block: &Block, c: u32, chunk_bits: &mut [u64; 16]) {
     for u in 0..16 {
         let base = u * 64;
         let mut bytes = [0u8; 8];
@@ -87,8 +154,9 @@ fn pack_eq_bits(block: &Block, c: u32, chunk_bits: &mut [u64; 16]) {
     }
 }
 
+#[cfg(not(all(target_arch = "x86_64", target_feature = "avx2")))]
 #[inline]
-fn pack_lt_bits(block: &Block, c: u32, chunk_bits: &mut [u64; 16]) {
+fn scalar_pack_lt_bits(block: &Block, c: u32, chunk_bits: &mut [u64; 16]) {
     for u in 0..16 {
         let base = u * 64;
         let mut bytes = [0u8; 8];
