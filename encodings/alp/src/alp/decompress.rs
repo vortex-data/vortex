@@ -126,6 +126,10 @@ fn decompress_chunked_core(
 
                     <T>::decode_slice_inplace(chunk_slice, exponents);
 
+                    // SAFETY: the `ALPFloat` trait pins `Self::ALPInt` to the same-sized
+                    // integer (f32→i32, f64→i64) and both have primitive alignment, so
+                    // `&mut [T::ALPInt]` and `&mut [T]` have identical layout. After
+                    // `decode_slice_inplace`, the bytes hold valid `T` values.
                     let decoded_chunk: &mut [T] = unsafe { transmute(chunk_slice) };
                     patch_chunk(
                         decoded_chunk,
@@ -138,6 +142,10 @@ fn decompress_chunked_core(
                     );
                 }
 
+                // SAFETY: `T::ALPInt` has identical size and alignment to `T` (enforced
+                // by the `ALPFloat` trait: f32/i32 and f64/i64), and `BufferMut<U>` is
+                // generic only in its element type, so the in-place reinterpret is sound
+                // after all elements have been decoded above.
                 let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
                 PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
             })
@@ -162,6 +170,8 @@ fn decompress_unchunked_core(
     let decoded = match_each_alp_float_ptype!(ptype, |T| {
         let mut alp_buffer = encoded.into_buffer_mut();
         <T>::decode_slice_inplace(alp_buffer.as_mut_slice(), exponents);
+        // SAFETY: see `decompress_chunked_core` — `T` and `T::ALPInt` share layout, and
+        // every element of `alp_buffer` was decoded in place above.
         let decoded_buffer: BufferMut<T> = unsafe { transmute(alp_buffer) };
         PrimitiveArray::new::<T>(decoded_buffer.freeze(), validity)
     });

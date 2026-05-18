@@ -204,6 +204,6 @@ pub fn vortex_zstd::ZstdMetadata::clear(&mut self)
 
 pub fn vortex_zstd::ZstdMetadata::encoded_len(&self) -> usize
 
-pub fn vortex_zstd::reconstruct_views(&vortex_buffer::ByteBuffer, usize) -> (alloc::vec::Vec<vortex_buffer::ByteBuffer>, vortex_buffer::buffer::Buffer<vortex_array::arrays::varbinview::view::BinaryView>)
+pub fn vortex_zstd::reconstruct_views(&vortex_buffer::ByteBuffer, usize) -> vortex_error::VortexResult<(alloc::vec::Vec<vortex_buffer::ByteBuffer>, vortex_buffer::buffer::Buffer<vortex_array::arrays::varbinview::view::BinaryView>)>
 
 pub type vortex_zstd::ZstdArray = vortex_array::array::typed::Array<vortex_zstd::Zstd>

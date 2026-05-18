@@ -5,6 +5,7 @@ use std::cmp::min;
 use std::ops::AddAssign;
 
 use num_traits::AsPrimitive;
+use num_traits::NumCast;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
@@ -82,21 +83,22 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 ) -> VortexResult<(PrimitiveArray, Mask)> {
     let mut new_run_ends = buffer_mut![R::zero(); run_ends.len()];
 
-    let mut start = 0u64;
+    let offset_usize = usize::try_from(offset).vortex_expect("offset fits in usize");
+    let length_usize = usize::try_from(length).vortex_expect("length fits in usize");
+
+    let mut start: usize = 0;
     let mut j = 0;
     let mut count = R::zero();
 
     let new_mask: Mask = BitBuffer::collect_bool(run_ends.len(), |i| {
-        let mut keep = false;
-        let end = min(run_ends[i].as_() - offset, length);
+        let raw_end = usize::try_from(run_ends[i].as_()).vortex_expect("run end fits in usize");
+        let end = min(raw_end.saturating_sub(offset_usize), length_usize);
 
-        // Safety: predicate must be the same length as the array the ends have been taken from
-        for pred in (start..end).map(|i| unsafe {
-            mask.value_unchecked(i.try_into().vortex_expect("index must fit in usize"))
-        }) {
-            count += <R as From<bool>>::from(pred);
-            keep |= pred
-        }
+        // Count set bits in the run via popcount (vectorized when available) rather than
+        // looping bit-by-bit. Runs are typically many elements, so this is a large win.
+        let run_set_bits = mask.slice(start..end).true_count();
+        let keep = run_set_bits > 0;
+        count += <R as NumCast>::from(run_set_bits).vortex_expect("run length always fits in R");
         // this is to avoid branching
         new_run_ends[j] = count;
         j += keep as usize;

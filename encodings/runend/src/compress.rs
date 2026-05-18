@@ -93,8 +93,12 @@ pub fn runend_encode(
 }
 
 fn runend_encode_primitive<T: NativePType>(elements: &[T]) -> (Buffer<u64>, Buffer<T>) {
-    let mut ends = BufferMut::empty();
-    let mut values = BufferMut::empty();
+    // We don't know the run count up front; start with a small power-of-two so the
+    // exponential growth doesn't pay log(N) reallocs on every encode, but cap so we
+    // don't over-allocate for tiny inputs.
+    let cap = elements.len().min(256);
+    let mut ends = BufferMut::with_capacity(cap);
+    let mut values = BufferMut::with_capacity(cap);
 
     if elements.is_empty() {
         return (ends.freeze(), values.freeze());
@@ -121,9 +125,13 @@ fn runend_encode_nullable_primitive<T: NativePType>(
     elements: &[T],
     element_validity: BitBuffer,
 ) -> (Buffer<u64>, PrimitiveArray) {
-    let mut ends = BufferMut::empty();
-    let mut values = BufferMut::empty();
-    let mut validity = BitBufferMut::with_capacity(values.capacity());
+    // See `runend_encode_primitive`: start with a small capacity so the three buffers
+    // don't each pay log(N) reallocs. Previously `validity` was sized to `values.capacity()`
+    // which was zero, defeating the BitBufferMut::with_capacity hint entirely.
+    let cap = elements.len().min(256);
+    let mut ends = BufferMut::with_capacity(cap);
+    let mut values = BufferMut::with_capacity(cap);
+    let mut validity = BitBufferMut::with_capacity(cap);
 
     if elements.is_empty() {
         return (

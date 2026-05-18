@@ -212,9 +212,18 @@ impl BitPackedData {
         // Return number of elements of type `T` packed in the buffer
         let packed_len = packed_bytes.len() / size_of::<T>();
 
+        // The byte buffer is produced via `Buffer<T>::into_byte_buffer()` which preserves
+        // the source `T` alignment, so the cast above is well-aligned in practice. Assert
+        // in debug builds to catch any path that smuggles in a less-aligned buffer.
+        debug_assert_eq!(
+            packed_ptr.align_offset(align_of::<T>()),
+            0,
+            "packed buffer is not aligned to align_of::<T>()"
+        );
+
         // SAFETY: as_slice points to buffer memory that outlives the lifetime of `self`.
         //  Unfortunately Rust cannot understand this, so we reconstruct the slice from raw parts
-        //  to get it to reinterpret the lifetime.
+        //  to get it to reinterpret the lifetime. Alignment is checked above in debug builds.
         unsafe { std::slice::from_raw_parts(packed_ptr, packed_len) }
     }
 

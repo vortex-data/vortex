@@ -572,6 +572,11 @@ impl PcoData {
                     let old_len = decompressed_values.len();
                     let new_len = old_len + page_n_values;
                     decompressed_values.reserve(page_n_values);
+                    // Set the length up-front because `pd.read` takes `&mut [T]`. This is
+                    // sound only because `T: Number` is non-Drop; if pco's `read` panics
+                    // or returns early without filling the slice, the uninitialized tail
+                    // would be exposed to the eventual `freeze()`. We assert `n_processed`
+                    // below to verify the slice is fully written before that can happen.
                     unsafe {
                         decompressed_values.set_len(new_len);
                     }
@@ -590,8 +595,15 @@ impl PcoData {
                     let mut pd = cd
                         .page_decompressor(page, page_n_values)
                         .map_err(vortex_err_from_pco)?;
-                    pd.read(&mut decompressed_values[old_len..new_len])
+                    let progress = pd
+                        .read(&mut decompressed_values[old_len..new_len])
                         .map_err(vortex_err_from_pco)?;
+                    vortex_ensure!(
+                        progress.n_processed == page_n_values,
+                        "pco decompressor wrote {} of {} expected values",
+                        progress.n_processed,
+                        page_n_values
+                    );
 
                     chunk_decompressor = Some(cd);
                 } else {

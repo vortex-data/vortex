@@ -77,6 +77,9 @@ pub fn runend_decode_bools(
 /// - If more false runs: pre-fill with 0s, fill true runs
 ///
 /// This minimizes work for skewed distributions (e.g., sparse validity masks).
+///
+/// `run_ends` may yield values exceeding `length`; they are clamped before use so
+/// the function remains safe regardless of iterator contents.
 pub fn runend_decode_typed_bool(
     run_ends: impl Iterator<Item = usize>,
     values: &BitBuffer,
@@ -84,6 +87,11 @@ pub fn runend_decode_typed_bool(
     values_nullability: Nullability,
     length: usize,
 ) -> ArrayRef {
+    // Clamp run-ends to `length` to uphold the precondition of the unsafe
+    // `fill_range_unchecked` calls in the per-arm decoders. `trimmed_ends_iter`
+    // already clamps, but this function is `pub` and accepts an arbitrary
+    // iterator, so we defend the unsafe boundary here.
+    let run_ends = run_ends.map(move |end| end.min(length));
     match values_validity {
         Mask::AllTrue(_) => {
             decode_bool_non_nullable(run_ends, values, values_nullability, length).into_array()

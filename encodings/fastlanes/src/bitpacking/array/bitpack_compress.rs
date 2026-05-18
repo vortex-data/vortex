@@ -273,17 +273,41 @@ where
     let total_chunks = data.len().div_ceil(1024);
     let mut chunk_offsets: BufferMut<u64> = BufferMut::with_capacity(total_chunks);
 
-    for (idx, value) in data.iter().enumerate() {
-        if (idx % 1024) == 0 {
-            // Record the patch index offset for each chunk.
-            chunk_offsets.push(values.len() as u64);
+    // Hoist the bit-width comparison so it isn't recomputed per element, and dispatch on
+    // the mask kind once up front. `Mask::value(idx)` matches on the discriminant on every
+    // call, which the optimizer can't always hoist out of the hot loop.
+    let exception_threshold = T::PTYPE.bit_width() - bit_width as usize;
+    match validity_mask {
+        Mask::AllTrue(_) => {
+            for (idx, value) in data.iter().enumerate() {
+                if idx & 1023 == 0 {
+                    chunk_offsets.push(values.len() as u64);
+                }
+                if (value.leading_zeros() as usize) < exception_threshold {
+                    indices.push(P::from(idx).vortex_expect("cast index from usize"));
+                    values.push(*value);
+                }
+            }
         }
-
-        if (value.leading_zeros() as usize) < T::PTYPE.bit_width() - bit_width as usize
-            && validity_mask.value(idx)
-        {
-            indices.push(P::from(idx).vortex_expect("cast index from usize"));
-            values.push(*value);
+        Mask::AllFalse(_) => {
+            // No values are valid, so there are no exceptions to gather; still emit a
+            // chunk_offset of zero per chunk for downstream alignment with `data`.
+            for chunk in 0..total_chunks {
+                let _ = chunk;
+                chunk_offsets.push(0);
+            }
+        }
+        Mask::Values(mask_values) => {
+            let buffer = mask_values.bit_buffer();
+            for (idx, (value, is_valid)) in data.iter().zip(buffer.iter()).enumerate() {
+                if idx & 1023 == 0 {
+                    chunk_offsets.push(values.len() as u64);
+                }
+                if is_valid && (value.leading_zeros() as usize) < exception_threshold {
+                    indices.push(P::from(idx).vortex_expect("cast index from usize"));
+                    values.push(*value);
+                }
+            }
         }
     }
 

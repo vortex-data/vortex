@@ -251,8 +251,14 @@ pub trait ALPFloat: private::Sealed + Float + Display + NativePType {
     }
 
     fn decode_slice_inplace(encoded: &mut [Self::ALPInt], exponents: Exponents) {
+        // SAFETY: the `ALPFloat` trait pins `Self::ALPInt` to the same-sized integer
+        // (f32→i32, f64→i64); both have primitive alignment, so the slice reinterpret
+        // is layout-equivalent. Each element is overwritten with a valid `Self` before
+        // it is read as `Self`.
         let decoded: &mut [Self] = unsafe { transmute(encoded) };
         decoded.iter_mut().for_each(|v| {
+            // SAFETY: same size/alignment invariant; we read the encoded `Self::ALPInt`
+            // bit pattern through `*v` before writing the decoded `Self` back.
             *v = Self::decode_single(
                 unsafe { transmute_copy::<Self, Self::ALPInt>(v) },
                 exponents,

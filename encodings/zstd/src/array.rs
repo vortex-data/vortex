@@ -426,43 +426,55 @@ fn collect_valid_vbv(
 pub fn reconstruct_views(
     buffer: &ByteBuffer,
     max_buffer_len: usize,
-) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
+) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
     let mut views = BufferMut::<BinaryView>::empty();
     let mut buffers = Vec::new();
     let mut segment_start: usize = 0;
     let mut offset = 0;
 
     while offset < buffer.len() {
+        let len_end = offset
+            .checked_add(size_of::<ViewLen>())
+            .ok_or_else(|| vortex_err!("zstd view stream offset overflow at {offset}"))?;
+        let len_bytes = buffer
+            .get(offset..len_end)
+            .ok_or_else(|| vortex_err!("truncated zstd view length at offset {offset}"))?;
         let str_len = ViewLen::from_le_bytes(
-            buffer
-                .get(offset..offset + size_of::<ViewLen>())
-                .vortex_expect("corrupted zstd length")
+            len_bytes
                 .try_into()
-                .ok()
-                .vortex_expect("must fit ViewLen size"),
+                .map_err(|_| vortex_err!("zstd view length does not fit ViewLen"))?,
         ) as usize;
 
-        let value_data_offset = offset + size_of::<ViewLen>();
-        let local_offset = value_data_offset - segment_start;
+        let value_data_offset = len_end;
+        let value_end = value_data_offset
+            .checked_add(str_len)
+            .ok_or_else(|| vortex_err!("zstd view payload offset overflow"))?;
+        vortex_ensure!(
+            value_end <= buffer.len(),
+            "truncated zstd view payload: need {value_end} bytes, have {}",
+            buffer.len()
+        );
+        let local_offset_usize = value_data_offset - segment_start;
 
-        if local_offset + str_len > max_buffer_len && offset > segment_start {
+        if local_offset_usize + str_len > max_buffer_len && offset > segment_start {
             buffers.push(buffer.slice(segment_start..offset));
             segment_start = offset;
         }
 
         let local_offset = u32::try_from(value_data_offset - segment_start)
-            .vortex_expect("local offset within segment must fit in u32");
-        let buf_index = u32::try_from(buffers.len()).vortex_expect("buffer index must fit in u32");
-        let value = &buffer[value_data_offset..value_data_offset + str_len];
+            .map_err(|_| vortex_err!("zstd view local offset overflows u32"))?;
+        let buf_index = u32::try_from(buffers.len())
+            .map_err(|_| vortex_err!("zstd view buffer index overflows u32"))?;
+        let value = &buffer[value_data_offset..value_end];
         views.push(BinaryView::make_view(value, buf_index, local_offset));
-        offset = value_data_offset + str_len;
+        offset = value_end;
     }
 
     if segment_start < buffer.len() {
         buffers.push(buffer.slice(segment_start..buffer.len()));
     }
 
-    (buffers, views.freeze())
+    Ok((buffers, views.freeze()))
 }
 
 impl ZstdData {
@@ -957,7 +969,8 @@ impl ZstdData {
             DType::Binary(_) | DType::Utf8(_) => {
                 match slice_validity.execute_mask(slice_n_rows, ctx)?.indices() {
                     AllOr::All => {
-                        let (buffers, all_views) = reconstruct_views(&decompressed, MAX_BUFFER_LEN);
+                        let (buffers, all_views) =
+                            reconstruct_views(&decompressed, MAX_BUFFER_LEN)?;
                         let valid_views = all_views.slice(
                             slice_value_idx_start - n_skipped_values
                                 ..slice_value_idx_stop - n_skipped_values,
@@ -980,7 +993,8 @@ impl ZstdData {
                     )
                     .into_array()),
                     AllOr::Some(valid_indices) => {
-                        let (buffers, all_views) = reconstruct_views(&decompressed, MAX_BUFFER_LEN);
+                        let (buffers, all_views) =
+                            reconstruct_views(&decompressed, MAX_BUFFER_LEN)?;
                         let valid_views = all_views.slice(
                             slice_value_idx_start - n_skipped_values
                                 ..slice_value_idx_stop - n_skipped_values,
@@ -1088,32 +1102,51 @@ mod tests {
     }
 
     #[test]
-    fn test_reconstruct_views_no_split() {
+    fn test_reconstruct_views_no_split() -> vortex_error::VortexResult<()> {
         let strings: &[&[u8]] = &[b"hello", b"world"];
         let buf = make_interleaved(strings);
-        let (buffers, views) = reconstruct_views(&buf, 1024);
+        let (buffers, views) = reconstruct_views(&buf, 1024)?;
 
         assert_eq!(buffers.len(), 1);
         assert_eq!(views.len(), 2);
         // Each entry: [u32 len (4 bytes)][data], so offsets are 4 and 4+5+4=13
         assert_eq!(views[0], BinaryView::make_view(b"hello", 0, 4));
         assert_eq!(views[1], BinaryView::make_view(b"world", 0, 13));
+        Ok(())
     }
 
     #[test]
-    fn test_reconstruct_views_split_across_segments() {
+    fn test_reconstruct_views_split_across_segments() -> vortex_error::VortexResult<()> {
         // "aaaaaaaaaaaaa" (13 bytes) and "bbbbbbbbbbbbb" (13 bytes).
         // Each entry occupies 4 (length prefix) + 13 (data) = 17 bytes.
         // With max_buffer_len=20, the second entry's data (offset 4+13+4=21) exceeds the limit,
         // so it rolls into a second segment.
         let strings: &[&[u8]] = &[b"aaaaaaaaaaaaa", b"bbbbbbbbbbbbb"];
         let buf = make_interleaved(strings);
-        let (buffers, views) = reconstruct_views(&buf, 20);
+        let (buffers, views) = reconstruct_views(&buf, 20)?;
 
         assert_eq!(buffers.len(), 2);
         assert_eq!(views.len(), 2);
         assert_eq!(views[0], BinaryView::make_view(b"aaaaaaaaaaaaa", 0, 4));
         // Second entry starts a new segment at byte 17 (the length prefix), so local offset = 4.
         assert_eq!(views[1], BinaryView::make_view(b"bbbbbbbbbbbbb", 1, 4));
+        Ok(())
+    }
+
+    #[test]
+    fn test_reconstruct_views_truncated_length() {
+        // Only 2 bytes — not enough for the 4-byte length prefix.
+        let buf = ByteBuffer::copy_from([0u8, 0].as_slice());
+        assert!(reconstruct_views(&buf, 1024).is_err());
+    }
+
+    #[test]
+    fn test_reconstruct_views_truncated_payload() {
+        // Length prefix claims 100 bytes but only 4 follow.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&100u32.to_le_bytes());
+        bytes.extend_from_slice(b"abcd");
+        let buf = ByteBuffer::copy_from(bytes.as_slice());
+        assert!(reconstruct_views(&buf, 1024).is_err());
     }
 }

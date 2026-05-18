@@ -512,9 +512,7 @@ fn execute_sparse_decimal<D: NativeDecimalType>(
             let fill_value = fill_value
                 .cast::<D>()
                 .vortex_expect("unexpected value type");
-            for _ in 0..len {
-                builder.append_value(fill_value)
-            }
+            builder.append_n_values(fill_value, len);
         }
         None => {
             builder.append_nulls(len);

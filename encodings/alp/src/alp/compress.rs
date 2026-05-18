@@ -90,20 +90,41 @@ where
                 (Buffer::empty(), Buffer::empty())
             }
             Mask::Values(is_valid) => {
-                let (pos, vals): (BufferMut<u64>, BufferMut<T>) = exceptional_positions
-                    .into_iter()
-                    .zip_eq(exceptional_values)
-                    .filter(|(index, _)| {
-                        let is_valid = is_valid.value(*index as usize);
-                        if !is_valid {
-                            let patch_chunk = *index as usize / 1024;
-                            for chunk_idx in (patch_chunk + 1)..chunk_offsets.len() {
-                                chunk_offsets[chunk_idx] -= 1;
-                            }
-                        }
-                        is_valid
-                    })
-                    .unzip();
+                // Walk exceptions in their original (sorted) order and maintain a running
+                // count of removed-because-null exceptions. Each `chunk_offsets[k]` is the
+                // index into the patches array where chunk k's patches start, so it must
+                // be reduced by the number of invalid exceptions in chunks 0..k.
+                //
+                // The previous implementation decremented `chunk_offsets[chunk+1..]` per
+                // invalid exception — O(invalid_exceptions × num_chunks). This single pass
+                // is O(exceptions + num_chunks).
+                let mut pos: BufferMut<u64> = BufferMut::with_capacity(exceptional_positions.len());
+                let mut vals: BufferMut<T> = BufferMut::with_capacity(exceptional_values.len());
+                let mut cumulative_invalid: u64 = 0;
+                let mut next_chunk_to_adjust: usize = 0;
+                for (index, value) in exceptional_positions
+                    .iter()
+                    .copied()
+                    .zip_eq(exceptional_values.iter().copied())
+                {
+                    let chunk = index as usize / 1024;
+                    while next_chunk_to_adjust <= chunk
+                        && next_chunk_to_adjust < chunk_offsets.len()
+                    {
+                        chunk_offsets[next_chunk_to_adjust] -= cumulative_invalid;
+                        next_chunk_to_adjust += 1;
+                    }
+                    if is_valid.value(index as usize) {
+                        pos.push(index);
+                        vals.push(value);
+                    } else {
+                        cumulative_invalid += 1;
+                    }
+                }
+                while next_chunk_to_adjust < chunk_offsets.len() {
+                    chunk_offsets[next_chunk_to_adjust] -= cumulative_invalid;
+                    next_chunk_to_adjust += 1;
+                }
                 (pos.freeze(), vals.freeze())
             }
         };
