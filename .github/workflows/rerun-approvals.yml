@@ -1,0 +1,40 @@
+# Re-runs the PR Approval Check workflow when a review is submitted or dismissed.
+# Re-running creates a new attempt on the existing approvals.yml workflow run, which
+# updates the `check-approvals` check_run in place. This avoids the gate getting stuck
+# behind a stale failed check_run from the original `pull_request` event run.
+
+name: Re-run PR Approval Check on Review
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  actions: write
+
+concurrency:
+  group: rerun-approvals-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+jobs:
+  rerun:
+    if: github.event.pull_request.base.ref == 'develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Re-run approvals workflow for this PR's head SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          run_id=$(gh api \
+            "repos/$REPO/actions/workflows/approvals.yml/runs?head_sha=$HEAD_SHA" \
+            --jq '.workflow_runs[0].id // empty')
+          if [ -z "$run_id" ]; then
+            echo "No approvals.yml run for $HEAD_SHA — nothing to re-run."
+            exit 0
+          fi
+          echo "Re-running approvals.yml run $run_id"
+          gh api -X POST "repos/$REPO/actions/runs/$run_id/rerun"
