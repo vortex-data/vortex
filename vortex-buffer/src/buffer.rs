@@ -781,6 +781,31 @@ mod test {
     }
 
     #[test]
+    fn byte_buffer_zeroed() {
+        const LEN: usize = 17;
+
+        let buf = ByteBuffer::zeroed(LEN);
+
+        assert_eq!(buf.len(), LEN);
+        assert_eq!(buf.alignment(), Alignment::of::<u8>());
+        assert!(buf.is_aligned(Alignment::of::<u8>()));
+        assert_eq!(buf.as_slice(), &[0; LEN]);
+    }
+
+    #[test]
+    fn byte_buffer_zeroed_aligned() {
+        const LEN: usize = 17;
+        let alignment = Alignment::new(64);
+
+        let buf = ByteBuffer::zeroed_aligned(LEN, alignment);
+
+        assert_eq!(buf.len(), LEN);
+        assert_eq!(buf.alignment(), alignment);
+        assert!(buf.is_aligned(alignment));
+        assert_eq!(buf.as_slice(), &[0; LEN]);
+    }
+
+    #[test]
     fn from_vec() {
         let vec = vec![1, 2, 3, 4, 5];
         let buff = Buffer::from(vec.clone());
