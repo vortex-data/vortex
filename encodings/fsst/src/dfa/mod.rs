@@ -339,6 +339,36 @@ impl FsstMatcher {
         }
     }
 
+    /// Estimate whether decompressing and running Arrow's LIKE kernel would
+    /// be faster than the DFA pushdown path for this matcher and data shape.
+    ///
+    /// Returns `true` when the caller should bail to decompress+like.
+    ///
+    /// The heuristic samples `all_bytes` to estimate the density of
+    /// "progressing codes" (FSST codes that advance the DFA from state 0).
+    /// When progressing codes are dense, the DFA's Teddy prefilter generates
+    /// too many candidates and verification overhead dominates — at that
+    /// point decompress+like (which avoids per-candidate DFA dispatch) wins.
+    ///
+    /// Only fires for `FoldedContains` matchers; prefix, suffix, and
+    /// shift-or always stay on the pushdown path.
+    pub fn should_bail_to_decompress(&self, all_bytes: &[u8]) -> bool {
+        // Only the contains path can lose to decompress+like.
+        // Prefix and suffix are 97%+ win rate — never bail.
+        let dfa = match &self.inner {
+            MatcherInner::FoldedContains(dfa) => dfa,
+            _ => return false,
+        };
+
+        // If the DFA has an escape-only pattern, it uses memmem at ~25 GB/s.
+        // That always beats decompress+like. Never bail.
+        if dfa.has_escape_only_pattern() {
+            return false;
+        }
+
+        dfa.estimated_candidate_density_too_high(all_bytes)
+    }
+
     /// Scan `n` strings (delimited by `offsets` over `all_bytes`) and return a
     /// `BitBuffer` whose `i`-th bit is set iff the matcher accepts the `i`-th
     /// string (XOR `negated`).

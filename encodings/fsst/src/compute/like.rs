@@ -109,6 +109,23 @@ impl LikeKernel for FSST {
         else {
             return Ok(None);
         };
+
+        // Check if the DFA predicts that decompress+like would be faster.
+        // This fires when progressing-code density is too high (Teddy
+        // prefilter generates excessive candidates) or when the DFA would
+        // fall back to the slow RowLoop path.
+        if matcher.should_bail_to_decompress(all_bytes) {
+            if trace {
+                eprintln!(
+                    "[fsst::like] bailing to decompress+like: rows={} bytes={} pattern={:?}",
+                    n,
+                    all_bytes.len(),
+                    std::str::from_utf8(pattern_bytes).unwrap_or("<binary>"),
+                );
+            }
+            return Ok(None);
+        }
+
         let matcher_us = phase_us(phase_t);
         phase_t = trace.then(std::time::Instant::now);
 

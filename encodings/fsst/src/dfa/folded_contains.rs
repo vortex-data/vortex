@@ -440,6 +440,160 @@ impl FoldedContainsDfa {
         self.planner.plan_folded(&ctx)
     }
 
+    /// Whether this DFA has an escape-only pattern (memmem fast path).
+    #[inline]
+    pub(crate) fn has_escape_only_pattern(&self) -> bool {
+        self.escape_only_pattern.is_some()
+    }
+
+    /// Sample `all_bytes` to estimate whether decompressing and running
+    /// Arrow's LIKE kernel would be faster than the DFA pushdown path.
+    ///
+    /// The decision is **plan-aware**: different scan strategies tolerate
+    /// different levels of progressing-code density before verification
+    /// overhead dominates.
+    ///
+    /// Returns `true` when the caller should bail to decompress+like.
+    pub(crate) fn estimated_candidate_density_too_high(
+        &self,
+        all_bytes: &[u8],
+    ) -> bool {
+        let progressing = match self.progressing_codes.as_deref() {
+            Some(codes) if !codes.is_empty() => codes,
+            // No progressing codes → RowLoop fallback, which is ~150 ns/row.
+            // Bail for any non-trivial array.
+            _ => return true,
+        };
+
+        // Sample a prefix of all_bytes to estimate progressing-code density.
+        const SAMPLE_BYTES: usize = 16 * 1024;
+        let sample_len = SAMPLE_BYTES.min(all_bytes.len());
+        if sample_len == 0 {
+            return false;
+        }
+
+        let mut is_progressing = [false; 256];
+        for &c in progressing {
+            is_progressing[usize::from(c)] = true;
+        }
+
+        let hits = all_bytes[..sample_len]
+            .iter()
+            .filter(|&&b| is_progressing[usize::from(b)])
+            .count();
+        let density = hits as f64 / sample_len as f64;
+
+        // Determine which plan the planner would pick (without committing
+        // to scanning). This lets us set plan-specific thresholds.
+        let has_triple = self.bucketed_triple_codes.is_some();
+        let has_pair = self.bucketed_pair_codes.is_some();
+        let has_ssa = self.single_step_accept_codes.is_some();
+
+        // Plan-aware density thresholds, calibrated from bench results:
+        //
+        // - TripleTeddy: 3-byte fingerprint is very selective even at high
+        //   density. Almost never loses vs decompress. Use a high threshold.
+        // - PairTeddy: 2-byte fingerprint, moderately selective. Bail at
+        //   moderate density.
+        // - OneByte (SSA saturated / bitset): 1-byte prefilter generates
+        //   candidates at roughly the progressing-code density rate. The
+        //   per-candidate DFA verify is expensive. Bail at low density.
+        // - RowLoop: no prefilter at all. Always bail.
+        // When SSA codes are present, the planner may pick OneByteSaturated
+        // instead of Teddy at runtime (if SSA byte density exceeds
+        // SSA_CANDIDATE_BUDGET). Sample SSA density to decide whether we're
+        // actually in a Teddy regime or a 1-byte regime.
+        let ssa_would_saturate = if let Some(ssa_codes) = self.single_step_accept_codes.as_deref() {
+            super::planner::ssa_saturated(all_bytes, ssa_codes)
+        } else {
+            false
+        };
+
+        let threshold = if has_triple && !has_ssa {
+            // TripleTeddy: candidate rate ≈ density³, so even density=0.15
+            // yields ~1 candidate per 300 bytes. Very safe.
+            0.25
+        } else if has_triple && has_ssa && !ssa_would_saturate {
+            // SSA present but not dense enough to saturate → planner will
+            // still pick TripleTeddy (or PairTeddy with SSA fusion).
+            // Use triple-level threshold.
+            0.20
+        } else if has_triple && has_ssa && ssa_would_saturate {
+            // SSA saturated → planner picks OneByteSaturated, which is a
+            // 1-byte prefilter driving per-row `matches_with_bitset`.
+            // This path traverses every row's codes checking a bitset,
+            // so cost scales with n_rows × avg_string_len. It's the
+            // regime where `%htt%`, `%ate%`, `%inp%` etc. lose.
+            // Bail aggressively — the OneByteSaturated path rarely beats
+            // decompress+like for short needles.
+            0.02
+        } else if has_pair && !has_ssa {
+            // PairTeddy: candidate rate ≈ density², so density=0.10
+            // yields ~1 candidate per 100 bytes.
+            0.12
+        } else if has_pair && has_ssa && !ssa_would_saturate {
+            // Pair with non-saturated SSA: still gets Teddy benefit.
+            0.10
+        } else if has_pair && has_ssa && ssa_would_saturate {
+            // Pair + saturated SSA → OneByteSaturated.
+            0.02
+        } else if progressing.len() > 0 {
+            // OneByteBitset only: candidate rate ≈ density directly.
+            0.04
+        } else {
+            // RowLoop fallback.
+            return true;
+        };
+
+        // Additional signal: needle length. Longer needles have more
+        // selective DFA verification (fewer false positives survive the
+        // full DFA walk). Accept higher density for longer needles.
+        let accept_boost = if self.accept_state >= 6 {
+            1.5
+        } else if self.accept_state >= 4 {
+            1.2
+        } else {
+            1.0
+        };
+
+        let effective_threshold = threshold * accept_boost;
+        let bail = density > effective_threshold;
+
+        if std::env::var_os("VORTEX_FSST_BAIL_TRACE")
+            .map(|v| !v.is_empty())
+            .unwrap_or(false)
+        {
+            let plan_hint = if has_triple && !has_ssa {
+                "triple_teddy"
+            } else if has_triple && has_ssa && !ssa_would_saturate {
+                "triple+ssa_sparse"
+            } else if has_triple && has_ssa && ssa_would_saturate {
+                "ssa_saturated(triple_avail)"
+            } else if has_pair && !has_ssa {
+                "pair_teddy"
+            } else if has_pair && has_ssa && !ssa_would_saturate {
+                "pair+ssa_sparse"
+            } else if has_pair && has_ssa && ssa_would_saturate {
+                "ssa_saturated(pair_avail)"
+            } else {
+                "one_byte/row_loop"
+            };
+            eprintln!(
+                "[fsst::bail] plan_hint={} progressing={} accept={} density={:.4} threshold={:.4} (base={:.2}*boost={:.1}) bail={}",
+                plan_hint,
+                progressing.len(),
+                self.accept_state,
+                density,
+                effective_threshold,
+                threshold,
+                accept_boost,
+                bail,
+            );
+        }
+
+        bail
+    }
+
     /// Build a [`ScanContext`] for `(n, all_bytes)`. The data-dependent
     /// branch (`ssa_saturated`) consults `all_bytes` inside the planner.
     #[inline]

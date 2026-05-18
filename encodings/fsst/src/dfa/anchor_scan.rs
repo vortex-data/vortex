@@ -65,6 +65,8 @@ use core::arch::aarch64::vget_low_u8;
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::vld1q_u8;
 #[cfg(target_arch = "aarch64")]
+use core::arch::aarch64::vorrq_u8;
+#[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::vqtbl1q_u8;
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::vshrq_n_u8;
@@ -3399,6 +3401,7 @@ mod tests {
         unsafe {
             teddy_pair_pass_neon(
                 &tables,
+                None,
                 n,
                 &offsets,
                 &all_bytes,
@@ -3462,6 +3465,7 @@ mod tests {
         unsafe {
             teddy_triple_pass_neon(
                 &tables,
+                None,
                 n,
                 &offsets,
                 &all_bytes,
