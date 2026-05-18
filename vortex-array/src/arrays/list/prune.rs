@@ -175,9 +175,32 @@ pub fn maybe_trim_unreferenced_elements(
     // Slice the elements to the live window.
     let new_elements = array.elements().slice(first_offset..last_offset)?;
 
-    // Subtract `first_offset` from every offset, preserving the offsets dtype.
+    // Subtract `first_offset` from every offset, preserving the offsets dtype. The general
+    // `binary(offsets, ConstantArray, Sub)` path goes through the full compute framework
+    // (scalar-fn wrapper → optimize → kernel dispatch) which costs ~µs of fixed overhead per
+    // call. For the common case where offsets is already a host `Primitive`, we do the
+    // subtract inline with `try_into_buffer_mut` (zero-copy when uniquely owned, single copy
+    // otherwise) — orders of magnitude faster than the framework path.
     let new_offsets: ArrayRef = if first_offset == 0 {
         array.offsets().clone()
+    } else if let Some(prim) = array.offsets().as_opt::<crate::arrays::Primitive>()
+        && array.offsets().is_host()
+    {
+        let prim = prim.into_owned();
+        let validity = prim.validity()?;
+        match_each_integer_ptype!(prim.ptype(), |O| {
+            let shift: O =
+                num_traits::FromPrimitive::from_usize(first_offset).ok_or_else(|| {
+                    vortex_error::vortex_err!(
+                        "first_offset {first_offset} does not fit in offsets type"
+                    )
+                })?;
+            let mut buf = prim.into_buffer_mut::<O>();
+            for o in buf.iter_mut() {
+                *o -= shift;
+            }
+            crate::arrays::PrimitiveArray::new(buf.freeze(), validity).into_array()
+        })
     } else {
         match_each_integer_ptype!(array.offsets().dtype().as_ptype(), |O| {
             let scalar_value = <O as num_traits::FromPrimitive>::from_usize(first_offset)
