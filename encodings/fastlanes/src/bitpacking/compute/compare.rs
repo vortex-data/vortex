@@ -223,12 +223,18 @@ fn compare_in_range_swar<T>(
 where
     T: NativePType + ToPrimitive,
 {
+    use super::compare_swar::build_generic_layout;
+    use super::compare_swar::is_supported_nonpow2_w;
     use super::compare_swar::is_supported_pow2_w;
+    use super::compare_swar::swar_eq_generic_u32;
     use super::compare_swar::swar_eq_pow2_u32;
+    use super::compare_swar::swar_lt_generic_u32;
     use super::compare_swar::swar_lt_pow2_u32;
 
     let w = lhs.bit_width();
-    if !is_supported_pow2_w(w) {
+    let is_pow2 = is_supported_pow2_w(w);
+    let is_nonpow2 = is_supported_nonpow2_w(w);
+    if !is_pow2 && !is_nonpow2 {
         return Ok(None);
     }
     if !matches!(T::PTYPE, PType::U32 | PType::I32) {
@@ -269,6 +275,9 @@ where
     let mut eq_bits = [0u64; 16];
     let mut lt_bits = [0u64; 16];
 
+    // Build Knuth-rotation-table layouts once per (c, W) for the generic kernel path.
+    let generic_layout = is_nonpow2.then(|| build_generic_layout(c_u32, w as usize));
+
     for chunk_idx in 0..num_chunks {
         let chunk = &packed[chunk_idx * elems_per_chunk..][..elems_per_chunk];
         eq_bits.fill(0);
@@ -281,7 +290,13 @@ where
                 4 => swar_eq_pow2_u32::<4>(chunk, c_u32, &mut eq_bits),
                 8 => swar_eq_pow2_u32::<8>(chunk, c_u32, &mut eq_bits),
                 16 => swar_eq_pow2_u32::<16>(chunk, c_u32, &mut eq_bits),
-                _ => unreachable!(),
+                _ => swar_eq_generic_u32(
+                    chunk,
+                    generic_layout
+                        .as_ref()
+                        .vortex_expect("generic layout built when non-pow2"),
+                    &mut eq_bits,
+                ),
             }
         }
         if need_lt {
@@ -291,7 +306,13 @@ where
                 4 => swar_lt_pow2_u32::<4>(chunk, c_u32, &mut lt_bits),
                 8 => swar_lt_pow2_u32::<8>(chunk, c_u32, &mut lt_bits),
                 16 => swar_lt_pow2_u32::<16>(chunk, c_u32, &mut lt_bits),
-                _ => unreachable!(),
+                _ => swar_lt_generic_u32(
+                    chunk,
+                    generic_layout
+                        .as_ref()
+                        .vortex_expect("generic layout built when non-pow2"),
+                    &mut lt_bits,
+                ),
             }
         }
 

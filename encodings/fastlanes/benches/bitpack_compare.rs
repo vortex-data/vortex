@@ -221,3 +221,45 @@ in_range_benches!(
     fast_lt_in_range_swar_w16,
     baseline_lt_in_range_w16
 );
+
+// Non-power-of-two widths — generic Knuth-rotation-table kernel.
+
+// W = 3: constant 3 (max for 3 bits is 7).
+in_range_benches!(
+    3,
+    3,
+    fast_eq_in_range_swar_w3,
+    baseline_eq_in_range_w3,
+    fast_lt_in_range_swar_w3,
+    baseline_lt_in_range_w3
+);
+
+// W = 5: constant 13.
+in_range_benches!(
+    5,
+    13,
+    fast_eq_in_range_swar_w5,
+    baseline_eq_in_range_w5,
+    fast_lt_in_range_swar_w5,
+    baseline_lt_in_range_w5
+);
+
+// W = 7: constant 100.
+in_range_benches!(
+    7,
+    100,
+    fast_eq_in_range_swar_w7,
+    baseline_eq_in_range_w7,
+    fast_lt_in_range_swar_w7,
+    baseline_lt_in_range_w7
+);
+
+// W = 11: constant 1000.
+in_range_benches!(
+    11,
+    1000,
+    fast_eq_in_range_swar_w11,
+    baseline_eq_in_range_w11,
+    fast_lt_in_range_swar_w11,
+    baseline_lt_in_range_w11
+);
