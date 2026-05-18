@@ -194,6 +194,143 @@ pub fn bitpack_primitive<T: NativePType + BitPacking>(array: &[T], bit_width: u8
     output.freeze()
 }
 
+/// Build the bit-packed buffer for a `[constant; len]` input without calling the
+/// SIMD packer.
+///
+/// The FastLanes packing kernel runs `LANES` independent lane packers in parallel, each
+/// consuming `T = 8 * size_of::<T>()` input values and producing `bit_width` output words.
+/// When every input value equals `constant`, all `LANES` lane packers produce the same
+/// `bit_width` words. We compute those words analytically — looping over `T` bits per
+/// output word with a single `OR`/shift — then replicate the lane pattern across the
+/// chunk and the chunk pattern across the buffer with `memset`/`memcpy`. No call to
+/// `BitPacking::pack` is involved for any full chunk.
+///
+/// The trailing partial chunk (when `len % 1024 != 0`) is zero-padded past `len`, so it
+/// has a different pattern than the full template. It is built by re-using the analytical
+/// kernel only when `len % 1024` is itself a multiple of `T` (so the padded boundary
+/// aligns with a lane row); otherwise we fall back to a single `unchecked_pack` call for
+/// that final chunk only.
+///
+/// # Preconditions
+///
+/// * `constant` must fit in `bit_width`, i.e., `(constant as u64) < (1 << bit_width)`.
+/// * `0 < bit_width <= size_of::<T>() * 8`.
+pub fn bitpack_constant<T: NativePType + BitPacking>(
+    constant: T,
+    bit_width: u8,
+    len: usize,
+) -> Buffer<T> {
+    if bit_width == 0 || len == 0 {
+        return Buffer::<T>::empty();
+    }
+    let w = bit_width as usize;
+    let t_bits = 8 * size_of::<T>();
+    let lanes = 1024 / t_bits;
+    let packed_len = 128 * w / size_of::<T>();
+    debug_assert_eq!(packed_len, w * lanes);
+
+    let num_chunks = len.div_ceil(1024);
+    let num_full_chunks = len / 1024;
+
+    let mut output = BufferMut::<T>::with_capacity(num_chunks * packed_len);
+
+    if num_full_chunks > 0 {
+        // One full chunk's bit pattern: `w` distinct output words, each replicated `lanes`
+        // times. Build the template on the stack with `lane_word`-sized `memset`s, then
+        // `memcpy` it into the output for every full chunk.
+        let lane_words = constant_lane_words::<T>(constant, w);
+        let mut chunk: [T; 1024] = [T::zero(); 1024];
+        for (k, &word) in lane_words.iter().enumerate() {
+            chunk[k * lanes..(k + 1) * lanes].fill(word);
+        }
+        let template = &chunk[..packed_len];
+        for _ in 0..num_full_chunks {
+            output.extend_from_slice(template);
+        }
+    }
+
+    if num_chunks > num_full_chunks {
+        // Tail chunk gets zero-padded past `len % 1024`, so it differs from the full
+        // template. Use the standard packer for this single chunk.
+        let last_chunk_size = len % 1024;
+        let mut last_chunk: [T; 1024] = [T::zero(); 1024];
+        last_chunk[..last_chunk_size].fill(constant);
+        let tail_start = output.len();
+        unsafe {
+            output.set_len(tail_start + packed_len);
+            BitPacking::unchecked_pack(w, &last_chunk, &mut output[tail_start..][..packed_len]);
+        }
+    }
+
+    output.freeze()
+}
+
+/// Compute the `bit_width` output words that every FastLanes lane produces when packing
+/// `T = 8 * size_of::<T>()` copies of `constant`.
+///
+/// For constant input, each lane packs a periodic bit-stream of period `bit_width` made
+/// of the low `bit_width` bits of `constant`. Output word `k` contains bits
+/// `[k * T, (k + 1) * T)` of that stream, so its `j`-th bit equals bit
+/// `(k * T + j) mod bit_width` of `constant`.
+fn constant_lane_words<T: NativePType + BitPacking>(constant: T, bit_width: usize) -> Vec<T> {
+    let t_bits = 8 * size_of::<T>();
+    let mask = if bit_width == t_bits {
+        !T::zero()
+    } else {
+        (T::one() << bit_width) - T::one()
+    };
+    let s = constant & mask;
+    (0..bit_width)
+        .map(|k| {
+            let mut word = T::zero();
+            for j in 0..t_bits {
+                let bit_in_s = (k * t_bits + j) % bit_width;
+                let bit = (s >> bit_in_s) & T::one();
+                word = word | (bit << j);
+            }
+            word
+        })
+        .collect()
+}
+
+/// Encode a length-`len` array of `constant` values as a [`BitPackedArray`] without
+/// running the standard encode pipeline.
+///
+/// Returns an error if `constant` does not fit in `bit_width`, or if `bit_width` is too
+/// large for `T`.
+pub fn bitpack_encode_constant<T: NativePType + BitPacking + num_traits::ToPrimitive>(
+    constant: T,
+    bit_width: u8,
+    len: usize,
+    validity: Validity,
+) -> VortexResult<BitPackedArray> {
+    if bit_width as usize >= T::PTYPE.bit_width() {
+        vortex_bail!(
+            InvalidArgument: "Cannot pack - specified bit width {bit_width} >= {}",
+            T::PTYPE.bit_width()
+        );
+    }
+    let c = constant
+        .to_i128()
+        .ok_or_else(|| vortex_error::vortex_err!("cannot cast constant to i128"))?;
+    if c < 0 || c > (1i128 << bit_width) - 1 {
+        vortex_bail!(
+            InvalidArgument: "constant {c} does not fit in bit_width {bit_width}"
+        );
+    }
+
+    let packed = bitpack_constant(constant, bit_width, len).into_byte_buffer();
+    BitPacked::try_new(
+        BufferHandle::new_host(packed),
+        T::PTYPE,
+        validity,
+        None,
+        bit_width,
+        len,
+        0,
+    )
+}
+
 pub fn gather_patches(
     parray: &PrimitiveArray,
     bit_width: u8,
@@ -648,6 +785,38 @@ mod test {
 
         // Single chunk starting at patch index 0.
         assert_arrays_eq!(chunk_offsets, PrimitiveArray::from_iter([0u64]));
+        Ok(())
+    }
+
+    #[rstest::rstest]
+    #[case::aligned_1024(1024u32, 7, 5)]
+    #[case::aligned_multi(8192u32, 7, 5)]
+    #[case::partial_tail(2050u32, 7, 5)]
+    #[case::small(13u32, 5, 17)]
+    #[case::large_bitwidth(1_000_000u32, 18, 200_000)]
+    fn bitpack_constant_matches_full_encode(
+        #[case] len: u32,
+        #[case] bit_width: u8,
+        #[case] constant: u32,
+    ) -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let input = PrimitiveArray::from_iter(std::iter::repeat_n(constant, len as usize));
+
+        let slow = bitpack_encode(&input, bit_width, None, &mut ctx)?;
+        let fast = bitpack_encode_constant::<u32>(
+            constant,
+            bit_width,
+            len as usize,
+            Validity::NonNullable,
+        )?;
+
+        let slow_packed = slow.packed().clone().unwrap_host();
+        let fast_packed = fast.packed().clone().unwrap_host();
+        assert_eq!(slow_packed.as_slice(), fast_packed.as_slice());
+
+        // Unpack fast result and verify roundtrip.
+        let unpacked = fast.into_array().execute::<PrimitiveArray>(&mut ctx)?;
+        assert_arrays_eq!(unpacked, input);
         Ok(())
     }
 }
