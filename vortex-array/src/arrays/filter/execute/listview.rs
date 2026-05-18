@@ -9,22 +9,19 @@ use vortex_mask::MaskValues;
 
 use crate::arrays::ListViewArray;
 use crate::arrays::filter::execute::filter_validity;
-use crate::arrays::listview;
 use crate::arrays::listview::ListViewArrayExt;
-use crate::arrays::listview::ListViewRebuildMode;
+use crate::arrays::listview::compute::take::sum_sizes_if_cheap;
 
 /// [`ListViewArray`] filter implementation.
 ///
-/// This implementation is deliberately simple and read-optimized. We just filter the `offsets` and
-/// `sizes` arrays and reuse the original `elements` array. This works because `ListView` (unlike
-/// `List`) allows non-contiguous and out-of-order lists.
+/// Metadata-only: filter `offsets`, `sizes`, and `validity` while keeping the original
+/// `elements` buffer. This works because `ListView` (unlike `List`) allows non-contiguous and
+/// out-of-order lists.
 ///
-/// We don't slice the `elements` array because it would require computing min/max offsets and
-/// adjusting all offsets accordingly, which is not really worth the small potential memory we would
-/// be able to get back.
-///
-/// The trade-off is that we may keep unreferenced elements in memory, but this is acceptable since
-/// we're optimizing for read performance and the data isn't being copied.
+/// Compaction is deferred to the operator tree's root. The result carries a
+/// `reachable_elements_bound` (sum of kept sizes) that the export-time prune helper consults to
+/// decide whether to commit to a rebuild. Eagerly rebuilding here would duplicate that work
+/// whenever a downstream `filter` / `take` would narrow further.
 pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) -> ListViewArray {
     let elements = array.elements();
     let offsets = array.offsets();
@@ -61,19 +58,8 @@ pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) 
     // Propagate the reachable-elements bound: filter keeps a subset of rows, so the new bound
     // is `sum(sizes for surviving rows)`. Compute opportunistically — only if the filtered
     // sizes array is already host-primitive, otherwise leave as unknown.
-    let new_array = {
-        let bound = listview::compute::take::sum_sizes_if_cheap(new_array.sizes());
-        new_array.with_reachable_elements_bound(bound)
-    };
-
-    let kept_row_fraction = selection_mask.true_count() as f32 / array.sizes().len() as f32;
-    if kept_row_fraction < listview::compute::REBUILD_DENSITY_THRESHOLD {
-        new_array
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
-            .vortex_expect("ListViewArray rebuild to zero-copy List should always succeed")
-    } else {
-        new_array
-    }
+    let bound = sum_sizes_if_cheap(new_array.sizes());
+    new_array.with_reachable_elements_bound(bound)
 }
 
 #[cfg(test)]
