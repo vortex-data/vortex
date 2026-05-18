@@ -220,6 +220,11 @@ pub(crate) fn slice_device_patches(
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
+
+    use vortex::array::ArrayRef;
+    use vortex::array::assert_arrays_eq;
+    use vortex::array::buffer::BufferHandle;
     use vortex::array::validity::Validity::NonNullable;
     use vortex::buffer::Buffer;
     use vortex::session::VortexSession;
@@ -246,7 +251,6 @@ mod tests {
             values.into_array(),
             Some(chunk_offsets.into_array()),
         )?;
-
         assert!(patches.chunk_offsets().is_some());
         assert_eq!(patches.chunk_offset_at(0)?, 0);
         assert_eq!(patches.chunk_offset_at(1)?, 2);
@@ -266,7 +270,7 @@ mod tests {
     #[case::tail_chunk(4500..5000, 4500, vec![4, 5])]
     #[crate::test]
     async fn test_slice_device_patches(
-        #[case] range: std::ops::Range<usize>,
+        #[case] range: Range<usize>,
         #[case] expected_offset: usize,
         #[case] expected_chunk_offsets: Vec<u32>,
     ) -> VortexResult<()> {
@@ -311,8 +315,8 @@ mod tests {
     )]
     #[crate::test]
     async fn test_slice_device_patches_chunk_offset_widths(
-        #[case] chunk_offsets: vortex_array::ArrayRef,
-        #[case] expected: vortex::array::ArrayRef,
+        #[case] chunk_offsets: ArrayRef,
+        #[case] expected: ArrayRef,
     ) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let indices = PrimitiveArray::from_iter([100u32, 1100, 2100, 3100, 4100]);
@@ -329,14 +333,12 @@ mod tests {
         slice_device_patches(&patches, 1024..3000, &mut device_patches);
 
         let actual = PrimitiveArray::from_buffer_handle(
-            vortex::array::buffer::BufferHandle::new_host(
-                device_patches.chunk_offsets.to_host().await,
-            ),
+            BufferHandle::new_host(device_patches.chunk_offsets.to_host().await),
             device_patches.chunk_offset_ptype,
             NonNullable,
         )
         .into_array();
-        vortex::array::assert_arrays_eq!(expected, actual);
+        assert_arrays_eq!(expected, actual);
         assert_eq!(device_patches.n_chunks, 3);
         assert_eq!(device_patches.offset, 1024);
         assert_eq!(device_patches.offset_within_chunk, 0);
