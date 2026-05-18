@@ -270,60 +270,55 @@ where
         CompareOperator::Lt | CompareOperator::Lte | CompareOperator::Gt | CompareOperator::Gte
     );
 
-    // Materialise the per-element comparison result as a `[u8; len]` of 0/1, then bit-pack
-    // it in one `u64`-at-a-time pass via `BitBufferMut::collect_bool`. Doing the bit-pack
-    // up front (one `bits.set` per element) is a measurable bottleneck.
-    let mut bools = vec![0u8; len];
+    // Accumulate the result as a `BufferMut<u64>` with one chunk's 16 u64 = 1024 bits at
+    // a time. Each SWAR kernel writes its chunk's per-element bits directly here in
+    // element order — no scattered byte writes, no intermediate `Vec<bool>`.
+    let n_words = len.div_ceil(64);
+    let mut words = vortex_buffer::BufferMut::<u64>::with_capacity(n_words);
 
-    let mut eq_chunk = [0u8; 1024];
-    let mut lt_chunk = [0u8; 1024];
+    let mut eq_bits = [0u64; 16];
+    let mut lt_bits = [0u64; 16];
 
     for chunk_idx in 0..num_chunks {
         let chunk = &packed[chunk_idx * elems_per_chunk..][..elems_per_chunk];
-        let base = chunk_idx * 1024;
-        let in_chunk = 1024.min(len - base);
+        eq_bits.fill(0);
+        lt_bits.fill(0);
 
         if need_eq {
-            swar_eq_w8_u32(chunk, c, &mut eq_chunk);
+            swar_eq_w8_u32(chunk, c, &mut eq_bits);
         }
         if need_lt {
-            swar_lt_w8_u32(chunk, c, &mut lt_chunk);
+            swar_lt_w8_u32(chunk, c, &mut lt_bits);
         }
 
-        let dst = &mut bools[base..base + in_chunk];
-        match operator {
-            CompareOperator::Eq => dst.copy_from_slice(&eq_chunk[..in_chunk]),
-            CompareOperator::NotEq => {
-                for (d, &e) in dst.iter_mut().zip(&eq_chunk[..in_chunk]) {
-                    *d = 1 - e;
-                }
-            }
-            CompareOperator::Lt => dst.copy_from_slice(&lt_chunk[..in_chunk]),
-            CompareOperator::Lte => {
-                for (d, (&e, &l)) in dst
-                    .iter_mut()
-                    .zip(eq_chunk[..in_chunk].iter().zip(&lt_chunk[..in_chunk]))
-                {
-                    *d = e | l;
-                }
-            }
-            CompareOperator::Gt => {
-                for (d, (&e, &l)) in dst
-                    .iter_mut()
-                    .zip(eq_chunk[..in_chunk].iter().zip(&lt_chunk[..in_chunk]))
-                {
-                    *d = 1 - (e | l);
-                }
-            }
-            CompareOperator::Gte => {
-                for (d, &l) in dst.iter_mut().zip(&lt_chunk[..in_chunk]) {
-                    *d = 1 - l;
-                }
-            }
+        // Compose the chunk's 16 u64 bitmap from `eq_bits` / `lt_bits` per operator and
+        // append to `words`. Trailing zero bits past `len` are masked off at the end of
+        // the function.
+        let chunk_u64_start = chunk_idx * 16;
+        let chunk_u64_end = (chunk_u64_start + 16).min(n_words);
+        for i in chunk_u64_start..chunk_u64_end {
+            let local = i - chunk_u64_start;
+            let bit = match operator {
+                CompareOperator::Eq => eq_bits[local],
+                CompareOperator::NotEq => !eq_bits[local],
+                CompareOperator::Lt => lt_bits[local],
+                CompareOperator::Lte => lt_bits[local] | eq_bits[local],
+                CompareOperator::Gt => !(lt_bits[local] | eq_bits[local]),
+                CompareOperator::Gte => !lt_bits[local],
+            };
+            words.push(bit);
         }
     }
 
-    let bits = vortex_buffer::BitBuffer::collect_bool(len, |i| bools[i] != 0);
+    // Mask off any trailing bits past `len` in the final u64.
+    let tail_bits = len % 64;
+    if tail_bits != 0 {
+        let last_idx = words.len() - 1;
+        let mask = (1u64 << tail_bits) - 1;
+        words[last_idx] &= mask;
+    }
+
+    let bits = vortex_buffer::BitBuffer::new_with_offset(words.freeze().into_byte_buffer(), len, 0);
     let validity = validity.union_nullability(rhs_nullability);
     Ok(Some(BoolArray::new(bits, validity).into_array()))
 }
