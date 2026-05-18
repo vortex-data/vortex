@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #![allow(clippy::many_single_char_names)]
+#![allow(dead_code)]
+// Reference SWAR/Knuth-broadword kernels — kept for documentation and as the basis for
+// per-W hand-unrolled specialisations. The in-range dispatcher currently uses
+// `compare_block` (block-decompress + bit-pack), which benched faster across all widths.
 
 //! Broadword / SWAR fast paths for in-range constant comparison against a `BitPacked`
 //! array.

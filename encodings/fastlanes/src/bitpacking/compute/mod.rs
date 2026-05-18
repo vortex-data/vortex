@@ -3,6 +3,7 @@
 
 mod cast;
 mod compare;
+mod compare_block;
 mod compare_swar;
 mod filter;
 pub(crate) mod is_constant;
