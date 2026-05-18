@@ -43,7 +43,16 @@ use vortex_onpair::onpair_compress;
 
 use crate::timed_launch_strategy::TimedLaunchStrategy;
 
-const WARPS_PER_BLOCK: u32 = 8;
+/// Warps per block for the shmem family kernels. Tunable via
+/// `ONPAIR_WARPS_PER_BLOCK` for architecture sweeps. Capped at 32
+/// (kernel-side `WARPS_PER_BLOCK_MAX`). Default 8 matches the original
+/// A100-tuned configuration; on Hopper (GH200) 16 typically wins.
+fn warps_per_block() -> u32 {
+    match env::var("ONPAIR_WARPS_PER_BLOCK").ok().and_then(|s| s.parse::<u32>().ok()) {
+        Some(w) if (1..=32).contains(&w) => w,
+        _ => 8,
+    }
+}
 
 #[derive(Debug, Clone)]
 struct ColResult {
@@ -393,13 +402,14 @@ fn bench_column(
     let lens_v = lens_table_device.cuda_view::<u8>().unwrap();
     let output_v = device_output.cuda_view::<u8>().unwrap();
 
+    let warps = warps_per_block();
     let cfg = LaunchConfig {
         grid_dim: (
-            u32::try_from(total_chunks.div_ceil(WARPS_PER_BLOCK as usize)).unwrap(),
+            u32::try_from(total_chunks.div_ceil(warps as usize)).unwrap(),
             1,
             1,
         ),
-        block_dim: (WARPS_PER_BLOCK * 32, 1, 1),
+        block_dim: (warps * 32, 1, 1),
         shared_mem_bytes: 0,
     };
 
@@ -594,6 +604,70 @@ fn bench_column(
         });
     }
 
+    // tma16: stride-16 with dict TMA-prefetched into shared at block start
+    // via `cp.async.bulk` + mbarrier. Hopper-only (sm_90+). Avoids the
+    // `__syncthreads` barrier that killed the cooperative-load variant on
+    // both A100 and Hopper. Gated by dict fitting under 32 KB shared so we
+    // stay below the default 48 KB carveout.
+    {
+        let dict_bytes = dict_entries * 16;
+        let lens_bytes = dict_entries;
+        let scratch_offset = ((dict_bytes + lens_bytes + 15) & !15) as u32;
+        let shared_bytes =
+            scratch_offset + (warps as u32) * 544 + 64 /* mbarrier + slack */;
+        let tma_enabled = shared_bytes <= 32 * 1024;
+        if tma_enabled {
+            let dict_entries_u32 = dict_entries as u32;
+            let tma_cfg = LaunchConfig {
+                grid_dim: cfg.grid_dim,
+                block_dim: cfg.block_dim,
+                shared_mem_bytes: shared_bytes,
+            };
+            let timed = TimedLaunchStrategy::default();
+            let timer = timed.timer();
+            let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
+                .with_launch_strategy(Arc::new(timed));
+            let function = bench_ctx.load_function("onpair_shmem_tma", &[])?;
+            for _ in 0..2 {
+                bench_ctx.launch_kernel_config(&function, tma_cfg, total_tokens, |args| {
+                    args.arg(&codes_v)
+                        .arg(&chunk_offsets_v)
+                        .arg(&dict_padded_v)
+                        .arg(&lens_v)
+                        .arg(&output_v)
+                        .arg(&total_tokens_u64)
+                        .arg(&dict_entries_u32);
+                })?;
+            }
+            timer.store(0, Ordering::Relaxed);
+            for _ in 0..iters {
+                bench_ctx.launch_kernel_config(&function, tma_cfg, total_tokens, |args| {
+                    args.arg(&codes_v)
+                        .arg(&chunk_offsets_v)
+                        .arg(&dict_padded_v)
+                        .arg(&lens_v)
+                        .arg(&output_v)
+                        .arg(&total_tokens_u64)
+                        .arg(&dict_entries_u32);
+                })?;
+            }
+            let kernel_time_ms =
+                (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+            results.push(ColResult {
+                name: format!("{name} [tma16]"),
+                rows,
+                raw_bytes,
+                compressed_bytes,
+                ratio,
+                tokens: total_tokens,
+                dict_entries,
+                avg_token_len,
+                kernel_time_ms,
+                throughput_gib_s: to_gib_s(kernel_time_ms),
+            });
+        }
+    }
+
     Ok(results)
 }
 
@@ -601,34 +675,46 @@ fn print_results(label: &str, results: &[ColResult]) {
     println!();
     println!("# {label}");
     println!();
+    // GiB/s [raw] is decoded throughput (raw_bytes / time).
+    // GiB/s [cmp] is compressed-input throughput (compressed_bytes / time)
+    // = how fast the kernel eats compressed input. Equal to raw / ratio.
     println!(
-        "| Column | Rows | Raw MB | Ratio | Tokens | Dict | Avg B/tok | Decode ms | GiB/s |"
+        "| Column | Rows | Raw MB | Cmp MB | Ratio | Tokens | Dict | Avg B/tok | Decode ms | GiB/s [raw] | GiB/s [cmp] |"
     );
-    println!("|---|---|---|---|---|---|---|---|---|");
+    println!("|---|---|---|---|---|---|---|---|---|---|---|");
     let mut total_raw = 0usize;
+    let mut total_cmp = 0usize;
     let mut total_time_ms = 0.0;
     for r in results {
+        let cmp_throughput =
+            (r.compressed_bytes as f64 / (1024.0 * 1024.0 * 1024.0)) / (r.kernel_time_ms / 1000.0);
         println!(
-            "| {} | {} | {:.1} | {:.2}x | {} | {} | {:.2} | {:.3} | **{:.1}** |",
+            "| {} | {} | {:.1} | {:.1} | {:.2}x | {} | {} | {:.2} | {:.3} | **{:.1}** | {:.1} |",
             r.name,
             r.rows,
             r.raw_bytes as f64 / 1_048_576.0,
+            r.compressed_bytes as f64 / 1_048_576.0,
             r.ratio,
             r.tokens,
             r.dict_entries,
             r.avg_token_len,
             r.kernel_time_ms,
             r.throughput_gib_s,
+            cmp_throughput,
         );
         total_raw += r.raw_bytes;
+        total_cmp += r.compressed_bytes;
         total_time_ms += r.kernel_time_ms;
     }
     println!();
     println!(
-        "**Aggregate:** {:.2} GB raw, {:.2} ms total kernel time, {:.1} GiB/s effective.",
+        "**Aggregate:** {:.2} GB raw, {:.2} GB compressed ({:.2}x ratio), {:.2} ms total kernel time, {:.1} GiB/s [raw], {:.1} GiB/s [cmp].",
         total_raw as f64 / 1_000_000_000.0,
+        total_cmp as f64 / 1_000_000_000.0,
+        total_raw as f64 / total_cmp.max(1) as f64,
         total_time_ms,
         (total_raw as f64 / (1024.0 * 1024.0 * 1024.0)) / (total_time_ms / 1000.0),
+        (total_cmp as f64 / (1024.0 * 1024.0 * 1024.0)) / (total_time_ms / 1000.0),
     );
     println!();
 }

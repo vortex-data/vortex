@@ -22,7 +22,7 @@ use tpchgen_arrow::LineItemArrow;
 use tpchgen_arrow::RecordBatchIterator;
 
 const SCALE_FACTOR: f64 = 10.0;
-const OUTPUT_PATH: &str = "/home/ubuntu/clickbench/tpch_sf10_lineitem.parquet";
+const OUTPUT_PATH: &str = "/home/joe/data/tpch_sf10_lineitem.parquet";
 const NUM_PARTS: i32 = 32;
 const BATCH_SIZE: usize = 8192 * 8;
 const CHANNEL_CAPACITY: usize = 4;
