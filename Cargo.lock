@@ -4118,6 +4118,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fsst"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "65f4a8c268d4d18be0f79a897c758f4eb6b074cc5c4bab56e828f0657d6bd521"
+dependencies = [
+ "arrow-array 58.3.0",
+ "rand 0.9.4",
+]
+
+[[package]]
 name = "fsst-rs"
 version = "0.5.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5167,10 +5177,10 @@ dependencies = [
  "half",
  "humantime",
  "itertools 0.13.0",
- "lance-arrow",
- "lance-core",
+ "lance-arrow 4.0.1",
+ "lance-core 4.0.1",
  "lance-datafusion",
- "lance-encoding",
+ "lance-encoding 4.0.1",
  "lance-file",
  "lance-index",
  "lance-io",
@@ -5222,6 +5232,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "lance-arrow"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32f0efc3607bac297f1b41ac4dc3d6ffbadd36f61a24bec46b70c1f9bda1feda"
+dependencies = [
+ "arrow-array 58.3.0",
+ "arrow-buffer 58.3.0",
+ "arrow-cast 58.3.0",
+ "arrow-data 58.3.0",
+ "arrow-ipc 58.3.0",
+ "arrow-ord 58.3.0",
+ "arrow-schema 58.3.0",
+ "arrow-select 58.3.0",
+ "bytes",
+ "futures",
+ "getrandom 0.2.17",
+ "half",
+ "jsonb",
+ "num-traits",
+ "rand 0.9.4",
+]
+
+[[package]]
 name = "lance-bench"
 version = "0.1.0"
 dependencies = [
@@ -5231,7 +5264,7 @@ dependencies = [
  "clap",
  "futures",
  "lance",
- "lance-encoding",
+ "lance-encoding 6.0.0",
  "parquet 57.3.1",
  "tempfile",
  "tokio",
@@ -5244,6 +5277,17 @@ name = "lance-bitpacking"
 version = "4.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a48d232a2908645af0040f96c60a6387fea2df75e762d7033e93e17bb420c6a1"
+dependencies = [
+ "arrayref",
+ "paste",
+ "seq-macro",
+]
+
+[[package]]
+name = "lance-bitpacking"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c04b043c89e46ed3548f3b6423dcbdfac485e636c6e670d642424e954cfab66"
 dependencies = [
  "arrayref",
  "paste",
@@ -5268,7 +5312,44 @@ dependencies = [
  "deepsize",
  "futures",
  "itertools 0.13.0",
- "lance-arrow",
+ "lance-arrow 4.0.1",
+ "libc",
+ "log",
+ "mock_instant",
+ "moka",
+ "num_cpus",
+ "object_store 0.12.5",
+ "pin-project",
+ "prost 0.14.3",
+ "rand 0.9.4",
+ "roaring",
+ "serde_json",
+ "snafu",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "url",
+]
+
+[[package]]
+name = "lance-core"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62e954fbffdf484587e956d34613b187a4d4785f6a52b0d89b0c04f1d75d6246"
+dependencies = [
+ "arrow-array 58.3.0",
+ "arrow-buffer 58.3.0",
+ "arrow-schema 58.3.0",
+ "async-trait",
+ "byteorder",
+ "bytes",
+ "chrono",
+ "deepsize",
+ "futures",
+ "itertools 0.13.0",
+ "lance-arrow 6.0.0",
  "libc",
  "log",
  "mock_instant",
@@ -5309,8 +5390,8 @@ dependencies = [
  "datafusion-physical-expr 52.5.0",
  "futures",
  "jsonb",
- "lance-arrow",
- "lance-core",
+ "lance-arrow 4.0.1",
+ "lance-core 4.0.1",
  "lance-datagen",
  "log",
  "pin-project",
@@ -5357,14 +5438,53 @@ dependencies = [
  "bytemuck",
  "byteorder",
  "bytes",
- "fsst",
+ "fsst 4.0.1",
  "futures",
  "hex",
  "hyperloglogplus",
  "itertools 0.13.0",
- "lance-arrow",
- "lance-bitpacking",
- "lance-core",
+ "lance-arrow 4.0.1",
+ "lance-bitpacking 4.0.1",
+ "lance-core 4.0.1",
+ "log",
+ "lz4",
+ "num-traits",
+ "prost 0.14.3",
+ "prost-build",
+ "prost-types",
+ "rand 0.9.4",
+ "snafu",
+ "strum 0.26.3",
+ "tokio",
+ "tracing",
+ "xxhash-rust",
+ "zstd",
+]
+
+[[package]]
+name = "lance-encoding"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4386ea75123fe6194e166f0f1d375b6041d44507fe7b7c63ac0da493de78a2f"
+dependencies = [
+ "arrow-arith 58.3.0",
+ "arrow-array 58.3.0",
+ "arrow-buffer 58.3.0",
+ "arrow-cast 58.3.0",
+ "arrow-data 58.3.0",
+ "arrow-schema 58.3.0",
+ "arrow-select 58.3.0",
+ "bytemuck",
+ "byteorder",
+ "bytes",
+ "fsst 6.0.0",
+ "futures",
+ "hex",
+ "hyperloglogplus",
+ "itertools 0.13.0",
+ "lance-arrow 6.0.0",
+ "lance-bitpacking 6.0.0",
+ "lance-core 6.0.0",
  "log",
  "lz4",
  "num-traits",
@@ -5399,9 +5519,9 @@ dependencies = [
  "datafusion-common 52.5.0",
  "deepsize",
  "futures",
- "lance-arrow",
- "lance-core",
- "lance-encoding",
+ "lance-arrow 4.0.1",
+ "lance-core 4.0.1",
+ "lance-encoding 4.0.1",
  "lance-io",
  "log",
  "num-traits",
@@ -5446,11 +5566,11 @@ dependencies = [
  "half",
  "itertools 0.13.0",
  "jsonb",
- "lance-arrow",
- "lance-core",
+ "lance-arrow 4.0.1",
+ "lance-core 4.0.1",
  "lance-datafusion",
  "lance-datagen",
- "lance-encoding",
+ "lance-encoding 4.0.1",
  "lance-file",
  "lance-io",
  "lance-linalg",
@@ -5502,8 +5622,8 @@ dependencies = [
  "deepsize",
  "futures",
  "http",
- "lance-arrow",
- "lance-core",
+ "lance-arrow 4.0.1",
+ "lance-core 4.0.1",
  "lance-namespace",
  "log",
  "object_store 0.12.5",
@@ -5531,8 +5651,8 @@ dependencies = [
  "cc",
  "deepsize",
  "half",
- "lance-arrow",
- "lance-core",
+ "lance-arrow 4.0.1",
+ "lance-core 4.0.1",
  "num-traits",
  "rand 0.9.4",
 ]
@@ -5546,7 +5666,7 @@ dependencies = [
  "arrow 57.3.1",
  "async-trait",
  "bytes",
- "lance-core",
+ "lance-core 4.0.1",
  "lance-namespace-reqwest-client",
  "serde",
  "snafu",
@@ -5582,8 +5702,8 @@ dependencies = [
  "chrono",
  "deepsize",
  "futures",
- "lance-arrow",
- "lance-core",
+ "lance-arrow 4.0.1",
+ "lance-core 4.0.1",
  "lance-file",
  "lance-io",
  "log",
