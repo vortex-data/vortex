@@ -349,6 +349,38 @@ prototype doesn't fully resolve:
    pack `(offset, value_at_offset)` so the merge driver knows where to
    resume after a tie.
 
+## Relation to the OVC paper (arXiv:2210.00034)
+
+The naming nods to Graefe's Offset-Value Coding papers, but `ord_iter`
+is **OVC-inspired, not OVC.**
+
+What carries over from the paper:
+- Ord-bytes / normalized keys as the medium the merge driver operates on
+- Duplicate-bypass shortcut (exposed here as `OrdIter::skip(n)`)
+- Structural / run-aware shortcuts (exposed here as `OrdChunk::Constant`
+  and `OrdChunk::RunEnd` variants)
+- The compressed-form preservation insight: don't materialize through
+  bytes if you can keep the encoding's structure
+
+What does NOT carry over:
+- The specific `(offset, value)` OVC tuple against a same-side predecessor
+- The loser-invariant compare protocol ("loser's OVC unchanged after emit")
+- Single-integer-compare-per-row claim
+- The theorem on computing output OVCs without row-by-row comparison
+
+The byte-OVC algorithm from the paper was prototyped in earlier
+exploratory modules (now deleted). Benchmarks against SIMD memcmp on
+ord-byte rows showed byte-OVC's scalar prefix scan loses on modern
+hardware in our setup. `ord_iter` ships the simpler design that wins
+in our measurements.
+
+If a workload demands the paper's algorithm exactly (long shared
+prefixes between consecutive same-side rows, no SIMD memcmp available,
+or a slow interpreted comparator baseline), the chunk enum is the
+extension point: add `OrdChunk::ByteOvc { offsets, values }`, implement
+the loser-invariant compare on that variant in the merge driver. Trait,
+driver structure, and existing chunk variants are unchanged.
+
 ## Future work
 
 1. **Default `OrdIter` impl that canonicalises** — gives every Vortex
