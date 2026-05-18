@@ -98,12 +98,70 @@ For `W = 4` the same SWAR pattern works on nibbles with mask `0x88888888`.
 
 #### Route B — bit-sliced compare (covers all `W`)
 
-Generic alternative: for each output word, treat the contained `W`-bit slots
-as a vertical stack of `T_bits / W` slot values, and run the standard
-bit-sliced comparator on the lane's `W` output words at once. This is
-layout-aware (uses the FastLanes lane order) but doesn't need per-width
-SWAR masks. Slower than Route A on widths Route A supports, but simpler to
-write and works uniformly.
+FastLanes packs each lane's 32 elements as `W` output words where word `k`
+holds bit `k` of every element in element-index order. That layout is the
+natural input for a bit-sliced unsigned comparator: process the `W` bit
+planes top-down, maintaining two state words per lane —
+
+* `lt` — bit `i` set once element `i` has been proven `< c` at some prior
+  (more significant) bit.
+* `eq` — bit `i` set while element `i` has matched `c` at every prior bit.
+
+```
+let mut lt = 0u32;
+let mut eq = !0u32;
+for k in (0..W).rev() {
+    let a_k = lane[k];              // bit k of every element in this lane
+    let b_k = if (c >> k) & 1 == 1 { !0u32 } else { 0u32 };
+    lt |= eq & !a_k & b_k;          // A had 0, B had 1 at bit k, still equal above
+    eq &= !(a_k ^ b_k);             // remain equal iff this bit matches
+}
+// lt[i] set iff lane element i < c.
+```
+
+Because `c` is a single scalar, every `b_k` is a compile-time-known `0u32` or
+`!0u32`. Specialise the inner body per bit of `c`:
+
+```
+if (c >> k) & 1 == 0 {
+    eq &= !a_k;                     // lt unchanged: b_k & anything = 0
+} else {
+    lt |= eq & !a_k;
+    eq &= a_k;
+}
+```
+
+That's 1–2 word-ops per bit plane and ~`W` to `2W` ops total per lane (32
+elements). For `W = 7` it's ~10–14 ops vs. Route C's ~22; for `W ∈ {8, 16,
+32}` Route A's single SWAR + extract still wins.
+
+**Equality.** Drop `lt`, keep only `eq`. The per-bit specialisation collapses
+to one op per bit plane (either `eq &= a_k` or `eq &= !a_k`), so Eq is `W`
+word-ops per lane — strictly cheaper than the SWAR XOR + zero-detect for
+non-power-of-2 widths.
+
+**Deriving the other operators.** Same identities as Route A:
+`Gt(a, c) = Lt(c, a)` swaps operand roles, which in this loop is one toggle
+of every `b_k` (i.e. flip the `(c >> k) & 1` test); `Lte` and `Gte` invert
+the final `lt` word and mask off any trailing bits past the lane's end.
+
+**Output ordering.** `lt` already carries its bits in element-index order
+within the lane — bit `i` is element `i`. Assembling into the chunk-wide
+`BitBuffer` is one `OR ((lt as u32) << (lane_idx * 32))` per lane (assuming
+lanes pack consecutively); otherwise apply the FastLanes lane permutation
+on the way out.
+
+**Patches.** Same overlay pattern as Routes A and C — see *Patches and
+validity* below.
+
+**Layout precondition.** Route B's whole pitch depends on the lane's `W`
+output words actually being bit planes (one bit-position per word). If
+FastLanes instead stores horizontally-packed `W`-bit slots — the layout
+assumed by Routes A and C — Route B needs a one-time per-chunk bit-transpose
+to extract the planes, which costs roughly as much as a full unpack and
+nullifies the win. Confirm against the FastLanes source before committing;
+if the layout is horizontal, drop Route B in favour of Routes A (`W` a
+power of 2) + C (otherwise).
 
 #### Route C — Knuth broadword with rotation tables (covers all `W`)
 
