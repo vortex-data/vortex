@@ -788,11 +788,10 @@ mod tests {
         let data_size =
             write_arrow_to_vortex(Arc::clone(&object_store), file_path, batch.clone()).await?;
 
-        let reader = DefaultVortexReaderFactory::new(Arc::clone(&object_store))
-            .create_reader(
-                &PartitionedFile::new(file_path.to_string(), data_size),
-                &SESSION,
-            )?;
+        let reader = DefaultVortexReaderFactory::new(Arc::clone(&object_store)).create_reader(
+            &PartitionedFile::new(file_path.to_string(), data_size),
+            &SESSION,
+        )?;
         let vxf = SESSION
             .open_options()
             .with_file_size(data_size)
