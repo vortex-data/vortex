@@ -512,8 +512,9 @@ impl SerializedArray {
     /// serialized length of each buffer. This is useful for displaying buffer sizes
     /// without needing to access the actual buffer data.
     pub fn buffer_lengths(&self) -> Vec<usize> {
-        let fb_array = root::<fba::Array>(self.flatbuffer.as_ref())
-            .vortex_expect("SerializedArray flatbuffer must be a valid Array");
+        // SAFETY: `self.flatbuffer` was verified by `validate_array_tree` at construction
+        // time. Same invariant as `from_flatbuffer_and_segment_with_overrides` relies on.
+        let fb_array = unsafe { fba::root_as_array_unchecked(self.flatbuffer.as_ref()) };
         fb_array
             .buffers()
             .map(|buffers| buffers.iter().map(|b| b.length() as usize).collect())

@@ -210,3 +210,7 @@ harness = false
 [[bench]]
 name = "to_arrow"
 harness = false
+
+[[bench]]
+name = "buffer_lengths"
+harness = false
