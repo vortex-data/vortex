@@ -60,3 +60,7 @@ harness = false
 [[bench]]
 name = "block_execution"
 harness = false
+
+[[bench]]
+name = "decompress_filter"
+harness = false
