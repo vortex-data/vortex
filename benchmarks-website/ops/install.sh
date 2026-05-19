@@ -109,24 +109,39 @@ do
 done
 sudo systemctl daemon-reload
 
-# --- 6. Enable + start ---
+# --- 6. Enable (and start, if tokens are set) ---
 # The server unit needs a binary at /var/lib/vortex-bench/bin/vortex-bench-server
 # before it can start. If the symlink isn't there yet, the deploy timer
 # will lay one down on its first run; until then the server will fail.
 if [ ! -e "${STATE_DIR}/bin/vortex-bench-server" ]; then
     log "no binary at ${STATE_DIR}/bin/vortex-bench-server yet"
-    log "  → the first deploy-timer fire (within 90s) will build + install one."
+    log "  → the first deploy-timer fire (after start) will build + install one."
     log "  → tail it with: journalctl -fu vortex-bench-deploy.service"
 fi
 
-log "enabling + starting timers"
-sudo systemctl enable --now vortex-bench-deploy.timer
-sudo systemctl enable --now vortex-bench-backup.timer
+# Detect whether the operator has filled in the bearer tokens. An empty
+# INGEST_BEARER_TOKEN makes the server fail startup; an empty
+# ADMIN_BEARER_TOKEN leaves the admin listener unbound. Both cases mean
+# starting the units now would just produce noisy failures — enable but
+# defer the start instead.
+ingest_set=$(grep -E '^INGEST_BEARER_TOKEN=.+' "$ENV_FILE" || true)
+admin_set=$(grep -E '^ADMIN_BEARER_TOKEN=.+' "$ENV_FILE" || true)
 
-log "enabling vortex-bench-server (will start once a binary is in place)"
-sudo systemctl enable vortex-bench-server.service
-sudo systemctl start vortex-bench-server.service || \
-    log "  server didn't start — likely no binary yet; deploy timer will handle it"
+if [ -n "$ingest_set" ] && [ -n "$admin_set" ]; then
+    log "tokens present in ${ENV_FILE} — enabling + starting timers and server"
+    sudo systemctl enable --now vortex-bench-deploy.timer
+    sudo systemctl enable --now vortex-bench-backup.timer
+    sudo systemctl enable vortex-bench-server.service
+    sudo systemctl start vortex-bench-server.service || \
+        log "  server didn't start — likely no binary yet; deploy timer will handle it"
+else
+    log "tokens not set in ${ENV_FILE} — timers and server enabled but not started"
+    sudo systemctl enable vortex-bench-deploy.timer
+    sudo systemctl enable vortex-bench-backup.timer
+    sudo systemctl enable vortex-bench-server.service
+    log "after editing ${ENV_FILE}, run:"
+    log "  sudo systemctl start vortex-bench-server vortex-bench-deploy.timer vortex-bench-backup.timer"
+fi
 
 log ""
 log "install complete. Next steps:"
@@ -134,8 +149,8 @@ log "  1. Edit ${ENV_FILE} (chmod 0600, owned by ${RUN_USER})"
 log "     - INGEST_BEARER_TOKEN=$(openssl rand -hex 32)"
 log "     - ADMIN_BEARER_TOKEN=$(openssl rand -hex 32)"
 log "     - confirm REPO_DIR points at the actual checkout"
-log "  2. Wait ~90s for the first deploy-timer fire to build the binary"
-log "     and start the server with an empty DuckDB:"
+log "  2. After starting the timers, watch the first deploy fire build the"
+log "     binary and bring the server up with an empty DuckDB:"
 log "       journalctl -fu vortex-bench-deploy.service"
 log "       curl http://127.0.0.1:3000/health"
 log "  3. Populate the DB with the v2→v3 migration (server is stopped"
