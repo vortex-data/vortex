@@ -284,5 +284,19 @@ fn main() {
         "auto", col.bits(), "*", sz / 1024, r, col.dict_size(),
         dt.as_secs_f64() * 1000.0, mb_s,
     );
+    // Thorough (auto + multi-seed at the chosen bit width).  Only run if
+    // env var `THOROUGH=1` is set — otherwise the bench is too slow on
+    // larger corpora.
+    if env::var("THOROUGH").is_ok() {
+        let (col, dt) = time(1.max(reps / 2), || Column::compress_thorough(&bytes, &offsets).unwrap());
+        let sz = col.compressed_size();
+        let r = raw as f64 / sz as f64;
+        let mb_s = (raw as f64 / (1024.0 * 1024.0)) / dt.as_secs_f64();
+        println!(
+            "{:>16}  {:>5}  {:>5}  {:>10}  {:>10.4}  {:>8}  {:>10.2}  {:>8.1} MiB/s",
+            "thorough", col.bits(), "*", sz / 1024, r, col.dict_size(),
+            dt.as_secs_f64() * 1000.0, mb_s,
+        );
+    }
     let _ = raw_kb;
 }
