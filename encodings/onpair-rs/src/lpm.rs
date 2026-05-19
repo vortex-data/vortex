@@ -48,25 +48,48 @@ fn mask_u64(len: usize) -> u64 {
 /// Maps byte sequences (1..=`MAX_TOKEN_SIZE` bytes) to `Token` IDs. Always
 /// holds the 256 single-byte tokens after construction so
 /// `find_longest_match` is total.
-#[derive(Default, Debug, Clone)]
+///
+/// Length-1 tokens live in a flat `[Token; 256]` rather than the hash map,
+/// which lets `find_longest_match` skip the always-firing length-1 probe.
+/// Length 2..=8 tokens live in `short_map` (`(u64, u8)` key) and 9..=16 in
+/// `long_map` (`(u128, u8)` key).
+#[derive(Debug, Clone)]
 pub struct LongestPrefixMatcher {
-    /// Length 1..=8 tokens keyed by (low-8-byte u64, length).
+    /// Length 2..=8 tokens keyed by (low-8-byte u64, length).
     short_map: HashMap<(u64, u8), Token>,
     /// Length 9..=16 tokens keyed by (full u128, length).
     long_map: HashMap<(u128, u8), Token>,
+    /// `byte_to_id[b]` is the Token ID of the length-1 entry for byte `b`.
+    byte_to_id: [Token; 256],
     /// Next ID to assign. Stored as u32 so we can represent the full 16-bit
     /// token space (65 536 entries) without overflow.
     next_id: u32,
 }
 
+impl Default for LongestPrefixMatcher {
+    fn default() -> Self {
+        Self {
+            short_map: HashMap::new(),
+            long_map: HashMap::new(),
+            byte_to_id: [0u16; 256],
+            next_id: 0,
+        }
+    }
+}
+
 impl LongestPrefixMatcher {
     /// Pre-inserts the 256 single-byte tokens with IDs 0..=255.
     pub fn new() -> Self {
-        let mut short_map = HashMap::with_capacity(256);
+        let mut byte_to_id = [0u16; 256];
         for i in 0u16..=255 {
-            short_map.insert((i as u64, 1u8), i);
+            byte_to_id[i as usize] = i;
         }
-        Self { short_map, long_map: HashMap::new(), next_id: 256 }
+        Self {
+            short_map: HashMap::new(),
+            long_map: HashMap::new(),
+            byte_to_id,
+            next_id: 256,
+        }
     }
 
     /// Build a matcher from a complete dictionary: token at index `i`
@@ -77,6 +100,7 @@ impl LongestPrefixMatcher {
         let mut me = Self {
             short_map: HashMap::with_capacity(n.min(SHORT_LEN * 256)),
             long_map: HashMap::new(),
+            byte_to_id: [0u16; 256],
             next_id: n as u32,
         };
         for i in 0..n {
@@ -101,7 +125,11 @@ impl LongestPrefixMatcher {
     fn insert_internal(&mut self, data: &[u8], id: Token) {
         debug_assert!(!data.is_empty() && data.len() <= MAX_TOKEN_SIZE);
         let len = data.len();
-        if len <= SHORT_LEN {
+        let first = data[0] as usize;
+        if len == 1 {
+            // Length-1 tokens never enter the hash maps; lookup is direct.
+            self.byte_to_id[first] = id;
+        } else if len <= SHORT_LEN {
             let key = (load_le_u128(data) as u64) & mask_u64(len);
             self.short_map.insert((key, len as u8), id);
         } else {
@@ -120,7 +148,7 @@ impl LongestPrefixMatcher {
     pub fn find_longest_match(&self, data: &[u8]) -> (Token, usize) {
         let max_len = data.len().min(MAX_TOKEN_SIZE);
         let packed = load_le_u128(data);
-        // Long map: only relevant when at least 9 bytes of input are available.
+
         if max_len > SHORT_LEN && !self.long_map.is_empty() {
             for len in (SHORT_LEN + 1..=max_len).rev() {
                 let key = packed & mask_u128(len);
@@ -129,16 +157,21 @@ impl LongestPrefixMatcher {
                 }
             }
         }
-        // Short map: lengths min(max_len, 8) down to 1.
+        // Lengths 2..=8 — the length-1 case is served by the `byte_to_id`
+        // fallback below without a hash probe, which avoids the most common
+        // lookup on byte streams that don't fully cover their dictionary.
         let short_max = max_len.min(SHORT_LEN);
-        let low64 = packed as u64;
-        for len in (1..=short_max).rev() {
-            let key = low64 & mask_u64(len);
-            if let Some(&t) = self.short_map.get(&(key, len as u8)) {
-                return (t, len);
+        if short_max >= 2 {
+            let low64 = packed as u64;
+            for len in (2..=short_max).rev() {
+                let key = low64 & mask_u64(len);
+                if let Some(&t) = self.short_map.get(&(key, len as u8)) {
+                    return (t, len);
+                }
             }
         }
-        unreachable!("LPM precondition: every single-byte token must be present")
+        // Length-1 fallback — always succeeds (every byte has a base token).
+        (self.byte_to_id[data[0] as usize], 1)
     }
 
     /// Number of tokens currently in the matcher.
