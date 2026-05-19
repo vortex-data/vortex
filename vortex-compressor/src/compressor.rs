@@ -567,6 +567,7 @@ impl CascadingCompressor {
         .into_array())
     }
 
+    /// Compress very child slot of the array, then re-build it from them.
     fn compress_physical_slots(
         &self,
         array: &ArrayRef,
