@@ -8,6 +8,7 @@
 // token-count boundaries.
 
 use crate::bits::BitWriter;
+use crate::dispatch_bits;
 use crate::lpm::LongestPrefixMatcher;
 use crate::store::Store;
 use crate::types::BitWidth;
@@ -37,6 +38,21 @@ pub fn parse(
     store.boundaries.reserve(n + 1);
     store.boundaries.push(0);
 
+    // Dispatch to a monomorphised inner loop so the BitWriter's mask /
+    // shift fold to literals. Saves a couple of percent on the hot path.
+    dispatch_bits!(bits as u32, |B| {
+        parse_inner::<B>(data, offsets, n, lpm, store);
+    });
+}
+
+#[inline]
+fn parse_inner<const BITS: u32>(
+    data: &[u8],
+    offsets: &[u32],
+    n: usize,
+    lpm: &LongestPrefixMatcher,
+    store: &mut Store,
+) {
     let mut writer = BitWriter::new(store);
     let mut boundaries = Vec::with_capacity(n + 1);
     boundaries.push(0u32);
@@ -47,7 +63,7 @@ pub fn parse(
         let mut pos = s;
         while pos < e {
             let (tok, mlen) = lpm.find_longest_match(&data[pos..e]);
-            writer.write(tok);
+            writer.write_const::<BITS>(tok);
             pos += mlen;
         }
         boundaries.push(writer.tokens_written() as u32);

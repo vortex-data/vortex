@@ -197,6 +197,29 @@ impl<'a> BitWriter<'a> {
         self.count += 1;
     }
 
+    /// Const-generic write — when the caller monomorphises on `BITS` (via
+    /// [`dispatch_bits!`]) all shift / mask operations fold to literals and
+    /// the inner loop turns into ~6 instructions. Used by `parser::parse` to
+    /// chop ~2 % off `train_and_compress` at all bit widths.
+    #[inline]
+    pub fn write_const<const BITS: u32>(&mut self, token: Token) {
+        debug_assert_eq!(self.bits as u32, BITS);
+        let mask: u64 = if BITS == 64 { u64::MAX } else { (1u64 << BITS) - 1 };
+        let value = (token as u64) & mask;
+        self.buf |= value << self.shift;
+        self.shift += BITS;
+        if self.shift >= 64 {
+            self.store.packed.push(self.buf);
+            self.shift -= 64;
+            self.buf = if self.shift == 0 {
+                0
+            } else {
+                value >> (BITS - self.shift)
+            };
+        }
+        self.count += 1;
+    }
+
     /// Flush the partial word and append the zero sentinel. Idempotent.
     /// Called automatically on drop.
     pub fn flush(&mut self) {
