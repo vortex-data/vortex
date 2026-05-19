@@ -6,51 +6,30 @@
 #include <stdint.h>
 #include <string.h>
 
-// OnPair decompress — async dict-prefetch variant. **DOCUMENTED
-// NEGATIVE RESULT** on GH200 / Hopper (sm_90), measured May 2026.
+// OnPair decompress — Hopper TMA bulk dict-prefetch variant.
 //
-// Hypothesis was: stage the dict into shared via async copies
-// (`cp.async.cg.shared.global`, Ampere+) so the load overlaps with
-// other compute. One-time `cp.async.wait_all` + `__syncthreads` at
-// kernel start; no per-chunk sync. All warps then read dict from
-// shared at L1-class latency without contending for L1TEX scoreboards.
+// Round 3 of the dict-into-shared experiment, attempting the path the
+// runbook projects as the biggest H100/H200 win:
+//   - One thread issues `cp.async.bulk.shared::cta.global` for the
+//     whole dict in a single hardware-managed transaction (TMA),
+//     bypassing the per-thread LSU pipeline that `cp.async.cg` uses.
+//   - All threads wait via `mbarrier.try_wait.parity` (no
+//     __syncthreads in the critical path; the one-time init fence is
+//     per-launch).
 //
-// Measured outcome on GH200 (`onpair_real_data` TPC-H SF=10):
-//   l_returnflag   s16=133  tma16=89   (-33%)
-//   l_linestatus   s16=133  tma16=89   (-33%)
-//   l_shipinstruct s16=711  tma16=562  (-21%)
-//   l_shipmode     s16=454  tma16=319  (-30%)
+// Two earlier attempts in this slot failed:
+//   v1: separate `mbarrier.expect_tx` (without arrive) → spin
+//       deadlocked because arrival count never reached 0.
+//   v2: per-thread `cp.async.cg.shared.global` → ran but regressed
+//       22-33% (same anti-pattern as `__syncthreads`-based dict
+//       load), then crashed on max_len=16 columns with
+//       CUDA_ERROR_ILLEGAL_ADDRESS for reasons that didn't manifest
+//       on the max_len=1 columns.
 //
-// Same regression magnitude (-22 to -33%) as the synchronous
-// `onpair_shmem_ds` variant that was removed. The async overlap did
-// not help: the L1-scoreboard stall on the global dict reads is not
-// the dominant bottleneck on GH200 — the byte-pack/scan path is.
-// The runbook's projected +20-30% from TMA dict prefetch was based on
-// A100 ncu observations that don't transfer.
-//
-// Full TMA via `cp.async.bulk` + mbarrier was attempted first; the
-// mbarrier state machine had a bug (separate `expect_tx` instead of
-// combined `arrive.expect_tx`) that initially hung, then crashed.
-// Even after the fix, the projected outcome would mirror cp.async.cg
-// since both stage the same dict bytes into the same shared layout.
-//
-// Kept in-tree as a documented dead-end so future re-implementations
-// of this idea know to skip it.
-//
-// We chose `cp.async.cg` (per-thread, 16-B units) over TMA
-// (`cp.async.bulk.shared::cta.global` + mbarrier) because:
-//   - It's strictly less error-prone (no mbarrier state machine)
-//   - The dict here is small (≤ 32 KB after the host gate); the
-//     per-thread granularity is fine — 32 KB / (256 threads × 16 B) =
-//     8 issues per thread max
-//   - It's portable to sm_80 (A100) if anyone reruns this on Ampere
-//
-// ABI: same shape as `onpair_shmem` with a trailing `uint32_t
-// dict_entries`. Dynamic shared mem layout:
-//   [s_dict (dict_entries*16, 16-B aligned)]
-//   [s_lens (dict_entries)]
-//   [pad to 16]
-//   [s_buf_all (WPB * WARP_BUF_BYTES)]
+// This v3 uses TMA bulk + combined `arrive.expect_tx` + a single
+// asm block for init/arrive/bulk (compiler can't reorder), plus a
+// `__syncthreads()` after init so non-zero threads see the barrier
+// before they wait.
 
 #define WARP_BUF_BYTES 544u
 
@@ -66,7 +45,7 @@ __device__ inline uint32_t warp_inclusive_scan_u32_tma(uint32_t x, int lane) {
     return x;
 }
 
-#if __CUDA_ARCH__ >= 800
+#if __CUDA_ARCH__ >= 900
 extern "C" __global__ __launch_bounds__(512, 2) void onpair_shmem_tma(
     const uint16_t *__restrict codes, const uint64_t *__restrict chunk_offsets,
     const uint8_t *__restrict dict_padded, const uint8_t *__restrict lens,
@@ -77,36 +56,56 @@ extern "C" __global__ __launch_bounds__(512, 2) void onpair_shmem_tma(
 
     const uint32_t dict_bytes = dict_entries * 16u;
     uint8_t *s_dict = s_dyn;
-    uint8_t *s_lens = s_dyn + dict_bytes;
-    uint32_t scratch_offset = (dict_bytes + dict_entries + 15u) & ~15u;
+    uint64_t *bar = reinterpret_cast<uint64_t *>(s_dyn + dict_bytes);
+    uint8_t *s_lens = s_dyn + dict_bytes + 16u;
+    uint32_t scratch_offset = (dict_bytes + 16u + dict_entries + 15u) & ~15u;
     uint8_t *s_buf_all = s_dyn + scratch_offset;
 
     const int tid = (int)threadIdx.x;
-    const int block_threads = (int)blockDim.x;
 
-    // Async dict prefetch: each thread issues N×16-B `cp.async.cg` ops.
-    // Hopper supports many in-flight; on this small dict (≤ 32 KB) the
-    // pipeline depth is limited by the dict_u4_count / block_threads ratio.
-    const uint32_t dict_u4_count = dict_bytes >> 4;
-    uint32_t s_dict_smem = (uint32_t)__cvta_generic_to_shared(s_dict);
-    for (uint32_t k = (uint32_t)tid; k < dict_u4_count; k += (uint32_t)block_threads) {
+    if (tid == 0) {
+        const uint32_t bar_smem = (uint32_t)__cvta_generic_to_shared(bar);
+        const uint32_t dict_smem = (uint32_t)__cvta_generic_to_shared(s_dict);
+        // All three ops in a single asm block so the compiler cannot
+        // reorder them. `arrive.expect_tx` is the *combined* form —
+        // decrements arrival count AND sets the expected tx-bytes,
+        // both in one PTX instruction.
         asm volatile(
-            "cp.async.cg.shared.global [%0], [%1], 16;\n"
-            :: "r"(s_dict_smem + k * 16u),
-               "l"(dict_padded + (size_t)k * 16u)
+            "mbarrier.init.shared.b64 [%0], 1;\n"
+            "mbarrier.arrive.expect_tx.shared.b64 _, [%0], %2;\n"
+            "cp.async.bulk.shared::cta.global.mbarrier::complete_tx::bytes"
+            " [%1], [%3], %2, [%0];\n"
+            :: "r"(bar_smem),
+               "r"(dict_smem),
+               "r"(dict_bytes),
+               "l"(dict_padded)
             : "memory");
     }
-    asm volatile("cp.async.commit_group;\n");
+    // Init must be visible to all threads before they wait.
+    __syncthreads();
 
-    // Overlap: while the async dict load progresses, load lens (small,
-    // already L1-hot) synchronously.
-    for (uint32_t k = (uint32_t)tid; k < dict_entries; k += (uint32_t)block_threads) {
+    // Overlap window: load `lens` (small, L1-hot) while the TMA is in
+    // flight. Re-reads `lens` from global; on the next launch the L1
+    // is warm so this is cheap.
+    for (uint32_t k = (uint32_t)tid; k < dict_entries; k += (uint32_t)blockDim.x) {
         s_lens[k] = lens[k];
     }
 
-    // Wait for the dict prefetch to complete + block-wide visibility.
-    asm volatile("cp.async.wait_all;\n");
-    __syncthreads();
+    // Per-thread spin on the mbarrier. Hopper's mbarrier wait is
+    // hardware-backed; idle warps don't block other warps from making
+    // progress.
+    {
+        const uint32_t bar_smem = (uint32_t)__cvta_generic_to_shared(bar);
+        asm volatile(
+            "{\n"
+            " .reg .pred P1;\n"
+            "WAIT_LOOP: mbarrier.try_wait.parity.shared.b64 P1, [%0], 0;\n"
+            " @P1 bra WAIT_DONE;\n"
+            " bra WAIT_LOOP;\n"
+            "WAIT_DONE:\n"
+            "}\n"
+            :: "r"(bar_smem));
+    }
 
     const int lane = tid & 31;
     const uint32_t warp_id = (uint32_t)tid >> 5;
@@ -165,6 +164,5 @@ extern "C" __global__ __launch_bounds__(512, 2) void onpair_shmem_tma(
 extern "C" __global__ void onpair_shmem_tma(
     const uint16_t *, const uint64_t *, const uint8_t *, const uint8_t *,
     uint8_t *, uint64_t, uint32_t) {
-    // No-op stub on pre-Ampere; the bench gates on availability.
 }
 #endif

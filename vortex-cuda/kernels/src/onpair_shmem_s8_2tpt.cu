@@ -6,23 +6,21 @@
 #include <stdint.h>
 #include <string.h>
 
-// OnPair decompress — stride-8 specialization.
+// OnPair decompress — stride-8 × 2 tokens per thread.
 //
-// When the OnPair dict's max entry length is ≤ 8 B (known AOT from the
-// dict's `lens` table), the host packs the dict at 8 B / entry instead of
-// 16, halving dict size and L1 sector traffic. This kernel:
-//   * loads tokens as `uint64_t` (8 B aligned).
-//   * unrolls the byte memcpy ladder to 8 iterations (NVCC emits ~8
-//     conditional byte stores instead of 16), halving Phase 3 LSU work.
-//
-// ABI matches `onpair_shmem` except `dict_padded` is stride-8 (size =
-// `dict_size * 8`) and `MAX_LEN_PAD = 8`.
+// Combines the stride-8 specialization (dict `max_len ≤ 8`, 8-deep
+// byte ladder, u64 token load) with the 2-tokens-per-thread amortization
+// (64 tokens per warp-chunk). For columns where the dict fits the
+// stride-8 bound *and* the mean token length is short, this is faster
+// than `onpair_shmem_2tpt` because each lane writes at most 16
+// conditional bytes (2 tokens × 8 ladder depth) versus 32 in the
+// stride-16 variant.
 
 #define WARPS_PER_BLOCK_MAX 16u
-#define WARP_BUF_BYTES 544u
+#define WARP_BUF_BYTES 1056u
 #define MAX_LEN_PAD 8u
 
-__device__ inline uint32_t warp_inclusive_scan_u32_s8(uint32_t x, int lane) {
+__device__ inline uint32_t warp_inclusive_scan_u32_s8_2tpt(uint32_t x, int lane) {
     constexpr unsigned mask = 0xffffffffu;
 #pragma unroll
     for (int offset = 1; offset < 32; offset <<= 1) {
@@ -34,7 +32,7 @@ __device__ inline uint32_t warp_inclusive_scan_u32_s8(uint32_t x, int lane) {
     return x;
 }
 
-extern "C" __global__ __launch_bounds__(512, 4) void onpair_shmem_s8(
+extern "C" __global__ __launch_bounds__(512, 4) void onpair_shmem_s8_2tpt(
     const uint16_t *__restrict codes, const uint64_t *__restrict chunk_offsets,
     const uint8_t *__restrict dict_padded_s8, const uint8_t *__restrict lens,
     uint8_t *__restrict output_bytes, uint64_t total_tokens) {
@@ -43,41 +41,59 @@ extern "C" __global__ __launch_bounds__(512, 4) void onpair_shmem_s8(
     const uint32_t warp_id = threadIdx.x >> 5;
     const uint64_t chunk =
         (uint64_t)blockIdx.x * (uint64_t)(blockDim.x >> 5) + (uint64_t)warp_id;
-    if (chunk * 32u >= total_tokens) {
+    if (chunk * 64u >= total_tokens) {
         return;
     }
 
     __shared__ __align__(16) uint8_t s_buf_all[WARPS_PER_BLOCK_MAX * WARP_BUF_BYTES];
     uint8_t *s_buf_base = &s_buf_all[warp_id * WARP_BUF_BYTES];
 
-    const uint64_t i = chunk * 32u + (uint64_t)lane;
-    const bool active = (i < total_tokens);
-    uint64_t token = 0u;
-    uint32_t len = 0u;
-    if (active) {
-        const uint32_t code = (uint32_t)codes[i];
-        // Stride-8 aligned u64 load (vs uint4 in the stride-16 variant).
-        token = *reinterpret_cast<const uint64_t *>(dict_padded_s8 + (size_t)code * MAX_LEN_PAD);
-        len = (uint32_t)lens[code];
+    const uint64_t i0 = chunk * 64u + (uint64_t)lane;
+    const uint64_t i1 = i0 + 32u;
+    const bool a0 = (i0 < total_tokens);
+    const bool a1 = (i1 < total_tokens);
+
+    uint64_t t0 = 0u, t1 = 0u;
+    uint32_t l0 = 0u, l1 = 0u;
+    if (a0) {
+        const uint32_t c0 = (uint32_t)codes[i0];
+        t0 = *reinterpret_cast<const uint64_t *>(dict_padded_s8 + (size_t)c0 * MAX_LEN_PAD);
+        l0 = (uint32_t)lens[c0];
+    }
+    if (a1) {
+        const uint32_t c1 = (uint32_t)codes[i1];
+        t1 = *reinterpret_cast<const uint64_t *>(dict_padded_s8 + (size_t)c1 * MAX_LEN_PAD);
+        l1 = (uint32_t)lens[c1];
     }
 
-    const uint32_t incl = warp_inclusive_scan_u32_s8(len, lane);
-    const uint32_t excl = incl - len;
-    const uint32_t warp_total = __shfl_sync(mask, incl, 31);
+    const uint32_t incl0 = warp_inclusive_scan_u32_s8_2tpt(l0, lane);
+    const uint32_t excl0 = incl0 - l0;
+    const uint32_t warp_total0 = __shfl_sync(mask, incl0, 31);
+    const uint32_t incl1 = warp_inclusive_scan_u32_s8_2tpt(l1, lane);
+    const uint32_t excl1 = incl1 - l1;
+    const uint32_t warp_total1 = __shfl_sync(mask, incl1, 31);
+    const uint32_t warp_total = warp_total0 + warp_total1;
 
     const uint64_t out_start = chunk_offsets[chunk];
     const uint32_t head_pre = (16u - (uint32_t)(out_start & 15u)) & 15u;
     uint8_t *s_buf = s_buf_base + ((16u - head_pre) & 15u);
 
-    // Phase 3: byte-write to shared, max 8 stores per lane (vs 16 in
-    // the stride-16 variant). Each `if` predicates one byte store; NVCC
-    // unrolls the loop fully because MAX_LEN_PAD is a compile-time const.
-    if (active) {
-        const uint8_t *token_bytes = reinterpret_cast<const uint8_t *>(&token);
+    if (a0) {
+        const uint8_t *tb0 = reinterpret_cast<const uint8_t *>(&t0);
 #pragma unroll
         for (int j = 0; j < (int)MAX_LEN_PAD; ++j) {
-            if (j < (int)len) {
-                s_buf[excl + j] = token_bytes[j];
+            if (j < (int)l0) {
+                s_buf[excl0 + j] = tb0[j];
+            }
+        }
+    }
+    if (a1) {
+        const uint8_t *tb1 = reinterpret_cast<const uint8_t *>(&t1);
+        const uint32_t base1 = warp_total0 + excl1;
+#pragma unroll
+        for (int j = 0; j < (int)MAX_LEN_PAD; ++j) {
+            if (j < (int)l1) {
+                s_buf[base1 + j] = tb1[j];
             }
         }
     }

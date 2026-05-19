@@ -63,6 +63,7 @@ rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros", "fs"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-cuda = { path = ".", features = ["_test-harness"] }
+vortex-cuda-macros = { workspace = true }
 vortex-fsst = { workspace = true, features = ["_test-harness"] }
 vortex-onpair = { workspace = true }
 
@@ -121,3 +122,15 @@ harness = false
 [[bench]]
 name = "onpair_real_data"
 harness = false
+
+[[bench]]
+name = "nvcomp_zstd_real_data"
+harness = false
+
+[[bench]]
+name = "vortex_fsst_real_data"
+harness = false
+
+[[bin]]
+name = "dump_parquet_strings"
+path = "src/bin/dump_parquet_strings.rs"

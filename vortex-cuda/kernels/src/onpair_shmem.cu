@@ -40,7 +40,7 @@ __device__ inline uint32_t warp_inclusive_scan_u32(uint32_t x, int lane) {
     return x;
 }
 
-extern "C" __global__ __launch_bounds__(256, 8) void onpair_shmem(
+extern "C" __global__ __launch_bounds__(512, 4) void onpair_shmem(
     const uint16_t *__restrict codes, const uint64_t *__restrict chunk_offsets,
     const uint8_t *__restrict dict_padded, const uint8_t *__restrict lens,
     uint8_t *__restrict output_bytes, uint64_t total_tokens) {
@@ -74,11 +74,22 @@ extern "C" __global__ __launch_bounds__(256, 8) void onpair_shmem(
 
     // Phase 3: byte-write to shared, shifted so `s_buf + head` is
     // 16-aligned (matching the head-aligned global cursor below).
+    // The byte ladder is `#pragma unroll`'d to 16 explicit conditional
+    // stores from register — otherwise NVCC lowers `memcpy(_, _, len)`
+    // with runtime `len` to a runtime loop that first spills `token`
+    // to local memory (HBM!) and then byte-reads it back, which costs
+    // ~one HBM round trip per byte.
     const uint64_t out_start = chunk_offsets[chunk];
     const uint32_t head_pre = (16u - (uint32_t)(out_start & 15u)) & 15u;
     uint8_t *s_buf = s_buf_base + ((16u - head_pre) & 15u);
     if (active) {
-        memcpy(s_buf + excl, &token, (size_t)len);
+        const uint8_t *token_bytes = reinterpret_cast<const uint8_t *>(&token);
+#pragma unroll
+        for (int j = 0; j < 16; ++j) {
+            if (j < (int)len) {
+                s_buf[excl + j] = token_bytes[j];
+            }
+        }
     }
     __syncwarp();
 

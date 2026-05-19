@@ -44,13 +44,14 @@ use vortex_onpair::onpair_compress;
 use crate::timed_launch_strategy::TimedLaunchStrategy;
 
 /// Warps per block for the shmem family kernels. Tunable via
-/// `ONPAIR_WARPS_PER_BLOCK` for architecture sweeps. Capped at 32
-/// (kernel-side `WARPS_PER_BLOCK_MAX`). Default 8 matches the original
-/// A100-tuned configuration; on Hopper (GH200) 16 typically wins.
+/// `ONPAIR_WARPS_PER_BLOCK` for architecture sweeps. Capped at 16
+/// (kernel-side `WARPS_PER_BLOCK_MAX`). Default 12 is the Hopper
+/// (GH200) sweet spot for the `2tpt` kernel after the §7.1
+/// local-memory spill fix; on A100 the original 8 wins.
 fn warps_per_block() -> u32 {
     match env::var("ONPAIR_WARPS_PER_BLOCK").ok().and_then(|s| s.parse::<u32>().ok()) {
-        Some(w) if (1..=32).contains(&w) => w,
-        _ => 8,
+        Some(w) if (1..=16).contains(&w) => w,
+        _ => 12,
     }
 }
 
@@ -282,6 +283,10 @@ fn bench_column(
     } else {
         0.0
     };
+    // `const1`/`const2` specialisations: every dict entry has the same
+    // (small) length — common for categorical/code columns.
+    let all_len_1 = !lens_table.is_empty() && lens_table.iter().all(|&l| l == 1);
+    let all_len_2 = !lens_table.is_empty() && lens_table.iter().all(|&l| l == 2);
     let mut sorted_lens: Vec<u8> = lens_table.clone();
     sorted_lens.sort_unstable();
     let pct = |p: f64| -> u8 {
@@ -326,6 +331,81 @@ fn bench_column(
     }
     assert_eq!(chunk_acc, total_size);
 
+    // 64-token chunks for the `2tpt` variant (2 tokens per thread).
+    let total_chunks_64 = total_tokens.div_ceil(64);
+    let mut chunk_offsets_64: Vec<u64> = Vec::with_capacity(total_chunks_64 + 1);
+    chunk_offsets_64.push(0u64);
+    let mut chunk_acc_64: u64 = 0;
+    for c in 0..total_chunks_64 {
+        let start = c * 64;
+        let end = (start + 64).min(total_tokens);
+        for i in start..end {
+            chunk_acc_64 += lens_table[codes_u16[i] as usize] as u64;
+        }
+        chunk_offsets_64.push(chunk_acc_64);
+    }
+    assert_eq!(chunk_acc_64, total_size);
+
+    // 128-token chunks for the `4tpt` variant (4 tokens per thread).
+    let total_chunks_128 = total_tokens.div_ceil(128);
+    let mut chunk_offsets_128: Vec<u64> = Vec::with_capacity(total_chunks_128 + 1);
+    chunk_offsets_128.push(0u64);
+    let mut chunk_acc_128: u64 = 0;
+    for c in 0..total_chunks_128 {
+        let start = c * 128;
+        let end = (start + 128).min(total_tokens);
+        for i in start..end {
+            chunk_acc_128 += lens_table[codes_u16[i] as usize] as u64;
+        }
+        chunk_offsets_128.push(chunk_acc_128);
+    }
+    assert_eq!(chunk_acc_128, total_size);
+
+    // 256-token chunks for the `8tpt` variant (8 tokens per thread).
+    let total_chunks_256 = total_tokens.div_ceil(256);
+    let mut chunk_offsets_256: Vec<u64> = Vec::with_capacity(total_chunks_256 + 1);
+    chunk_offsets_256.push(0u64);
+    let mut chunk_acc_256: u64 = 0;
+    for c in 0..total_chunks_256 {
+        let start = c * 256;
+        let end = (start + 256).min(total_tokens);
+        for i in start..end {
+            chunk_acc_256 += lens_table[codes_u16[i] as usize] as u64;
+        }
+        chunk_offsets_256.push(chunk_acc_256);
+    }
+    assert_eq!(chunk_acc_256, total_size);
+
+    // 512-token chunks for the `16tpt` variant.
+    let total_chunks_512 = total_tokens.div_ceil(512);
+    let mut chunk_offsets_512: Vec<u64> = Vec::with_capacity(total_chunks_512 + 1);
+    chunk_offsets_512.push(0u64);
+    let mut chunk_acc_512: u64 = 0;
+    for c in 0..total_chunks_512 {
+        let start = c * 512;
+        let end = (start + 512).min(total_tokens);
+        for i in start..end {
+            chunk_acc_512 += lens_table[codes_u16[i] as usize] as u64;
+        }
+        chunk_offsets_512.push(chunk_acc_512);
+    }
+    assert_eq!(chunk_acc_512, total_size);
+
+    // 1024-token chunks for the `32tpt` variant.
+    let total_chunks_1024 = total_tokens.div_ceil(1024);
+    let mut chunk_offsets_1024: Vec<u64> = Vec::with_capacity(total_chunks_1024 + 1);
+    chunk_offsets_1024.push(0u64);
+    let mut chunk_acc_1024: u64 = 0;
+    for c in 0..total_chunks_1024 {
+        let start = c * 1024;
+        let end = (start + 1024).min(total_tokens);
+        for i in start..end {
+            chunk_acc_1024 += lens_table[codes_u16[i] as usize] as u64;
+        }
+        chunk_offsets_1024.push(chunk_acc_1024);
+    }
+    assert_eq!(chunk_acc_1024, total_size);
+
     let bits = onpair.bits() as usize;
     let codes_bits = total_tokens * bits;
     let compressed_bytes = (codes_bits + 7) / 8 + dict_bytes_host.len() + 8;
@@ -367,6 +447,11 @@ fn bench_column(
     // Build stride-4 / stride-8 dicts on host (cheap re-pack from `dict_padded`).
     let mut dict_s8: Vec<u8> = vec![0u8; dict_entries * 8];
     let mut dict_s4: Vec<u8> = vec![0u8; dict_entries * 4];
+    // `dict_const1` is a stride-1 dict used by the const1 specialisation
+    // (which only applies when every entry has length 1, but it's cheap to
+    // always build).
+    let mut dict_const1: Vec<u8> = vec![0u8; dict_entries];
+    let mut dict_const2: Vec<u8> = vec![0u8; dict_entries * 2];
     for i in 0..dict_entries {
         let src_off = i * vortex_onpair::MAX_TOKEN_SIZE;
         let len = lens_table[i] as usize;
@@ -374,27 +459,51 @@ fn bench_column(
         dict_s8[i * 8..i * 8 + n8].copy_from_slice(&dict_padded[src_off..src_off + n8]);
         let n4 = len.min(4);
         dict_s4[i * 4..i * 4 + n4].copy_from_slice(&dict_padded[src_off..src_off + n4]);
+        if len >= 1 {
+            dict_const1[i] = dict_padded[src_off];
+        }
+        let n2 = len.min(2);
+        dict_const2[i * 2..i * 2 + n2].copy_from_slice(&dict_padded[src_off..src_off + n2]);
     }
     let _ = pad_to_4; // s4 (shared-mem dict) variant was removed — regressed on A100
     let codes_device = block_on(setup_ctx.copy_to_device(codes_u16)?)?;
     let dict_padded_device = block_on(setup_ctx.copy_to_device(dict_padded)?)?;
     let dict_s8_device = block_on(setup_ctx.copy_to_device(dict_s8)?)?;
     let dict_s4_device = block_on(setup_ctx.copy_to_device(dict_s4)?)?;
+    let dict_const1_device = block_on(setup_ctx.copy_to_device(dict_const1)?)?;
+    let dict_const2_device = block_on(setup_ctx.copy_to_device(dict_const2)?)?;
     let dict_table_device = block_on(setup_ctx.copy_to_device(dict_table)?)?;
     let dict_bytes_device = block_on(setup_ctx.copy_to_device(dict_bytes_with_pad)?)?;
     let output_offsets_device = block_on(setup_ctx.copy_to_device(output_offsets)?)?;
     let validity_device = block_on(setup_ctx.copy_to_device(validity_bits)?)?;
     let lens_table_device = block_on(setup_ctx.copy_to_device(lens_table.clone())?)?;
     let chunk_offsets_device = block_on(setup_ctx.copy_to_device(chunk_offsets)?)?;
+    let chunk_offsets_64_device =
+        block_on(setup_ctx.copy_to_device(chunk_offsets_64)?)?;
+    let chunk_offsets_128_device =
+        block_on(setup_ctx.copy_to_device(chunk_offsets_128)?)?;
+    let chunk_offsets_256_device =
+        block_on(setup_ctx.copy_to_device(chunk_offsets_256)?)?;
+    let chunk_offsets_512_device =
+        block_on(setup_ctx.copy_to_device(chunk_offsets_512)?)?;
+    let chunk_offsets_1024_device =
+        block_on(setup_ctx.copy_to_device(chunk_offsets_1024)?)?;
     let device_output = block_on(
         setup_ctx.copy_to_device(vec![0u8; total_size as usize + 16])?,
     )?;
 
     let codes_v = codes_device.cuda_view::<u16>().unwrap();
     let chunk_offsets_v = chunk_offsets_device.cuda_view::<u64>().unwrap();
+    let chunk_offsets_64_v = chunk_offsets_64_device.cuda_view::<u64>().unwrap();
+    let chunk_offsets_128_v = chunk_offsets_128_device.cuda_view::<u64>().unwrap();
+    let chunk_offsets_256_v = chunk_offsets_256_device.cuda_view::<u64>().unwrap();
+    let chunk_offsets_512_v = chunk_offsets_512_device.cuda_view::<u64>().unwrap();
+    let chunk_offsets_1024_v = chunk_offsets_1024_device.cuda_view::<u64>().unwrap();
     let dict_padded_v = dict_padded_device.cuda_view::<u8>().unwrap();
     let dict_s8_v = dict_s8_device.cuda_view::<u8>().unwrap();
     let dict_s4_v = dict_s4_device.cuda_view::<u8>().unwrap();
+    let dict_const1_v = dict_const1_device.cuda_view::<u8>().unwrap();
+    let dict_const2_v = dict_const2_device.cuda_view::<u8>().unwrap();
     let dict_table_v = dict_table_device.cuda_view::<u64>().unwrap();
     let dict_bytes_v = dict_bytes_device.cuda_view::<u8>().unwrap();
     let output_offsets_v = output_offsets_device.cuda_view::<u64>().unwrap();
@@ -518,6 +627,648 @@ fn bench_column(
         });
     }
 
+    // 2tpt: 2 tokens per thread, 64 tokens per warp-chunk. Production
+    // baseline doubled along the per-warp-iter axis to amortise the
+    // head/tail epilogue on short-mean columns. Same byte-packed output.
+    {
+        let total_chunks_64 = total_tokens.div_ceil(64);
+        let cfg_2tpt = LaunchConfig {
+            grid_dim: (
+                u32::try_from(total_chunks_64.div_ceil(warps as usize)).unwrap(),
+                1,
+                1,
+            ),
+            block_dim: (warps * 32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let timed = TimedLaunchStrategy::default();
+        let timer = timed.timer();
+        let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
+            .with_launch_strategy(Arc::new(timed));
+        let function = bench_ctx.load_function("onpair_shmem_2tpt", &[])?;
+        for _ in 0..2 {
+            bench_ctx.launch_kernel_config(&function, cfg_2tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_64_v)
+                    .arg(&dict_padded_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        timer.store(0, Ordering::Relaxed);
+        for _ in 0..iters {
+            bench_ctx.launch_kernel_config(&function, cfg_2tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_64_v)
+                    .arg(&dict_padded_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        let kernel_time_ms = (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+        results.push(ColResult {
+            name: format!("{name} [2tpt]"),
+            rows,
+            raw_bytes,
+            compressed_bytes,
+            ratio,
+            tokens: total_tokens,
+            dict_entries,
+            avg_token_len,
+            kernel_time_ms,
+            throughput_gib_s: to_gib_s(kernel_time_ms),
+        });
+    }
+
+    // 4tpt: 4 tokens per thread, 128 tokens per warp-chunk.
+    {
+        let total_chunks_128 = total_tokens.div_ceil(128);
+        let cfg_4tpt = LaunchConfig {
+            grid_dim: (
+                u32::try_from(total_chunks_128.div_ceil(warps as usize)).unwrap(),
+                1,
+                1,
+            ),
+            block_dim: (warps * 32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let timed = TimedLaunchStrategy::default();
+        let timer = timed.timer();
+        let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
+            .with_launch_strategy(Arc::new(timed));
+        let function = bench_ctx.load_function("onpair_shmem_4tpt", &[])?;
+        for _ in 0..2 {
+            bench_ctx.launch_kernel_config(&function, cfg_4tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_128_v)
+                    .arg(&dict_padded_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        timer.store(0, Ordering::Relaxed);
+        for _ in 0..iters {
+            bench_ctx.launch_kernel_config(&function, cfg_4tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_128_v)
+                    .arg(&dict_padded_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        let kernel_time_ms = (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+        results.push(ColResult {
+            name: format!("{name} [4tpt]"),
+            rows,
+            raw_bytes,
+            compressed_bytes,
+            ratio,
+            tokens: total_tokens,
+            dict_entries,
+            avg_token_len,
+            kernel_time_ms,
+            throughput_gib_s: to_gib_s(kernel_time_ms),
+        });
+    }
+
+    // s8_8tpt: stride-8 + 8 tokens per thread (256 tokens per warp).
+    if pad_to_8 {
+        let total_chunks_256 = total_tokens.div_ceil(256);
+        let cfg_8tpt = LaunchConfig {
+            grid_dim: (
+                u32::try_from(total_chunks_256.div_ceil(warps as usize)).unwrap(),
+                1,
+                1,
+            ),
+            block_dim: (warps * 32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let timed = TimedLaunchStrategy::default();
+        let timer = timed.timer();
+        let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
+            .with_launch_strategy(Arc::new(timed));
+        let function = bench_ctx.load_function("onpair_shmem_s8_8tpt", &[])?;
+        for _ in 0..2 {
+            bench_ctx.launch_kernel_config(&function, cfg_8tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_256_v)
+                    .arg(&dict_s8_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        timer.store(0, Ordering::Relaxed);
+        for _ in 0..iters {
+            bench_ctx.launch_kernel_config(&function, cfg_8tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_256_v)
+                    .arg(&dict_s8_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        let kernel_time_ms = (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+        results.push(ColResult {
+            name: format!("{name} [s8_8tpt]"),
+            rows,
+            raw_bytes,
+            compressed_bytes,
+            ratio,
+            tokens: total_tokens,
+            dict_entries,
+            avg_token_len,
+            kernel_time_ms,
+            throughput_gib_s: to_gib_s(kernel_time_ms),
+        });
+    }
+
+    // s8_4tpt: stride-8 + 4 tokens per thread (128 tokens per warp).
+    if pad_to_8 {
+        let total_chunks_128 = total_tokens.div_ceil(128);
+        let cfg_4tpt = LaunchConfig {
+            grid_dim: (
+                u32::try_from(total_chunks_128.div_ceil(warps as usize)).unwrap(),
+                1,
+                1,
+            ),
+            block_dim: (warps * 32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let timed = TimedLaunchStrategy::default();
+        let timer = timed.timer();
+        let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
+            .with_launch_strategy(Arc::new(timed));
+        let function = bench_ctx.load_function("onpair_shmem_s8_4tpt", &[])?;
+        for _ in 0..2 {
+            bench_ctx.launch_kernel_config(&function, cfg_4tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_128_v)
+                    .arg(&dict_s8_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        timer.store(0, Ordering::Relaxed);
+        for _ in 0..iters {
+            bench_ctx.launch_kernel_config(&function, cfg_4tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_128_v)
+                    .arg(&dict_s8_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        let kernel_time_ms = (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+        results.push(ColResult {
+            name: format!("{name} [s8_4tpt]"),
+            rows,
+            raw_bytes,
+            compressed_bytes,
+            ratio,
+            tokens: total_tokens,
+            dict_entries,
+            avg_token_len,
+            kernel_time_ms,
+            throughput_gib_s: to_gib_s(kernel_time_ms),
+        });
+    }
+
+    // s8_2tpt: stride-8 + 2 tokens per thread. Combines short-stride
+    // byte ladder with 2tpt amortisation.
+    if pad_to_8 {
+        let total_chunks_64 = total_tokens.div_ceil(64);
+        let cfg_2tpt = LaunchConfig {
+            grid_dim: (
+                u32::try_from(total_chunks_64.div_ceil(warps as usize)).unwrap(),
+                1,
+                1,
+            ),
+            block_dim: (warps * 32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let timed = TimedLaunchStrategy::default();
+        let timer = timed.timer();
+        let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
+            .with_launch_strategy(Arc::new(timed));
+        let function = bench_ctx.load_function("onpair_shmem_s8_2tpt", &[])?;
+        for _ in 0..2 {
+            bench_ctx.launch_kernel_config(&function, cfg_2tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_64_v)
+                    .arg(&dict_s8_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        timer.store(0, Ordering::Relaxed);
+        for _ in 0..iters {
+            bench_ctx.launch_kernel_config(&function, cfg_2tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_64_v)
+                    .arg(&dict_s8_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        let kernel_time_ms = (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+        results.push(ColResult {
+            name: format!("{name} [s8_2tpt]"),
+            rows,
+            raw_bytes,
+            compressed_bytes,
+            ratio,
+            tokens: total_tokens,
+            dict_entries,
+            avg_token_len,
+            kernel_time_ms,
+            throughput_gib_s: to_gib_s(kernel_time_ms),
+        });
+    }
+
+    // const1: every dict entry is exactly 1 byte. Each warp writes one
+    // aligned 512-byte block via 32 uint4 stores; no warp scan, no shared
+    // staging, no byte ladder. Dict served from L1 at stride-1.
+    if all_len_1 {
+        // Each warp covers 32 lanes × 16 tokens = 512 tokens. chunks =
+        // ceil(total_tokens / 512); grid_dim = ceil(chunks / warps).
+        let total_chunks_512 = total_tokens.div_ceil(512);
+        let cfg_const1 = LaunchConfig {
+            grid_dim: (
+                u32::try_from(total_chunks_512.div_ceil(warps as usize)).unwrap(),
+                1,
+                1,
+            ),
+            block_dim: (warps * 32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let timed = TimedLaunchStrategy::default();
+        let timer = timed.timer();
+        let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
+            .with_launch_strategy(Arc::new(timed));
+        let function = bench_ctx.load_function("onpair_shmem_const1", &[])?;
+        for _ in 0..2 {
+            bench_ctx.launch_kernel_config(&function, cfg_const1, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&dict_const1_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        timer.store(0, Ordering::Relaxed);
+        for _ in 0..iters {
+            bench_ctx.launch_kernel_config(&function, cfg_const1, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&dict_const1_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        let kernel_time_ms = (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+        results.push(ColResult {
+            name: format!("{name} [const1]"),
+            rows,
+            raw_bytes,
+            compressed_bytes,
+            ratio,
+            tokens: total_tokens,
+            dict_entries,
+            avg_token_len,
+            kernel_time_ms,
+            throughput_gib_s: to_gib_s(kernel_time_ms),
+        });
+    }
+
+    // const2: every dict entry is exactly 2 bytes. Each warp produces
+    // 256 tokens × 2 B = 512 B via 32 aligned uint4 stores.
+    if all_len_2 {
+        let total_chunks_256 = total_tokens.div_ceil(256);
+        let cfg_const2 = LaunchConfig {
+            grid_dim: (
+                u32::try_from(total_chunks_256.div_ceil(warps as usize)).unwrap(),
+                1,
+                1,
+            ),
+            block_dim: (warps * 32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let timed = TimedLaunchStrategy::default();
+        let timer = timed.timer();
+        let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
+            .with_launch_strategy(Arc::new(timed));
+        let function = bench_ctx.load_function("onpair_shmem_const2", &[])?;
+        for _ in 0..2 {
+            bench_ctx.launch_kernel_config(&function, cfg_const2, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&dict_const2_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        timer.store(0, Ordering::Relaxed);
+        for _ in 0..iters {
+            bench_ctx.launch_kernel_config(&function, cfg_const2, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&dict_const2_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        let kernel_time_ms = (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+        results.push(ColResult {
+            name: format!("{name} [const2]"),
+            rows,
+            raw_bytes,
+            compressed_bytes,
+            ratio,
+            tokens: total_tokens,
+            dict_entries,
+            avg_token_len,
+            kernel_time_ms,
+            throughput_gib_s: to_gib_s(kernel_time_ms),
+        });
+    }
+
+    // s4l1_32tpt: stride-4 + 32 tokens per thread (1024 tokens per warp).
+    // Capped at WPB=8 by `__launch_bounds__(256, 2)`. Half the resident
+    // warps of 16tpt; net gain only if the per-warp amortisation
+    // dominates the occupancy loss.
+    if pad_to_4 {
+        let total_chunks_1024 = total_tokens.div_ceil(1024);
+        let warps_32tpt = warps.min(8);
+        let cfg_32tpt = LaunchConfig {
+            grid_dim: (
+                u32::try_from(total_chunks_1024.div_ceil(warps_32tpt as usize)).unwrap(),
+                1,
+                1,
+            ),
+            block_dim: (warps_32tpt * 32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let timed = TimedLaunchStrategy::default();
+        let timer = timed.timer();
+        let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
+            .with_launch_strategy(Arc::new(timed));
+        let function = bench_ctx.load_function("onpair_shmem_s4l1_32tpt", &[])?;
+        for _ in 0..2 {
+            bench_ctx.launch_kernel_config(&function, cfg_32tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_1024_v)
+                    .arg(&dict_s4_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        timer.store(0, Ordering::Relaxed);
+        for _ in 0..iters {
+            bench_ctx.launch_kernel_config(&function, cfg_32tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_1024_v)
+                    .arg(&dict_s4_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        let kernel_time_ms = (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+        results.push(ColResult {
+            name: format!("{name} [s4l1_32tpt]"),
+            rows,
+            raw_bytes,
+            compressed_bytes,
+            ratio,
+            tokens: total_tokens,
+            dict_entries,
+            avg_token_len,
+            kernel_time_ms,
+            throughput_gib_s: to_gib_s(kernel_time_ms),
+        });
+    }
+
+    // s4l1_16tpt: stride-4 + 16 tokens per thread (512 tokens per warp).
+    // Capped at WPB=8 by the kernel's `__launch_bounds__(256, 4)`.
+    if pad_to_4 {
+        let total_chunks_512 = total_tokens.div_ceil(512);
+        let warps_16tpt = warps.min(8);
+        let cfg_16tpt = LaunchConfig {
+            grid_dim: (
+                u32::try_from(total_chunks_512.div_ceil(warps_16tpt as usize)).unwrap(),
+                1,
+                1,
+            ),
+            block_dim: (warps_16tpt * 32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let timed = TimedLaunchStrategy::default();
+        let timer = timed.timer();
+        let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
+            .with_launch_strategy(Arc::new(timed));
+        let function = bench_ctx.load_function("onpair_shmem_s4l1_16tpt", &[])?;
+        for _ in 0..2 {
+            bench_ctx.launch_kernel_config(&function, cfg_16tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_512_v)
+                    .arg(&dict_s4_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        timer.store(0, Ordering::Relaxed);
+        for _ in 0..iters {
+            bench_ctx.launch_kernel_config(&function, cfg_16tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_512_v)
+                    .arg(&dict_s4_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        let kernel_time_ms = (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+        results.push(ColResult {
+            name: format!("{name} [s4l1_16tpt]"),
+            rows,
+            raw_bytes,
+            compressed_bytes,
+            ratio,
+            tokens: total_tokens,
+            dict_entries,
+            avg_token_len,
+            kernel_time_ms,
+            throughput_gib_s: to_gib_s(kernel_time_ms),
+        });
+    }
+
+    // s4l1_8tpt: stride-4 + 8 tokens per thread (256 tokens per warp).
+    if pad_to_4 {
+        let total_chunks_256 = total_tokens.div_ceil(256);
+        let cfg_8tpt = LaunchConfig {
+            grid_dim: (
+                u32::try_from(total_chunks_256.div_ceil(warps as usize)).unwrap(),
+                1,
+                1,
+            ),
+            block_dim: (warps * 32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let timed = TimedLaunchStrategy::default();
+        let timer = timed.timer();
+        let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
+            .with_launch_strategy(Arc::new(timed));
+        let function = bench_ctx.load_function("onpair_shmem_s4l1_8tpt", &[])?;
+        for _ in 0..2 {
+            bench_ctx.launch_kernel_config(&function, cfg_8tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_256_v)
+                    .arg(&dict_s4_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        timer.store(0, Ordering::Relaxed);
+        for _ in 0..iters {
+            bench_ctx.launch_kernel_config(&function, cfg_8tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_256_v)
+                    .arg(&dict_s4_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        let kernel_time_ms = (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+        results.push(ColResult {
+            name: format!("{name} [s4l1_8tpt]"),
+            rows,
+            raw_bytes,
+            compressed_bytes,
+            ratio,
+            tokens: total_tokens,
+            dict_entries,
+            avg_token_len,
+            kernel_time_ms,
+            throughput_gib_s: to_gib_s(kernel_time_ms),
+        });
+    }
+
+    // s4l1_4tpt: stride-4 + 4 tokens per thread (128 tokens per warp).
+    if pad_to_4 {
+        let total_chunks_128 = total_tokens.div_ceil(128);
+        let cfg_4tpt = LaunchConfig {
+            grid_dim: (
+                u32::try_from(total_chunks_128.div_ceil(warps as usize)).unwrap(),
+                1,
+                1,
+            ),
+            block_dim: (warps * 32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let timed = TimedLaunchStrategy::default();
+        let timer = timed.timer();
+        let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
+            .with_launch_strategy(Arc::new(timed));
+        let function = bench_ctx.load_function("onpair_shmem_s4l1_4tpt", &[])?;
+        for _ in 0..2 {
+            bench_ctx.launch_kernel_config(&function, cfg_4tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_128_v)
+                    .arg(&dict_s4_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        timer.store(0, Ordering::Relaxed);
+        for _ in 0..iters {
+            bench_ctx.launch_kernel_config(&function, cfg_4tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_128_v)
+                    .arg(&dict_s4_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        let kernel_time_ms = (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+        results.push(ColResult {
+            name: format!("{name} [s4l1_4tpt]"),
+            rows,
+            raw_bytes,
+            compressed_bytes,
+            ratio,
+            tokens: total_tokens,
+            dict_entries,
+            avg_token_len,
+            kernel_time_ms,
+            throughput_gib_s: to_gib_s(kernel_time_ms),
+        });
+    }
+
+    // s4l1_2tpt: stride-4 + 2 tokens per thread.
+    if pad_to_4 {
+        let total_chunks_64 = total_tokens.div_ceil(64);
+        let cfg_2tpt = LaunchConfig {
+            grid_dim: (
+                u32::try_from(total_chunks_64.div_ceil(warps as usize)).unwrap(),
+                1,
+                1,
+            ),
+            block_dim: (warps * 32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+        let timed = TimedLaunchStrategy::default();
+        let timer = timed.timer();
+        let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
+            .with_launch_strategy(Arc::new(timed));
+        let function = bench_ctx.load_function("onpair_shmem_s4l1_2tpt", &[])?;
+        for _ in 0..2 {
+            bench_ctx.launch_kernel_config(&function, cfg_2tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_64_v)
+                    .arg(&dict_s4_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        timer.store(0, Ordering::Relaxed);
+        for _ in 0..iters {
+            bench_ctx.launch_kernel_config(&function, cfg_2tpt, total_tokens, |args| {
+                args.arg(&codes_v)
+                    .arg(&chunk_offsets_64_v)
+                    .arg(&dict_s4_v)
+                    .arg(&lens_v)
+                    .arg(&output_v)
+                    .arg(&total_tokens_u64);
+            })?;
+        }
+        let kernel_time_ms = (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+        results.push(ColResult {
+            name: format!("{name} [s4l1_2tpt]"),
+            rows,
+            raw_bytes,
+            compressed_bytes,
+            ratio,
+            tokens: total_tokens,
+            dict_entries,
+            avg_token_len,
+            kernel_time_ms,
+            throughput_gib_s: to_gib_s(kernel_time_ms),
+        });
+    }
+
     // s8: stride-8 kernel, only if dict max_len ≤ 8.
     if pad_to_8 {
         let timed = TimedLaunchStrategy::default();
@@ -615,7 +1366,15 @@ fn bench_column(
         let scratch_offset = ((dict_bytes + lens_bytes + 15) & !15) as u32;
         let shared_bytes =
             scratch_offset + (warps as u32) * 544 + 64 /* mbarrier + slack */;
-        let tma_enabled = shared_bytes <= 32 * 1024;
+        // Opt-in via env: kernel crashes with CUDA_ERROR_ILLEGAL_ADDRESS
+        // on max_len=16 columns; see kernels/src/onpair_shmem_tma.cu
+        // header for the v1/v2/v3 attempt history. Kept gated so the
+        // baseline numbers aren't poisoned.
+        // Hopper supports up to ~228 KB shared per SM with opt-in; bump cap to
+        // 96 KB to allow stride-16 dict (64 KB at 4096-entry dict-12) to
+        // reside in shared.
+        let tma_enabled = env::var("ONPAIR_ENABLE_TMA").is_ok()
+            && shared_bytes <= 96 * 1024;
         if tma_enabled {
             let dict_entries_u32 = dict_entries as u32;
             let tma_cfg = LaunchConfig {
@@ -628,6 +1387,17 @@ fn bench_column(
             let mut bench_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
                 .with_launch_strategy(Arc::new(timed));
             let function = bench_ctx.load_function("onpair_shmem_tma", &[])?;
+            // Dynamic shared memory above 48 KB requires opting into a
+            // larger max via cuFuncSetAttribute on Hopper.
+            if shared_bytes > 48 * 1024 {
+                use cudarc::driver::sys::CUfunction_attribute_enum;
+                function
+                    .set_attribute(
+                        CUfunction_attribute_enum::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                        shared_bytes as i32,
+                    )
+                    .map_err(|e| anyhow::anyhow!("set max dynamic shared: {e}"))?;
+            }
             for _ in 0..2 {
                 bench_ctx.launch_kernel_config(&function, tma_cfg, total_tokens, |args| {
                     args.arg(&codes_v)
@@ -750,7 +1520,14 @@ fn run_dataset(path: PathBuf) -> anyhow::Result<()> {
         let Some((total_raw, total_rows)) = measure_utf8_column(&batches, col_idx) else {
             continue;
         };
-        if total_rows < 100_000 || total_raw < 1_000_000 {
+        // Filter: skip narrow / tiny columns. Threshold is intentionally
+        // low (≥100 KB raw) so genomics-style narrow-ID columns can be
+        // exercised; tighten via ONPAIR_MIN_BYTES env var if needed.
+        let min_bytes = env::var("ONPAIR_MIN_BYTES")
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(100_000);
+        if total_rows < 100_000 || total_raw < min_bytes {
             continue;
         }
         let (row_cap, raw_bytes) = find_row_cap(&batches, col_idx);

@@ -188,6 +188,9 @@ zls.build.json
 *.npz
 .downloads
 benchmarks/.out
+# vortex-bench downloads & schema sparse-checkouts
+vortex-bench/data/
+vortex-bench/public_bi/
 
 # Scratch
 *.vortex
@@ -235,6 +238,22 @@ sweep.timestamp
 
 # CUDA
 *.ptx
+# Generated PTX output tree (build.rs writes to kernels/gen/{debug,release})
+vortex-cuda/kernels/gen/
+# Nsight Compute reports / projects
+*.ncu-rep
+*.ncu-proj
+
+# CMake — covers external/fsst-gpu and any other CMake-based subproject
+CMakeFiles/
+CMakeCache.txt
+CMakeUserPresets.json
+cmake_install.cmake
+cmake-build-*/
+CTestTestfile.cmake
+# Explicit catch-all for fsst-gpu's build tree (already-tracked files may need
+# `git rm --cached external/fsst-gpu/build` to drop from the index)
+external/fsst-gpu/build/
 
 # Perfetto
 trace*.json
