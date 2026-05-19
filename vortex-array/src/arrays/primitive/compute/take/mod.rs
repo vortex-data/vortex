@@ -44,6 +44,51 @@ static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(||
     }
 });
 
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+static AVX2_AVAILABLE: LazyLock<bool> = LazyLock::new(|| is_x86_feature_detected!("avx2"));
+
+/// Take `indices` from `values` into a caller-supplied uninitialized destination slice,
+/// selecting the AVX2 gather kernel when available and falling back to scalar otherwise.
+///
+/// `dst` must hold at least `indices.len()` cells; this function initializes exactly
+/// `indices.len()` cells starting from `dst[0]`.
+///
+/// Used by the chunked execution engine to call into the same SIMD gather as the
+/// canonical executor without allocating a heap [`Buffer`] per invocation.
+pub fn take_into_uninit<V: NativePType, I: crate::dtype::UnsignedPType>(
+    values: &[V],
+    indices: &[I],
+    dst: &mut [std::mem::MaybeUninit<V>],
+) {
+    assert!(dst.len() >= indices.len());
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    {
+        if *AVX2_AVAILABLE {
+            // SAFETY: AVX2 feature confirmed at runtime; dst capacity ≥ indices.len().
+            unsafe {
+                avx2::take_avx2_into::<V, I>(values, indices, dst.as_mut_ptr().cast::<V>());
+            }
+            return;
+        }
+    }
+    take_into_uninit_scalar::<V, I>(values, indices, dst);
+}
+
+fn take_into_uninit_scalar<V: NativePType, I: IntegerPType>(
+    values: &[V],
+    indices: &[I],
+    dst: &mut [std::mem::MaybeUninit<V>],
+) {
+    let ptr = dst.as_mut_ptr();
+    for (i, idx) in indices.iter().enumerate() {
+        // SAFETY: dst capacity asserted by caller; values bounds-checked.
+        unsafe {
+            ptr.add(i)
+                .write(std::mem::MaybeUninit::new(values[(*idx).as_()]));
+        }
+    }
+}
+
 trait TakeImpl: Send + Sync {
     fn take(
         &self,

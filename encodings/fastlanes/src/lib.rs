@@ -15,6 +15,8 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 
+#[doc(hidden)]
+pub mod _chunked_exec;
 pub mod bit_transpose;
 mod bitpacking;
 mod delta;

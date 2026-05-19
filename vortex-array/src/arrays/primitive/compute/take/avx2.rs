@@ -110,6 +110,114 @@ where
 // AVX2 SIMD take algorithm
 // ---------------------------------------------------------------------------
 
+/// AVX2 gather into a caller-supplied uninitialized destination slice. Used by the chunked
+/// execution engine to avoid the per-call [`Buffer`] allocation that [`take_avx2`] performs.
+///
+/// # Safety
+///
+/// `dst` must be writable for `indices.len()` elements. The `avx2` feature must be enabled
+/// on the calling CPU.
+#[target_feature(enable = "avx2")]
+pub(crate) unsafe fn take_avx2_into<V: NativePType, I: UnsignedPType>(
+    buffer: &[V],
+    indices: &[I],
+    dst: *mut V,
+) {
+    macro_rules! dispatch_into {
+        ($indices:ty, $values:ty) => {{
+            dispatch_into!($indices, $values, cast: $values);
+        }};
+        ($indices:ty, $values:ty, cast: $cast:ty) => {{
+            let indices = unsafe { std::mem::transmute::<&[I], &[$indices]>(indices) };
+            let values = unsafe { std::mem::transmute::<&[V], &[$cast]>(buffer) };
+            let dst = dst.cast::<$cast>();
+            unsafe {
+                exec_take_into::<$cast, $indices, AVX2Gather>(values, indices, dst);
+            }
+        }};
+    }
+
+    if buffer.is_empty() {
+        // Zero-fill: caller still needs dst[..indices.len()] initialized.
+        for i in 0..indices.len() {
+            // SAFETY: caller guarantees dst has indices.len() cells.
+            unsafe { dst.add(i).write(V::default()) };
+        }
+        return;
+    }
+
+    match (I::PTYPE, V::PTYPE) {
+        (PType::U8, PType::I32) => dispatch_into!(u8, i32),
+        (PType::U8, PType::U32) => dispatch_into!(u8, u32),
+        (PType::U8, PType::I64) => dispatch_into!(u8, i64),
+        (PType::U8, PType::U64) => dispatch_into!(u8, u64),
+        (PType::U16, PType::I32) => dispatch_into!(u16, i32),
+        (PType::U16, PType::U32) => dispatch_into!(u16, u32),
+        (PType::U16, PType::I64) => dispatch_into!(u16, i64),
+        (PType::U16, PType::U64) => dispatch_into!(u16, u64),
+        (PType::U32, PType::I32) => dispatch_into!(u32, i32),
+        (PType::U32, PType::U32) => dispatch_into!(u32, u32),
+        (PType::U32, PType::I64) => dispatch_into!(u32, i64),
+        (PType::U32, PType::U64) => dispatch_into!(u32, u64),
+        (PType::U8, PType::F32) => dispatch_into!(u8, f32, cast: u32),
+        (PType::U16, PType::F32) => dispatch_into!(u16, f32, cast: u32),
+        (PType::U32, PType::F32) => dispatch_into!(u32, f32, cast: u32),
+        (PType::U64, PType::F32) => dispatch_into!(u64, f32, cast: u32),
+        (PType::U8, PType::F64) => dispatch_into!(u8, f64, cast: u64),
+        (PType::U16, PType::F64) => dispatch_into!(u16, f64, cast: u64),
+        (PType::U32, PType::F64) => dispatch_into!(u32, f64, cast: u64),
+        (PType::U64, PType::F64) => dispatch_into!(u64, f64, cast: u64),
+        _ => {
+            // Scalar fallback into dst.
+            for (i, idx) in indices.iter().enumerate() {
+                // SAFETY: dst has indices.len() cells; values bounds-checked.
+                unsafe { dst.add(i).write(buffer[(*idx).as_()]) };
+            }
+        }
+    }
+}
+
+/// Same SIMD gather loop as [`exec_take`], but writes into a caller-supplied destination
+/// pointer instead of allocating. Marked `#[target_feature(enable = "avx2")]` so the AVX2
+/// gather intrinsics inside `AVX2Gather::gather` get the correct codegen context.
+///
+/// # Safety
+///
+/// - `dst` must point to at least `indices.len()` writable elements.
+/// - The `avx2` feature must be enabled on the caller's CPU.
+#[target_feature(enable = "avx2")]
+unsafe fn exec_take_into<Value, Idx, Gather>(
+    values: &[Value],
+    indices: &[Idx],
+    dst: *mut Value,
+) where
+    Value: Copy,
+    Idx: UnsignedPType,
+    Gather: GatherFn<Idx, Value>,
+{
+    let indices_len = indices.len();
+    let max_index = Idx::from(values.len()).unwrap_or_else(|| Idx::max_value());
+    let mut offset = 0;
+    while offset + Gather::STRIDE < indices_len {
+        // SAFETY: same as exec_take.
+        unsafe {
+            Gather::gather(
+                indices.as_ptr().add(offset),
+                max_index,
+                values.as_ptr(),
+                dst.add(offset),
+            )
+        };
+        offset += Gather::WIDTH;
+    }
+    while offset < indices_len {
+        // SAFETY: offset < indices_len ≤ dst capacity; indices[offset] is bounds-checked.
+        unsafe { dst.add(offset).write(values[indices[offset].as_()]) };
+        offset += 1;
+    }
+    debug_assert_eq!(offset, indices_len);
+}
+
 /// Takes the specified indices into a new [`Buffer`] using AVX2 SIMD.
 ///
 /// # Panics
@@ -121,7 +229,7 @@ where
 /// The caller must ensure the `avx2` feature is enabled.
 #[target_feature(enable = "avx2")]
 #[doc(hidden)]
-unsafe fn take_avx2<V: NativePType, I: UnsignedPType>(buffer: &[V], indices: &[I]) -> Buffer<V> {
+pub(crate) unsafe fn take_avx2<V: NativePType, I: UnsignedPType>(buffer: &[V], indices: &[I]) -> Buffer<V> {
     macro_rules! dispatch_avx2 {
         ($indices:ty, $values:ty) => {
             { let result = dispatch_avx2!($indices, $values, cast: $values); result }

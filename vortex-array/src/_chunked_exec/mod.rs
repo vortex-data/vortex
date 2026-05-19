@@ -38,6 +38,10 @@ pub mod primitive;
 
 mod scratch;
 
+/// Re-export of the AVX2-aware take helper, hoisted into the chunked engine namespace so
+/// out-of-crate kernels can call it without piercing private compute modules.
+pub use crate::arrays::primitive::compute::take::take_into_uninit;
+
 pub use scratch::Scratch;
 
 /// Number of elements per scratch chunk.

@@ -61,6 +61,37 @@ pub trait PrimitiveChunkProducer<T: NativePType>: Send {
         scratch: &'a mut Scratch<T>,
     ) -> VortexResult<Option<&'a [T]>>;
 
+    /// Decode the next chunk directly into `dst` (bypassing scratch). The destination must
+    /// have at least [`CHUNK_LEN`] writable cells. Returns the number of elements written,
+    /// or `None` when the producer is exhausted.
+    ///
+    /// Default implementation routes through [`Self::next_chunk`] and `copy_nonoverlapping`.
+    /// Producers that can write directly to the destination should override this — e.g.
+    /// [`DictPrimitiveProducer`] calls the AVX2 gather kernel into `dst` directly, avoiding
+    /// the scratch hop entirely.
+    fn next_chunk_into_uninit(
+        &mut self,
+        scratch: &mut Scratch<T>,
+        dst: &mut [MaybeUninit<T>],
+    ) -> VortexResult<Option<usize>> {
+        match self.next_chunk(scratch)? {
+            Some(chunk) => {
+                let n = chunk.len();
+                assert!(dst.len() >= n);
+                // SAFETY: dst capacity ≥ n; chunk is `n` initialized T values.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(
+                        chunk.as_ptr(),
+                        dst.as_mut_ptr().cast::<T>(),
+                        n,
+                    );
+                }
+                Ok(Some(n))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Number of elements not yet produced.
     fn remaining(&self) -> usize;
 }
@@ -257,6 +288,25 @@ impl<T: NativePType> PrimitiveChunkProducer<T> for SliceProducer<T> {
         }))
     }
 
+    fn next_chunk_into_uninit(
+        &mut self,
+        _scratch: &mut Scratch<T>,
+        dst: &mut [MaybeUninit<T>],
+    ) -> VortexResult<Option<usize>> {
+        let len = self.buffer.as_slice().len();
+        if self.cursor >= len {
+            return Ok(None);
+        }
+        let take = CHUNK_LEN.min(len - self.cursor).min(dst.len());
+        let src = &self.buffer.as_slice()[self.cursor..self.cursor + take];
+        // SAFETY: dst has at least `take` cells; src is `take` initialized T values.
+        unsafe {
+            std::ptr::copy_nonoverlapping(src.as_ptr(), dst.as_mut_ptr().cast::<T>(), take);
+        }
+        self.cursor += take;
+        Ok(Some(take))
+    }
+
     fn remaining(&self) -> usize {
         self.buffer.as_slice().len().saturating_sub(self.cursor)
     }
@@ -266,12 +316,14 @@ impl<T: NativePType> PrimitiveChunkProducer<T> for SliceProducer<T> {
 // Dict<Primitive> producer
 // ---------------------------------------------------------------------------------------
 
-/// Stream a `Dict<Primitive>` by chunked gather over the codes into a pre-materialized
-/// values buffer.
+/// Stream a `Dict<Primitive>` by chunked AVX2 gather over the codes into a
+/// pre-materialized values buffer.
 ///
 /// The values are loaded once into a [`Buffer<T>`] (the "dictionary"); each chunk picks
-/// up to [`CHUNK_LEN`] codes and gathers values into the scratch. The dictionary is
-/// expected to fit in L1d (otherwise this encoding shouldn't have been chosen).
+/// up to [`CHUNK_LEN`] codes and gathers values into the scratch via
+/// [`take_into_uninit`], which selects the AVX2 kernel when available and falls back
+/// to scalar. The dictionary is expected to fit in L1d (otherwise this encoding
+/// shouldn't have been chosen).
 pub struct DictPrimitiveProducer<T: NativePType, I: NativePType> {
     dict: Buffer<T>,
     codes: Buffer<I>,
@@ -289,10 +341,9 @@ impl<T: NativePType, I: NativePType> DictPrimitiveProducer<T, I> {
     }
 }
 
-impl<T: NativePType, I: NativePType> PrimitiveChunkProducer<T>
-    for DictPrimitiveProducer<T, I>
+impl<T: NativePType, I> PrimitiveChunkProducer<T> for DictPrimitiveProducer<T, I>
 where
-    I: num_traits::AsPrimitive<usize>,
+    I: crate::dtype::UnsignedPType,
 {
     fn next_chunk<'a>(
         &mut self,
@@ -305,18 +356,37 @@ where
         let take = CHUNK_LEN.min(total - self.cursor);
         let codes_chunk = &self.codes.as_slice()[self.cursor..self.cursor + take];
         let dst: &mut [MaybeUninit<T>] = &mut scratch.as_uninit_mut()[..take];
-        let dict = self.dict.as_slice();
 
-        let ptr = dst.as_mut_ptr().cast::<T>();
-        for (i, code) in codes_chunk.iter().enumerate() {
-            let idx: usize = (*code).as_();
-            // SAFETY: capacity reserved by Scratch is CHUNK_LEN; i < take ≤ CHUNK_LEN.
-            // The `dict[idx]` lookup is bounds-checked.
-            unsafe { ptr.add(i).write(dict[idx]) };
-        }
+        crate::arrays::primitive::compute::take::take_into_uninit::<T, I>(
+            self.dict.as_slice(),
+            codes_chunk,
+            dst,
+        );
+
         self.cursor += take;
-        // SAFETY: `take` elements just written.
+        // SAFETY: `take` elements just written by take_into_uninit.
+        let ptr = scratch.as_uninit_mut().as_ptr().cast::<T>();
         Ok(Some(unsafe { std::slice::from_raw_parts(ptr, take) }))
+    }
+
+    fn next_chunk_into_uninit(
+        &mut self,
+        _scratch: &mut Scratch<T>,
+        dst: &mut [MaybeUninit<T>],
+    ) -> VortexResult<Option<usize>> {
+        let total = self.codes.as_slice().len();
+        if self.cursor >= total {
+            return Ok(None);
+        }
+        let take = CHUNK_LEN.min(total - self.cursor);
+        let codes_chunk = &self.codes.as_slice()[self.cursor..self.cursor + take];
+        crate::arrays::primitive::compute::take::take_into_uninit::<T, I>(
+            self.dict.as_slice(),
+            codes_chunk,
+            &mut dst[..take],
+        );
+        self.cursor += take;
+        Ok(Some(take))
     }
 
     fn remaining(&self) -> usize {
@@ -381,7 +451,11 @@ impl<T: NativePType> PrimitiveChunkKernel<T> for DictKernel<T> {
 
         let codes_canonical = codes.clone().execute::<PrimitiveArray>(ctx)?;
         let codes_ptype = codes_canonical.ptype();
-
+        // Fast path only fires for unsigned codes (AVX2 gather requires unsigned indices).
+        // For signed codes, defer to the canonical executor which handles the cast.
+        if !codes_ptype.is_unsigned_int() {
+            return Ok(None);
+        }
         Ok(Some(dispatch_dict_producer::<T>(
             dict_buf,
             codes_canonical,
@@ -395,7 +469,7 @@ fn dispatch_dict_producer<T: NativePType>(
     codes: PrimitiveArray,
     codes_ptype: PType,
 ) -> Box<dyn PrimitiveChunkProducer<T>> {
-    match_each_integer_ptype!(codes_ptype, |I| {
+    crate::match_each_unsigned_integer_ptype!(codes_ptype, |I| {
         Box::new(DictPrimitiveProducer::<T, I>::new(
             dict,
             codes.into_buffer::<I>(),
@@ -445,6 +519,45 @@ where
     }
 }
 
+impl<T: NativePType, E: NativePType> RunEndPrimitiveProducer<T, E>
+where
+    E: num_traits::AsPrimitive<usize>,
+{
+    /// Fill `dst_ptr[..take]` with the next `take` run-end-decoded values and advance the
+    /// cursor. The caller has already capped `take` to the remaining length and the dst
+    /// capacity; this function performs only writes.
+    ///
+    /// # Safety
+    ///
+    /// `dst_ptr` must be writable for at least `take` elements.
+    unsafe fn fill(&mut self, take: usize, dst_ptr: *mut T) {
+        let ends = self.ends.as_slice();
+        let values = self.values.as_slice();
+        let mut written = 0usize;
+        let chunk_end_encoded = self.cursor + take + self.offset;
+        while written < take {
+            let run_end_encoded: usize = ends[self.run].as_();
+            let pos_encoded = self.cursor + written + self.offset;
+            let in_run = run_end_encoded.min(chunk_end_encoded) - pos_encoded;
+            let value = values[self.run];
+            // SAFETY: caller guarantees dst_ptr[..take] is writable; written + in_run ≤ take.
+            unsafe {
+                let slot = std::slice::from_raw_parts_mut(dst_ptr.add(written), in_run);
+                for s in slot.iter_mut() {
+                    *s = value;
+                }
+            }
+            written += in_run;
+            if run_end_encoded <= chunk_end_encoded && written < take {
+                self.run += 1;
+            } else if run_end_encoded == chunk_end_encoded {
+                self.run += 1;
+            }
+        }
+        self.cursor += take;
+    }
+}
+
 impl<T: NativePType, E: NativePType> PrimitiveChunkProducer<T>
     for RunEndPrimitiveProducer<T, E>
 where
@@ -457,43 +570,26 @@ where
         if self.cursor >= self.len {
             return Ok(None);
         }
-
         let take = CHUNK_LEN.min(self.len - self.cursor);
-        let dst: &mut [MaybeUninit<T>] = &mut scratch.as_uninit_mut()[..take];
-        let dst_ptr = dst.as_mut_ptr().cast::<T>();
-
-        let ends = self.ends.as_slice();
-        let values = self.values.as_slice();
-
-        let mut written = 0usize;
-        // chunk-relative position: 0..take, encoded position: cursor+offset..
-        let chunk_end_encoded = self.cursor + take + self.offset;
-        while written < take {
-            // ends[run] is the encoded-position end of run `run` (exclusive).
-            let run_end_encoded: usize = ends[self.run].as_();
-            let pos_encoded = self.cursor + written + self.offset;
-            // Number of elements remaining in this run within the current chunk.
-            let in_run = run_end_encoded.min(chunk_end_encoded) - pos_encoded;
-            let value = values[self.run];
-            // SAFETY: `written + in_run <= take ≤ CHUNK_LEN`. fill is a single store loop.
-            unsafe {
-                let slot = std::slice::from_raw_parts_mut(dst_ptr.add(written), in_run);
-                for s in slot.iter_mut() {
-                    *s = value;
-                }
-            }
-            written += in_run;
-            if run_end_encoded <= chunk_end_encoded && written < take {
-                self.run += 1;
-            } else if run_end_encoded == chunk_end_encoded {
-                // exactly aligned; advance for the next chunk
-                self.run += 1;
-            }
-        }
-
-        self.cursor += take;
+        let dst_ptr = scratch.as_uninit_mut().as_mut_ptr().cast::<T>();
+        // SAFETY: scratch has CHUNK_LEN cells; take ≤ CHUNK_LEN.
+        unsafe { self.fill(take, dst_ptr) };
         // SAFETY: `take` elements written.
         Ok(Some(unsafe { std::slice::from_raw_parts(dst_ptr, take) }))
+    }
+
+    fn next_chunk_into_uninit(
+        &mut self,
+        _scratch: &mut Scratch<T>,
+        dst: &mut [MaybeUninit<T>],
+    ) -> VortexResult<Option<usize>> {
+        if self.cursor >= self.len {
+            return Ok(None);
+        }
+        let take = CHUNK_LEN.min(self.len - self.cursor).min(dst.len());
+        // SAFETY: dst has at least `take` cells; fill initializes them all.
+        unsafe { self.fill(take, dst.as_mut_ptr().cast::<T>()) };
+        Ok(Some(take))
     }
 
     fn remaining(&self) -> usize {
@@ -558,14 +654,22 @@ pub fn decode_to_buffer<T: NativePType>(
     let mut producer = build_primitive_producer::<T>(array, dispatcher, ctx)?;
     let mut scratch = Scratch::<T>::new();
     let mut written = 0usize;
-    while let Some(chunk) = producer.next_chunk(&mut scratch)? {
-        // SAFETY: `out` has `len` capacity; we write exactly `chunk.len()` elements per call
-        // and never exceed `len` total.
-        unsafe {
-            let dst = out.spare_capacity_mut().as_mut_ptr().add(written).cast::<T>();
-            std::ptr::copy_nonoverlapping(chunk.as_ptr(), dst, chunk.len());
+    loop {
+        // Slice the spare-capacity head for this chunk so the producer can write directly.
+        // SAFETY: spare_capacity_mut().len() >= len - written, and we hand the producer at most
+        // CHUNK_LEN cells (it will respect that and report what it wrote).
+        let dst = unsafe {
+            let cap_ptr = out.spare_capacity_mut().as_mut_ptr().add(written);
+            let cap_len = len - written;
+            std::slice::from_raw_parts_mut(
+                cap_ptr.cast::<MaybeUninit<T>>(),
+                cap_len.min(CHUNK_LEN),
+            )
+        };
+        match producer.next_chunk_into_uninit(&mut scratch, dst)? {
+            Some(n) => written += n,
+            None => break,
         }
-        written += chunk.len();
     }
     // SAFETY: we wrote exactly `written` elements into the spare capacity.
     unsafe {

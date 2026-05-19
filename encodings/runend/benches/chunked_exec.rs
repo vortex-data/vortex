@@ -52,6 +52,7 @@ static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
 static DISPATCHER: LazyLock<PrimitiveChunkKernelDispatcher> = LazyLock::new(|| {
     let mut d = default_dispatcher();
     register_runend_chunk_kernels(&mut d);
+    vortex_fastlanes::_chunked_exec::register_chunk_kernels(&mut d);
     d
 });
 
@@ -121,6 +122,87 @@ fn dict_primitive_canonical(bencher: Bencher, args: DictArgs) {
     bencher.with_inputs(|| array.clone()).bench_local_refs(|a| {
         let mut ctx = SESSION.create_execution_ctx();
         black_box(a.clone().execute::<PrimitiveArray>(&mut ctx).unwrap())
+    });
+}
+
+// ------------------------------------------------------------------------------------
+// Dict<BitPacked<u16> codes> — the v2 bit-pack fusion case
+// ------------------------------------------------------------------------------------
+
+#[derive(Copy, Clone)]
+struct DictBpArgs {
+    len: usize,
+    dict_size: usize,
+    bit_width: u8,
+}
+
+impl fmt::Display for DictBpArgs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "len={} dict={} bw={}", self.len, self.dict_size, self.bit_width)
+    }
+}
+
+const DICT_BP_ARGS: &[DictBpArgs] = &[
+    DictBpArgs {
+        len: 65_536,
+        dict_size: 256,
+        bit_width: 8,
+    },
+    DictBpArgs {
+        len: 262_144,
+        dict_size: 256,
+        bit_width: 8,
+    },
+    DictBpArgs {
+        len: 1_048_576,
+        dict_size: 256,
+        bit_width: 8,
+    },
+    DictBpArgs {
+        len: 1_048_576,
+        dict_size: 1024,
+        bit_width: 10,
+    },
+    DictBpArgs {
+        len: 1_048_576,
+        dict_size: 4096,
+        bit_width: 12,
+    },
+];
+
+fn make_dict_bp_i32(args: DictBpArgs) -> vortex_array::ArrayRef {
+    let dict_values: Vec<i32> = (0..args.dict_size as i32).map(|i| i * 17 + 11).collect();
+    let codes: Vec<u16> = (0..args.len)
+        .map(|i| (i % args.dict_size) as u16)
+        .collect();
+    let dict = PrimitiveArray::new(
+        Buffer::<i32>::from_iter(dict_values),
+        Validity::NonNullable,
+    );
+    let codes_prim = PrimitiveArray::new(Buffer::<u16>::from_iter(codes), Validity::NonNullable);
+    let mut ctx = SESSION.create_execution_ctx();
+    let bp = BitPackedData::encode(&codes_prim.into_array(), args.bit_width, &mut ctx)
+        .expect("bitpack");
+    DictArray::try_new(bp.into_array(), dict.into_array())
+        .expect("dict")
+        .into_array()
+}
+
+#[divan::bench(args = DICT_BP_ARGS)]
+fn dict_bp_canonical(bencher: Bencher, args: DictBpArgs) {
+    let array = make_dict_bp_i32(args);
+    bencher.with_inputs(|| array.clone()).bench_local_refs(|a| {
+        let mut ctx = SESSION.create_execution_ctx();
+        black_box(a.clone().execute::<PrimitiveArray>(&mut ctx).unwrap())
+    });
+}
+
+#[divan::bench(args = DICT_BP_ARGS)]
+fn dict_bp_chunked(bencher: Bencher, args: DictBpArgs) {
+    let array = make_dict_bp_i32(args);
+    bencher.with_inputs(|| array.clone()).bench_local_refs(|a| {
+        let mut ctx = SESSION.create_execution_ctx();
+        black_box(decode_to_buffer::<i32>(a.clone(), &DISPATCHER, &mut ctx).unwrap())
     });
 }
 
