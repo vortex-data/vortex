@@ -761,3 +761,583 @@ impl TryFrom<BufferHandle> for SerializedArray {
         Self::try_from(value.try_to_host_sync()?)
     }
 }
+
+// =============================================================================
+// Columnar serialization (parallel to SerializedArray, no flatbuffer involved)
+// =============================================================================
+//
+// `SerializedArray` parses a per-chunk flatbuffer (`fba::Array`) and navigates it via
+// vtables. That format lives in the data segment's trailing buffer for `FlatLayout` and
+// inside the `array_trees` auxiliary segment of `ArrayTreeLayout` files written by older
+// builds.
+//
+// `ColumnarSerializedArray` is the parallel decode entry point for `ArrayTreeLayout` files
+// where the consolidated `array_trees` segment uses a columnar struct-of-Lists encoding
+// instead of opaque flatbuffer blobs. The plugin contract (`ArrayChildren` trait +
+// `plugin.deserialize(dtype, len, metadata, buffers, children, session)`) doesn't care
+// which source the metadata/buffers/children come from, so this type implements the same
+// decode flow without ever constructing or parsing a flatbuffer.
+
+/// Per-node statistics from the consolidated columnar consolidated form. `None` means the
+/// writer didn't persist any stats for that node.
+pub type ColumnarNodeStats = Option<StatsSet>;
+
+/// Per-chunk slice of the columnar consolidated tree, shared by all `ColumnarSerializedArray`
+/// nodes within the chunk via `Arc`.
+///
+/// Every `Vec` here is "per node" in pre-order traversal of the encoding tree, except
+/// `buffer_padding` / `buffer_alignment` / `buffer_length`, which are flat across all nodes
+/// (each node owns a contiguous run of `buffers_per_node[i]` entries). The `subtree_sizes`
+/// and `buffer_offsets` fields are precomputed at materialization time for O(1) navigation.
+#[derive(Debug)]
+pub struct ColumnarChunkData {
+    /// Encoding id (as an interned u16 in the file's `ArrayContext`) per node.
+    pub encoding_ids: Vec<u16>,
+    /// Number of direct children of each node.
+    pub child_counts: Vec<u8>,
+    /// Opaque encoding-specific metadata bytes per node.
+    pub node_metadata: Vec<ByteBuffer>,
+    /// Number of buffers owned by each node (their descriptors live in the flat arrays
+    /// below, starting at `buffer_offsets[i]`).
+    pub buffers_per_node: Vec<u16>,
+    /// Per-buffer descriptors, concatenated across all nodes in the same pre-order.
+    pub buffer_padding: Vec<u16>,
+    pub buffer_alignment_exponent: Vec<u8>,
+    pub buffer_length: Vec<u32>,
+    /// Per-node statistics.
+    pub stats: Vec<ColumnarNodeStats>,
+    /// Cumulative subtree size starting at each node (subtree_sizes[i] == 1 + sum of
+    /// subtree sizes of direct children of i). Precomputed for O(1) `child(idx)`.
+    pub subtree_sizes: Vec<u32>,
+    /// Cumulative buffer count up to each node (buffer_offsets[i] == sum of
+    /// buffers_per_node[0..i]). Precomputed for O(1) buffer slicing.
+    pub buffer_offsets: Vec<u32>,
+}
+
+impl ColumnarChunkData {
+    /// Compute `subtree_sizes` from `child_counts` via a single right-to-left pass.
+    ///
+    /// This works because in pre-order traversal, a node's subtree occupies a contiguous
+    /// range of indices starting at the node, and a node's subtree size is determined by
+    /// itself + the sum of its children's subtree sizes.
+    fn compute_subtree_sizes(child_counts: &[u8]) -> Vec<u32> {
+        let n = child_counts.len();
+        let mut sizes = vec![0u32; n];
+        // Right-to-left: when we visit node i, all its descendants have already been
+        // visited. Walk children by stepping forward by the previously-computed subtree
+        // size of each child.
+        for i in (0..n).rev() {
+            let mut total = 1u32;
+            let mut cursor = i + 1;
+            for _ in 0..child_counts[i] {
+                let child_size = sizes[cursor];
+                total += child_size;
+                cursor += child_size as usize;
+            }
+            sizes[i] = total;
+        }
+        sizes
+    }
+
+    /// Compute `buffer_offsets` as a prefix sum of `buffers_per_node`.
+    fn compute_buffer_offsets(buffers_per_node: &[u16]) -> Vec<u32> {
+        let mut offsets = Vec::with_capacity(buffers_per_node.len());
+        let mut acc = 0u32;
+        for &n in buffers_per_node {
+            offsets.push(acc);
+            acc += n as u32;
+        }
+        offsets
+    }
+
+    /// Construct a chunk with auto-computed `subtree_sizes` and `buffer_offsets`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        encoding_ids: Vec<u16>,
+        child_counts: Vec<u8>,
+        node_metadata: Vec<ByteBuffer>,
+        buffers_per_node: Vec<u16>,
+        buffer_padding: Vec<u16>,
+        buffer_alignment_exponent: Vec<u8>,
+        buffer_length: Vec<u32>,
+        stats: Vec<ColumnarNodeStats>,
+    ) -> VortexResult<Self> {
+        let n = encoding_ids.len();
+        if child_counts.len() != n
+            || node_metadata.len() != n
+            || buffers_per_node.len() != n
+            || stats.len() != n
+        {
+            vortex_bail!(
+                "ColumnarChunkData per-node columns must all have length {} (got encoding={}, child_counts={}, node_metadata={}, buffers_per_node={}, stats={})",
+                n,
+                encoding_ids.len(),
+                child_counts.len(),
+                node_metadata.len(),
+                buffers_per_node.len(),
+                stats.len(),
+            );
+        }
+        let total_buffers: usize = buffers_per_node.iter().map(|&b| b as usize).sum();
+        if buffer_padding.len() != total_buffers
+            || buffer_alignment_exponent.len() != total_buffers
+            || buffer_length.len() != total_buffers
+        {
+            vortex_bail!(
+                "ColumnarChunkData per-buffer columns must all have length {} (got padding={}, alignment={}, length={})",
+                total_buffers,
+                buffer_padding.len(),
+                buffer_alignment_exponent.len(),
+                buffer_length.len(),
+            );
+        }
+        let subtree_sizes = Self::compute_subtree_sizes(&child_counts);
+        let buffer_offsets = Self::compute_buffer_offsets(&buffers_per_node);
+        Ok(Self {
+            encoding_ids,
+            child_counts,
+            node_metadata,
+            buffers_per_node,
+            buffer_padding,
+            buffer_alignment_exponent,
+            buffer_length,
+            stats,
+            subtree_sizes,
+            buffer_offsets,
+        })
+    }
+
+    /// Number of nodes in the tree.
+    pub fn nnodes(&self) -> usize {
+        self.encoding_ids.len()
+    }
+}
+
+/// Parallel to [`SerializedArray`] but sourced from a columnar representation of the
+/// encoding tree rather than a flatbuffer.
+///
+/// Holds a per-chunk `Arc<ColumnarChunkData>` plus a `node_index` that identifies the
+/// current node within the tree. `child(idx)` returns a new `ColumnarSerializedArray`
+/// pointing at the requested child by computing the child's pre-order index from
+/// `subtree_sizes`.
+///
+/// `decode()` performs the same plugin dispatch as `SerializedArray::decode`, just sourcing
+/// metadata/buffers/stats from the columnar chunk data.
+#[derive(Clone)]
+pub struct ColumnarSerializedArray {
+    chunk: Arc<ColumnarChunkData>,
+    node_index: usize,
+    buffers: Arc<[BufferHandle]>,
+}
+
+impl Debug for ColumnarSerializedArray {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ColumnarSerializedArray")
+            .field("encoding_id", &self.encoding_id())
+            .field("node_index", &self.node_index)
+            .field("nchildren", &self.nchildren())
+            .field("nbuffers", &self.nbuffers())
+            .finish()
+    }
+}
+
+impl ColumnarSerializedArray {
+    /// Construct a new root-level `ColumnarSerializedArray` for a chunk.
+    pub fn new(chunk: Arc<ColumnarChunkData>, buffers: Arc<[BufferHandle]>) -> VortexResult<Self> {
+        if chunk.nnodes() == 0 {
+            vortex_bail!("ColumnarChunkData must have at least one node");
+        }
+        Ok(Self {
+            chunk,
+            node_index: 0,
+            buffers,
+        })
+    }
+
+    /// Slice the data-buffer prefix of a segment into per-buffer handles using the
+    /// descriptors in `chunk`, then construct a root-level `ColumnarSerializedArray`.
+    ///
+    /// Works for segments produced by both [`SegmentMode::Inline`] (which appends a
+    /// flatbuffer + length suffix after the data buffers) and [`SegmentMode::DataOnly`]:
+    /// the chunk's descriptors only describe the data prefix, so the trailing inline
+    /// flatbuffer (if any) is simply ignored.
+    pub fn from_segment_and_chunk(
+        segment: BufferHandle,
+        chunk: Arc<ColumnarChunkData>,
+    ) -> VortexResult<Self> {
+        let segment = segment.ensure_aligned(Alignment::none())?;
+        let n_buffers = chunk.buffer_length.len();
+        let mut handles: Vec<BufferHandle> = Vec::with_capacity(n_buffers);
+        let mut offset = 0;
+        for i in 0..n_buffers {
+            offset += chunk.buffer_padding[i] as usize;
+            let buffer_len = chunk.buffer_length[i] as usize;
+            let alignment = Alignment::from_exponent(chunk.buffer_alignment_exponent[i]);
+            let buffer = segment.slice(offset..(offset + buffer_len));
+            handles.push(buffer.ensure_aligned(alignment)?);
+            offset += buffer_len;
+        }
+        Self::new(chunk, Arc::from(handles))
+    }
+
+    /// Returns the encoding id (as the interned `u16` in the file's `ArrayContext`) of the
+    /// current node.
+    pub fn encoding_id(&self) -> u16 {
+        self.chunk.encoding_ids[self.node_index]
+    }
+
+    /// Returns the metadata bytes for the current node.
+    pub fn metadata(&self) -> &[u8] {
+        self.chunk.node_metadata[self.node_index].as_slice()
+    }
+
+    /// Returns the number of direct children of the current node.
+    pub fn nchildren(&self) -> usize {
+        self.chunk.child_counts[self.node_index] as usize
+    }
+
+    /// Returns a `ColumnarSerializedArray` pointing at the `idx`th direct child of the
+    /// current node.
+    pub fn child(&self, idx: usize) -> ColumnarSerializedArray {
+        let n_children = self.nchildren();
+        if idx >= n_children {
+            vortex_panic!(
+                "Invalid child index {} for node with {} children",
+                idx,
+                n_children
+            );
+        }
+        // Children are laid out in pre-order immediately after the current node. The first
+        // child is at node_index + 1; each subsequent child sits at the previous child's
+        // index + that child's subtree size.
+        let mut cursor = self.node_index + 1;
+        for _ in 0..idx {
+            cursor += self.chunk.subtree_sizes[cursor] as usize;
+        }
+        Self {
+            chunk: Arc::clone(&self.chunk),
+            node_index: cursor,
+            buffers: Arc::clone(&self.buffers),
+        }
+    }
+
+    /// Number of buffers owned by the current node.
+    pub fn nbuffers(&self) -> usize {
+        self.chunk.buffers_per_node[self.node_index] as usize
+    }
+
+    /// Return the slice of buffer handles owned by the current node.
+    fn node_buffers(&self) -> VortexResult<&[BufferHandle]> {
+        let start = self.chunk.buffer_offsets[self.node_index] as usize;
+        let count = self.nbuffers();
+        self.buffers.get(start..start + count).ok_or_else(|| {
+            vortex_err!(
+                "buffer indices {}..{} out of range for {} buffers",
+                start,
+                start + count,
+                self.buffers.len(),
+            )
+        })
+    }
+
+    /// Decode this node into an `ArrayRef` using the same plugin contract as
+    /// [`SerializedArray::decode`].
+    pub fn decode(
+        &self,
+        dtype: &DType,
+        len: usize,
+        ctx: &ReadContext,
+        session: &VortexSession,
+    ) -> VortexResult<ArrayRef> {
+        let encoding_idx = self.encoding_id();
+        let encoding_id = ctx
+            .resolve(encoding_idx)
+            .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
+        let plugin = session
+            .arrays()
+            .registry()
+            .find(&encoding_id)
+            .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
+
+        let buffers = self.node_buffers()?;
+        let children = ColumnarSerializedArrayChildren {
+            ser: self,
+            ctx,
+            session,
+        };
+
+        let decoded =
+            plugin.deserialize(dtype, len, self.metadata(), buffers, &children, session)?;
+
+        assert_eq!(
+            decoded.len(),
+            len,
+            "Array decoded from {} has incorrect length {}, expected {}",
+            encoding_id,
+            decoded.len(),
+            len
+        );
+        assert_eq!(
+            decoded.dtype(),
+            dtype,
+            "Array decoded from {} has incorrect dtype {}, expected {}",
+            encoding_id,
+            decoded.dtype(),
+            dtype,
+        );
+        assert!(
+            plugin.is_supported_encoding(&decoded.encoding_id()),
+            "Array decoded from {} has incorrect encoding {}",
+            encoding_id,
+            decoded.encoding_id(),
+        );
+
+        // Populate statistics from the columnar chunk data.
+        if let Some(stats) = &self.chunk.stats[self.node_index] {
+            decoded.statistics().set_iter(stats.clone().into_iter());
+        }
+
+        Ok(decoded)
+    }
+}
+
+/// Determines the on-disk shape of an array tree leaf's data segment when used alongside
+/// the columnar consolidated array_trees segment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SegmentMode {
+    /// Compat mode. Data buffers + combined flatbuffer (tree + per-node stats) + u32
+    /// length suffix. Layout-compatible with `FlatLayout`; any reader that parses a flat
+    /// segment will work standalone, with the columnar consolidated acting as a
+    /// performance optimization.
+    Inline,
+    /// Skip-inline mode. Data buffers only, no trailing flatbuffer, no length suffix.
+    /// Segments are not self-contained — the consolidated columnar array_trees segment
+    /// is the only source of encoding metadata. Smaller files but only readable through
+    /// the array-tree-aware reader path.
+    DataOnly,
+}
+
+/// Walk `array` once and produce both:
+/// 1. The data segment buffer list (shape depends on `mode`).
+/// 2. A `ColumnarChunkData` capturing the encoding tree + per-node stats + buffer
+///    descriptors in the columnar form consumed by [`ColumnarSerializedArray`].
+///
+/// This is the writer-side entry point used by `ArrayTreeFlatStrategy`. The single walk
+/// avoids the previous "serialize for inline AND serialize_array_tree for side channel"
+/// double traversal.
+pub fn serialize_with_columnar_chunk(
+    array: &ArrayRef,
+    ctx: &ArrayContext,
+    session: &VortexSession,
+    options: &SerializeOptions,
+    mode: SegmentMode,
+) -> VortexResult<(Vec<ByteBuffer>, ColumnarChunkData)> {
+    // Single DFS walk: collect per-node columnar data and all buffers in pre-order.
+    let mut encoding_ids = Vec::new();
+    let mut child_counts = Vec::new();
+    let mut node_metadata = Vec::new();
+    let mut buffers_per_node = Vec::new();
+    let mut stats = Vec::new();
+    let mut array_buffers = Vec::new();
+
+    for node in array.depth_first_traversal() {
+        let encoding_idx = ctx.intern(&node.encoding_id()).ok_or_else(|| {
+            vortex_err!("Array encoding {} not permitted by ctx", node.encoding_id())
+        })?;
+        encoding_ids.push(encoding_idx);
+
+        let n_children = u8::try_from(node.nchildren())
+            .map_err(|_| vortex_err!("Array node has more than u8::MAX children"))?;
+        child_counts.push(n_children);
+
+        let metadata_bytes = session.array_serialize(&node)?.ok_or_else(|| {
+            vortex_err!(
+                "Array {} does not support serialization",
+                node.encoding_id()
+            )
+        })?;
+        node_metadata.push(ByteBuffer::from(metadata_bytes));
+
+        let node_bufs = node.buffers();
+        let n_buffers = u16::try_from(node_bufs.len())
+            .map_err(|_| vortex_err!("Array node has more than u16::MAX buffers"))?;
+        buffers_per_node.push(n_buffers);
+
+        // Capture per-node stats. `to_owned` snapshots the current StatsSet contents; we
+        // store `None` when no stats are present so the read side can distinguish "no
+        // stats persisted" from "all stats happen to be empty".
+        let stats_set = node.statistics().to_owned();
+        stats.push(if stats_set.is_empty() {
+            None
+        } else {
+            Some(stats_set)
+        });
+
+        array_buffers.extend(node_bufs);
+    }
+
+    // Per-buffer descriptors, computed with the same padding rules as `serialize()` so
+    // the columnar form points at the same byte offsets the inline path uses.
+    let fb_buffers = collect_buffer_descriptors(&array_buffers, options)?;
+    let buffer_padding: Vec<u16> = fb_buffers.iter().map(|b| b.padding()).collect();
+    let buffer_alignment_exponent: Vec<u8> =
+        fb_buffers.iter().map(|b| b.alignment_exponent()).collect();
+    let buffer_length: Vec<u32> = fb_buffers.iter().map(|b| b.length()).collect();
+
+    let chunk = ColumnarChunkData::new(
+        encoding_ids,
+        child_counts,
+        node_metadata,
+        buffers_per_node,
+        buffer_padding,
+        buffer_alignment_exponent,
+        buffer_length,
+        stats,
+    )?;
+
+    // Assemble the segment buffer list. The data-buffer prefix is identical between
+    // Inline and DataOnly modes; the modes differ only in whether the trailing combined
+    // flatbuffer + length suffix is appended.
+    let max_alignment = array_buffers
+        .iter()
+        .map(|buf| buf.alignment())
+        .chain(iter::once(FlatBuffer::alignment()))
+        .max()
+        .unwrap_or_else(FlatBuffer::alignment);
+    let zeros = ByteBuffer::zeroed(*max_alignment);
+
+    let mut buffers = vec![ByteBuffer::zeroed_aligned(0, max_alignment)];
+    let mut pos = options.offset;
+    for buffer in &array_buffers {
+        if options.include_padding {
+            let padding = pos.next_multiple_of(*buffer.alignment()) - pos;
+            if padding > 0 {
+                pos += padding;
+                buffers.push(zeros.slice(0..padding));
+            }
+        }
+        pos += buffer.len();
+        buffers.push(buffer.clone().aligned(Alignment::none()));
+    }
+
+    if matches!(mode, SegmentMode::Inline) {
+        // Inline path: append the combined flatbuffer (tree + stats) and a u32 length
+        // suffix so the segment is parseable by the standard `SerializedArray::try_from`
+        // path. Bytes here are byte-identical to today's `ArrayRef::serialize` output.
+        let fb_buffer = build_array_flatbuffer(ctx, session, array, fb_buffers, false)?;
+        let fb_length = fb_buffer.len();
+        if options.include_padding {
+            let padding = pos.next_multiple_of(*FlatBuffer::alignment()) - pos;
+            if padding > 0 {
+                buffers.push(zeros.slice(0..padding));
+            }
+        }
+        buffers.push(fb_buffer);
+        buffers.push(ByteBuffer::from(
+            u32::try_from(fb_length)
+                .map_err(|_| {
+                    vortex_err!(
+                        "Array metadata flatbuffer must fit into u32 for serialization. Array encoding tree is too large."
+                    )
+                })?
+                .to_le_bytes()
+                .to_vec(),
+        ));
+    }
+
+    Ok((buffers, chunk))
+}
+
+struct ColumnarSerializedArrayChildren<'a> {
+    ser: &'a ColumnarSerializedArray,
+    ctx: &'a ReadContext,
+    session: &'a VortexSession,
+}
+
+impl ArrayChildren for ColumnarSerializedArrayChildren<'_> {
+    fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
+        self.ser
+            .child(index)
+            .decode(dtype, len, self.ctx, self.session)
+    }
+
+    fn len(&self) -> usize {
+        self.ser.nchildren()
+    }
+}
+
+#[cfg(test)]
+mod columnar_tests {
+    use super::*;
+
+    /// Tree shape:
+    ///   0 (root, 2 children)
+    ///   ├── 1 (leaf)
+    ///   └── 2 (1 child)
+    ///       └── 3 (leaf)
+    /// Subtree sizes: [4, 1, 2, 1].
+    #[test]
+    fn subtree_sizes_basic() -> VortexResult<()> {
+        let child_counts = vec![2u8, 0, 1, 0];
+        let sizes = ColumnarChunkData::compute_subtree_sizes(&child_counts);
+        assert_eq!(sizes, vec![4, 1, 2, 1]);
+        Ok(())
+    }
+
+    /// Single-node tree.
+    #[test]
+    fn subtree_sizes_leaf() -> VortexResult<()> {
+        let sizes = ColumnarChunkData::compute_subtree_sizes(&[0u8]);
+        assert_eq!(sizes, vec![1]);
+        Ok(())
+    }
+
+    /// Deeply nested tree (left-skewed):
+    ///   0 -> 1 -> 2 -> 3 (leaf)
+    /// Subtree sizes: [4, 3, 2, 1].
+    #[test]
+    fn subtree_sizes_skewed() -> VortexResult<()> {
+        let sizes = ColumnarChunkData::compute_subtree_sizes(&[1u8, 1, 1, 0]);
+        assert_eq!(sizes, vec![4, 3, 2, 1]);
+        Ok(())
+    }
+
+    #[test]
+    fn buffer_offsets_basic() {
+        let offsets = ColumnarChunkData::compute_buffer_offsets(&[2u16, 0, 3, 1]);
+        assert_eq!(offsets, vec![0, 2, 2, 5]);
+    }
+
+    /// Child navigation: from root (idx 0) of a tree
+    ///   0 [2 children]
+    ///   ├── 1 [leaf]
+    ///   └── 2 [1 child]
+    ///       └── 3 [leaf]
+    /// expect child(0) -> node 1, child(1) -> node 2. Then from node 2, child(0) -> node 3.
+    #[test]
+    fn child_navigation() -> VortexResult<()> {
+        let chunk = Arc::new(ColumnarChunkData::new(
+            vec![0u16, 1, 2, 3],
+            vec![2u8, 0, 1, 0],
+            vec![ByteBuffer::empty(); 4],
+            vec![0u16; 4],
+            vec![],
+            vec![],
+            vec![],
+            vec![None; 4],
+        )?);
+        let root = ColumnarSerializedArray::new(chunk, Arc::new([]))?;
+        assert_eq!(root.encoding_id(), 0);
+        assert_eq!(root.nchildren(), 2);
+        let c0 = root.child(0);
+        assert_eq!(c0.encoding_id(), 1);
+        assert_eq!(c0.nchildren(), 0);
+        let c1 = root.child(1);
+        assert_eq!(c1.encoding_id(), 2);
+        assert_eq!(c1.nchildren(), 1);
+        let c1c0 = c1.child(0);
+        assert_eq!(c1c0.encoding_id(), 3);
+        assert_eq!(c1c0.nchildren(), 0);
+        Ok(())
+    }
+}

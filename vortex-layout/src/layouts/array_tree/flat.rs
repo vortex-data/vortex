@@ -3,8 +3,10 @@
 
 use std::sync::Arc;
 
+use parking_lot::Mutex;
 use vortex_array::EmptyMetadata;
 use vortex_array::dtype::DType;
+use vortex_array::serde::ColumnarChunkData;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
@@ -47,17 +49,41 @@ pub struct ArrayTreeFlatLayoutEncoding;
 #[derive(Clone, Debug)]
 pub struct ArrayTreeFlatLayout {
     inner: FlatLayout,
+    /// Transient write-time state: the leaf strategy attaches its [`ColumnarChunkData`] for
+    /// the collector to pluck via [`Self::take_chunk`]. Wrapped in `Mutex<Option<_>>` so the
+    /// collector can take ownership cheaply during its post-write walk. Read-path
+    /// construction (via the layout's `build` method) leaves this `None`; the field is never
+    /// serialized to disk.
+    chunk: Arc<Mutex<Option<ColumnarChunkData>>>,
 }
 
 impl ArrayTreeFlatLayout {
-    /// Creates a new layout from the inner flat layout.
+    /// Creates a new layout from the inner flat layout without any attached chunk data.
     pub fn new(inner: FlatLayout) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            chunk: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Creates a new layout from the inner flat layout with attached transient
+    /// [`ColumnarChunkData`]. Used only by the array-tree writer; the chunk is consumed by
+    /// the collector and never serialized.
+    pub fn with_chunk(inner: FlatLayout, chunk: ColumnarChunkData) -> Self {
+        Self {
+            inner,
+            chunk: Arc::new(Mutex::new(Some(chunk))),
+        }
     }
 
     /// Returns the inner flat layout.
     pub fn inner(&self) -> &FlatLayout {
         &self.inner
+    }
+
+    /// Take ownership of any attached transient chunk data, leaving `None` behind.
+    pub fn take_chunk(&self) -> Option<ColumnarChunkData> {
+        self.chunk.lock().take()
     }
 }
 
@@ -133,8 +159,11 @@ impl VTable for ArrayTreeFlat {
         if segment_ids.len() != 1 {
             vortex_bail!("ArrayTreeFlatLayout must have exactly one segment ID");
         }
-        Ok(ArrayTreeFlatLayout {
-            inner: FlatLayout::new(row_count, dtype.clone(), segment_ids[0], ctx.clone()),
-        })
+        Ok(ArrayTreeFlatLayout::new(FlatLayout::new(
+            row_count,
+            dtype.clone(),
+            segment_ids[0],
+            ctx.clone(),
+        )))
     }
 }

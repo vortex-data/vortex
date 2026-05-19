@@ -12,7 +12,7 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
-use vortex_array::serde::SerializedArray;
+use vortex_array::serde::ColumnarSerializedArray;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -143,7 +143,7 @@ impl ArrayTreeFlatReader {
 
         let segment_id = self.layout.inner().segment_id();
         let segment_fut = self.segment_source.request(segment_id);
-        let compact_tree_fut = self.source.get_for_segment(segment_id);
+        let chunk_fut = self.source.get_for_segment(segment_id);
 
         let ctx = self.layout.inner().array_ctx().clone();
         let session = self.session.clone();
@@ -151,8 +151,8 @@ impl ArrayTreeFlatReader {
 
         async move {
             let segment_fut = async move { segment_fut.await.map_err(Arc::new) };
-            let (segment, compact_tree) = futures::try_join!(segment_fut, compact_tree_fut)?;
-            let parts = SerializedArray::from_flatbuffer_and_segment(compact_tree, segment)
+            let (segment, chunk) = futures::try_join!(segment_fut, chunk_fut)?;
+            let parts = ColumnarSerializedArray::from_segment_and_chunk(segment, chunk)
                 .map_err(Arc::new)?;
             parts
                 .decode(&dtype, row_count, &ctx, &session)
