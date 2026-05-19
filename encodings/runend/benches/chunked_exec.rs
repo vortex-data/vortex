@@ -23,7 +23,7 @@ use divan::Bencher;
 use divan::black_box;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
-use vortex_array::_chunked_exec::listview::build_listview_primitive_producer;
+use vortex_array::_chunked_exec::listview::build_listview_producer_typed;
 use vortex_array::_chunked_exec::primitive::PrimitiveChunkKernelDispatcher;
 use vortex_array::_chunked_exec::primitive::decode_to_buffer;
 use vortex_array::_chunked_exec::primitive::default_dispatcher;
@@ -463,21 +463,21 @@ fn make_listview_bp(args: ListViewArgs) -> vortex_array::ArrayRef {
     .into_array()
 }
 
-/// Walk the chunked rows summing elements end-to-end. Demonstrates the row-window
-/// streaming API; doesn't allocate a final canonical ListView.
+/// Walk the chunked rows summing elements end-to-end. Uses the typed-callback API so
+/// there is no dyn dispatch in the inner loop.
 #[divan::bench(args = LIST_ARGS)]
 fn listview_chunked_sum(bencher: Bencher, args: ListViewArgs) {
     let array = make_listview_bp(args);
     bencher.with_inputs(|| array.clone()).bench_local_refs(|a| {
         let mut ctx = SESSION.create_execution_ctx();
         let mut producer =
-            build_listview_primitive_producer::<i32>(a.clone(), &mut ctx).unwrap();
+            build_listview_producer_typed::<u32, u32, i32>(a.clone(), &mut ctx).unwrap();
         let mut sum: i64 = 0;
-        producer.for_each_chunk(|chunk| {
-            for i in 0..chunk.n {
-                let o = (chunk.offset_of)(i);
-                let s = (chunk.size_of)(i);
-                for &v in &chunk.elements[o..o + s] {
+        producer.for_each_chunk_typed(|offs, szs, elems| {
+            for i in 0..offs.len() {
+                let o = offs[i] as usize;
+                let s = szs[i] as usize;
+                for &v in &elems[o..o + s] {
                     sum = sum.wrapping_add(v as i64);
                 }
             }

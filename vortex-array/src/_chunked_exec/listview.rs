@@ -92,57 +92,92 @@ where
         self.offsets.as_slice().is_empty()
     }
 
-    /// Pull the next row window into the supplied scratch buffers.
+    /// Drive the producer to completion, calling `f` with each row chunk as typed
+    /// slices. This is the fast-path API for callers who know the offset/size types
+    /// at compile time — it has no dyn-dispatch in the hot loop.
+    pub fn for_each_chunk_typed<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&[O], &[S], &[E]),
+    {
+        let mut o_scratch = Scratch::<O>::new();
+        let mut s_scratch = Scratch::<S>::new();
+        while let Some(chunk) = self.next_chunk(&mut o_scratch, &mut s_scratch) {
+            f(chunk.offsets, chunk.sizes, chunk.elements);
+        }
+    }
+
+    /// Pull the next row window. Returns slices directly out of the already-canonical
+    /// `offsets`/`sizes`/`elements` buffers — no memcpy, no scratch hop.
     ///
-    /// `offset_scratch` and `size_scratch` are driver-owned; the producer copies the
-    /// already-decompressed offsets/sizes slice for this window into them. (A future
-    /// chunked variant would do the bit-unpack here directly, but for v1 we ride on the
-    /// existing canonical step.)
-    ///
-    /// The returned chunk borrows the scratches *and* the producer's shared elements
-    /// buffer, so the single lifetime `'a` is the intersection.
+    /// The scratch arguments are kept for API symmetry with future chunked-bit-unpack
+    /// variants where the producer materialises its own offsets/sizes per chunk; for
+    /// the current canonical-then-chunk producer they are unused.
     pub fn next_chunk<'a>(
         &'a mut self,
-        offset_scratch: &'a mut Scratch<O>,
-        size_scratch: &'a mut Scratch<S>,
+        _offset_scratch: &'a mut Scratch<O>,
+        _size_scratch: &'a mut Scratch<S>,
     ) -> Option<ListChunk<'a, O, S, E>> {
         let total = self.offsets.as_slice().len();
         if self.cursor >= total {
             return None;
         }
         let take = CHUNK_LEN.min(total - self.cursor);
-        let offsets_src = &self.offsets.as_slice()[self.cursor..self.cursor + take];
-        let sizes_src = &self.sizes.as_slice()[self.cursor..self.cursor + take];
-
-        let off_dst: &mut [MaybeUninit<O>] = &mut offset_scratch.as_uninit_mut()[..take];
-        let sz_dst: &mut [MaybeUninit<S>] = &mut size_scratch.as_uninit_mut()[..take];
-        // SAFETY: MaybeUninit<T> and T have the same layout; we initialize `take` slots.
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                offsets_src.as_ptr(),
-                off_dst.as_mut_ptr().cast::<O>(),
-                take,
-            );
-            std::ptr::copy_nonoverlapping(
-                sizes_src.as_ptr(),
-                sz_dst.as_mut_ptr().cast::<S>(),
-                take,
-            );
-        }
+        let offsets = &self.offsets.as_slice()[self.cursor..self.cursor + take];
+        let sizes = &self.sizes.as_slice()[self.cursor..self.cursor + take];
         self.cursor += take;
-        // SAFETY: `take` elements initialized above in each scratch.
-        let offsets = unsafe {
-            std::slice::from_raw_parts(off_dst.as_ptr().cast::<O>(), take)
-        };
-        let sizes = unsafe {
-            std::slice::from_raw_parts(sz_dst.as_ptr().cast::<S>(), take)
-        };
         Some(ListChunk {
             offsets,
             sizes,
             elements: self.elements.as_slice(),
         })
     }
+}
+
+/// Build a typed [`ListChunkProducer`] directly. The caller commits to the offset and
+/// size native types up front; the producer is callable without dyn dispatch in the hot
+/// loop.
+///
+/// Errors if the array's offset/size/element ptypes don't match `<O, S, E>`.
+pub fn build_listview_producer_typed<O, S, E>(
+    array: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ListChunkProducer<O, S, E>>
+where
+    O: NativePType,
+    S: NativePType,
+    E: NativePType,
+{
+    let Some(lv) = array.as_opt::<ListView>() else {
+        vortex_error::vortex_bail!(
+            "build_listview_producer_typed: expected ListView, got {}",
+            array.encoding_id()
+        );
+    };
+    if !matches!(array.dtype().nullability(), Nullability::NonNullable) {
+        vortex_error::vortex_bail!("build_listview_producer_typed: only non-nullable for v1");
+    }
+    let offsets = lv.offsets().clone().execute::<PrimitiveArray>(ctx)?;
+    let sizes = lv.sizes().clone().execute::<PrimitiveArray>(ctx)?;
+    let elements = lv.elements().clone().execute::<PrimitiveArray>(ctx)?;
+    if O::PTYPE != offsets.ptype()
+        || S::PTYPE != sizes.ptype()
+        || E::PTYPE != elements.ptype()
+    {
+        vortex_error::vortex_bail!(
+            "build_listview_producer_typed: ptype mismatch ({}, {}, {}) vs requested ({}, {}, {})",
+            offsets.ptype(),
+            sizes.ptype(),
+            elements.ptype(),
+            O::PTYPE,
+            S::PTYPE,
+            E::PTYPE,
+        );
+    }
+    Ok(ListChunkProducer::<O, S, E>::new(
+        offsets.into_buffer::<O>(),
+        sizes.into_buffer::<S>(),
+        elements.into_buffer::<E>(),
+    ))
 }
 
 /// Build a [`ListChunkProducer`] for a `ListView<Primitive>` array.
