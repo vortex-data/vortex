@@ -1,0 +1,4 @@
+interface:
+  display_name: "Samply"
+  short_description: "Iterate on Vortex performance with Samply profiles."
+  default_prompt: "Use this skill to profile a Vortex benchmark with Samply, analyze Firefox profiler JSON, identify hotspots, make a narrow performance change, and verify it."
