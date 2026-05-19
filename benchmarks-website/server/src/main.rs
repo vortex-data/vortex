@@ -24,6 +24,12 @@
 //!   `127.0.0.1:3000`. Override to `0.0.0.0:3000` for container deploys.
 //! - `VORTEX_BENCH_LOG` — `tracing-subscriber` env filter spec. Default
 //!   `info`.
+//!
+//! SIGTERM and SIGINT both trigger a graceful drain — in-flight requests
+//! are allowed to finish before the process exits. systemd's
+//! `TimeoutStopSec` (default 90s) bounds the grace window, which matters
+//! because `systemctl restart` is what the deploy timer fires on every
+//! new binary roll.
 
 use std::env;
 use std::path::PathBuf;
@@ -75,6 +81,35 @@ async fn main() -> Result<()> {
         snapshot_dir = %snapshot_dir.display(),
         "bench server listening"
     );
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
     Ok(())
+}
+
+/// Resolves when the process receives SIGINT or SIGTERM. Used as the
+/// graceful-shutdown future for `axum::serve` so a `systemctl restart`
+/// (SIGTERM) lets in-flight requests finish before the process exits.
+/// `systemd`'s `TimeoutStopSec` (default 90s) bounds the grace window —
+/// nothing inside the process imposes its own timeout.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("install ctrl_c handler");
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => tracing::info!("received SIGINT — shutting down"),
+        _ = terminate => tracing::info!("received SIGTERM — shutting down"),
+    }
 }
