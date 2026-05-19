@@ -47,9 +47,14 @@ impl Display for BoundedMinOptions {
 #[derive(Clone, Debug)]
 pub struct BoundedMin;
 
+enum BoundedMinState {
+    Empty,
+    Value(Scalar),
+}
+
 /// Partial accumulator state for the bounded minimum aggregate.
 pub struct BoundedMinPartial {
-    min: Option<Scalar>,
+    state: BoundedMinState,
     element_dtype: DType,
     max_bytes: NonZeroUsize,
 }
@@ -60,12 +65,12 @@ impl BoundedMinPartial {
             return;
         }
 
-        self.min = Some(match self.min.take() {
-            Some(current) => {
-                partial_min(min, current).vortex_expect("incomparable bounded min scalars")
-            }
-            None => min,
-        });
+        self.state = match std::mem::replace(&mut self.state, BoundedMinState::Empty) {
+            BoundedMinState::Empty => BoundedMinState::Value(min),
+            BoundedMinState::Value(current) => BoundedMinState::Value(
+                partial_min(min, current).vortex_expect("incomparable bounded min scalars"),
+            ),
+        };
     }
 }
 
@@ -135,7 +140,7 @@ impl AggregateFnVTable for BoundedMin {
         input_dtype: &DType,
     ) -> VortexResult<Self::Partial> {
         Ok(BoundedMinPartial {
-            min: None,
+            state: BoundedMinState::Empty,
             element_dtype: input_dtype.clone(),
             max_bytes: options.max_bytes,
         })
@@ -148,14 +153,14 @@ impl AggregateFnVTable for BoundedMin {
 
     fn to_scalar(&self, partial: &Self::Partial) -> VortexResult<Scalar> {
         let dtype = partial.element_dtype.as_nullable();
-        match &partial.min {
-            Some(min) => min.cast(&dtype),
-            None => Ok(Scalar::null(dtype)),
+        match &partial.state {
+            BoundedMinState::Empty => Ok(Scalar::null(dtype)),
+            BoundedMinState::Value(min) => min.cast(&dtype),
         }
     }
 
     fn reset(&self, partial: &mut Self::Partial) {
-        partial.min = None;
+        partial.state = BoundedMinState::Empty;
     }
 
     fn is_saturated(&self, _partial: &Self::Partial) -> bool {
@@ -168,6 +173,8 @@ impl AggregateFnVTable for BoundedMin {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        // Delegate to the existing min_max implementation for now. A dedicated bounded-min
+        // aggregate would avoid computing max when only min is needed.
         let array = match batch {
             Columnar::Canonical(canonical) => canonical.clone().into_array(),
             Columnar::Constant(constant) => constant.clone().into_array(),
@@ -214,7 +221,6 @@ fn truncate_min(value: Scalar, max_bytes: usize) -> VortexResult<Option<Scalar>>
         _ => Ok(Some(value)),
     }
 }
-
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroUsize;
@@ -241,10 +247,15 @@ mod tests {
     use crate::arrays::VarBinViewArray;
     use crate::dtype::Nullability;
     use crate::scalar::Scalar;
+    use crate::session::ArraySession;
     use crate::validity::Validity;
 
     fn max_bytes(value: usize) -> NonZeroUsize {
         NonZeroUsize::new(value).vortex_expect("non-zero max_bytes")
+    }
+
+    fn fresh_session() -> VortexSession {
+        VortexSession::empty().with::<ArraySession>()
     }
 
     #[test]
@@ -286,6 +297,28 @@ mod tests {
         assert_eq!(
             acc.finish()?,
             Scalar::primitive(5i32, Nullability::Nullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn bounded_min_null_partial_does_not_poison_existing_bound() -> VortexResult<()> {
+        let mut ctx = fresh_session().create_execution_ctx();
+        let values = VarBinViewArray::from_iter_bin([&[1u8][..]]).into_array();
+        let mut acc = Accumulator::try_new(
+            BoundedMin,
+            BoundedMinOptions {
+                max_bytes: max_bytes(2),
+            },
+            values.dtype().clone(),
+        )?;
+
+        acc.accumulate(&values, &mut ctx)?;
+        acc.combine_partials(Scalar::null(values.dtype().as_nullable()))?;
+
+        assert_eq!(
+            acc.finish()?,
+            Scalar::binary(buffer![1u8], Nullability::Nullable)
         );
         Ok(())
     }

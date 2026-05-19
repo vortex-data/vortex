@@ -90,6 +90,8 @@ impl AggregateFnVTable for AllNonNan {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        // Normal array dispatch is handled by `try_accumulate`, which always short-circuits.
+        // Keep this fallback in sync for direct Columnar accumulation paths.
         let array = match batch {
             Columnar::Constant(c) => c.clone().into_array(),
             Columnar::Canonical(c) => c.clone().into_array(),

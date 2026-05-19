@@ -81,6 +81,8 @@ impl AggregateFnVTable for AllNonNull {
         batch: &Columnar,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        // Normal array dispatch is handled by `try_accumulate`, which always short-circuits.
+        // Keep this fallback in sync for direct Columnar accumulation paths.
         *partial &= match batch {
             Columnar::Constant(c) => c.is_empty() || !c.scalar().is_null(),
             Columnar::Canonical(c) => c.clone().into_array().invalid_count(ctx)? == 0,

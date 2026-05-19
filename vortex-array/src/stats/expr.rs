@@ -69,20 +69,23 @@ pub fn nan_count(expr: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
 
+    use super::all_nan;
+    use super::all_non_nan;
+    use super::all_non_null;
+    use super::all_null;
+    use super::null_count;
     use super::stat;
+    use super::sum;
     use crate::Canonical;
     use crate::IntoArray;
-    use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
-    use crate::aggregate_fn::AggregateFn;
-    use crate::aggregate_fn::EmptyOptions;
-    use crate::aggregate_fn::fns::all_non_null::AllNonNull;
-    use crate::aggregate_fn::fns::all_null::AllNull;
-    use crate::aggregate_fn::fns::sum::Sum;
     use crate::arrays::Chunked;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
@@ -97,7 +100,11 @@ mod tests {
     use crate::expr::stats::Stat;
     use crate::scalar::Scalar;
     use crate::scalar::ScalarValue;
+    use crate::session::ArraySession;
     use crate::validity::Validity;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn stat_expr_reads_cached_sum() -> VortexResult<()> {
@@ -109,8 +116,8 @@ mod tests {
         );
 
         let result = array
-            .apply(&stat(root(), AggregateFn::new(Sum, EmptyOptions).erased()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&sum(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected =
@@ -125,8 +132,8 @@ mod tests {
         let array = buffer![1i32, 2, 3].into_array();
 
         let result = array
-            .apply(&stat(root(), AggregateFn::new(Sum, EmptyOptions).erased()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&sum(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected = ConstantArray::new(
@@ -154,7 +161,7 @@ mod tests {
         )?
         .into_array();
 
-        let result = chunked.apply(&stat(root(), AggregateFn::new(Sum, EmptyOptions).erased()))?;
+        let result = chunked.apply(&sum(root()))?;
 
         let chunked_result = result
             .as_opt::<Chunked>()
@@ -162,7 +169,7 @@ mod tests {
         assert_eq!(chunked_result.nchunks(), 2);
 
         let result = result
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
         let expected = PrimitiveArray::new(
             buffer![3i64, 3, 0, 0, 0],
@@ -189,8 +196,8 @@ mod tests {
         );
 
         let result = array
-            .apply(&super::null_count(root()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&null_count(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected =
@@ -208,8 +215,8 @@ mod tests {
             .set(Stat::NullCount, Precision::exact(ScalarValue::from(3u64)));
 
         let result = array
-            .apply(&super::all_null(root()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&all_null(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected =
@@ -227,8 +234,8 @@ mod tests {
             .set(Stat::NullCount, Precision::inexact(ScalarValue::from(2u64)));
 
         let result = array
-            .apply(&super::all_null(root()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&all_null(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected =
@@ -246,11 +253,8 @@ mod tests {
             .set(Stat::NullCount, Precision::inexact(ScalarValue::from(3u64)));
 
         let result = array
-            .apply(&stat(
-                root(),
-                AggregateFn::new(AllNull, EmptyOptions).erased(),
-            ))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&all_null(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected =
@@ -268,8 +272,8 @@ mod tests {
             .set(Stat::NullCount, Precision::exact(ScalarValue::from(0u64)));
 
         let result = array
-            .apply(&super::all_non_null(root()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&all_non_null(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected =
@@ -287,8 +291,8 @@ mod tests {
             .set(Stat::NullCount, Precision::inexact(ScalarValue::from(0u64)));
 
         let result = array
-            .apply(&super::all_non_null(root()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&all_non_null(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected =
@@ -307,11 +311,8 @@ mod tests {
             .set(Stat::NullCount, Precision::inexact(ScalarValue::from(2u64)));
 
         let result = array
-            .apply(&stat(
-                root(),
-                AggregateFn::new(AllNonNull, EmptyOptions).erased(),
-            ))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&all_non_null(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected =
@@ -324,10 +325,10 @@ mod tests {
     #[test]
     fn stat_expr_rejects_all_nan_for_non_float() -> VortexResult<()> {
         let array = PrimitiveArray::empty::<i32>(Nullability::NonNullable).into_array();
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
 
         let result = array
-            .apply(&super::all_nan(root()))
+            .apply(&all_nan(root()))
             .and_then(|array| array.execute::<Canonical>(&mut ctx));
 
         assert!(result.is_err());
@@ -344,8 +345,8 @@ mod tests {
             .set(Stat::NaNCount, Precision::exact(ScalarValue::from(3u64)));
 
         let result = array
-            .apply(&super::all_nan(root()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&all_nan(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected =
@@ -365,8 +366,8 @@ mod tests {
             .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(2u64)));
 
         let result = array
-            .apply(&super::all_nan(root()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&all_nan(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected =
@@ -386,8 +387,8 @@ mod tests {
             .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(3u64)));
 
         let result = array
-            .apply(&super::all_nan(root()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&all_nan(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected =
@@ -405,8 +406,8 @@ mod tests {
             .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(0u64)));
 
         let result = array
-            .apply(&super::all_non_nan(root()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&all_non_nan(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected =
@@ -425,8 +426,8 @@ mod tests {
             .set(Stat::NaNCount, Precision::inexact(ScalarValue::from(1u64)));
 
         let result = array
-            .apply(&super::all_non_nan(root()))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .apply(&all_non_nan(root()))?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
 
         let expected =
@@ -454,7 +455,7 @@ mod tests {
                     .aggregate_fn()
                     .vortex_expect("min should have an aggregate function"),
             ))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
         let expected_min =
             ConstantArray::new(Scalar::primitive(1i32, Nullability::Nullable), 3).into_array();
@@ -467,7 +468,7 @@ mod tests {
                     .aggregate_fn()
                     .vortex_expect("max should have an aggregate function"),
             ))?
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+            .execute::<Canonical>(&mut SESSION.create_execution_ctx())?
             .into_array();
         let expected_max =
             ConstantArray::new(Scalar::primitive(3i32, Nullability::Nullable), 3).into_array();

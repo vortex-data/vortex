@@ -144,7 +144,7 @@ fn stat_array(
         let len = u64::try_from(len)?;
         array
             .statistics()
-            .with_typed_stats_set(|stats| stats.get_as::<u64>(Stat::NullCount))
+            .get_as::<u64>(Stat::NullCount)
             .and_then(|null_count| match null_count {
                 Precision::Exact(count) => Some(count == len),
                 Precision::Inexact(count) => (count < len).then_some(false),
@@ -153,7 +153,7 @@ fn stat_array(
     } else if aggregate_fn.is::<AllNonNull>() {
         array
             .statistics()
-            .with_typed_stats_set(|stats| stats.get_as::<u64>(Stat::NullCount))
+            .get_as::<u64>(Stat::NullCount)
             .and_then(|null_count| match null_count {
                 Precision::Exact(count) => Some(count == 0),
                 Precision::Inexact(0) => Some(true),
@@ -162,32 +162,24 @@ fn stat_array(
             .map(ScalarValue::Bool)
     } else if aggregate_fn.is::<AllNan>() {
         let len = u64::try_from(len)?;
-        if !matches!(array.dtype(), DType::Primitive(ptype, _) if ptype.is_float()) {
-            Some(false)
-        } else {
-            array
-                .statistics()
-                .with_typed_stats_set(|stats| stats.get_as::<u64>(Stat::NaNCount))
-                .and_then(|nan_count| match nan_count {
-                    Precision::Exact(count) => Some(count == len),
-                    Precision::Inexact(count) => (count < len).then_some(false),
-                })
-        }
-        .map(ScalarValue::Bool)
+        array
+            .statistics()
+            .get_as::<u64>(Stat::NaNCount)
+            .and_then(|nan_count| match nan_count {
+                Precision::Exact(count) => Some(count == len),
+                Precision::Inexact(count) => (count < len).then_some(false),
+            })
+            .map(ScalarValue::Bool)
     } else if aggregate_fn.is::<AllNonNan>() {
-        if !matches!(array.dtype(), DType::Primitive(ptype, _) if ptype.is_float()) {
-            Some(true)
-        } else {
-            array
-                .statistics()
-                .with_typed_stats_set(|stats| stats.get_as::<u64>(Stat::NaNCount))
-                .and_then(|nan_count| match nan_count {
-                    Precision::Exact(count) => Some(count == 0),
-                    Precision::Inexact(0) => Some(true),
-                    Precision::Inexact(_) => None,
-                })
-        }
-        .map(ScalarValue::Bool)
+        array
+            .statistics()
+            .get_as::<u64>(Stat::NaNCount)
+            .and_then(|nan_count| match nan_count {
+                Precision::Exact(count) => Some(count == 0),
+                Precision::Inexact(0) => Some(true),
+                Precision::Inexact(_) => None,
+            })
+            .map(ScalarValue::Bool)
     } else if let Some(stat) = Stat::from_aggregate_fn(aggregate_fn) {
         array
             .statistics()
