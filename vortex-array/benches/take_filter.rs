@@ -46,11 +46,6 @@ const ARRAY_LEN: usize = 25_000;
 const FILTERED_LENS: &[usize] = &[4_096, 16_384];
 const NUM_INDICES: &[usize] = &[1_000];
 const SMALL_NUM_INDICES: &[usize] = &[10];
-const TRADEOFF_NUM_INDICES: &[usize] = &[
-    1, 2, 4, 8, 10, 16, 24, 32, 48, 64, 96, 128, 192, 256, 320, 384, 512,
-];
-const TRADEOFF_MASK_NUM_INDICES: &[usize] = &[10, 64, 128, 256, 320];
-const TRADEOFF_MASK_FILTERED_LENS: &[usize] = &[1_024, 4_096, 16_384, 24_000];
 const LARGE_TAKE_CASES: &[(usize, usize)] = &[(2_500, 25_000), (12_500, 25_000)];
 
 /// Nested types are heavier per element, so they use a much smaller array and take fewer indices.
@@ -100,14 +95,6 @@ fn random_mask_buffer(array_len: usize, filtered_len: usize) -> BitBuffer {
         buffer.set(idx);
     }
 
-    buffer.freeze()
-}
-
-fn regular_mask_buffer(array_len: usize, filtered_len: usize) -> BitBuffer {
-    let mut buffer = BitBufferMut::new_unset(array_len);
-    for idx in 0..filtered_len {
-        buffer.set((idx * array_len) / filtered_len);
-    }
     buffer.freeze()
 }
 
@@ -232,53 +219,6 @@ fn take_filter_primitive_small_uncached_random_mask_random_indices<const FILTERE
         bencher,
         primitive_array(),
         random_mask_buffer(ARRAY_LEN, FILTERED_LEN),
-        random_indices(num_indices, FILTERED_LEN),
-    );
-}
-
-#[divan::bench(args = TRADEOFF_NUM_INDICES)]
-fn take_filter_primitive_tradeoff_random_mask_random_indices(bencher: Bencher, num_indices: usize) {
-    let array = primitive_array()
-        .filter(random_mask(ARRAY_LEN, 16_384))
-        .unwrap();
-    bench_take_filter(bencher, array, random_indices(num_indices, 16_384));
-}
-
-#[divan::bench(args = TRADEOFF_NUM_INDICES)]
-fn take_filter_primitive_tradeoff_uncached_random_mask_random_indices(
-    bencher: Bencher,
-    num_indices: usize,
-) {
-    bench_take_filter_uncached_mask(
-        bencher,
-        primitive_array(),
-        random_mask_buffer(ARRAY_LEN, 16_384),
-        random_indices(num_indices, 16_384),
-    );
-}
-
-#[divan::bench(args = TRADEOFF_MASK_NUM_INDICES, consts = TRADEOFF_MASK_FILTERED_LENS)]
-fn take_filter_primitive_tradeoff_uncached_random_mask_by_density<const FILTERED_LEN: usize>(
-    bencher: Bencher,
-    num_indices: usize,
-) {
-    bench_take_filter_uncached_mask(
-        bencher,
-        primitive_array(),
-        random_mask_buffer(ARRAY_LEN, FILTERED_LEN),
-        random_indices(num_indices, FILTERED_LEN),
-    );
-}
-
-#[divan::bench(args = TRADEOFF_MASK_NUM_INDICES, consts = TRADEOFF_MASK_FILTERED_LENS)]
-fn take_filter_primitive_tradeoff_uncached_regular_mask_by_density<const FILTERED_LEN: usize>(
-    bencher: Bencher,
-    num_indices: usize,
-) {
-    bench_take_filter_uncached_mask(
-        bencher,
-        primitive_array(),
-        regular_mask_buffer(ARRAY_LEN, FILTERED_LEN),
         random_indices(num_indices, FILTERED_LEN),
     );
 }
