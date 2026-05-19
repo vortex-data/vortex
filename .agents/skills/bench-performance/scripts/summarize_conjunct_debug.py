@@ -9,7 +9,6 @@ import re
 import statistics
 from pathlib import Path
 
-
 FIELD_RE = re.compile(
     r"(?P<key>[A-Za-z_][A-Za-z0-9_]*)="
     r"(?P<value>\"(?:[^\"\\]|\\.)*\"|Some\([^)]+\)|None|[^\s]+)"
@@ -77,11 +76,10 @@ def main() -> int:
                 message = message_for(line)
                 if message is None or (message_re is not None and not message_re.search(message)):
                     continue
-                fields = {
-                    match.group("key"): parse_value(match.group("value"))
-                    for match in FIELD_RE.finditer(line)
-                }
-                original_idx = fields.get("original_idx") or fields.get("conjunct_idx") or fields.get("child_idx") or "?"
+                fields = {match.group("key"): parse_value(match.group("value")) for match in FIELD_RE.finditer(line)}
+                original_idx = (
+                    fields.get("original_idx") or fields.get("conjunct_idx") or fields.get("child_idx") or "?"
+                )
                 conjunct = fields.get("conjunct", "")
                 groups[(message, original_idx, conjunct)].append(fields)
                 rows += 1
@@ -112,7 +110,9 @@ def main() -> int:
         return 1
 
     print(f"rows={rows:,}")
-    print("message\tconjunct\tindex\tevents\tinput_rows\toutput_rows\tcompute_input_rows\tcompute_output_rows\telapsed_ms\tcompute_per_input")
+    print(
+        "message\tconjunct\tindex\tevents\tinput_rows\toutput_rows\tcompute_input_rows\tcompute_output_rows\telapsed_ms\tcompute_per_input"
+    )
     for (message, idx, conjunct), entries in sorted(groups.items(), key=lambda item: item[0]):
         input_rows = sum(as_int(e, "input_rows") for e in entries)
         output_rows = sum(as_int(e, "output_rows") for e in entries)
@@ -132,10 +132,7 @@ def main() -> int:
     print("\nevents_per_window:")
     lengths = [len(order) for order, count in order_counts.items() for _ in range(count)]
     if lengths:
-        print(
-            f"  median={statistics.median(lengths):.0f} "
-            f"p90={quantile(lengths, 0.90):.0f} max={max(lengths)}"
-        )
+        print(f"  median={statistics.median(lengths):.0f} p90={quantile(lengths, 0.90):.0f} max={max(lengths)}")
 
     return 0
 

@@ -7,7 +7,6 @@ import argparse
 import re
 from pathlib import Path
 
-
 METRIC_RE = re.compile(r"^\s*([A-Za-z0-9_.\[\]-]+)=(.+?)\s*$")
 NUMBER_UNIT_RE = re.compile(r"^\s*([-+]?[0-9]*\.?[0-9]+)\s*([A-Za-z/]+)?\s*$")
 

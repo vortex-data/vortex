@@ -235,11 +235,7 @@ def atos_symbol_map(binary: Path, addresses: list[str], load_address: int) -> di
     if result.returncode != 0:
         return {}
     symbols = result.stdout.splitlines()
-    return {
-        raw: symbol.strip()
-        for raw, symbol in zip(addresses, symbols)
-        if symbol.strip() and symbol.strip() != raw
-    }
+    return {raw: symbol.strip() for raw, symbol in zip(addresses, symbols) if symbol.strip() and symbol.strip() != raw}
 
 
 def main() -> int:
@@ -269,10 +265,7 @@ def main() -> int:
     profile = load_profile(args.profile)
     meta = profile.get("meta") or {}
     print(f"Profile: {args.profile}")
-    print(
-        f"Product: {meta.get('product', '')}  interval_ms={meta.get('interval', '')} "
-        f"weight_mode={args.weight_mode}"
-    )
+    print(f"Product: {meta.get('product', '')}  interval_ms={meta.get('interval', '')} weight_mode={args.weight_mode}")
 
     if args.binary:
         print(f"Candidate binary: {args.binary}")
@@ -289,9 +282,7 @@ def main() -> int:
     if args.libs:
         print_libs(profile)
 
-    summaries = [
-        summarize_thread(thread, symbols, args.weight_mode) for thread in profile.get("threads") or []
-    ]
+    summaries = [summarize_thread(thread, symbols, args.weight_mode) for thread in profile.get("threads") or []]
     summaries.sort(key=lambda s: (s["cpu_ms"], s["weight"]), reverse=True)
 
     print("\nThreads by CPU:")
@@ -306,8 +297,7 @@ def main() -> int:
             continue
         print("\n" + "=" * 100)
         print(
-            f"Thread {summary['name']} tid={summary['tid']} "
-            f"cpu_ms={summary['cpu_ms']:.3f} weight={summary['weight']}"
+            f"Thread {summary['name']} tid={summary['tid']} cpu_ms={summary['cpu_ms']:.3f} weight={summary['weight']}"
         )
         print_counter("Top self frames:", summary["self"], summary["weight"], args.top)
         print_counter("Top inclusive frames:", summary["inclusive"], summary["weight"], args.top)

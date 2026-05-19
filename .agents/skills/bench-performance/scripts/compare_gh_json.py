@@ -56,11 +56,7 @@ def runtime_summary(record: dict[str, Any]) -> str:
     if not values:
         value = float(record["value"])
         return f"{ns_to_ms(value):.3f}/{ns_to_ms(value):.3f}/{ns_to_ms(value):.3f}"
-    return (
-        f"{ns_to_ms(values[0]):.3f}/"
-        f"{ns_to_ms(statistics.median(values)):.3f}/"
-        f"{ns_to_ms(values[-1]):.3f}"
-    )
+    return f"{ns_to_ms(values[0]):.3f}/{ns_to_ms(statistics.median(values)):.3f}/{ns_to_ms(values[-1]):.3f}"
 
 
 def main() -> int:

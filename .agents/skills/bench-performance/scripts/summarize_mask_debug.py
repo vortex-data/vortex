@@ -11,7 +11,6 @@ import statistics
 from dataclasses import dataclass
 from pathlib import Path
 
-
 FIELD_RE = re.compile(
     r"(?P<key>[A-Za-z_][A-Za-z0-9_]*)="
     r"(?P<value>\"(?:[^\"\\]|\\.)*\"|Some\([^)]+\)|None|[^\s]+)"
@@ -74,10 +73,7 @@ def iter_rows(paths: list[Path]) -> list[Row]:
                 message_match = MESSAGE_RE.search(line)
                 if not message_match:
                     continue
-                fields = {
-                    match.group("key"): parse_value(match.group("value"))
-                    for match in FIELD_RE.finditer(line)
-                }
+                fields = {match.group("key"): parse_value(match.group("value")) for match in FIELD_RE.finditer(line)}
                 if not has_row_fields(fields):
                     continue
                 rows.append(
@@ -92,9 +88,8 @@ def iter_rows(paths: list[Path]) -> list[Row]:
 
 
 def has_row_fields(fields: dict[str, str]) -> bool:
-    return (
-        ("batch_input_rows" in fields and "batch_output_rows" in fields)
-        or ("input_rows" in fields and "output_rows" in fields)
+    return ("batch_input_rows" in fields and "batch_output_rows" in fields) or (
+        "input_rows" in fields and "output_rows" in fields
     )
 
 
@@ -130,15 +125,8 @@ def summarize_group(message: str, rows: list[Row], top: int) -> None:
     density = (total_output / total_input) if total_input else 0.0
     print(f"\n{message}")
     print(
-        "  batches={batches:,} zero_output={zero:,} ({zero_pct:.1f}%) "
-        "input_rows={input_rows:,} output_rows={output_rows:,} density={density:.6%}".format(
-            batches=len(rows),
-            zero=zero,
-            zero_pct=(zero * 100.0 / len(rows)) if rows else 0.0,
-            input_rows=total_input,
-            output_rows=total_output,
-            density=density,
-        )
+        f"  batches={len(rows):,} zero_output={zero:,} ({(zero * 100.0 / len(rows)) if rows else 0.0:.1f}%) "
+        f"input_rows={total_input:,} output_rows={total_output:,} density={density:.6%}"
     )
     if input_rows:
         print(
@@ -187,11 +175,7 @@ def duplicate_keys(rows: list[Row]) -> list[tuple[tuple[str, str, str, str, str]
         )
         counts[key] += 1
         input_totals[key] += row_count(row.fields, "batch_input_rows", "input_rows")
-    return [
-        (key, count, input_totals[key])
-        for key, count in counts.items()
-        if count > 1
-    ]
+    return [(key, count, input_totals[key]) for key, count in counts.items() if count > 1]
 
 
 def main() -> int:

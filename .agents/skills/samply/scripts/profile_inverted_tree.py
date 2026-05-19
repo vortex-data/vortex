@@ -168,7 +168,9 @@ def main() -> int:
     print(f"Profile: {args.profile}")
     print(f"weight_mode={args.weight_mode} total_{unit}={root.weight}")
     if args.start_ms is not None or args.end_ms is not None:
-        print(f"time_range_ms={args.start_ms if args.start_ms is not None else '-inf'}..{args.end_ms if args.end_ms is not None else 'inf'}")
+        start_ms = args.start_ms if args.start_ms is not None else "-inf"
+        end_ms = args.end_ms if args.end_ms is not None else "inf"
+        print(f"time_range_ms={start_ms}..{end_ms}")
     if args.thread_regex:
         print(f"thread_regex={args.thread_regex}")
     if args.tid:

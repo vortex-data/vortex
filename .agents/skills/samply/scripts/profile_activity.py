@@ -51,9 +51,13 @@ def main() -> int:
     parser.add_argument("profile", type=Path)
     parser.add_argument("--thread-regex", default="tokio-rt-worker", help="Regex matched against thread name or tid")
     parser.add_argument("--bin-ms", type=float, default=10.0, help="Timeline bin width in milliseconds")
-    parser.add_argument("--active-cpu-us", type=float, default=100.0, help="CPU delta needed for a thread to count as active in a bin")
+    parser.add_argument(
+        "--active-cpu-us", type=float, default=100.0, help="CPU delta needed for a thread to count as active in a bin"
+    )
     parser.add_argument("--low-active", type=int, default=4, help="Report ranges with at most this many active threads")
-    parser.add_argument("--tail-ms", type=float, default=200.0, help="Print active-thread counts for this much tail time")
+    parser.add_argument(
+        "--tail-ms", type=float, default=200.0, help="Print active-thread counts for this much tail time"
+    )
     parser.add_argument("--start-ms", type=float, help="Only include samples at or after this profile time")
     parser.add_argument("--end-ms", type=float, help="Only include samples at or before this profile time")
     parser.add_argument("--show-ranges", type=int, default=12, help="Maximum low-activity ranges to print")

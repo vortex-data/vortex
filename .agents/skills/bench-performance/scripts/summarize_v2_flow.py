@@ -9,7 +9,6 @@ import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
 
-
 REST_RE = re.compile(r":\d+: (?P<rest>.*)$")
 KV_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=([^ ]+)")
 FIRST_KV_RE = re.compile(r" [A-Za-z_][A-Za-z0-9_]*=")
@@ -134,14 +133,9 @@ def main() -> None:
             print(f"  {label}: {fmt_stats(values)}")
 
         print("\nAligned producer waits by label/child:")
-        for (label, child_idx), values in sorted(
-            by_label_child.items(), key=lambda item: sum(item[1]), reverse=True
-        ):
+        for (label, child_idx), values in sorted(by_label_child.items(), key=lambda item: sum(item[1]), reverse=True):
             row_values = by_label_rows[(label, child_idx)]
-            print(
-                f"  {label} child={child_idx}: wait=({fmt_stats(values)}) "
-                f"rows=({fmt_stats(row_values)})"
-            )
+            print(f"  {label} child={child_idx}: wait=({fmt_stats(values)}) rows=({fmt_stats(row_values)})")
 
         print("\nAligned producer waits by stream/child:")
         ranked = sorted(
