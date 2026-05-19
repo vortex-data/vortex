@@ -393,6 +393,39 @@ async fn admin_snapshot_rejects_existing_directory() -> Result<()> {
 }
 
 #[tokio::test]
+#[ignore = "needs network to install the vortex DuckDB community extension"]
+async fn admin_snapshot_concurrent_same_ts_yields_one_200_and_one_409() -> Result<()> {
+    let server = Server::start_with_admin().await?;
+    // Wrap the address so we can reach the running server from both spawned
+    // tasks. The server already owns its own `JoinHandle`, so we just need a
+    // way to build URLs from each task.
+    let base = format!("http://{}", server.addr);
+    let ts = "20260103T000000Z";
+
+    let client_a = reqwest::Client::new();
+    let client_b = reqwest::Client::new();
+    let url = format!("{base}/api/admin/snapshot?ts={ts}");
+    let url_a = url.clone();
+    let url_b = url;
+
+    let a =
+        tokio::spawn(async move { client_a.post(&url_a).bearer_auth(ADMIN_TOKEN).send().await });
+    let b =
+        tokio::spawn(async move { client_b.post(&url_b).bearer_auth(ADMIN_TOKEN).send().await });
+
+    let resp_a = a.await??;
+    let resp_b = b.await??;
+    let mut codes = [resp_a.status().as_u16(), resp_b.status().as_u16()];
+    codes.sort();
+    assert_eq!(
+        codes,
+        [200, 409],
+        "expected exactly one 200 and one 409 for concurrent snapshots with same ts"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn admin_snapshot_validates_ts() -> Result<()> {
     let server = Server::start_with_admin().await?;
     let client = reqwest::Client::new();

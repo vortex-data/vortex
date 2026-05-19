@@ -43,6 +43,8 @@
 use std::fmt::Write as _;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use anyhow::Context as _;
 use anyhow::Result;
@@ -199,6 +201,19 @@ pub async fn snapshot(
         let _ = std::fs::remove_dir_all(&tmp);
         return Err(AdminError::Internal(err));
     }
+    // Re-check `target` immediately before the rename. `std::fs::rename` on
+    // Linux overwrites an existing destination atomically, so without this
+    // guard two concurrent calls with the same `ts` would both finish and
+    // the second `rename` would silently clobber the first snapshot. A small
+    // theoretical window remains between this check and the rename itself,
+    // but it closes the practical race and needs no platform-specific code.
+    if target.exists() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err(AdminError::Conflict(format!(
+            "snapshot directory already exists: {}",
+            target.display()
+        )));
+    }
     if let Err(err) = std::fs::rename(&tmp, &target).with_context(|| {
         format!(
             "moving snapshot dir {} to {}",
@@ -214,8 +229,14 @@ pub async fn snapshot(
     }))
 }
 
+/// Per-call unique temp directory used to stage a snapshot before the atomic
+/// rename onto `target`. Includes a process-local counter so two concurrent
+/// calls with the same `ts` in the same server process never share a staging
+/// directory and clobber each other's in-progress writes.
 fn tmp_snapshot_dir(target: &Path, ts: &str) -> PathBuf {
-    target.with_file_name(format!("{ts}.tmp-{}", std::process::id()))
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let id = COUNTER.fetch_add(1, Ordering::Relaxed);
+    target.with_file_name(format!("{ts}.tmp-{}-{}", std::process::id(), id))
 }
 
 async fn write_snapshot(state: &AppState, target: &Path) -> Result<()> {
