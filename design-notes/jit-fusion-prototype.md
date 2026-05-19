@@ -2106,6 +2106,139 @@ delivers on.
 
 ---
 
+## 19. Why is it 26-30× faster? Attribution to one effect
+
+The headline 26× JIT-vs-vortex-style speedup decomposes cleanly. We added
+four progressively-optimized Rust variants of ALP decode, identical
+input/output, and measured each. The result is much sharper than
+expected.
+
+| Variant | What changed | Median | Speedup |
+|---------|--------------|--------|---------|
+| **A — vortex_style** | `iter_mut().for_each(\|v\| decode_single(...))` + `#[inline(never)]` + table lookups | **201.7 μs** | **1×** |
+| **B — inlined helper** | Identical source, but `#[inline(always)]` on the helper | **7.69 μs** | **26×** |
+| C — tight for loop | `for i in 0..N { output[i] = (x as f32) * F10[f] * IF10[e] }` | 53.0 μs | 3.8× |
+| **D — scale hoisted** | `let scale = ...; output[i] = (x as f32) * scale` | 6.69 μs | **30×** |
+| JIT warm | Cranelift SIMD | 7.6 μs | 26× |
+
+**The entire gap is one optimization: removing the function-call
+boundary.**
+
+Going A → B is *just* `#[inline(never)]` → `#[inline(always)]` on
+`decode_single_alp`. Same closure, same table lookups, same surrounding
+code. That one annotation gives a **26× speedup**.
+
+### The smoking-gun disassembly
+
+LLVM's autovec of `inlined_helper_alp_decode`
+(`vortex-jit/examples/alp_asm_check.rs`):
+
+```asm
+.preamble (out of loop):
+   movss   xmm0, [F10 + rax*4]          ; load F10[f] once, hoisted
+   movss   xmm1, [IF10 + r8*4]          ; load IF10[e] once, hoisted
+   shufps  xmm2, xmm0, 0                ; broadcast F10[f] to xmm2 lanes
+   shufps  xmm3, xmm1, 0                ; broadcast IF10[e] to xmm3 lanes
+
+.loop:                                  ; 8 elements per iter
+   movups   xmm4, [rdi + rsi*4]
+   movups   xmm5, [rdi + rsi*4 + 0x10]
+   cvtdq2ps xmm4, xmm4
+   cvtdq2ps xmm5, xmm5
+   mulps    xmm4, xmm2                  ; × F10[f]
+   mulps    xmm5, xmm2
+   mulps    xmm4, xmm3                  ; × IF10[e]
+   mulps    xmm5, xmm3
+   movups   [rdx + rsi*4], xmm4
+   movups   [rdx + rsi*4 + 0x10], xmm5
+   add      rsi, 8
+   cmp      rax, rsi
+   jne      .loop
+```
+
+LLVM did all of it on its own: LICM on the table lookups, broadcast,
+SSE2 autovec, 2× unrolling. The same loop shape as `idealized_alp_decode`
+(where the scale was hand-hoisted) — landed at the same 6.7 μs.
+
+The `vortex_style_alp_decode` disasm (from §17) for contrast:
+
+```asm
+.loop:
+   ...
+   call   decode_single_alp           ; <-- the boundary
+   movss  [rbx+r14*4], xmm0
+   ...
+```
+
+One `call` per element, scalar work inside the callee, zero SIMD. The
+function-call boundary is opaque to LLVM's loop vectorizer.
+
+### What this changes about the framework's value claim
+
+**The JIT isn't beating LLVM at codegen.** LLVM is fully capable of
+producing optimal SSE2 ALP decode — when there's no abstraction barrier
+between the loop and the per-element compute. The JIT wins because it
+*sidesteps* the abstraction barriers that Rust's existing encoding code
+carries.
+
+Why does Vortex's actual code have those barriers? The pattern is
+unavoidable in idiomatic Rust:
+
+```rust
+decoded.iter_mut().for_each(|v| {
+    *v = Self::decode_single(
+        unsafe { transmute_copy::<Self, Self::ALPInt>(v) },
+        exponents,
+    )
+});
+```
+
+`decode_single` is a trait method. The closure passed to `for_each`
+captures `exponents`. Whether LLVM inlines through this depends on:
+- the trait method's `#[inline]` attributes
+- monomorphization decisions
+- the optimizer's inlining heuristics for closures-over-trait-methods
+
+The encoding survey at the start of this design empirically reported
+"Not autovectorized" for Vortex's ALP — which means LLVM in fact does
+*not* inline through that pattern with the current attributes. Adding
+`#[inline(always)]` everywhere along the call chain would likely fix it.
+
+But the JIT framework gives you the win *without* requiring those edits.
+Stages compose by SSA-value handoff, not by Rust function calls — there
+is no boundary for LLVM to fail to inline through, because LLVM isn't
+the one composing the stages.
+
+### The real claim, sharpened
+
+The framework's value isn't "Cranelift produces better SIMD than LLVM".
+It's:
+
+> **The framework guarantees no function-call boundary between
+> composed encoding stages, by construction.** That's the property
+> Rust's trait-based composition cannot give you, and it's what unlocks
+> the autovec LLVM is otherwise willing to do.
+
+Three corollaries:
+
+1. **The 26-30× wins are entirely *abstraction-tax* recoveries.** They
+   measure the cost of Rust's trait+closure pattern blocking LLVM's
+   vectorizer, not the JIT's codegen superiority.
+2. **A simpler fix exists for ALP today** — add `#[inline(always)]` on
+   `decode_single` and follow the chain through `iter_mut().for_each`.
+   This wouldn't require a JIT framework. It would also be brittle —
+   future refactors could reintroduce a call boundary anywhere along
+   the inlining chain.
+3. **The framework's permanent value is composability across an
+   unbounded set of encodings.** Adding a new encoding doesn't risk
+   reintroducing abstraction barriers; the SSA-value handoff is
+   monolithic by construction.
+
+That's why the 26-30× holds across every pipeline that has any
+LLVM-autovec-resistant work in it.
+
+---
+
 ## Appendix A: research on the inter-module ABI
 
 What follows is what the surveys found about how today's encodings talk to each

@@ -251,6 +251,91 @@ fn alp_input() -> Vec<i32> {
     (0..NUM_VALUES as i32).map(|i| i - 32_768).collect()
 }
 
+// ----- Attribution benches: peel off each "blocker" one at a time -----
+//
+// To explain the 26-30x JIT-vs-vortex-style gap, we run progressively-faster
+// Rust variants. Each turns one optimization back on. The deltas between
+// adjacent rows show what each effect is worth.
+
+/// Variant A — Vortex-style today: closure + #[inline(never)] + table lookups.
+/// LLVM cannot vectorize through the function-call boundary.
+/// (This is the same as `alp_vortex_style` below; kept here for adjacency.)
+#[inline(never)]
+fn decode_single_alp_no_inline(encoded: i32, e: u8, f: u8) -> f32 {
+    (encoded as f32) * F10[f as usize] * IF10[e as usize]
+}
+
+#[divan::bench]
+fn attr_a_vortex_style(bencher: Bencher) {
+    let input = alp_input();
+    let (e, f) = (2u8, 0u8);
+    with_throughput(bencher)
+        .with_inputs(|| (input.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(input, mut output)| {
+            output
+                .iter_mut()
+                .zip(input.iter())
+                .for_each(|(o, &x)| *o = decode_single_alp_no_inline(x, e, f));
+            divan::black_box(output)
+        });
+}
+
+/// Variant B — same as A but the helper is inlined. Tests whether removing
+/// the function-call boundary alone unlocks autovec.
+#[inline(always)]
+fn decode_single_alp_inline(encoded: i32, e: u8, f: u8) -> f32 {
+    (encoded as f32) * F10[f as usize] * IF10[e as usize]
+}
+
+#[divan::bench]
+fn attr_b_inlined_with_tables(bencher: Bencher) {
+    let input = alp_input();
+    let (e, f) = (2u8, 0u8);
+    with_throughput(bencher)
+        .with_inputs(|| (input.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(input, mut output)| {
+            output
+                .iter_mut()
+                .zip(input.iter())
+                .for_each(|(o, &x)| *o = decode_single_alp_inline(x, e, f));
+            divan::black_box(output)
+        });
+}
+
+/// Variant C — closure inlined, table lookups still happen in the loop but the
+/// compiler can in principle hoist `F10[f]` and `IF10[e]` as loop-invariant.
+#[divan::bench]
+fn attr_c_inlined_tight_loop(bencher: Bencher) {
+    let input = alp_input();
+    let (e, f) = (2u8, 0u8);
+    with_throughput(bencher)
+        .with_inputs(|| (input.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(input, mut output)| {
+            for i in 0..NUM_VALUES {
+                output[i] = (input[i] as f32) * F10[f as usize] * IF10[e as usize];
+            }
+            divan::black_box(output)
+        });
+}
+
+/// Variant D — scale hoisted outside the loop by hand. This is the closest
+/// equivalent to what the JIT does (scale is a const-folded f32const) without
+/// any function-call or table-lookup machinery.
+#[divan::bench]
+fn attr_d_scale_hoisted(bencher: Bencher) {
+    let input = alp_input();
+    let (e, f) = (2u8, 0u8);
+    let scale = F10[f as usize] * IF10[e as usize];
+    with_throughput(bencher)
+        .with_inputs(|| (input.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(input, mut output)| {
+            for i in 0..NUM_VALUES {
+                output[i] = (input[i] as f32) * scale;
+            }
+            divan::black_box(output)
+        });
+}
+
 #[divan::bench]
 fn alp_vortex_style(bencher: Bencher) {
     let input = alp_input();

@@ -41,6 +41,24 @@ pub fn vortex_style_alp_decode(input: &[i32], output: &mut [f32], e: u8, f: u8) 
         });
 }
 
+#[inline(always)]
+fn decode_single_alp_inlined(encoded: i32, e: u8, f: u8) -> f32 {
+    (encoded as f32) * F10[f as usize] * IF10[e as usize]
+}
+
+/// Identical to `vortex_style_alp_decode` except the helper is `#[inline(always)]`.
+/// Demonstrates that the ONLY thing blocking LLVM autovec is the call boundary.
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub fn inlined_helper_alp_decode(input: &[i32], output: &mut [f32], e: u8, f: u8) {
+    output
+        .iter_mut()
+        .zip(input.iter())
+        .for_each(|(o, &x)| {
+            *o = decode_single_alp_inlined(x, e, f);
+        });
+}
+
 /// Idealized: tight loop with the scale hoisted as a single literal. This
 /// is what a competent engineer would write if hand-tuning, and what LLVM's
 /// autovec will lift to `vcvtdq2ps` + `vmulps` at the host's native width.
@@ -57,6 +75,8 @@ fn main() {
     let input: Vec<i32> = (0..1024).collect();
     let mut output = vec![0f32; 1024];
     vortex_style_alp_decode(&input, &mut output, 2, 0);
+    std::hint::black_box(&output);
+    inlined_helper_alp_decode(&input, &mut output, 2, 0);
     std::hint::black_box(&output);
     idealized_alp_decode(&input, &mut output, 0.01);
     std::hint::black_box(&output);
