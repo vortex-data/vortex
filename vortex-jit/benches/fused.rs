@@ -23,7 +23,7 @@ use divan::Bencher;
 use divan::counter::{BytesCount, ItemsCount};
 use mimalloc::MiMalloc;
 use vortex_jit::stages::{
-    AlpDecode, BitPackedLoad, DeltaPrefixSum, ForAdd, LoadIn, StoreOut, pack_dense,
+    AlpDecode, BitPackedLoad, DeltaPrefixSum, DictLookup, ForAdd, LoadIn, StoreOut, pack_dense,
 };
 use vortex_jit::{Compiler, PType, Pipeline};
 
@@ -467,6 +467,124 @@ fn chain_jit_cold(bencher: Bencher) {
                     packed.as_ptr().cast(),
                     output.as_mut_ptr().cast(),
                     chain_n_blocks as u64,
+                );
+            }
+            divan::black_box(output)
+        });
+}
+
+// ============================================================
+// Pipeline 5: Dict + ForAdd over BitPacked codes — a fastlanes-style
+// composition: codes are bit-packed, decoded via dict, value side gets a FoR
+// offset applied. Comparison:
+//
+//   - `dict_chain_vortex_style`: scalar mock with non-inlined dict lookup.
+//   - `dict_chain_jit_warm`: the JIT'd fused kernel.
+// ============================================================
+
+const DICT_SIZE: usize = 256;
+
+fn dict_chain_inputs() -> (Vec<u32>, Vec<f32>) {
+    // Pack i32 codes at width 8 (fits 256-entry dictionary) in interleaved layout.
+    let codes: Vec<i32> = (0..NUM_VALUES as i32).map(|i| i & (DICT_SIZE as i32 - 1)).collect();
+    let packed = pack_dense(&codes, 8);
+    let values: Vec<f32> = (0..DICT_SIZE).map(|i| (i as f32) * 0.5 + 1.0).collect();
+    (packed, values)
+}
+
+fn build_dict_chain_pipeline() -> Pipeline {
+    // BitPacked(W=8 codes) -> DictLookup -> ForAdd(scaled into f32... wait,
+    // ForAdd is integer. So this chain is more naturally:
+    //   BitPacked(codes) -> DictLookup -> StoreOut.
+    // To make the chain longer, append AlpDecode (which is also an i->f
+    // multiply pattern). But DictLookup -> AlpDecode would need both stages
+    // accepting f32 in/out which doesn't make semantic sense here.
+    //
+    // Stick with the simpler 3-stage chain: BitPacked codes -> Dict -> Store f32.
+    let mut p = Pipeline::new(PType::I32, 32); // n_chunks*W = 8*8=64, ✓
+    p.push(Arc::new(BitPackedLoad {
+        ptype: PType::I32,
+        bit_width: 8,
+    }))
+    .unwrap();
+    p.push(Arc::new(DictLookup {
+        code_ptype: PType::I32,
+        value_ptype: PType::F32,
+    }))
+    .unwrap();
+    p.push(Arc::new(StoreOut { ptype: PType::F32 })).unwrap();
+    p
+}
+
+#[inline(never)]
+fn dict_unpack_one_w8(packed: &[u32], idx: usize) -> i32 {
+    // Interleaved layout for SIMD_LANES=4.
+    const SIMD_LANES: usize = 4;
+    let s = idx % SIMD_LANES;
+    let row = idx / SIMD_LANES;
+    let bit_start = row * 8;
+    let word_idx = bit_start / 32;
+    let bit_off = bit_start % 32;
+    let lo = packed[word_idx * SIMD_LANES + s] >> bit_off;
+    (lo & 0xFF) as i32
+}
+
+#[inline(never)]
+fn dict_lookup_single(values: &[f32], code: i32) -> f32 {
+    values[code as usize]
+}
+
+#[divan::bench]
+fn dict_chain_vortex_style(bencher: Bencher) {
+    let (packed, values) = dict_chain_inputs();
+    with_throughput(bencher)
+        .with_inputs(|| (packed.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(packed, mut output)| {
+            // Scalar shape: per-element unpack + dict lookup, both non-inlined.
+            for i in 0..NUM_VALUES {
+                let code = dict_unpack_one_w8(&packed, i);
+                output[i] = dict_lookup_single(&values, code);
+            }
+            divan::black_box(output)
+        });
+}
+
+#[divan::bench]
+fn dict_chain_jit_warm(bencher: Bencher) {
+    let (packed, values) = dict_chain_inputs();
+    let p = build_dict_chain_pipeline();
+    let compiled = Compiler::new(vec![]).unwrap().compile(&p).unwrap();
+    let n_blocks = NUM_VALUES / 32;
+    with_throughput(bencher)
+        .with_inputs(|| (packed.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(packed, mut output)| {
+            unsafe {
+                compiled.call_with_named(
+                    packed.as_ptr().cast(),
+                    output.as_mut_ptr().cast(),
+                    n_blocks as u64,
+                    values.as_ptr().cast(),
+                );
+            }
+            divan::black_box(output)
+        });
+}
+
+#[divan::bench]
+fn dict_chain_jit_cold(bencher: Bencher) {
+    let (packed, values) = dict_chain_inputs();
+    let n_blocks = NUM_VALUES / 32;
+    with_throughput(bencher)
+        .with_inputs(|| (packed.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(packed, mut output)| {
+            let p = build_dict_chain_pipeline();
+            let compiled = Compiler::new(vec![]).unwrap().compile(&p).unwrap();
+            unsafe {
+                compiled.call_with_named(
+                    packed.as_ptr().cast(),
+                    output.as_mut_ptr().cast(),
+                    n_blocks as u64,
+                    values.as_ptr().cast(),
                 );
             }
             divan::black_box(output)

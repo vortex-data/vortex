@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use cranelift::prelude::types as cl_types;
 use vortex_jit::stages::{
-    AlpDecode, ApplyPatchesPostLoop, BitPackedLoad, DeltaPrefixSum, ForAdd, LoadIn, StoreOut,
-    pack_dense,
+    AlpDecode, ApplyPatchesPostLoop, BitPackedLoad, DeltaPrefixSum, DictLookup, ForAdd, LoadIn,
+    RleExpandPostLoop, StoreOut, pack_dense,
 };
 use vortex_jit::{Compiler, ExternFn, PType, Pipeline};
 
@@ -287,6 +287,111 @@ fn alp_decode_i32_to_f32() {
     for (i, (a, b)) in output.iter().zip(expected.iter()).enumerate() {
         assert_eq!(a, b, "mismatch at {i}: jit={a} expected={b}");
     }
+}
+
+#[test]
+fn dict_lookup_i32_codes_to_f32_values() {
+    // Pipeline: LoadIn(I32 codes) -> DictLookup -> StoreOut(F32 values)
+    const BLOCK: usize = 16;
+    const N_BLOCKS: usize = 4;
+    const N: usize = BLOCK * N_BLOCKS;
+
+    let mut p = Pipeline::new(PType::I32, BLOCK);
+    p.push(Arc::new(LoadIn { ptype: PType::I32 })).unwrap();
+    p.push(Arc::new(DictLookup {
+        code_ptype: PType::I32,
+        value_ptype: PType::F32,
+    }))
+    .unwrap();
+    p.push(Arc::new(StoreOut { ptype: PType::F32 })).unwrap();
+
+    let compiled = fresh_compiler(vec![]).compile(&p).expect("compile");
+
+    // Values dictionary
+    let values: Vec<f32> = (0..16).map(|i| (i as f32) * 0.1).collect();
+    let codes: Vec<i32> = (0..N).map(|i| (i % 16) as i32).collect();
+    let mut output: Vec<f32> = vec![0.0; N];
+
+    // Signature: (InPtr, OutPtr, NBlocks, dict_values)
+    assert_eq!(compiled.args.len(), 4);
+    unsafe {
+        compiled.call_with_named(
+            codes.as_ptr().cast(),
+            output.as_mut_ptr().cast(),
+            N_BLOCKS as u64,
+            values.as_ptr().cast(),
+        );
+    }
+
+    let expected: Vec<f32> = codes.iter().map(|&c| values[c as usize]).collect();
+    for (i, (a, b)) in output.iter().zip(expected.iter()).enumerate() {
+        assert_eq!(a, b, "mismatch at {i}");
+    }
+}
+
+unsafe extern "C" fn rle_expand_i32(
+    out: *mut i32,
+    values: *const i32,
+    lengths: *const u32,
+    n_runs: u64,
+) {
+    let values = unsafe { std::slice::from_raw_parts(values, n_runs as usize) };
+    let lengths = unsafe { std::slice::from_raw_parts(lengths, n_runs as usize) };
+    let mut pos = 0usize;
+    for k in 0..n_runs as usize {
+        let v = values[k];
+        let l = lengths[k] as usize;
+        for j in 0..l {
+            unsafe { *out.add(pos + j) = v };
+        }
+        pos += l;
+    }
+}
+
+#[test]
+fn rle_post_loop_expansion_i32() {
+    use cranelift::prelude::types as cl_types;
+
+    // Pipeline: just the PostLoop RLE expansion. n_blocks = 0 (no in-block work).
+    let mut p = Pipeline::new(PType::I32, 16);
+    p.push(Arc::new(RleExpandPostLoop {
+        ptype: PType::I32,
+        helper_name: "rle_expand_i32",
+    }))
+    .unwrap();
+
+    let compiler = fresh_compiler(vec![ExternFn {
+        name: "rle_expand_i32",
+        addr: rle_expand_i32 as *const u8,
+        params: &[cl_types::I64, cl_types::I64, cl_types::I64, cl_types::I64],
+        returns: &[],
+    }]);
+    let compiled = compiler.compile(&p).expect("compile");
+
+    // 4 runs: 100×3, 200×2, 300×4, 400×1 = 10 outputs
+    let values = vec![100i32, 200, 300, 400];
+    let lengths = vec![3u32, 2, 4, 1];
+    let n_runs_buf = [values.len() as u64];
+    let n_total: usize = lengths.iter().map(|&l| l as usize).sum();
+    let mut output = vec![0i32; n_total];
+
+    // No in-block stages, so signature is (OutPtr, NBlocks, rle_values, rle_lengths, rle_n_runs).
+    // Call the raw function pointer directly.
+    eprintln!("RLE pipeline args: {:?}", compiled.args);
+    let f: unsafe extern "C" fn(*mut u8, u64, *const u8, *const u8, *const u8) =
+        unsafe { std::mem::transmute(compiled.raw_fn) };
+    unsafe {
+        f(
+            output.as_mut_ptr().cast(),
+            0,
+            values.as_ptr().cast(),
+            lengths.as_ptr().cast(),
+            n_runs_buf.as_ptr().cast(),
+        );
+    }
+
+    let expected = vec![100, 100, 100, 200, 200, 300, 300, 300, 300, 400];
+    assert_eq!(output, expected);
 }
 
 /// Apply-patches helper, monomorphized for i32.
