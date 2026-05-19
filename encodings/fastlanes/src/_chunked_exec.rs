@@ -8,7 +8,6 @@
 //! immediately AVX2-gather it into the output buffer. The working set is the small
 //! values dictionary plus the 4 KiB chunk-of-codes, never the materialised codes column.
 
-use std::mem;
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 
@@ -16,17 +15,15 @@ use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VTable;
-use vortex_array::VortexSessionExecute as _;
 use vortex_array::_chunked_exec::CHUNK_LEN;
 use vortex_array::_chunked_exec::Scratch;
 use vortex_array::_chunked_exec::primitive::PrimitiveChunkKernel;
 use vortex_array::_chunked_exec::primitive::PrimitiveChunkKernelDispatcher;
 use vortex_array::_chunked_exec::primitive::PrimitiveChunkProducer;
+use vortex_array::_chunked_exec::take_into_uninit;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
-use vortex_array::arrays::primitive::PrimitiveArrayExt as _;
-use vortex_array::_chunked_exec::take_into_uninit;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -89,9 +86,13 @@ where
         }
     }
 
-    /// Bit-unpack chunk `chunk_index` into `self.code_scratch`. The first 1024 cells of
-    /// `code_scratch` are initialised afterwards.
-    fn unpack_chunk(&mut self, chunk_index: usize) {
+    /// Bit-unpack fastlanes chunk `chunk_index` into `self.code_scratch[offset..offset+1024]`.
+    ///
+    /// # Safety
+    ///
+    /// `offset + 1024 ≤ code_scratch.len()` (the caller must ensure room for one fastlanes
+    /// chunk starting at `offset`).
+    unsafe fn unpack_chunk_into(&mut self, chunk_index: usize, offset: usize) {
         let packed_bytes = self.packed.as_ref();
         // SAFETY: same alignment used by fastlanes; bit_width-derived chunk layout.
         let packed_slice: &[I] = unsafe {
@@ -102,12 +103,11 @@ where
         };
         let chunk = &packed_slice[chunk_index * self.elems_per_chunk
             ..chunk_index * self.elems_per_chunk + self.elems_per_chunk];
-        let dst: &mut [MaybeUninit<I>] = self.code_scratch.as_mut_slice();
-        // SAFETY: BitPacking::unchecked_unpack writes exactly CHUNK_LEN elements; dst
-        // capacity is CHUNK_LEN.
+        // SAFETY: caller ensures offset + 1024 ≤ scratch capacity.
+        let dst_ptr = unsafe { self.code_scratch.as_mut_ptr().add(offset).cast::<I>() };
+        let dst_slice: &mut [I] = unsafe { std::slice::from_raw_parts_mut(dst_ptr, 1024) };
         unsafe {
-            let dst_init: &mut [I] = mem::transmute(dst);
-            BitPacking::unchecked_unpack(self.bit_width, chunk, dst_init);
+            BitPacking::unchecked_unpack(self.bit_width, chunk, dst_slice);
         }
     }
 }
@@ -155,36 +155,54 @@ where
         if self.remaining == 0 {
             return Ok(None);
         }
-        if self.chunk_idx < self.full_chunks {
-            // Full chunk: unpack 1024 codes then gather.
-            self.unpack_chunk(self.chunk_idx);
-            let n = CHUNK_LEN.min(dst.len());
-            // SAFETY: unpack_chunk just initialised the first CHUNK_LEN cells; n ≤ CHUNK_LEN.
-            let codes = unsafe {
-                std::slice::from_raw_parts(self.code_scratch.as_ptr().cast::<I>(), n)
-            };
-            take_into_uninit::<T, I>(self.dict.as_slice(), codes, &mut dst[..n]);
+        // Unpack up to `CHUNK_LEN / FL_CHUNK = 4` fastlanes chunks into the local
+        // code_scratch, then issue a single AVX-gather over the full super-chunk. This
+        // amortises the per-chunk dispatch + gather-call overhead.
+        const FL_CHUNK: usize = 1024;
+        let super_chunk_max = CHUNK_LEN / FL_CHUNK;
+        debug_assert!(super_chunk_max >= 1);
+        let mut produced = 0usize;
+        let dst_cap = dst.len();
+
+        // Full fastlanes chunks first.
+        while self.chunk_idx < self.full_chunks
+            && produced + FL_CHUNK <= dst_cap
+            && produced + FL_CHUNK <= CHUNK_LEN
+        {
+            // SAFETY: code_scratch has CHUNK_LEN cells; produced + FL_CHUNK ≤ CHUNK_LEN.
+            unsafe {
+                self.unpack_chunk_into(self.chunk_idx, produced);
+            }
             self.chunk_idx += 1;
-            self.remaining -= n;
-            Ok(Some(n))
-        } else if self.trailer_len > 0 {
-            // Trailing partial chunk: unpack the full chunk but only consume the prefix.
-            self.unpack_chunk(self.chunk_idx);
-            let n = self.trailer_len.min(dst.len());
-            // SAFETY: unpack_chunk just initialised the first CHUNK_LEN cells; n ≤ trailer_len ≤ CHUNK_LEN.
-            let codes = unsafe {
-                std::slice::from_raw_parts(self.code_scratch.as_ptr().cast::<I>(), n)
-            };
-            take_into_uninit::<T, I>(self.dict.as_slice(), codes, &mut dst[..n]);
-            self.trailer_len -= n;
-            self.remaining -= n;
+            produced += FL_CHUNK;
+        }
+        // Trailing partial chunk if there's room.
+        if produced < dst_cap && produced < CHUNK_LEN && self.trailer_len > 0 {
+            let trailer_take = self.trailer_len.min(dst_cap - produced).min(CHUNK_LEN - produced);
+            // Unpack the trailing fastlanes chunk in full into scratch (its prefix is what we want).
+            // SAFETY: code_scratch has space for CHUNK_LEN; produced + FL_CHUNK ≤ CHUNK_LEN.
+            unsafe {
+                self.unpack_chunk_into(self.chunk_idx, produced);
+            }
+            self.trailer_len -= trailer_take;
             if self.trailer_len == 0 {
                 self.chunk_idx += 1;
             }
-            Ok(Some(n))
-        } else {
-            Ok(None)
+            produced += trailer_take;
         }
+
+        if produced == 0 {
+            return Ok(None);
+        }
+
+        // Single AVX gather over the full super-chunk.
+        // SAFETY: code_scratch[..produced] is initialised by the unpack calls above.
+        let codes = unsafe {
+            std::slice::from_raw_parts(self.code_scratch.as_ptr().cast::<I>(), produced)
+        };
+        take_into_uninit::<T, I>(self.dict.as_slice(), codes, &mut dst[..produced]);
+        self.remaining -= produced;
+        Ok(Some(produced))
     }
 }
 

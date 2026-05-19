@@ -20,8 +20,6 @@
 //! per-chunk min-offset / max-offset+size pre-pass and decompress only the referenced
 //! slice — the producer API already supports that shape.
 
-use std::mem::MaybeUninit;
-
 use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 

@@ -46,9 +46,11 @@ pub use scratch::Scratch;
 
 /// Number of elements per scratch chunk.
 ///
-/// 1024 elements matches the fastlanes chunk size, keeps the scratch under 8 KiB for any
-/// primitive up to and including `u64`/`f64`, and is small enough to leave room for one
-/// fixed dictionary in L1d on every CPU we care about.
+/// 1024 matches the fastlanes chunk size, keeps the scratch under 8 KiB for any
+/// primitive up to `u64`/`f64`, and is small enough to leave room for one fixed
+/// dictionary in L1d on every CPU we care about. Empirically larger super-chunks
+/// (tested at 4096) didn't move primitive workloads and regressed RunEnd at moderate
+/// run lengths — the per-chunk dispatch isn't the bottleneck the profile suggested.
 pub const CHUNK_LEN: usize = 1024;
 
 /// Drive a producer to completion, invoking `sink` with each emitted chunk.
