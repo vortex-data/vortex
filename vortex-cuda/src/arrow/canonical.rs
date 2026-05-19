@@ -175,9 +175,7 @@ fn export_canonical(
 
                 Ok((arrow_array, sync_event))
             }
-            // TODO(aduffy): implement VarBinView. cudf doesn't support it, so we need to
-            //  execute a kernel to translate from VarBinView -> VarBin.
-            c => todo!("support for exporting {} arrays", c.dtype()),
+            c => vortex_bail!("unsupported Arrow Device export for {} array", c.dtype()),
         }
     })
 }
