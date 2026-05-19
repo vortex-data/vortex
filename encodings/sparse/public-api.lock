@@ -68,6 +68,10 @@ impl vortex_array::arrays::slice::SliceKernel for vortex_sparse::Sparse
 
 pub fn vortex_sparse::Sparse::slice(vortex_array::array::view::ArrayView<'_, Self>, core::ops::range::Range<usize>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
+impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_sparse::Sparse
+
+pub fn vortex_sparse::Sparse::compare(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::array::erased::ArrayRef, vortex_array::scalar_fn::fns::operators::CompareOperator, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_sparse::Sparse
 
 pub fn vortex_sparse::Sparse::cast(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
@@ -221,5 +225,7 @@ impl vortex_sparse::SparseExt for vortex_array::array::view::ArrayView<'_, vorte
 pub fn vortex_array::array::view::ArrayView<'_, vortex_sparse::Sparse>::patches(&self) -> vortex_array::patches::Patches
 
 pub fn vortex_array::array::view::ArrayView<'_, vortex_sparse::Sparse>::resolved_patches(&self) -> vortex_error::VortexResult<vortex_array::patches::Patches>
+
+pub fn vortex_sparse::initialize(&vortex_session::VortexSession)
 
 pub type vortex_sparse::SparseArray = vortex_array::array::typed::Array<vortex_sparse::Sparse>
