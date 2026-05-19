@@ -28,6 +28,33 @@ impl PType {
         }
     }
 
+    /// 128-bit (SSE2) SIMD type for this primitive.
+    ///
+    /// Cranelift's x86_64 backend currently only supports 128-bit codegen
+    /// (verified: i32x8 emit fails with "Unsupported feature: Unexpected
+    /// SSA-value type: i32x8" even on AVX2/AVX-512 hosts).
+    ///
+    /// LLVM uses 256-bit (AVX2) or 512-bit (AVX-512) where available, so the
+    /// JIT will trail LLVM autovec on bandwidth-bound elementwise ops by the
+    /// vector-width ratio. The framework will get wider SIMD automatically
+    /// once Cranelift's backend supports it — no API changes needed.
+    pub const fn simd_type(self) -> ClType {
+        match self {
+            Self::I32 | Self::U32 => cl_types::I32X4,
+            Self::I64 | Self::U64 => cl_types::I64X2,
+            Self::F32 => cl_types::F32X4,
+            Self::F64 => cl_types::F64X2,
+        }
+    }
+
+    /// Number of scalar lanes per SIMD chunk (128-bit / sizeof(T)).
+    pub const fn simd_lanes(self) -> u32 {
+        match self {
+            Self::I32 | Self::U32 | Self::F32 => 4,
+            Self::I64 | Self::U64 | Self::F64 => 2,
+        }
+    }
+
     pub const fn byte_width(self) -> u32 {
         match self {
             Self::I32 | Self::U32 | Self::F32 => 4,

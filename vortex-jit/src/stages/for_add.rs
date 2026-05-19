@@ -11,11 +11,9 @@ use crate::stage::JitStage;
 
 /// Frame-of-Reference add: every lane gets `reference` added in place.
 ///
-/// This is the simplest fusion candidate. Composed after `LoadIn` or any
-/// Lane-producing stage, it adds one IR `iadd` per lane — and because the
-/// previous stage's outputs are SSA Values handed in via `take_input`, the
-/// emitted IR is the lane + reference add with zero memory traffic between
-/// the two stages.
+/// v1: operates on SIMD chunks. The reference is broadcast once per block via
+/// `splat`, then a single vector `iadd` per chunk. Cranelift lowers this to
+/// one `vpaddd` (or equivalent) per chunk on the target ISA.
 #[derive(Debug, Clone, Copy)]
 pub struct ForAdd {
     pub ptype: PType,
@@ -44,8 +42,17 @@ impl JitStage for ForAdd {
 
     fn emit(&self, cx: &mut EmitCtx<'_, '_>) -> VortexResult<()> {
         let lanes = cx.take_input().into_lane(self.ptype)?;
-        let ref_v = cx.const_int(self.ptype, self.reference);
-        let out = lanes.map_chunks(cx.fb(), |fb, x| fb.ins().iadd(x, ref_v));
+        // Broadcast scalar reference into a SIMD chunk. Pre-block-loop hoisting
+        // would be nicer, but the loop driver doesn't expose pre-loop hooks in
+        // v1 — Cranelift's LICM should still hoist this splat out of the loop
+        // body since it has no loop-variant inputs.
+        let scalar_ref = cx.const_int(self.ptype, self.reference);
+        let ref_chunk = if lanes.lanes_per_chunk() == 1 {
+            scalar_ref
+        } else {
+            cx.splat(self.ptype, scalar_ref)
+        };
+        let out = lanes.map_chunks(cx.fb(), |fb, x| fb.ins().iadd(x, ref_chunk));
         cx.put_output(Lanes::Of(out));
         Ok(())
     }

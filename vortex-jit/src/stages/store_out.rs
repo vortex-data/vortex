@@ -40,16 +40,29 @@ impl JitStage for StoreOut {
         let lanes = cx.take_input().into_lane(self.ptype)?;
         let out_ptr = cx.runtime_arg(&ArgKey::OutPtr)?;
         let block_idx = cx.block_idx();
-        let n = cx.chunk_count();
+        let n_lanes = cx.chunk_count();
 
+        // base = out_ptr + block_idx * n_lanes * sizeof(T)
         let elems_per_block = {
-            let n_v = cx.const_int(PType::I64, n as i64);
+            let n_v = cx.const_int(PType::I64, n_lanes as i64);
             cx.fb().ins().imul(block_idx, n_v)
         };
         let base = cx.offset_ptr(out_ptr, elems_per_block, self.ptype);
 
-        for (i, v) in lanes.chunks().iter().enumerate() {
-            cx.store_lane(*v, base, i, self.ptype);
+        let chunks: Vec<_> = lanes.chunks().to_vec();
+        match lanes.lanes_per_chunk() {
+            1 => {
+                // Scalar path — emit one store per lane.
+                for (i, v) in chunks.iter().enumerate() {
+                    cx.store_lane(*v, base, i, self.ptype);
+                }
+            }
+            _ => {
+                // SIMD path — emit one vector store per chunk.
+                for (c, v) in chunks.iter().enumerate() {
+                    cx.store_chunk(*v, base, c, self.ptype);
+                }
+            }
         }
         Ok(())
     }

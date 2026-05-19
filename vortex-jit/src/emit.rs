@@ -80,20 +80,34 @@ impl Scalar {
 
 /// A typed lane container.
 ///
-/// v0 implementation: one SSA `Value` per logical lane (chunk_width = 1).
-/// A SIMD-aware version would hold one `Value` per `i32x8` chunk; the
-/// map/store APIs are written so the SIMD lift is local — only `chunks` and
-/// `len()` semantics change.
+/// Each entry in `chunks` is one SSA Value holding `lanes_per_chunk` lanes:
+/// `lanes_per_chunk == 1` for scalar mode, `lanes_per_chunk == 4` for `i32x4`,
+/// etc. The total logical lanes = `chunks.len() * lanes_per_chunk`.
 #[derive(Debug, Clone)]
 pub struct LaneSlice {
     pub(crate) chunks: Vec<ClValue>,
     pub(crate) t: PType,
     pub(crate) layout: Layout,
+    pub(crate) lanes_per_chunk: u32,
 }
 
 impl LaneSlice {
-    pub fn new(chunks: Vec<ClValue>, t: PType, layout: Layout) -> Self {
-        Self { chunks, t, layout }
+    pub fn new_scalar(chunks: Vec<ClValue>, t: PType, layout: Layout) -> Self {
+        Self {
+            chunks,
+            t,
+            layout,
+            lanes_per_chunk: 1,
+        }
+    }
+
+    pub fn new_simd(chunks: Vec<ClValue>, t: PType, layout: Layout) -> Self {
+        Self {
+            chunks,
+            t,
+            layout,
+            lanes_per_chunk: t.simd_lanes(),
+        }
     }
 
     pub fn ptype(&self) -> PType {
@@ -104,6 +118,12 @@ impl LaneSlice {
     }
     pub fn len(&self) -> usize {
         self.chunks.len()
+    }
+    pub fn lanes_per_chunk(&self) -> u32 {
+        self.lanes_per_chunk
+    }
+    pub fn total_lanes(&self) -> usize {
+        self.chunks.len() * self.lanes_per_chunk as usize
     }
     pub fn is_empty(&self) -> bool {
         self.chunks.is_empty()
@@ -123,6 +143,7 @@ impl LaneSlice {
             chunks: out,
             t: self.t,
             layout: self.layout,
+            lanes_per_chunk: self.lanes_per_chunk,
         }
     }
 
@@ -153,6 +174,7 @@ impl LaneSlice {
             chunks: out,
             t: self.t,
             layout: self.layout,
+            lanes_per_chunk: self.lanes_per_chunk,
         })
     }
 }
@@ -248,6 +270,36 @@ impl<'a, 'b> EmitCtx<'a, 'b> {
         let off = i32::try_from(lane_idx * t.byte_width() as usize)
             .expect("lane offset fits in i32");
         self.fb.ins().store(MemFlags::trusted(), value, base_ptr, off);
+    }
+
+    /// Load one SIMD chunk (e.g. `i32x4`) from a buffer at
+    /// `base + chunk_idx * simd_lanes * elem_width`.
+    pub fn load_chunk(&mut self, base_ptr: ClValue, chunk_idx: usize, t: PType) -> ClValue {
+        let bytes_per_chunk = t.byte_width() as usize * t.simd_lanes() as usize;
+        let off = i32::try_from(chunk_idx * bytes_per_chunk).expect("chunk offset fits in i32");
+        self.fb
+            .ins()
+            .load(t.simd_type(), MemFlags::trusted(), base_ptr, off)
+    }
+
+    /// Store one SIMD chunk.
+    pub fn store_chunk(
+        &mut self,
+        value: ClValue,
+        base_ptr: ClValue,
+        chunk_idx: usize,
+        t: PType,
+    ) {
+        let bytes_per_chunk = t.byte_width() as usize * t.simd_lanes() as usize;
+        let off = i32::try_from(chunk_idx * bytes_per_chunk).expect("chunk offset fits in i32");
+        self.fb
+            .ins()
+            .store(MemFlags::trusted(), value, base_ptr, off);
+    }
+
+    /// Broadcast a scalar to all SIMD lanes of `t.simd_type()`.
+    pub fn splat(&mut self, t: PType, scalar: ClValue) -> ClValue {
+        self.fb.ins().splat(t.simd_type(), scalar)
     }
 
     /// Pointer arithmetic: `base + (offset_elems * elem_width)`.

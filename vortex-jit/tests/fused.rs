@@ -38,34 +38,29 @@ fn ir_shows_fusion_inline() {
     let ir = &compiled.ir_dump;
     eprintln!("=== Fused LoadIn -> ForAdd -> StoreOut IR ===\n{ir}");
 
-    // For each of BLOCK lanes, we expect exactly one load (from input), one
-    // iadd_imm (FoR), and one store (to output) — chained as SSA values, with
-    // NO intermediate store followed by a load.
-    let n_loads_per_block = ir.matches("load.i32").count();
-    let n_stores_per_block = ir.matches("store ").count();
-    let n_iadds = ir.matches("iadd ").count();
+    // SIMD fusion: BLOCK=4 lanes → 1 chunk of i32x4 → 1 vector load + 1
+    // splat + 1 vector iadd + 1 vector store. No intermediate buffers.
+    let n_simd_loads = ir.matches("load.i32x4").count();
+    let n_splats = ir.matches("splat.i32x4").count();
 
-    // BLOCK loads (one per lane from input) + BLOCK stores (one per lane to output).
-    // BLOCK iadds for FoR + scaffolding iadds (loop counter, pointer offsets).
     assert!(
-        n_loads_per_block >= BLOCK,
-        "expected >= {BLOCK} loads, got {n_loads_per_block}"
+        n_simd_loads >= 1,
+        "expected at least one i32x4 load, got {n_simd_loads}; IR:\n{ir}"
     );
     assert!(
-        n_stores_per_block >= BLOCK,
-        "expected >= {BLOCK} stores, got {n_stores_per_block}"
+        n_splats >= 1,
+        "expected at least one i32x4 splat of the FoR reference, got {n_splats}"
     );
-    assert!(n_iadds >= BLOCK, "expected >= {BLOCK} iadds, got {n_iadds}");
-
-    // The fusion property: no load comes *between* a FoR iadd and its store.
-    // We check this structurally: the per-block pattern in source order must
-    // be (loads...) (iadds...) (stores...), not interleaved with intermediate
-    // load/store pairs.
-    // Looser, but still useful: total loads == BLOCK + small constant for ptr
-    // arithmetic; the absence of intermediate buffers means loads stay at BLOCK
-    // per iteration.
-    // (We're not asserting the exact stricter shape here; the eprintln above
-    // lets a human verify by reading the IR.)
+    // The block body should NOT contain scalar i32 loads (those would mean
+    // we lost the SIMD path).
+    let scalar_block_loads = ir
+        .lines()
+        .filter(|l| l.contains("load.i32 ") && !l.contains("load.i32x"))
+        .count();
+    assert_eq!(
+        scalar_block_loads, 0,
+        "expected zero scalar i32 loads in block body, got {scalar_block_loads}; IR:\n{ir}"
+    );
 }
 
 #[test]

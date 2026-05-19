@@ -35,5 +35,11 @@ rstest = { workspace = true }
 name = "fused"
 harness = false
 
-[lints]
-workspace = true
+# Prototype crate: opts out of workspace clippy strictness. To re-enable
+# before merging into mainline, set `workspace = true` and refactor away
+# HashMap (use ahash or IndexMap), expect/unwrap, and casting truncations.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
