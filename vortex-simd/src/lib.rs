@@ -1,30 +1,32 @@
 //! Runtime CPU feature detection and SIMD kernels for Vortex integer compute.
 //!
-//! Two layers:
+//! Three layers:
 //!
 //! 1. [`cpu`] — detect the SIMD [`Tier`](cpu::Tier) once and query it cheaply.
-//! 2. [`kernels`] — a single registry of `fn` pointers. Call
-//!    [`kernels::kernels`] (re-exported here as [`kernels`]) once per hot
-//!    function, then dispatch a kernel via a field:
-//!    `(kernels().i32_add)(a, b, out)`. Each slot is either the best
-//!    specialized kernel for the active tier or the scalar fallback.
+//! 2. [`kernels`] — a single registry of `fn` pointers; `(kernels().i32_add)
+//!    (a, b, out)` is one indirect call.
+//! 3. [`prim`] — typed front-end. `i32::add(a, b, out)` /
+//!    `add::<T>(a, b, out)`. Inlines to the kernels layer with no extra
+//!    dispatch cost.
 //!
 //! # Adding kernels at scale
 //!
-//! For 1000s of kernels × 5 tiers, write the source once where possible.
-//! Element-wise ops (add, sub, mul, ordered compare with byte output) live
-//! in [`kernels::generic`] as one `#[inline]` function; the per-tier
-//! wrappers in [`arch`] are one-liners that LLVM autovectorizes against
-//! the wrapper's `#[target_feature]`. Hand-tuned intrinsics are reserved
-//! for kernels with mask packing, lane permutations, or fastlanes-style
-//! bit packing where the autovectorizer cannot see the right pattern.
+//! Element-wise ops live in [`kernels::generic`] as one `#[inline]` body;
+//! each per-tier wrapper in [`arch`] is a one-liner that LLVM autovectorizes
+//! against the wrapper's `#[target_feature]`. Hand-tuned intrinsics are
+//! reserved for kernels where the autovectorizer cannot see the right
+//! pattern (mask packing, lane permutations, fastlanes-style bit packing).
 //!
-//! Each new tier table is a single static; adding a kernel is one field on
-//! [`kernels::Kernels`] plus one line per tier table.
+//! Each tier table inherits from [`kernels::SCALAR_TABLE`] via struct-update,
+//! so a tier only spells the slots it specializes — every other slot falls
+//! back to scalar automatically. Adding kernel #1001 is one field on
+//! [`Kernels`] plus one line per tier that has a real specialization.
 
 pub mod arch;
 pub mod cpu;
 pub mod kernels;
+pub mod prim;
 
 pub use cpu::{Tier, has_avx2, has_avx512, has_neon, tier};
 pub use kernels::{Kernels, kernels};
+pub use prim::Prim;

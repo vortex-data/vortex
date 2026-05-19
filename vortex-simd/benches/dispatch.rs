@@ -98,3 +98,27 @@ fn ops_add_bulk(bencher: Bencher) {
     bencher
         .bench_local(|| (kernels.i32_add)(black_box(&lhs), black_box(&rhs), black_box(&mut out)));
 }
+
+// The Prim trait must not cost more than the raw kernels() table. Two
+// benches compare exactly the same call shape, one through Prim::add and
+// one through (kernels().i32_add)(..). Medians should match.
+
+#[divan::bench]
+fn prim_add_tiny(bencher: Bencher) {
+    let lhs = vec![1_i32; TINY];
+    let rhs = vec![2_i32; TINY];
+    let mut out = vec![0_i32; TINY];
+    bencher.bench_local(|| {
+        vortex_simd::prim::add::<i32>(black_box(&lhs), black_box(&rhs), black_box(&mut out))
+    });
+}
+
+#[divan::bench]
+fn prim_add_bulk(bencher: Bencher) {
+    let lhs = vec![1_i32; BULK];
+    let rhs = vec![2_i32; BULK];
+    let mut out = vec![0_i32; BULK];
+    bencher.bench_local(|| {
+        vortex_simd::prim::add::<i32>(black_box(&lhs), black_box(&rhs), black_box(&mut out))
+    });
+}
