@@ -889,6 +889,149 @@ them is fixed. That's the line that makes this a framework.
 
 ---
 
+## 10. Typing inside `emit` — what other projects do
+
+The Zigzag example in §9 leaves `emit` deliberately under-specified. This
+section pins down the typing/error/SIMD/null model and contrasts it with the
+prior art.
+
+### Problems with the §9 sketch
+
+1. `lanes_in().clone()` pretends 1024 SSA values are owned data.
+2. `Value` is untyped at the Rust level — `sshr_imm` is integer-only, but
+   nothing stops a stage from handing it an `f64`.
+3. "1024 scalar SSA values per stage" is not how SIMD works on real hardware.
+4. No `VortexResult` — a half-built function on a partial-codegen error is
+   junk that the framework can't recover from cleanly.
+
+### Three layers, three error windows
+
+| Layer | Job | Enforces |
+|-------|-----|----------|
+| Composition (`Pipeline::push`) | "Does this stage fit after the previous one?" | `Form` matching — public, declared by stage |
+| Emit body (`LaneSlice<T>`) | "Am I calling ops valid for this type?" | Typed newtypes around `Value` |
+| Escape hatch (`cx.fb()`) | "Anything Cranelift can express" | CLIF verifier post-construction |
+
+Composition errors fire before any IR is emitted. Type errors fire inside the
+stage. Malformed-IR errors fire when the framework verifies the assembled
+function. Three error windows means each kind of mistake gets caught at the
+earliest layer that can see it.
+
+### The improved Zigzag
+
+```rust
+fn emit(&self, cx: &mut EmitCtx<'_>) -> VortexResult<()> {
+    let xs: LaneSlice<Int> = cx.take_input().into_int(self.t)?;
+
+    let out = xs.map_chunks(cx, |b, x| {
+        let shifted = b.sshr_imm(x, 1);
+        let lsb     = b.band_imm(x, 1);
+        let neg     = b.ineg(lsb);
+        b.bxor(shifted, neg)
+    });
+
+    cx.put_output(out.into_lanes());
+    Ok(())
+}
+```
+
+What changed:
+
+- `LaneSlice<Int>` — typed wrapper carrying `PType` + `Vec<Value>` of physical
+  SIMD chunks (not 1024 scalars).
+- `map_chunks(cx, |b, x|)` iterates physical chunks (i64x4 on AVX2, i64x8 on
+  AVX512, scalar on portable build). Framework picks the chunk width.
+- `b: IntBuilder` exposes only ops valid for integer SIMD; `b.fdiv(...)`
+  doesn't compile.
+- `take_input` consumes; `put_output` deposits. Linear ownership.
+- `VortexResult<()>` — errors propagate; framework drops the in-progress
+  function on `Err`.
+
+### `Lanes` shape
+
+```rust
+pub enum Lanes {
+    Int(LaneSlice<Int>),
+    Float(LaneSlice<Float>),
+    Bool(LaneSlice<Bool>),
+}
+impl Lanes {
+    pub fn into_int(self, expected: PType) -> VortexResult<LaneSlice<Int>>;
+    pub fn into_float(self, expected: PType) -> VortexResult<LaneSlice<Float>>;
+    pub fn into_bool(self) -> VortexResult<LaneSlice<Bool>>;
+}
+```
+
+Three Rust types instead of one untyped `Vec<Value>`. Generic over `T` only
+where it pays — Int/Float/Bool buckets, not per-width wrappers — so `dyn`
+trait objects stay ergonomic.
+
+### `EmitCtx` services beyond `fb()`
+
+| Service | Purpose |
+|---------|---------|
+| `cx.const_int(t, v)`, `cx.const_float(t, v)` | Typed constants; stage doesn't pick `iconst` vs `fconst` |
+| `cx.if_then_else(cond, then, else)` | Block plumbing wrapped; no block IDs / sealing for stages |
+| `cx.lane_loop(\|cx, i\| ...)` | Runtime loop over lanes; framework picks unroll vs loop from `prefers_unroll()` |
+| `cx.scratch(t)` | 1024-slot stack buffer for materialize stages |
+| `cx.runtime_arg(key)` | Resolved at signature-layout time from `declare()` |
+| `cx.extern_call(sym, args)` | Pre-declared Rust callback (patches, special ops) |
+| `cx.set_loc("zigzag::decode::i64")` | Source-loc for `perf-jitdump` |
+
+### Validity / nulls as a side-channel
+
+A `ValidityLane` flows alongside `Lanes`. Compose-only stages (Zigzag,
+AddConst) propagate it unchanged by default. Stages that consume or produce
+nulls declare it via `consumes_validity() / produces_validity()` on the trait,
+parallel to how `declare()` declares runtime args.
+
+### What other projects do
+
+**Cranelift's wasm translator (closest analog).** Untyped `Value`; operand
+stack carries WASM types from bytecode; verifier catches mismatches
+post-construction. Fast to build, hostile to authors.
+
+**Inkwell (LLVM Rust bindings).** Typed wrappers — `IntValue<'ctx>`,
+`FloatValue<'ctx>`. Type errors are Rust compile errors. Maximum safety, but
+`'ctx` lifetimes make `dyn Trait` painful and break our extension model.
+
+**MLIR + ODS.** Ops are declarative; verifier auto-generated from declared
+input/output types. Heaviest infrastructure, most principled — third-party
+dialects compose because the verifier enforces a stable contract.
+
+**Halide `Expr`.** Wrapped IR node with `Type`. Operators check eagerly,
+implicit coercion table handles mismatches. Ergonomic but coercion rules are
+their own problem.
+
+**XLA / StableHLO.** Typed shapes + element types; every op call returns
+`StatusOr<XlaOp>`. Explicit error propagation everywhere; noisy but
+predictable.
+
+**Numba.** No IR-layer typing — runs type-inference first, then lowers typed
+AST to LLVM. Nicer authoring (write Python), but third parties can't easily
+extend the inferencer.
+
+### Where vortex-jit lands
+
+**Closest to MLIR's spirit, Cranelift's mechanics.**
+
+- *Composition layer* (Form-check at `Pipeline::push`) does what MLIR's
+  verifier does — third-party extensibility hinges on a stable, declarative
+  shape contract.
+- *Emit layer* (typed `LaneSlice<T>` newtypes over raw `Value`) takes
+  Cranelift's untyped speed and adds inkwell-style guard rails, but only at
+  the boundaries that matter (Int vs Float vs Bool). The few-bucket newtype
+  set keeps `dyn` trait objects ergonomic.
+- *Escape hatch* (`cx.fb()`) is always there — Cranelift's verifier is the
+  backstop.
+
+Formal at composition (Form), informal-but-typed at emit (LaneSlice),
+informal at IR (raw Cranelift + verifier). That's the trio MLIR enforces
+formally end-to-end and Cranelift enforces informally end-to-end; vortex-jit
+sits between them.
+
+---
+
 ## Appendix A: research on the inter-module ABI
 
 What follows is what the surveys found about how today's encodings talk to each
