@@ -37,6 +37,7 @@ rstest = { workspace = true }
 vortex-alp = { path = "../alp" }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-fastlanes = { path = ".", features = ["_test-harness"] }
+vortex-sparse = { path = "../sparse" }
 
 [features]
 _test-harness = ["dep:rand"]
@@ -62,4 +63,8 @@ required-features = ["_test-harness"]
 
 [[bench]]
 name = "bitpack_compare"
+harness = false
+
+[[bench]]
+name = "sparse_bitpacked_stacks"
 harness = false

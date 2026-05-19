@@ -9659,6 +9659,7 @@ dependencies = [
  "vortex-fastlanes",
  "vortex-mask",
  "vortex-session",
+ "vortex-sparse",
 ]
 
 [[package]]

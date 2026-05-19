@@ -64,3 +64,7 @@ harness = false
 [[bench]]
 name = "decompress_filter"
 harness = false
+
+[[bench]]
+name = "runend_mask_filter"
+harness = false

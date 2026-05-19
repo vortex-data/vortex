@@ -231,6 +231,30 @@ fn first_n_dict_runend_canonical(bencher: Bencher, r: usize) {
         });
 }
 
-// Note: a `predicate_runend_tree` bench with `i64` values currently triggers a SIGILL
-// in `runend_decode_bools` / the i64 compare path. The `i32` predicate is already
-// covered in `block_execution.rs`, so we skip it here.
+// Note: a `predicate_runend_tree` bench with `i64` values needs `RUST_MIN_STACK=8388608`
+// to avoid stack overflow on the small worker thread divan uses. Root cause: the i64
+// RunEnd compare path uses larger stack frames than i32 and overflows divan's default
+// 2MB thread stack. Pass `RUST_MIN_STACK=8388608` when running, or fix Vortex's i64
+// compare to use a smaller stack.
+//
+// The i32 predicate (`block_execution.rs::predicate_dict_runend_chunked`) runs without
+// the env var.
+
+#[divan::bench(args = [10], sample_count = 5)]
+fn predicate_runend_tree_i64(bencher: Bencher, r: usize) {
+    use vortex_array::arrays::ConstantArray;
+    use vortex_array::builtins::ArrayBuiltins;
+    use vortex_array::scalar_fn::fns::operators::Operator;
+    bencher
+        .with_inputs(|| {
+            (
+                build_runend_i64(N_ELEMENTS, r),
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(col, mut ctx)| {
+            let five = ConstantArray::new(5i64, N_ELEMENTS).into_array();
+            let cmp = col.binary(five, Operator::Gt).unwrap();
+            cmp.execute::<Canonical>(&mut ctx).unwrap()
+        });
+}
