@@ -22,7 +22,9 @@ use std::sync::Arc;
 use divan::Bencher;
 use divan::counter::{BytesCount, ItemsCount};
 use mimalloc::MiMalloc;
-use vortex_jit::stages::{AlpDecode, DeltaPrefixSum, ForAdd, LoadIn, StoreOut};
+use vortex_jit::stages::{
+    AlpDecode, BitPackedLoad, DeltaPrefixSum, ForAdd, LoadIn, StoreOut, pack_dense,
+};
 use vortex_jit::{Compiler, PType, Pipeline};
 
 #[global_allocator]
@@ -318,6 +320,153 @@ fn alp_jit_cold(bencher: Bencher) {
                     input.as_ptr().cast(),
                     output.as_mut_ptr().cast(),
                     N_BLOCKS as u64,
+                );
+            }
+            divan::black_box(output)
+        });
+}
+
+// ============================================================
+// Pipeline 4: Full 4-stage chain — BitPacked(W=11) → FoR → ALP → Store(F32).
+//
+// This is the killer demo. The JIT fuses 4 encoding layers into ONE
+// Cranelift function. Comparison points:
+//
+//   - `chain_vortex_style`: scalar Rust mirroring how current Vortex would
+//     execute this chain — bitpack unpack per element with #[inline(never)]
+//     helpers, intermediate buffer for the FoR + ALP pass, scalar ALP via
+//     iter_mut+for_each. This is the upper-bound on what Vortex's current
+//     code shape would produce after LLVM optimizes it.
+//   - `chain_jit_warm`: the JIT's fused kernel.
+// ============================================================
+
+const W_BP: u8 = 11;
+const FOR_REF_CHAIN: i64 = 100;
+const ALP_SCALE_CHAIN: f64 = 0.01;
+// BitPacked interleaved layout: n_chunks * W must be multiple of 32.
+// With simd_lanes=4 and W=11, the chain pipeline uses its own larger
+// per-emit block size that satisfies the constraint.
+const BLOCK_CHAIN: usize = 128;
+
+fn chain_input() -> (Vec<u32>, Vec<i32>) {
+    let originals: Vec<i32> = (0..NUM_VALUES as i32).map(|i| i % (1 << W_BP)).collect();
+    let packed = pack_dense(&originals, W_BP);
+    (packed, originals)
+}
+
+fn build_chain_pipeline() -> Pipeline {
+    let mut p = Pipeline::new(PType::I32, BLOCK_CHAIN);
+    p.push(Arc::new(BitPackedLoad {
+        ptype: PType::I32,
+        bit_width: W_BP,
+    }))
+    .unwrap();
+    p.push(Arc::new(ForAdd {
+        ptype: PType::I32,
+        reference: FOR_REF_CHAIN,
+    }))
+    .unwrap();
+    p.push(Arc::new(AlpDecode {
+        in_ptype: PType::I32,
+        out_ptype: PType::F32,
+        scale: ALP_SCALE_CHAIN,
+    }))
+    .unwrap();
+    p.push(Arc::new(StoreOut { ptype: PType::F32 })).unwrap();
+    p
+}
+
+/// Scalar per-element bitpack unpack helper for the interleaved layout the
+/// JIT consumes. Non-inlined so it mirrors the shape Vortex's actual decode
+/// path produces after LLVM gives up.
+#[inline(never)]
+fn unpack_one_w11(packed: &[u32], idx: usize) -> i32 {
+    // Inlined copy of `unpack_one` so the #[inline(never)] applies here.
+    const SIMD_LANES: usize = 4;
+    const W: u8 = 11;
+    let s = idx % SIMD_LANES;
+    let row = idx / SIMD_LANES;
+    let bit_start = row * W as usize;
+    let word_idx = bit_start / 32;
+    let bit_off = bit_start % 32;
+    let lo = packed[word_idx * SIMD_LANES + s] >> bit_off;
+    let val = if bit_off + W as usize <= 32 {
+        lo & 0x7FF
+    } else {
+        let bits_in_lo = 32 - bit_off;
+        let hi = packed[(word_idx + 1) * SIMD_LANES + s] & ((1u32 << (11 - bits_in_lo)) - 1);
+        (lo | (hi << bits_in_lo)) & 0x7FF
+    };
+    val as i32
+}
+
+#[divan::bench]
+fn chain_vortex_style(bencher: Bencher) {
+    let (packed, _) = chain_input();
+    let scale = ALP_SCALE_CHAIN as f32;
+    with_throughput(bencher)
+        .with_inputs(|| (packed.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(packed, mut output)| {
+            // Stage 1: scalar bitpack unpack into a tmp buffer.
+            let mut tmp = vec![0i32; NUM_VALUES];
+            for i in 0..NUM_VALUES {
+                tmp[i] = unpack_one_w11(&packed, i);
+            }
+            // Stage 2: FoR add in-place (autovec'd).
+            for v in tmp.iter_mut() {
+                *v = v.wrapping_add(FOR_REF_CHAIN as i32);
+            }
+            // Stage 3: ALP scalar via iter_mut+for_each (this is what blocks autovec).
+            output
+                .iter_mut()
+                .zip(tmp.iter())
+                .for_each(|(o, &x)| {
+                    *o = decode_single_alp_w11(x);
+                });
+            divan::black_box(output)
+        });
+}
+
+/// ALP per-element scalar, non-inlined.
+#[inline(never)]
+fn decode_single_alp_w11(encoded: i32) -> f32 {
+    (encoded as f32) * (ALP_SCALE_CHAIN as f32)
+}
+
+#[divan::bench]
+fn chain_jit_warm(bencher: Bencher) {
+    let (packed, _) = chain_input();
+    let p = build_chain_pipeline();
+    let compiled = Compiler::new(vec![]).unwrap().compile(&p).unwrap();
+    let chain_n_blocks = NUM_VALUES / BLOCK_CHAIN;
+    with_throughput(bencher)
+        .with_inputs(|| (packed.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(packed, mut output)| {
+            unsafe {
+                compiled.call_decompress_only(
+                    packed.as_ptr().cast(),
+                    output.as_mut_ptr().cast(),
+                    chain_n_blocks as u64,
+                );
+            }
+            divan::black_box(output)
+        });
+}
+
+#[divan::bench]
+fn chain_jit_cold(bencher: Bencher) {
+    let (packed, _) = chain_input();
+    let chain_n_blocks = NUM_VALUES / BLOCK_CHAIN;
+    with_throughput(bencher)
+        .with_inputs(|| (packed.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(packed, mut output)| {
+            let p = build_chain_pipeline();
+            let compiled = Compiler::new(vec![]).unwrap().compile(&p).unwrap();
+            unsafe {
+                compiled.call_decompress_only(
+                    packed.as_ptr().cast(),
+                    output.as_mut_ptr().cast(),
+                    chain_n_blocks as u64,
                 );
             }
             divan::black_box(output)

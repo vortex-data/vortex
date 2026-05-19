@@ -6,6 +6,7 @@
 
 mod alp_decode;
 mod apply_patches;
+mod bitpacked;
 mod delta;
 mod for_add;
 mod load_in;
@@ -13,6 +14,7 @@ mod store_out;
 
 pub use alp_decode::AlpDecode;
 pub use apply_patches::ApplyPatchesPostLoop;
+pub use bitpacked::{BitPackedLoad, pack_dense, unpack_one};
 pub use delta::DeltaPrefixSum;
 pub use for_add::ForAdd;
 pub use load_in::LoadIn;

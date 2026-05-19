@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use cranelift::prelude::types as cl_types;
 use vortex_jit::stages::{
-    AlpDecode, ApplyPatchesPostLoop, DeltaPrefixSum, ForAdd, LoadIn, StoreOut,
+    AlpDecode, ApplyPatchesPostLoop, BitPackedLoad, DeltaPrefixSum, ForAdd, LoadIn, StoreOut,
+    pack_dense,
 };
 use vortex_jit::{Compiler, ExternFn, PType, Pipeline};
 
@@ -145,6 +146,103 @@ fn delta_for_pipeline_i32() {
         }
     }
     assert_eq!(output, expected);
+}
+
+#[test]
+fn bitpacked_load_w11_to_for_add() {
+    // Interleaved layout constraint: n_chunks * W % 32 == 0
+    // For W=11 with simd_lanes=4: n_chunks = BLOCK/4 must satisfy
+    // n_chunks * 11 % 32 == 0, i.e., n_chunks must be multiple of 32.
+    // Smallest valid BLOCK = 128 (n_chunks = 32).
+    const BLOCK: usize = 128;
+    const N_BLOCKS: usize = 4;
+    const N: usize = BLOCK * N_BLOCKS;
+    const W: u8 = 11;
+
+    let original: Vec<i32> = (0..N as i32).map(|i| i % (1 << W)).collect();
+    let packed = pack_dense(&original, W);
+
+    let mut p = Pipeline::new(PType::I32, BLOCK);
+    p.push(Arc::new(BitPackedLoad {
+        ptype: PType::I32,
+        bit_width: W,
+    }))
+    .unwrap();
+    p.push(Arc::new(ForAdd {
+        ptype: PType::I32,
+        reference: 1000,
+    }))
+    .unwrap();
+    p.push(Arc::new(StoreOut { ptype: PType::I32 })).unwrap();
+
+    let compiled = fresh_compiler(vec![]).compile(&p).expect("compile");
+
+    let mut output = vec![0i32; N];
+    unsafe {
+        compiled.call_decompress_only(
+            packed.as_ptr().cast(),
+            output.as_mut_ptr().cast(),
+            N_BLOCKS as u64,
+        );
+    }
+
+    let expected: Vec<i32> = original.iter().map(|x| x.wrapping_add(1000)).collect();
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn bitpacked_load_chain_to_alp() {
+    // Full chain: BitPacked(W=11) → ForAdd → AlpDecode(scale) → StoreOut(F32)
+    const BLOCK: usize = 128;
+    const N_BLOCKS: usize = 4;
+    const N: usize = BLOCK * N_BLOCKS;
+    const W: u8 = 11;
+    let scale = 0.01f64;
+    let reference = 100i64;
+
+    let original: Vec<i32> = (0..N as i32).map(|i| i % (1 << W)).collect();
+    let packed = pack_dense(&original, W);
+
+    let mut p = Pipeline::new(PType::I32, BLOCK);
+    p.push(Arc::new(BitPackedLoad {
+        ptype: PType::I32,
+        bit_width: W,
+    }))
+    .unwrap();
+    p.push(Arc::new(ForAdd {
+        ptype: PType::I32,
+        reference,
+    }))
+    .unwrap();
+    p.push(Arc::new(AlpDecode {
+        in_ptype: PType::I32,
+        out_ptype: PType::F32,
+        scale,
+    }))
+    .unwrap();
+    p.push(Arc::new(StoreOut { ptype: PType::F32 })).unwrap();
+
+    let compiled = fresh_compiler(vec![]).compile(&p).expect("compile");
+
+    let mut output = vec![0f32; N];
+    unsafe {
+        compiled.call_decompress_only(
+            packed.as_ptr().cast(),
+            output.as_mut_ptr().cast(),
+            N_BLOCKS as u64,
+        );
+    }
+
+    let expected: Vec<f32> = original
+        .iter()
+        .map(|x| (x.wrapping_add(reference as i32) as f32) * scale as f32)
+        .collect();
+    for (i, (a, b)) in output.iter().zip(expected.iter()).enumerate() {
+        assert!(
+            (*a - *b).abs() < 1e-6,
+            "mismatch at {i}: jit={a} expected={b}"
+        );
+    }
 }
 
 #[test]
