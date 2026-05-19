@@ -39,9 +39,13 @@
 //! Throughput (median Gitem/s on u32, 64 blocks per call):
 //! ```text
 //!   W:                              1     4    12    16    24
-//!   block_batch_avx512_hand       19.3 18.0 14.8 13.1 12.5  <- splat algo, hand AVX-512
-//!   block_unpack_avx512_hand      12.3 11.8 10.8 10.3  9.5  <- unpack algo, hand AVX-512
-//!   stack_unpack_avx512            7.3  7.7  7.4  7.3  7.1  <- decoupled (no fusion)
+//!   block_batch_avx512_v4         24.5 22.1 13.2 18.8 10.2  <- best (vpternlogd+precomp)
+//!   block_batch_avx512_v5         23.0 21.7 13.1 18.8 10.2
+//!   block_batch_avx512_v3         24.1 18.2 13.2 14.1  9.8
+//!   block_batch_avx512_v2         19.4 16.4 13.2 14.3 10.8
+//!   block_batch_avx512_hand       20.3 18.0 12.5 11.7  9.5
+//!   block_unpack_avx512_hand      12.3 11.8 10.8 10.3  9.5
+//!   stack_unpack_avx512            7.3  7.7  7.4  7.3  7.1
 //!   stack_unpack_per1k             5.84 6.44 6.27 6.22 6.02 <- best auto-vec
 //!   fl_unpack_cmp_per1k            5.60 6.04 6.01 4.91 6.07
 //!   fl_unpack_cmp_batch            2.93 2.88 2.92 2.86 2.86
@@ -49,6 +53,17 @@
 //!   stack_unpack_collect           2.66 2.67 2.59 2.62 2.55
 //!   block_batch (mine, auto-vec)   1.72 1.37 1.67 1.68 1.48
 //! ```
+//!
+//! AVX-512 progression on splat-cmp algorithm (W=4 column):
+//!   v1 hand:     18.0 Gitem/s  -- load + xor + and + cmpeq per chunk
+//!   v2 testn:    16.4           -- testn fuses and+cmpeq (slower: testn lat 4 vs cmpeq 3)
+//!   v3 precomp:  18.2           -- pre-broadcast c & w as per-row target
+//!   v4 ternlog:  22.1 (+22%)    -- vpternlogd fuses xor+and into 1 op
+//!   v5 OR-bdry:  21.7           -- v4 + OR-fused boundary (no help, more dep latency)
+//!
+//! v4 is the best: 24.5 Gitem/s = 98 GB/s of u32 input at W=1, ~22 Gitem/s for
+//! W where W divides T=32 (1, 4, 16). Boundary-heavy widths (12, 24) are
+//! load-throughput limited at ~13 / ~10 Gitem/s.
 //!
 //! Algorithm-vs-algorithm at the same SIMD level (both AVX-512 hand-tuned):
 //! the **splat algorithm wins** by 1.4-1.6x. Both emit the same 4 ops per
@@ -232,6 +247,58 @@ fn validate_eq_strategies() {
                 for i in 0..1024 {
                     let bit = (hand[i / 64] >> (i % 64)) & 1 != 0;
                     assert_eq!(bit, expected[i], "avx512_hand mismatch at i={i}, W={W}");
+                }
+
+                let mut hand_v2 = vec![0u64; 16];
+                unsafe {
+                    block_eq_batch_avx512_v2::<W, B>(
+                        std::slice::from_ref(&packed),
+                        &const_rows,
+                        &mut hand_v2,
+                    )
+                };
+                for i in 0..1024 {
+                    let bit = (hand_v2[i / 64] >> (i % 64)) & 1 != 0;
+                    assert_eq!(bit, expected[i], "avx512_v2 mismatch at i={i}, W={W}");
+                }
+
+                let mut hand_v3 = vec![0u64; 16];
+                unsafe {
+                    block_eq_batch_avx512_v3::<W, B>(
+                        std::slice::from_ref(&packed),
+                        &const_rows,
+                        &mut hand_v3,
+                    )
+                };
+                for i in 0..1024 {
+                    let bit = (hand_v3[i / 64] >> (i % 64)) & 1 != 0;
+                    assert_eq!(bit, expected[i], "avx512_v3 mismatch at i={i}, W={W}");
+                }
+
+                let mut hand_v4 = vec![0u64; 16];
+                unsafe {
+                    block_eq_batch_avx512_v4::<W, B>(
+                        std::slice::from_ref(&packed),
+                        &const_rows,
+                        &mut hand_v4,
+                    )
+                };
+                for i in 0..1024 {
+                    let bit = (hand_v4[i / 64] >> (i % 64)) & 1 != 0;
+                    assert_eq!(bit, expected[i], "avx512_v4 mismatch at i={i}, W={W}");
+                }
+
+                let mut hand_v5 = vec![0u64; 16];
+                unsafe {
+                    block_eq_batch_avx512_v5::<W, B>(
+                        std::slice::from_ref(&packed),
+                        &const_rows,
+                        &mut hand_v5,
+                    )
+                };
+                for i in 0..1024 {
+                    let bit = (hand_v5[i / 64] >> (i % 64)) & 1 != 0;
+                    assert_eq!(bit, expected[i], "avx512_v5 mismatch at i={i}, W={W}");
                 }
 
                 let mut hand_un = vec![0u64; 16];
@@ -568,8 +635,9 @@ fn block_eq_collect_u64<const W: usize, const B: usize>(
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::{
-    __m128i, __m512i, _mm512_and_si512, _mm512_cmpeq_epu32_mask, _mm512_loadu_si512,
-    _mm512_or_si512, _mm512_set1_epi32, _mm512_setzero_si512, _mm512_sll_epi32, _mm512_srl_epi32,
+    __m128i, __m512i, _kand_mask16, _mm512_and_si512, _mm512_cmpeq_epu32_mask,
+    _mm512_loadu_si512, _mm512_or_si512, _mm512_set1_epi32, _mm512_setzero_si512,
+    _mm512_sll_epi32, _mm512_srl_epi32, _mm512_ternarylogic_epi32, _mm512_testn_epi32_mask,
     _mm512_xor_si512, _mm_cvtsi32_si128,
 };
 
@@ -676,6 +744,406 @@ unsafe fn block_eq_batch_avx512_hand<const W: usize, const B: usize>(
             let lo = unsafe { row_mask_avx512::<W>(blk.as_slice(), const_rows, row_lo) } as u64;
             let hi = unsafe { row_mask_avx512::<W>(blk.as_slice(), const_rows, row_hi) } as u64;
             chunk[u] = lo | (hi << 32);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AVX-512 v2: testn (fuse and+cmpeq into one) + per-block hoisted const_row
+// broadcasts. Same algorithm as v1 (splat-cmp), tighter encoding.
+//
+// Op count per non-boundary row (per 16-lane chunk):
+//   v1: load + xor + and + cmpeq         = 4 ops
+//   v2: load + xor + testn               = 3 ops    (25% reduction)
+// Per boundary row:
+//   v1: 2*load + 2*xor + 2*and + or + cmpeq = 8 ops
+//   v2: 2*load + 2*xor + 2*testn + kand     = 7 ops
+//
+// And the broadcasts of `const_rows[curr_word]` move outside the row loop
+// (only W distinct values, each used by T/W rows).
+// ---------------------------------------------------------------------------
+
+/// AVX-512 v2 batched eq: testn fusion + hoisted const_row broadcasts.
+///
+/// # Safety
+/// AVX-512F target feature required.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx512vl,bmi2")]
+#[inline]
+unsafe fn block_eq_batch_avx512_v2<const W: usize, const B: usize>(
+    blocks: &[[u32; B]],
+    const_rows: &[u32; 32],
+    out: &mut [u64],
+) {
+    const T: usize = 32;
+    const LANES: usize = 32;
+    debug_assert_eq!(out.len(), 16 * blocks.len());
+
+    // SAFETY: feature-gated.
+    unsafe {
+        // Pre-broadcast all W const_row values once; each is used by T/W rows.
+        let mut const_v: [__m512i; 32] = [_mm512_setzero_si512(); 32];
+        for i in 0..W {
+            const_v[i] = _mm512_set1_epi32(const_rows[i] as i32);
+        }
+
+        let elem_mask: u32 = if W == 32 { u32::MAX } else { (1u32 << W) - 1 };
+
+        for (b_idx, blk) in blocks.iter().enumerate() {
+            let mut row_masks = [0u32; 32];
+            for row in 0..T {
+                let curr_word = (row * W) / T;
+                let shift = (row * W) % T;
+                // True spanning condition: the W-bit field actually straddles
+                // a word boundary (not just "next row uses a new word").
+                let spans = shift + W > T;
+                let next_word = curr_word + 1;
+                let base = blk.as_ptr().wrapping_add(LANES * curr_word);
+                let v0 = _mm512_loadu_si512(base as *const __m512i);
+                let v1 = _mm512_loadu_si512(base.add(16) as *const __m512i);
+                let c_cw = const_v[curr_word];
+
+                let m: u32 = if !spans {
+                    // W bits live entirely in curr_word at positions [shift, shift+W).
+                    let window = elem_mask << shift;
+                    let win_v = _mm512_set1_epi32(window as i32);
+                    let m0 = _mm512_testn_epi32_mask(
+                        _mm512_xor_si512(v0, c_cw),
+                        win_v,
+                    ) as u32;
+                    let m1 = _mm512_testn_epi32_mask(
+                        _mm512_xor_si512(v1, c_cw),
+                        win_v,
+                    ) as u32;
+                    m0 | (m1 << 16)
+                } else {
+                    // Spanning: top bits of curr_word + bottom bits of next_word.
+                    let current_bits = T - shift;
+                    let remaining_bits = W - current_bits;
+                    let high_mask = u32::MAX << shift;
+                    let low_mask = (1u32 << remaining_bits) - 1;
+                    let high_v = _mm512_set1_epi32(high_mask as i32);
+                    let low_v = _mm512_set1_epi32(low_mask as i32);
+                    let c_nw = const_v[next_word];
+                    let nw = blk.as_ptr().wrapping_add(LANES * next_word);
+                    let n0 = _mm512_loadu_si512(nw as *const __m512i);
+                    let n1 = _mm512_loadu_si512(nw.add(16) as *const __m512i);
+                    // (cw ^ c_cw) & high == 0 AND (nw ^ c_nw) & low == 0
+                    let m_a0 = _mm512_testn_epi32_mask(
+                        _mm512_xor_si512(v0, c_cw),
+                        high_v,
+                    );
+                    let m_a1 = _mm512_testn_epi32_mask(
+                        _mm512_xor_si512(v1, c_cw),
+                        high_v,
+                    );
+                    let m_b0 = _mm512_testn_epi32_mask(
+                        _mm512_xor_si512(n0, c_nw),
+                        low_v,
+                    );
+                    let m_b1 = _mm512_testn_epi32_mask(
+                        _mm512_xor_si512(n1, c_nw),
+                        low_v,
+                    );
+                    let m0 = _kand_mask16(m_a0, m_b0) as u32;
+                    let m1 = _kand_mask16(m_a1, m_b1) as u32;
+                    m0 | (m1 << 16)
+                };
+
+                row_masks[row] = m;
+            }
+
+            let chunk = &mut out[b_idx * 16..b_idx * 16 + 16];
+            for u in 0..16 {
+                let lo = row_masks[ROW_FOR_K_U32[2 * u]] as u64;
+                let hi = row_masks[ROW_FOR_K_U32[2 * u + 1]] as u64;
+                chunk[u] = lo | (hi << 32);
+            }
+        }
+    }
+}
+
+/// AVX-512 v3 batched eq: precompute everything possible per row (broadcast
+/// `c & w` once, broadcast `w` once), inner loop is just load + AND + cmpeq.
+///
+/// Op count per non-boundary row chunk: load + and + cmpeq = 3 ops.
+/// Op count per boundary row chunk: 2*load + 2*and + 2*cmpeq + kand = 7 ops
+/// (vs v2's 7 ops with testn -- but cmpeq has 3-cyc latency, testn 4-cyc).
+///
+/// # Safety
+/// AVX-512F target feature required.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx512vl,bmi2")]
+#[inline]
+unsafe fn block_eq_batch_avx512_v3<const W: usize, const B: usize>(
+    blocks: &[[u32; B]],
+    const_rows: &[u32; 32],
+    out: &mut [u64],
+) {
+    const T: usize = 32;
+    const LANES: usize = 32;
+    debug_assert_eq!(out.len(), 16 * blocks.len());
+
+    // SAFETY: feature-gated.
+    unsafe {
+        let elem_mask: u32 = if W == 32 { u32::MAX } else { (1u32 << W) - 1 };
+        let zero = _mm512_setzero_si512();
+
+        // Pre-broadcast per-row constants (W rows max; we compute all 32 for
+        // simplicity but only those that get used are touched).
+        // For non-boundary rows: window_v[r], target_v[r] = (const_rows[cw] & window) broadcast.
+        // For boundary rows: hi_v[r], lo_v[r], hi_tgt_v[r], lo_tgt_v[r].
+        let mut window_v: [__m512i; 32] = [zero; 32];
+        let mut target_v: [__m512i; 32] = [zero; 32];
+        let mut hi_v: [__m512i; 32] = [zero; 32];
+        let mut lo_v: [__m512i; 32] = [zero; 32];
+        let mut hi_tgt_v: [__m512i; 32] = [zero; 32];
+        let mut lo_tgt_v: [__m512i; 32] = [zero; 32];
+        let mut spans = [false; 32];
+        for row in 0..T {
+            let curr_word = (row * W) / T;
+            let shift = (row * W) % T;
+            let span = shift + W > T;
+            spans[row] = span;
+            if !span {
+                let window = elem_mask << shift;
+                let target = const_rows[curr_word] & window;
+                window_v[row] = _mm512_set1_epi32(window as i32);
+                target_v[row] = _mm512_set1_epi32(target as i32);
+            } else {
+                let current_bits = T - shift;
+                let remaining_bits = W - current_bits;
+                let high_mask = u32::MAX << shift;
+                let low_mask = (1u32 << remaining_bits) - 1;
+                let next_word = curr_word + 1;
+                let hi_tgt = const_rows[curr_word] & high_mask;
+                let lo_tgt = const_rows[next_word] & low_mask;
+                hi_v[row] = _mm512_set1_epi32(high_mask as i32);
+                lo_v[row] = _mm512_set1_epi32(low_mask as i32);
+                hi_tgt_v[row] = _mm512_set1_epi32(hi_tgt as i32);
+                lo_tgt_v[row] = _mm512_set1_epi32(lo_tgt as i32);
+            }
+        }
+
+        for (b_idx, blk) in blocks.iter().enumerate() {
+            let mut row_masks = [0u32; 32];
+            for row in 0..T {
+                let curr_word = (row * W) / T;
+                let base = blk.as_ptr().wrapping_add(LANES * curr_word);
+                let v0 = _mm512_loadu_si512(base as *const __m512i);
+                let v1 = _mm512_loadu_si512(base.add(16) as *const __m512i);
+
+                let m: u32 = if !spans[row] {
+                    let masked0 = _mm512_and_si512(v0, window_v[row]);
+                    let masked1 = _mm512_and_si512(v1, window_v[row]);
+                    let m0 = _mm512_cmpeq_epu32_mask(masked0, target_v[row]) as u32;
+                    let m1 = _mm512_cmpeq_epu32_mask(masked1, target_v[row]) as u32;
+                    m0 | (m1 << 16)
+                } else {
+                    let next_word = curr_word + 1;
+                    let nw = blk.as_ptr().wrapping_add(LANES * next_word);
+                    let n0 = _mm512_loadu_si512(nw as *const __m512i);
+                    let n1 = _mm512_loadu_si512(nw.add(16) as *const __m512i);
+                    let h0 = _mm512_and_si512(v0, hi_v[row]);
+                    let h1 = _mm512_and_si512(v1, hi_v[row]);
+                    let l0 = _mm512_and_si512(n0, lo_v[row]);
+                    let l1 = _mm512_and_si512(n1, lo_v[row]);
+                    let m_h0 = _mm512_cmpeq_epu32_mask(h0, hi_tgt_v[row]);
+                    let m_h1 = _mm512_cmpeq_epu32_mask(h1, hi_tgt_v[row]);
+                    let m_l0 = _mm512_cmpeq_epu32_mask(l0, lo_tgt_v[row]);
+                    let m_l1 = _mm512_cmpeq_epu32_mask(l1, lo_tgt_v[row]);
+                    let m0 = _kand_mask16(m_h0, m_l0) as u32;
+                    let m1 = _kand_mask16(m_h1, m_l1) as u32;
+                    m0 | (m1 << 16)
+                };
+                row_masks[row] = m;
+            }
+            let chunk = &mut out[b_idx * 16..b_idx * 16 + 16];
+            for u in 0..16 {
+                let lo = row_masks[ROW_FOR_K_U32[2 * u]] as u64;
+                let hi = row_masks[ROW_FOR_K_U32[2 * u + 1]] as u64;
+                chunk[u] = lo | (hi << 32);
+            }
+        }
+    }
+}
+
+/// AVX-512 v5: v4 + fused boundary path. Combine high and low halves via
+/// OR before the single cmpeq (saves 2 cmpeq + 2 kand per boundary chunk).
+///
+/// # Safety
+/// AVX-512F target feature required.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx512vl,bmi2")]
+#[inline]
+unsafe fn block_eq_batch_avx512_v5<const W: usize, const B: usize>(
+    blocks: &[[u32; B]],
+    const_rows: &[u32; 32],
+    out: &mut [u64],
+) {
+    const T: usize = 32;
+    const LANES: usize = 32;
+    debug_assert_eq!(out.len(), 16 * blocks.len());
+
+    // SAFETY: feature-gated.
+    unsafe {
+        let elem_mask: u32 = if W == 32 { u32::MAX } else { (1u32 << W) - 1 };
+        let zero = _mm512_setzero_si512();
+
+        let mut const_v: [__m512i; 32] = [zero; 32];
+        for i in 0..W {
+            const_v[i] = _mm512_set1_epi32(const_rows[i] as i32);
+        }
+        let mut window_v: [__m512i; 32] = [zero; 32];
+        let mut hi_v: [__m512i; 32] = [zero; 32];
+        let mut lo_v: [__m512i; 32] = [zero; 32];
+        let mut spans = [false; 32];
+        for row in 0..T {
+            let shift = (row * W) % T;
+            let span = shift + W > T;
+            spans[row] = span;
+            if !span {
+                window_v[row] = _mm512_set1_epi32((elem_mask << shift) as i32);
+            } else {
+                let current_bits = T - shift;
+                let remaining_bits = W - current_bits;
+                hi_v[row] = _mm512_set1_epi32((u32::MAX << shift) as i32);
+                lo_v[row] = _mm512_set1_epi32(((1u32 << remaining_bits) - 1) as i32);
+            }
+        }
+
+        for (b_idx, blk) in blocks.iter().enumerate() {
+            let mut row_masks = [0u32; 32];
+            for row in 0..T {
+                let curr_word = (row * W) / T;
+                let base = blk.as_ptr().wrapping_add(LANES * curr_word);
+                let v0 = _mm512_loadu_si512(base as *const __m512i);
+                let v1 = _mm512_loadu_si512(base.add(16) as *const __m512i);
+                let c_cw = const_v[curr_word];
+
+                let m: u32 = if !spans[row] {
+                    let z0 = _mm512_ternarylogic_epi32::<0x28>(v0, c_cw, window_v[row]);
+                    let z1 = _mm512_ternarylogic_epi32::<0x28>(v1, c_cw, window_v[row]);
+                    let m0 = _mm512_cmpeq_epu32_mask(z0, zero) as u32;
+                    let m1 = _mm512_cmpeq_epu32_mask(z1, zero) as u32;
+                    m0 | (m1 << 16)
+                } else {
+                    let next_word = curr_word + 1;
+                    let c_nw = const_v[next_word];
+                    let nw = blk.as_ptr().wrapping_add(LANES * next_word);
+                    let n0 = _mm512_loadu_si512(nw as *const __m512i);
+                    let n1 = _mm512_loadu_si512(nw.add(16) as *const __m512i);
+                    // h = (v ^ c_cw) & hi;  l = (n ^ c_nw) & lo;  test (h | l) == 0
+                    let h0 = _mm512_ternarylogic_epi32::<0x28>(v0, c_cw, hi_v[row]);
+                    let h1 = _mm512_ternarylogic_epi32::<0x28>(v1, c_cw, hi_v[row]);
+                    let l0 = _mm512_ternarylogic_epi32::<0x28>(n0, c_nw, lo_v[row]);
+                    let l1 = _mm512_ternarylogic_epi32::<0x28>(n1, c_nw, lo_v[row]);
+                    let t0 = _mm512_or_si512(h0, l0);
+                    let t1 = _mm512_or_si512(h1, l1);
+                    let m0 = _mm512_cmpeq_epu32_mask(t0, zero) as u32;
+                    let m1 = _mm512_cmpeq_epu32_mask(t1, zero) as u32;
+                    m0 | (m1 << 16)
+                };
+                row_masks[row] = m;
+            }
+            let chunk = &mut out[b_idx * 16..b_idx * 16 + 16];
+            for u in 0..16 {
+                let lo = row_masks[ROW_FOR_K_U32[2 * u]] as u64;
+                let hi = row_masks[ROW_FOR_K_U32[2 * u + 1]] as u64;
+                chunk[u] = lo | (hi << 32);
+            }
+        }
+    }
+}
+
+/// AVX-512 v4: same as v3 (pre-broadcast everything) but use ternarylogic
+/// to fuse `(v ^ c) & w` into one instruction, then cmpeq with zero.
+/// Op count per non-boundary chunk: load + ternlog + cmpeq = 3 ops -- same
+/// as v3, but tests if ternlog has better latency than `and + cmpeq w/ tgt`.
+///
+/// # Safety
+/// AVX-512F target feature required.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx512vl,bmi2")]
+#[inline]
+unsafe fn block_eq_batch_avx512_v4<const W: usize, const B: usize>(
+    blocks: &[[u32; B]],
+    const_rows: &[u32; 32],
+    out: &mut [u64],
+) {
+    const T: usize = 32;
+    const LANES: usize = 32;
+    debug_assert_eq!(out.len(), 16 * blocks.len());
+
+    // SAFETY: feature-gated.
+    unsafe {
+        let elem_mask: u32 = if W == 32 { u32::MAX } else { (1u32 << W) - 1 };
+        let zero = _mm512_setzero_si512();
+
+        let mut const_v: [__m512i; 32] = [zero; 32];
+        for i in 0..W {
+            const_v[i] = _mm512_set1_epi32(const_rows[i] as i32);
+        }
+        let mut window_v: [__m512i; 32] = [zero; 32];
+        let mut hi_v: [__m512i; 32] = [zero; 32];
+        let mut lo_v: [__m512i; 32] = [zero; 32];
+        let mut spans = [false; 32];
+        for row in 0..T {
+            let shift = (row * W) % T;
+            let span = shift + W > T;
+            spans[row] = span;
+            if !span {
+                window_v[row] = _mm512_set1_epi32((elem_mask << shift) as i32);
+            } else {
+                let current_bits = T - shift;
+                let remaining_bits = W - current_bits;
+                hi_v[row] = _mm512_set1_epi32((u32::MAX << shift) as i32);
+                lo_v[row] = _mm512_set1_epi32(((1u32 << remaining_bits) - 1) as i32);
+            }
+        }
+
+        for (b_idx, blk) in blocks.iter().enumerate() {
+            let mut row_masks = [0u32; 32];
+            for row in 0..T {
+                let curr_word = (row * W) / T;
+                let base = blk.as_ptr().wrapping_add(LANES * curr_word);
+                let v0 = _mm512_loadu_si512(base as *const __m512i);
+                let v1 = _mm512_loadu_si512(base.add(16) as *const __m512i);
+                let c_cw = const_v[curr_word];
+
+                let m: u32 = if !spans[row] {
+                    // (v ^ c) & w via ternarylogic (imm 0x28).
+                    let z0 = _mm512_ternarylogic_epi32::<0x28>(v0, c_cw, window_v[row]);
+                    let z1 = _mm512_ternarylogic_epi32::<0x28>(v1, c_cw, window_v[row]);
+                    let m0 = _mm512_cmpeq_epu32_mask(z0, zero) as u32;
+                    let m1 = _mm512_cmpeq_epu32_mask(z1, zero) as u32;
+                    m0 | (m1 << 16)
+                } else {
+                    let next_word = curr_word + 1;
+                    let c_nw = const_v[next_word];
+                    let nw = blk.as_ptr().wrapping_add(LANES * next_word);
+                    let n0 = _mm512_loadu_si512(nw as *const __m512i);
+                    let n1 = _mm512_loadu_si512(nw.add(16) as *const __m512i);
+                    let h0 = _mm512_ternarylogic_epi32::<0x28>(v0, c_cw, hi_v[row]);
+                    let h1 = _mm512_ternarylogic_epi32::<0x28>(v1, c_cw, hi_v[row]);
+                    let l0 = _mm512_ternarylogic_epi32::<0x28>(n0, c_nw, lo_v[row]);
+                    let l1 = _mm512_ternarylogic_epi32::<0x28>(n1, c_nw, lo_v[row]);
+                    let m_h0 = _mm512_cmpeq_epu32_mask(h0, zero);
+                    let m_h1 = _mm512_cmpeq_epu32_mask(h1, zero);
+                    let m_l0 = _mm512_cmpeq_epu32_mask(l0, zero);
+                    let m_l1 = _mm512_cmpeq_epu32_mask(l1, zero);
+                    let m0 = _kand_mask16(m_h0, m_l0) as u32;
+                    let m1 = _kand_mask16(m_h1, m_l1) as u32;
+                    m0 | (m1 << 16)
+                };
+                row_masks[row] = m;
+            }
+            let chunk = &mut out[b_idx * 16..b_idx * 16 + 16];
+            for u in 0..16 {
+                let lo = row_masks[ROW_FOR_K_U32[2 * u]] as u64;
+                let hi = row_masks[ROW_FOR_K_U32[2 * u + 1]] as u64;
+                chunk[u] = lo | (hi << 32);
+            }
         }
     }
 }
@@ -1252,6 +1720,137 @@ macro_rules! u32_eq_benches {
                         .bench_local(|| {
                             // SAFETY: feature-gated above.
                             unsafe { block_eq_batch_avx512_hand::<W, B>(&blocks, &const_rows, &mut out) };
+                            black_box(&mut out);
+                        });
+                }
+            }
+
+            // AVX-512 v3: precompute c & w as per-row target, inner loop is
+            // load + and + cmpeq(target).
+            #[divan::bench]
+            fn [<$prefix _block_batch_avx512_v3_w $W>](bencher: Bencher) {
+                #[cfg(not(target_arch = "x86_64"))]
+                {
+                    return;
+                }
+                #[cfg(target_arch = "x86_64")]
+                {
+                    if !is_x86_feature_detected!("avx512f")
+                        || !is_x86_feature_detected!("avx512bw")
+                        || !is_x86_feature_detected!("avx512dq")
+                    {
+                        return;
+                    }
+                    const W: usize = $W;
+                    const B: usize = 32 * W;
+                    let value: u32 = ((1u64 << W) - 1) as u32;
+                    let blocks = make_constant_packed_blocks::<W, B>(value);
+                    let const_rows = const_row_words_u32::<W>(value);
+                    let mut out: Vec<u64> = vec![0u64; 16 * EQ_BLOCKS];
+
+                    bencher
+                        .counter(ItemsCount::new(1024usize * EQ_BLOCKS))
+                        .bench_local(|| {
+                            // SAFETY: feature-gated above.
+                            unsafe { block_eq_batch_avx512_v3::<W, B>(&blocks, &const_rows, &mut out) };
+                            black_box(&mut out);
+                        });
+                }
+            }
+
+            // AVX-512 v5: v4 + fused boundary path (OR-then-cmpeq).
+            #[divan::bench]
+            fn [<$prefix _block_batch_avx512_v5_w $W>](bencher: Bencher) {
+                #[cfg(not(target_arch = "x86_64"))]
+                {
+                    return;
+                }
+                #[cfg(target_arch = "x86_64")]
+                {
+                    if !is_x86_feature_detected!("avx512f")
+                        || !is_x86_feature_detected!("avx512bw")
+                        || !is_x86_feature_detected!("avx512dq")
+                    {
+                        return;
+                    }
+                    const W: usize = $W;
+                    const B: usize = 32 * W;
+                    let value: u32 = ((1u64 << W) - 1) as u32;
+                    let blocks = make_constant_packed_blocks::<W, B>(value);
+                    let const_rows = const_row_words_u32::<W>(value);
+                    let mut out: Vec<u64> = vec![0u64; 16 * EQ_BLOCKS];
+
+                    bencher
+                        .counter(ItemsCount::new(1024usize * EQ_BLOCKS))
+                        .bench_local(|| {
+                            // SAFETY: feature-gated above.
+                            unsafe { block_eq_batch_avx512_v5::<W, B>(&blocks, &const_rows, &mut out) };
+                            black_box(&mut out);
+                        });
+                }
+            }
+
+            // AVX-512 v4: pre-broadcast const_rows + window masks, inner uses
+            // vpternlogd to fuse (v ^ c) & w into one op.
+            #[divan::bench]
+            fn [<$prefix _block_batch_avx512_v4_w $W>](bencher: Bencher) {
+                #[cfg(not(target_arch = "x86_64"))]
+                {
+                    return;
+                }
+                #[cfg(target_arch = "x86_64")]
+                {
+                    if !is_x86_feature_detected!("avx512f")
+                        || !is_x86_feature_detected!("avx512bw")
+                        || !is_x86_feature_detected!("avx512dq")
+                    {
+                        return;
+                    }
+                    const W: usize = $W;
+                    const B: usize = 32 * W;
+                    let value: u32 = ((1u64 << W) - 1) as u32;
+                    let blocks = make_constant_packed_blocks::<W, B>(value);
+                    let const_rows = const_row_words_u32::<W>(value);
+                    let mut out: Vec<u64> = vec![0u64; 16 * EQ_BLOCKS];
+
+                    bencher
+                        .counter(ItemsCount::new(1024usize * EQ_BLOCKS))
+                        .bench_local(|| {
+                            // SAFETY: feature-gated above.
+                            unsafe { block_eq_batch_avx512_v4::<W, B>(&blocks, &const_rows, &mut out) };
+                            black_box(&mut out);
+                        });
+                }
+            }
+
+            // AVX-512 v2 of splat-cmp: testn (fuse and+cmpeq) + hoisted
+            // const_row broadcasts.
+            #[divan::bench]
+            fn [<$prefix _block_batch_avx512_v2_w $W>](bencher: Bencher) {
+                #[cfg(not(target_arch = "x86_64"))]
+                {
+                    return;
+                }
+                #[cfg(target_arch = "x86_64")]
+                {
+                    if !is_x86_feature_detected!("avx512f")
+                        || !is_x86_feature_detected!("avx512bw")
+                        || !is_x86_feature_detected!("avx512dq")
+                    {
+                        return;
+                    }
+                    const W: usize = $W;
+                    const B: usize = 32 * W;
+                    let value: u32 = ((1u64 << W) - 1) as u32;
+                    let blocks = make_constant_packed_blocks::<W, B>(value);
+                    let const_rows = const_row_words_u32::<W>(value);
+                    let mut out: Vec<u64> = vec![0u64; 16 * EQ_BLOCKS];
+
+                    bencher
+                        .counter(ItemsCount::new(1024usize * EQ_BLOCKS))
+                        .bench_local(|| {
+                            // SAFETY: feature-gated above.
+                            unsafe { block_eq_batch_avx512_v2::<W, B>(&blocks, &const_rows, &mut out) };
                             black_box(&mut out);
                         });
                 }
