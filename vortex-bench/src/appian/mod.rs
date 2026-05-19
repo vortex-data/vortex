@@ -22,6 +22,8 @@
 //! against the lowercased Parquet schema, while DuckDB's case-insensitive unquoted
 //! identifier resolution makes the original case irrelevant.
 
+use std::fs;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -30,6 +32,7 @@ use anyhow::bail;
 use glob::Pattern;
 use tracing::info;
 use url::Url;
+use vortex::error::VortexExpect;
 
 use crate::Benchmark;
 use crate::BenchmarkDataset;
@@ -70,19 +73,20 @@ const TABLES: &[&str] = &[
     "taxrecordview",
 ];
 
-/// Eight join-heavy queries from `duckdb/duckdb:benchmark/appian_benchmarks/queries/`.
-/// Embedded byte-identically at compile time so upstream refreshes are a pure copy
-/// into `queries/`.
-const QUERIES: &[&str] = &[
-    include_str!("queries/q01.sql"),
-    include_str!("queries/q02.sql"),
-    include_str!("queries/q03.sql"),
-    include_str!("queries/q04.sql"),
-    include_str!("queries/q05.sql"),
-    include_str!("queries/q06.sql"),
-    include_str!("queries/q07.sql"),
-    include_str!("queries/q08.sql"),
-];
+/// Eight join-heavy queries from `duckdb/duckdb:benchmark/appian_benchmarks/queries/`,
+/// stored byte-identically under `vortex-bench/appian/q{1..8}.sql` (sibling of the TPC-H
+/// `tpch/q*.sql` layout). Upstream refreshes are a pure copy into that directory.
+pub fn appian_queries() -> impl Iterator<Item = (usize, String)> {
+    (1..=8).map(|q| (q, appian_query(q)))
+}
+
+fn appian_query(query_idx: usize) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("appian")
+        .join(format!("q{query_idx}"))
+        .with_extension("sql");
+    fs::read_to_string(path).vortex_expect("cannot load appian query from file")
+}
 
 /// Benchmark over the [Appian benchmark suite from DuckDB][upstream].
 ///
@@ -117,7 +121,7 @@ impl AppianBenchmark {
 #[async_trait::async_trait]
 impl Benchmark for AppianBenchmark {
     fn queries(&self) -> anyhow::Result<Vec<(usize, String)>> {
-        Ok(QUERIES.iter().map(|s| s.to_string()).enumerate().collect())
+        Ok(appian_queries().collect())
     }
 
     async fn generate_base_data(&self) -> anyhow::Result<()> {
@@ -126,7 +130,7 @@ impl Benchmark for AppianBenchmark {
         }
 
         let parquet_dir = self.parquet_dir()?;
-        std::fs::create_dir_all(&parquet_dir)?;
+        fs::create_dir_all(&parquet_dir)?;
 
         // Idempotency: if every target Parquet is already in place, do nothing.
         if TABLES
@@ -215,7 +219,7 @@ impl Benchmark for AppianBenchmark {
 /// Run a single `duckdb` invocation that returns, for each upstream Appian table, a
 /// projection string of the form `"OrigName" AS "origname", ...` so the `COPY` statements
 /// below can lowercase every column name without enumerating them by hand.
-fn discover_projections(blob: &std::path::Path) -> anyhow::Result<Vec<(String, String)>> {
+fn discover_projections(blob: &Path) -> anyhow::Result<Vec<(String, String)>> {
     // `chr(31)` (unit separator) keeps `table_name` and the projection list distinct in
     // the single-column `-list` output without colliding with `|` (list separator) or
     // `,` (projection delimiter).
