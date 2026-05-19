@@ -10,13 +10,12 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::checked_len_mul;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::validity_uncompressed_size_in_bytes;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::VarBin;
 use crate::arrays::varbin::VarBinArrayExt;
 use crate::arrays::varbinview::BinaryView;
 use crate::scalar::Scalar;
+use crate::validity::validity_uncompressed_size_in_bytes;
 
 #[derive(Debug)]
 pub(crate) struct VarBinUncompressedSizeInBytesKernel;
@@ -45,7 +44,10 @@ impl DynAggregateKernel for VarBinUncompressedSizeInBytesKernel {
         )
         .map_err(|e| vortex_err!("Failed to convert VarBin data size to u64: {e}"))?;
 
-        let views_size = checked_len_mul(array.len(), size_of::<BinaryView>(), "binary view")?;
+        let views_size = u64::try_from(array.len())
+            .map_err(|e| vortex_err!("array length does not fit in u64: {e}"))?
+            .checked_mul(size_of::<BinaryView>() as u64)
+            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
         let validity_size = validity_uncompressed_size_in_bytes(
             array
                 .as_ref()

@@ -28,13 +28,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::aggregate_fn::Accumulator;
 use crate::aggregate_fn::AggregateFnId;
 use crate::aggregate_fn::AggregateFnVTable;
@@ -42,7 +40,6 @@ use crate::aggregate_fn::DynAccumulator;
 use crate::aggregate_fn::EmptyOptions;
 use crate::array::ArrayView;
 use crate::arrays::Constant;
-use crate::arrays::ConstantArray;
 use crate::arrays::varbinview::BinaryView;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
@@ -53,6 +50,7 @@ use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::scalar::Scalar;
 use crate::scalar::ScalarValue;
+use crate::validity::validity_uncompressed_size_in_bytes;
 
 /// Return the uncompressed size of an array in bytes.
 ///
@@ -220,14 +218,14 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
     let value_size = match array.dtype() {
         DType::Null => return Ok(0),
         DType::Bool(_) => packed_bit_buffer_size_in_bytes(array.len())?,
-        DType::Primitive(ptype, _) => {
-            checked_len_mul(array.len(), ptype.byte_width(), "primitive")?
-        }
-        DType::Decimal(decimal_type, _) => checked_len_mul(
-            array.len(),
-            DecimalType::smallest_decimal_value_type(decimal_type).byte_width(),
-            "decimal",
-        )?,
+        DType::Primitive(ptype, _) => u64::try_from(array.len())
+            .map_err(|e| vortex_err!("array length does not fit in u64: {e}"))?
+            .checked_mul(ptype.byte_width() as u64)
+            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?,
+        DType::Decimal(decimal_type, _) => u64::try_from(array.len())
+            .map_err(|e| vortex_err!("array length does not fit in u64: {e}"))?
+            .checked_mul(DecimalType::smallest_decimal_value_type(decimal_type).byte_width() as u64)
+            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?,
         DType::Utf8(_) => constant_varbinview_value_size(
             array.len(),
             array.scalar().as_utf8().value().map(|value| value.len()),
@@ -252,7 +250,10 @@ pub(crate) fn constant_uncompressed_size_in_bytes(
 }
 
 fn constant_varbinview_value_size(len: usize, scalar_len: Option<usize>) -> VortexResult<u64> {
-    let views_size = checked_len_mul(len, size_of::<BinaryView>(), "binary view")?;
+    let views_size = u64::try_from(len)
+        .map_err(|e| vortex_err!("array length does not fit in u64: {e}"))?
+        .checked_mul(size_of::<BinaryView>() as u64)
+        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
     let data_size = match scalar_len {
         Some(scalar_len) if scalar_len >= BinaryView::MAX_INLINED_SIZE => u64::try_from(scalar_len)
             .map_err(|e| vortex_err!("Failed to convert data buffer length to u64: {e}"))?,
@@ -270,16 +271,6 @@ fn constant_validity_size(
 ) -> VortexResult<u64> {
     let validity = array.validity()?.execute_mask(array.len(), ctx)?;
     validity_uncompressed_size_in_bytes(validity)
-}
-
-pub(crate) fn checked_len_mul(len: usize, width: usize, name: &str) -> VortexResult<u64> {
-    let len = u64::try_from(len)
-        .map_err(|e| vortex_err!("Failed to convert {name} length to u64: {e}"))?;
-    let width = u64::try_from(width)
-        .map_err(|e| vortex_err!("Failed to convert {name} byte width to u64: {e}"))?;
-
-    len.checked_mul(width)
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
 }
 
 fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
@@ -301,14 +292,6 @@ fn supports_uncompressed_size_in_bytes(dtype: &DType) -> bool {
         DType::Extension(ext_dtype) => {
             supports_uncompressed_size_in_bytes(ext_dtype.storage_dtype())
         }
-    }
-}
-
-pub(crate) fn validity_uncompressed_size_in_bytes(validity: Mask) -> VortexResult<u64> {
-    match validity {
-        Mask::AllTrue(_) => Ok(0),
-        Mask::AllFalse(len) => Ok(ConstantArray::new(false, len).into_array().nbytes()),
-        Mask::Values(values) => packed_bit_buffer_size_in_bytes(values.len()),
     }
 }
 

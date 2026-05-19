@@ -5,9 +5,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use super::UncompressedSizeInBytes;
-use super::checked_len_mul;
 use super::packed_bit_buffer_size_in_bytes;
-use super::validity_uncompressed_size_in_bytes;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
@@ -15,6 +13,7 @@ use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::dtype::DType;
 use crate::dtype::DecimalType;
 use crate::scalar::Scalar;
+use crate::validity::validity_uncompressed_size_in_bytes;
 
 /// Computes [`UncompressedSizeInBytes`] for fixed-width logical dtypes without decoding values.
 ///
@@ -76,15 +75,19 @@ fn fixed_width_value_size(dtype: &DType, len: usize) -> VortexResult<Option<Fixe
             include_validity: true,
         },
         DType::Primitive(ptype, _) => FixedWidthValueSize {
-            size: checked_len_mul(len, ptype.byte_width(), "primitive")?,
+            size: u64::try_from(len)
+                .map_err(|e| vortex_err!("array length does not fit in u64: {e}"))?
+                .checked_mul(ptype.byte_width() as u64)
+                .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?,
             include_validity: true,
         },
         DType::Decimal(decimal_type, _) => FixedWidthValueSize {
-            size: checked_len_mul(
-                len,
-                DecimalType::smallest_decimal_value_type(decimal_type).byte_width(),
-                "decimal",
-            )?,
+            size: u64::try_from(len)
+                .map_err(|e| vortex_err!("array length does not fit in u64: {e}"))?
+                .checked_mul(
+                    DecimalType::smallest_decimal_value_type(decimal_type).byte_width() as u64,
+                )
+                .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?,
             include_validity: true,
         },
         DType::Extension(ext_dtype) => {

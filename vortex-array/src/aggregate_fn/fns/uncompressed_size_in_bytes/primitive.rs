@@ -4,10 +4,10 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use super::validity_uncompressed_size_in_bytes;
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::primitive::PrimitiveArrayExt;
+use crate::validity::validity_uncompressed_size_in_bytes;
 
 pub(super) fn primitive_uncompressed_size_in_bytes(
     array: &PrimitiveArray,

@@ -6,20 +6,18 @@ use std::mem::size_of;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::aggregate_fn::AggregateFnRef;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::FixedWidthUncompressedSizeInBytesKernel;
 use vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use vortex_array::aggregate_fn::kernels::DynAggregateKernel;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::varbinview::build_views::BinaryView;
 use vortex_array::dtype::DType;
 use vortex_array::scalar::Scalar;
+use vortex_array::validity::validity_uncompressed_size_in_bytes;
 use vortex_array::vtable::child_to_validity;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 
 use crate::Zstd;
 
@@ -51,7 +49,10 @@ impl DynAggregateKernel for ZstdUncompressedSizeInBytesKernel {
             return Ok(None);
         }
 
-        let views_size = checked_len_mul(array.len(), size_of::<BinaryView>(), "binary view")?;
+        let views_size = u64::try_from(array.len())
+            .map_err(|e| vortex_err!("array length does not fit in u64: {e}"))?
+            .checked_mul(size_of::<BinaryView>() as u64)
+            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
         let data_size = selected_frame_uncompressed_size(array, ctx)?;
         let validity_size = validity_uncompressed_size_in_bytes(
             array
@@ -91,6 +92,8 @@ fn selected_frame_uncompressed_size(
         let frame_uncompressed_size = usize::try_from(frame_meta.uncompressed_size)
             .vortex_expect("uncompressed size must fit in usize");
         let frame_n_values = if frame_meta.n_values == 0 {
+            // Older metadata omitted n_values; fixed-width arrays return above, so byte count is
+            // the best available slice unit here.
             frame_uncompressed_size
         } else {
             usize::try_from(frame_meta.n_values).vortex_expect("frame size must fit usize")
@@ -106,24 +109,4 @@ fn selected_frame_uncompressed_size(
     }
 
     Ok(size)
-}
-
-fn validity_uncompressed_size_in_bytes(validity: Mask) -> VortexResult<u64> {
-    match validity {
-        Mask::AllTrue(_) => Ok(0),
-        Mask::AllFalse(len) => Ok(ConstantArray::new(false, len).into_array().nbytes()),
-        Mask::Values(values) => u64::try_from(values.len())
-            .map(|len| len.div_ceil(8))
-            .map_err(|e| vortex_err!("Failed to convert bit buffer length to u64: {e}")),
-    }
-}
-
-fn checked_len_mul(len: usize, width: usize, name: &str) -> VortexResult<u64> {
-    let len = u64::try_from(len)
-        .map_err(|e| vortex_err!("Failed to convert {name} length to u64: {e}"))?;
-    let width = u64::try_from(width)
-        .map_err(|e| vortex_err!("Failed to convert {name} byte width to u64: {e}"))?;
-
-    len.checked_mul(width)
-        .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
 }

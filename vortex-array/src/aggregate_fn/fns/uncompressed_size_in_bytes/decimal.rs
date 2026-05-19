@@ -4,11 +4,11 @@
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use super::validity_uncompressed_size_in_bytes;
 use crate::ExecutionCtx;
 use crate::arrays::DecimalArray;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::dtype::DecimalType;
+use crate::validity::validity_uncompressed_size_in_bytes;
 
 pub(super) fn decimal_uncompressed_size_in_bytes(
     array: &DecimalArray,

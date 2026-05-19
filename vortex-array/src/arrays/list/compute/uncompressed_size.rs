@@ -10,13 +10,12 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::aggregate_fn::AggregateFnRef;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::checked_len_mul;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::uncompressed_size_in_bytes_u64;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::validity_uncompressed_size_in_bytes;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::arrays::List;
 use crate::arrays::list::ListArrayExt;
 use crate::scalar::Scalar;
+use crate::validity::validity_uncompressed_size_in_bytes;
 
 #[derive(Debug)]
 pub(crate) struct ListUncompressedSizeInBytesKernel;
@@ -41,8 +40,11 @@ impl DynAggregateKernel for ListUncompressedSizeInBytesKernel {
         let elements = array.elements().slice(start..stop)?;
         let elements_size = uncompressed_size_in_bytes_u64(&elements, ctx)?;
 
-        let offsets_size = checked_len_mul(array.len(), size_of::<u64>(), "list offsets")?;
-        let sizes_size = checked_len_mul(array.len(), size_of::<u64>(), "list sizes")?;
+        // Canonical List materializes as ListView, with u64 offsets and u64 sizes.
+        let view_buffer_size = u64::try_from(array.len())
+            .map_err(|e| vortex_err!("array length does not fit in u64: {e}"))?
+            .checked_mul(size_of::<u64>() as u64)
+            .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
         let validity_size = validity_uncompressed_size_in_bytes(
             array
                 .as_ref()
@@ -51,8 +53,8 @@ impl DynAggregateKernel for ListUncompressedSizeInBytesKernel {
         )?;
 
         let size = elements_size
-            .checked_add(offsets_size)
-            .and_then(|size| size.checked_add(sizes_size))
+            .checked_add(view_buffer_size)
+            .and_then(|size| size.checked_add(view_buffer_size))
             .and_then(|size| size.checked_add(validity_size))
             .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?;
 
