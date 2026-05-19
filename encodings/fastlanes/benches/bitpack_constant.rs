@@ -38,20 +38,37 @@
 //!
 //! Throughput (median Gitem/s on u32, 64 blocks per call):
 //! ```text
-//!   W:                            1     4    12    16    24
-//!   stack_unpack_per1k          5.84  6.44  6.27  6.22  6.02  <- best apples-to-apples
-//!   fl_unpack_cmp_per1k         5.60  6.04  6.01  4.91  6.07
-//!   fl_unpack_cmp_batch         2.93  2.88  2.92  2.86  2.86
-//!   fl_unpack_cmp_collect       2.58  2.59  2.49  2.66  2.52
-//!   stack_unpack_collect        2.66  2.67  2.59  2.62  2.55
-//!   block_batch (mine)          1.72  1.37  1.67  1.68  1.48
-//!   block_batch_avx512_hand    18.90 17.92 12.42 11.65  9.45  <- AVX-512 ceiling
+//!   W:                              1     4    12    16    24
+//!   block_batch_avx512_hand       19.3 18.0 14.8 13.1 12.5  <- splat algo, hand AVX-512
+//!   block_unpack_avx512_hand      12.3 11.8 10.8 10.3  9.5  <- unpack algo, hand AVX-512
+//!   stack_unpack_avx512            7.3  7.7  7.4  7.3  7.1  <- decoupled (no fusion)
+//!   stack_unpack_per1k             5.84 6.44 6.27 6.22 6.02 <- best auto-vec
+//!   fl_unpack_cmp_per1k            5.60 6.04 6.01 4.91 6.07
+//!   fl_unpack_cmp_batch            2.93 2.88 2.92 2.86 2.86
+//!   fl_unpack_cmp_collect          2.58 2.59 2.49 2.66 2.52
+//!   stack_unpack_collect           2.66 2.67 2.59 2.62 2.55
+//!   block_batch (mine, auto-vec)   1.72 1.37 1.67 1.68 1.48
 //! ```
 //!
-//! The `*_per1k` strategies are 2-2.4x faster than the same kernel with a global
-//! 64K-bool buffer or per-block `BitBuffer` heap alloc. The win is L1 locality:
-//! the stack `[bool; 1024]` (or `[u32; 1024]`) stays in L1 between the unpack
-//! write and the inline collect_bool read, no heap traffic in the inner loop.
+//! Algorithm-vs-algorithm at the same SIMD level (both AVX-512 hand-tuned):
+//! the **splat algorithm wins** by 1.4-1.6x. Both emit the same 4 ops per
+//! lane per row (load + xor/srl + and + cmpeq), but `vpsrld` with a variable
+//! `__m128i` shift count has worse port pressure than `vpxorq`, and the splat
+//! algo keeps the W-bit constant pre-positioned in `const_row` words so the
+//! "extract" step disappears.
+//!
+//! At SSE2 auto-vec the two algorithms FLIP: unpack-then-compare beats splat
+//! (6.4 vs 1.4 Gitem/s) because every row of the splat algo pays a
+//! `packssdw+packsswb+pmovmskb` horizontal bit-mask chain. With AVX-512's
+//! `vpcmpeqd -> kreg` that chain collapses to one op and splat re-takes the lead.
+//!
+//! Fusion matters: `stack_unpack_avx512` uses the same AVX-512 cmpeq+kmask
+//! compare but writes/re-reads the unpacked block, losing ~40% to the extra
+//! buffer traffic.
+//!
+//! The `*_per1k` (no intrinsics) strategies are 2-2.4x faster than the same
+//! kernel with per-block `BitBuffer` heap allocs because the stack scratch
+//! stays in L1 between the unpack write and the inline collect_bool read.
 //!
 //! Code size per (W, T) specialization (bytes, u32, 32 W values):
 //! ```text
@@ -215,6 +232,32 @@ fn validate_eq_strategies() {
                 for i in 0..1024 {
                     let bit = (hand[i / 64] >> (i % 64)) & 1 != 0;
                     assert_eq!(bit, expected[i], "avx512_hand mismatch at i={i}, W={W}");
+                }
+
+                let mut hand_un = vec![0u64; 16];
+                unsafe {
+                    block_eq_unpack_avx512_hand::<W, B>(
+                        std::slice::from_ref(&packed),
+                        constant,
+                        &mut hand_un,
+                    )
+                };
+                for i in 0..1024 {
+                    let bit = (hand_un[i / 64] >> (i % 64)) & 1 != 0;
+                    assert_eq!(bit, expected[i], "avx512_unpack mismatch at i={i}, W={W}");
+                }
+
+                let mut su_av = vec![0u64; 16];
+                unsafe {
+                    stack_unpack_avx512_collect::<W, B>(
+                        std::slice::from_ref(&packed),
+                        constant,
+                        &mut su_av,
+                    )
+                };
+                for i in 0..1024 {
+                    let bit = (su_av[i / 64] >> (i % 64)) & 1 != 0;
+                    assert_eq!(bit, expected[i], "stack_unpack_avx512 mismatch at i={i}, W={W}");
                 }
             }
         }};
@@ -525,8 +568,9 @@ fn block_eq_collect_u64<const W: usize, const B: usize>(
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::{
-    __m512i, _mm512_and_si512, _mm512_cmpeq_epu32_mask, _mm512_loadu_si512, _mm512_or_si512,
-    _mm512_set1_epi32, _mm512_setzero_si512, _mm512_xor_si512,
+    __m128i, __m512i, _mm512_and_si512, _mm512_cmpeq_epu32_mask, _mm512_loadu_si512,
+    _mm512_or_si512, _mm512_set1_epi32, _mm512_setzero_si512, _mm512_sll_epi32, _mm512_srl_epi32,
+    _mm512_xor_si512, _mm_cvtsi32_si128,
 };
 
 /// Hand-rolled AVX-512 row mask: load 32 packed u32 lanes as two `__m512i`,
@@ -632,6 +676,141 @@ unsafe fn block_eq_batch_avx512_hand<const W: usize, const B: usize>(
             let lo = unsafe { row_mask_avx512::<W>(blk.as_slice(), const_rows, row_lo) } as u64;
             let hi = unsafe { row_mask_avx512::<W>(blk.as_slice(), const_rows, row_hi) } as u64;
             chunk[u] = lo | (hi << 32);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AVX-512 hand-rolled, unpack-then-compare algorithm.
+//
+// Same SIMD level as `row_mask_avx512` (the splat variant) but uses the
+// alternative *algorithm*: shift+and to extract each lane's W-bit value, then
+// `_mm512_cmpeq_epu32_mask` against a broadcast scalar constant. No
+// precomputed const-row words; the constant stays as a single broadcast value.
+// ---------------------------------------------------------------------------
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx512vl,bmi2")]
+#[inline]
+unsafe fn row_mask_avx512_unpack<const W: usize>(
+    packed: &[u32],
+    constant_v: __m512i,
+    mask_v: __m512i,
+    row: usize,
+) -> u32 {
+    const T: usize = 32;
+    const LANES: usize = 32;
+    let curr_word = (row * W) / T;
+    let next_word = ((row + 1) * W) / T;
+    let shift = ((row * W) % T) as i32;
+
+    // SAFETY: feature-gated; pointer loads come from `packed` which the caller
+    // has guaranteed is at least `LANES * W` u32s long.
+    unsafe {
+        let base = packed.as_ptr().wrapping_add(LANES * curr_word);
+        let v0 = _mm512_loadu_si512(base as *const __m512i);
+        let v1 = _mm512_loadu_si512(base.add(16) as *const __m512i);
+        let shift_count: __m128i = _mm_cvtsi32_si128(shift);
+
+        if next_word == curr_word {
+            // W bits fit in one word per lane: shift right, mask, compare.
+            let e0 = _mm512_and_si512(_mm512_srl_epi32(v0, shift_count), mask_v);
+            let e1 = _mm512_and_si512(_mm512_srl_epi32(v1, shift_count), mask_v);
+            let m0 = _mm512_cmpeq_epu32_mask(e0, constant_v) as u32;
+            let m1 = _mm512_cmpeq_epu32_mask(e1, constant_v) as u32;
+            m0 | (m1 << 16)
+        } else if next_word < W {
+            // Boundary: combine high bits of curr_word with low bits of next_word.
+            let current_bits = (T as i32) - shift;
+            let lcount: __m128i = _mm_cvtsi32_si128(current_bits);
+            let nw = packed.as_ptr().wrapping_add(LANES * next_word);
+            let n0 = _mm512_loadu_si512(nw as *const __m512i);
+            let n1 = _mm512_loadu_si512(nw.add(16) as *const __m512i);
+            let h0 = _mm512_srl_epi32(v0, shift_count);
+            let h1 = _mm512_srl_epi32(v1, shift_count);
+            let l0 = _mm512_sll_epi32(n0, lcount);
+            let l1 = _mm512_sll_epi32(n1, lcount);
+            let e0 = _mm512_and_si512(_mm512_or_si512(h0, l0), mask_v);
+            let e1 = _mm512_and_si512(_mm512_or_si512(h1, l1), mask_v);
+            let m0 = _mm512_cmpeq_epu32_mask(e0, constant_v) as u32;
+            let m1 = _mm512_cmpeq_epu32_mask(e1, constant_v) as u32;
+            m0 | (m1 << 16)
+        } else {
+            let e0 = _mm512_and_si512(_mm512_srl_epi32(v0, shift_count), mask_v);
+            let e1 = _mm512_and_si512(_mm512_srl_epi32(v1, shift_count), mask_v);
+            let m0 = _mm512_cmpeq_epu32_mask(e0, constant_v) as u32;
+            let m1 = _mm512_cmpeq_epu32_mask(e1, constant_v) as u32;
+            m0 | (m1 << 16)
+        }
+    }
+}
+
+/// AVX-512 batched eq using the unpack-then-compare algorithm.
+///
+/// # Safety
+/// AVX-512F target feature required.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx512vl,bmi2")]
+#[inline]
+unsafe fn block_eq_unpack_avx512_hand<const W: usize, const B: usize>(
+    blocks: &[[u32; B]],
+    constant: u32,
+    out: &mut [u64],
+) {
+    debug_assert_eq!(out.len(), 16 * blocks.len());
+    // SAFETY: feature-gated.
+    unsafe {
+        let constant_v = _mm512_set1_epi32(constant as i32);
+        let elem_mask: u32 = if W == 32 { u32::MAX } else { (1u32 << W) - 1 };
+        let mask_v = _mm512_set1_epi32(elem_mask as i32);
+        for (b, blk) in blocks.iter().enumerate() {
+            let chunk = &mut out[b * 16..b * 16 + 16];
+            for u in 0..16 {
+                let row_lo = ROW_FOR_K_U32[2 * u];
+                let row_hi = ROW_FOR_K_U32[2 * u + 1];
+                let lo = row_mask_avx512_unpack::<W>(blk.as_slice(), constant_v, mask_v, row_lo)
+                    as u64;
+                let hi = row_mask_avx512_unpack::<W>(blk.as_slice(), constant_v, mask_v, row_hi)
+                    as u64;
+                chunk[u] = lo | (hi << 32);
+            }
+        }
+    }
+}
+
+/// Decoupled AVX-512: use fastlanes `BitPacking::unpack` to a stack [u32; 1024],
+/// then AVX-512 cmpeq+kmask for the compare phase. Different from
+/// `block_eq_unpack_avx512_hand` (which fuses unpack and compare in registers)
+/// — this one writes the full unpacked block to L1 then re-reads it.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx512vl,bmi2")]
+#[inline]
+unsafe fn stack_unpack_avx512_collect<const W: usize, const B: usize>(
+    blocks: &[[u32; B]],
+    constant: u32,
+    out: &mut [u64],
+) {
+    debug_assert_eq!(out.len(), 16 * blocks.len());
+    // SAFETY: feature-gated.
+    unsafe {
+        let constant_v = _mm512_set1_epi32(constant as i32);
+        for (b, blk) in blocks.iter().enumerate() {
+            let mut unpacked = [0u32; 1024];
+            BitPacking::unpack::<W, B>(blk, &mut unpacked);
+            let chunk = &mut out[b * 16..b * 16 + 16];
+            // 1024 bits = 16 u64s; each u64 = 64 bits = 4 chunks of 16 u32s.
+            for u in 0..16 {
+                let base = unpacked.as_ptr().add(u * 64);
+                let v0 = _mm512_loadu_si512(base as *const __m512i);
+                let v1 = _mm512_loadu_si512(base.add(16) as *const __m512i);
+                let v2 = _mm512_loadu_si512(base.add(32) as *const __m512i);
+                let v3 = _mm512_loadu_si512(base.add(48) as *const __m512i);
+                let m0 = _mm512_cmpeq_epu32_mask(v0, constant_v) as u64;
+                let m1 = _mm512_cmpeq_epu32_mask(v1, constant_v) as u64;
+                let m2 = _mm512_cmpeq_epu32_mask(v2, constant_v) as u64;
+                let m3 = _mm512_cmpeq_epu32_mask(v3, constant_v) as u64;
+                chunk[u] = m0 | (m1 << 16) | (m2 << 32) | (m3 << 48);
+            }
         }
     }
 }
@@ -1073,6 +1252,78 @@ macro_rules! u32_eq_benches {
                         .bench_local(|| {
                             // SAFETY: feature-gated above.
                             unsafe { block_eq_batch_avx512_hand::<W, B>(&blocks, &const_rows, &mut out) };
+                            black_box(&mut out);
+                        });
+                }
+            }
+
+            // AVX-512 hand, but using the UNPACK-then-compare algorithm
+            // (shift+and+cmpeq against broadcast constant), no precomputed
+            // const-row words. Apples-to-apples vs `block_batch_avx512_hand`
+            // at the same SIMD level: which ALGORITHM wins?
+            #[divan::bench]
+            fn [<$prefix _block_unpack_avx512_hand_w $W>](bencher: Bencher) {
+                #[cfg(not(target_arch = "x86_64"))]
+                {
+                    return;
+                }
+                #[cfg(target_arch = "x86_64")]
+                {
+                    if !is_x86_feature_detected!("avx512f")
+                        || !is_x86_feature_detected!("avx512bw")
+                        || !is_x86_feature_detected!("avx512dq")
+                    {
+                        return;
+                    }
+                    const W: usize = $W;
+                    const B: usize = 32 * W;
+                    let value: u32 = ((1u64 << W) - 1) as u32;
+                    let blocks = make_constant_packed_blocks::<W, B>(value);
+                    let mut out: Vec<u64> = vec![0u64; 16 * EQ_BLOCKS];
+
+                    bencher
+                        .counter(ItemsCount::new(1024usize * EQ_BLOCKS))
+                        .bench_local(|| {
+                            // SAFETY: feature-gated above.
+                            unsafe {
+                                block_eq_unpack_avx512_hand::<W, B>(&blocks, black_box(value), &mut out)
+                            };
+                            black_box(&mut out);
+                        });
+                }
+            }
+
+            // Decoupled: fastlanes BitPacking::unpack into stack [u32; 1024],
+            // then AVX-512 compare phase. Same final cmpeq+kmask compute as
+            // the fused unpack variant but with an extra write+reread of the
+            // unpacked block.
+            #[divan::bench]
+            fn [<$prefix _stack_unpack_avx512_w $W>](bencher: Bencher) {
+                #[cfg(not(target_arch = "x86_64"))]
+                {
+                    return;
+                }
+                #[cfg(target_arch = "x86_64")]
+                {
+                    if !is_x86_feature_detected!("avx512f")
+                        || !is_x86_feature_detected!("avx512bw")
+                        || !is_x86_feature_detected!("avx512dq")
+                    {
+                        return;
+                    }
+                    const W: usize = $W;
+                    const B: usize = 32 * W;
+                    let value: u32 = ((1u64 << W) - 1) as u32;
+                    let blocks = make_constant_packed_blocks::<W, B>(value);
+                    let mut out: Vec<u64> = vec![0u64; 16 * EQ_BLOCKS];
+
+                    bencher
+                        .counter(ItemsCount::new(1024usize * EQ_BLOCKS))
+                        .bench_local(|| {
+                            // SAFETY: feature-gated above.
+                            unsafe {
+                                stack_unpack_avx512_collect::<W, B>(&blocks, black_box(value), &mut out)
+                            };
                             black_box(&mut out);
                         });
                 }
