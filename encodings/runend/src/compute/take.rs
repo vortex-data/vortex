@@ -31,6 +31,18 @@ impl TakeExecute for RunEnd {
         indices: &ArrayRef,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // Fall back to the canonical-then-gather path when there are many more indices
+        // than the RunEnd array's logical length. In that regime, canonicalizing the
+        // (small) RunEnd values once and doing an AVX2 gather is dramatically cheaper
+        // than `indices.len()` independent binary searches into the ends array. The
+        // pathological case is `Dict<RunEnd>` with a small RunEnd dictionary and many
+        // codes: each code triggers a `search_sorted` here, blowing up to N * log K
+        // work plus an O(N) `Vec<u64>` allocation, when a single decode of the RunEnd
+        // (size = array.len()) followed by an AVX2 take would do.
+        if indices.len() > array.len() {
+            return Ok(None);
+        }
+
         let primitive_indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
 
         let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
@@ -153,6 +165,49 @@ mod tests {
 
         let expected = PrimitiveArray::from_option_iter([Some(1i32), None]);
         assert_arrays_eq!(taken, expected.into_array());
+    }
+
+    /// Regression test: when `indices.len()` exceeds `array.len()`, the take impl falls back
+    /// (returns `None`) so the canonical executor picks up the small RunEnd canonicalize +
+    /// AVX2 gather path. Without the fallback, `Dict<RunEnd>.execute::<PrimitiveArray>` would
+    /// pay `N * log K` work per index against a tiny ends array. See `dict_runend_canonical`
+    /// in `encodings/runend/benches/chunked_exec.rs`.
+    #[test]
+    fn ree_dict_take_dense_indices() -> vortex_error::VortexResult<()> {
+        use std::sync::LazyLock;
+
+        use vortex_array::IntoArray;
+        use vortex_array::VortexSessionExecute;
+        use vortex_array::arrays::DictArray;
+        use vortex_array::session::ArraySession;
+        use vortex_array::validity::Validity;
+        use vortex_buffer::Buffer;
+        use vortex_session::VortexSession;
+
+        static SESSION: LazyLock<VortexSession> =
+            LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // dict_size=8, inner_run=2 → ends=[2,4,6,8], values=[0,1,2,3]
+        let dict_values =
+            PrimitiveArray::new(Buffer::<i32>::from_iter([0, 0, 1, 1, 2, 2, 3, 3]), Validity::NonNullable)
+                .into_array();
+        let dict_re = RunEnd::encode(dict_values, &mut ctx)?.into_array();
+
+        // 32 codes (>> dict.len()=8), each `i % 8` so the result is 0,0,1,1,...,3,3 repeated 4x.
+        let codes_buf: Vec<u32> = (0..32u32).map(|i| i % 8).collect();
+        let codes =
+            PrimitiveArray::new(Buffer::<u32>::from_iter(codes_buf), Validity::NonNullable).into_array();
+        let dict = DictArray::try_new(codes, dict_re)?.into_array();
+
+        let taken = dict.execute::<PrimitiveArray>(&mut ctx)?;
+        let expected: Vec<i32> = (0..32).map(|i| (i % 8) / 2).collect();
+        assert_arrays_eq!(
+            taken.into_array(),
+            PrimitiveArray::new(Buffer::<i32>::from_iter(expected), Validity::NonNullable)
+                .into_array()
+        );
+        Ok(())
     }
 
     #[rstest]

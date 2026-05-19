@@ -3,6 +3,8 @@
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx2;
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+mod avx512;
 
 use std::sync::LazyLock;
 
@@ -31,7 +33,13 @@ use crate::validity::Validity;
 static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(|| {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     {
-        if is_x86_feature_detected!("avx2") {
+        if is_x86_feature_detected!("avx512f")
+            && is_x86_feature_detected!("avx512bw")
+            && is_x86_feature_detected!("avx512dq")
+            && is_x86_feature_detected!("avx512vl")
+        {
+            &avx512::TakeKernelAVX512
+        } else if is_x86_feature_detected!("avx2") {
             &avx2::TakeKernelAVX2
         } else {
             &TakeKernelScalar
@@ -47,8 +55,17 @@ static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(||
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 static AVX2_AVAILABLE: LazyLock<bool> = LazyLock::new(|| is_x86_feature_detected!("avx2"));
 
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+static AVX512_AVAILABLE: LazyLock<bool> = LazyLock::new(|| {
+    is_x86_feature_detected!("avx512f")
+        && is_x86_feature_detected!("avx512bw")
+        && is_x86_feature_detected!("avx512dq")
+        && is_x86_feature_detected!("avx512vl")
+});
+
 /// Take `indices` from `values` into a caller-supplied uninitialized destination slice,
-/// selecting the AVX2 gather kernel when available and falling back to scalar otherwise.
+/// selecting the AVX-512 gather kernel when available, then AVX-2, and falling back to
+/// scalar otherwise.
 ///
 /// `dst` must hold at least `indices.len()` cells; this function initializes exactly
 /// `indices.len()` cells starting from `dst[0]`.
@@ -63,6 +80,13 @@ pub fn take_into_uninit<V: NativePType, I: crate::dtype::UnsignedPType>(
     assert!(dst.len() >= indices.len());
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     {
+        if *AVX512_AVAILABLE {
+            // SAFETY: AVX-512 features confirmed at runtime; dst capacity ≥ indices.len().
+            unsafe {
+                avx512::take_avx512_into::<V, I>(values, indices, dst.as_mut_ptr().cast::<V>());
+            }
+            return;
+        }
         if *AVX2_AVAILABLE {
             // SAFETY: AVX2 feature confirmed at runtime; dst capacity ≥ indices.len().
             unsafe {
