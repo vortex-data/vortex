@@ -206,13 +206,48 @@ memcmp wins.
   both compare_fused and byte cmp equally — better cache locality, no
   per-row allocation.
 
-### Big win: two-pass sort with integer-key prefix
+### Universal win: `two-pass: 32B key + byte cmp refine`
 
-The naive `sort_by(compare_fused)` is structurally bounded by per-call
-dispatch overhead. The breakthrough is changing the *sort structure*:
-precompute a fixed-width byte prefix per row, integer-sort by that prefix
-(pdqsort goes flat-out on `(u64, ...)` tuples), then refine only the rare
-runs of equal-prefix rows with the full `compare_fused`.
+A two-stage sort that beats pure `<[u8]>::cmp` on **all six** test cases:
+
+1. **Pass 1**: build a 32-byte key per row (first 32 decoded bytes,
+   BE-packed as `[u64; 4]`). Integer-sort `(key, idx)` pairs with pdqsort.
+2. **Pass 2 (byte cmp refine)**: within each run of equal keys, sort the
+   sub-range using `<[u8]>::cmp` on the materialised decoded bytes.
+
+This is essentially **MSD radix sort at byte granularity, with a fast
+inner sort**. The 32B integer-sort partitions even data where the key is
+not very discriminating (e.g., URL — 998K of 1M rows tied on the
+key, but split into 2368 partitions of ~421 each); sort within
+partitions is much faster than sort across all N because per-comparison
+cache footprint shrinks and `log(N/M)` < `log(N)`.
+
+| Dataset | 32B + byte refine | byte cmp pure | **speedup** |
+|---|---:|---:|---:|
+| tpch_l_comment shuffled | **118** | 275 | **2.33×** |
+| tpch_l_comment almost-sorted | **84** | 166 | **1.98×** |
+| clickbench_title shuffled | **207** | 339 | **1.64×** |
+| clickbench_title almost-sorted | **91** | 148 | **1.63×** |
+| clickbench_url shuffled | **295** | 331 | **1.12×** |
+| clickbench_url almost-sorted | **126** | 150 | **1.19×** |
+
+Caveats:
+- Requires both the encoded form (to build the 32B key cheaply from
+  tokens) AND the decoded bytes (for the refine step). End-to-end vs
+  `decode + sort`, the gap is similar — adding decode (~80-100 ms for
+  URL, ~50 ms for l_comment) to the byte-refine path still leaves it
+  ahead.
+- Key building cost (~20-30 ms) is not in the table above — it's
+  treated as sort prep, same as the dict_table build.
+- The 32-byte prefix is `1M × 32 = 32 MiB` of additional working set.
+  Fits in L2 + L3 comfortably for the workloads tested.
+
+### Two-pass with `compare_fused` refine (no decoded bytes required)
+
+When decoded bytes aren't available (pure encoded-form storage), the same
+two-pass structure with `compare_fused` as the refine step is still a win
+on 2/3 datasets. Slightly slower than byte-cmp-refine but doesn't require
+materialising the column.
 
 | Variant | Key per row | When it wins |
 |---|---|---|

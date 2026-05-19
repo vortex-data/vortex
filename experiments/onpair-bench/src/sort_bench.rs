@@ -111,6 +111,15 @@ pub fn run_sort_bench_with(
     let dict_table_s = dict_table.as_slice();
     let token_prefix_s = token_prefix.as_slice();
 
+    // Precompute row prefixes once (charged as sort prep, not inside any
+    // timed loop). Used by the two-pass and v3 paths.
+    let row_prefix2 = build_row_prefix16(&token_flat, &token_bd, dict_bytes, dict_table_s);
+    let row_prefix4 = build_row_prefix32(&token_flat, &token_bd, dict_bytes, dict_table_s);
+    let row_prefix = build_row_prefix(&token_flat, &token_bd, dict_bytes, dict_table_s);
+    let row_len: Vec<u32> = (0..n as u32)
+        .map(|r| byte_bd[r as usize + 1] - byte_bd[r as usize])
+        .collect();
+
     let mut results = Vec::new();
     let reference: Option<Vec<u32>>;
 
@@ -137,7 +146,6 @@ pub fn run_sort_bench_with(
     // Precompute 16 bytes of decoded row per row, packed into two u64s.
     // Pass 1: stable integer sort on (k0, k1, idx) tuples — fast.
     // Pass 2: within runs that tied on both u64s, refine with compare_fused.
-    let row_prefix2 = build_row_prefix16(&token_flat, &token_bd, dict_bytes, dict_table_s);
     {
         let mut keys: Vec<(u64, u64, u32)> = (0..n as u32)
             .map(|i| {
@@ -185,8 +193,107 @@ pub fn run_sort_bench_with(
         }
     }
 
+    // ── Method 0d: two-pass with byte-cmp REFINEMENT ────────────────────
+    // 32B key sort, then refine ties with byte cmp on materialised
+    // decoded bytes (assumes you've paid for decode somewhere). Useful
+    // when refinement is the bottleneck (URL).
+    {
+        let mut keys: Vec<([u64; 4], u32)> = (0..n as u32)
+            .map(|i| (row_prefix4[i as usize], i))
+            .collect();
+        let t = Instant::now();
+        keys.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        let mut idx = 0usize;
+        let mut tie_groups = 0usize;
+        let mut tie_rows = 0usize;
+        while idx < n {
+            let k = keys[idx].0;
+            let mut j = idx + 1;
+            while j < n && keys[j].0 == k {
+                j += 1;
+            }
+            if j - idx > 1 {
+                tie_groups += 1;
+                tie_rows += j - idx;
+                keys[idx..j].sort_unstable_by(|&(_, ia), &(_, ib)| {
+                    let a = slice_at(&byte_flat, &byte_bd, ia as usize);
+                    let b = slice_at(&byte_flat, &byte_bd, ib as usize);
+                    a.cmp(b)
+                });
+            }
+            idx = j;
+        }
+        let elapsed = t.elapsed();
+        let indices: Vec<u32> = keys.into_iter().map(|(_, i)| i).collect();
+        eprintln!(
+            "  [32B+byte-refine] ties: {tie_groups} groups containing {tie_rows} rows"
+        );
+        results.push(SortRow {
+            method: "two-pass: 32B key + byte cmp refine".into(),
+            elapsed_ms: elapsed.as_millis(),
+            mb_per_s: (raw_bytes as f64 / 1024.0 / 1024.0) / elapsed.as_secs_f64(),
+            ns_per_row: elapsed.as_nanos() as f64 / n as f64,
+        });
+        if let Some(ref r) = reference {
+            for k in 0..n {
+                let ra = slice_at(&token_flat, &token_bd, r[k] as usize);
+                let rb = slice_at(&token_flat, &token_bd, indices[k] as usize);
+                if ra != rb {
+                    let ba = slice_at(&byte_flat, &byte_bd, r[k] as usize);
+                    let bb = slice_at(&byte_flat, &byte_bd, indices[k] as usize);
+                    assert_eq!(ba, bb, "two-pass-byte-refine order ≠ v1 order at k={k}");
+                }
+            }
+        }
+    }
+
+    // ── Method 0c: two-pass with INDIRECT 32B key (sort u32 indices) ────
+    // Avoids moving 36-byte tuples during pdqsort swaps. Sort u32 indices,
+    // comparator looks up the key.
+    {
+        let mut indices: Vec<u32> = (0..n as u32).collect();
+        let t = Instant::now();
+        indices.sort_unstable_by(|&i, &j| {
+            row_prefix4[i as usize].cmp(&row_prefix4[j as usize])
+        });
+        // Refine ties.
+        let mut idx = 0usize;
+        while idx < n {
+            let k = row_prefix4[indices[idx] as usize];
+            let mut j = idx + 1;
+            while j < n && row_prefix4[indices[j] as usize] == k {
+                j += 1;
+            }
+            if j - idx > 1 {
+                indices[idx..j].sort_unstable_by(|&ia, &ib| {
+                    let a = slice_at(&token_flat, &token_bd, ia as usize);
+                    let b = slice_at(&token_flat, &token_bd, ib as usize);
+                    compare_fused(a, b, dict_bytes, dict_table_s)
+                });
+            }
+            idx = j;
+        }
+        let elapsed = t.elapsed();
+        results.push(SortRow {
+            method: "two-pass: 32B key, sort u32 indices".into(),
+            elapsed_ms: elapsed.as_millis(),
+            mb_per_s: (raw_bytes as f64 / 1024.0 / 1024.0) / elapsed.as_secs_f64(),
+            ns_per_row: elapsed.as_nanos() as f64 / n as f64,
+        });
+        if let Some(ref r) = reference {
+            for k in 0..n {
+                let ra = slice_at(&token_flat, &token_bd, r[k] as usize);
+                let rb = slice_at(&token_flat, &token_bd, indices[k] as usize);
+                if ra != rb {
+                    let ba = slice_at(&byte_flat, &byte_bd, r[k] as usize);
+                    let bb = slice_at(&byte_flat, &byte_bd, indices[k] as usize);
+                    assert_eq!(ba, bb, "two-pass-indirect order ≠ v1 order at k={k}");
+                }
+            }
+        }
+    }
+
     // ── Method 0b: two-pass with 32-byte key (helps URL-like data) ──────
-    let row_prefix4 = build_row_prefix32(&token_flat, &token_bd, dict_bytes, dict_table_s);
     {
         // Sort key is [u64; 4] + idx. Tuple sort.
         let mut keys: Vec<([u64; 4], u32)> = (0..n as u32)
@@ -232,15 +339,6 @@ pub fn run_sort_bench_with(
     }
 
     // ── Method 1c: compare_fused v3 (precomputed row prefix) ────────────
-    // Precompute row prefixes once (charged as encode/sort prep, not inside
-    // the timed loop — same treatment as flatten and dict_table prep).
-    let row_prefix = build_row_prefix(&token_flat, &token_bd, dict_bytes, dict_table_s);
-    // Row lengths in decoded bytes — needed to determine if the prefix
-    // difference is in real content. We use the actual `shuffled` lengths
-    // (cheap; same as what byte cmp baseline sees).
-    let row_len: Vec<u32> = (0..n as u32)
-        .map(|r| byte_bd[r as usize + 1] - byte_bd[r as usize])
-        .collect();
     {
         let mut indices: Vec<u32> = (0..n as u32).collect();
         let t = Instant::now();
