@@ -290,7 +290,7 @@ pub fn run_sort_bench_with(
             idx = j;
         }
         let elapsed = t.elapsed();
-        let indices: Vec<u32> = keys.into_iter().map(|(_, i)| i).collect();
+        let mut indices: Vec<u32> = keys.into_iter().map(|(_, i)| i).collect();
         eprintln!(
             "  [4-token+byte-refine] ties: {tie_groups} groups containing {tie_rows} rows"
         );
@@ -315,7 +315,38 @@ pub fn run_sort_bench_with(
             mb_per_s: (raw_bytes as f64 / 1024.0 / 1024.0) / elapsed.as_secs_f64(),
             ns_per_row: elapsed.as_nanos() as f64 / n as f64,
         });
-        let _unused = &reference;
+
+        // ── Method 0g: 4-token-rank + final byte-cmp STABLE sort (Timsort) ──
+        // Stable sort detects ascending runs in near-sorted input.
+        let t2 = Instant::now();
+        indices.sort_by(|&i, &j| {
+            let a = slice_at(&byte_flat, &byte_bd, i as usize);
+            let b = slice_at(&byte_flat, &byte_bd, j as usize);
+            a.cmp(b)
+        });
+        let fixup = t2.elapsed();
+        let total = elapsed + fixup;
+        // Verify fully sorted now.
+        if let Some(ref r) = reference {
+            for k in 0..n {
+                let ra = slice_at(&token_flat, &token_bd, r[k] as usize);
+                let rb = slice_at(&token_flat, &token_bd, indices[k] as usize);
+                if ra != rb {
+                    let ba = slice_at(&byte_flat, &byte_bd, r[k] as usize);
+                    let bb = slice_at(&byte_flat, &byte_bd, indices[k] as usize);
+                    assert_eq!(ba, bb, "4-token-rank+fixup order ≠ v1 order at k={k}");
+                }
+            }
+        }
+        results.push(SortRow {
+            method: format!(
+                "  + final byte-cmp sort (correctness fixup, {} ms)",
+                fixup.as_millis()
+            ),
+            elapsed_ms: total.as_millis(),
+            mb_per_s: (raw_bytes as f64 / 1024.0 / 1024.0) / total.as_secs_f64(),
+            ns_per_row: total.as_nanos() as f64 / n as f64,
+        });
     }
 
     // ── Method 0e: two-pass with 16B key + byte-cmp REFINEMENT ──────────

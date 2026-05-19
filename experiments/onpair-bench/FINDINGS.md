@@ -250,6 +250,65 @@ Downloads ClickBench `hits_0.parquet` (~120 MB) and `hits_1.parquet`
 (~170 MB) to `/tmp/onpair-bench-data/` on first run. TPC-H l_comment is
 generated in-process via `tpchgen`.
 
+## Follow-up: trying to shrink the prefix
+
+To address the per-row prefix being 300-600× the dict, attempted a
+**4-token-rank key (8 B/row → 8 MiB total)** instead of 32-byte byte
+prefix:
+
+1. Build a per-dict lex-rank mapping: sort dict tokens by byte content,
+   assign new IDs by position so `rank(tok)` < `rank(tok')` iff
+   `bytes(tok) < bytes(tok')` lexicographically.
+2. Per row: take the first 4 token IDs, remap to lex-rank, pack as a
+   `u64` BE (16 bits per rank).
+3. Sort `(u64, idx)` pairs with pdqsort; refine ties with byte cmp.
+
+**Result: 2-7× faster than byte cmp but APPROXIMATE.**
+
+| Dataset (shuffled) | 4-token-rank | 32B+byte | byte cmp | mis-ordered |
+|---|---:|---:|---:|---:|
+| tpch_l_comment | **45 ms** | 116 | 286 | 5.30% |
+| clickbench_title | **151 ms** | 209 | 376 | 0.25% |
+| clickbench_url | **175 ms** | 314 | 389 | 0.22% |
+
+### Why it's wrong
+
+LPM tokenizes lex-adjacent strings differently. Row A's first token
+might be `"Tiresia"` (LPM picked the shorter match) while row B's first
+token is `"Tiresias"` (LPM picked the longer one). Both correctly
+ordered by lex-rank (`rank("Tiresia") < rank("Tiresias")`) but within
+A's partition, some rows could have `"Tiresia" + "x"` (byte 7 = 'x' >
+'s'), which lex-greater than B's `"Tiresias" + …` — yet they live in
+A's partition placed entirely before B's.
+
+### Tried fixups (all failed)
+
+- **`sort_unstable` fixup after**: full re-sort, slower than baseline
+  (l_comment: 302 ms vs 286 ms baseline). pdqsort doesn't optimise for
+  this pattern.
+- **`sort` stable fixup after**: Timsort's run detection helps a
+  little (almost-sorted: tied with baseline) but destroys shuffled
+  Title (923 ms vs 376 ms baseline) — scattered mis-orderings aren't
+  ascending runs.
+- **K-way merge across partitions**: would be O(N log K) = ~16 M
+  comparisons for 50 K partitions, on par with byte cmp's 20 M. Erases
+  most of the speedup.
+
+### Honest takeaway on key shrinkage
+
+You cannot beat the prefix-vs-dict size law without breaking
+correctness. **The dict scales O(|distinct content|), the per-row sort
+key scales O(N).** For any workload with N >> dict size, per-row
+metadata will dominate. The 32-byte byte prefix is correct and gives
+universal 1.12-2.51× speedup; the 8-byte token-rank prefix is 2-7×
+faster but approximate by 0.22-5.3%.
+
+The only escape from O(N) per-row metadata is to make the **dict
+itself order-preserving** (training-time invariant). Then sort key
+becomes "the encoded form itself" — no extra per-row metadata. This is
+the direction worth investigating, but it requires modifying the
+OnPair trainer rather than building on top of an existing dict.
+
 ## Things to try next
 
 1. **Token-prefix sort key**: 4 token IDs per row (8 B) as the sort
