@@ -20,7 +20,7 @@
 //! - `<table>.vortex` for every table in [`crate::schema::TABLES`] —
 //!   each produced by a `COPY (SELECT * FROM <table>) TO …
 //!   (FORMAT vortex)`. The vortex DuckDB extension is auto-installed
-//!   from the community repo on first call, then `LOAD`ed.
+//!   from the DuckDB core extension repo on first call, then `LOAD`ed.
 //!
 //! Vortex compresses the BIGINT[] runtime arrays and string columns
 //! roughly an order of magnitude better than gzipped CSV on this shape;
@@ -255,11 +255,10 @@ async fn write_snapshot(state: &AppState, target: &Path) -> Result<()> {
 
 fn export_snapshot_tables(conn: &mut Connection, target: &Path) -> Result<()> {
     // Idempotent — `INSTALL` is a no-op if the extension is already
-    // present, `LOAD` is cheap once the binary is on disk. The
-    // bundled libduckdb-sys has autoload enabled, so the very first
-    // call also auto-fetches the extension from the DuckDB
-    // community repo. Subsequent calls are entirely local.
-    conn.execute_batch("INSTALL vortex FROM community; LOAD vortex;")
+    // present, `LOAD` is cheap once the binary is on disk. Vortex is a
+    // DuckDB core extension (not community), so the unqualified `INSTALL`
+    // hits the right repo on first call; subsequent calls are local.
+    conn.execute_batch("INSTALL vortex; LOAD vortex;")
         .context("INSTALL/LOAD vortex extension")?;
     for table in schema::TABLES {
         let path = target.join(format!("{table}.vortex"));

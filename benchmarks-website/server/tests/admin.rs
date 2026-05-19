@@ -357,13 +357,13 @@ async fn admin_unmounted_when_admin_token_absent() -> Result<()> {
     Ok(())
 }
 
-// The snapshot endpoint INSTALLs and LOADs the vortex DuckDB community
+// The snapshot endpoint INSTALLs and LOADs the vortex DuckDB core
 // extension on first call; that needs outbound network to
-// `community-extensions.duckdb.org` which sandboxed CI environments
-// generally don't allow. Run manually before merge:
+// `extensions.duckdb.org`, which sandboxed CI environments generally
+// don't allow. Run manually before merge:
 //   cargo test -p vortex-bench-server --test admin -- --ignored
 #[tokio::test]
-#[ignore = "needs network to install the vortex DuckDB community extension"]
+#[ignore = "needs network to install the vortex DuckDB core extension"]
 async fn admin_snapshot_creates_export_directory() -> Result<()> {
     let server = Server::start_with_admin().await?;
     let client = reqwest::Client::new();
@@ -409,7 +409,7 @@ async fn admin_snapshot_creates_export_directory() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "needs network to install the vortex DuckDB community extension"]
+#[ignore = "needs network to install the vortex DuckDB core extension"]
 async fn admin_snapshot_rejects_existing_directory() -> Result<()> {
     let server = Server::start_with_admin().await?;
     let client = reqwest::Client::new();
@@ -433,7 +433,7 @@ async fn admin_snapshot_rejects_existing_directory() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "needs network to install the vortex DuckDB community extension"]
+#[ignore = "needs network to install the vortex DuckDB core extension"]
 async fn admin_snapshot_concurrent_same_ts_yields_one_200_and_one_409() -> Result<()> {
     let server = Server::start_with_admin().await?;
     // Wrap the address so we can reach the running server from both spawned

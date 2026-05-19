@@ -440,7 +440,7 @@ ts=<ts>                                 # e.g. 20260508T010000Z
 sudo -u ec2-user rm -f /var/lib/vortex-bench/bench.duckdb \
                        /var/lib/vortex-bench/bench.duckdb.wal
 duckdb /var/lib/vortex-bench/bench.duckdb <<EOF
-INSTALL vortex FROM community;
+INSTALL vortex;
 LOAD vortex;
 .read /tmp/${ts}/schema.sql
 INSERT INTO commits             SELECT * FROM read_vortex('/tmp/${ts}/commits.vortex');
@@ -454,9 +454,9 @@ sudo systemctl start vortex-bench-server
 ```
 
 The `duckdb` CLI version needs to be recent enough that the vortex
-community extension is published for it. If `INSTALL vortex FROM
-community` fails, upgrade the CLI to match (or exceed) the version
-the server was built against (`duckdb` crate `1.10502` ≈ DuckDB 1.5.x).
+core extension is published for it. If `INSTALL vortex` fails, upgrade
+the CLI to match (or exceed) the version the server was built against
+(`duckdb` crate `1.10502` ≈ DuckDB 1.5.x).
 
 If you want to take an out-of-band snapshot (e.g. before a risky
 operation), just call the same endpoint the timer does:
