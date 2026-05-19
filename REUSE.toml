@@ -46,3 +46,8 @@ path = ["vortex-cuda/kernels/src/bit_unpack_*"]
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = "vortex-cuda/src/arrow/reference/arrow_c_device.h"
+SPDX-FileCopyrightText = "2016-2025 Copyright The Apache Software Foundation"
+SPDX-License-Identifier = "Apache-2.0"

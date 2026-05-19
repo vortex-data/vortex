@@ -9481,6 +9481,7 @@ name = "vortex-cuda"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
+ "arrow-schema",
  "async-trait",
  "bindgen",
  "bytes",
