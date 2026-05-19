@@ -20,8 +20,11 @@
 //!   per-table Vortex snapshots into (`schema.sql` plus one
 //!   `<table>.vortex` file per table). Default:
 //!   `<VORTEX_BENCH_DB parent>/snapshots`.
-//! - `VORTEX_BENCH_BIND` — `host:port` to listen on. Default
-//!   `127.0.0.1:3000`. Override to `0.0.0.0:3000` for container deploys.
+//! - `VORTEX_BENCH_BIND` — `host:port` to listen on. Highest priority. Default
+//!   `127.0.0.1:3000` (after `PORT` fallback). Override to `0.0.0.0:3000` for
+//!   container deploys.
+//! - `PORT` — optional PaaS-conventional knob. When set and `VORTEX_BENCH_BIND`
+//!   is not, the server binds to `0.0.0.0:$PORT`.
 //! - `VORTEX_BENCH_LOG` — `tracing-subscriber` env filter spec. Default
 //!   `info`.
 //!
@@ -54,7 +57,13 @@ async fn main() -> Result<()> {
     let admin_bearer_token = env::var("ADMIN_BEARER_TOKEN")
         .ok()
         .filter(|token| !token.trim().is_empty());
-    let bind_addr = env::var("VORTEX_BENCH_BIND").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+    // `VORTEX_BENCH_BIND` wins (full `host:port`). If unset, fall back to the
+    // PaaS-conventional `PORT` env var (binds to `0.0.0.0:$PORT`). Otherwise
+    // localhost-only on the default port.
+    let bind_addr = env::var("VORTEX_BENCH_BIND")
+        .ok()
+        .or_else(|| env::var("PORT").ok().map(|p| format!("0.0.0.0:{p}")))
+        .unwrap_or_else(|| "127.0.0.1:3000".to_string());
 
     let mut state = vortex_bench_server::app::AppState::open(&db_path, bearer_token)
         .with_context(|| format!("opening DuckDB at {}", db_path.display()))?;
