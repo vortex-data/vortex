@@ -93,6 +93,17 @@ const DICT_ARGS: &[DictArgs] = &[
         len: 1_048_576,
         dict_size: 4096,
     },
+    // Cache-stress: codes buffer is 4*N bytes (canonical u32 codes).
+    // Both paths have the same data flow here (no intermediate to save),
+    // so chunked is predicted to stay tied across cache boundaries.
+    DictArgs {
+        len: 4_194_304, // codes 16 MB, output 16 MB
+        dict_size: 256,
+    },
+    DictArgs {
+        len: 16_777_216, // codes 64 MB, output 64 MB
+        dict_size: 256,
+    },
 ];
 
 fn make_dict_i32(args: DictArgs) -> vortex_array::ArrayRef {
@@ -167,6 +178,23 @@ const DICT_BP_ARGS: &[DictBpArgs] = &[
         len: 1_048_576,
         dict_size: 4096,
         bit_width: 12,
+    },
+    // Cache-stress shapes: intermediate codes Buffer<u16> = 2*N bytes.
+    // L2 on the test host is 2 MiB. Below crosses that boundary progressively.
+    DictBpArgs {
+        len: 4_194_304, // 8 MiB intermediate (4× L2)
+        dict_size: 256,
+        bit_width: 8,
+    },
+    DictBpArgs {
+        len: 16_777_216, // 32 MiB intermediate (16× L2, still in L3)
+        dict_size: 256,
+        bit_width: 8,
+    },
+    DictBpArgs {
+        len: 67_108_864, // 128 MiB intermediate (64× L2, half of L3)
+        dict_size: 256,
+        bit_width: 8,
     },
 ];
 
