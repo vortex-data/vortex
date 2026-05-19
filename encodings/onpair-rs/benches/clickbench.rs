@@ -240,6 +240,16 @@ fn train_and_compress(bencher: Bencher, bits: u32) {
         });
 }
 
+#[divan::bench]
+fn train_and_compress_auto(bencher: Bencher) {
+    let c = corpus();
+    bencher
+        .counter(divan::counter::BytesCount::new(c.total_bytes))
+        .bench(|| {
+            Column::compress_auto(divan::black_box(&c.bytes), divan::black_box(&c.offsets)).unwrap()
+        });
+}
+
 #[divan::bench(args = BITS_CONFIGS)]
 fn decompress_row_random(bencher: Bencher, bits: u32) {
     let col = compress_column(bits);

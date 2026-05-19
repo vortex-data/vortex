@@ -26,6 +26,13 @@ pub fn parse(
 ) {
     store.bit_width = bits;
     store.packed.clear();
+    // Upper bound on the packed buffer: every input byte becomes one length-1
+    // token in the worst case, so total bits ≤ data.len() * bits.  Pre-size
+    // up-front so `BitWriter::write` never resizes `packed` mid-scan; the +2
+    // covers the final partial word plus the trailing zero sentinel.
+    let upper_tokens = data.len();
+    let words_upper = (upper_tokens * bits as usize).div_ceil(64) + 2;
+    store.packed.reserve(words_upper);
     store.boundaries.clear();
     store.boundaries.reserve(n + 1);
     store.boundaries.push(0);

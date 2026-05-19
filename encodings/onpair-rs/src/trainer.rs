@@ -172,7 +172,11 @@ pub fn train(data: &[u8], offsets: &[u32], n: usize, cfg: &TrainingConfig) -> Tr
     order.shuffle(&mut rng);
 
     // ── Pair frequency map. Key packs two Token values into a u32. ─────────
-    let mut freq: HashMap<u32, u8> = HashMap::new();
+    // Pre-size to a multiple of the dictionary capacity (capped) so
+    // hashbrown does not resize during the inner scan. Cap keeps the
+    // initial allocation cache-friendly at bits=16 where 4× would be 4 MiB.
+    let mut freq: HashMap<u32, u8> =
+        HashMap::with_capacity(dict_capacity.saturating_mul(2).min(16_384));
 
     let mut full_dictionary = false;
     let mut budget_exhausted = false;

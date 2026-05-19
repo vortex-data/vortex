@@ -419,6 +419,69 @@ impl Column {
         &self.dict
     }
 
+    /// Total byte cost of the compressed column. Sum of the dictionary
+    /// bytes, dictionary offsets, packed code stream, and code boundaries.
+    /// Useful when comparing configurations on the same input.
+    pub fn compressed_size(&self) -> usize {
+        let dict_bytes = *self.dict.offsets.last().unwrap_or(&0) as usize;
+        let dict_offsets_bytes = self.dict.offsets.len() * size_of::<u32>();
+        let codes_packed_bytes = if self.store.packed.is_empty() {
+            0
+        } else {
+            // Exclude the trailing zero sentinel; consumers don't see it.
+            (self.store.packed.len() - 1) * size_of::<u64>()
+        };
+        let codes_boundaries_bytes = self.store.boundaries.len() * size_of::<u32>();
+        dict_bytes + dict_offsets_bytes + codes_packed_bytes + codes_boundaries_bytes
+    }
+
+    /// Try `configs` and return the column with the smallest
+    /// `compressed_size()`. Errors out only when *every* config errors —
+    /// otherwise individual failures are skipped.
+    ///
+    /// Useful for input where the best `(bits, threshold, seed)` is not
+    /// known up-front: on URL-shaped data the right bit width can change
+    /// compressed size by 8 % or more. Cost scales linearly with `configs.len()`.
+    pub fn compress_search(
+        bytes: &[u8],
+        offsets: &[u64],
+        configs: &[OnPairTrainingConfig],
+    ) -> Result<Self, Error> {
+        if configs.is_empty() {
+            return Err(Error::InvalidArg);
+        }
+        let mut best: Option<(usize, Self)> = None;
+        let mut last_err = Error::InvalidArg;
+        for &cfg in configs {
+            match Self::compress(bytes, offsets, cfg) {
+                Ok(col) => {
+                    let sz = col.compressed_size();
+                    match &best {
+                        Some((bs, _)) if *bs <= sz => {}
+                        _ => best = Some((sz, col)),
+                    }
+                }
+                Err(e) => last_err = e,
+            }
+        }
+        best.map(|(_, c)| c).ok_or(last_err)
+    }
+
+    /// Compress with a small bit-width sweep and return the smallest result.
+    /// Trades CPU for compression ratio — runs the trainer
+    /// `len(BITS_SWEEP)` times. The sweep covers the bit widths that
+    /// dominate the Pareto frontier on real text/URL data.
+    pub fn compress_auto(bytes: &[u8], offsets: &[u64]) -> Result<Self, Error> {
+        // Seed/threshold held constant; bit width is the dimension with the
+        // largest swing in compressed size on text-like corpora.
+        const BITS_SWEEP: &[u32] = &[10, 11, 12, 14];
+        let cfgs: Vec<OnPairTrainingConfig> = BITS_SWEEP
+            .iter()
+            .map(|&b| OnPairTrainingConfig { bits: b, threshold: 0.5, seed: 42 })
+            .collect();
+        Self::compress_search(bytes, offsets, &cfgs)
+    }
+
     /// Borrow the column's raw arrays for downstream consumers (decode loop,
     /// predicate kernels). Mirrors `vortex-onpair-sys::Column::parts`.
     pub fn parts(&self) -> Result<Parts<'_>, Error> {

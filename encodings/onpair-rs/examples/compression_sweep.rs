@@ -1,5 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_lossless,
+    clippy::cast_precision_loss,
+    clippy::many_single_char_names,
+    clippy::missing_panics_doc,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stderr,
+    clippy::print_stdout,
+    clippy::use_debug,
+    clippy::float_arithmetic
+)]
 //
 // Sweep training parameters and report compression ratio + train time for
 // each. Identifies (1) what the *single-shot* compression on a fixed seed
@@ -76,9 +89,9 @@ fn measure(col: &Column) -> Sized {
     let p = col.parts().expect("parts");
     Sized {
         dict_bytes: p.dict_bytes.len(),
-        dict_offsets_bytes: p.dict_offsets.len() * size_of::<u32>(),
-        codes_packed_bytes: p.codes_packed.len() * size_of::<u64>(),
-        codes_boundaries_bytes: p.codes_boundaries.len() * size_of::<u32>(),
+        dict_offsets_bytes: size_of_val(p.dict_offsets),
+        codes_packed_bytes: size_of_val(p.codes_packed),
+        codes_boundaries_bytes: size_of_val(p.codes_boundaries),
     }
 }
 

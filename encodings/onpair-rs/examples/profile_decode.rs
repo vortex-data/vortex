@@ -1,5 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_lossless,
+    clippy::many_single_char_names,
+    clippy::missing_panics_doc,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::print_stderr,
+    clippy::use_debug,
+    clippy::cast_precision_loss
+)]
 //
 // Standalone driver for profiling `Column::decode_all` and `kmp_automaton`
 // scans with samply. Uses the same synthetic corpus as profile_train.rs.

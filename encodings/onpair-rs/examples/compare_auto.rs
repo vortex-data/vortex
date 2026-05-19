@@ -3,22 +3,14 @@
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_lossless,
+    clippy::cast_precision_loss,
     clippy::many_single_char_names,
     clippy::missing_panics_doc,
     clippy::unwrap_used,
-    clippy::expect_used,
-    clippy::print_stderr,
-    clippy::use_debug,
-    clippy::cast_precision_loss
+    clippy::print_stdout,
+    clippy::float_arithmetic
 )]
-//
-// Standalone driver for profiling `Column::compress` with samply or perf.
-// Reproduces the synthetic ClickBench-shaped URL corpus used by
-// benches/clickbench.rs and runs train+compress in a tight loop.
-
-use std::env;
-use std::hint::black_box;
-use std::time::Instant;
+// Quick sanity check: compress_auto vs single-config compression sizes.
 
 use onpair_lib::{Column, OnPairTrainingConfig};
 
@@ -68,34 +60,25 @@ fn pack(rows: &[Vec<u8>]) -> (Vec<u8>, Vec<u64>) {
 }
 
 fn main() {
-    let bits: u32 = env::var("BITS").ok().and_then(|s| s.parse().ok()).unwrap_or(12);
-    let iters: usize = env::var("ITERS").ok().and_then(|s| s.parse().ok()).unwrap_or(50);
-    let rows = env::var("ROWS").ok().and_then(|s| s.parse().ok()).unwrap_or(100_000);
-    let cfg = OnPairTrainingConfig { bits, threshold: 0.5, seed: 42 };
-
+    let rows = std::env::var("ROWS").ok().and_then(|s| s.parse().ok()).unwrap_or(100_000);
     let corpus = synthetic(rows);
     let (bytes, offsets) = pack(&corpus);
-    eprintln!(
-        "[profile_train] bits={bits} iters={iters} rows={} bytes={:.2} MiB",
-        corpus.len(),
-        bytes.len() as f64 / (1024.0 * 1024.0),
-    );
+    let raw = bytes.len();
+    println!("corpus: {} rows, {} bytes ({:.2} MiB)\n", rows, raw, raw as f64 / (1024.0 * 1024.0));
 
-    // Warm up.
-    for _ in 0..3 {
-        black_box(Column::compress(&bytes, &offsets, cfg).unwrap());
+    println!("{:>20} {:>10} {:>10} {:>10}", "config", "size_KB", "ratio", "dict_size");
+    for &bits in &[10u32, 11, 12, 14, 16] {
+        let cfg = OnPairTrainingConfig { bits, threshold: 0.5, seed: 42 };
+        let col = Column::compress(&bytes, &offsets, cfg).unwrap();
+        let sz = col.compressed_size();
+        let r = raw as f64 / sz as f64;
+        println!("{:>20} {:>10} {:>10.4} {:>10}",
+                 format!("bits={bits} thr=0.5"), sz/1024, r, col.dict_size());
     }
-
-    let t0 = Instant::now();
-    for _ in 0..iters {
-        let col = Column::compress(black_box(&bytes), black_box(&offsets), cfg).unwrap();
-        black_box(col);
-    }
-    let elapsed = t0.elapsed();
-    let per_iter = elapsed / iters as u32;
-    let mb_per_s = (bytes.len() as f64 / (1024.0 * 1024.0)) / per_iter.as_secs_f64();
-    eprintln!(
-        "[profile_train] {iters} iters in {:?} ({:?} / iter, {mb_per_s:.1} MiB/s)",
-        elapsed, per_iter
-    );
+    println!();
+    let auto = Column::compress_auto(&bytes, &offsets).unwrap();
+    let sz = auto.compressed_size();
+    let r = raw as f64 / sz as f64;
+    println!("{:>20} {:>10} {:>10.4} {:>10}  bits={}",
+             "compress_auto", sz/1024, r, auto.dict_size(), auto.bits());
 }
