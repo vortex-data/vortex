@@ -89,9 +89,10 @@ runbook (first-time install, day-to-day, failure modes) is in
   `Cargo.toml`, or `Cargo.lock`, it builds and atomically swaps the binary,
   then verifies `/health`. Otherwise it fast-forwards the working tree and
   exits silently.
-- A `vortex-bench-backup.timer` fires hourly: it asks the server to
-  `EXPORT DATABASE` via the bearer-gated `/api/admin/snapshot` endpoint,
-  `tar czf`s the CSV output into `<UTC ts>.tar.gz`, uploads it to
+- A `vortex-bench-backup.timer` fires hourly: it asks the server to write a
+  per-table Vortex snapshot (`schema.sql` plus one `<table>.vortex` file per
+  table) via the bearer-gated `/api/admin/snapshot` endpoint, `tar czf`s the
+  snapshot directory into `<UTC ts>.tar.gz`, uploads it to
   `s3://vortex-benchmark-results-database/v3-backups/`, and deletes the local
   copies.
 - For ad-hoc reads against the live DB, `ops/inspect.sh` calls a

@@ -58,9 +58,10 @@ if [ ! -d "$local_dir" ]; then
     exit 4
 fi
 
-# Compress the export directory into a single tar.gz. `tar -C` so paths
-# inside the archive are relative to the snapshot id (i.e. `<ts>/foo.csv`),
-# which matches the layout expected by the restore docs.
+# Compress the snapshot directory into a single tar.gz. `tar -C` so paths
+# inside the archive are relative to the snapshot id (i.e. `<ts>/schema.sql`
+# and `<ts>/<table>.vortex`), which matches the layout expected by the
+# restore docs.
 log "compressing ${local_dir} → ${archive}"
 if ! tar -C "$VORTEX_BENCH_SNAPSHOT_DIR" -czf "$archive" "$ts"; then
     echo "ERROR: tar czf failed" >&2

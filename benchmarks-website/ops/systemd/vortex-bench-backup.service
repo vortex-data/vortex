@@ -2,8 +2,9 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 #
 # Oneshot unit invoked by vortex-bench-backup.timer hourly. Calls
-# /api/admin/snapshot to make EXPORT DATABASE land a CSV snapshot
-# under $VORTEX_BENCH_SNAPSHOT_DIR, then `aws s3 sync` uploads to
+# /api/admin/snapshot to land a per-table Vortex snapshot (schema.sql
+# plus one <table>.vortex file per table) under
+# $VORTEX_BENCH_SNAPSHOT_DIR/<ts>/, then `aws s3 sync` uploads to
 # $S3_BACKUP_PREFIX/<ts>/ and deletes the local copy.
 
 [Unit]

@@ -56,8 +56,10 @@ pub struct AppState {
     pub cache: Arc<QueryCache>,
     /// Materialized latest-100 read artifacts for the website hot path.
     pub read_store: Arc<ReadStore>,
-    /// Directory `EXPORT DATABASE` writes into. Defaults to
-    /// `<db_path parent>/snapshots`. Override via [`AppState::with_snapshot_dir`].
+    /// Directory `/api/admin/snapshot` writes per-table Vortex snapshots into
+    /// (`schema.sql` plus one `<table>.vortex` file per table in
+    /// [`crate::schema::TABLES`]). Defaults to `<db_path parent>/snapshots`.
+    /// Override via [`AppState::with_snapshot_dir`].
     pub snapshot_dir: Arc<PathBuf>,
 }
 
@@ -95,8 +97,9 @@ impl AppState {
         self
     }
 
-    /// Override the directory `EXPORT DATABASE` writes into. Defaults to
-    /// `<db_path parent>/snapshots`.
+    /// Override the directory `/api/admin/snapshot` writes per-table Vortex
+    /// snapshots into (`schema.sql` plus one `<table>.vortex` file per table).
+    /// Defaults to `<db_path parent>/snapshots`.
     pub fn with_snapshot_dir(mut self, dir: PathBuf) -> Self {
         self.snapshot_dir = Arc::new(dir);
         self

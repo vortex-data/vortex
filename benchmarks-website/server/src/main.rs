@@ -16,8 +16,9 @@
 //!   independently.
 //! - `VORTEX_BENCH_DB` — DuckDB file path. Default: `bench.duckdb` in the
 //!   working directory.
-//! - `VORTEX_BENCH_SNAPSHOT_DIR` — directory `EXPORT DATABASE` writes to
-//!   when an operator hits `/api/admin/snapshot`. Default:
+//! - `VORTEX_BENCH_SNAPSHOT_DIR` — directory `/api/admin/snapshot` writes
+//!   per-table Vortex snapshots into (`schema.sql` plus one
+//!   `<table>.vortex` file per table). Default:
 //!   `<VORTEX_BENCH_DB parent>/snapshots`.
 //! - `VORTEX_BENCH_BIND` — `host:port` to listen on. Default
 //!   `127.0.0.1:3000`. Override to `0.0.0.0:3000` for container deploys.
