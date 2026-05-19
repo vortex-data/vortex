@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -30,6 +31,7 @@ use crate::expr::lt_eq;
 use crate::expr::or;
 use crate::expr::or_collect;
 use crate::expr::stats::Stat;
+use crate::scalar::StringLike;
 use crate::scalar_fn::EmptyOptions;
 use crate::scalar_fn::ScalarFnId;
 use crate::scalar_fn::ScalarFnVTable;
@@ -37,10 +39,15 @@ use crate::scalar_fn::ScalarFnVTableExt;
 use crate::scalar_fn::fns::between::Between;
 use crate::scalar_fn::fns::binary::Binary;
 use crate::scalar_fn::fns::cast::Cast;
+use crate::scalar_fn::fns::dynamic::DynamicComparison;
+use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
 use crate::scalar_fn::fns::is_not_null::IsNotNull;
 use crate::scalar_fn::fns::is_null::IsNull;
+use crate::scalar_fn::fns::like::Like;
+use crate::scalar_fn::fns::like::LikeVariant;
 use crate::scalar_fn::fns::list_contains::ListContains;
 use crate::scalar_fn::fns::literal::Literal;
+use crate::scalar_fn::fns::operators::CompareOperator;
 use crate::scalar_fn::fns::operators::Operator;
 use crate::scalar_fn::internal::row_count::RowCount;
 use crate::stats::expr::StatFn;
@@ -67,7 +74,9 @@ pub(crate) fn register_builtins(session: &StatsSession) {
     session.register_rewrite(IsNotNullLegacyStatsRewrite);
     session.register_rewrite(IsNotNullAllNullStatsRewrite);
     session.register_rewrite(IsNotNullAllNonNullStatsRewrite);
+    session.register_rewrite(LikeStatsRewrite);
     session.register_rewrite(ListContainsStatsRewrite);
+    session.register_rewrite(DynamicComparisonStatsRewrite);
 }
 
 #[derive(Debug)]
@@ -92,25 +101,37 @@ impl StatsRewriteRule for BinaryStatsRewrite {
                 let left = min(lhs).zip(max(rhs)).map(|(a, b)| gt(a, b));
                 let right = min(rhs).zip(max(lhs)).map(|(a, b)| gt(a, b));
                 or_collect(left.into_iter().chain(right))
-                    .map(|value_predicate| with_nan_predicate(lhs, rhs, value_predicate))
+                    .map(|value_predicate| with_nan_predicate(ctx, lhs, rhs, value_predicate))
+                    .transpose()?
             }
-            Operator::NotEq => min(lhs).zip(max(rhs)).zip(max(lhs).zip(min(rhs))).map(
-                |((min_lhs, max_rhs), (max_lhs, min_rhs))| {
-                    with_nan_predicate(lhs, rhs, and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs)))
-                },
-            ),
+            Operator::NotEq => min(lhs)
+                .zip(max(rhs))
+                .zip(max(lhs).zip(min(rhs)))
+                .map(|((min_lhs, max_rhs), (max_lhs, min_rhs))| {
+                    with_nan_predicate(
+                        ctx,
+                        lhs,
+                        rhs,
+                        and(eq(min_lhs, max_rhs), eq(max_lhs, min_rhs)),
+                    )
+                })
+                .transpose()?,
             Operator::Gt => max(lhs)
                 .zip(min(rhs))
-                .map(|(a, b)| with_nan_predicate(lhs, rhs, lt_eq(a, b))),
+                .map(|(a, b)| with_nan_predicate(ctx, lhs, rhs, lt_eq(a, b)))
+                .transpose()?,
             Operator::Gte => max(lhs)
                 .zip(min(rhs))
-                .map(|(a, b)| with_nan_predicate(lhs, rhs, lt(a, b))),
+                .map(|(a, b)| with_nan_predicate(ctx, lhs, rhs, lt(a, b)))
+                .transpose()?,
             Operator::Lt => min(lhs)
                 .zip(max(rhs))
-                .map(|(a, b)| with_nan_predicate(lhs, rhs, gt_eq(a, b))),
+                .map(|(a, b)| with_nan_predicate(ctx, lhs, rhs, gt_eq(a, b)))
+                .transpose()?,
             Operator::Lte => min(lhs)
                 .zip(max(rhs))
-                .map(|(a, b)| with_nan_predicate(lhs, rhs, gt(a, b))),
+                .map(|(a, b)| with_nan_predicate(ctx, lhs, rhs, gt(a, b)))
+                .transpose()?,
             Operator::And => {
                 let lhs_falsifier = ctx.falsify(lhs)?;
                 let rhs_falsifier = ctx.falsify(rhs)?;
@@ -136,11 +157,17 @@ impl StatsRewriteRule for BoundedBinaryStatsRewrite {
     fn falsify(
         &self,
         expr: &Expression,
-        _ctx: &StatsRewriteCtx<'_>,
+        ctx: &StatsRewriteCtx<'_>,
     ) -> VortexResult<Option<Expression>> {
         let operator = expr.as_::<Binary>();
         let lhs = expr.child(0);
         let rhs = expr.child(1);
+
+        if !supports_bounded_rewrite(&ctx.return_dtype(lhs)?)
+            || !supports_bounded_rewrite(&ctx.return_dtype(rhs)?)
+        {
+            return Ok(None);
+        }
 
         Ok(match operator {
             Operator::Eq => {
@@ -308,6 +335,61 @@ impl StatsRewriteRule for IsNotNullAllNonNullStatsRewrite {
 }
 
 #[derive(Debug)]
+struct LikeStatsRewrite;
+
+impl StatsRewriteRule for LikeStatsRewrite {
+    fn scalar_fn_id(&self) -> ScalarFnId {
+        Like.id()
+    }
+
+    fn falsify(
+        &self,
+        expr: &Expression,
+        _ctx: &StatsRewriteCtx<'_>,
+    ) -> VortexResult<Option<Expression>> {
+        let like_options = expr.as_::<Like>();
+        if like_options.negated || like_options.case_insensitive {
+            return Ok(None);
+        }
+
+        let Some(pattern) = expr.child(1).as_opt::<Literal>() else {
+            return Ok(None);
+        };
+        let Some(pattern) = pattern.as_utf8().value() else {
+            return Ok(None);
+        };
+
+        let source = expr.child(0);
+        Ok(match LikeVariant::from_str(pattern) {
+            Some(LikeVariant::Exact(text)) => {
+                min(source)
+                    .zip(max(source))
+                    .map(|(source_min, source_max)| {
+                        or(
+                            gt(source_min, lit(text.as_ref())),
+                            lt(source_max, lit(text.as_ref())),
+                        )
+                    })
+            }
+            Some(LikeVariant::Prefix(prefix)) => {
+                let Some(successor) = prefix.to_string().increment().ok() else {
+                    return Ok(None);
+                };
+                min(source)
+                    .zip(max(source))
+                    .map(|(source_min, source_max)| {
+                        or(
+                            gt_eq(source_min, lit(successor)),
+                            lt(source_max, lit(prefix.as_ref())),
+                        )
+                    })
+            }
+            None => None,
+        })
+    }
+}
+
+#[derive(Debug)]
 struct ListContainsStatsRewrite;
 
 impl StatsRewriteRule for ListContainsStatsRewrite {
@@ -318,7 +400,7 @@ impl StatsRewriteRule for ListContainsStatsRewrite {
     fn falsify(
         &self,
         expr: &Expression,
-        _ctx: &StatsRewriteCtx<'_>,
+        ctx: &StatsRewriteCtx<'_>,
     ) -> VortexResult<Option<Expression>> {
         let list = expr.child(0);
         let needle = expr.child(1);
@@ -344,13 +426,53 @@ impl StatsRewriteRule for ListContainsStatsRewrite {
             return Ok(None);
         };
 
-        Ok(and_collect(elements.iter().map(|value| {
+        let value_predicate = and_collect(elements.iter().map(|value| {
             or(
                 lt(value_max.clone(), lit(value.clone())),
                 gt(value_min.clone(), lit(value.clone())),
             )
-        }))
-        .map(|value_predicate| with_all_non_nan_predicate([needle], value_predicate)))
+        }));
+        value_predicate
+            .map(|value_predicate| with_all_non_nan_predicate(ctx, [needle], value_predicate))
+            .transpose()
+    }
+}
+
+#[derive(Debug)]
+struct DynamicComparisonStatsRewrite;
+
+impl StatsRewriteRule for DynamicComparisonStatsRewrite {
+    fn scalar_fn_id(&self) -> ScalarFnId {
+        DynamicComparison.id()
+    }
+
+    fn falsify(
+        &self,
+        expr: &Expression,
+        ctx: &StatsRewriteCtx<'_>,
+    ) -> VortexResult<Option<Expression>> {
+        let dynamic = expr.as_::<DynamicComparison>();
+        let lhs = expr.child(0);
+
+        let Some((operator, lhs_stat)) = (match dynamic.operator {
+            CompareOperator::Eq | CompareOperator::NotEq => None,
+            CompareOperator::Gt => max(lhs).map(|lhs_stat| (CompareOperator::Lte, lhs_stat)),
+            CompareOperator::Gte => max(lhs).map(|lhs_stat| (CompareOperator::Lt, lhs_stat)),
+            CompareOperator::Lt => min(lhs).map(|lhs_stat| (CompareOperator::Gte, lhs_stat)),
+            CompareOperator::Lte => min(lhs).map(|lhs_stat| (CompareOperator::Gt, lhs_stat)),
+        }) else {
+            return Ok(None);
+        };
+
+        let value_predicate = DynamicComparison.new_expr(
+            DynamicComparisonExpr {
+                operator,
+                rhs: Arc::clone(&dynamic.rhs),
+                default: !dynamic.default,
+            },
+            [lhs_stat],
+        );
+        with_all_non_nan_predicate(ctx, [lhs], value_predicate).map(Some)
     }
 }
 
@@ -409,27 +531,43 @@ fn all_non_null(expr: &Expression) -> Expression {
 }
 
 // Min/max do not order NaN values, so comparison rewrites are only sound when every
-// candidate value is known to be non-NaN. Literal non-NaN values and casts to
-// non-float types are already proven, so they do not need a stat expression.
-fn all_non_nan_stat(expr: &Expression) -> Option<Expression> {
+// candidate value is known to be non-NaN. Cast result dtypes are not enough: a cast
+// from float to non-float still needs a proof about the float source values.
+fn all_non_nan_stat(
+    ctx: &StatsRewriteCtx<'_>,
+    expr: &Expression,
+) -> VortexResult<Option<Expression>> {
     if let Some(scalar) = expr.as_opt::<Literal>() {
-        let value = scalar.as_primitive_opt()?;
-        return value.is_nan().then(|| lit(false));
+        let Some(value) = scalar.as_primitive_opt() else {
+            return Ok(None);
+        };
+        return Ok(value.is_nan().then(|| lit(false)));
     }
 
-    if let Some(dtype) = expr.as_opt::<Cast>() {
-        if !has_nans(dtype) {
-            return None;
+    if expr.is::<Cast>() {
+        if !has_nans(&ctx.return_dtype(expr.child(0))?) {
+            return Ok(None);
         }
 
-        return all_non_nan_stat(expr.child(0));
+        return all_non_nan_stat(ctx, expr.child(0));
     }
 
-    Some(stat_fn(expr.clone(), AllNonNan.bind(AggregateEmptyOptions)))
+    if !has_nans(&ctx.return_dtype(expr)?) {
+        return Ok(None);
+    }
+
+    Ok(Some(stat_fn(
+        expr.clone(),
+        AllNonNan.bind(AggregateEmptyOptions),
+    )))
 }
 
 fn has_nans(dtype: &DType) -> bool {
     matches!(dtype, DType::Primitive(ptype, _) if ptype.is_float())
+}
+
+fn supports_bounded_rewrite(dtype: &DType) -> bool {
+    matches!(dtype, DType::Binary(_) | DType::Utf8(_))
 }
 
 fn stat_expr(expr: &Expression, stat: Stat) -> Option<Expression> {
@@ -453,25 +591,33 @@ fn stat_expr(expr: &Expression, stat: Stat) -> Option<Expression> {
 }
 
 fn with_nan_predicate(
+    ctx: &StatsRewriteCtx<'_>,
     lhs: &Expression,
     rhs: &Expression,
     value_predicate: Expression,
-) -> Expression {
-    with_all_non_nan_predicate([lhs, rhs], value_predicate)
+) -> VortexResult<Expression> {
+    with_all_non_nan_predicate(ctx, [lhs, rhs], value_predicate)
 }
 
 fn with_all_non_nan_predicate<'a>(
+    ctx: &StatsRewriteCtx<'_>,
     exprs: impl IntoIterator<Item = &'a Expression>,
     value_predicate: Expression,
-) -> Expression {
-    let nan_predicate = and_collect(exprs.into_iter().filter_map(all_non_nan_stat));
+) -> VortexResult<Expression> {
+    let mut nan_checks = Vec::new();
+    for expr in exprs {
+        if let Some(check) = all_non_nan_stat(ctx, expr)? {
+            nan_checks.push(check);
+        }
+    }
+    let nan_predicate = and_collect(nan_checks);
 
-    match nan_predicate {
+    Ok(match nan_predicate {
         Some(nan_check) => and(nan_check, value_predicate),
         // No possible NaN-bearing expression remains, so the value predicate is
         // already guarded.
         None => value_predicate,
-    }
+    })
 }
 
 fn literal_stat(expr: &Expression, stat: Stat) -> Option<Expression> {
@@ -534,11 +680,13 @@ mod tests {
     use crate::expr::between;
     use crate::expr::cast;
     use crate::expr::col;
+    use crate::expr::dynamic;
     use crate::expr::eq;
     use crate::expr::gt;
     use crate::expr::gt_eq;
     use crate::expr::is_not_null;
     use crate::expr::is_null;
+    use crate::expr::like;
     use crate::expr::list_contains;
     use crate::expr::lit;
     use crate::expr::lt;
@@ -550,6 +698,9 @@ mod tests {
     use crate::scalar_fn::ScalarFnVTableExt;
     use crate::scalar_fn::fns::between::BetweenOptions;
     use crate::scalar_fn::fns::between::StrictComparison;
+    use crate::scalar_fn::fns::dynamic::DynamicComparison;
+    use crate::scalar_fn::fns::dynamic::DynamicComparisonExpr;
+    use crate::scalar_fn::fns::operators::CompareOperator;
     use crate::scalar_fn::internal::row_count::RowCount;
     use crate::stats::session::StatsSession;
 
@@ -570,6 +721,9 @@ mod tests {
             StructFields::from_iter([
                 ("a", DType::Primitive(PType::I32, Nullability::NonNullable)),
                 ("b", DType::Primitive(PType::I32, Nullability::NonNullable)),
+                ("f", DType::Primitive(PType::F32, Nullability::NonNullable)),
+                ("s", DType::Utf8(Nullability::NonNullable)),
+                ("t", DType::Utf8(Nullability::NonNullable)),
             ]),
             Nullability::NonNullable,
         )
@@ -592,29 +746,29 @@ mod tests {
         let expr = gt(col("a"), lit(10));
         assert_eq!(
             falsify(&expr)?,
-            Some(or(
-                and(
-                    nan_free(col("a")),
-                    lt_eq(stat(col("a"), Stat::Max), lit(10)),
-                ),
-                lt_eq(bounded_max(&col("a")), lit(10)),
-            ))
+            Some(lt_eq(stat(col("a"), Stat::Max), lit(10)))
         );
 
         let expr = eq(col("a"), col("b"));
         assert_eq!(
             falsify(&expr)?,
             Some(or(
-                and(
-                    and(nan_free(col("a")), nan_free(col("b"))),
-                    or(
-                        gt(stat(col("a"), Stat::Min), stat(col("b"), Stat::Max)),
-                        gt(stat(col("b"), Stat::Min), stat(col("a"), Stat::Max)),
-                    ),
+                gt(stat(col("a"), Stat::Min), stat(col("b"), Stat::Max)),
+                gt(stat(col("b"), Stat::Min), stat(col("a"), Stat::Max)),
+            ))
+        );
+
+        let expr = eq(col("s"), col("t"));
+        assert_eq!(
+            falsify(&expr)?,
+            Some(or(
+                or(
+                    gt(stat(col("s"), Stat::Min), stat(col("t"), Stat::Max)),
+                    gt(stat(col("t"), Stat::Min), stat(col("s"), Stat::Max)),
                 ),
                 or(
-                    gt(bounded_min(&col("a")), bounded_max(&col("b"))),
-                    gt(bounded_min(&col("b")), bounded_max(&col("a"))),
+                    gt(bounded_min(&col("s")), bounded_max(&col("t"))),
+                    gt(bounded_min(&col("t")), bounded_max(&col("s"))),
                 ),
             ))
         );
@@ -627,20 +781,8 @@ mod tests {
         assert_eq!(
             falsify(&expr)?,
             Some(or(
-                or(
-                    and(
-                        nan_free(col("a")),
-                        lt_eq(stat(col("a"), Stat::Max), lit(10)),
-                    ),
-                    lt_eq(bounded_max(&col("a")), lit(10)),
-                ),
-                or(
-                    and(
-                        nan_free(col("a")),
-                        gt_eq(stat(col("a"), Stat::Min), lit(50)),
-                    ),
-                    gt_eq(bounded_min(&col("a")), lit(50)),
-                ),
+                lt_eq(stat(col("a"), Stat::Max), lit(10)),
+                gt_eq(stat(col("a"), Stat::Min), lit(50)),
             ))
         );
         Ok(())
@@ -661,14 +803,8 @@ mod tests {
         assert_eq!(
             falsify(&expr)?,
             Some(or(
-                or(
-                    and(nan_free(col("a")), gt(lit(10), stat(col("a"), Stat::Max))),
-                    gt(lit(10), bounded_max(&col("a"))),
-                ),
-                or(
-                    and(nan_free(col("a")), gt(stat(col("a"), Stat::Min), lit(50))),
-                    gt(bounded_min(&col("a")), lit(50)),
-                ),
+                gt(lit(10), stat(col("a"), Stat::Max)),
+                gt(stat(col("a"), Stat::Min), lit(50)),
             ))
         );
         Ok(())
@@ -732,23 +868,85 @@ mod tests {
         assert_eq!(
             falsify(&expr)?,
             Some(and(
-                nan_free(col("a")),
                 and(
-                    and(
-                        or(
-                            lt(stat(col("a"), Stat::Max), lit(1i32)),
-                            gt(stat(col("a"), Stat::Min), lit(1i32)),
-                        ),
-                        or(
-                            lt(stat(col("a"), Stat::Max), lit(2i32)),
-                            gt(stat(col("a"), Stat::Min), lit(2i32)),
-                        ),
+                    or(
+                        lt(stat(col("a"), Stat::Max), lit(1i32)),
+                        gt(stat(col("a"), Stat::Min), lit(1i32)),
                     ),
                     or(
-                        lt(stat(col("a"), Stat::Max), lit(3i32)),
-                        gt(stat(col("a"), Stat::Min), lit(3i32)),
+                        lt(stat(col("a"), Stat::Max), lit(2i32)),
+                        gt(stat(col("a"), Stat::Min), lit(2i32)),
                     ),
                 ),
+                or(
+                    lt(stat(col("a"), Stat::Max), lit(3i32)),
+                    gt(stat(col("a"), Stat::Min), lit(3i32)),
+                ),
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_like_falsifier() -> VortexResult<()> {
+        let expr = like(col("s"), lit("prefix%"));
+        assert_eq!(
+            falsify(&expr)?,
+            Some(or(
+                gt_eq(stat(col("s"), Stat::Min), lit("prefiy")),
+                lt(stat(col("s"), Stat::Max), lit("prefix")),
+            ))
+        );
+
+        let expr = like(col("s"), lit("exact"));
+        assert_eq!(
+            falsify(&expr)?,
+            Some(or(
+                gt(stat(col("s"), Stat::Min), lit("exact")),
+                lt(stat(col("s"), Stat::Max), lit("exact")),
+            ))
+        );
+
+        let expr = like(col("s"), lit("%suffix"));
+        assert_eq!(falsify(&expr)?, None);
+        Ok(())
+    }
+
+    #[test]
+    fn rewrites_dynamic_comparison_falsifier() -> VortexResult<()> {
+        let expr = dynamic(
+            CompareOperator::Gt,
+            || Some(10i32.into()),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            col("a"),
+        );
+        let dynamic = expr.as_::<DynamicComparison>();
+
+        assert_eq!(
+            falsify(&expr)?,
+            Some(DynamicComparison.new_expr(
+                DynamicComparisonExpr {
+                    operator: CompareOperator::Lte,
+                    rhs: Arc::clone(&dynamic.rhs),
+                    default: false,
+                },
+                [stat(col("a"), Stat::Max)],
+            ))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn nan_guard_tracks_cast_source_dtype() -> VortexResult<()> {
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let expr = gt(cast(col("f"), dtype.clone()), lit(5i32));
+
+        assert_eq!(
+            falsify(&expr)?,
+            Some(and(
+                nan_free(col("f")),
+                lt_eq(cast(stat(col("f"), Stat::Max), dtype), lit(5i32)),
             ))
         );
         Ok(())
@@ -762,14 +960,8 @@ mod tests {
         assert_eq!(
             falsify(&expr)?,
             Some(or(
-                or(
-                    gt(cast(stat(col("a"), Stat::Min), dtype.clone()), lit(42i64)),
-                    gt(lit(42i64), cast(stat(col("a"), Stat::Max), dtype.clone())),
-                ),
-                or(
-                    gt(cast(bounded_min(&col("a")), dtype.clone()), lit(42i64)),
-                    gt(lit(42i64), cast(bounded_max(&col("a")), dtype)),
-                ),
+                gt(cast(stat(col("a"), Stat::Min), dtype.clone()), lit(42i64)),
+                gt(lit(42i64), cast(stat(col("a"), Stat::Max), dtype)),
             ))
         );
         Ok(())

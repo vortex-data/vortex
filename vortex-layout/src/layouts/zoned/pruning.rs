@@ -116,7 +116,7 @@ impl PruningState {
         self.pruning_predicates
             .entry(expr.clone())
             .or_default()
-            .get_or_init(move || match expr.falsify(&self.session) {
+            .get_or_init(move || match expr.falsify(&self.dtype, &self.session) {
                 Ok(predicate) => predicate,
                 Err(error) => {
                     trace!(%expr, %error, "failed to construct stats rewrite predicate");
@@ -148,8 +148,8 @@ impl PruningState {
                 async move {
                     let mut ctx = session.create_execution_ctx();
                     let zones_array = zones_eval.await?.execute::<StructArray>(&mut ctx)?;
-                    // SAFETY: zoned layout validation ensures the zones child matches the expected
-                    // stats-table schema for `present_stats`.
+                    // SAFETY: zoned layout validation checked that this zones child was
+                    // written from the same column dtype and stats-table schema.
                     Ok(unsafe { ZoneMap::new_unchecked(dtype, zones_array, zone_len, row_count) })
                 }
                 .map_err(Arc::new)

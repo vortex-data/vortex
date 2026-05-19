@@ -98,7 +98,7 @@ impl ZoneMap {
     /// Returns the [`DType`] of the statistics table given a set of statistics and column [`DType`].
     ///
     /// This remains as a compatibility wrapper around the zoned schema helper.
-    #[deprecated(note = "use `stats_table_dtype` from `crate::layouts::zoned::schema` instead")]
+    #[deprecated(note = "zone-map stats table dtypes are an internal layout detail")]
     pub fn dtype_for_stats_table(column_dtype: &DType, present_stats: &[Stat]) -> DType {
         stats_table_dtype(column_dtype, present_stats)
     }
@@ -123,7 +123,7 @@ impl ZoneMap {
 
         let applied = self.array.clone().into_array().apply(&predicate)?;
 
-        if num_zones == 0 || !contains_row_count(&applied) {
+        if !contains_row_count(&applied) {
             return applied.execute::<Mask>(&mut ctx);
         }
 
@@ -133,6 +133,9 @@ impl ZoneMap {
     }
 
     fn lower_stats(&self, predicate: Expression) -> VortexResult<Expression> {
+        // Rewritten predicates are evaluated against the stats table, not the data
+        // column. Lower each StatFn before execution so unavailable stats become
+        // nullable "unknown" constants rather than prune signals.
         predicate
             .transform_down(|expr| {
                 if expr.is::<StatFn>() {
@@ -145,6 +148,9 @@ impl ZoneMap {
     }
 
     fn lower_stat_fn(&self, expr: Expression) -> VortexResult<Expression> {
+        // This is the bridge from aggregate-backed bound expressions to the legacy
+        // zoned stats columns. Exact NullCount and NanCount can prove richer
+        // all-* aggregates; non-root or missing stats lower to nullable unknowns.
         let options = expr.as_::<StatFn>();
         let input = expr.child(0);
         let input_dtype = input.return_dtype(&self.column_dtype)?;
@@ -238,6 +244,10 @@ fn has_nans(dtype: &DType) -> bool {
 /// result is a [`ConstantArray`] for uniform zone sizes, otherwise a two-run
 /// run-end encoded array whose trailing run carries the final zone length.
 fn row_count_array(zone_len: u64, row_count: u64, num_zones: usize) -> VortexResult<ArrayRef> {
+    if num_zones == 0 {
+        return Ok(ConstantArray::new(0u64, 0).into_array());
+    }
+
     let last_zone_len = row_count - zone_len.saturating_mul((num_zones as u64) - 1);
     if num_zones == 1 || last_zone_len == zone_len {
         return Ok(ConstantArray::new(last_zone_len, num_zones).into_array());
@@ -269,13 +279,18 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::dtype::DType;
     use vortex_array::dtype::FieldNames;
+    use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::expr::Expression;
+    use vortex_array::expr::cast;
     use vortex_array::expr::gt;
     use vortex_array::expr::gt_eq;
     use vortex_array::expr::is_not_null;
     use vortex_array::expr::lit;
     use vortex_array::expr::lt;
+    use vortex_array::expr::not_eq;
     use vortex_array::expr::root;
     use vortex_array::expr::stats::Stat;
     use vortex_array::stats::all_nan;
@@ -287,6 +302,10 @@ mod tests {
 
     use crate::layouts::zoned::zone_map::ZoneMap;
     use crate::test::SESSION;
+
+    fn falsify(expr: &Expression, dtype: DType) -> Expression {
+        expr.falsify(&dtype, &SESSION).unwrap().unwrap()
+    }
 
     #[test]
     fn test_zone_map_prunes() {
@@ -331,7 +350,7 @@ mod tests {
         // A >= 6
         // => A.max < 6
         let expr = gt_eq(root(), lit(6i32));
-        let pruning_expr = expr.falsify(&SESSION).unwrap().unwrap();
+        let pruning_expr = falsify(&expr, PType::I32.into());
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
@@ -341,7 +360,7 @@ mod tests {
         // A > 5
         // => A.max <= 5
         let expr = gt(root(), lit(5i32));
-        let pruning_expr = expr.falsify(&SESSION).unwrap().unwrap();
+        let pruning_expr = falsify(&expr, PType::I32.into());
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
@@ -351,7 +370,7 @@ mod tests {
         // A < 2
         // => A.min >= 2
         let expr = lt(root(), lit(2i32));
-        let pruning_expr = expr.falsify(&SESSION).unwrap().unwrap();
+        let pruning_expr = falsify(&expr, PType::I32.into());
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true, true]));
     }
@@ -372,13 +391,35 @@ mod tests {
         .unwrap();
 
         let expr = is_not_null(root());
-        let pruning_expr = expr.falsify(&SESSION).unwrap().unwrap();
+        let pruning_expr = falsify(&expr, PType::U64.into());
 
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
             BoolArray::from_iter([false, false, true])
         );
+    }
+
+    #[test]
+    fn row_count_substitution_handles_empty_zone_map() {
+        let zone_map = ZoneMap::try_new(
+            PType::U64.into(),
+            StructArray::from_fields(&[(
+                "null_count",
+                PrimitiveArray::new::<u64>(buffer![], Validity::AllValid).into_array(),
+            )])
+            .unwrap(),
+            Arc::new([Stat::NullCount]),
+            4,
+            0,
+        )
+        .unwrap();
+
+        let expr = is_not_null(root());
+        let pruning_expr = falsify(&expr, PType::U64.into());
+
+        let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
+        assert_eq!(mask.len(), 0);
     }
 
     #[test]
@@ -458,7 +499,7 @@ mod tests {
         );
 
         let expr = gt(root(), lit(5u64));
-        let pruning_expr = expr.falsify(&SESSION).unwrap().unwrap();
+        let pruning_expr = falsify(&expr, PType::U64.into());
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
@@ -488,7 +529,7 @@ mod tests {
         .unwrap();
 
         let expr = gt(root(), lit(5.0f32));
-        let pruning_expr = expr.falsify(&SESSION).unwrap().unwrap();
+        let pruning_expr = falsify(&expr, PType::F32.into());
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
         assert_arrays_eq!(
             mask.into_array(),
@@ -526,6 +567,47 @@ mod tests {
     }
 
     #[test]
+    fn float_cast_min_max_stat_fn_uses_source_nan_count() {
+        let zone_map = ZoneMap::try_new(
+            PType::F32.into(),
+            StructArray::from_fields(&[
+                (
+                    "max",
+                    PrimitiveArray::new(buffer![5.0f32, 5.0], Validity::AllValid).into_array(),
+                ),
+                (
+                    "max_is_truncated",
+                    BoolArray::from_iter([false, false]).into_array(),
+                ),
+                (
+                    "min",
+                    PrimitiveArray::new(buffer![5.0f32, 5.0], Validity::AllValid).into_array(),
+                ),
+                (
+                    "min_is_truncated",
+                    BoolArray::from_iter([false, false]).into_array(),
+                ),
+                (
+                    "nan_count",
+                    PrimitiveArray::new(buffer![1u64, 0], Validity::AllValid).into_array(),
+                ),
+            ])
+            .unwrap(),
+            Arc::new([Stat::Max, Stat::Min, Stat::NaNCount]),
+            4,
+            8,
+        )
+        .unwrap();
+
+        let cast_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let expr = not_eq(cast(root(), cast_dtype), lit(5i32));
+        let pruning_expr = falsify(&expr, PType::F32.into());
+
+        let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
+        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true]));
+    }
+
+    #[test]
     fn row_count_prunes_all_null_uniform_zones() {
         let zone_map = ZoneMap::try_new(
             PType::U64.into(),
@@ -541,7 +623,7 @@ mod tests {
         .unwrap();
 
         let expr = is_not_null(root());
-        let pruning_expr = expr.falsify(&SESSION).unwrap().unwrap();
+        let pruning_expr = falsify(&expr, PType::U64.into());
 
         // All three zones have length 4 (total rows = 12).
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
