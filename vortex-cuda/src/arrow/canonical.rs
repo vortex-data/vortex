@@ -23,9 +23,9 @@ use vortex::error::vortex_ensure;
 use vortex::extension::datetime::AnyTemporal;
 
 use crate::CudaExecutionCtx;
+use crate::arrow::ARROW_DEVICE_CUDA;
 use crate::arrow::ArrowArray;
 use crate::arrow::ArrowDeviceArray;
-use crate::arrow::DeviceType;
 use crate::arrow::ExportDeviceArray;
 use crate::arrow::PrivateData;
 use crate::arrow::SyncEvent;
@@ -53,10 +53,10 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
 
         Ok(ArrowDeviceArray {
             array: arrow_array,
-            sync_event: None,
             device_id: ctx.stream().context().ordinal() as i64,
-            device_type: DeviceType::Cuda,
-            _reserved: Default::default(),
+            device_type: ARROW_DEVICE_CUDA,
+            sync_event: ptr::null_mut(),
+            reserved: Default::default(),
         })
     }
 }
@@ -90,7 +90,7 @@ fn export_canonical(
                 array.release = Some(release_array);
 
                 // we don't need a sync event for Null since no data is copied.
-                Ok((array, None))
+                Ok((array, ptr::null_mut()))
             }
             Canonical::Decimal(decimal) => {
                 let len = decimal.len();
@@ -286,7 +286,6 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
 
 #[cfg(test)]
 mod tests {
-    use cudarc::driver::sys;
     use rstest::rstest;
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
@@ -306,8 +305,8 @@ mod tests {
     use vortex::session::VortexSession;
 
     use super::release_array;
+    use crate::arrow::ARROW_DEVICE_CUDA;
     use crate::arrow::DeviceArrayExt;
-    use crate::arrow::DeviceType;
     use crate::session::CudaSession;
 
     #[rstest]
@@ -335,7 +334,7 @@ mod tests {
         assert_eq!(device_array.array.n_buffers, 2);
         assert_eq!(device_array.array.n_children, 0);
         assert!(device_array.array.release.is_some());
-        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_array(&raw mut device_array.array) };
         Ok(())
@@ -351,7 +350,7 @@ mod tests {
 
         assert_eq!(device_array.array.length, 7);
         assert_eq!(device_array.array.null_count, 7);
-        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_array(&raw mut device_array.array) };
         Ok(())
@@ -370,7 +369,7 @@ mod tests {
         assert_eq!(device_array.array.n_buffers, 2);
         assert_eq!(device_array.array.n_children, 0);
         assert!(device_array.array.release.is_some());
-        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_array(&raw mut device_array.array) };
         Ok(())
@@ -393,7 +392,7 @@ mod tests {
         assert_eq!(device_array.array.n_buffers, 2);
         assert_eq!(device_array.array.n_children, 0);
         assert!(device_array.array.release.is_some());
-        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_array(&raw mut device_array.array) };
         Ok(())
@@ -412,7 +411,7 @@ mod tests {
         assert_eq!(device_array.array.n_buffers, 2);
         assert_eq!(device_array.array.n_children, 0);
         assert!(device_array.array.release.is_some());
-        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_array(&raw mut device_array.array) };
         Ok(())
@@ -441,12 +440,12 @@ mod tests {
                 device_array.array.n_buffers as usize,
             )
         };
-        assert_eq!(buffers[0], sys::CUdeviceptr::default());
-        assert_ne!(buffers[1], sys::CUdeviceptr::default());
-        assert_ne!(buffers[2], sys::CUdeviceptr::default());
+        assert!(buffers[0].is_null());
+        assert!(!buffers[1].is_null());
+        assert!(!buffers[2].is_null());
         assert_eq!(device_array.array.n_children, 0);
         assert!(device_array.array.release.is_some());
-        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_array(&raw mut device_array.array) };
         Ok(())
@@ -475,7 +474,7 @@ mod tests {
         assert_eq!(device_array.array.n_buffers, 1);
         assert_eq!(device_array.array.n_children, 2);
         assert!(device_array.array.release.is_some());
-        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+        assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
         unsafe { release_array(&raw mut device_array.array) };
         Ok(())

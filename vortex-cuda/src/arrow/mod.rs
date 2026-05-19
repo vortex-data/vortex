@@ -13,14 +13,13 @@ mod varbinview;
 
 use std::ffi::c_void;
 use std::fmt::Debug;
-use std::ptr::NonNull;
+use std::ptr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 pub(crate) use canonical::CanonicalDeviceArrayExport;
 use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaStream;
-use cudarc::driver::sys;
 use cudarc::runtime::sys::cudaEvent_t;
 use vortex::array::ArrayRef;
 use vortex::array::buffer::BufferHandle;
@@ -32,67 +31,23 @@ use vortex::error::vortex_err;
 use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
 
-#[derive(Debug, Copy, Clone)]
-#[repr(i32)]
-pub enum DeviceType {
-    /// Host-resident data buffer
-    Cpu = 1,
-    Cuda = 2,
-    CudaHost = 3,
-    // OpenCL = 4,
-    // Vulkan = 7,
-    // Metal = 8,
-    // Vpi = 9,
-    // Rocm = 10,
-    // RocmHost = 11,
-    CudaManaged = 13,
-    // OneApi = 14,
-    // WebGPU = 15,
-    // Hexagon = 16,
+#[allow(dead_code)]
+#[allow(non_camel_case_types)]
+#[allow(non_snake_case)]
+#[allow(non_upper_case_globals)]
+mod arrow_c_abi {
+    include!(concat!(env!("OUT_DIR"), "/arrow_c_abi.rs"));
 }
 
-/// A (potentially null) pointer to a `cudaEvent_t`.
-pub type SyncEvent = Option<NonNull<cudaEvent_t>>;
+pub use arrow_c_abi::ArrowArray;
+pub use arrow_c_abi::ArrowDeviceArray;
+pub use arrow_c_abi::ArrowDeviceType;
 
-/// The C Device data interface representation of an Arrow array.
-///
-/// This array contains on-device pointers to Arrow array data, along with a synchronization
-/// event that the client must wait on.
-#[repr(C)]
-#[derive(Debug)]
-pub struct ArrowDeviceArray {
-    array: ArrowArray,
-    device_id: i64,
-    device_type: DeviceType,
-    sync_event: SyncEvent,
+/// CUDA device memory.
+pub const ARROW_DEVICE_CUDA: ArrowDeviceType = arrow_c_abi::ARROW_DEVICE_CUDA as ArrowDeviceType;
 
-    // unused space reserved for future fields
-    _reserved: [i64; 3],
-}
-
-unsafe impl Send for ArrowDeviceArray {}
-
-/// An FFI-compatible version of the ArrowArray that holds pointers to device buffers.
-#[repr(C)]
-#[derive(Debug)]
-pub(crate) struct ArrowArray {
-    length: i64,
-    null_count: i64,
-    offset: i64,
-    n_buffers: i64,
-    n_children: i64,
-    buffers: *mut sys::CUdeviceptr,
-    children: *mut *mut ArrowArray,
-    // NOTE: we don't support exporting dictionary arrays, so we leave this as an opaque pointer.
-    dictionary: *mut (),
-    release: Option<unsafe extern "C" fn(arg1: *mut ArrowArray)>,
-    // When exported, this MUST contain everything that is owned by this array.
-    // for example, any buffer pointed to in `buffers` must be here, as well
-    // as the `buffers` pointer itself.
-    // In other words, everything in ArrowArray must be owned by
-    // `private_data` and can assume that they do not outlive `private_data`.
-    private_data: *mut c_void,
-}
+/// A pointer to a device-specific synchronization event, or null if synchronization is not needed.
+pub type SyncEvent = *mut c_void;
 
 impl ArrowArray {
     pub fn empty() -> Self {
@@ -102,17 +57,18 @@ impl ArrowArray {
             offset: 0,
             n_buffers: 0,
             n_children: 0,
-            buffers: std::ptr::null_mut(),
-            children: std::ptr::null_mut(),
-            dictionary: std::ptr::null_mut(),
+            buffers: ptr::null_mut(),
+            children: ptr::null_mut(),
+            dictionary: ptr::null_mut(),
             release: None,
-            private_data: std::ptr::null_mut(),
+            private_data: ptr::null_mut(),
         }
     }
 }
 
 unsafe impl Send for ArrowArray {}
 unsafe impl Sync for ArrowArray {}
+unsafe impl Send for ArrowDeviceArray {}
 
 #[expect(
     unused,
@@ -126,7 +82,7 @@ pub(crate) struct PrivateData {
     pub(crate) buffers: Box<[Option<BufferHandle>]>,
     /// Boxed slice of buffer pointers. We return a pointer to the start of this allocation over
     /// the interface, so we hold it here so the Box contents are not freed.
-    pub(crate) buffer_ptrs: Box<[sys::CUdeviceptr]>,
+    pub(crate) buffer_ptrs: Box<[*const c_void]>,
     pub(crate) cuda_event: CudaEvent,
     pub(crate) cuda_event_ptr: cudaEvent_t,
     pub(crate) children: Box<[*mut ArrowArray]>,
@@ -139,15 +95,15 @@ impl PrivateData {
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Box<Self>> {
         let buffers = buffers.into_boxed_slice();
-        let buffer_ptrs: Box<[sys::CUdeviceptr]> = buffers
+        let buffer_ptrs: Box<[*const c_void]> = buffers
             .iter()
             .map(|buf| {
                 match buf {
                     None => {
                         // null pointer
-                        Ok(sys::CUdeviceptr::default())
+                        Ok(ptr::null())
                     }
-                    Some(handle) => handle.cuda_device_ptr(),
+                    Some(handle) => Ok(handle.cuda_device_ptr()? as usize as *const c_void),
                 }
             })
             .collect::<VortexResult<Vec<_>>>()?
@@ -175,7 +131,7 @@ impl PrivateData {
     }
 
     pub(crate) fn sync_event(&mut self) -> SyncEvent {
-        NonNull::new(&raw mut self.cuda_event_ptr)
+        (&raw mut self.cuda_event_ptr).cast()
     }
 }
 
