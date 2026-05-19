@@ -26,9 +26,5 @@ divan = { workspace = true }
 rstest = { workspace = true }
 
 [[bench]]
-name = "dispatch"
-harness = false
-
-[[bench]]
-name = "kernels"
+name = "vortex_simd"
 harness = false
