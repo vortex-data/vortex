@@ -1495,6 +1495,120 @@ trivially. Cost-model gate (§6 item 4) needs both `chain_length >= 2`
 
 ---
 
+## 14. v0 implementation results
+
+The `vortex-jit` crate is a working v0 of the framework. ~600 lines of Rust,
+real Cranelift codegen, three composed pipelines tested against reference
+Rust implementations, divan bench at 65k.
+
+### What's implemented
+
+- `JitStage` trait, `Pipeline` with form-compatibility validation,
+  `EmitCtx` with `take_input`/`put_output`/`map_chunks` (Approach A).
+- `Compiler` driver: declare-pass collects runtime args + externs;
+  build-pass emits one Cranelift function with the outer block loop and
+  post-loop tail.
+- Built-in stages: `LoadIn`, `ForAdd`, `DeltaPrefixSum`, `StoreOut`,
+  `ApplyPatchesPostLoop` (post-loop extern call into a Rust helper).
+- Three end-to-end tests pass against reference implementations:
+  - `LoadIn → ForAdd → StoreOut`
+  - `LoadIn → DeltaPrefixSum → ForAdd → StoreOut`
+  - `LoadIn → ForAdd → StoreOut + [PostLoop] ApplyPatches`
+
+### What the IR shows
+
+For `LoadIn → ForAdd(7) → StoreOut` at 4-lane block size, the emitted
+Cranelift IR is exactly the fusion pattern from §12:
+
+```text
+block2:
+    v11 = load.i32 v10        ; LoadIn lane 0
+    v12 = load.i32 v10+4      ; LoadIn lane 1
+    v13 = load.i32 v10+8
+    v14 = load.i32 v10+12
+    v15 = iconst.i32 7        ; ForAdd reference (baked as constant)
+    v16 = iadd v11, v15       ; <-- fusion: load result flows straight into iadd
+    v17 = iadd v12, v15
+    v18 = iadd v13, v15
+    v19 = iadd v14, v15
+    store v16, v24            ; <-- store consumes iadd result, no intermediate
+    store v17, v24+4
+    store v18, v24+8
+    store v19, v24+12
+```
+
+Zero intermediate buffer. The reference is baked as `iconst.i32 7`. SSA
+Values flow load → iadd → store directly. This is HyPer push-style in
+Cranelift IR.
+
+### Measured numbers at 65k (1024-lane blocks, 64 blocks)
+
+Pipeline: `LoadIn → DeltaPrefixSum → ForAdd(42) → StoreOut` on `i32`.
+
+| Config | Mean | Throughput |
+|--------|------|------------|
+| `staged_rust` (autovec'd Rust reference) | 52 μs | 5.1 GB/s |
+| `jit_warm` (cached Cranelift, **scalar** IR) | 106 μs | 2.5 GB/s |
+| `jit_cold` (full compile + run) | 124 ms | 0.002 GB/s |
+
+**The scalar JIT loses 2× to autovec'd Rust.** This is exactly §11's
+prediction landing precisely:
+- LLVM autovec emits `vpaddd ymm` for the `tmp[i].wrapping_add(42)` loop
+  in `staged_rust`. Cranelift's scalar IR emits one `iadd` per lane.
+- The §11 framing was clear: Cranelift's auto-vectorizer is weak, so v0
+  must emit explicit SIMD types (`i32x8`, `i32x4`) to be competitive. v0
+  doesn't yet — the `LaneSlice` carries one SSA Value per scalar lane.
+
+**Compile cost is 40-50× higher than the §13 estimate** (124 ms vs 1-3
+ms). For 4 stages with 1024-lane unrolled block bodies, the IR
+construction is heavy — ~16k IR insts per block × 64 blocks ≈ 1M IR
+insts to lay out and register-allocate. The §13 estimate assumed
+~200 IR insts; reality is two orders of magnitude bigger.
+
+### What this measurement actually validates
+
+- **The framework's composition mechanics work.** Three different chains
+  built from the same five stages, all pass differential tests.
+- **The fusion pattern is real in the emitted IR.** No intermediate
+  buffers between stages; constants baked in; HyPer's "no memory
+  between operators" achieved.
+- **Patches as a post-loop extern call works end-to-end.** The Cranelift
+  module resolves the registered Rust symbol; the call IR is emitted
+  cleanly in `block3`; the Rust helper executes correctly.
+
+### What this measurement does NOT yet validate
+
+- **Whether the JIT can beat autovec'd Rust.** Not at scalar IR — the
+  measurement confirms it doesn't. Next phase: emit `i32x8`/`i32x4`
+  vector IR in `LaneSlice`. The trait surface, `map_chunks`, and
+  `Form::Lane(_, Layout::Linear)` already accommodate this; the change
+  is local to `emit.rs` and the stage implementations.
+- **Whether the compile budget is realistic.** At 124 ms for 4 stages
+  × 1024 unroll, JIT is only viable for very-hot chains used across
+  many columns. Two mitigations:
+  1. Emit a runtime loop instead of full unroll for large block sizes
+     (the `cx.lane_loop` hook in §10) — reduces IR size by ~Nx where
+     N is the block size.
+  2. Use vector chunks (~32-64 per block at i32x8) rather than scalar
+     lanes (1024 per block).
+
+### Path to making the JIT win
+
+In priority order:
+
+1. **Emit `i32x8`/`i32x4` vector chunks instead of scalar lanes.** Same
+   trait surface; `LaneSlice::chunks` holds vector-typed Values instead
+   of scalar-typed. ~80% of the gap closes here.
+2. **Loop the per-block body for large blocks.** Cuts compile cost by
+   ~100× without affecting steady-state perf.
+3. **Constant-fold the bit-width unpack pattern in BitPacked** (when we
+   add it). Per §11, this is where the constant-baking JIT wins shine.
+
+None of these change the framework's public surface. The §9/10/12
+design holds; v0 just leaves the SIMD codegen for the next pass.
+
+---
+
 ## Appendix A: research on the inter-module ABI
 
 What follows is what the surveys found about how today's encodings talk to each

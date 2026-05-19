@@ -1,0 +1,39 @@
+[package]
+name = "vortex-jit"
+authors = { workspace = true }
+categories = { workspace = true }
+description = "Vortex JIT - Cranelift-backed fusion for decompression pipelines"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+[dependencies]
+cranelift = { workspace = true }
+cranelift-jit = { workspace = true }
+cranelift-module = { workspace = true }
+cranelift-native = { workspace = true }
+num-traits = { workspace = true }
+smallvec = { workspace = true }
+vortex-error = { workspace = true }
+
+[dev-dependencies]
+divan = { workspace = true }
+mimalloc = { workspace = true }
+rand = { workspace = true }
+rstest = { workspace = true }
+
+[[bench]]
+name = "fused"
+harness = false
+
+[lints]
+workspace = true

@@ -10,6 +10,7 @@ members = [
     "vortex-flatbuffers",
     "vortex-metrics",
     "vortex-io",
+    "vortex-jit",
     "vortex-proto",
     "vortex-array",
     "vortex-tensor",
@@ -120,6 +121,10 @@ cargo_metadata = "0.23.1"
 cbindgen = "0.29.0"
 cc = "1.2"
 cfg-if = "1.0.1"
+cranelift = "0.130"
+cranelift-jit = "0.130"
+cranelift-module = "0.130"
+cranelift-native = "0.130"
 chrono = "0.4.42"
 clap = "4.5"
 criterion = "0.8"
