@@ -143,6 +143,7 @@ fn export_canonical(
 
                 check_validity_empty(&validity)?;
 
+                let bits = ctx.ensure_on_device(bits).await?;
                 export_fixed_size(bits, len, offset, ctx)
             }
             Canonical::VarBinView(varbinview) => {
@@ -289,6 +290,7 @@ mod tests {
     use rstest::rstest;
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
+    use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::DecimalArray;
     use vortex::array::arrays::NullArray;
     use vortex::array::arrays::PrimitiveArray;
@@ -384,6 +386,25 @@ mod tests {
             TimeUnit::Days,
         )
         .into_array();
+        let mut device_array = array.export_device_array(&mut ctx).await?;
+
+        assert_eq!(device_array.array.length, 3);
+        assert_eq!(device_array.array.null_count, 0);
+        assert_eq!(device_array.array.n_buffers, 2);
+        assert_eq!(device_array.array.n_children, 0);
+        assert!(device_array.array.release.is_some());
+        assert!(matches!(device_array.device_type, DeviceType::Cuda));
+
+        unsafe { release_array(&raw mut device_array.array) };
+        Ok(())
+    }
+
+    #[crate::test]
+    async fn test_export_bool() -> VortexResult<()> {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = BoolArray::from_iter([true, false, true]).into_array();
         let mut device_array = array.export_device_array(&mut ctx).await?;
 
         assert_eq!(device_array.array.length, 3);
