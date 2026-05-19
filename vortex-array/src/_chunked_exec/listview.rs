@@ -201,7 +201,7 @@ impl<E: NativePType> BoxedListChunkProducer<E> {
         E: NativePType + Send + 'static,
     {
         Self {
-            inner: Box::new(ErasedProducer::<O, S, E>(ListChunkProducer::new(
+            inner: Box::new(ErasedProducer::<O, S, E>::new(ListChunkProducer::new(
                 offsets, sizes, elements,
             ))),
         }
@@ -251,7 +251,22 @@ trait ListChunkProducerErased<E: NativePType>: Send {
     ) -> Option<()>;
 }
 
-struct ErasedProducer<O: NativePType, S: NativePType, E: NativePType>(ListChunkProducer<O, S, E>);
+struct ErasedProducer<O: NativePType, S: NativePType, E: NativePType> {
+    inner: ListChunkProducer<O, S, E>,
+    /// Persisted scratches so we don't pay a heap allocation per chunk.
+    offset_scratch: Scratch<O>,
+    size_scratch: Scratch<S>,
+}
+
+impl<O: NativePType, S: NativePType, E: NativePType> ErasedProducer<O, S, E> {
+    fn new(inner: ListChunkProducer<O, S, E>) -> Self {
+        Self {
+            inner,
+            offset_scratch: Scratch::<O>::new(),
+            size_scratch: Scratch::<S>::new(),
+        }
+    }
+}
 
 impl<O, S, E> ListChunkProducerErased<E> for ErasedProducer<O, S, E>
 where
@@ -260,16 +275,16 @@ where
     E: NativePType + Send,
 {
     fn len_erased(&self) -> usize {
-        self.0.len()
+        self.inner.len()
     }
 
     fn next_chunk_erased(
         &mut self,
         f: &mut dyn FnMut(ListChunkErased<'_, E>),
     ) -> Option<()> {
-        let mut o_scratch = Scratch::<O>::new();
-        let mut s_scratch = Scratch::<S>::new();
-        let chunk = self.0.next_chunk(&mut o_scratch, &mut s_scratch)?;
+        let chunk = self
+            .inner
+            .next_chunk(&mut self.offset_scratch, &mut self.size_scratch)?;
         let offsets = chunk.offsets;
         let sizes = chunk.sizes;
         let elements = chunk.elements;

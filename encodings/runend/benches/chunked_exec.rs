@@ -271,6 +271,38 @@ fn dict_runend_canonical(bencher: Bencher, args: DictRunEndArgs) {
     });
 }
 
+// Diagnostic: how slow is *just* canonicalizing the inner RunEnd dict (small)?
+#[divan::bench(args = DICT_RUNEND_ARGS)]
+fn dict_runend_phase_inner_canonical(bencher: Bencher, args: DictRunEndArgs) {
+    let array = make_dict_runend_i32(args);
+    use vortex_array::arrays::dict::DictArraySlotsExt;
+    use vortex_array::arrays::Dict;
+    let inner = array.as_::<Dict>().values().clone();
+    bencher.with_inputs(|| inner.clone()).bench_local_refs(|a| {
+        let mut ctx = SESSION.create_execution_ctx();
+        black_box(a.clone().execute::<PrimitiveArray>(&mut ctx).unwrap())
+    });
+}
+
+// Diagnostic: take_primitive over the already-materialized dict + 1M codes.
+#[divan::bench(args = DICT_RUNEND_ARGS)]
+fn dict_runend_phase_take(bencher: Bencher, args: DictRunEndArgs) {
+    use vortex_array::arrays::dict::DictArraySlotsExt;
+    use vortex_array::arrays::Dict;
+    use vortex_array::builtins::ArrayBuiltins;
+    let array = make_dict_runend_i32(args);
+    let dict_view = array.as_::<Dict>();
+    let codes = dict_view.codes().clone();
+    let values = dict_view.values().clone();
+    let mut ctx = SESSION.create_execution_ctx();
+    let inner = values.execute::<PrimitiveArray>(&mut ctx).unwrap().into_array();
+    bencher
+        .with_inputs(|| (inner.clone(), codes.clone()))
+        .bench_local_refs(|(inner, codes)| {
+            black_box(inner.take(codes.clone()).unwrap())
+        });
+}
+
 // ------------------------------------------------------------------------------------
 // ListView<Primitive> with bit-packed offsets + sizes
 // ------------------------------------------------------------------------------------
