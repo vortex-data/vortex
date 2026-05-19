@@ -1,0 +1,27 @@
+[package]
+name = "onpair-bench"
+description = "Empirical benchmark: OnPair + token-space block front-coding vs baselines"
+authors = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+clap = { workspace = true }
+fsst-rs = { workspace = true }
+onpair-lib = { path = "../../encodings/onpair-rs" }
+parquet = { workspace = true }
+reqwest = { workspace = true }
+tpchgen = { workspace = true }
+tpchgen-arrow = { workspace = true }
+zstd = { workspace = true }

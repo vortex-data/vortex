@@ -54,6 +54,9 @@ members = [
     "encodings/zstd",
     "encodings/bytebool",
     "encodings/parquet-variant",
+    "encodings/onpair-rs",
+    # Experiments
+    "experiments/onpair-bench",
     # Benchmarks
     "benchmarks/lance-bench",
     "benchmarks/compress-bench",
