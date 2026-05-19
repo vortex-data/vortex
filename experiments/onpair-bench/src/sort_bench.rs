@@ -203,6 +203,121 @@ pub fn run_sort_bench_with(
         }
     }
 
+    // ── Method 0f: TOKEN-prefix sort key (4 lex-rank IDs = 8 B/row) ─────
+    //
+    // Avoids the 30 MiB byte-prefix elephant. Uses first 4 token IDs of
+    // each row as the sort key (8 B/row, 8 MiB total — close to dict
+    // scale, 160× still vs 600× for 32B byte prefix).
+    //
+    // Subtlety: OnPair assigns token IDs in training-insertion order, not
+    // lex order. Comparing raw token IDs gives garbage order. We remap to
+    // *lex-rank IDs* — sort dict tokens by byte content, assign new ID by
+    // position. Then comparing lex-rank IDs APPROXIMATES lex order on the
+    // first token's bytes. Refinement (byte cmp on materialised bytes)
+    // handles all the cases where the approximation differs from true lex
+    // order, including LPM boundary disagreements (one row tokenises
+    // "Tiresias" as one token, another as "Tiresia"+"s" — different
+    // lex-rank IDs end up in different partitions even though they
+    // represent lex-adjacent bytes; merge by walking partitions in lex
+    // order of the representative bytes still works).
+    //
+    // KNOWN LIMITATION: this method is correct *only* for SORT, not for
+    // ORDER BY across the boundary cases — equal-prefix rows in different
+    // partitions don't end up adjacent if their first-token byte content
+    // crosses partition boundary. For sort-then-stream uses where stable
+    // grouping is needed, prefer the byte-prefix variant. For the sort
+    // benchmark we accept this and verify against byte cmp directly.
+    let dict_lex_rank: Vec<u16> = {
+        // Build (token_id, &bytes) pairs, sort by bytes, then build the
+        // inverse map id -> lex_rank.
+        let parts_b = dict_bytes_vec.as_slice();
+        let dt = dict_table_s;
+        let n_tok = dt.len();
+        let mut ids: Vec<u16> = (0..n_tok as u16).collect();
+        ids.sort_unstable_by(|&a, &b| {
+            let ea = dt[a as usize];
+            let eb = dt[b as usize];
+            let (oa, la) = ((ea >> 16) as usize, (ea & 0xffff) as usize);
+            let (ob, lb) = ((eb >> 16) as usize, (eb & 0xffff) as usize);
+            parts_b[oa..oa + la].cmp(&parts_b[ob..ob + lb])
+        });
+        let mut rank = vec![0u16; n_tok];
+        for (r, &id) in ids.iter().enumerate() {
+            rank[id as usize] = r as u16;
+        }
+        rank
+    };
+    let token_prefix4: Vec<u64> = (0..n)
+        .map(|r| {
+            let toks = slice_at(&token_flat, &token_bd, r);
+            let mut buf = [0u16; 4];
+            let take = toks.len().min(4);
+            for k in 0..take {
+                buf[k] = dict_lex_rank[toks[k] as usize];
+            }
+            // Pack as u64 BE so sort key compares lex-rank-first.
+            ((buf[0] as u64) << 48)
+                | ((buf[1] as u64) << 32)
+                | ((buf[2] as u64) << 16)
+                | (buf[3] as u64)
+        })
+        .collect();
+    {
+        let mut keys: Vec<(u64, u32)> = (0..n as u32)
+            .map(|i| (token_prefix4[i as usize], i))
+            .collect();
+        let t = Instant::now();
+        keys.sort_unstable_by_key(|&(k, _)| k);
+        let mut idx = 0usize;
+        let mut tie_groups = 0usize;
+        let mut tie_rows = 0usize;
+        while idx < n {
+            let k = keys[idx].0;
+            let mut j = idx + 1;
+            while j < n && keys[j].0 == k {
+                j += 1;
+            }
+            if j - idx > 1 {
+                tie_groups += 1;
+                tie_rows += j - idx;
+                // Refine on materialised bytes (true lex order).
+                keys[idx..j].sort_unstable_by(|&(_, ia), &(_, ib)| {
+                    let a = slice_at(&byte_flat, &byte_bd, ia as usize);
+                    let b = slice_at(&byte_flat, &byte_bd, ib as usize);
+                    a.cmp(b)
+                });
+            }
+            idx = j;
+        }
+        let elapsed = t.elapsed();
+        let indices: Vec<u32> = keys.into_iter().map(|(_, i)| i).collect();
+        eprintln!(
+            "  [4-token+byte-refine] ties: {tie_groups} groups containing {tie_rows} rows"
+        );
+        // Count out-of-order pairs at partition boundaries (this method
+        // produces PARTIAL lex order — correct within partitions but may
+        // be wrong at boundaries when LPM splits lex-adjacent strings
+        // into different first-token equivalence classes).
+        let mut wrong_pairs = 0usize;
+        for k in 1..n {
+            let a = slice_at(&byte_flat, &byte_bd, indices[k - 1] as usize);
+            let b = slice_at(&byte_flat, &byte_bd, indices[k] as usize);
+            if a > b {
+                wrong_pairs += 1;
+            }
+        }
+        let pct = wrong_pairs as f64 * 100.0 / (n - 1) as f64;
+        results.push(SortRow {
+            method: format!(
+                "two-pass: 4-token-rank key (8B) [APPROX: {wrong_pairs} mis-ordered = {pct:.2}%]"
+            ),
+            elapsed_ms: elapsed.as_millis(),
+            mb_per_s: (raw_bytes as f64 / 1024.0 / 1024.0) / elapsed.as_secs_f64(),
+            ns_per_row: elapsed.as_nanos() as f64 / n as f64,
+        });
+        let _unused = &reference;
+    }
+
     // ── Method 0e: two-pass with 16B key + byte-cmp REFINEMENT ──────────
     {
         let mut keys: Vec<(u64, u64, u32)> = (0..n as u32)

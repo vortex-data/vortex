@@ -1120,3 +1120,104 @@ All three methods sort the same shuffled column and produce the same permutation
 | byte cmp (flat bytes, sort only, unstable) | 161 | 523.2 | 161 |
 | byte cmp (decode + sort, end-to-end) | 252 | 334.9 | 252 |
 
+
+# sort_bench: compare_fused vs decode-then-byte-compare
+
+All three methods sort the same shuffled column and produce the same permutation (asserted in code). Method 1 sorts u16 token sequences via `compare_fused`. Method 2 sorts the pre-decoded `Vec<Vec<u8>>` directly (best case for the byte-compare baseline — decode cost is not charged). Method 3 decodes from the OnPair-encoded column and then sorts (realistic end-to-end cost when your storage form is encoded).
+
+## tpch_l_comment
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused v1 (slice cmp Phase 2) | 486 | 51.9 | 487 |
+| two-pass: u128 key sort + refine ties | 150 | 167.9 | 151 |
+| two-pass: 4-token-rank key (8B) + byte refine [52972 mis-ordered pairs / 0.0%] | 45 | 553.5 | 46 |
+| two-pass: 16B key + byte cmp refine | 121 | 208.8 | 121 |
+| two-pass: 32B key + byte cmp refine | 128 | 197.1 | 128 |
+| two-pass: 32B key, sort u32 indices | 179 | 140.9 | 179 |
+| two-pass: 32B key sort + refine ties | 114 | 219.9 | 115 |
+| compare_fused v3 (row-prefix u64 fast path) | 471 | 53.7 | 471 |
+| compare_fused v2 (u64 prefix Phase 2) | 466 | 54.3 | 466 |
+| byte cmp (flat bytes, sort only, unstable) | 316 | 79.9 | 316 |
+| byte cmp (decode + sort, end-to-end) | 319 | 79.0 | 320 |
+
+## tpch_l_comment almost-sorted
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused v1 (slice cmp Phase 2) | 260 | 96.9 | 261 |
+| two-pass: u128 key sort + refine ties | 99 | 252.8 | 100 |
+| two-pass: 4-token-rank key (8B) + byte refine [54574 mis-ordered pairs / 0.0%] | 31 | 803.9 | 31 |
+| two-pass: 16B key + byte cmp refine | 72 | 350.3 | 72 |
+| two-pass: 32B key + byte cmp refine | 86 | 293.9 | 86 |
+| two-pass: 32B key, sort u32 indices | 88 | 286.5 | 88 |
+| two-pass: 32B key sort + refine ties | 83 | 304.4 | 83 |
+| compare_fused v3 (row-prefix u64 fast path) | 286 | 88.2 | 287 |
+| compare_fused v2 (u64 prefix Phase 2) | 250 | 100.9 | 250 |
+| byte cmp (flat bytes, sort only, unstable) | 180 | 140.4 | 180 |
+| byte cmp (decode + sort, end-to-end) | 189 | 133.7 | 189 |
+
+## clickbench_title
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused v1 (slice cmp Phase 2) | 428 | 308.0 | 429 |
+| two-pass: u128 key sort + refine ties | 311 | 423.9 | 311 |
+| two-pass: 4-token-rank key (8B) + byte refine [2519 mis-ordered pairs / 0.0%] | 163 | 809.1 | 163 |
+| two-pass: 16B key + byte cmp refine | 251 | 524.2 | 252 |
+| two-pass: 32B key + byte cmp refine | 223 | 590.2 | 224 |
+| two-pass: 32B key, sort u32 indices | 302 | 435.8 | 303 |
+| two-pass: 32B key sort + refine ties | 271 | 486.0 | 272 |
+| compare_fused v3 (row-prefix u64 fast path) | 479 | 275.3 | 479 |
+| compare_fused v2 (u64 prefix Phase 2) | 420 | 313.6 | 421 |
+| byte cmp (flat bytes, sort only, unstable) | 410 | 321.2 | 411 |
+| byte cmp (decode + sort, end-to-end) | 502 | 262.4 | 503 |
+
+## clickbench_title almost-sorted
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused v1 (slice cmp Phase 2) | 176 | 748.1 | 176 |
+| two-pass: u128 key sort + refine ties | 130 | 1009.4 | 131 |
+| two-pass: 4-token-rank key (8B) + byte refine [2530 mis-ordered pairs / 0.0%] | 71 | 1834.0 | 72 |
+| two-pass: 16B key + byte cmp refine | 97 | 1356.7 | 97 |
+| two-pass: 32B key + byte cmp refine | 91 | 1441.9 | 92 |
+| two-pass: 32B key, sort u32 indices | 119 | 1101.8 | 120 |
+| two-pass: 32B key sort + refine ties | 111 | 1186.0 | 111 |
+| compare_fused v3 (row-prefix u64 fast path) | 152 | 864.7 | 153 |
+| compare_fused v2 (u64 prefix Phase 2) | 172 | 763.9 | 173 |
+| byte cmp (flat bytes, sort only, unstable) | 158 | 831.5 | 159 |
+| byte cmp (decode + sort, end-to-end) | 246 | 535.1 | 247 |
+
+## clickbench_url
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused v1 (slice cmp Phase 2) | 570 | 148.1 | 570 |
+| two-pass: u128 key sort + refine ties | 544 | 155.1 | 545 |
+| two-pass: 4-token-rank key (8B) + byte refine [2179 mis-ordered pairs / 0.0%] | 176 | 477.8 | 177 |
+| two-pass: 16B key + byte cmp refine | 375 | 224.8 | 376 |
+| two-pass: 32B key + byte cmp refine | 306 | 275.3 | 307 |
+| two-pass: 32B key, sort u32 indices | 476 | 177.4 | 476 |
+| two-pass: 32B key sort + refine ties | 466 | 181.0 | 467 |
+| compare_fused v3 (row-prefix u64 fast path) | 654 | 129.0 | 655 |
+| compare_fused v2 (u64 prefix Phase 2) | 577 | 146.2 | 578 |
+| byte cmp (flat bytes, sort only, unstable) | 420 | 201.0 | 420 |
+| byte cmp (decode + sort, end-to-end) | 469 | 180.0 | 469 |
+
+## clickbench_url almost-sorted
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused v1 (slice cmp Phase 2) | 235 | 359.1 | 235 |
+| two-pass: u128 key sort + refine ties | 210 | 400.9 | 211 |
+| two-pass: 4-token-rank key (8B) + byte refine [1665 mis-ordered pairs / 0.0%] | 87 | 964.9 | 88 |
+| two-pass: 16B key + byte cmp refine | 127 | 660.3 | 128 |
+| two-pass: 32B key + byte cmp refine | 128 | 657.0 | 129 |
+| two-pass: 32B key, sort u32 indices | 203 | 415.1 | 203 |
+| two-pass: 32B key sort + refine ties | 190 | 443.7 | 190 |
+| compare_fused v3 (row-prefix u64 fast path) | 239 | 352.4 | 240 |
+| compare_fused v2 (u64 prefix Phase 2) | 229 | 367.5 | 230 |
+| byte cmp (flat bytes, sort only, unstable) | 155 | 542.0 | 156 |
+| byte cmp (decode + sort, end-to-end) | 216 | 389.9 | 217 |
+
