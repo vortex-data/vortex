@@ -228,6 +228,46 @@ async fn admin_sql_rejects_writes() -> Result<()> {
 }
 
 #[tokio::test]
+async fn admin_sql_read_only_blocks_explain_analyze_writes() -> Result<()> {
+    // `validate_read_only` allow-lists `EXPLAIN`, which means
+    // `EXPLAIN ANALYZE` slips through the SQL allow-list — DuckDB actually
+    // executes the wrapped statement. The defense in depth is the
+    // `BEGIN TRANSACTION READ ONLY` wrapper in `run_select`. Pin that
+    // behavior: if this test ever flips green by silently allowing the
+    // write, the read-only safety net is gone.
+    let server = Server::start_with_admin().await?;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(server.url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({
+            "sql": "EXPLAIN ANALYZE INSERT INTO commits \
+                    (commit_sha, timestamp, tree_sha, url) \
+                    VALUES ('deadbeef', NOW(), 'tree', 'http://x')"
+        }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_server_error(),
+        "expected DuckDB to refuse the write, got {}",
+        resp.status()
+    );
+
+    // And verify nothing landed in `commits`.
+    let resp = client
+        .post(server.url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({ "sql": "SELECT COUNT(*) AS n FROM commits" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    assert_eq!(body["rows"], json!([[0]]));
+    Ok(())
+}
+
+#[tokio::test]
 async fn admin_sql_allows_pragma_show_describe_explain_with() -> Result<()> {
     let server = Server::start_with_admin().await?;
     let client = reqwest::Client::new();
