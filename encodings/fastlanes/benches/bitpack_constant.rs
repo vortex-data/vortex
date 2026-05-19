@@ -375,6 +375,52 @@ fn validate_v6() {
         return;
     }
 
+    // W=2
+    {
+        const W: usize = 2;
+        const B: usize = 32 * W;
+        let constant: u32 = 0x2;
+        let mut input = [0u32; 1024];
+        for i in 0..1024 {
+            input[i] = (i as u32) & 0x3;
+        }
+        let mut packed = [0u32; B];
+        BitPacking::pack::<W, B>(&input, &mut packed);
+        let mut expected = [0u32; 1024];
+        BitPacking::unpack::<W, B>(&packed, &mut expected);
+        let mut out = vec![0u64; 16];
+        unsafe {
+            block_eq_batch_avx512_v6_w2::<B>(std::slice::from_ref(&packed), constant, &mut out);
+        }
+        for i in 0..1024 {
+            let bit = (out[i / 64] >> (i % 64)) & 1 != 0;
+            assert_eq!(bit, expected[i] == constant, "v6_w2 mismatch at i={i}");
+        }
+    }
+
+    // W=4
+    {
+        const W: usize = 4;
+        const B: usize = 32 * W;
+        let constant: u32 = 0xA;
+        let mut input = [0u32; 1024];
+        for i in 0..1024 {
+            input[i] = (i as u32) & 0xF;
+        }
+        let mut packed = [0u32; B];
+        BitPacking::pack::<W, B>(&input, &mut packed);
+        let mut expected = [0u32; 1024];
+        BitPacking::unpack::<W, B>(&packed, &mut expected);
+        let mut out = vec![0u64; 16];
+        unsafe {
+            block_eq_batch_avx512_v6_w4::<B>(std::slice::from_ref(&packed), constant, &mut out);
+        }
+        for i in 0..1024 {
+            let bit = (out[i / 64] >> (i % 64)) & 1 != 0;
+            assert_eq!(bit, expected[i] == constant, "v6_w4 mismatch at i={i}");
+        }
+    }
+
     // W=8
     {
         const W: usize = 8;
@@ -728,9 +774,10 @@ use core::arch::x86_64::{
     _mm256_cmpeq_epi32, _mm256_loadu_si256, _mm256_movemask_ps, _mm256_or_si256,
     _mm256_set1_epi32, _mm256_setzero_si256, _mm256_xor_si256, _mm512_and_si512,
     _mm512_cmpeq_epi8_mask, _mm512_cmpeq_epi16_mask, _mm512_cmpeq_epu32_mask,
-    _mm512_loadu_si512, _mm512_or_si512, _mm512_set1_epi32, _mm512_setzero_si512,
-    _mm512_sll_epi32, _mm512_srl_epi32, _mm512_ternarylogic_epi32,
-    _mm512_testn_epi32_mask, _mm512_xor_si512, _mm_cvtsi32_si128, _pext_u64,
+    _mm512_loadu_si512, _mm512_or_si512, _mm512_set1_epi32, _mm512_set1_epi8,
+    _mm512_setzero_si512, _mm512_sll_epi32, _mm512_srl_epi32, _mm512_srli_epi16,
+    _mm512_ternarylogic_epi32, _mm512_testn_epi32_mask, _mm512_xor_si512,
+    _mm_cvtsi32_si128, _pext_u64,
 };
 
 /// Hand-rolled AVX-512 row mask: load 32 packed u32 lanes as two `__m512i`,
@@ -1320,6 +1367,138 @@ unsafe fn block_eq_batch_avx512_v6_w16<const B: usize>(
                 row_masks[2 * cw] = lo_even | (hi_even << 16);
                 row_masks[2 * cw + 1] = lo_odd | (hi_odd << 16);
             }
+            let chunk = &mut out[b_idx * 16..b_idx * 16 + 16];
+            for u in 0..16 {
+                let lo = row_masks[ROW_FOR_K_U32[2 * u]] as u64;
+                let hi = row_masks[ROW_FOR_K_U32[2 * u + 1]] as u64;
+                chunk[u] = lo | (hi << 32);
+            }
+        }
+    }
+}
+
+/// W=4 specialization: split each byte into low/high nibble (2 element streams),
+/// then byte-level vpcmpeqb per stream against broadcast(C), interleave the two
+/// 64-bit kmasks via PEXT.
+///
+/// Packed layout for W=4, u32: each u32 holds 8 elements at nibble positions
+/// (rows 8*cw..8*cw+7 for one lane). 4 u32s per lane. Block: [u32; 128].
+///
+/// Per zmm load: 16 u32s = 16 lanes × 1 curr_word = 16 × 8 = 128 elements.
+/// 8 zmm loads per block (4 curr_words × 2 lane chunks).
+///
+/// # Safety
+/// AVX-512BW + BMI2 required.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx512vl,bmi2")]
+#[inline]
+unsafe fn block_eq_batch_avx512_v6_w4<const B: usize>(
+    blocks: &[[u32; B]],
+    constant: u32,
+    out: &mut [u64],
+) {
+    debug_assert_eq!(B, 32 * 4);
+    debug_assert_eq!(out.len(), 16 * blocks.len());
+
+    // SAFETY: feature-gated.
+    unsafe {
+        let cb = (constant & 0xF) as i8;
+        let cb_nib_v = _mm512_set1_epi8(cb);
+        let nibble_mask = _mm512_set1_epi8(0x0F);
+
+        for (b_idx, blk) in blocks.iter().enumerate() {
+            let mut row_masks = [0u32; 32];
+
+            for cw in 0..4 {
+                for lane_chunk in 0..2 {
+                    let base = blk.as_ptr().add(32 * cw + 16 * lane_chunk) as *const __m512i;
+                    let v = _mm512_loadu_si512(base);
+                    // Low nibbles (bits 0..3 of each byte).
+                    let lo_nibs = _mm512_and_si512(v, nibble_mask);
+                    // High nibbles (bits 4..7 → shift right by 4, then mask).
+                    let hi_nibs = _mm512_and_si512(_mm512_srli_epi16::<4>(v), nibble_mask);
+                    // Byte-level cmpeq against the broadcast constant nibble.
+                    let m_lo: u64 = _mm512_cmpeq_epi8_mask(lo_nibs, cb_nib_v);
+                    let m_hi: u64 = _mm512_cmpeq_epi8_mask(hi_nibs, cb_nib_v);
+                    // m_lo bit b = element at (row = 8cw + 2*(b%4), lane = 16*lc + b/4) matches.
+                    // m_hi bit b = element at (row = 8cw + 2*(b%4) + 1, lane = 16*lc + b/4) matches.
+                    let shift = 16 * lane_chunk;
+                    // 4 PEXT each for low / high nibble streams = 8 PEXT per zmm.
+                    for k in 0..4 {
+                        let pat = 0x1111_1111_1111_1111u64 << k;
+                        let row_lo = _pext_u64(m_lo, pat) as u32;
+                        let row_hi = _pext_u64(m_hi, pat) as u32;
+                        row_masks[8 * cw + 2 * k] |= row_lo << shift;
+                        row_masks[8 * cw + 2 * k + 1] |= row_hi << shift;
+                    }
+                }
+            }
+
+            let chunk = &mut out[b_idx * 16..b_idx * 16 + 16];
+            for u in 0..16 {
+                let lo = row_masks[ROW_FOR_K_U32[2 * u]] as u64;
+                let hi = row_masks[ROW_FOR_K_U32[2 * u + 1]] as u64;
+                chunk[u] = lo | (hi << 32);
+            }
+        }
+    }
+}
+
+/// W=2 specialization: 4 elements per byte. Extract via 4 byte-level streams
+/// (4 shift+and pairs) and cmpeqb each against broadcast(C). 4 × 64-bit
+/// kmasks per zmm; interleave-via-PEXT into row_masks.
+///
+/// Packed layout for W=2, u32: each u32 holds 16 elements (2 bits each, rows
+/// 16*cw..16*cw+15). 2 u32s per lane. Block: [u32; 64].
+///
+/// # Safety
+/// AVX-512BW + BMI2 required.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx512vl,bmi2")]
+#[inline]
+unsafe fn block_eq_batch_avx512_v6_w2<const B: usize>(
+    blocks: &[[u32; B]],
+    constant: u32,
+    out: &mut [u64],
+) {
+    debug_assert_eq!(B, 32 * 2);
+    debug_assert_eq!(out.len(), 16 * blocks.len());
+
+    // SAFETY: feature-gated.
+    unsafe {
+        let cb = (constant & 0x3) as i8;
+        let cb_v = _mm512_set1_epi8(cb);
+        let two_bit_mask = _mm512_set1_epi8(0x03);
+
+        for (b_idx, blk) in blocks.iter().enumerate() {
+            let mut row_masks = [0u32; 32];
+
+            for cw in 0..2 {
+                for lane_chunk in 0..2 {
+                    let base = blk.as_ptr().add(32 * cw + 16 * lane_chunk) as *const __m512i;
+                    let v = _mm512_loadu_si512(base);
+                    // 4 streams: 2-bit field at positions 0, 2, 4, 6 of each byte.
+                    let s0 = _mm512_and_si512(v, two_bit_mask);
+                    let s1 = _mm512_and_si512(_mm512_srli_epi16::<2>(v), two_bit_mask);
+                    let s2 = _mm512_and_si512(_mm512_srli_epi16::<4>(v), two_bit_mask);
+                    let s3 = _mm512_and_si512(_mm512_srli_epi16::<6>(v), two_bit_mask);
+                    // 4 byte-cmpeqs against broadcast C.
+                    let m0: u64 = _mm512_cmpeq_epi8_mask(s0, cb_v);
+                    let m1: u64 = _mm512_cmpeq_epi8_mask(s1, cb_v);
+                    let m2: u64 = _mm512_cmpeq_epi8_mask(s2, cb_v);
+                    let m3: u64 = _mm512_cmpeq_epi8_mask(s3, cb_v);
+                    // m_s bit b = element at (row = 16cw + 4*(b%4) + s, lane = 16*lc + b/4) matches.
+                    let shift = 16 * lane_chunk;
+                    for k in 0..4 {
+                        let pat = 0x1111_1111_1111_1111u64 << k;
+                        row_masks[16 * cw + 4 * k] |= (_pext_u64(m0, pat) as u32) << shift;
+                        row_masks[16 * cw + 4 * k + 1] |= (_pext_u64(m1, pat) as u32) << shift;
+                        row_masks[16 * cw + 4 * k + 2] |= (_pext_u64(m2, pat) as u32) << shift;
+                        row_masks[16 * cw + 4 * k + 3] |= (_pext_u64(m3, pat) as u32) << shift;
+                    }
+                }
+            }
+
             let chunk = &mut out[b_idx * 16..b_idx * 16 + 16];
             for u in 0..16 {
                 let lo = row_masks[ROW_FOR_K_U32[2 * u]] as u64;
@@ -2463,7 +2642,57 @@ u32_eq_benches!(u32_eq => 23);
 u32_eq_benches!(u32_eq => 24);
 u32_eq_benches!(u32_eq => 29);
 
-// v6 specializations (W=8 byte-cmp, W=16 word-cmp) — explicit benches.
+// v6 specializations — explicit benches.
+#[divan::bench]
+fn u32_eq_block_batch_avx512_v6_w2(bencher: Bencher) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if !is_x86_feature_detected!("avx512f")
+            || !is_x86_feature_detected!("avx512bw")
+            || !is_x86_feature_detected!("bmi2")
+        {
+            return;
+        }
+        const W: usize = 2;
+        const B: usize = 32 * W;
+        let value: u32 = 0x3;
+        let blocks = make_constant_packed_blocks::<W, B>(value);
+        let mut out: Vec<u64> = vec![0u64; 16 * EQ_BLOCKS];
+        bencher
+            .counter(ItemsCount::new(1024usize * EQ_BLOCKS))
+            .bench_local(|| {
+                // SAFETY: feature-gated.
+                unsafe { block_eq_batch_avx512_v6_w2::<B>(&blocks, black_box(value), &mut out) };
+                black_box(&mut out);
+            });
+    }
+}
+
+#[divan::bench]
+fn u32_eq_block_batch_avx512_v6_w4(bencher: Bencher) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if !is_x86_feature_detected!("avx512f")
+            || !is_x86_feature_detected!("avx512bw")
+            || !is_x86_feature_detected!("bmi2")
+        {
+            return;
+        }
+        const W: usize = 4;
+        const B: usize = 32 * W;
+        let value: u32 = 0xA;
+        let blocks = make_constant_packed_blocks::<W, B>(value);
+        let mut out: Vec<u64> = vec![0u64; 16 * EQ_BLOCKS];
+        bencher
+            .counter(ItemsCount::new(1024usize * EQ_BLOCKS))
+            .bench_local(|| {
+                // SAFETY: feature-gated.
+                unsafe { block_eq_batch_avx512_v6_w4::<B>(&blocks, black_box(value), &mut out) };
+                black_box(&mut out);
+            });
+    }
+}
+
 #[divan::bench]
 fn u32_eq_block_batch_avx512_v6_w8(bencher: Bencher) {
     #[cfg(target_arch = "x86_64")]
