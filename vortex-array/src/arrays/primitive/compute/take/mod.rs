@@ -3,6 +3,8 @@
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx2;
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+mod avx512;
 
 use std::sync::LazyLock;
 
@@ -31,7 +33,13 @@ use crate::validity::Validity;
 static PRIMITIVE_TAKE_KERNEL: LazyLock<&'static dyn TakeImpl> = LazyLock::new(|| {
     #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
     {
-        if is_x86_feature_detected!("avx2") {
+        if is_x86_feature_detected!("avx512f")
+            && is_x86_feature_detected!("avx512bw")
+            && is_x86_feature_detected!("avx512dq")
+            && is_x86_feature_detected!("avx512vl")
+        {
+            &avx512::TakeKernelAVX512
+        } else if is_x86_feature_detected!("avx2") {
             &avx2::TakeKernelAVX2
         } else {
             &TakeKernelScalar
