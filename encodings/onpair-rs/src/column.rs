@@ -467,26 +467,32 @@ impl Column {
         best.map(|(_, c)| c).ok_or(last_err)
     }
 
-    /// Compress with a small bit-width sweep and return the smallest result.
-    /// Trades CPU for compression ratio — runs the trainer
-    /// `len(BITS_SWEEP)` times. The sweep covers the bit widths that
-    /// dominate the Pareto frontier on real text/URL data.
+    /// Compress with a small `(bit-width, threshold)` sweep and return the
+    /// smallest result. Trades CPU for compression ratio — runs the trainer
+    /// `bits.len() × thresholds.len()` times. The default sweep covers the
+    /// configurations that dominate the Pareto frontier on real text/URL
+    /// data.
     ///
-    /// Verified-best bit widths from sweeps over 9..=16 on:
-    /// * synthetic URLs   → bits=10
-    /// * TPCH `l_comment` → bits=11
-    /// * ClickBench URL   → bits=14
-    /// * Wikipedia text   → bits=16
+    /// Verified-best configurations from sweeps over 9..=16 on real data:
+    /// * synthetic URLs   → bits=10, threshold=0.5
+    /// * TPCH `l_comment` → bits=11, threshold=1.0
+    /// * ClickBench URL   → bits=14, threshold=1.0
+    /// * Wikipedia text   → bits=16, threshold=0.5
     ///
-    /// The sweep below covers all four with seven trainings (~5–7× the
+    /// The sweep below covers all four with fourteen trainings (~10× the
     /// single-shot cost). For best-compression workloads only — single-shot
-    /// `compress` is faster when the right bit width is known.
+    /// `compress` is faster when the right configuration is known.
     pub fn compress_auto(bytes: &[u8], offsets: &[u64]) -> Result<Self, Error> {
         const BITS_SWEEP: &[u32] = &[10, 11, 12, 13, 14, 15, 16];
-        let cfgs: Vec<OnPairTrainingConfig> = BITS_SWEEP
-            .iter()
-            .map(|&b| OnPairTrainingConfig { bits: b, threshold: 0.5, seed: 42 })
-            .collect();
+        const THR_SWEEP: &[f64] = &[0.5, 1.0];
+        let mut cfgs: Vec<OnPairTrainingConfig> = Vec::with_capacity(
+            BITS_SWEEP.len() * THR_SWEEP.len(),
+        );
+        for &b in BITS_SWEEP {
+            for &t in THR_SWEEP {
+                cfgs.push(OnPairTrainingConfig { bits: b, threshold: t, seed: 42 });
+            }
+        }
         Self::compress_search(bytes, offsets, &cfgs)
     }
 

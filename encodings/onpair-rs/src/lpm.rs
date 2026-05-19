@@ -25,11 +25,9 @@ use crate::types::{MAX_TOKEN_SIZE, Token};
 
 const SHORT_LEN: usize = 8;
 
-/// HashMap specialised for the LPM's integer-tuple keys. `FxHasher` is
-/// markedly faster than hashbrown's default `foldhash` on `(u64, u8)` and
-/// `(u128, u8)` because the keys are already well-distributed bytes pulled
-/// from the input; the standard multiply-with-prime mix is overkill and shows
-/// up in the profile.
+/// FxHash-backed HashMap. FxHash beats foldhash on the LPM's tuple keys
+/// because the integer parts are already well-distributed bytes pulled from
+/// the input.
 type LpmMap<K, V> = HashMap<K, V, FxBuildHasher>;
 
 /// Precomputed low-`len * 8`-bit masks for `u64` and `u128`. Indexed by
@@ -93,7 +91,10 @@ fn mask_u64(len: usize) -> u64 {
 /// Length-1 tokens live in a flat `[Token; 256]` rather than the hash map,
 /// which lets `find_longest_match` skip the always-firing length-1 probe.
 /// Length 2..=8 tokens live in `short_map` (`(u64, u8)` key) and 9..=16 in
-/// `long_map` (`(u128, u8)` key).
+/// `long_map` (`(u128, u8)` key).  We use hashbrown with `FxBuildHasher`
+/// because (a) hashbrown's SSE2 group probe beats hand-rolled linear-probing
+/// open addressing at this density, and (b) FxHash is faster than foldhash
+/// on small integer keys.
 #[derive(Debug, Clone)]
 pub struct LongestPrefixMatcher {
     /// Length 2..=8 tokens keyed by (low-8-byte u64, length).

@@ -248,21 +248,31 @@ fn main() {
     );
 
     println!(
-        "{:>16}  {:>5}  {:>10}  {:>10}  {:>8}  {:>10}  {:>11}",
-        "config", "bits", "compr_KB", "ratio", "dict#", "train_ms", "throughput",
+        "{:>16}  {:>5}  {:>5}  {:>10}  {:>10}  {:>8}  {:>10}  {:>11}",
+        "config", "bits", "thr", "compr_KB", "ratio", "dict#", "train_ms", "throughput",
     );
     let raw_kb = raw / 1024;
-    for &bits in &[9u32, 10, 11, 12, 13, 14, 15, 16] {
-        let cfg = OnPairTrainingConfig { bits, threshold: 0.5, seed: 42 };
-        let (col, dt) = time(reps, || Column::compress(&bytes, &offsets, cfg).unwrap());
-        let sz = col.compressed_size();
-        let r = raw as f64 / sz as f64;
-        let mb_s = (raw as f64 / (1024.0 * 1024.0)) / dt.as_secs_f64();
-        println!(
-            "{:>16}  {:>5}  {:>10}  {:>10.4}  {:>8}  {:>10.2}  {:>8.1} MiB/s",
-            "single", bits, sz / 1024, r, col.dict_size(),
-            dt.as_secs_f64() * 1000.0, mb_s,
-        );
+    let bits_to_run: Vec<u32> = env::var("BITS_LIST")
+        .ok()
+        .map(|s| s.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+        .unwrap_or_else(|| vec![9, 10, 11, 12, 13, 14, 15, 16]);
+    let thrs: Vec<f64> = env::var("THRESHOLDS")
+        .ok()
+        .map(|s| s.split(',').filter_map(|t| t.trim().parse().ok()).collect())
+        .unwrap_or_else(|| vec![0.5]);
+    for &bits in &bits_to_run {
+        for &thr in &thrs {
+            let cfg = OnPairTrainingConfig { bits, threshold: thr, seed: 42 };
+            let (col, dt) = time(reps, || Column::compress(&bytes, &offsets, cfg).unwrap());
+            let sz = col.compressed_size();
+            let r = raw as f64 / sz as f64;
+            let mb_s = (raw as f64 / (1024.0 * 1024.0)) / dt.as_secs_f64();
+            println!(
+                "{:>16}  {:>5}  {:>5.2}  {:>10}  {:>10.4}  {:>8}  {:>10.2}  {:>8.1} MiB/s",
+                "single", bits, thr, sz / 1024, r, col.dict_size(),
+                dt.as_secs_f64() * 1000.0, mb_s,
+            );
+        }
     }
     // Auto
     let (col, dt) = time(reps, || Column::compress_auto(&bytes, &offsets).unwrap());
@@ -270,8 +280,8 @@ fn main() {
     let r = raw as f64 / sz as f64;
     let mb_s = (raw as f64 / (1024.0 * 1024.0)) / dt.as_secs_f64();
     println!(
-        "{:>16}  {:>5}  {:>10}  {:>10.4}  {:>8}  {:>10.2}  {:>8.1} MiB/s",
-        "auto", col.bits(), sz / 1024, r, col.dict_size(),
+        "{:>16}  {:>5}  {:>5}  {:>10}  {:>10.4}  {:>8}  {:>10.2}  {:>8.1} MiB/s",
+        "auto", col.bits(), "*", sz / 1024, r, col.dict_size(),
         dt.as_secs_f64() * 1000.0, mb_s,
     );
     let _ = raw_kb;
