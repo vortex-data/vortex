@@ -123,11 +123,9 @@ where
             let output_validity = if child_validity.no_nulls() {
                 ranks_validity
             } else {
-                let translated_indices = PrimitiveArray::new(
-                    translate_ranks(filter, ranks, Some(buf))?,
-                    ranks_validity,
-                )
-                .into_array();
+                let translated_indices =
+                    PrimitiveArray::new(translate_ranks(filter, ranks, Some(buf))?, ranks_validity)
+                        .into_array();
                 child_validity.take(&translated_indices)?
             };
 
