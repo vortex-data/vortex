@@ -1,134 +1,103 @@
 ---
 name: samply
-description: Iterate on Vortex performance with Samply and benchmark evidence. Use when profiling or optimizing Vortex benchmarks, especially vx-bench or direct benchmark-binary runs, when analyzing profile.json.gz Firefox profiler output, when comparing benchmark runs, or when investigating performance regressions and hotspots.
+description: Analyze Samply Firefox-profiler output, record focused profiles, summarize hot threads/stacks, inspect symbolication, and compare profile evidence before and after a performance change.
 ---
 
 # Samply
 
 ## Overview
 
-Use Samply profiles and narrow benchmark runs to find, validate, and improve Vortex hot paths.
-Keep the loop evidence-driven: benchmark first, profile the exact slow target, make one scoped
-change, rerun the same target, and only then broaden verification.
+Use this skill when a task involves Samply recordings or Firefox-profiler JSON, especially
+`profile.json.gz` files, `samply record`, `samply load`, symbolication, thread timeline skew, or
+hot stack interpretation. Keep the loop evidence-driven: establish a focused baseline, record the
+exact target, summarize the profile before deep code reading, make one scoped change, and rerun the
+same target.
+
+This skill is intentionally project-agnostic. Any project-specific benchmark harness, environment
+variables, metrics, or logging commands should live in a separate benchmark skill or in the current
+task context.
 
 ## Share Evidence Early
 
 Do not disappear into profile spelunking while useful output is already available. As soon as a
-benchmark finishes, report the comparison table or timing lines to the user before starting deeper
-analysis. As soon as a profile summary is available, report the top threads/functions/stacks before
-reading more code. Then continue investigating with those facts visible.
+timing run finishes, report the timing lines or comparison table before starting deeper analysis.
+As soon as a profile summary is available, report the top threads/functions/stacks before reading
+more code. Then continue investigating with those facts visible.
 
 For long performance sessions, use this cadence:
 
-1. benchmark command starts: say what target, format, query, and toggles are being measured;
-2. benchmark command finishes: immediately show run ID, timing comparison, and output path;
+1. timing command starts: say what target, input, mode, and runtime toggles are being measured;
+2. timing command finishes: immediately show timing results and output path;
 3. profile command finishes: immediately show profile path, a `samply load` command the user can
    run to inspect it in Firefox Profiler, and the first stack/function summary;
 4. deeper analysis begins: state the concrete hotspot or hypothesis being checked.
 
 ## Standard Loop
 
-1. Check branch state and changed surface:
+1. Check branch state and changed surface when working in a repository:
 
    ```bash
    git status --short
    git branch --show-current
-   git diff --stat develop...HEAD
+   git diff --stat
    ```
 
-2. Run a focused benchmark before profiling. Prefer one query, one engine, one format, and enough
-   iterations to smooth obvious noise. If the experiment has a runtime env toggle, prefix every
-   benchmark and profile command with the same env setting; this is often faster than recompiling
-   and makes A/B comparisons clearer.
+2. Run a focused timing command before profiling. Prefer one executable, one workload/input, one
+   mode, and enough iterations to smooth obvious noise. If the experiment has a runtime
+   environment toggle, prefix every timing and profile command with the same env setting; this is
+   often faster than recompiling and makes A/B comparisons clearer.
+
+   Generic shape:
 
    ```bash
-   FEATURE_TOGGLE=1 UV_CACHE_DIR=/private/tmp/vortex-uv-cache \
-     uv run --project bench-orchestrator vx-bench run <benchmark> \
-     -e <engine> \
-     -f <format> \
-     -q <query> \
-     -i 5 \
-     -l <label> \
-     --output /private/tmp/<label>.jsonl \
-     --verbose
+   FEATURE_TOGGLE=1 <timing-command> --iterations 5 --output /tmp/<label>.jsonl
    ```
 
-   Useful variants:
+   If a project has an existing benchmark harness, use that harness for the timing baseline and
+   copy its exact target arguments into the profiled command.
 
-   ```bash
-   # Compare two formats in the same run.
-   FEATURE_TOGGLE=1 UV_CACHE_DIR=/private/tmp/vortex-uv-cache \
-     uv run --project bench-orchestrator vx-bench run <benchmark> \
-     -e <engine> -f <baseline-format>,<candidate-format> -q <query> -i 5 -l <label>
-
-   # Reuse already-built benchmark binaries when only rerunning the command.
-   FEATURE_TOGGLE=1 UV_CACHE_DIR=/private/tmp/vortex-uv-cache \
-     uv run --project bench-orchestrator vx-bench run <benchmark> \
-     -e <engine> -f <format> -q <query> -i 5 -l <label> --no-build
-   ```
-
-3. Record a focused Samply profile. `vx-bench --samply` works, but direct `samply record` gives
-   control over output paths and prevents the browser UI from opening. Prefer recording without
-   `--unstable-presymbolicate` first, then symbolicate offline with the scripts below. This avoids
-   chasing misleading pre-symbolicated stacks when macOS unwinding or symbol lookup gets confused:
+3. Record a focused Samply profile. Prefer recording without `--unstable-presymbolicate` first,
+   then symbolicate offline with the scripts below. This avoids chasing misleading
+   pre-symbolicated stacks when unwinding or symbol lookup gets confused.
 
    ```bash
    FEATURE_TOGGLE=1 samply record --save-only --rate 1000 \
-     --output /private/tmp/<label>.profile.json.gz \
-     -- target/<profile-dir>/<benchmark-binary> <benchmark> \
-       --display-format gh-json \
-       --iterations 5 \
-       --hide-progress-bar \
-       --formats <format> \
-       --queries <query>
+     --output /tmp/<label>.profile.json.gz \
+     -- /absolute/path/to/<binary> <args>
    ```
 
    Put environment assignments before `samply record`, as shown above. Do not put them after the
-   `--` separator; everything after `--` is the command Samply launches and profiles. Profiling
-   through a system helper such as `env`, `sleep`, `/bin/true`, or system Python is a bad sanity
-   check on macOS because signed system executables can block Samply's task-port handoff. Use a
-   locally built benchmark binary directly, for example:
+   `--` separator; everything after `--` is the command Samply launches and profiles.
 
-   ```bash
-   samply record --save-only --output /private/tmp/samply-help.profile.json.gz \
-     -- target/<profile-dir>/datafusion-bench --help
-   ```
+   On macOS, profiling through a system helper such as `env`, `sleep`, `/bin/true`, or system
+   Python can be a bad sanity check because signed system executables may block Samply's task-port
+   handoff. Prefer a locally built binary or a user-owned executable.
 
-   In Codex on macOS, `Encountered an error during profiling: Unknown(1100)` usually means Samply
-   was blocked by the sandbox before the profiled command started. Rerun the same `samply record`
-   command with escalated permissions instead of debugging the benchmark or changing the query.
+   In a sandboxed agent environment on macOS, `Encountered an error during profiling:
+   Unknown(1100)` usually means Samply was blocked before the profiled command started. Rerun the
+   same `samply record` command with the required execution permissions instead of changing the
+   workload.
 
-   `release_debug` is fine when its stacks look sane:
-
-   ```bash
-   cargo build -p <benchmark-crate> --profile release_debug --features unstable_encodings
-   # binary: target/release_debug/<benchmark-binary>
-   ```
-
-   If the symbols or unwinding look suspect, rebuild with the repo's `bench` profile and re-record:
-
-   ```bash
-   cargo build -p <benchmark-crate> --profile bench --features unstable_encodings
-   # binary: target/release/<benchmark-binary>
-   ```
+   Use a profile with debug information when stack quality matters. If the symbols or unwinding
+   look suspect, rebuild with the project's highest-quality profiling/debug-symbol profile and
+   record again.
 
    If a profile shows impossible-looking ancestry, such as hot execution frames nested under
    unrelated `Drop::drop` frames or otherwise nonsensical async stacks, do not trust the stack
    summary. First verify the binary UUID matches the profile, remove presymbolication from the
-   recording command, and rebuild with `--profile bench` if `release_debug` still produces bad
-   stacks.
+   recording command, and rebuild with better debug symbols if needed.
 
    After the profile is recorded, immediately show the user the command to open it themselves:
 
    ```bash
-   samply load /private/tmp/<label>.profile.json.gz
+   samply load /tmp/<label>.profile.json.gz
    ```
 
    `samply load` starts a local Firefox Profiler server and opens the browser UI. If the user only
    wants the URL or the environment cannot open a browser, use:
 
    ```bash
-   samply load --no-open /private/tmp/<label>.profile.json.gz
+   samply load --no-open /tmp/<label>.profile.json.gz
    ```
 
    Then report the printed local URL.
@@ -138,8 +107,8 @@ For long performance sessions, use this cadence:
 
    ```bash
    python3 .agents/skills/samply/scripts/profile_summary.py \
-     /private/tmp/<label>.profile.json.gz \
-     --binary target/<profile-dir>/<benchmark-binary> \
+     /tmp/<label>.profile.json.gz \
+     --binary /absolute/path/to/<binary> \
      --symbolicate \
      --weight-mode cpu \
      --top 12 \
@@ -152,8 +121,8 @@ For long performance sessions, use this cadence:
 
    ```bash
    python3 .agents/skills/samply/scripts/profile_summary.py \
-     /private/tmp/<label>.profile.json.gz \
-     --binary target/<profile-dir>/<benchmark-binary> \
+     /tmp/<label>.profile.json.gz \
+     --binary /absolute/path/to/<binary> \
      --symbolicate \
      --weight-mode cpu \
      --top 30 \
@@ -165,8 +134,8 @@ For long performance sessions, use this cadence:
 
    ```bash
    python3 .agents/skills/samply/scripts/profile_activity.py \
-     /private/tmp/<label>.profile.json.gz \
-     --thread-regex tokio-rt-worker \
+     /tmp/<label>.profile.json.gz \
+     --thread-regex '<worker-thread-regex>' \
      --bin-ms 10
    ```
 
@@ -174,21 +143,21 @@ For long performance sessions, use this cadence:
 
    ```bash
    python3 .agents/skills/samply/scripts/profile_inverted_tree.py \
-     /private/tmp/<label>.profile.json.gz \
-     --binary target/<profile-dir>/<benchmark-binary> \
+     /tmp/<label>.profile.json.gz \
+     --binary /absolute/path/to/<binary> \
      --symbolicate \
-     --thread-regex tokio-rt-worker \
+     --thread-regex '<worker-thread-regex>' \
      --start-ms <start> \
      --end-ms <end> \
      --contains '<frame-regex>'
    ```
 
-5. Inspect code near the actual hot path. Load the benchmark query text or workload definition
-   when it matters; do not rely on memory for the query shape.
+5. Inspect code near the actual hot path. Load the workload definition when it matters; do not rely
+   on memory for the workload shape.
 
-6. Make one narrow change, rerun the focused benchmark/profile, and record the before/after command
-   lines and results. Do not update expected results or broaden the benchmark until the narrow
-   target explains the change.
+6. Make one narrow change, rerun the focused timing/profile command, and record the before/after
+   command lines and results. Do not broaden the workload until the narrow target explains the
+   change.
 
 ## Samply JSON Schema
 
@@ -216,47 +185,48 @@ Samply writes Firefox-profiler JSON, often compressed as `profile.json.gz`.
 ## Symbolication
 
 If function names are raw addresses such as `0x3db28a0`, the profile is not symbolicated. Before
-using `atos`, verify the binary UUID matches the profile:
+using `atos`, verify the binary UUID/code ID matches the profile:
 
 ```bash
-gzip -cd profile.json.gz | jq '.libs[] | select(.name=="datafusion-bench") | {path, codeId, breakpadId}'
-dwarfdump --uuid target/<profile-dir>/datafusion-bench
+gzip -cd /tmp/<label>.profile.json.gz | jq '.libs[] | {name, path, codeId, breakpadId}'
+dwarfdump --uuid /absolute/path/to/<binary>
 ```
 
 If the UUID/code ID does not match, do not trust symbol names from the current binary. Re-profile,
-or keep the exact binary plus the `.syms.json` sidecar emitted by `--unstable-presymbolicate`.
+or keep the exact binary plus any symbol sidecar emitted by the recorder.
 
 On macOS, Samply stores app addresses as offsets. Add the Mach-O text load address when using
 `atos` manually:
 
 ```bash
-atos -o target/<profile-dir>/datafusion-bench -l 0x100000000 0x103db28a0
+atos -o /absolute/path/to/<binary> -l 0x100000000 0x103db28a0
 ```
 
 For a raw offset `0x3db28a0`, the address passed to `atos` is `0x100000000 + 0x3db28a0`.
 
+When using the bundled scripts, pass `--symbol-lib <library-name>` if the binary name in
+`profile.libs[]` differs from the basename of `--binary`.
+
 ## Reading Profiles
 
-- Treat the main thread as orchestration unless its CPU delta is high. In DataFusion runs, useful
-  CPU time is usually on `tokio-rt-worker` threads.
+- Treat the main thread as orchestration unless its CPU delta is high. Useful CPU time is often on
+  worker threads, but thread naming is runtime-specific.
 - Sort threads by total sample weight and CPU delta. Many idle worker threads can have high wall
   time but near-zero CPU.
 - Use `profile_activity.py` when the Firefox Profiler timeline shows empty space. Good parallel
-  benchmark traces keep worker occupancy high through the timed region; a low-occupancy tail points
-  to scheduling skew, stragglers, dependency ordering, or partition imbalance.
+  traces keep worker occupancy high through the timed region; a low-occupancy tail points to
+  scheduling skew, stragglers, dependency ordering, partition imbalance, blocking, or insufficient
+  work admission.
 - Use `profile_inverted_tree.py` with `--contains` for allocation frames, blocking frames, or a hot
   leaf function to see the caller contexts that produce the samples.
 - A stack with many samples may mean the operation is slow, or it may mean it is called many times.
   Samply alone usually cannot distinguish those. Pair hot stacks with counters, metrics, or logs:
-  operation count, byte count, rows decoded, cache hits/misses, per-operation max/median duration,
-  and lock wait/hold time.
+  operation count, byte count, rows/items processed, cache hits/misses, per-operation max/median
+  duration, and lock wait/hold time.
 - Prefer inclusive stacks to understand which subsystem owns time, then self frames to find tight
   loops.
-- Look for repeated work: schema/dtype cloning, filter evaluation, decompression, canonicalization,
-  pruning, segment reads, allocation, string parsing, and DataFusion physical-expression overhead.
-- For I/O stacks, check `datafusion-bench --show-metrics` before assuming contention. Compare
-  `vortex.io.read.duration_count`, `vortex.io.read.total_size`, `io.requests.individual`,
-  `io.requests.coalesced`, segment cache misses, and max read duration against the baseline.
+- Look for repeated work: allocation, parsing, cloning, serialization/deserialization, expression
+  evaluation, decompression, canonicalization, redundant I/O, and synchronization overhead.
 - If profile output only shows addresses and symbolication is blocked by a UUID mismatch, you can
   still use thread CPU, stack repetition, and library ownership, but re-profile before making a
   code-level claim.
@@ -265,9 +235,9 @@ For a raw offset `0x3db28a0`, the address passed to `atos` is `0x100000000 + 0x3
 
 Summaries should include:
 
-- benchmark command and profile command;
+- timing command and profile command;
 - command for the user to open the profile, usually `samply load <profile.json.gz>`;
-- branch and binary profile used;
+- branch, binary, and profile used;
 - before/after timings or run IDs;
 - top hot threads/functions/stacks;
 - confirmed facts versus inferences;

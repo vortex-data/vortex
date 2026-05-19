@@ -248,7 +248,10 @@ def main() -> int:
     parser.add_argument("--libs", action="store_true", help="Print profile library metadata")
     parser.add_argument("--binary", type=Path, help="Print dwarfdump UUID for a candidate binary")
     parser.add_argument("--symbolicate", action="store_true", help="Use atos to symbolicate raw app offsets")
-    parser.add_argument("--symbol-lib", default="datafusion-bench", help="Library name to symbolicate")
+    parser.add_argument(
+        "--symbol-lib",
+        help="Library name to symbolicate; defaults to the basename of --binary",
+    )
     parser.add_argument(
         "--weight-mode",
         choices=("samples", "cpu"),
@@ -275,9 +278,10 @@ def main() -> int:
     if args.symbolicate:
         if not args.binary:
             parser.error("--symbolicate requires --binary")
-        addresses = collect_symbol_addresses(profile, args.symbol_lib)
+        symbol_lib = args.symbol_lib or args.binary.name
+        addresses = collect_symbol_addresses(profile, symbol_lib)
         symbols = atos_symbol_map(args.binary, addresses, int(str(args.load_address), 0))
-        print(f"Symbolicated {len(symbols)} / {len(addresses)} raw addresses from {args.symbol_lib}")
+        print(f"Symbolicated {len(symbols)} / {len(addresses)} raw addresses from {symbol_lib}")
 
     if args.libs:
         print_libs(profile)
