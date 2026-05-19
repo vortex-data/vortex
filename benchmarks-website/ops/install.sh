@@ -62,6 +62,7 @@ sudo install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" \
     "$STATE_DIR" \
     "${STATE_DIR}/bin" \
     "${STATE_DIR}/snapshots" \
+    "${STATE_DIR}/duckdb-extensions" \
     "$LOG_DIR"
 
 # --- 2. Sudoers fragment ---

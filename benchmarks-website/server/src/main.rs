@@ -20,6 +20,11 @@
 //!   per-table Vortex snapshots into (`schema.sql` plus one
 //!   `<table>.vortex` file per table). Default:
 //!   `<VORTEX_BENCH_DB parent>/snapshots`.
+//! - `VORTEX_BENCH_EXTENSION_DIR` — directory DuckDB installs extensions
+//!   into. Default: `<VORTEX_BENCH_DB parent>/duckdb-extensions`. The
+//!   default lives under `STATE_DIR`, which the systemd unit makes
+//!   writable; this is what lets `INSTALL vortex` succeed under
+//!   `ProtectHome=read-only`.
 //! - `VORTEX_BENCH_BIND` — `host:port` to listen on. Highest priority. Default
 //!   `127.0.0.1:3000` (after `PORT` fallback). Override to `0.0.0.0:3000` for
 //!   container deploys.
@@ -78,7 +83,13 @@ async fn main() -> Result<()> {
     if let Ok(dir) = env::var("VORTEX_BENCH_SNAPSHOT_DIR") {
         state = state.with_snapshot_dir(PathBuf::from(dir));
     }
+    if let Ok(dir) = env::var("VORTEX_BENCH_EXTENSION_DIR") {
+        state = state
+            .with_extension_dir(PathBuf::from(dir))
+            .context("applying VORTEX_BENCH_EXTENSION_DIR")?;
+    }
     let snapshot_dir = state.snapshot_dir.clone();
+    let extension_dir = state.extension_dir.clone();
     let app = vortex_bench_server::app::router(state);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr)
@@ -88,6 +99,7 @@ async fn main() -> Result<()> {
         addr = %listener.local_addr()?,
         db = %db_path.display(),
         snapshot_dir = %snapshot_dir.display(),
+        extension_dir = %extension_dir.display(),
         "bench server listening"
     );
     axum::serve(listener, app)

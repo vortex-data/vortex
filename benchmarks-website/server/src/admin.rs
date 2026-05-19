@@ -267,16 +267,12 @@ fn export_snapshot_tables(conn: &mut Connection, target: &Path) -> Result<()> {
             .ok_or_else(|| anyhow::anyhow!("snapshot path is not UTF-8: {}", path.display()))?;
         let sql = format!(
             "COPY (SELECT * FROM {table}) TO {} (FORMAT vortex)",
-            sql_string_literal(path_str)
+            db::sql_string_literal(path_str)
         );
         conn.execute_batch(&sql)
             .with_context(|| format!("COPY {table} TO {path_str}"))?;
     }
     Ok(())
-}
-
-fn sql_string_literal(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
 }
 
 fn validate_ts(ts: &str) -> Result<(), AdminError> {

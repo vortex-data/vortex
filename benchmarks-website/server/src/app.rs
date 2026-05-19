@@ -61,6 +61,12 @@ pub struct AppState {
     /// [`crate::schema::TABLES`]). Defaults to `<db_path parent>/snapshots`.
     /// Override via [`AppState::with_snapshot_dir`].
     pub snapshot_dir: Arc<PathBuf>,
+    /// Directory DuckDB installs extensions into. Surfaced on `AppState` so
+    /// the operator can keep extensions on a writable filesystem path even
+    /// when systemd's `ProtectHome=read-only` blocks the default
+    /// `~/.duckdb/extensions/...`. Defaults to `<db_path parent>/duckdb-extensions`.
+    /// Override via [`AppState::with_extension_dir`].
+    pub extension_dir: Arc<PathBuf>,
 }
 
 impl AppState {
@@ -71,11 +77,10 @@ impl AppState {
     pub fn open<P: AsRef<Path>>(db_path: P, bearer_token: String) -> Result<Self> {
         validate_bearer_token("INGEST_BEARER_TOKEN", &bearer_token)?;
         let path = db_path.as_ref().to_path_buf();
-        let snapshot_dir = path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join("snapshots");
-        let db = db::open(&path)?;
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let snapshot_dir = parent.join("snapshots");
+        let extension_dir = parent.join("duckdb-extensions");
+        let db = db::open(&path, &extension_dir)?;
         let read_store = ReadStore::build_initial(&db)?;
         Ok(Self {
             db,
@@ -85,6 +90,7 @@ impl AppState {
             cache: Arc::new(QueryCache::new()),
             read_store: Arc::new(read_store),
             snapshot_dir: Arc::new(snapshot_dir),
+            extension_dir: Arc::new(extension_dir),
         })
     }
 
@@ -103,6 +109,17 @@ impl AppState {
     pub fn with_snapshot_dir(mut self, dir: PathBuf) -> Self {
         self.snapshot_dir = Arc::new(dir);
         self
+    }
+
+    /// Override the directory DuckDB installs extensions into and re-run
+    /// `SET GLOBAL extension_directory` on the root connection so the new
+    /// value propagates to every cloned connection. Fallible because it
+    /// touches the DB; the other builders are infallible because they only
+    /// shuffle `AppState` fields.
+    pub fn with_extension_dir(mut self, dir: PathBuf) -> Result<Self> {
+        self.db.set_extension_directory(&dir)?;
+        self.extension_dir = Arc::new(dir);
+        Ok(self)
     }
 }
 
