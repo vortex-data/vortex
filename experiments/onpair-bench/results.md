@@ -104,3 +104,119 @@ All input columns are **lex-sorted** before encoding (the scenario under test). 
 | onpair + front-code 256 | 19135133 | 18.25 | 4.95× | 153.08 | 2329 |
 | onpair + front-code 1024 | 19099175 | 18.21 | 4.96× | 152.79 | 2329 |
 
+
+# sort_bench: compare_fused vs decode-then-byte-compare
+
+All three methods sort the same shuffled column and produce the same permutation (asserted in code). Method 1 sorts u16 token sequences via `compare_fused`. Method 2 sorts the pre-decoded `Vec<Vec<u8>>` directly (best case for the byte-compare baseline — decode cost is not charged). Method 3 decodes from the OnPair-encoded column and then sorts (realistic end-to-end cost when your storage form is encoded).
+
+## tpch_l_comment
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused (tokens) | 265 | 47.7 | 530 |
+| byte cmp (sort only, pre-decoded) | 139 | 90.7 | 279 |
+| byte cmp (end-to-end: decode + sort) | 165 | 76.5 | 330 |
+
+## clickbench_title
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused (tokens) | 277 | 383.5 | 554 |
+| byte cmp (sort only, pre-decoded) | 196 | 541.5 | 392 |
+| byte cmp (end-to-end: decode + sort) | 342 | 309.8 | 686 |
+
+## clickbench_url
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused (tokens) | 297 | 122.7 | 594 |
+| byte cmp (sort only, pre-decoded) | 168 | 216.8 | 336 |
+| byte cmp (end-to-end: decode + sort) | 193 | 188.3 | 387 |
+
+
+# sort_bench: compare_fused vs decode-then-byte-compare
+
+All three methods sort the same shuffled column and produce the same permutation (asserted in code). Method 1 sorts u16 token sequences via `compare_fused`. Method 2 sorts the pre-decoded `Vec<Vec<u8>>` directly (best case for the byte-compare baseline — decode cost is not charged). Method 3 decodes from the OnPair-encoded column and then sorts (realistic end-to-end cost when your storage form is encoded).
+
+## tpch_l_comment
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused (tokens) | 616 | 41.0 | 617 |
+| byte cmp (sort only, pre-decoded) | 324 | 78.0 | 324 |
+| byte cmp (end-to-end: decode + sort) | 364 | 69.4 | 364 |
+
+## clickbench_title
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused (tokens) | 472 | 279.5 | 472 |
+| byte cmp (sort only, pre-decoded) | 384 | 343.7 | 384 |
+| byte cmp (end-to-end: decode + sort) | 579 | 227.9 | 579 |
+
+## clickbench_url
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused (tokens) | 690 | 122.2 | 691 |
+| byte cmp (sort only, pre-decoded) | 351 | 240.4 | 351 |
+| byte cmp (end-to-end: decode + sort) | 524 | 161.0 | 525 |
+
+
+# sort_bench: compare_fused vs decode-then-byte-compare
+
+All three methods sort the same shuffled column and produce the same permutation (asserted in code). Method 1 sorts u16 token sequences via `compare_fused`. Method 2 sorts the pre-decoded `Vec<Vec<u8>>` directly (best case for the byte-compare baseline — decode cost is not charged). Method 3 decodes from the OnPair-encoded column and then sorts (realistic end-to-end cost when your storage form is encoded).
+
+## tpch_l_comment
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused (tokens) | 962 | 26.3 | 963 |
+| byte cmp (sort only, pre-decoded) | 330 | 76.6 | 330 |
+| byte cmp (end-to-end: decode + sort) | 372 | 67.9 | 372 |
+
+## clickbench_title
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused (tokens) | 601 | 219.4 | 602 |
+| byte cmp (sort only, pre-decoded) | 385 | 342.5 | 385 |
+| byte cmp (end-to-end: decode + sort) | 549 | 240.2 | 550 |
+
+## clickbench_url
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused (tokens) | 931 | 90.7 | 931 |
+| byte cmp (sort only, pre-decoded) | 384 | 219.7 | 384 |
+| byte cmp (end-to-end: decode + sort) | 451 | 187.2 | 451 |
+
+
+# sort_bench: compare_fused vs decode-then-byte-compare
+
+All three methods sort the same shuffled column and produce the same permutation (asserted in code). Method 1 sorts u16 token sequences via `compare_fused`. Method 2 sorts the pre-decoded `Vec<Vec<u8>>` directly (best case for the byte-compare baseline — decode cost is not charged). Method 3 decodes from the OnPair-encoded column and then sorts (realistic end-to-end cost when your storage form is encoded).
+
+## tpch_l_comment
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused (tokens) | 591 | 42.7 | 591 |
+| byte cmp (sort only, pre-decoded) | 324 | 77.9 | 325 |
+| byte cmp (end-to-end: decode + sort) | 349 | 72.3 | 350 |
+
+## clickbench_title
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused (tokens) | 459 | 287.2 | 460 |
+| byte cmp (sort only, pre-decoded) | 378 | 348.8 | 378 |
+| byte cmp (end-to-end: decode + sort) | 570 | 231.2 | 571 |
+
+## clickbench_url
+
+| Method | Time (ms) | MB/s (raw) | ns/row |
+|---|---:|---:|---:|
+| compare_fused (tokens) | 737 | 114.6 | 737 |
+| byte cmp (sort only, pre-decoded) | 384 | 219.9 | 384 |
+| byte cmp (end-to-end: decode + sort) | 446 | 189.3 | 446 |
+

@@ -21,6 +21,7 @@ clap = { workspace = true }
 fsst-rs = { workspace = true }
 onpair-lib = { path = "../../encodings/onpair-rs" }
 parquet = { workspace = true }
+rand = { workspace = true }
 reqwest = { workspace = true }
 tpchgen = { workspace = true }
 tpchgen-arrow = { workspace = true }

@@ -5739,6 +5739,7 @@ dependencies = [
  "fsst-rs",
  "onpair-lib",
  "parquet",
+ "rand 0.10.1",
  "reqwest 0.13.3",
  "tpchgen",
  "tpchgen-arrow",

@@ -118,14 +118,82 @@ first few rows. 1024 also matches Vortex/fastlanes natural chunk granularity.
   need a real implementation, vectorised decode, and integration with
   Vortex's `LayoutReader` before it can be deployed.
 
+## Sort throughput: `compare_fused` vs byte-compare
+
+Run: `cargo run --release -p onpair-bench -- sort_bench all 1000000`.
+
+Comparator correctness is asserted in code — all three sort methods produce
+the same permutation. The algorithm and its boundary case are also covered
+by `compare_fused::tests::matches_byte_order_random` (pairwise check
+across 2000 rows).
+
+### Results (1M shuffled rows, then sort)
+
+| Dataset | compare_fused (tokens) | byte cmp (pre-decoded, sort only) | byte cmp (decode + sort) |
+|---|---:|---:|---:|
+| tpch_l_comment | 616 ms (41 MB/s) | **324 ms (78 MB/s)** | 364 ms (69 MB/s) |
+| clickbench_title | 472 ms (280 MB/s) | **384 ms (344 MB/s)** | 579 ms (228 MB/s) |
+| clickbench_url | 690 ms (122 MB/s) | **351 ms (240 MB/s)** | 524 ms (161 MB/s) |
+
+Per-comparison cost (~`N log₂ N` ≈ 20M comparisons):
+
+| Dataset | compare_fused | `<[u8]>::cmp` (libc memcmp) |
+|---|---:|---:|
+| tpch_l_comment | 31 ns | 16 ns |
+| clickbench_title | 24 ns | 19 ns |
+| clickbench_url | 35 ns | 18 ns |
+
+### Honest analysis
+
+**The Phase 1 SIMD u16-skip works as designed, but the algorithm in its
+naive form is consistently ~2× slower per comparison than libc memcmp.**
+The reason is structural to sort workloads:
+
+- **Sort comparisons hit random pairs.** For a Timsort/quicksort comparator,
+  most pairs of rows are *not* sorted neighbours. Their first 1–2 tokens
+  almost always differ. Phase 1 contributes ~0 work; the dispatch to Phase 2
+  fires on essentially every comparison.
+- **Phase 2's per-call overhead is real.** Even one Phase 2 iteration costs:
+  one `dict_offsets[]` indexed load (×2), one slice construction (×2), one
+  generic `<[u8]>::cmp` call which then dispatches to memcmp. That's more
+  startup cost than a single memcmp on the whole row.
+- **libc memcmp is hard to beat on short strings.** It's hand-tuned assembly
+  with branch-free paths for ≤16 bytes.
+
+`compare_fused` only beats the *end-to-end* decode+sort path on
+`clickbench_title` (472 ms vs 579 ms, ~18% win) — and only because Title is
+long enough that decode is itself a meaningful cost. For short
+(`l_comment`) or moderately-long (`url`) data, decoding is cheap, and the
+materialised bytes sort faster than `compare_fused`.
+
+**This is a negative result for the naive implementation, but not for the
+algorithm.** The clear next step is making Phase 2 cheap enough that it
+matches or beats memcmp's per-call overhead. Specifically:
+
+1. **Inline-XOR Phase 2 for ≤16-byte tokens.** OnPair16's tokens fit in
+   `u128`. Load both, XOR, `TZCNT` to find the first differing byte, compare
+   those two bytes. No `<[u8]>::cmp` call, no slice construction, no memcmp
+   dispatch. This is exactly what the OnPair16 paper describes for its
+   internal LPM and is the obvious port.
+2. **Use the existing `dict_table: Vec<u64>` packed offset/length table** in
+   the `onpair-rs` crate (already built by `column::build_dict_table`) so
+   Phase 2 is one indexed load instead of two.
+3. **Specialise the comparator with `BITS` const-generic dispatch** the same
+   way `Column::decode_all_inner` already does, so the inner cursor inlines
+   per bit width.
+
+If those reach `byte cmp (pre-decoded)` parity (~17 ns/cmp), `compare_fused`
+becomes a clear win on **encoded-form storage** because you skip decode
+entirely. That's the experiment to run next.
+
 ## Next experiments
 
-1. **Decode throughput** — measure SIMD-friendly decode of the front-coded
-   token stream vs `zstd_decompress` of an equivalent block.
-2. **Token-OVC comparator** — implement `compare_fused` over `&[u16]` and
-   measure sort throughput against decode-then-byte-compare.
-3. **Block-prefix factoring** — try the two-level layout where a block-wide
-   common prefix is stored once and per-row front-coding only encodes the
-   in-block divergence. Likely small additional win on URL/Title.
+1. **Decode throughput** — SIMD-friendly decode of the front-coded token
+   stream vs `zstd_decompress` of an equivalent block.
+2. **Optimise `compare_fused` Phase 2** with inline-XOR-on-u128 and packed
+   dict table; re-run `sort_bench` to see if it crosses parity with libc
+   memcmp.
+3. **Block-prefix factoring** — two-level layout where a block-wide common
+   prefix is stored once.
 4. **Multi-column shared dict** — share an OnPair dict across columns with
    similar string distributions (e.g., URL + Referer).

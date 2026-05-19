@@ -10,9 +10,11 @@
 //!     onpair-bench clickbench_title [rows]
 //!     onpair-bench all [rows]
 
+mod compare_fused;
 mod datasets;
 mod encoders;
 mod frontcode;
+mod sort_bench;
 
 use std::env;
 use std::fs;
@@ -175,8 +177,87 @@ fn write_markdown(path: &str, sections: &[(String, Vec<Row>)]) -> Result<()> {
     Ok(())
 }
 
+fn run_sort_subcommand(which: &str, max_rows: usize) -> Result<()> {
+    let loaders: Vec<(&str, Box<dyn Fn(usize) -> Result<Vec<Vec<u8>>>>)> = match which {
+        "tpch_l_comment" => vec![(
+            "tpch_l_comment",
+            Box::new(|n| datasets::tpch_l_comment(n, 0)),
+        )],
+        "clickbench_url" => vec![(
+            "clickbench_url",
+            Box::new(|n| datasets::clickbench_column("URL", n, 0)),
+        )],
+        "clickbench_title" => vec![(
+            "clickbench_title",
+            Box::new(|n| datasets::clickbench_column("Title", n, 0)),
+        )],
+        "all" => vec![
+            (
+                "tpch_l_comment",
+                Box::new(|n| datasets::tpch_l_comment(n, 0)),
+            ),
+            (
+                "clickbench_title",
+                Box::new(|n| datasets::clickbench_column("Title", n, 0)),
+            ),
+            (
+                "clickbench_url",
+                Box::new(|n| datasets::clickbench_column("URL", n, 0)),
+            ),
+        ],
+        other => anyhow::bail!("unknown dataset '{other}'"),
+    };
+    let mut sections: Vec<(String, Vec<sort_bench::SortRow>)> = Vec::new();
+    for (name, loader) in loaders {
+        let rows = loader(max_rows)?;
+        let (sec_name, results) = sort_bench::run_sort_bench(name, rows)?;
+        sort_bench::print_sort_table(&sec_name, &results);
+        sections.push((sec_name, results));
+    }
+
+    // Append sort-bench results to results.md
+    let mut s = String::new();
+    s.push_str("\n# sort_bench: compare_fused vs decode-then-byte-compare\n\n");
+    s.push_str(
+        "All three methods sort the same shuffled column and produce the same \
+         permutation (asserted in code). Method 1 sorts u16 token sequences via \
+         `compare_fused`. Method 2 sorts the pre-decoded `Vec<Vec<u8>>` directly \
+         (best case for the byte-compare baseline — decode cost is not charged). \
+         Method 3 decodes from the OnPair-encoded column and then sorts (realistic \
+         end-to-end cost when your storage form is encoded).\n\n",
+    );
+    for (name, rs) in &sections {
+        s.push_str(&format!("## {name}\n\n"));
+        s.push_str("| Method | Time (ms) | MB/s (raw) | ns/row |\n");
+        s.push_str("|---|---:|---:|---:|\n");
+        for r in rs {
+            s.push_str(&format!(
+                "| {} | {} | {:.1} | {:.0} |\n",
+                r.method, r.elapsed_ms, r.mb_per_s, r.ns_per_row
+            ));
+        }
+        s.push('\n');
+    }
+    use std::io::Write;
+    let mut f = fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open("experiments/onpair-bench/results.md")?;
+    f.write_all(s.as_bytes())?;
+    Ok(())
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
+    if args.get(1).map(|s| s.as_str()) == Some("sort_bench") {
+        let which = args.get(2).map(|s| s.as_str()).unwrap_or("all");
+        let max_rows: usize = args
+            .get(3)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(500_000);
+        return run_sort_subcommand(which, max_rows);
+    }
+
     let which = args.get(1).map(|s| s.as_str()).unwrap_or("all");
     let max_rows: usize = args
         .get(2)
