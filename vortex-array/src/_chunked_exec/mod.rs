@@ -35,6 +35,7 @@
 
 pub mod listview;
 pub mod primitive;
+pub mod sink;
 
 mod scratch;
 

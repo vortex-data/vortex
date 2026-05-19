@@ -57,3 +57,7 @@ harness = false
 [[bench]]
 name = "chunked_exec"
 harness = false
+
+[[bench]]
+name = "chunked_sinks"
+harness = false
