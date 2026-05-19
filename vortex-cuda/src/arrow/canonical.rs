@@ -163,8 +163,8 @@ fn export_canonical(
                     length: len as i64,
                     null_count: 0,
                     offset: 0,
-                    // 1 (optional) buffer for nulls, one buffer for the data
-                    n_buffers: 2,
+                    // Arrow Utf8/Binary layout: optional null bitmap, offsets, and data bytes.
+                    n_buffers: 3,
                     buffers: private_data.buffer_ptrs.as_mut_ptr(),
                     n_children: 0,
                     children: ptr::null_mut(),
@@ -278,6 +278,7 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
 
 #[cfg(test)]
 mod tests {
+    use cudarc::driver::sys;
     use rstest::rstest;
     use vortex::array::ArrayRef;
     use vortex::array::IntoArray;
@@ -405,7 +406,16 @@ mod tests {
         assert_eq!(device_array.array.length, 3);
         assert_eq!(device_array.array.null_count, 0);
         // VarBin export: null buffer + offsets + data
-        assert_eq!(device_array.array.n_buffers, 2);
+        assert_eq!(device_array.array.n_buffers, 3);
+        let buffers = unsafe {
+            std::slice::from_raw_parts(
+                device_array.array.buffers,
+                device_array.array.n_buffers as usize,
+            )
+        };
+        assert_eq!(buffers[0], sys::CUdeviceptr::default());
+        assert_ne!(buffers[1], sys::CUdeviceptr::default());
+        assert_ne!(buffers[2], sys::CUdeviceptr::default());
         assert_eq!(device_array.array.n_children, 0);
         assert!(device_array.array.release.is_some());
         assert!(matches!(device_array.device_type, DeviceType::Cuda));
