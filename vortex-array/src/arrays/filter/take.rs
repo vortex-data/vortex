@@ -17,7 +17,6 @@ use self::fixed_width::take_primitive;
 use self::rank::contiguous_sequential_take_range_indices;
 use self::rank::sequential_take_len;
 use self::rank::translate_indices;
-use self::rank::translate_nullable_indices;
 use super::Filter;
 use crate::ArrayRef;
 use crate::Canonical;
@@ -78,7 +77,7 @@ fn take_impl(
                 return array.child().filter(mask);
             }
 
-            let translated = translate_indices(array.filter_mask(), indices)?;
+            let translated = translate_indices(array.filter_mask(), indices, None)?;
             let translated_indices =
                 PrimitiveArray::new(translated, indices.validity()?).into_array();
 
@@ -89,8 +88,8 @@ fn take_impl(
             indices.len(),
         )
         .into_array()),
-        AllOr::Some(b) => {
-            let translated = translate_nullable_indices(array.filter_mask(), indices, b)?;
+        AllOr::Some(buf) => {
+            let translated = translate_indices(array.filter_mask(), indices, Some(buf))?;
             let translated_indices =
                 PrimitiveArray::new(translated, indices.validity()?).into_array();
 
