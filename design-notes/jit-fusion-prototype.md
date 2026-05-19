@@ -489,7 +489,7 @@ use vortex_jit::{JitKernels, JitConfig};
 #[global_allocator]
 static ALLOC: MiMalloc = MiMalloc;
 
-const NUM_VALUES: usize = 1 << 20;            // 1M rows
+const NUM_VALUES: usize = 65_536;             // 64 fastlanes blocks; 512 KiB f64 -> L2-resident
 const BIT_WIDTHS: &[u8] = &[3, 7, 11, 17];    // const param sweep
 const EXCEPTION_DENSITY: &[f64] = &[0.0, 0.01, 0.05];
 
@@ -1393,6 +1393,105 @@ store.i32x8 v_zigzag, ...                         ; from StoreOut
 Same code a human would write if hand-fusing Zigzag+FoR+BitPacked,
 generated mechanically because each stage's `take_input`/`put_output` is
 the IR-level form of HyPer's produce/consume.
+
+---
+
+## 13. Chunks vs produce/consume, and runtime estimates at 65k
+
+### Two authoring APIs, identical IR
+
+| | Approach A: chunks | Approach B: produce/consume |
+|--|-------------------|-----------------------------|
+| Stage sees | `LaneSlice<T>` = Vec of SSA Values for one block | One chunk at a time, via continuation callback |
+| Granularity | 1024-lane block (fat) | 8/16-lane SIMD chunk (thin) |
+| Multi-input | Trivial — take multiple Vecs | "Pipeline breaker" — must materialize one |
+| `dyn Trait` | Works directly | Continuation types fight trait objects |
+| Unit test | Hand-build stub Vec, call emit, inspect output | Need a mock producer to fire callbacks |
+| IR after Cranelift inlining | Identical | Identical |
+
+**Recommendation: Approach A**, with `cx.lane_loop(\|cx, i\| ...)` as the
+escape hatch when a stage genuinely wants a runtime loop.
+
+The HyPer "no memory between stages" property is preserved either way: a
+`Vec<Value>` held during codegen is a list of SSA Value references in
+*compiler* memory, never in the emitted program's memory. The only loads
+and stores in the emitted code are at the leaves (BitPacked reading
+packed bytes) and the terminal (`StoreOut` writing canonical output).
+Everything in between is register-resident SSA.
+
+Approach A wins for Vortex specifically because:
+
+1. Multi-input encodings (Dict, DateTimeParts, Sparse) break B — HyPer
+   itself materializes at multi-input boundaries.
+2. B's `for<'a> FnMut(&mut EmitCtx<'a>, Value)` continuations don't
+   compose with `dyn JitStage`; §9 extensibility collapses.
+3. A unit-tests trivially with a hand-built `Vec<Value>` stub; B needs
+   a mock producer.
+4. A's 1024-lane granularity matches fastlanes' existing
+   `UnpackStrategy::unpack_chunk` ABI — it's what's already there, lifted
+   to IR.
+
+### Runtime estimates at 65k
+
+All numbers below are first-principles estimates for a modern x86 core
+(AVX-512, DDR5), 65,536-element f64 column, chain
+`ALP(e=10,f=2) → FoR(ref=42) → Delta → BitPacked(W=11)`.
+**Not measured. The §7 bench is the only honest way to confirm.** Public
+fastlanes throughput numbers used as anchors.
+
+**Sizing.** Output 512 KiB → L2-resident, not L1. Compressed payload at
+W=11 ≈ 88 KiB → fits in L1. This is an L2-write-bandwidth workload, not
+a DRAM-bandwidth one.
+
+| Config | Per-call | Notes |
+|--------|----------|-------|
+| Current Vortex, full chain | 150–300 μs | 4 passes through L2; ALP scalar loop alone is ~175 μs |
+| Current Vortex, FoR+BP only (existing fusion) | 30–50 μs | One fused pass — the partial fusion that exists today |
+| AOT hand-tuned (ceiling) | 30–50 μs | All 4 layers fused, intrinsics, no temps; Delta prefix-sum bottleneck |
+| **JIT warm** (cache hit) | 35–60 μs | 80–90% of AOT; gap is Cranelift's weaker peephole |
+| **JIT cold** (first call) | 1–3 ms | Cranelift compile dominates; per-call cost = warm |
+
+**Where the wins come from.** Two effects stack:
+
+- **ALP vectorization (~5–7×).** Current scalar
+  `iter_mut().for_each(decode_single)` doesn't autovectorize because the
+  function-call shape blocks LLVM. JIT emits `vcvtdq2pd` + `vmulpd`
+  directly. This is the *biggest single win*, and it's not really about
+  fusion — it's about the JIT not having to fight LLVM's vectorizer.
+- **Fusion (~3× across 3 eliminated passes).** Each intermediate buffer
+  pass costs ~30 μs at L2 write bandwidth. Current chain has 3 such
+  passes; JIT/AOT have 0.
+
+**Bottleneck shifts by config:**
+
+- Current Vortex full chain → ALP scalar loop
+  (`encodings/alp/src/alp/mod.rs:253-261`).
+- AOT / JIT → Delta's 16-way per-lane prefix-sum carry chain.
+- Memory passes → L2 write bandwidth.
+
+### Amortization at this size
+
+Per-call savings (JIT warm vs current full chain): **~150 μs**.
+Cranelift compile cost: **~2 ms** for a 4-stage chain.
+
+**Break-even: ~13 calls of the same chain.**
+
+Single 65k array used once → JIT loses. Same chain used across a parquet
+column-set (e.g., 200 columns at the same encoding shape) → JIT wins
+trivially. Cost-model gate (§6 item 4) needs both `chain_length >= 2`
+*and* either `n_blocks × stage_count > threshold` or
+`prior_uses_of_chain >= 1` (the cache-hit case).
+
+### Why 65k as the bench size
+
+- 64 fastlanes blocks — large enough to exercise the block loop but
+  small enough that one block isn't the entire run.
+- 512 KiB f64 output — L2-resident, isolates compute cost from DRAM
+  bandwidth.
+- Compile-amortization is *borderline* here, which makes the cold/warm
+  spread visible in the bench. 1M would hide compile cost; 1k would
+  hide steady-state cost.
+- Matches a realistic per-column working set for analytic queries.
 
 ---
 
