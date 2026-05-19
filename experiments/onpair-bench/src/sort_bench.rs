@@ -11,6 +11,8 @@ use rand::seq::SliceRandom;
 
 use crate::compare_fused::build_dict_table;
 use crate::compare_fused::build_row_prefix;
+use crate::compare_fused::build_row_prefix16;
+use crate::compare_fused::build_row_prefix32;
 use crate::compare_fused::build_token_prefix;
 use crate::compare_fused::compare_fused;
 use crate::compare_fused::compare_fused_v2;
@@ -129,6 +131,104 @@ pub fn run_sort_bench_with(
             ns_per_row: elapsed.as_nanos() as f64 / n as f64,
         });
         reference = Some(indices);
+    }
+
+    // ── Method 0: two-pass radix-then-refine on (u64_prefix, u128_prefix) ─
+    // Precompute 16 bytes of decoded row per row, packed into two u64s.
+    // Pass 1: stable integer sort on (k0, k1, idx) tuples — fast.
+    // Pass 2: within runs that tied on both u64s, refine with compare_fused.
+    let row_prefix2 = build_row_prefix16(&token_flat, &token_bd, dict_bytes, dict_table_s);
+    {
+        let mut keys: Vec<(u64, u64, u32)> = (0..n as u32)
+            .map(|i| {
+                let (k0, k1) = row_prefix2[i as usize];
+                (k0, k1, i)
+            })
+            .collect();
+        let t = Instant::now();
+        keys.sort_unstable_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+        // Refine ties.
+        let mut idx = 0usize;
+        while idx < n {
+            let k = (keys[idx].0, keys[idx].1);
+            let mut j = idx + 1;
+            while j < n && (keys[j].0, keys[j].1) == k {
+                j += 1;
+            }
+            if j - idx > 1 {
+                keys[idx..j].sort_unstable_by(|&(_, _, ia), &(_, _, ib)| {
+                    let a = slice_at(&token_flat, &token_bd, ia as usize);
+                    let b = slice_at(&token_flat, &token_bd, ib as usize);
+                    compare_fused(a, b, dict_bytes, dict_table_s)
+                });
+            }
+            idx = j;
+        }
+        let elapsed = t.elapsed();
+        let indices: Vec<u32> = keys.into_iter().map(|(_, _, i)| i).collect();
+        results.push(SortRow {
+            method: "two-pass: u128 key sort + refine ties".into(),
+            elapsed_ms: elapsed.as_millis(),
+            mb_per_s: (raw_bytes as f64 / 1024.0 / 1024.0) / elapsed.as_secs_f64(),
+            ns_per_row: elapsed.as_nanos() as f64 / n as f64,
+        });
+        if let Some(ref r) = reference {
+            for k in 0..n {
+                let ra = slice_at(&token_flat, &token_bd, r[k] as usize);
+                let rb = slice_at(&token_flat, &token_bd, indices[k] as usize);
+                if ra != rb {
+                    let ba = slice_at(&byte_flat, &byte_bd, r[k] as usize);
+                    let bb = slice_at(&byte_flat, &byte_bd, indices[k] as usize);
+                    assert_eq!(ba, bb, "two-pass order ≠ v1 order at k={k}");
+                }
+            }
+        }
+    }
+
+    // ── Method 0b: two-pass with 32-byte key (helps URL-like data) ──────
+    let row_prefix4 = build_row_prefix32(&token_flat, &token_bd, dict_bytes, dict_table_s);
+    {
+        // Sort key is [u64; 4] + idx. Tuple sort.
+        let mut keys: Vec<([u64; 4], u32)> = (0..n as u32)
+            .map(|i| (row_prefix4[i as usize], i))
+            .collect();
+        let t = Instant::now();
+        keys.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        let mut idx = 0usize;
+        while idx < n {
+            let k = keys[idx].0;
+            let mut j = idx + 1;
+            while j < n && keys[j].0 == k {
+                j += 1;
+            }
+            if j - idx > 1 {
+                keys[idx..j].sort_unstable_by(|&(_, ia), &(_, ib)| {
+                    let a = slice_at(&token_flat, &token_bd, ia as usize);
+                    let b = slice_at(&token_flat, &token_bd, ib as usize);
+                    compare_fused(a, b, dict_bytes, dict_table_s)
+                });
+            }
+            idx = j;
+        }
+        let elapsed = t.elapsed();
+        let indices: Vec<u32> = keys.into_iter().map(|(_, i)| i).collect();
+        results.push(SortRow {
+            method: "two-pass: 32B key sort + refine ties".into(),
+            elapsed_ms: elapsed.as_millis(),
+            mb_per_s: (raw_bytes as f64 / 1024.0 / 1024.0) / elapsed.as_secs_f64(),
+            ns_per_row: elapsed.as_nanos() as f64 / n as f64,
+        });
+        if let Some(ref r) = reference {
+            for k in 0..n {
+                let ra = slice_at(&token_flat, &token_bd, r[k] as usize);
+                let rb = slice_at(&token_flat, &token_bd, indices[k] as usize);
+                if ra != rb {
+                    let ba = slice_at(&byte_flat, &byte_bd, r[k] as usize);
+                    let bb = slice_at(&byte_flat, &byte_bd, indices[k] as usize);
+                    assert_eq!(ba, bb, "two-pass-32 order ≠ v1 order at k={k}");
+                }
+            }
+        }
     }
 
     // ── Method 1c: compare_fused v3 (precomputed row prefix) ────────────

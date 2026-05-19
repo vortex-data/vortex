@@ -130,6 +130,76 @@ pub fn build_row_prefix(
     out
 }
 
+/// Precompute the first 16 decoded bytes of each row as `(u64, u64)`
+/// BE-packed. Used for two-pass sort: integer-sort by `(u64, u64)` (very
+/// fast), then refine the rare runs of equal-prefix rows with the full
+/// `compare_fused`.
+pub fn build_row_prefix16(
+    token_flat: &[u16],
+    token_bd: &[u32],
+    dict_bytes: &[u8],
+    dict_table: &[u64],
+) -> Vec<(u64, u64)> {
+    let n = token_bd.len() - 1;
+    let mut out = Vec::with_capacity(n);
+    for r in 0..n {
+        let toks = &token_flat[token_bd[r] as usize..token_bd[r + 1] as usize];
+        let mut buf = [0u8; 16];
+        let mut filled = 0usize;
+        for &tok in toks {
+            if filled == 16 {
+                break;
+            }
+            let entry = dict_table[tok as usize];
+            let off = (entry >> 16) as usize;
+            let len = (entry & 0xffff) as usize;
+            let take = (16 - filled).min(len);
+            buf[filled..filled + take].copy_from_slice(&dict_bytes[off..off + take]);
+            filled += take;
+        }
+        let k0 = u64::from_be_bytes(buf[0..8].try_into().unwrap());
+        let k1 = u64::from_be_bytes(buf[8..16].try_into().unwrap());
+        out.push((k0, k1));
+    }
+    out
+}
+
+/// Precompute the first 32 decoded bytes of each row as `[u64; 4]`
+/// BE-packed. Larger key for two-pass sort on data with long shared
+/// prefixes (e.g., URL columns).
+pub fn build_row_prefix32(
+    token_flat: &[u16],
+    token_bd: &[u32],
+    dict_bytes: &[u8],
+    dict_table: &[u64],
+) -> Vec<[u64; 4]> {
+    let n = token_bd.len() - 1;
+    let mut out = Vec::with_capacity(n);
+    for r in 0..n {
+        let toks = &token_flat[token_bd[r] as usize..token_bd[r + 1] as usize];
+        let mut buf = [0u8; 32];
+        let mut filled = 0usize;
+        for &tok in toks {
+            if filled == 32 {
+                break;
+            }
+            let entry = dict_table[tok as usize];
+            let off = (entry >> 16) as usize;
+            let len = (entry & 0xffff) as usize;
+            let take = (32 - filled).min(len);
+            buf[filled..filled + take].copy_from_slice(&dict_bytes[off..off + take]);
+            filled += take;
+        }
+        out.push([
+            u64::from_be_bytes(buf[0..8].try_into().unwrap()),
+            u64::from_be_bytes(buf[8..16].try_into().unwrap()),
+            u64::from_be_bytes(buf[16..24].try_into().unwrap()),
+            u64::from_be_bytes(buf[24..32].try_into().unwrap()),
+        ]);
+    }
+    out
+}
+
 /// V3: Use a precomputed row-prefix u64 to resolve random-pair comparisons
 /// without touching the dict at all. Falls to v1 for the rare tie case.
 #[inline]

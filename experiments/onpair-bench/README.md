@@ -206,6 +206,53 @@ memcmp wins.
   both compare_fused and byte cmp equally — better cache locality, no
   per-row allocation.
 
+### Big win: two-pass sort with integer-key prefix
+
+The naive `sort_by(compare_fused)` is structurally bounded by per-call
+dispatch overhead. The breakthrough is changing the *sort structure*:
+precompute a fixed-width byte prefix per row, integer-sort by that prefix
+(pdqsort goes flat-out on `(u64, ...)` tuples), then refine only the rare
+runs of equal-prefix rows with the full `compare_fused`.
+
+| Variant | Key per row | When it wins |
+|---|---|---|
+| `two-pass: u128 key sort + refine ties` | 16 B | l_comment, Title |
+| `two-pass: 32B key sort + refine ties` | 32 B | l_comment, Title, closes URL gap |
+
+Numbers (1M rows, ms — same harness as above):
+
+**Shuffled:**
+
+| Dataset | best compare_fused | 16B two-pass | **32B two-pass** | byte cmp (pre-dec) |
+|---|---:|---:|---:|---:|
+| tpch_l_comment | 448 (v3) | 146 | **108** | 290 |
+| clickbench_title | 368 (v2) | 295 | **239** | 363 |
+| clickbench_url | 535 (v1) | 486 | 440 | **370** |
+
+**Almost-sorted:**
+
+| Dataset | best compare_fused | 16B two-pass | **32B two-pass** | byte cmp (pre-dec) |
+|---|---:|---:|---:|---:|
+| tpch_l_comment | 224 (v3) | 92 | 97 | 186 |
+| clickbench_title | 151 (v3) | 117 | **106** | 148 |
+| clickbench_url | 230 (v2) | 207 | 191 | **173** |
+
+The 32B two-pass is:
+- **2.7× faster** than byte cmp on l_comment shuffled
+- **1.5× faster** than byte cmp on Title shuffled
+- ~1.4× faster than byte cmp on l_comment almost-sorted
+- Within ~15% of byte cmp on URL (loses; first 32 B insufficient
+  to discriminate URLs that share long domain+path prefixes)
+
+A 64- or 128-byte key would close the URL gap further, at proportional
+memory cost (1 M rows × 64 B = 64 MiB key data vs 32 MiB at 32 B).
+
+The reason it works: pdqsort on `(u64, u64, u64, u64, u32)` tuples is
+essentially memory-bandwidth-bound (~250 ns/row at 1 M elements), no
+dict access, no slice cmp dispatch. Refinement only runs on the small
+fraction of rows that tied — for l_comment and Title most rows differ
+within 32 bytes, so refinement is near-zero work.
+
 ### Honest takeaway
 
 `compare_fused` is **not a universal sort accelerator** in this naive
@@ -232,10 +279,14 @@ Where it does not help today:
 
 1. **Decode throughput** — SIMD-friendly decode of the front-coded token
    stream vs `zstd_decompress` of an equivalent block.
-2. **Optimise `compare_fused` Phase 2** with inline-XOR-on-u128 and packed
-   dict table; re-run `sort_bench` to see if it crosses parity with libc
-   memcmp.
-3. **Block-prefix factoring** — two-level layout where a block-wide common
+2. **Adaptive two-pass key length** — start with 16 B, extend the key
+   *only for tied groups* that are above a size threshold. Should match
+   32-B two-pass on URL while keeping memory low for diverse data.
+3. **Radix sort the integer key** — `pdqsort` on `(u64, u64, u64, u64,
+   u32)` tuples is already fast (~250 ns/row), but MSD radix sort would
+   likely push it to ~80-100 ns/row for the same key size. Marginal win
+   on top of two-pass.
+4. **Block-prefix factoring** — two-level layout where a block-wide common
    prefix is stored once.
-4. **Multi-column shared dict** — share an OnPair dict across columns with
+5. **Multi-column shared dict** — share an OnPair dict across columns with
    similar string distributions (e.g., URL + Referer).
