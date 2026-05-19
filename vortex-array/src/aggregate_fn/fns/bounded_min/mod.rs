@@ -17,8 +17,11 @@ use crate::Columnar;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::aggregate_fn::AggregateFnId;
+use crate::aggregate_fn::AggregateFnRef;
+use crate::aggregate_fn::AggregateFnSatisfaction;
 use crate::aggregate_fn::AggregateFnVTable;
 use crate::aggregate_fn::EmptyOptions;
+use crate::aggregate_fn::fns::min::Min;
 use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::min_max::min_max;
 use crate::dtype::DType;
@@ -101,6 +104,25 @@ impl AggregateFnVTable for BoundedMin {
 
     fn return_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
         supported_dtype(options, input_dtype).map(DType::as_nullable)
+    }
+
+    fn can_satisfy(
+        &self,
+        options: &Self::Options,
+        requested: &AggregateFnRef,
+    ) -> AggregateFnSatisfaction {
+        if requested
+            .as_opt::<Self>()
+            .is_some_and(|other| other == options)
+        {
+            return AggregateFnSatisfaction::Exact;
+        }
+
+        if requested.is::<Self>() || requested.is::<Min>() {
+            AggregateFnSatisfaction::Approximate
+        } else {
+            AggregateFnSatisfaction::No
+        }
     }
 
     fn partial_dtype(&self, options: &Self::Options, input_dtype: &DType) -> Option<DType> {
@@ -206,10 +228,15 @@ mod tests {
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
     use crate::aggregate_fn::Accumulator;
+    use crate::aggregate_fn::AggregateFnSatisfaction;
     use crate::aggregate_fn::AggregateFnVTable;
+    use crate::aggregate_fn::AggregateFnVTableExt;
     use crate::aggregate_fn::DynAccumulator;
+    use crate::aggregate_fn::EmptyOptions;
     use crate::aggregate_fn::fns::bounded_min::BoundedMin;
     use crate::aggregate_fn::fns::bounded_min::BoundedMinOptions;
+    use crate::aggregate_fn::fns::max::Max;
+    use crate::aggregate_fn::fns::min::Min;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinViewArray;
     use crate::dtype::Nullability;
@@ -261,6 +288,33 @@ mod tests {
             Scalar::primitive(5i32, Nullability::Nullable)
         );
         Ok(())
+    }
+
+    #[test]
+    fn bounded_min_satisfies_min_bounds() {
+        let stored = BoundedMin.bind(BoundedMinOptions {
+            max_bytes: max_bytes(5),
+        });
+        let same = BoundedMin.bind(BoundedMinOptions {
+            max_bytes: max_bytes(5),
+        });
+        let other_bounded = BoundedMin.bind(BoundedMinOptions {
+            max_bytes: max_bytes(6),
+        });
+
+        assert_eq!(stored.can_satisfy(&same), AggregateFnSatisfaction::Exact);
+        assert_eq!(
+            stored.can_satisfy(&other_bounded),
+            AggregateFnSatisfaction::Approximate
+        );
+        assert_eq!(
+            stored.can_satisfy(&Min.bind(EmptyOptions)),
+            AggregateFnSatisfaction::Approximate
+        );
+        assert_eq!(
+            stored.can_satisfy(&Max.bind(EmptyOptions)),
+            AggregateFnSatisfaction::No
+        );
     }
 
     #[test]
