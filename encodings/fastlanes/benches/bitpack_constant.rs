@@ -300,6 +300,23 @@ fn validate_eq_strategies() {
                     let bit = (hand_v5[i / 64] >> (i % 64)) & 1 != 0;
                     assert_eq!(bit, expected[i], "avx512_v5 mismatch at i={i}, W={W}");
                 }
+            }
+
+            // AVX2 path (separate feature gate so it runs on more CPUs).
+            #[cfg(target_arch = "x86_64")]
+            if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("bmi2") {
+                let mut hand_av2 = vec![0u64; 16];
+                unsafe {
+                    block_eq_batch_avx2_v4_u32::<W, B>(
+                        std::slice::from_ref(&packed),
+                        &const_rows,
+                        &mut hand_av2,
+                    )
+                };
+                for i in 0..1024 {
+                    let bit = (hand_av2[i / 64] >> (i % 64)) & 1 != 0;
+                    assert_eq!(bit, expected[i], "avx2_v4 mismatch at i={i}, W={W}");
+                }
 
                 let mut hand_un = vec![0u64; 16];
                 unsafe {
@@ -332,11 +349,18 @@ fn validate_eq_strategies() {
 
     check_eq!(1);
     check_eq!(2);
+    check_eq!(3);
     check_eq!(4);
+    check_eq!(5);
+    check_eq!(7);
     check_eq!(8);
+    check_eq!(11);
     check_eq!(12);
     check_eq!(16);
+    check_eq!(17);
+    check_eq!(23);
     check_eq!(24);
+    check_eq!(29);
 }
 
 // Number of 1024-element FastLanes blocks per benchmark iteration. 64 blocks ~= 64Ki
@@ -637,10 +661,12 @@ fn block_eq_collect_u64<const W: usize, const B: usize>(
 
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64::{
-    __m128i, __m512i, _kand_mask16, _mm512_and_si512, _mm512_cmpeq_epu32_mask,
-    _mm512_loadu_si512, _mm512_or_si512, _mm512_set1_epi32, _mm512_setzero_si512,
-    _mm512_sll_epi32, _mm512_srl_epi32, _mm512_ternarylogic_epi32, _mm512_testn_epi32_mask,
-    _mm512_xor_si512, _mm_cvtsi32_si128,
+    __m128i, __m256i, __m512i, _kand_mask16, _mm256_and_si256, _mm256_castsi256_ps,
+    _mm256_cmpeq_epi32, _mm256_loadu_si256, _mm256_movemask_ps, _mm256_or_si256,
+    _mm256_set1_epi32, _mm256_setzero_si256, _mm256_xor_si256, _mm512_and_si512,
+    _mm512_cmpeq_epu32_mask, _mm512_loadu_si512, _mm512_or_si512, _mm512_set1_epi32,
+    _mm512_setzero_si512, _mm512_sll_epi32, _mm512_srl_epi32, _mm512_ternarylogic_epi32,
+    _mm512_testn_epi32_mask, _mm512_xor_si512, _mm_cvtsi32_si128,
 };
 
 /// Hand-rolled AVX-512 row mask: load 32 packed u32 lanes as two `__m512i`,
@@ -957,6 +983,126 @@ unsafe fn block_eq_batch_avx512_v3<const W: usize, const B: usize>(
                     let m0 = _kand_mask16(m_h0, m_l0) as u32;
                     let m1 = _kand_mask16(m_h1, m_l1) as u32;
                     m0 | (m1 << 16)
+                };
+                row_masks[row] = m;
+            }
+            let chunk = &mut out[b_idx * 16..b_idx * 16 + 16];
+            for u in 0..16 {
+                let lo = row_masks[ROW_FOR_K_U32[2 * u]] as u64;
+                let hi = row_masks[ROW_FOR_K_U32[2 * u + 1]] as u64;
+                chunk[u] = lo | (hi << 32);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AVX2 hand-rolled splat-cmp (no AVX-512, no vpternlogd, no kregs).
+//
+// 256-bit ymm with 8 u32 lanes per chunk; 4 chunks per 32-lane row.
+// Bit extraction via vpcmpeqd + vpmovmskps per 8-lane chunk (8 bits each).
+// ---------------------------------------------------------------------------
+
+/// AVX2 batched eq using splat-cmp algorithm.
+///
+/// # Safety
+/// AVX2 target feature required.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,bmi2")]
+#[inline]
+unsafe fn block_eq_batch_avx2_v4_u32<const W: usize, const B: usize>(
+    blocks: &[[u32; B]],
+    const_rows: &[u32; 32],
+    out: &mut [u64],
+) {
+    const T: usize = 32;
+    const LANES: usize = 32;
+    debug_assert_eq!(out.len(), 16 * blocks.len());
+
+    // SAFETY: feature-gated.
+    unsafe {
+        let elem_mask: u32 = if W == 32 { u32::MAX } else { (1u32 << W) - 1 };
+
+        // Pre-broadcast W const_row values + per-row masks.
+        let zero = _mm256_setzero_si256();
+        let mut const_v: [__m256i; 32] = [zero; 32];
+        for i in 0..W {
+            const_v[i] = _mm256_set1_epi32(const_rows[i] as i32);
+        }
+        let mut window_v: [__m256i; 32] = [zero; 32];
+        let mut hi_v: [__m256i; 32] = [zero; 32];
+        let mut lo_v: [__m256i; 32] = [zero; 32];
+        let mut spans = [false; 32];
+        for row in 0..T {
+            let shift = (row * W) % T;
+            let span = shift + W > T;
+            spans[row] = span;
+            if !span {
+                window_v[row] = _mm256_set1_epi32((elem_mask << shift) as i32);
+            } else {
+                let current_bits = T - shift;
+                let remaining_bits = W - current_bits;
+                hi_v[row] = _mm256_set1_epi32((u32::MAX << shift) as i32);
+                lo_v[row] = _mm256_set1_epi32(((1u32 << remaining_bits) - 1) as i32);
+            }
+        }
+
+        for (b_idx, blk) in blocks.iter().enumerate() {
+            let mut row_masks = [0u32; 32];
+            for row in 0..T {
+                let curr_word = (row * W) / T;
+                let base = blk.as_ptr().wrapping_add(LANES * curr_word);
+                let c_cw = const_v[curr_word];
+
+                // 4 chunks of 8 lanes via 256-bit ymm.
+                let m: u32 = if !spans[row] {
+                    let w = window_v[row];
+                    let v0 = _mm256_loadu_si256(base as *const __m256i);
+                    let v1 = _mm256_loadu_si256(base.add(8) as *const __m256i);
+                    let v2 = _mm256_loadu_si256(base.add(16) as *const __m256i);
+                    let v3 = _mm256_loadu_si256(base.add(24) as *const __m256i);
+                    let z0 = _mm256_and_si256(_mm256_xor_si256(v0, c_cw), w);
+                    let z1 = _mm256_and_si256(_mm256_xor_si256(v1, c_cw), w);
+                    let z2 = _mm256_and_si256(_mm256_xor_si256(v2, c_cw), w);
+                    let z3 = _mm256_and_si256(_mm256_xor_si256(v3, c_cw), w);
+                    let zv = _mm256_setzero_si256();
+                    let m0 = _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(z0, zv))) as u32 & 0xFF;
+                    let m1 = _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(z1, zv))) as u32 & 0xFF;
+                    let m2 = _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(z2, zv))) as u32 & 0xFF;
+                    let m3 = _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(z3, zv))) as u32 & 0xFF;
+                    m0 | (m1 << 8) | (m2 << 16) | (m3 << 24)
+                } else {
+                    let next_word = curr_word + 1;
+                    let c_nw = const_v[next_word];
+                    let hi = hi_v[row];
+                    let lo = lo_v[row];
+                    let nw = blk.as_ptr().wrapping_add(LANES * next_word);
+                    let v0 = _mm256_loadu_si256(base as *const __m256i);
+                    let v1 = _mm256_loadu_si256(base.add(8) as *const __m256i);
+                    let v2 = _mm256_loadu_si256(base.add(16) as *const __m256i);
+                    let v3 = _mm256_loadu_si256(base.add(24) as *const __m256i);
+                    let n0 = _mm256_loadu_si256(nw as *const __m256i);
+                    let n1 = _mm256_loadu_si256(nw.add(8) as *const __m256i);
+                    let n2 = _mm256_loadu_si256(nw.add(16) as *const __m256i);
+                    let n3 = _mm256_loadu_si256(nw.add(24) as *const __m256i);
+                    let h0 = _mm256_and_si256(_mm256_xor_si256(v0, c_cw), hi);
+                    let h1 = _mm256_and_si256(_mm256_xor_si256(v1, c_cw), hi);
+                    let h2 = _mm256_and_si256(_mm256_xor_si256(v2, c_cw), hi);
+                    let h3 = _mm256_and_si256(_mm256_xor_si256(v3, c_cw), hi);
+                    let l0 = _mm256_and_si256(_mm256_xor_si256(n0, c_nw), lo);
+                    let l1 = _mm256_and_si256(_mm256_xor_si256(n1, c_nw), lo);
+                    let l2 = _mm256_and_si256(_mm256_xor_si256(n2, c_nw), lo);
+                    let l3 = _mm256_and_si256(_mm256_xor_si256(n3, c_nw), lo);
+                    let z0 = _mm256_or_si256(h0, l0);
+                    let z1 = _mm256_or_si256(h1, l1);
+                    let z2 = _mm256_or_si256(h2, l2);
+                    let z3 = _mm256_or_si256(h3, l3);
+                    let zv = _mm256_setzero_si256();
+                    let m0 = _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(z0, zv))) as u32 & 0xFF;
+                    let m1 = _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(z1, zv))) as u32 & 0xFF;
+                    let m2 = _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(z2, zv))) as u32 & 0xFF;
+                    let m3 = _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(z3, zv))) as u32 & 0xFF;
+                    m0 | (m1 << 8) | (m2 << 16) | (m3 << 24)
                 };
                 row_masks[row] = m;
             }
@@ -1727,6 +1873,36 @@ macro_rules! u32_eq_benches {
                 }
             }
 
+            // AVX2 v4 (u32): same algorithm as v4 but with 256-bit ymm,
+            // vpxor + vpand (no vpternlogd), and movemask_ps for bit extraction.
+            #[divan::bench]
+            fn [<$prefix _block_batch_avx2_v4_w $W>](bencher: Bencher) {
+                #[cfg(not(target_arch = "x86_64"))]
+                {
+                    return;
+                }
+                #[cfg(target_arch = "x86_64")]
+                {
+                    if !is_x86_feature_detected!("avx2") || !is_x86_feature_detected!("bmi2") {
+                        return;
+                    }
+                    const W: usize = $W;
+                    const B: usize = 32 * W;
+                    let value: u32 = ((1u64 << W) - 1) as u32;
+                    let blocks = make_constant_packed_blocks::<W, B>(value);
+                    let const_rows = const_row_words_u32::<W>(value);
+                    let mut out: Vec<u64> = vec![0u64; 16 * EQ_BLOCKS];
+
+                    bencher
+                        .counter(ItemsCount::new(1024usize * EQ_BLOCKS))
+                        .bench_local(|| {
+                            // SAFETY: feature-gated above.
+                            unsafe { block_eq_batch_avx2_v4_u32::<W, B>(&blocks, &const_rows, &mut out) };
+                            black_box(&mut out);
+                        });
+                }
+            }
+
             // AVX-512 v3: precompute c & w as per-row target, inner loop is
             // load + and + cmpeq(target).
             #[divan::bench]
@@ -2060,8 +2236,15 @@ macro_rules! u32_eq_benches {
 
 u32_eq_benches!(u32_eq => 1);
 u32_eq_benches!(u32_eq => 2);
+u32_eq_benches!(u32_eq => 3);
 u32_eq_benches!(u32_eq => 4);
+u32_eq_benches!(u32_eq => 5);
+u32_eq_benches!(u32_eq => 7);
 u32_eq_benches!(u32_eq => 8);
+u32_eq_benches!(u32_eq => 11);
 u32_eq_benches!(u32_eq => 12);
 u32_eq_benches!(u32_eq => 16);
+u32_eq_benches!(u32_eq => 17);
+u32_eq_benches!(u32_eq => 23);
 u32_eq_benches!(u32_eq => 24);
+u32_eq_benches!(u32_eq => 29);
