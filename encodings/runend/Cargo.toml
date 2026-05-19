@@ -56,3 +56,7 @@ harness = false
 [[bench]]
 name = "dict_runend_compose"
 harness = false
+
+[[bench]]
+name = "block_execution"
+harness = false
