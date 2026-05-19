@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize V2 flow tracing logs emitted with VORTEX_V2_TRACE_FLOW=1."""
+"""Summarize structured flow tracing logs from benchmark runs."""
 
 from __future__ import annotations
 

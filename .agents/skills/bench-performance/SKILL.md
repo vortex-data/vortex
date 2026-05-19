@@ -201,7 +201,7 @@ and ratios against the selected baseline target or the first target in each quer
 ## Summarizing Mask/Row-Demand Logs
 
 When a run emits Vortex mask-style debug lines, summarize them before reading more code. This
-includes V2 `vortex_layout::mask_debug` rows and V1 pruning rows with the same coordinate fields.
+includes mask-debug rows and pruning rows with the same coordinate fields.
 These logs are useful for deciding whether a hot stack is expensive per row, called over too many
 rows, or repeated over the same coordinates:
 
@@ -218,8 +218,8 @@ If a low-selectivity filter still shows very large input batches late in the pip
 with the Samply timeline: a few huge all-false batches can explain idle workers even when total row
 work looks reasonable.
 
-For conjunct scheduling logs, aggregate compute rows per predicate. This handles V2 conjunct rows
-and V1 pruning/filter conjunct rows when the logs include comparable fields:
+For conjunct scheduling logs, aggregate compute rows per predicate. This handles candidate
+conjunct rows and baseline pruning/filter conjunct rows when the logs include comparable fields:
 
 ```bash
 python3 .agents/skills/bench-performance/scripts/summarize_conjunct_debug.py \
@@ -229,16 +229,16 @@ python3 .agents/skills/bench-performance/scripts/summarize_conjunct_debug.py \
 Use this when checking whether a pushed-down or shared mask is actually evaluated once, or whether
 each projected field is driving the same conjunct work again.
 
-When investigating V2 stream scheduling, enable the flow trace and summarize it immediately:
+When investigating stream scheduling, enable the relevant flow trace and summarize it immediately:
 
 ```bash
-VORTEX_V2_TRACE_FLOW=1 RUST_LOG=vortex_layout::v2::flow=debug,datafusion=warn \
+<FLOW_TRACE_ENV>=1 RUST_LOG=<flow-target>=debug,datafusion=warn \
   target/<profile-dir>/datafusion-bench clickbench \
   --display-format gh-json --iterations 1 --hide-progress-bar \
   --formats vortex --queries <query> \
   -o /private/tmp/<label>.jsonl > /private/tmp/<label>.log 2>&1
 
-python3 .agents/skills/bench-performance/scripts/summarize_v2_flow.py \
+python3 .agents/skills/bench-performance/scripts/summarize_flow_tracing.py \
   /private/tmp/<label>.log
 ```
 
@@ -325,7 +325,7 @@ rows. Add temporary trace/debug fields that make each compute event joinable:
   ranges;
 - a deterministic hash of the absolute survivor row set for same-window checks;
 - partition-independent fingerprints such as wrapping row-id sum and row-id xor so unions can be
-  compared when V1 and V2 use different batch boundaries.
+  compared when two paths use different batch boundaries.
 
 Be careful with multi-file benchmarks: `row_start=0..N` is only meaningful with a file label. Be
 careful with nested layouts too: child plans may log local coordinates unless the diagnostic uses
@@ -334,12 +334,12 @@ the same file differently, identical `(file, row_range)` keys may not exist; com
 input/output row counts first, then add a union-level dump only if exact row-set equality is still
 unclear.
 
-Prefer diagnostic logs over changing public batch types. Useful log points are final V1 split
-projection, V2 mask/filter nodes, and filtered V2 leaf projection nodes. For each batch-like event,
-emit the input coordinate window plus the post-mask survivor summary/hash; that lets you compare
-exact row sets even when physical batch boundaries differ. Avoid logging every unfiltered leaf by
-default: nested layouts such as dictionary values may live in a different row space and can drown
-out the scan-coordinate signal.
+Prefer diagnostic logs over changing public batch types. Useful log points are final baseline split
+projection, candidate mask/filter nodes, and filtered candidate leaf projection nodes. For each
+batch-like event, emit the input coordinate window plus the post-mask survivor summary/hash; that
+lets you compare exact row sets even when physical batch boundaries differ. Avoid logging every
+unfiltered leaf by default: nested layouts such as dictionary values may live in a different row
+space and can drown out the scan-coordinate signal.
 
 ## Samply
 

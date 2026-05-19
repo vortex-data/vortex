@@ -13,6 +13,7 @@ FIELD_RE = re.compile(
     r"(?P<key>[A-Za-z_][A-Za-z0-9_]*)="
     r"(?P<value>\"(?:[^\"\\]|\\.)*\"|Some\([^)]+\)|None|[^\s]+)"
 )
+FIRST_FIELD_RE = re.compile(r" [A-Za-z_][A-Za-z0-9_]*=")
 
 
 def parse_value(raw: str) -> str:
@@ -38,13 +39,12 @@ def as_float(fields: dict[str, str], key: str) -> float:
 
 
 def message_for(line: str) -> str | None:
-    for message in (
-        "v2 conjunct mask evaluated",
-        "v1 pruning conjunct evaluated",
-        "v1 filter conjunct evaluated",
-    ):
-        if message in line:
-            return message
+    rest_match = re.search(r":\d+: (?P<rest>.*)$", line.rstrip())
+    rest = rest_match.group("rest") if rest_match else line.rstrip()
+    first_field = FIRST_FIELD_RE.search(rest)
+    message = rest[: first_field.start() if first_field else len(rest)].strip()
+    if "conjunct" in message and "evaluated" in message:
+        return message
     return None
 
 
