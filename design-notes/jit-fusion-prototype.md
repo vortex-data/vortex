@@ -3,12 +3,18 @@
 Status: **sketch / RFC**. Not implemented. Lives on the
 `claude/jit-compression-kernel-design-g6wGm` branch as a thinking aid.
 
+> **Scope (revised):** there are two halves to a real system — (A) discovering
+> a nested encoding tree from data via the sampling compressor, and (B) given
+> a typed decompression tree, emit a JIT kernel for it. **(A) is punted** as a
+> separate compression-policy problem; this document is about (B). See §8
+> for the Stage-IR formulation that follows from that scope cut.
+
 The goal is to evaluate using Cranelift as a runtime code generator that
-specializes a *decompression chain* (ALP over FoR over Delta over BitPacked) into
-a single fused kernel per chain fingerprint, then to think about what we would
-have to build to turn that one prototype into a framework. The first half is the
-sketch; the second half is the framework discussion; the appendix is the prior
-art we have inside the repo today.
+specializes a *decompression tree* (ALP over FoR over Delta over BitPacked)
+into a single fused kernel per chain fingerprint, then to think about what we
+would have to build to turn that one prototype into a framework. The first
+half is the sketch; the second half is the framework discussion; §8 covers
+the Stage IR; the appendix is the prior art we have inside the repo today.
 
 ---
 
@@ -584,6 +590,94 @@ What to look for in the numbers:
   threshold for §6 point 4.
 - Sweeping `bit_width` exercises const-folding; sweeping exception density
   exercises the patch path.
+
+---
+
+## 8. Stage IR — the refinement once tree discovery is punted
+
+Once we accept a typed `DecodeTree` as input, the per-encoding API simplifies
+dramatically. Encodings stop emitting Cranelift IR. They emit a **Stage list**,
+which is lowered to IR by one central `vortex-jit` pass.
+
+```rust
+pub enum DecodeTree {
+    Leaf       { buf: BufId, ptype: PType },
+    BitPacked  { width: u8, child: Box<DecodeTree>, patches: Option<PatchRef> },
+    For        { reference: i64, child: Box<DecodeTree> },
+    Delta      { lanes: u8, bases: BufId, child: Box<DecodeTree> },
+    Alp        { e: u8, f: u8, child: Box<DecodeTree>, patches: Option<PatchRef> },
+}
+
+pub enum Stage {
+    UnpackBits   { width: u8, in_t: PType, out_t: PType },
+    AddConst     { value: i64, t: PType },
+    PrefixSum    { lanes: u8, bases: BufId, t: PType },
+    Untranspose  { lanes: u8, t: PType },
+    IntToFloat   { in_t: PType, out_t: PType, scale: f64 },
+    ApplyPatches { idx: BufId, val: BufId, n: BufId, t: PType }, // post-loop
+    StoreOut     { t: PType },
+}
+
+pub trait EncodingCodegen {
+    fn lower(&self, child: Vec<Stage>, ptype: PType) -> Vec<Stage>;
+    fn const_params(&self) -> SmallVec<[u64; 4]>;
+}
+```
+
+**Lane-form vs buffer-form** is the only cross-stage protocol:
+
+- *Lane-form* — `[Value; 1024]` SSA values. Cheap for `iadd_imm`, `fmul`, any
+  elementwise op.
+- *Buffer-form* — `*mut T` to a 1024-slot stack scratch. Required when a stage
+  needs random access (untranspose) or cross-element flow (prefix sum across
+  lane groups).
+
+The framework inserts implicit *materialize* / *load* transitions when
+adjacent stages disagree on shape. Cranelift folds the round-trip away when no
+permutation sits between them; it can't fold around the untranspose, and
+that's exactly where materialization belongs anyway.
+
+**Lowering example** — `Alp(For(Delta(BitPacked)))` for `f64`:
+
+```
+UnpackBits{11, u8, i64}    →  AddConst{ref, i64}
+→ PrefixSum{16, bases, i64} →  Untranspose{16, i64}
+→ IntToFloat{i64, f64, F10[f]*IF10[e]}
+→ StoreOut{f64}
+[post-loop] ApplyPatches{alp_idx, alp_val, n, f64}
+```
+
+**Three kernel ops, one Stage list.** `decompress` / `filter` / `take` share
+all stages; only the driver loop and the terminal stage change:
+
+| Op | Driver | Terminal |
+|----|--------|----------|
+| Decompress | `for block in 0..n` | `StoreOut` linear |
+| Filter | `for block in 0..n` | `MaskedCompact` writes lane to `out[ptr]`, bump ptr |
+| Take | iterate touched blocks only | `StoreSelective` per index |
+
+`Take` inherits the threshold heuristic from
+`encodings/fastlanes/src/bitpacking/compute/take.rs:43-45` as a *lowering*
+decision (skip whole blocks with no taken index) rather than a runtime branch.
+
+**Fingerprint becomes trivial.** Hash of the canonical Stage list +
+`out_ptype` + `op`. Two trees that lower to the same stages share a kernel.
+`For(reference=0, BitPacked)` deduplicates against plain `BitPacked` because
+lowering elides `AddConst{0, _}`.
+
+**What changes in the §6 punch list under this refinement:**
+
+| # | Change |
+|---|--------|
+| 1 | Replaced by `EncodingCodegen` + central Stage→IR lowering. ~20 lines per encoding. |
+| 2 | Hash of canonical Stage list. |
+| 4 | `stage_list.len() + n_blocks` is the cost-model input. |
+| 5 | `ApplyPatches` is just another Stage; lowering inserts it. |
+| 7 | Per-stage unit tests; chain tests on top. |
+| 9 | Each Stage declares its supported `(in_t, out_t)` matrix. |
+| 11 | Filter/Take share the Stage list; only driver + terminal differ. |
+
+Items 3, 6, 8, 10, 12 unchanged.
 
 ---
 
