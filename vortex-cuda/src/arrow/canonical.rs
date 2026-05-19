@@ -261,13 +261,22 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
     //  code. This is necessary to ensure that the fields inside the CudaPrivateData
     //  get dropped to free native/GPU memory.
     unsafe {
+        if array.is_null() || (*array).release.is_none() {
+            return;
+        }
+
         let private_data_ptr = ptr::replace(&raw mut (*array).private_data, ptr::null_mut());
 
         if !private_data_ptr.is_null() {
             let mut private_data = Box::from_raw(private_data_ptr.cast::<PrivateData>());
             let children = mem::take(&mut private_data.children);
             for child in children {
-                release_array(child);
+                if !child.is_null() {
+                    release_array(child);
+                    // Children are allocated with Box::into_raw in PrivateData::new, so the
+                    // release callback must also reclaim the ArrowArray allocation itself.
+                    drop(Box::from_raw(child));
+                }
             }
         }
 
