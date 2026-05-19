@@ -681,6 +681,214 @@ Items 3, 6, 8, 10, 12 unchanged.
 
 ---
 
+## 9. Extensibility and composability
+
+A framework where adding an encoding requires modifying `vortex-jit` is not a
+framework. This section flips §8's Stage *enum* into an open *trait* surface so
+new encodings ship in their own crates and compose with everything else.
+
+### Three extension points
+
+```rust
+// vortex-jit core — knows nothing about ALP/FoR/etc.
+
+pub trait JitStage: Send + Sync {
+    fn tag(&self) -> StageTag;
+    fn fingerprint(&self) -> &[u8];
+    fn input(&self) -> SmallVec<[Form; 1]>;   // multi-input for tree merges
+    fn output(&self) -> Form;
+    fn declare(&self, sig: &mut SigBuilder);  // request runtime args / extern syms
+    fn emit(&self, cx: &mut EmitCtx<'_>);     // emit IR for one block
+}
+
+pub trait EncodingCodegen: Send + Sync {
+    fn lower(
+        &self,
+        children: Vec<Pipeline>,
+        ptype: PType,
+        params: &[u8],
+    ) -> VortexResult<Pipeline>;
+}
+
+pub trait JitDriver: Send + Sync {
+    fn outer(&self, cx: &mut EmitCtx, body: &mut dyn FnMut(&mut EmitCtx));
+    fn terminal(&self, ptype: PType) -> Box<dyn JitStage>;
+}
+```
+
+`vortex-jit` ships these traits plus `Form`, `Pipeline`, `EmitCtx`, the cache,
+and the safety wrapper. It does **not** ship any concrete stages.
+
+### Crate layout
+
+```
+vortex-jit/             trait surface, Pipeline, EmitCtx, cache, compiler
+vortex-jit-stages/      built-in UnpackBits, AddConst, PrefixSum, ...
+encodings/alp/          impl EncodingCodegen for ALP
+encodings/fastlanes/    impl EncodingCodegen for {FoR, Delta, BitPacked}
+encodings/<your-new>/   impl EncodingCodegen + any new JitStage impls
+```
+
+Built-ins are a library, not a privileged set. A third-party crate that needs
+`ZigzagDecode` either reuses one in `vortex-jit-stages` or ships its own — the
+framework can't tell the difference.
+
+### `EmitCtx` is the contract
+
+```rust
+impl<'a> EmitCtx<'a> {
+    pub fn fb(&mut self) -> &mut FunctionBuilder<'a>;
+    pub fn block_idx(&self) -> Value;
+    pub fn lanes_in(&self) -> &Lanes;
+    pub fn lanes_out(&mut self, lanes: Lanes);
+    pub fn scratch(&mut self, ptype: PType) -> *mut T;
+    pub fn runtime_arg(&mut self, key: ArgKey) -> Value;
+    pub fn extern_call(&mut self, sym: ExternId, args: &[Value]) -> Value;
+}
+```
+
+`declare()` runs once at compile time. The framework collects every stage's
+requested runtime args and extern symbols, deduplicates, and lays out the
+final `unsafe extern "C"` signature. Stages never touch the signature
+directly, so they can be authored independently and composed without
+coordination.
+
+### Composability — what the framework enforces
+
+`Pipeline::push` validates form compatibility and auto-inserts the cheap
+transitions:
+
+```rust
+match (prev_output, next_input) {
+    // exact match
+    (a, b) if a.compatible(b) => /* ok */,
+    // lane <-> buffer mismatch -> framework inserts materialize/load
+    (Lane(t, l),   Buffer(t, l)) => insert(materialize(t, l)),
+    (Buffer(t, l), Lane(t, l))   => insert(load(t, l)),
+    // layout mismatch (transposed -> linear) -> require explicit Untranspose
+    (Lane(_, FastLanesT(_)), Lane(_, Linear)) => bail!("explicit Untranspose required"),
+    // type mismatch -> hard error
+    _ => bail!("incompatible forms"),
+}
+```
+
+The framework owns the *protocol* between stages (form/type/layout matching,
+implicit transitions). Stages own the *content* (their IR template). New
+stages don't have to know about other stages' shapes; they just declare their
+own input and output forms honestly.
+
+### Multi-child encodings — tree, not chain
+
+```rust
+pub struct DecodeNode {
+    pub encoding: Arc<dyn EncodingCodegen>,
+    pub children: Vec<DecodeNode>,
+    pub buffers: Vec<BufId>,
+    pub ptype: PType,
+    pub const_params: Box<[u8]>,
+}
+
+pub fn lower(node: &DecodeNode) -> VortexResult<Pipeline> {
+    let child_pipelines = node.children.iter()
+        .map(lower)
+        .collect::<VortexResult<Vec<_>>>()?;
+    node.encoding.lower(child_pipelines, node.ptype, &node.const_params)
+}
+```
+
+Each encoding's `lower` decides how to interleave child pipelines. Dict uses
+one child as a values *buffer* and the other as the lane stream feeding a
+`DictLookup` stage. DateTimeParts produces a `RecomposeTimestamp` stage with
+three lane-form inputs and one output. Multi-input is handled by `JitStage`
+returning a `SmallVec<[Form; 1]>` from `input()`.
+
+### Driver extensibility
+
+Same shape. Built-in `DecompressDriver` / `FilterDriver` / `TakeDriver` live
+beside the built-in stages. Third parties add `SumDriver`, `CountDriver`,
+`HashBuildDriver` without touching encoding crates. The same lowered
+`Pipeline` runs under any compatible driver.
+
+### Registration
+
+Same pattern as `ArrayKernels`. Each crate exposes a `register` fn that
+installs its codegen/stage/driver into a `JitRegistry` session var. No
+`inventory` or `linkme` — deterministic, controllable ordering.
+
+```rust
+pub fn register(jit: &mut JitRegistry) {
+    jit.register_codegen::<YourEncodingVTable>(YourEncodingCodegen);
+    jit.register_stage::<YourCustomStage>();   // optional
+    jit.register_driver::<YourCustomDriver>(); // optional
+}
+```
+
+### Worked example — Zigzag in a third-party crate, zero changes to `vortex-jit`
+
+```rust
+// encodings/zigzag/src/jit.rs
+pub struct ZigzagDecodeStage { t: PType }
+
+impl JitStage for ZigzagDecodeStage {
+    fn tag(&self) -> StageTag { StageTag::new("zigzag::decode", self.t) }
+    fn fingerprint(&self) -> &[u8] { &[self.t as u8] }
+    fn input(&self) -> SmallVec<[Form; 1]> {
+        smallvec![Form::Lane(self.t, Layout::Either)]
+    }
+    fn output(&self) -> Form { Form::Lane(self.t.signed(), Layout::Same) }
+    fn declare(&self, _: &mut SigBuilder) {}
+    fn emit(&self, cx: &mut EmitCtx) {
+        let lanes = cx.lanes_in().clone();
+        let out = lanes.iter().map(|&x| {
+            let shifted = cx.fb().ins().sshr_imm(x, 1);
+            let lsb     = cx.fb().ins().band_imm(x, 1);
+            let neg     = cx.fb().ins().ineg(lsb);
+            cx.fb().ins().bxor(shifted, neg)
+        }).collect();
+        cx.lanes_out(Lanes::Lane(out));
+    }
+}
+
+pub struct ZigzagCodegen;
+
+impl EncodingCodegen for ZigzagCodegen {
+    fn lower(&self, children: Vec<Pipeline>, ptype: PType, _: &[u8])
+        -> VortexResult<Pipeline>
+    {
+        let mut p = children.into_iter().next().unwrap();
+        p.push(Box::new(ZigzagDecodeStage { t: ptype }))?;
+        Ok(p)
+    }
+}
+
+pub fn register(jit: &mut JitRegistry) {
+    jit.register_codegen::<Zigzag>(ZigzagCodegen);
+}
+```
+
+That's the whole extension. Zigzag now composes with every other registered
+encoding in either direction (over Delta, under Dict, inside DateTimeParts)
+without `vortex-jit` knowing anything about it.
+
+### Final framework boundaries
+
+| Owns | Lives in |
+|------|----------|
+| `JitStage`, `EncodingCodegen`, `JitDriver` traits | `vortex-jit` |
+| `Form`, `Layout`, `Pipeline`, `EmitCtx`, `SigBuilder` | `vortex-jit` |
+| Cache, fingerprint hashing, safety wrapper, fallback | `vortex-jit` |
+| Outer-loop generation, materialize/load transitions | `vortex-jit` |
+| Built-in stages (UnpackBits, AddConst, ...) | `vortex-jit-stages` |
+| Built-in drivers (Decompress, Filter, Take) | `vortex-jit-stages` |
+| Per-encoding `EncodingCodegen` impls | each `encodings/*` crate |
+| Per-encoding custom `JitStage` impls (if any) | each `encodings/*` crate |
+| Per-encoding registration | each `encodings/*` crate |
+
+The catalog of stages/drivers/codegens is unbounded. The protocol between
+them is fixed. That's the line that makes this a framework.
+
+---
+
 ## Appendix A: research on the inter-module ABI
 
 What follows is what the surveys found about how today's encodings talk to each
