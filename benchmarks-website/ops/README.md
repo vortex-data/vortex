@@ -465,7 +465,7 @@ operation), just call the same endpoint the timer does:
 ts=$(date -u +%Y%m%dT%H%M%SZ)
 curl -fsS -X POST \
     -H "Authorization: Bearer $(grep ^ADMIN_BEARER_TOKEN /etc/vortex-bench.env | cut -d= -f2)" \
-    "http://127.0.0.1:3000/api/admin/snapshot?ts=manual-${ts}"
+    "http://127.0.0.1:3001/api/admin/snapshot?ts=manual-${ts}"
 ```
 
 It lands at `/var/lib/vortex-bench/snapshots/manual-<ts>/`.
@@ -531,16 +531,30 @@ token tied to the GitHub Actions Environment, not to any individual.
 These are the only server endpoints the operator scripts touch. They
 also constitute the public admin contract for any future tooling.
 
-| Method + path                                                    | Bearer        | Notes                                                                                          |
-|------------------------------------------------------------------|---------------|------------------------------------------------------------------------------------------------|
-| `GET /health`                                                    | none          | `deploy.sh` polls for liveness after a restart.                                                |
-| `POST /api/admin/snapshot?ts=<id>`                               | admin         | Writes `schema.sql` + per-table `.vortex` files. `ts` must match `[A-Za-z0-9_-]{1,64}`. 409 if the dir exists. |
-| `POST /api/admin/sql` (body `{"sql": …}`, `?format=json\|table`) | admin         | Read-only SQL only — `SELECT`/`WITH`/`PRAGMA`/`SHOW`/`DESCRIBE`/`EXPLAIN`.                     |
-| `POST /api/ingest`                                               | ingest        | Used by CI, not by these scripts. Documented under [`crate::ingest`].                          |
+The server exposes two listeners. The public listener carries everything
+operator-facing and CI-facing; the admin listener stays loopback-only so
+`/api/admin/*` cannot reach the public network even when the public bind
+opens `0.0.0.0`.
+
+| Method + path                                                    | Bearer        | Listener (env var)                          | Used by                       |
+|------------------------------------------------------------------|---------------|---------------------------------------------|-------------------------------|
+| `GET /health`                                                    | none          | public (`$SERVER_URL`, `VORTEX_BENCH_BIND`) | `deploy.sh` post-restart probe |
+| `POST /api/ingest`                                               | ingest        | public                                      | CI dual-write                 |
+| `POST /api/admin/snapshot?ts=<id>`                               | admin         | admin (`$ADMIN_URL`, `VORTEX_BENCH_ADMIN_BIND`) | `backup.sh`                  |
+| `POST /api/admin/sql` (body `{"sql": …}`, `?format=json\|table`) | admin         | admin                                       | `inspect.sh`                  |
+
+`POST /api/admin/snapshot` writes `schema.sql` + per-table `.vortex`
+files; `ts` must match `[A-Za-z0-9_-]{1,64}` and the directory must not
+exist (409 otherwise). `POST /api/admin/sql` allows only
+`SELECT`/`WITH`/`PRAGMA`/`SHOW`/`DESCRIBE`/`EXPLAIN` and runs each
+statement inside `BEGIN TRANSACTION READ ONLY`.
 
 The admin router is mounted only when `ADMIN_BEARER_TOKEN` is set. With
-the env unset (e.g. in local dev) the routes 404 and the backup script
-fails fast — there's no silent "backups disabled" mode.
+the env unset (e.g. in local dev) no admin listener is bound at all —
+`backup.sh` and `inspect.sh` fail fast against `$ADMIN_URL`, so there's
+no silent "backups disabled" mode. Hitting `/api/admin/*` on the
+**public** listener always 404s, regardless of whether admin is
+configured.
 
 See [`server/src/admin.rs`](../server/src/admin.rs) for the full
 contract and the validation rules.

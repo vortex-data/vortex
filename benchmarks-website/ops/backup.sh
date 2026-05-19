@@ -32,7 +32,9 @@ set +a
 : "${ADMIN_BEARER_TOKEN:?ADMIN_BEARER_TOKEN must be set in ${ENV_FILE}}"
 : "${VORTEX_BENCH_SNAPSHOT_DIR:?VORTEX_BENCH_SNAPSHOT_DIR must be set}"
 : "${S3_BACKUP_PREFIX:?S3_BACKUP_PREFIX must be set in ${ENV_FILE}}"
-: "${SERVER_URL:=http://127.0.0.1:3000}"
+# `ADMIN_URL` points at the loopback-only admin listener; `SERVER_URL`
+# stays for /health checks on the public listener.
+: "${ADMIN_URL:=http://127.0.0.1:3001}"
 
 log() { printf '[backup %s] %s\n' "$(date -u +%H:%M:%SZ)" "$*"; }
 
@@ -45,7 +47,7 @@ log "triggering /api/admin/snapshot?ts=${ts}"
 http_status=$(curl -sS -o /tmp/snapshot.out -w '%{http_code}' \
     -X POST \
     -H "Authorization: Bearer ${ADMIN_BEARER_TOKEN}" \
-    "${SERVER_URL}/api/admin/snapshot?ts=${ts}" || echo "000")
+    "${ADMIN_URL}/api/admin/snapshot?ts=${ts}" || echo "000")
 if [ "$http_status" != "200" ]; then
     echo "ERROR: /api/admin/snapshot returned ${http_status}" >&2
     cat /tmp/snapshot.out >&2 || true

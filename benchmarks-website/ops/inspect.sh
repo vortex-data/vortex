@@ -27,7 +27,9 @@ set -a
 source "$ENV_FILE"
 set +a
 : "${ADMIN_BEARER_TOKEN:?ADMIN_BEARER_TOKEN must be set in ${ENV_FILE}}"
-: "${SERVER_URL:=http://127.0.0.1:3000}"
+# Admin SQL lives on the loopback-only admin listener; the public bind
+# (`SERVER_URL`) does not match `/api/admin/*` at all.
+: "${ADMIN_URL:=http://127.0.0.1:3001}"
 
 format=table
 if [ "${1:-}" = "-j" ] || [ "${1:-}" = "--json" ]; then
@@ -57,5 +59,5 @@ curl -fsS \
     -H "Authorization: Bearer ${ADMIN_BEARER_TOKEN}" \
     -H "Content-Type: application/json" \
     --data-binary "$body" \
-    "${SERVER_URL}/api/admin/sql?format=${format}"
+    "${ADMIN_URL}/api/admin/sql?format=${format}"
 echo

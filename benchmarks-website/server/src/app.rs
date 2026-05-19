@@ -3,14 +3,23 @@
 
 //! Axum [`Router`] composition and shared [`AppState`].
 //!
-//! The router mounts:
-//! - `/api/groups`, `/api/chart/{slug}`, `/api/group/{slug}`, `/health`
-//!   (read API)
-//! - `/api/ingest` (gated by [`crate::auth::require_bearer`])
-//! - `/api/admin/snapshot`, `/api/admin/sql` — only when
-//!   [`AppState::with_admin`] has been called (gated by
-//!   [`crate::admin::require_admin_bearer`])
-//! - HTML routes contributed by [`crate::html::router`]
+//! The server serves two routers on two listeners in production:
+//!
+//! - **Public** ([`public_router`]) — `/api/groups`, `/api/chart/{slug}`,
+//!   `/api/group/{slug}`, `/api/ingest` (bearer-gated by
+//!   [`crate::auth::require_bearer`]), `/health`, plus HTML routes
+//!   contributed by [`crate::html::router`]. This is what
+//!   `VORTEX_BENCH_BIND` exposes (typically `0.0.0.0:3000`).
+//! - **Admin** ([`admin_router`]) — `/api/admin/snapshot`,
+//!   `/api/admin/sql`, both gated by [`crate::admin::require_admin_bearer`].
+//!   Only built when [`AppState::with_admin`] has been called. This is
+//!   what `VORTEX_BENCH_ADMIN_BIND` exposes (typically `127.0.0.1:3001`),
+//!   so admin endpoints never reach the public network even when the
+//!   public listener binds `0.0.0.0`.
+//!
+//! [`router`] still exists as a convenience for tests that don't care
+//! about the listener split: it merges public + admin onto a single
+//! router.
 //!
 //! All responses pass through [`CompressionLayer`] so HTML, JSON, and the
 //! bundled `/static/*` JS/CSS are served gzipped or brotli-encoded when the
@@ -128,7 +137,58 @@ fn validate_bearer_token(name: &str, token: &str) -> Result<()> {
     Ok(())
 }
 
-/// Build the full Axum router for the bench server.
+/// Build the public router — `/api/ingest`, the read API, `/health`,
+/// and HTML routes. Does not include any `/api/admin/*` routes; those
+/// live on a separate listener built by [`admin_router`].
+pub fn public_router(state: AppState) -> Router {
+    let ingest_routes = Router::new()
+        .route("/api/ingest", post(ingest::handle))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            require_bearer,
+        ));
+
+    let read_routes = Router::new()
+        .route("/api/groups", get(api::groups))
+        .route("/api/chart/{slug}", get(api::chart))
+        .route("/api/group/{slug}", get(api::group))
+        .route(
+            "/api/artifacts/{generation}/groups/{group_slug}/shards/{index}",
+            get(api::group_shard_artifact),
+        )
+        .route("/health", get(api::health));
+
+    Router::new()
+        .merge(ingest_routes)
+        .merge(read_routes)
+        .merge(html::router())
+        .layer(CompressionLayer::new())
+        .with_state(state)
+}
+
+/// Build the admin router when [`AppState::with_admin`] has been called;
+/// returns `None` otherwise so the caller skips binding the admin
+/// listener entirely.
+pub fn admin_router(state: AppState) -> Option<Router> {
+    state.admin_bearer_token.as_ref()?;
+    let admin_routes = Router::new()
+        .route("/api/admin/snapshot", post(admin::snapshot))
+        .route("/api/admin/sql", post(admin::sql))
+        .route_layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            admin::require_admin_bearer,
+        ));
+    Some(
+        admin_routes
+            .layer(CompressionLayer::new())
+            .with_state(state),
+    )
+}
+
+/// Merge the public and admin routers into a single router. Used by
+/// tests that don't care about the listener split; production runs the
+/// two routers on separate listeners via [`public_router`] +
+/// [`admin_router`].
 pub fn router(state: AppState) -> Router {
     let ingest_routes = Router::new()
         .route("/api/ingest", post(ingest::handle))

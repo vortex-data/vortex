@@ -15,17 +15,24 @@ use tempfile::TempDir;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use vortex_bench_server::app::AppState;
-use vortex_bench_server::app::router;
+use vortex_bench_server::app::admin_router;
+use vortex_bench_server::app::public_router;
 
 const INGEST_TOKEN: &str = "ingest-test-token";
 const ADMIN_TOKEN: &str = "admin-test-token";
 
+/// Two-listener test harness that mirrors prod: public traffic on one
+/// loopback port, admin traffic on a second loopback port. The
+/// `admin_addr` is `None` when the server was started without
+/// `with_admin`. Both listener tasks are aborted on `Drop`.
 struct Server {
     addr: SocketAddr,
+    admin_addr: Option<SocketAddr>,
     snapshot_dir: std::path::PathBuf,
     state: AppState,
     _tmp: TempDir,
     handle: JoinHandle<()>,
+    admin_handle: Option<JoinHandle<()>>,
 }
 
 impl Server {
@@ -48,29 +55,60 @@ impl Server {
         if enable_admin {
             state = state.with_admin(ADMIN_TOKEN.to_string());
         }
-        let app = router(state.clone());
+
+        let public_app = public_router(state.clone());
+        let admin_app = admin_router(state.clone());
+
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let handle = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
+            axum::serve(listener, public_app).await.unwrap();
         });
+
+        let (admin_addr, admin_handle) = match admin_app {
+            Some(app) => {
+                let listener = TcpListener::bind("127.0.0.1:0").await?;
+                let admin_addr = listener.local_addr()?;
+                let admin_handle = tokio::spawn(async move {
+                    axum::serve(listener, app).await.unwrap();
+                });
+                (Some(admin_addr), Some(admin_handle))
+            }
+            None => (None, None),
+        };
+
         Ok(Self {
             addr,
+            admin_addr,
             snapshot_dir,
             state,
             _tmp: tmp,
             handle,
+            admin_handle,
         })
     }
 
+    /// URL for a path on the public listener.
     fn url(&self, path: &str) -> String {
         format!("http://{}{}", self.addr, path)
+    }
+
+    /// URL for a path on the admin listener. Panics if admin was not
+    /// enabled — tests calling this should have used `start_with_admin`.
+    fn admin_url(&self, path: &str) -> String {
+        let addr = self
+            .admin_addr
+            .expect("admin_url called on a server started without admin");
+        format!("http://{addr}{path}")
     }
 }
 
 impl Drop for Server {
     fn drop(&mut self) {
         self.handle.abort();
+        if let Some(handle) = self.admin_handle.take() {
+            handle.abort();
+        }
     }
 }
 
@@ -81,7 +119,7 @@ async fn admin_sql_select_round_trips() -> Result<()> {
 
     // The schema is applied on AppState::open, so commits exists with 0 rows.
     let resp = client
-        .post(server.url("/api/admin/sql"))
+        .post(server.admin_url("/api/admin/sql"))
         .bearer_auth(ADMIN_TOKEN)
         .json(&json!({ "sql": "SELECT COUNT(*) AS n FROM commits" }))
         .send()
@@ -100,7 +138,7 @@ async fn admin_sql_table_format_renders_ascii() -> Result<()> {
     let client = reqwest::Client::new();
 
     let resp = client
-        .post(server.url("/api/admin/sql?format=table"))
+        .post(server.admin_url("/api/admin/sql?format=table"))
         .bearer_auth(ADMIN_TOKEN)
         .json(&json!({ "sql": "SELECT 1 AS x, 'hello' AS y" }))
         .send()
@@ -132,7 +170,7 @@ async fn admin_sql_allows_single_trailing_semicolon() -> Result<()> {
     let client = reqwest::Client::new();
 
     let resp = client
-        .post(server.url("/api/admin/sql"))
+        .post(server.admin_url("/api/admin/sql"))
         .bearer_auth(ADMIN_TOKEN)
         .json(&json!({ "sql": "SELECT 1 AS x;" }))
         .send()
@@ -149,7 +187,7 @@ async fn admin_sql_allows_semicolon_inside_string_literal() -> Result<()> {
     let client = reqwest::Client::new();
 
     let resp = client
-        .post(server.url("/api/admin/sql"))
+        .post(server.admin_url("/api/admin/sql"))
         .bearer_auth(ADMIN_TOKEN)
         .json(&json!({ "sql": "SELECT 'not; another statement' AS text" }))
         .send()
@@ -166,7 +204,7 @@ async fn admin_sql_rejects_multi_statement_reads() -> Result<()> {
     let client = reqwest::Client::new();
 
     let resp = client
-        .post(server.url("/api/admin/sql"))
+        .post(server.admin_url("/api/admin/sql"))
         .bearer_auth(ADMIN_TOKEN)
         .json(&json!({ "sql": "SELECT 1; DROP TABLE commits; SELECT 2" }))
         .send()
@@ -176,7 +214,7 @@ async fn admin_sql_rejects_multi_statement_reads() -> Result<()> {
     assert_eq!(body["error"], json!("forbidden"));
 
     let resp = client
-        .post(server.url("/api/admin/sql"))
+        .post(server.admin_url("/api/admin/sql"))
         .bearer_auth(ADMIN_TOKEN)
         .json(&json!({ "sql": "SELECT COUNT(*) AS n FROM commits" }))
         .send()
@@ -191,7 +229,7 @@ async fn admin_sql_caps_large_results() -> Result<()> {
     let client = reqwest::Client::new();
 
     let resp = client
-        .post(server.url("/api/admin/sql"))
+        .post(server.admin_url("/api/admin/sql"))
         .bearer_auth(ADMIN_TOKEN)
         .json(&json!({ "sql": "SELECT * FROM range(10005)" }))
         .send()
@@ -217,7 +255,7 @@ async fn admin_sql_rejects_writes() -> Result<()> {
         "ATTACH ':memory:' AS bar",
     ] {
         let resp = client
-            .post(server.url("/api/admin/sql"))
+            .post(server.admin_url("/api/admin/sql"))
             .bearer_auth(ADMIN_TOKEN)
             .json(&json!({ "sql": sql }))
             .send()
@@ -241,7 +279,7 @@ async fn admin_sql_read_only_blocks_explain_analyze_writes() -> Result<()> {
     let client = reqwest::Client::new();
 
     let resp = client
-        .post(server.url("/api/admin/sql"))
+        .post(server.admin_url("/api/admin/sql"))
         .bearer_auth(ADMIN_TOKEN)
         .json(&json!({
             "sql": "EXPLAIN ANALYZE INSERT INTO commits \
@@ -258,7 +296,7 @@ async fn admin_sql_read_only_blocks_explain_analyze_writes() -> Result<()> {
 
     // And verify nothing landed in `commits`.
     let resp = client
-        .post(server.url("/api/admin/sql"))
+        .post(server.admin_url("/api/admin/sql"))
         .bearer_auth(ADMIN_TOKEN)
         .json(&json!({ "sql": "SELECT COUNT(*) AS n FROM commits" }))
         .send()
@@ -282,7 +320,7 @@ async fn admin_sql_allows_pragma_show_describe_explain_with() -> Result<()> {
         "WITH x AS (SELECT 1 AS a) SELECT * FROM x",
     ] {
         let resp = client
-            .post(server.url("/api/admin/sql"))
+            .post(server.admin_url("/api/admin/sql"))
             .bearer_auth(ADMIN_TOKEN)
             .json(&json!({ "sql": sql }))
             .send()
@@ -301,7 +339,7 @@ async fn admin_requires_admin_bearer_not_ingest_bearer() -> Result<()> {
 
     // No header.
     let resp = client
-        .post(server.url("/api/admin/sql"))
+        .post(server.admin_url("/api/admin/sql"))
         .json(&body)
         .send()
         .await?;
@@ -309,7 +347,7 @@ async fn admin_requires_admin_bearer_not_ingest_bearer() -> Result<()> {
 
     // Wrong token.
     let resp = client
-        .post(server.url("/api/admin/sql"))
+        .post(server.admin_url("/api/admin/sql"))
         .bearer_auth("wrong")
         .json(&body)
         .send()
@@ -318,7 +356,7 @@ async fn admin_requires_admin_bearer_not_ingest_bearer() -> Result<()> {
 
     // Ingest token explicitly does NOT work on admin routes.
     let resp = client
-        .post(server.url("/api/admin/sql"))
+        .post(server.admin_url("/api/admin/sql"))
         .bearer_auth(INGEST_TOKEN)
         .json(&body)
         .send()
@@ -327,7 +365,7 @@ async fn admin_requires_admin_bearer_not_ingest_bearer() -> Result<()> {
 
     // Right token.
     let resp = client
-        .post(server.url("/api/admin/sql"))
+        .post(server.admin_url("/api/admin/sql"))
         .bearer_auth(ADMIN_TOKEN)
         .json(&body)
         .send()
@@ -341,13 +379,16 @@ async fn admin_unmounted_when_admin_token_absent() -> Result<()> {
     let server = Server::start_no_admin().await?;
     let client = reqwest::Client::new();
 
+    // Without `with_admin` there is no admin listener at all, so the
+    // probe has to hit the public listener. The contract is "404 for any
+    // /api/admin/* path on the public listener" regardless of whether
+    // admin is configured.
     let resp = client
         .post(server.url("/api/admin/sql"))
         .bearer_auth(ADMIN_TOKEN)
         .json(&json!({ "sql": "SELECT 1" }))
         .send()
         .await?;
-    // Without with_admin, the route is not registered at all → 404.
     assert_eq!(resp.status(), 404);
 
     let resp = client
@@ -356,6 +397,41 @@ async fn admin_unmounted_when_admin_token_absent() -> Result<()> {
         .send()
         .await?;
     assert_eq!(resp.status(), 404);
+    Ok(())
+}
+
+#[tokio::test]
+async fn admin_routes_not_served_on_public_listener_when_admin_enabled() -> Result<()> {
+    // The whole point of `VORTEX_BENCH_ADMIN_BIND` is that
+    // `/api/admin/*` is unreachable on the public bind even when admin
+    // is otherwise configured. Hitting the *public* listener with the
+    // correct admin bearer must still 404.
+    let server = Server::start_with_admin().await?;
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(server.url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({ "sql": "SELECT 1" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 404);
+
+    let resp = client
+        .post(server.url("/api/admin/snapshot?ts=20260101T000000Z"))
+        .bearer_auth(ADMIN_TOKEN)
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 404);
+
+    // Sanity: the same admin SQL call on the *admin* listener works.
+    let resp = client
+        .post(server.admin_url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({ "sql": "SELECT 1 AS x" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
     Ok(())
 }
 
@@ -372,7 +448,7 @@ async fn admin_snapshot_creates_export_directory() -> Result<()> {
 
     let ts = "20260101T000000Z";
     let resp = client
-        .post(server.url(&format!("/api/admin/snapshot?ts={ts}")))
+        .post(server.admin_url(&format!("/api/admin/snapshot?ts={ts}")))
         .bearer_auth(ADMIN_TOKEN)
         .send()
         .await?;
@@ -418,7 +494,7 @@ async fn admin_snapshot_rejects_existing_directory() -> Result<()> {
 
     let ts = "20260102T000000Z";
     let resp = client
-        .post(server.url(&format!("/api/admin/snapshot?ts={ts}")))
+        .post(server.admin_url(&format!("/api/admin/snapshot?ts={ts}")))
         .bearer_auth(ADMIN_TOKEN)
         .send()
         .await?;
@@ -426,7 +502,7 @@ async fn admin_snapshot_rejects_existing_directory() -> Result<()> {
 
     // Second call with same ts → 409.
     let resp = client
-        .post(server.url(&format!("/api/admin/snapshot?ts={ts}")))
+        .post(server.admin_url(&format!("/api/admin/snapshot?ts={ts}")))
         .bearer_auth(ADMIN_TOKEN)
         .send()
         .await?;
@@ -438,15 +514,11 @@ async fn admin_snapshot_rejects_existing_directory() -> Result<()> {
 #[ignore = "needs network to install the vortex DuckDB core extension"]
 async fn admin_snapshot_concurrent_same_ts_yields_one_200_and_one_409() -> Result<()> {
     let server = Server::start_with_admin().await?;
-    // Wrap the address so we can reach the running server from both spawned
-    // tasks. The server already owns its own `JoinHandle`, so we just need a
-    // way to build URLs from each task.
-    let base = format!("http://{}", server.addr);
     let ts = "20260103T000000Z";
 
     let client_a = reqwest::Client::new();
     let client_b = reqwest::Client::new();
-    let url = format!("{base}/api/admin/snapshot?ts={ts}");
+    let url = server.admin_url(&format!("/api/admin/snapshot?ts={ts}"));
     let url_a = url.clone();
     let url_b = url;
 
@@ -492,7 +564,7 @@ async fn admin_snapshot_captures_committed_row_under_read_only_transaction() -> 
 
     let ts = "20260104T000000Z";
     let resp = client
-        .post(server.url(&format!("/api/admin/snapshot?ts={ts}")))
+        .post(server.admin_url(&format!("/api/admin/snapshot?ts={ts}")))
         .bearer_auth(ADMIN_TOKEN)
         .send()
         .await?;
@@ -511,7 +583,7 @@ async fn admin_snapshot_captures_committed_row_under_read_only_transaction() -> 
     // produced the snapshot with — no separate process or path to keep
     // in sync.
     let resp = client
-        .post(server.url("/api/admin/sql"))
+        .post(server.admin_url("/api/admin/sql"))
         .bearer_auth(ADMIN_TOKEN)
         .json(&json!({
             "sql": format!(
@@ -537,7 +609,7 @@ async fn admin_snapshot_validates_ts() -> Result<()> {
 
     let too_long = "x".repeat(65);
     for bad_ts in ["", "../oops", "with space", too_long.as_str()] {
-        let url = server.url(&format!("/api/admin/snapshot?ts={}", urlencoding(bad_ts)));
+        let url = server.admin_url(&format!("/api/admin/snapshot?ts={}", urlencoding(bad_ts)));
         let resp = client.post(&url).bearer_auth(ADMIN_TOKEN).send().await?;
         assert_eq!(resp.status(), 400, "expected 400 for ts={bad_ts:?}");
     }

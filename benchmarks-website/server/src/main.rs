@@ -25,11 +25,18 @@
 //!   default lives under `STATE_DIR`, which the systemd unit makes
 //!   writable; this is what lets `INSTALL vortex` succeed under
 //!   `ProtectHome=read-only`.
-//! - `VORTEX_BENCH_BIND` — `host:port` to listen on. Highest priority. Default
-//!   `127.0.0.1:3000` (after `PORT` fallback). Override to `0.0.0.0:3000` for
-//!   container deploys.
-//! - `PORT` — optional PaaS-conventional knob. When set and `VORTEX_BENCH_BIND`
-//!   is not, the server binds to `0.0.0.0:$PORT`.
+//! - `VORTEX_BENCH_BIND` — `host:port` the **public** listener binds to.
+//!   Highest priority. Default `127.0.0.1:3000` (after `PORT` fallback).
+//!   Override to `0.0.0.0:3000` for container deploys. Only ingest, read,
+//!   HTML, and `/health` are served here — admin routes do not match.
+//! - `PORT` — optional PaaS-conventional knob for the **public** listener
+//!   only. When set and `VORTEX_BENCH_BIND` is not, the public listener
+//!   binds `0.0.0.0:$PORT`. Does not affect the admin listener.
+//! - `VORTEX_BENCH_ADMIN_BIND` — `host:port` the **admin** listener binds
+//!   to when `ADMIN_BEARER_TOKEN` is set. Default `127.0.0.1:3001`. Keeping
+//!   the default loopback-only ensures `/api/admin/*` never reaches the
+//!   public network even when `VORTEX_BENCH_BIND=0.0.0.0:3000`. Must
+//!   resolve to a different address than the public bind.
 //! - `VORTEX_BENCH_LOG` — `tracing-subscriber` env filter spec. Default
 //!   `info`.
 //!
@@ -40,10 +47,14 @@
 //! new binary roll.
 
 use std::env;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use anyhow::Context as _;
 use anyhow::Result;
+use anyhow::anyhow;
+use futures::FutureExt;
+use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -64,11 +75,14 @@ async fn main() -> Result<()> {
         .filter(|token| !token.trim().is_empty());
     // `VORTEX_BENCH_BIND` wins (full `host:port`). If unset, fall back to the
     // PaaS-conventional `PORT` env var (binds to `0.0.0.0:$PORT`). Otherwise
-    // localhost-only on the default port.
-    let bind_addr = env::var("VORTEX_BENCH_BIND")
+    // localhost-only on the default port. `PORT` only affects the public
+    // listener — the admin listener has its own env var below.
+    let public_bind = env::var("VORTEX_BENCH_BIND")
         .ok()
         .or_else(|| env::var("PORT").ok().map(|p| format!("0.0.0.0:{p}")))
         .unwrap_or_else(|| "127.0.0.1:3000".to_string());
+    let admin_bind =
+        env::var("VORTEX_BENCH_ADMIN_BIND").unwrap_or_else(|_| "127.0.0.1:3001".to_string());
 
     let mut state = vortex_bench_server::app::AppState::open(&db_path, bearer_token)
         .with_context(|| format!("opening DuckDB at {}", db_path.display()))?;
@@ -90,21 +104,66 @@ async fn main() -> Result<()> {
     }
     let snapshot_dir = state.snapshot_dir.clone();
     let extension_dir = state.extension_dir.clone();
-    let app = vortex_bench_server::app::router(state);
+    let admin_app = vortex_bench_server::app::admin_router(state.clone());
+    let public_app = vortex_bench_server::app::public_router(state);
 
-    let listener = tokio::net::TcpListener::bind(&bind_addr)
+    let public_listener = TcpListener::bind(&public_bind)
         .await
-        .with_context(|| format!("binding to {bind_addr}"))?;
+        .with_context(|| format!("binding public listener to {public_bind}"))?;
+    let public_addr = public_listener.local_addr()?;
+
+    let admin_listener = match admin_app.as_ref() {
+        Some(_) => {
+            let listener = TcpListener::bind(&admin_bind)
+                .await
+                .with_context(|| format!("binding admin listener to {admin_bind}"))?;
+            let admin_addr = listener.local_addr()?;
+            ensure_distinct_binds(public_addr, admin_addr)?;
+            Some((listener, admin_addr))
+        }
+        None => None,
+    };
+
     tracing::info!(
-        addr = %listener.local_addr()?,
+        public_addr = %public_addr,
+        admin_addr = ?admin_listener.as_ref().map(|(_, a)| *a),
         db = %db_path.display(),
         snapshot_dir = %snapshot_dir.display(),
         extension_dir = %extension_dir.display(),
         "bench server listening"
     );
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+
+    // Both listeners share one shutdown trigger so a single SIGTERM drains
+    // ingest, admin, and HTML in lockstep. `Shared` lets us hand the same
+    // future to each `with_graceful_shutdown`.
+    let shutdown = shutdown_signal().shared();
+    match (admin_app, admin_listener) {
+        (Some(admin_app), Some((admin_listener, _))) => {
+            let public_fut =
+                axum::serve(public_listener, public_app).with_graceful_shutdown(shutdown.clone());
+            let admin_fut = axum::serve(admin_listener, admin_app).with_graceful_shutdown(shutdown);
+            tokio::try_join!(public_fut, admin_fut)?;
+        }
+        _ => {
+            axum::serve(public_listener, public_app)
+                .with_graceful_shutdown(shutdown)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Refuse to start if the public and admin listeners landed on the same
+/// address. The admin listener exists specifically to keep `/api/admin/*`
+/// off the public network, so the two collapsing back into one is a
+/// silent rollback of that guarantee.
+fn ensure_distinct_binds(public: SocketAddr, admin: SocketAddr) -> Result<()> {
+    if public == admin {
+        return Err(anyhow!(
+            "public and admin listeners would bind the same address ({public}); \
+             keep VORTEX_BENCH_ADMIN_BIND on a different port"
+        ));
+    }
     Ok(())
 }
 
