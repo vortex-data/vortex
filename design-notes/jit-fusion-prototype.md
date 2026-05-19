@@ -1032,6 +1032,101 @@ sits between them.
 
 ---
 
+## 11. What JIT implementations optimize for — and where vortex-jit lands
+
+"JIT" labels several very different engineering bets. This section maps the
+landscape and pins down which one vortex-jit is making.
+
+### Five regimes
+
+| Regime | Examples | Budget | Goal | How |
+|--------|----------|--------|------|-----|
+| Peak throughput | LLVM, HotSpot C2, TurboFan | Unbounded | Best assembly | 50+ passes; LICM, vectorize, unroll, alias |
+| Compile speed + safety | Cranelift, Singlepass, V8 Liftoff | ~ms / fn | No miscompiles, predictable code | Single-pass, modest peephole, basic regalloc |
+| Query compilation | HyPer, Umbra, ClickHouse JIT, Postgres JIT | Per-query | *What counts as one function* | Operator fusion, push-style codegen |
+| Schedule search | Halide, TVM, Triton, XLA | Offline | Best compute→hardware mapping | Decouple algorithm/schedule, autotune |
+| Type specialization | V8 TurboFan, LuaJIT, PyPy | Amortized | Speculative monomorphization | Profile-guided, type feedback, deopt |
+
+Most JITs aren't optimizing the same thing. Cranelift-in-wasmtime versus
+LLVM-in-Photon are nearly opposite engineering bets.
+
+### One-line bets per system
+
+- **LLVM** — best code, eventually. Hundreds of passes. Beat for steady-state codegen.
+- **Cranelift** — fast, secure, ok code. Single-pass RA2, fewer passes, verifier as contract. 3–10× faster compile than LLVM, 1.3–2× slower code.
+- **HyPer/Umbra** — collapse N operators into one function via push-style codegen. Wins come from IR-construction strategy, not LLVM's passes.
+- **ClickHouse JIT** — fuse aggregation, comparison, filter into one LLVM module per query. Wins are dispatch elimination.
+- **Postgres JIT** — tuple deforming (const-fold column offsets) + expr eval. Break-even ≈ 1M rows.
+- **Halide** — let the expert hand-write the schedule; algorithm is separate.
+- **TVM/XLA/Triton** — autotune over schedule space.
+- **V8/LuaJIT** — speculate on runtime types, deopt on miss. Amortized over long sessions.
+
+### Where vortex-jit lives
+
+**Mostly query compilation (Regime 3), partly compile-speed + safety
+(Regime 2).** Big win is HyPer-style fusion across encoding boundaries:
+three or four block loops collapse into one. Cranelift over LLVM is a
+deliberate budget choice — we want JIT useful at 1–10ms compile budgets, not
+100ms+.
+
+Explicitly out of scope:
+
+- Speculation — encoding metadata gives static types.
+- Tracing — chains are statically known from the encoding tree.
+- Profile-guided — data shape is in metadata.
+- Schedule search — only two decisions (full-unroll-vs-loop,
+  materialize-here-vs-defer); heuristics suffice.
+- Tiering — could revisit (Cranelift baseline → LLVM optimizing for hot
+  chains); skip for v1.
+
+### Concrete optimization targets, in priority order
+
+1. **Fusion across stages — one outer loop, not N.** The HyPer win.
+   Everything else is zero without this.
+2. **Constant baking from encoding metadata.** `bit_width=11` →
+   unrolled band/ushr; `reference=42` → `iadd_imm 42`; ALP `(e, f)` → one
+   `f64const`. Wins live in lowering, not the backend.
+3. **Materialize/load elision at lane↔buffer transitions.** Framework
+   elides round-trips when no permutation sits between; Cranelift's SROA
+   cleans the rest.
+4. **Vector-width selection.** Framework picks chunk width per target
+   (i64x4/x8/scalar) so stages write one body and get SIMD on every ISA.
+   Only place we need Cranelift's codegen to match fastlanes' hand-tuned
+   intrinsics.
+5. **Block-skip in Take.** Lowering inserts a per-block "any taken
+   indices?" check before unpack. Reuses
+   `bitpacking/compute/take.rs:43-45` threshold as a lowering decision.
+6. **Patch inlining vs scatter.** Above some density, per-block merge;
+   below, post-loop scatter. Both kernels coexist in cache under
+   different fingerprints.
+7. **Compile-cost amortization gate.** Cost model in §6 item 4: don't
+   JIT chains that can't recoup compile cost. Cranelift's ms-range
+   compile makes the break-even much lower than LLVM would.
+8. **Cache by canonical stage list.** Equivalent chains share kernels.
+   `For(reference=0, BitPacked)` deduplicates against plain `BitPacked`
+   because lowering elides AddConst{0}.
+
+### What we don't optimize (and don't need to)
+
+- Function-call inlining in the hot loop — no calls except post-loop
+  patch helpers; stages are inline by construction.
+- Alias analysis — Vortex buffer ownership guarantees disjointness;
+  `MemFlags::trusted()` and move on.
+- Bounds-check elision — wrapper validates lengths once before the
+  call; in-loop accesses are unchecked.
+- Per-call type checks — composition validation runs at `Pipeline::push`,
+  not per invocation.
+- LICM — encoding params are already hoisted as IR constants by
+  construction.
+
+The set of optimizations we care about is small and concrete — six or
+seven items — versus LLVM's hundred. That's because the work has been
+done upstream by framework structure: fusion via lowering, constants via
+metadata, disjointness via ownership. The JIT just has to emit the
+obvious code well.
+
+---
+
 ## Appendix A: research on the inter-module ABI
 
 What follows is what the surveys found about how today's encodings talk to each
