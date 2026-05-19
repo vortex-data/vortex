@@ -258,8 +258,29 @@ fn export_snapshot_tables(conn: &mut Connection, target: &Path) -> Result<()> {
     // present, `LOAD` is cheap once the binary is on disk. Vortex is a
     // DuckDB core extension (not community), so the unqualified `INSTALL`
     // hits the right repo on first call; subsequent calls are local.
+    // Runs outside the snapshot transaction because extension installation
+    // is not transactional.
     conn.execute_batch("INSTALL vortex; LOAD vortex;")
         .context("INSTALL/LOAD vortex extension")?;
+
+    // All per-table COPYs share one `READ ONLY` transaction. Otherwise an
+    // ingest commit between the `commits` export and the
+    // `query_measurements` export yields an inconsistent backup — facts
+    // referencing a commit row that is not in the snapshot, or vice
+    // versa. The transaction's READ ONLY guard also belts-and-braces
+    // against the snapshot path accidentally writing.
+    conn.execute_batch("BEGIN TRANSACTION READ ONLY")
+        .context("begin read-only snapshot transaction")?;
+    if let Err(err) = copy_each_table(conn, target) {
+        let _ = conn.execute_batch("ROLLBACK");
+        return Err(err);
+    }
+    conn.execute_batch("COMMIT")
+        .context("commit read-only snapshot transaction")?;
+    Ok(())
+}
+
+fn copy_each_table(conn: &Connection, target: &Path) -> Result<()> {
     for table in schema::TABLES {
         let path = target.join(format!("{table}.vortex"));
         let path_str = path

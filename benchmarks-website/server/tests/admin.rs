@@ -23,6 +23,7 @@ const ADMIN_TOKEN: &str = "admin-test-token";
 struct Server {
     addr: SocketAddr,
     snapshot_dir: std::path::PathBuf,
+    state: AppState,
     _tmp: TempDir,
     handle: JoinHandle<()>,
 }
@@ -47,7 +48,7 @@ impl Server {
         if enable_admin {
             state = state.with_admin(ADMIN_TOKEN.to_string());
         }
-        let app = router(state);
+        let app = router(state.clone());
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
         let handle = tokio::spawn(async move {
@@ -56,6 +57,7 @@ impl Server {
         Ok(Self {
             addr,
             snapshot_dir,
+            state,
             _tmp: tmp,
             handle,
         })
@@ -461,6 +463,69 @@ async fn admin_snapshot_concurrent_same_ts_yields_one_200_and_one_409() -> Resul
         codes,
         [200, 409],
         "expected exactly one 200 and one 409 for concurrent snapshots with same ts"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "needs network to install the vortex DuckDB core extension"]
+async fn admin_snapshot_captures_committed_row_under_read_only_transaction() -> Result<()> {
+    // The per-table COPYs run inside a single `BEGIN TRANSACTION READ ONLY`.
+    // The contract is that a row already committed to `commits` lands in
+    // the snapshot's `commits.vortex`. A full "ingest mid-snapshot" race
+    // is hard to make deterministic, so this test pins the easier half:
+    // commit-then-snapshot must see the commit.
+    let server = Server::start_with_admin().await?;
+    let client = reqwest::Client::new();
+    let sha = "deadbeefcafebabedeadbeefcafebabedeadbeef";
+    {
+        let sha = sha.to_string();
+        vortex_bench_server::db::run_blocking(&server.state.db, move |conn| {
+            conn.execute_batch(&format!(
+                "INSERT INTO commits (commit_sha, timestamp, tree_sha, url) \
+                 VALUES ('{sha}', NOW(), 'tree-sha', 'http://example/{sha}')"
+            ))?;
+            Ok(())
+        })
+        .await?;
+    }
+
+    let ts = "20260104T000000Z";
+    let resp = client
+        .post(server.url(&format!("/api/admin/snapshot?ts={ts}")))
+        .bearer_auth(ADMIN_TOKEN)
+        .send()
+        .await?;
+    let status = resp.status();
+    let text = resp.text().await?;
+    assert_eq!(status, 200, "snapshot failed: {text}");
+    let body: Value = serde_json::from_str(&text)?;
+    let snapshot_dir = body["snapshot_dir"]
+        .as_str()
+        .context("snapshot_dir field")?
+        .to_string();
+    let commits_path = format!("{snapshot_dir}/commits.vortex");
+
+    // Round-trip through the read-only `/api/admin/sql` endpoint so the
+    // verification uses the same DuckDB + Vortex extension the server
+    // produced the snapshot with — no separate process or path to keep
+    // in sync.
+    let resp = client
+        .post(server.url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({
+            "sql": format!(
+                "SELECT commit_sha FROM read_vortex('{commits_path}')"
+            )
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    assert_eq!(
+        body["rows"],
+        json!([[sha]]),
+        "snapshot's commits.vortex did not contain the committed row"
     );
     Ok(())
 }
