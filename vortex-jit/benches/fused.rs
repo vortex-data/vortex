@@ -29,7 +29,10 @@ use vortex_jit::{Compiler, PType, Pipeline};
 static ALLOC: MiMalloc = MiMalloc;
 
 const NUM_VALUES: usize = 65_536;
-const BLOCK: usize = 1024;
+// "Block" here is the per-emit() chunk count. Empirically tuned: too small
+// (16-32) adds loop overhead; too large (>=128) spills SSE registers across
+// stage boundaries. 64 is the sweet spot for short i32 pipelines on x86_64.
+const BLOCK: usize = 64;
 const N_BLOCKS: usize = NUM_VALUES / BLOCK;
 const REFERENCE: i32 = 42;
 

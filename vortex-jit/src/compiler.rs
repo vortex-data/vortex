@@ -122,12 +122,20 @@ pub struct Compiler {
 impl Compiler {
     pub fn new(externs: Vec<ExternFn>) -> VortexResult<Self> {
         let mut flag_builder = settings::builder();
-        flag_builder
-            .set("use_colocated_libcalls", "false")
-            .map_err(|e| vortex_err!("cranelift flag: {e}"))?;
-        flag_builder
-            .set("is_pic", "false")
-            .map_err(|e| vortex_err!("cranelift flag: {e}"))?;
+        // Crank Cranelift's optimizer; the framework's IR shape benefits from
+        // LICM (hoisting the broadcast splat) and alias-aware scheduling.
+        for (k, v) in [
+            ("use_colocated_libcalls", "false"),
+            ("is_pic", "false"),
+            ("opt_level", "speed"),
+            ("enable_alias_analysis", "true"),
+            ("enable_verifier", "false"),
+            ("preserve_frame_pointers", "false"),
+        ] {
+            flag_builder
+                .set(k, v)
+                .map_err(|e| vortex_err!("cranelift flag {k}={v}: {e}"))?;
+        }
         let isa_builder = cranelift_native::builder()
             .map_err(|e| vortex_err!("cranelift native target: {e}"))?;
         let isa = isa_builder
