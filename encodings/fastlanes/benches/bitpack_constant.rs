@@ -331,7 +331,9 @@ fn validate_eq_strategies() {
     }
 
     check_eq!(1);
+    check_eq!(2);
     check_eq!(4);
+    check_eq!(8);
     check_eq!(12);
     check_eq!(16);
     check_eq!(24);
@@ -2057,7 +2059,9 @@ macro_rules! u32_eq_benches {
 }
 
 u32_eq_benches!(u32_eq => 1);
+u32_eq_benches!(u32_eq => 2);
 u32_eq_benches!(u32_eq => 4);
+u32_eq_benches!(u32_eq => 8);
 u32_eq_benches!(u32_eq => 12);
 u32_eq_benches!(u32_eq => 16);
 u32_eq_benches!(u32_eq => 24);
