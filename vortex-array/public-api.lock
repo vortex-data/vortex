@@ -3100,6 +3100,10 @@ impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::Extens
 
 pub fn vortex_array::arrays::Extension::filter(vortex_array::ArrayView<'_, vortex_array::arrays::Extension>, &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
+impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::List
+
+pub fn vortex_array::arrays::List::filter(vortex_array::ArrayView<'_, vortex_array::arrays::List>, &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
 impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::Masked
 
 pub fn vortex_array::arrays::Masked::filter(vortex_array::ArrayView<'_, vortex_array::arrays::Masked>, &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -3333,6 +3337,10 @@ pub fn vortex_array::arrays::List::take(vortex_array::ArrayView<'_, vortex_array
 impl vortex_array::arrays::filter::FilterKernel for vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::filter(vortex_array::ArrayView<'_, vortex_array::arrays::List>, &vortex_mask::Mask, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::List
+
+pub fn vortex_array::arrays::List::filter(vortex_array::ArrayView<'_, vortex_array::arrays::List>, &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::List
 
@@ -6477,6 +6485,10 @@ pub fn vortex_array::arrays::List::take(vortex_array::ArrayView<'_, vortex_array
 impl vortex_array::arrays::filter::FilterKernel for vortex_array::arrays::List
 
 pub fn vortex_array::arrays::List::filter(vortex_array::ArrayView<'_, vortex_array::arrays::List>, &vortex_mask::Mask, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+
+impl vortex_array::arrays::filter::FilterReduce for vortex_array::arrays::List
+
+pub fn vortex_array::arrays::List::filter(vortex_array::ArrayView<'_, vortex_array::arrays::List>, &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 
 impl vortex_array::arrays::slice::SliceReduce for vortex_array::arrays::List
 

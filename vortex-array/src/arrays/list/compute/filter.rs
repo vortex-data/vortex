@@ -20,8 +20,13 @@ use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
 use crate::arrays::List;
 use crate::arrays::ListArray;
+use crate::arrays::ListViewArray;
+use crate::arrays::Primitive;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::filter::FilterKernel;
+use crate::arrays::filter::FilterReduce;
 use crate::arrays::list::ListArrayExt;
+use crate::arrays::primitive::PrimitiveArrayExt;
 use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
@@ -148,5 +153,76 @@ impl FilterKernel for List {
         Ok(Some(unsafe {
             ListArray::new_unchecked(new_elements, new_offsets, new_validity).into_array()
         }))
+    }
+}
+
+/// Metadata-only filter for `ListArray` that returns a `ListViewArray`.
+///
+/// The `FilterKernel` impl above eagerly filters the elements buffer to keep it compact (`List`
+/// requires sequential offsets). For destinations where the per-element export cost is zero —
+/// DuckDB primitive / decimal / fixed-size children, Arrow → Arrow for any canonical child —
+/// that element compaction is pure overhead: the downstream export would pass the elements
+/// buffer through zero-copy regardless of whether it's compact.
+///
+/// This reduce produces a `ListViewArray` instead: original `elements` (zero-copy), plus
+/// per-row `(offset, size)` taken from the surviving rows. The export-time prune can still
+/// fire on the result when it would actually save work; otherwise the export is free and we
+/// have skipped an `O(elements_len)` mask scan plus an `O(num_kept_elements)` copy.
+///
+/// The reduce only takes the fast path when offsets are host-primitive (the canonical case);
+/// otherwise it returns `None` and the `FilterKernel` runs.
+impl FilterReduce for List {
+    fn filter(array: ArrayView<'_, List>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        let selection = match mask {
+            Mask::AllTrue(_) | Mask::AllFalse(_) => return Ok(None),
+            Mask::Values(v) => v,
+        };
+
+        // Only handle the host-primitive offsets case; fall back to the kernel for anything
+        // else (e.g. compressed-encoded offsets).
+        let Some(offsets_prim) = array.offsets().as_opt::<Primitive>() else {
+            return Ok(None);
+        };
+        if !array.offsets().is_host() {
+            return Ok(None);
+        }
+
+        let new_validity = match array.validity()? {
+            Validity::NonNullable => Validity::NonNullable,
+            Validity::AllValid => Validity::AllValid,
+            Validity::AllInvalid => Validity::AllInvalid,
+            Validity::Array(a) => Validity::Array(a.filter(mask.clone())?),
+        };
+
+        let kept = selection.true_count();
+        let new_offsets: ArrayRef;
+        let new_sizes: ArrayRef;
+        match_each_integer_ptype!(offsets_prim.ptype(), |O| {
+            let offsets_slice = offsets_prim.as_slice::<O>();
+            let mut off_buf = BufferMut::<O>::with_capacity(kept);
+            let mut sz_buf = BufferMut::<O>::with_capacity(kept);
+            for &i in selection.indices() {
+                let start = offsets_slice[i];
+                let stop = offsets_slice[i + 1];
+                off_buf.push(start);
+                sz_buf.push(stop - start);
+            }
+            new_offsets = PrimitiveArray::new(off_buf.freeze(), Validity::NonNullable).into_array();
+            new_sizes = PrimitiveArray::new(sz_buf.freeze(), Validity::NonNullable).into_array();
+        });
+
+        // SAFETY:
+        // - `new_offsets`/`new_sizes` are non-nullable and have the same length (`kept`).
+        // - Each `(offset, size)` pair indexes into a valid range of `elements` because the
+        //   pair was taken from a valid `ListArray`'s monotonic offsets.
+        let listview = unsafe {
+            ListViewArray::new_unchecked(
+                array.elements().clone(),
+                new_offsets,
+                new_sizes,
+                new_validity,
+            )
+        };
+        Ok(Some(listview.into_array()))
     }
 }

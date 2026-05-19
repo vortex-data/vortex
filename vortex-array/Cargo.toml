@@ -114,6 +114,10 @@ name = "list_slice_export"
 harness = false
 
 [[bench]]
+name = "list_filter_export"
+harness = false
+
+[[bench]]
 name = "cast_primitive"
 harness = false
 
