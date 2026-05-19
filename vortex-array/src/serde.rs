@@ -778,9 +778,173 @@ impl TryFrom<BufferHandle> for SerializedArray {
 // which source the metadata/buffers/children come from, so this type implements the same
 // decode flow without ever constructing or parsing a flatbuffer.
 
+/// Per-stat raw blob with the inline flatbuffer's precision flag preserved.
+///
+/// `bytes` is `ScalarValue::to_proto_bytes`-encoded. Pairs with the precision flag because
+/// `min` / `max` in `fba::ArrayStats` track exact vs. inexact independently of the value.
+#[derive(Debug, Clone)]
+pub struct RawStatValue {
+    pub bytes: ByteBuffer,
+    pub exact: bool,
+}
+
+/// Raw, dtype-agnostic snapshot of a node's statistics. Stored in [`ColumnarChunkData`] so
+/// the columnar consolidated array_trees segment can carry stats without needing per-node
+/// dtypes at materialization time. Conversion to a typed [`StatsSet`] happens at decode
+/// time via [`Self::to_stats_set`], when the dtype is known.
+///
+/// Mirrors the field set of `fba::ArrayStats` exactly so the columnar and inline paths
+/// produce equivalent decoded `StatsSet`s.
+#[derive(Debug, Clone, Default)]
+pub struct RawNodeStats {
+    pub min: Option<RawStatValue>,
+    pub max: Option<RawStatValue>,
+    pub sum: Option<ByteBuffer>,
+    pub null_count: Option<u64>,
+    pub nan_count: Option<u64>,
+    pub uncompressed_size_in_bytes: Option<u64>,
+    pub is_constant: Option<bool>,
+    pub is_sorted: Option<bool>,
+    pub is_strict_sorted: Option<bool>,
+}
+
+impl RawNodeStats {
+    /// True when no stat slot is populated. Used by the writer to decide whether to record
+    /// `None` for the entire node (and emit nulls in every stat column).
+    pub fn is_empty(&self) -> bool {
+        self.min.is_none()
+            && self.max.is_none()
+            && self.sum.is_none()
+            && self.null_count.is_none()
+            && self.nan_count.is_none()
+            && self.uncompressed_size_in_bytes.is_none()
+            && self.is_constant.is_none()
+            && self.is_sorted.is_none()
+            && self.is_strict_sorted.is_none()
+    }
+
+    /// Snapshot a typed [`StatsSet`] into raw form, mirroring the same selection /
+    /// precision handling as the inline flatbuffer writer.
+    pub fn from_stats_set(stats: &StatsSet) -> Self {
+        use crate::dtype::Nullability;
+        use crate::dtype::PType;
+        use crate::expr::stats::Precision;
+        use crate::expr::stats::Stat;
+
+        let raw_value = |p: Precision<crate::scalar::ScalarValue>| RawStatValue {
+            exact: p.is_exact(),
+            bytes: ByteBuffer::from(crate::scalar::ScalarValue::to_proto_bytes::<Vec<u8>>(Some(
+                &p.into_inner(),
+            ))),
+        };
+
+        let bool_dtype = DType::Bool(Nullability::NonNullable);
+        let u64_dtype: DType = PType::U64.into();
+
+        Self {
+            min: stats.get(Stat::Min).map(raw_value),
+            max: stats.get(Stat::Max).map(raw_value),
+            sum: stats
+                .get(Stat::Sum)
+                .and_then(Precision::as_exact)
+                .map(|sum| {
+                    ByteBuffer::from(crate::scalar::ScalarValue::to_proto_bytes::<Vec<u8>>(Some(
+                        &sum,
+                    )))
+                }),
+            null_count: stats
+                .get_as::<u64>(Stat::NullCount, &u64_dtype)
+                .and_then(Precision::as_exact),
+            nan_count: stats
+                .get_as::<u64>(Stat::NaNCount, &u64_dtype)
+                .and_then(Precision::as_exact),
+            uncompressed_size_in_bytes: stats
+                .get_as::<u64>(Stat::UncompressedSizeInBytes, &u64_dtype)
+                .and_then(Precision::as_exact),
+            is_constant: stats
+                .get_as::<bool>(Stat::IsConstant, &bool_dtype)
+                .and_then(Precision::as_exact),
+            is_sorted: stats
+                .get_as::<bool>(Stat::IsSorted, &bool_dtype)
+                .and_then(Precision::as_exact),
+            is_strict_sorted: stats
+                .get_as::<bool>(Stat::IsStrictSorted, &bool_dtype)
+                .and_then(Precision::as_exact),
+        }
+    }
+
+    /// Hydrate into a typed [`StatsSet`] for a given array dtype, mirroring
+    /// [`StatsSet::from_flatbuffer`] (same per-stat dtype lookup, same precision handling).
+    pub fn to_stats_set(&self, dtype: &DType, session: &VortexSession) -> VortexResult<StatsSet> {
+        use crate::expr::stats::Precision;
+        use crate::expr::stats::Stat;
+        use crate::scalar::ScalarValue;
+
+        let mut set = StatsSet::default();
+
+        if let Some(raw) = &self.min
+            && let Some(stat_dtype) = Stat::Min.dtype(dtype)
+            && let Some(value) =
+                ScalarValue::from_proto_bytes(raw.bytes.as_slice(), &stat_dtype, session)?
+        {
+            set.set(
+                Stat::Min,
+                if raw.exact {
+                    Precision::Exact(value)
+                } else {
+                    Precision::Inexact(value)
+                },
+            );
+        }
+        if let Some(raw) = &self.max
+            && let Some(stat_dtype) = Stat::Max.dtype(dtype)
+            && let Some(value) =
+                ScalarValue::from_proto_bytes(raw.bytes.as_slice(), &stat_dtype, session)?
+        {
+            set.set(
+                Stat::Max,
+                if raw.exact {
+                    Precision::Exact(value)
+                } else {
+                    Precision::Inexact(value)
+                },
+            );
+        }
+        if let Some(raw) = &self.sum
+            && let Some(stat_dtype) = Stat::Sum.dtype(dtype)
+            && let Some(value) =
+                ScalarValue::from_proto_bytes(raw.as_slice(), &stat_dtype, session)?
+        {
+            set.set(Stat::Sum, Precision::Exact(value));
+        }
+        if let Some(v) = self.null_count {
+            set.set(Stat::NullCount, Precision::Exact(ScalarValue::from(v)));
+        }
+        if let Some(v) = self.nan_count {
+            set.set(Stat::NaNCount, Precision::Exact(ScalarValue::from(v)));
+        }
+        if let Some(v) = self.uncompressed_size_in_bytes {
+            set.set(
+                Stat::UncompressedSizeInBytes,
+                Precision::Exact(ScalarValue::from(v)),
+            );
+        }
+        if let Some(v) = self.is_constant {
+            set.set(Stat::IsConstant, Precision::Exact(ScalarValue::from(v)));
+        }
+        if let Some(v) = self.is_sorted {
+            set.set(Stat::IsSorted, Precision::Exact(ScalarValue::from(v)));
+        }
+        if let Some(v) = self.is_strict_sorted {
+            set.set(Stat::IsStrictSorted, Precision::Exact(ScalarValue::from(v)));
+        }
+        Ok(set)
+    }
+}
+
 /// Per-node statistics from the consolidated columnar consolidated form. `None` means the
 /// writer didn't persist any stats for that node.
-pub type ColumnarNodeStats = Option<StatsSet>;
+pub type ColumnarNodeStats = Option<RawNodeStats>;
 
 /// Per-chunk slice of the columnar consolidated tree, shared by all `ColumnarSerializedArray`
 /// nodes within the chunk via `Arc`.
@@ -1092,9 +1256,11 @@ impl ColumnarSerializedArray {
             decoded.encoding_id(),
         );
 
-        // Populate statistics from the columnar chunk data.
-        if let Some(stats) = &self.chunk.stats[self.node_index] {
-            decoded.statistics().set_iter(stats.clone().into_iter());
+        // Populate statistics from the columnar chunk data. Hydrate the raw blob now that
+        // we know the array's dtype.
+        if let Some(raw) = &self.chunk.stats[self.node_index] {
+            let stats_set = raw.to_stats_set(dtype, session)?;
+            decoded.statistics().set_iter(stats_set.into_iter());
         }
 
         Ok(decoded)
@@ -1163,15 +1329,19 @@ pub fn serialize_with_columnar_chunk(
             .map_err(|_| vortex_err!("Array node has more than u16::MAX buffers"))?;
         buffers_per_node.push(n_buffers);
 
-        // Capture per-node stats. `to_owned` snapshots the current StatsSet contents; we
-        // store `None` when no stats are present so the read side can distinguish "no
-        // stats persisted" from "all stats happen to be empty".
+        // Capture per-node stats. Snapshot the current StatsSet contents and lower them to
+        // raw form so the consolidated array_trees segment can carry them without per-node
+        // dtypes; the decode path rehydrates with the correct dtype. `None` is recorded
+        // when the node has no stats so the read side can distinguish "no stats persisted"
+        // from "all stats happen to be empty".
         let stats_set = node.statistics().to_owned();
-        stats.push(if stats_set.is_empty() {
+        let raw = if stats_set.is_empty() {
             None
         } else {
-            Some(stats_set)
-        });
+            let raw = RawNodeStats::from_stats_set(&stats_set);
+            if raw.is_empty() { None } else { Some(raw) }
+        };
+        stats.push(raw);
 
         array_buffers.extend(node_bufs);
     }
@@ -1306,6 +1476,69 @@ mod columnar_tests {
     fn buffer_offsets_basic() {
         let offsets = ColumnarChunkData::compute_buffer_offsets(&[2u16, 0, 3, 1]);
         assert_eq!(offsets, vec![0, 2, 2, 5]);
+    }
+
+    /// Round-trip a populated `StatsSet` through `RawNodeStats::from_stats_set` and
+    /// `to_stats_set` to confirm the dtype-agnostic raw form preserves the same selection
+    /// of stats and their values.
+    #[test]
+    fn raw_node_stats_roundtrip_i32() -> VortexResult<()> {
+        use crate::LEGACY_SESSION;
+        use crate::dtype::Nullability;
+        use crate::dtype::PType;
+        use crate::expr::stats::Precision;
+        use crate::expr::stats::Stat;
+        use crate::scalar::ScalarValue;
+
+        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        let mut set = StatsSet::default();
+        set.set(Stat::Min, Precision::Exact(ScalarValue::from(-3i32)));
+        set.set(Stat::Max, Precision::Inexact(ScalarValue::from(42i32)));
+        set.set(Stat::Sum, Precision::Exact(ScalarValue::from(100i64)));
+        set.set(Stat::NullCount, Precision::Exact(ScalarValue::from(7u64)));
+        set.set(Stat::IsConstant, Precision::Exact(ScalarValue::from(false)));
+        set.set(Stat::IsSorted, Precision::Exact(ScalarValue::from(true)));
+
+        let raw = RawNodeStats::from_stats_set(&set);
+        assert!(!raw.is_empty());
+        // Precision is preserved on min/max.
+        assert!(raw.min.as_ref().unwrap().exact);
+        assert!(!raw.max.as_ref().unwrap().exact);
+
+        let back = raw.to_stats_set(&dtype, &LEGACY_SESSION)?;
+        assert_eq!(
+            back.get_as::<i32>(Stat::Min, &dtype),
+            Some(Precision::Exact(-3))
+        );
+        assert_eq!(
+            back.get_as::<i32>(Stat::Max, &dtype),
+            Some(Precision::Inexact(42))
+        );
+        assert_eq!(
+            back.get_as::<u64>(Stat::NullCount, &PType::U64.into()),
+            Some(Precision::Exact(7))
+        );
+        assert_eq!(
+            back.get_as::<bool>(Stat::IsConstant, &DType::Bool(Nullability::NonNullable)),
+            Some(Precision::Exact(false))
+        );
+        assert_eq!(
+            back.get_as::<bool>(Stat::IsSorted, &DType::Bool(Nullability::NonNullable)),
+            Some(Precision::Exact(true))
+        );
+        // IsStrictSorted wasn't set; should remain absent.
+        assert!(
+            back.get(Stat::IsStrictSorted).is_none(),
+            "unset stats stay unset"
+        );
+        Ok(())
+    }
+
+    /// Empty stats stay empty across the round trip.
+    #[test]
+    fn raw_node_stats_empty() {
+        let raw = RawNodeStats::from_stats_set(&StatsSet::default());
+        assert!(raw.is_empty());
     }
 
     /// Child navigation: from root (idx 0) of a tree

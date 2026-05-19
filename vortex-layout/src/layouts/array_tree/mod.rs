@@ -17,10 +17,12 @@ use vortex_array::EmptyMetadata;
 use vortex_array::Executable;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
+use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::bool::BoolArrayExt;
 use vortex_array::arrays::list::ListArrayExt;
 use vortex_array::arrays::listview::list_from_list_view;
 use vortex_array::arrays::struct_::StructArrayExt;
@@ -31,6 +33,8 @@ use vortex_array::dtype::PType;
 use vortex_array::dtype::StructFields;
 use vortex_array::expr::root;
 use vortex_array::serde::ColumnarChunkData;
+use vortex_array::serde::RawNodeStats;
+use vortex_array::serde::RawStatValue;
 use vortex_buffer::ByteBuffer;
 use vortex_error::SharedVortexResult;
 use vortex_error::VortexExpect;
@@ -38,6 +42,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_session::registry::ReadContext;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -513,6 +518,29 @@ fn build_segment_map(
         ctx,
     )?;
 
+    // ---- Per-node stat columns (nullable) ----
+
+    let stat_min = NullableBin::from_field(&nodes_inner_struct, "stat_min", ctx)?;
+    let stat_max = NullableBin::from_field(&nodes_inner_struct, "stat_max", ctx)?;
+    let stat_sum = NullableBin::from_field(&nodes_inner_struct, "stat_sum", ctx)?;
+    let stat_min_prec =
+        NullablePrim::<u8>::from_field(&nodes_inner_struct, "stat_min_precision", ctx)?;
+    let stat_max_prec =
+        NullablePrim::<u8>::from_field(&nodes_inner_struct, "stat_max_precision", ctx)?;
+    let stat_null_count =
+        NullablePrim::<u64>::from_field(&nodes_inner_struct, "stat_null_count", ctx)?;
+    let stat_nan_count =
+        NullablePrim::<u64>::from_field(&nodes_inner_struct, "stat_nan_count", ctx)?;
+    let stat_uncompressed = NullablePrim::<u64>::from_field(
+        &nodes_inner_struct,
+        "stat_uncompressed_size_in_bytes",
+        ctx,
+    )?;
+    let stat_is_constant = NullableBool::from_field(&nodes_inner_struct, "stat_is_constant", ctx)?;
+    let stat_is_sorted = NullableBool::from_field(&nodes_inner_struct, "stat_is_sorted", ctx)?;
+    let stat_is_strict_sorted =
+        NullableBool::from_field(&nodes_inner_struct, "stat_is_strict_sorted", ctx)?;
+
     // ---- Buffers list ----
 
     let buffers_list = list_from_list_view(buffers_field.execute::<ListViewArray>(ctx)?)?;
@@ -563,7 +591,28 @@ fn build_segment_map(
         let buffer_alignment_exponent = alignment_all[b_start..b_end].to_vec();
         let buffer_length = length_all[b_start..b_end].to_vec();
 
-        let stats = vec![None; n_end - n_start];
+        let stats: Vec<Option<RawNodeStats>> = (n_start..n_end)
+            .map(|j| {
+                let raw = RawNodeStats {
+                    min: stat_min.at(j).map(|bytes| RawStatValue {
+                        bytes,
+                        exact: stat_min_prec.at(j).map(precision_to_exact).unwrap_or(true),
+                    }),
+                    max: stat_max.at(j).map(|bytes| RawStatValue {
+                        bytes,
+                        exact: stat_max_prec.at(j).map(precision_to_exact).unwrap_or(true),
+                    }),
+                    sum: stat_sum.at(j),
+                    null_count: stat_null_count.at(j),
+                    nan_count: stat_nan_count.at(j),
+                    uncompressed_size_in_bytes: stat_uncompressed.at(j),
+                    is_constant: stat_is_constant.at(j),
+                    is_sorted: stat_is_sorted.at(j),
+                    is_strict_sorted: stat_is_strict_sorted.at(j),
+                };
+                if raw.is_empty() { None } else { Some(raw) }
+            })
+            .collect();
 
         let chunk = ColumnarChunkData::new(
             encoding_ids,
@@ -578,4 +627,105 @@ fn build_segment_map(
         map.insert(SegmentId::from(seg), Arc::new(chunk));
     }
     Ok(map)
+}
+
+/// Mirror of the `PRECISION_EXACT`/`PRECISION_INEXACT` mapping in the writer. Treats any
+/// unknown value as "exact" so forward-incompatible writes (precision values we don't
+/// recognize) don't silently lose data — they just promote inexact to exact, which is the
+/// safer side for stat consumers (a reader that thinks an inexact value is exact may make
+/// a bad pruning decision; we accept that vs. mis-reading the value entirely).
+fn precision_to_exact(p: u8) -> bool {
+    p == 0
+}
+
+/// Materialized nullable binary column (e.g. `stat_min`).
+struct NullableBin {
+    arr: VarBinViewArray,
+    validity: Mask,
+}
+
+impl NullableBin {
+    fn from_field(
+        parent: &StructArray,
+        name: &str,
+        ctx: &mut vortex_array::ExecutionCtx,
+    ) -> VortexResult<Self> {
+        let field = parent
+            .unmasked_field_by_name_opt(name)
+            .ok_or_else(|| vortex_err!("nodes struct missing '{}' field", name))?
+            .clone();
+        let arr = VarBinViewArray::execute(field, ctx)?;
+        let validity = arr
+            .as_ref()
+            .validity()?
+            .execute_mask(arr.as_ref().len(), ctx)?;
+        Ok(Self { arr, validity })
+    }
+    fn at(&self, idx: usize) -> Option<ByteBuffer> {
+        self.validity.value(idx).then(|| self.arr.bytes_at(idx))
+    }
+}
+
+/// Materialized nullable primitive column (e.g. `stat_null_count`).
+struct NullablePrim<T: vortex_array::dtype::NativePType + Copy> {
+    arr: PrimitiveArray,
+    validity: Mask,
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T: vortex_array::dtype::NativePType + Copy> NullablePrim<T> {
+    fn from_field(
+        parent: &StructArray,
+        name: &str,
+        ctx: &mut vortex_array::ExecutionCtx,
+    ) -> VortexResult<Self> {
+        let field = parent
+            .unmasked_field_by_name_opt(name)
+            .ok_or_else(|| vortex_err!("nodes struct missing '{}' field", name))?
+            .clone();
+        let arr = PrimitiveArray::execute(field, ctx)?;
+        let validity = arr
+            .as_ref()
+            .validity()?
+            .execute_mask(arr.as_ref().len(), ctx)?;
+        Ok(Self {
+            arr,
+            validity,
+            _phantom: std::marker::PhantomData,
+        })
+    }
+    fn at(&self, idx: usize) -> Option<T> {
+        self.validity
+            .value(idx)
+            .then(|| self.arr.as_slice::<T>()[idx])
+    }
+}
+
+/// Materialized nullable bool column (e.g. `stat_is_constant`).
+struct NullableBool {
+    bits: vortex_buffer::BitBuffer,
+    validity: Mask,
+}
+
+impl NullableBool {
+    fn from_field(
+        parent: &StructArray,
+        name: &str,
+        ctx: &mut vortex_array::ExecutionCtx,
+    ) -> VortexResult<Self> {
+        let field = parent
+            .unmasked_field_by_name_opt(name)
+            .ok_or_else(|| vortex_err!("nodes struct missing '{}' field", name))?
+            .clone();
+        let arr = BoolArray::execute(field, ctx)?;
+        let bits = arr.to_bit_buffer();
+        let validity = arr
+            .as_ref()
+            .validity()?
+            .execute_mask(arr.as_ref().len(), ctx)?;
+        Ok(Self { bits, validity })
+    }
+    fn at(&self, idx: usize) -> Option<bool> {
+        self.validity.value(idx).then(|| self.bits.value(idx))
+    }
 }

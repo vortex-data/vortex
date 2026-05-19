@@ -17,6 +17,7 @@ use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::serde::ColumnarChunkData;
+use vortex_array::serde::RawNodeStats;
 use vortex_array::serde::SegmentMode;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::serde::serialize_with_columnar_chunk;
@@ -237,15 +238,12 @@ impl LayoutStrategy for ArrayTreeCollectorStrategy {
 ///
 /// One row per chunk. The `nodes` and `buffers` List<Struct> columns are built by
 /// concatenating each chunk's per-node / per-buffer values and recording offsets per row.
-///
-/// **Stats are intentionally written as all-null in this initial implementation** — the
-/// columnar schema has nullable stat columns ready to receive stats, but populating them
-/// requires bridging the existing `StatsSet`/`ScalarValue` serialization to typed columns.
-/// That's a focused follow-up; for now the consolidated carries tree shape + metadata +
-/// buffer descriptors, which is sufficient for the new reader path to decode every chunk.
+/// Stats are hydrated from each node's `RawNodeStats` into typed nullable columns mirroring
+/// the schema on [`ArrayTreeLayout::array_trees_dtype`].
 fn build_consolidated_struct(entries: &[(SegmentId, ColumnarChunkData)]) -> VortexResult<ArrayRef> {
     let nrows = entries.len();
     let nn = Nullability::NonNullable;
+    let nullable = Nullability::Nullable;
 
     // segment_id column.
     let segment_ids: Buffer<u32> = entries.iter().map(|(seg, _)| **seg).collect();
@@ -261,6 +259,21 @@ fn build_consolidated_struct(entries: &[(SegmentId, ColumnarChunkData)]) -> Vort
     let mut buffers_per_node: Vec<u16> = Vec::with_capacity(total_nodes);
     let mut metadata_builder = VarBinViewBuilder::with_capacity(DType::Binary(nn), total_nodes);
 
+    // Nullable stat column accumulators. For each binary stat we use a nullable
+    // `VarBinViewBuilder`; for primitive/bool stats we accumulate (values, validity)
+    // separately and assemble at finish time.
+    let mut min_builder = VarBinViewBuilder::with_capacity(DType::Binary(nullable), total_nodes);
+    let mut max_builder = VarBinViewBuilder::with_capacity(DType::Binary(nullable), total_nodes);
+    let mut sum_builder = VarBinViewBuilder::with_capacity(DType::Binary(nullable), total_nodes);
+    let mut min_prec = NullableValues::<u8>::with_capacity(total_nodes);
+    let mut max_prec = NullableValues::<u8>::with_capacity(total_nodes);
+    let mut null_count = NullableValues::<u64>::with_capacity(total_nodes);
+    let mut nan_count = NullableValues::<u64>::with_capacity(total_nodes);
+    let mut uncompressed_size = NullableValues::<u64>::with_capacity(total_nodes);
+    let mut is_constant = NullableBools::with_capacity(total_nodes);
+    let mut is_sorted = NullableBools::with_capacity(total_nodes);
+    let mut is_strict_sorted = NullableBools::with_capacity(total_nodes);
+
     let mut nodes_offsets: Vec<i32> = Vec::with_capacity(nrows + 1);
     nodes_offsets.push(0);
     let mut nodes_cumulative: i32 = 0;
@@ -271,6 +284,22 @@ fn build_consolidated_struct(entries: &[(SegmentId, ColumnarChunkData)]) -> Vort
             child_counts.push(chunk.child_counts[i]);
             buffers_per_node.push(chunk.buffers_per_node[i]);
             metadata_builder.append_value(chunk.node_metadata[i].as_slice());
+
+            let raw: Option<&RawNodeStats> = chunk.stats[i].as_ref();
+            append_stat_columns(
+                raw,
+                &mut min_builder,
+                &mut max_builder,
+                &mut sum_builder,
+                &mut min_prec,
+                &mut max_prec,
+                &mut null_count,
+                &mut nan_count,
+                &mut uncompressed_size,
+                &mut is_constant,
+                &mut is_sorted,
+                &mut is_strict_sorted,
+            );
         }
         nodes_cumulative += i32::try_from(chunk.nnodes())
             .map_err(|_| vortex_err!("array tree node count overflows i32 offsets"))?;
@@ -284,12 +313,6 @@ fn build_consolidated_struct(entries: &[(SegmentId, ColumnarChunkData)]) -> Vort
     let buffers_per_node_arr =
         PrimitiveArray::new(Buffer::from(buffers_per_node), Validity::NonNullable).into_array();
     let metadata_arr = metadata_builder.finish().into_array();
-
-    // All-null stat columns. Placeholder values per row to satisfy the typed-column shape.
-    let stat_binary = || -> VortexResult<ArrayRef> { all_null_binary(total_nodes) };
-    let stat_u8 = || -> VortexResult<ArrayRef> { all_null_primitive::<u8>(total_nodes) };
-    let stat_u64 = || -> VortexResult<ArrayRef> { all_null_primitive::<u64>(total_nodes) };
-    let stat_bool = || -> VortexResult<ArrayRef> { all_null_bool(total_nodes) };
 
     let node_names: Vec<&str> = vec![
         "encoding_id",
@@ -315,17 +338,17 @@ fn build_consolidated_struct(entries: &[(SegmentId, ColumnarChunkData)]) -> Vort
             child_count_arr,
             metadata_arr,
             buffers_per_node_arr,
-            stat_binary()?,
-            stat_u8()?,
-            stat_binary()?,
-            stat_u8()?,
-            stat_binary()?,
-            stat_u64()?,
-            stat_u64()?,
-            stat_u64()?,
-            stat_bool()?,
-            stat_bool()?,
-            stat_bool()?,
+            min_builder.finish().into_array(),
+            min_prec.finish(),
+            max_builder.finish().into_array(),
+            max_prec.finish(),
+            sum_builder.finish().into_array(),
+            null_count.finish(),
+            nan_count.finish(),
+            uncompressed_size.finish(),
+            is_constant.finish(),
+            is_sorted.finish(),
+            is_strict_sorted.finish(),
         ],
         total_nodes,
         Validity::NonNullable,
@@ -396,34 +419,149 @@ fn build_consolidated_struct(entries: &[(SegmentId, ColumnarChunkData)]) -> Vort
     Ok(outer)
 }
 
-/// Build an all-null primitive column of the given length with the right typed dtype.
-fn all_null_primitive<T: vortex_array::dtype::NativePType + Default + Copy>(
-    n: usize,
-) -> VortexResult<ArrayRef> {
-    let values: Vec<T> = vec![T::default(); n];
-    let mut validity = BitBufferMut::with_capacity(n);
-    for _ in 0..n {
-        validity.append(false);
+/// Mapping of `RawStatValue::exact` onto the u8 used in our columnar schema. Stable on disk
+/// — old readers will assume `0 = Exact, 1 = Inexact`.
+const PRECISION_EXACT: u8 = 0;
+const PRECISION_INEXACT: u8 = 1;
+
+/// Push one node's stats onto every per-stat column. Nulls are pushed wherever the
+/// `RawNodeStats` slot is `None` (or `raw` itself is `None`).
+#[allow(clippy::too_many_arguments)]
+fn append_stat_columns(
+    raw: Option<&RawNodeStats>,
+    min: &mut VarBinViewBuilder,
+    max: &mut VarBinViewBuilder,
+    sum: &mut VarBinViewBuilder,
+    min_prec: &mut NullableValues<u8>,
+    max_prec: &mut NullableValues<u8>,
+    null_count: &mut NullableValues<u64>,
+    nan_count: &mut NullableValues<u64>,
+    uncompressed_size: &mut NullableValues<u64>,
+    is_constant: &mut NullableBools,
+    is_sorted: &mut NullableBools,
+    is_strict_sorted: &mut NullableBools,
+) {
+    match raw {
+        Some(raw) => {
+            match &raw.min {
+                Some(rv) => {
+                    min.append_value(rv.bytes.as_slice());
+                    min_prec.push(if rv.exact {
+                        PRECISION_EXACT
+                    } else {
+                        PRECISION_INEXACT
+                    });
+                }
+                None => {
+                    min.append_null();
+                    min_prec.push_null();
+                }
+            }
+            match &raw.max {
+                Some(rv) => {
+                    max.append_value(rv.bytes.as_slice());
+                    max_prec.push(if rv.exact {
+                        PRECISION_EXACT
+                    } else {
+                        PRECISION_INEXACT
+                    });
+                }
+                None => {
+                    max.append_null();
+                    max_prec.push_null();
+                }
+            }
+            match &raw.sum {
+                Some(b) => sum.append_value(b.as_slice()),
+                None => sum.append_null(),
+            }
+            null_count.push_opt(raw.null_count);
+            nan_count.push_opt(raw.nan_count);
+            uncompressed_size.push_opt(raw.uncompressed_size_in_bytes);
+            is_constant.push_opt(raw.is_constant);
+            is_sorted.push_opt(raw.is_sorted);
+            is_strict_sorted.push_opt(raw.is_strict_sorted);
+        }
+        None => {
+            min.append_null();
+            max.append_null();
+            sum.append_null();
+            min_prec.push_null();
+            max_prec.push_null();
+            null_count.push_null();
+            nan_count.push_null();
+            uncompressed_size.push_null();
+            is_constant.push_null();
+            is_sorted.push_null();
+            is_strict_sorted.push_null();
+        }
     }
-    let validity_arr = BoolArray::new(validity.freeze(), Validity::NonNullable).into_array();
-    Ok(PrimitiveArray::new(Buffer::from(values), Validity::Array(validity_arr)).into_array())
 }
 
-fn all_null_bool(n: usize) -> VortexResult<ArrayRef> {
-    let mut bits = BitBufferMut::with_capacity(n);
-    let mut validity = BitBufferMut::with_capacity(n);
-    for _ in 0..n {
-        bits.append(false);
-        validity.append(false);
-    }
-    let validity_arr = BoolArray::new(validity.freeze(), Validity::NonNullable).into_array();
-    Ok(BoolArray::new(bits.freeze(), Validity::Array(validity_arr)).into_array())
+/// Accumulator for a nullable primitive column.
+struct NullableValues<T: vortex_array::dtype::NativePType + Default + Copy> {
+    values: Vec<T>,
+    validity: BitBufferMut,
 }
 
-fn all_null_binary(n: usize) -> VortexResult<ArrayRef> {
-    let mut builder = VarBinViewBuilder::with_capacity(DType::Binary(Nullability::Nullable), n);
-    for _ in 0..n {
-        builder.append_null();
+impl<T: vortex_array::dtype::NativePType + Default + Copy> NullableValues<T> {
+    fn with_capacity(cap: usize) -> Self {
+        Self {
+            values: Vec::with_capacity(cap),
+            validity: BitBufferMut::with_capacity(cap),
+        }
     }
-    Ok(builder.finish().into_array())
+    fn push(&mut self, v: T) {
+        self.values.push(v);
+        self.validity.append(true);
+    }
+    fn push_null(&mut self) {
+        self.values.push(T::default());
+        self.validity.append(false);
+    }
+    fn push_opt(&mut self, v: Option<T>) {
+        match v {
+            Some(v) => self.push(v),
+            None => self.push_null(),
+        }
+    }
+    fn finish(self) -> ArrayRef {
+        let validity_arr =
+            BoolArray::new(self.validity.freeze(), Validity::NonNullable).into_array();
+        PrimitiveArray::new(Buffer::from(self.values), Validity::Array(validity_arr)).into_array()
+    }
+}
+
+/// Accumulator for a nullable bool column.
+struct NullableBools {
+    bits: BitBufferMut,
+    validity: BitBufferMut,
+}
+
+impl NullableBools {
+    fn with_capacity(cap: usize) -> Self {
+        Self {
+            bits: BitBufferMut::with_capacity(cap),
+            validity: BitBufferMut::with_capacity(cap),
+        }
+    }
+    fn push(&mut self, v: bool) {
+        self.bits.append(v);
+        self.validity.append(true);
+    }
+    fn push_null(&mut self) {
+        self.bits.append(false);
+        self.validity.append(false);
+    }
+    fn push_opt(&mut self, v: Option<bool>) {
+        match v {
+            Some(v) => self.push(v),
+            None => self.push_null(),
+        }
+    }
+    fn finish(self) -> ArrayRef {
+        let validity_arr =
+            BoolArray::new(self.validity.freeze(), Validity::NonNullable).into_array();
+        BoolArray::new(self.bits.freeze(), Validity::Array(validity_arr)).into_array()
+    }
 }
