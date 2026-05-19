@@ -115,6 +115,19 @@ pub fn onpair_size(out: &OnPairOut) -> Result<usize> {
         + p.codes_boundaries.len() * 4)
 }
 
+/// Public helper to introspect dict size for documentation.
+pub fn onpair_dict_size_components(out: &OnPairOut) -> Result<(usize, usize, usize)> {
+    let p = out
+        .col
+        .parts()
+        .map_err(|e| anyhow::anyhow!("onpair parts: {e:?}"))?;
+    Ok((
+        p.dict_bytes.len(),
+        p.dict_offsets.len(),
+        p.dict_offsets.len() - 1, // num tokens
+    ))
+}
+
 /// OnPair dict (overhead only — same as `onpair_size` minus the per-row payload).
 pub fn onpair_dict_overhead(out: &OnPairOut) -> Result<usize> {
     let p = out

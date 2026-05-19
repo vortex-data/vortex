@@ -91,6 +91,16 @@ pub fn run_sort_bench_with(
     }
 
     let out: OnPairOut = onpair_compress(&shuffled, 12)?;
+    if let Ok((b, o, ntok)) = crate::encoders::onpair_dict_size_components(&out) {
+        let dict_bytes_total = b + o * 4;
+        let row_prefix32 = n * 32;
+        eprintln!(
+            "  dict: {ntok} tokens, {:.2} KiB total; 32B row prefix: {:.2} MiB (ratio {}×)",
+            dict_bytes_total as f64 / 1024.0,
+            row_prefix32 as f64 / 1024.0 / 1024.0,
+            row_prefix32 / dict_bytes_total.max(1),
+        );
+    }
 
     // Borrow dict parts ONCE and copy out (no lifetime entanglement).
     let parts = out
