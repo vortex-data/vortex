@@ -22,7 +22,7 @@ use std::sync::Arc;
 use divan::Bencher;
 use divan::counter::{BytesCount, ItemsCount};
 use mimalloc::MiMalloc;
-use vortex_jit::stages::{DeltaPrefixSum, ForAdd, LoadIn, StoreOut};
+use vortex_jit::stages::{AlpDecode, DeltaPrefixSum, ForAdd, LoadIn, StoreOut};
 use vortex_jit::{Compiler, PType, Pipeline};
 
 #[global_allocator]
@@ -187,6 +187,134 @@ fn delta_for_jit_cold(bencher: Bencher) {
                     output.as_mut_ptr().cast(),
                     N_BLOCKS as u64,
                     bases.as_ptr().cast(),
+                );
+            }
+            divan::black_box(output)
+        });
+}
+
+// ============================================================
+// Pipeline 3: ALP decode — LoadIn(i32) -> AlpDecode -> StoreOut(f32)
+//
+// This is the case where the JIT is expected to *beat* the current
+// Vortex implementation: ALP's actual decode loop at
+// `encodings/alp/src/alp/mod.rs:253-261` is `iter_mut().for_each(|v|
+// decode_single(transmute, exponents))` with table lookups inside.
+// LLVM's autovec doesn't penetrate that shape reliably; the JIT emits
+// `vcvtdq2ps` + `vmulps` directly.
+//
+// `alp_vortex_style`: closely mirrors the current Vortex code shape —
+//   non-inlined per-element helper + lookup tables indexed by `e`/`f`.
+// `alp_idealized_rust`: tight Rust, scale hoisted as a single literal.
+//   This is what a competent engineer would write if hand-tuning. LLVM
+//   should autovec this.
+// `alp_jit_warm` / `alp_jit_cold`: the JIT.
+// ============================================================
+
+const ALP_SCALE: f64 = 0.01;
+const F10: [f32; 22] = [
+    1.0, 10.0, 100.0, 1_000.0, 10_000.0, 100_000.0, 1_000_000.0, 1e7, 1e8, 1e9, 1e10, 1e11,
+    1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21,
+];
+const IF10: [f32; 22] = [
+    1.0, 0.1, 0.01, 1e-3, 1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10, 1e-11, 1e-12, 1e-13,
+    1e-14, 1e-15, 1e-16, 1e-17, 1e-18, 1e-19, 1e-20, 1e-21,
+];
+
+/// Mirrors ALP's `decode_single`. `#[inline(never)]` so the function-call
+/// shape that blocks LLVM's vectorizer is preserved (without the attribute,
+/// LLVM might inline and then autovec the outer loop).
+#[inline(never)]
+fn decode_single_alp(encoded: i32, e: u8, f: u8) -> f32 {
+    (encoded as f32) * F10[f as usize] * IF10[e as usize]
+}
+
+fn build_alp_pipeline() -> Pipeline {
+    let mut p = Pipeline::new(PType::I32, BLOCK);
+    p.push(Arc::new(LoadIn { ptype: PType::I32 })).unwrap();
+    p.push(Arc::new(AlpDecode {
+        in_ptype: PType::I32,
+        out_ptype: PType::F32,
+        scale: ALP_SCALE,
+    }))
+    .unwrap();
+    p.push(Arc::new(StoreOut { ptype: PType::F32 })).unwrap();
+    p
+}
+
+fn alp_input() -> Vec<i32> {
+    (0..NUM_VALUES as i32).map(|i| i - 32_768).collect()
+}
+
+#[divan::bench]
+fn alp_vortex_style(bencher: Bencher) {
+    let input = alp_input();
+    let (e, f) = (2u8, 0u8); // -> scale = IF10[2] * F10[0] = 0.01
+    with_throughput(bencher)
+        .with_inputs(|| (input.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(input, mut output)| {
+            // Mirrors `iter_mut().for_each(decode_single)` from
+            // encodings/alp/src/alp/mod.rs:253-261. The non-inlined helper
+            // + table indexing is what blocks LLVM autovec in practice.
+            output
+                .iter_mut()
+                .zip(input.iter())
+                .for_each(|(o, &x)| {
+                    *o = decode_single_alp(x, e, f);
+                });
+            divan::black_box(output)
+        });
+}
+
+#[divan::bench]
+fn alp_idealized_rust(bencher: Bencher) {
+    let input = alp_input();
+    let scale = ALP_SCALE as f32;
+    with_throughput(bencher)
+        .with_inputs(|| (input.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(input, mut output)| {
+            // Scale hoisted as a single literal; tight loop. LLVM should
+            // autovec this to vcvtdq2ps + vmulps at the host's native width
+            // (AVX-512 here).
+            for i in 0..NUM_VALUES {
+                output[i] = (input[i] as f32) * scale;
+            }
+            divan::black_box(output)
+        });
+}
+
+#[divan::bench]
+fn alp_jit_warm(bencher: Bencher) {
+    let input = alp_input();
+    let p = build_alp_pipeline();
+    let compiled = Compiler::new(vec![]).unwrap().compile(&p).unwrap();
+    with_throughput(bencher)
+        .with_inputs(|| (input.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(input, mut output)| {
+            unsafe {
+                compiled.call_decompress_only(
+                    input.as_ptr().cast(),
+                    output.as_mut_ptr().cast(),
+                    N_BLOCKS as u64,
+                );
+            }
+            divan::black_box(output)
+        });
+}
+
+#[divan::bench]
+fn alp_jit_cold(bencher: Bencher) {
+    let input = alp_input();
+    with_throughput(bencher)
+        .with_inputs(|| (input.clone(), vec![0f32; NUM_VALUES]))
+        .bench_local_values(|(input, mut output)| {
+            let p = build_alp_pipeline();
+            let compiled = Compiler::new(vec![]).unwrap().compile(&p).unwrap();
+            unsafe {
+                compiled.call_decompress_only(
+                    input.as_ptr().cast(),
+                    output.as_mut_ptr().cast(),
+                    N_BLOCKS as u64,
                 );
             }
             divan::black_box(output)

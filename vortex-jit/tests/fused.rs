@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use cranelift::prelude::types as cl_types;
 use vortex_jit::stages::{
-    ApplyPatchesPostLoop, DeltaPrefixSum, ForAdd, LoadIn, StoreOut,
+    AlpDecode, ApplyPatchesPostLoop, DeltaPrefixSum, ForAdd, LoadIn, StoreOut,
 };
 use vortex_jit::{Compiler, ExternFn, PType, Pipeline};
 
@@ -145,6 +145,50 @@ fn delta_for_pipeline_i32() {
         }
     }
     assert_eq!(output, expected);
+}
+
+#[test]
+fn alp_decode_i32_to_f32() {
+    // BLOCK must be a multiple of simd_lanes for i32 (= 4 at 128-bit).
+    const BLOCK: usize = 16;
+    const N_BLOCKS: usize = 4;
+    const N: usize = BLOCK * N_BLOCKS;
+
+    // ALP-style: encoded i32, decoded f32 = (i32 as f32) * scale.
+    // Pick a non-power-of-two scale to verify the multiply runs.
+    let scale = 0.01f64;
+
+    let mut p = Pipeline::new(PType::I32, BLOCK);
+    p.push(Arc::new(LoadIn { ptype: PType::I32 })).unwrap();
+    p.push(Arc::new(AlpDecode {
+        in_ptype: PType::I32,
+        out_ptype: PType::F32,
+        scale,
+    }))
+    .unwrap();
+    p.push(Arc::new(StoreOut { ptype: PType::F32 })).unwrap();
+
+    let compiler = fresh_compiler(vec![]);
+    let compiled = compiler.compile(&p).expect("compile");
+
+    eprintln!("=== ALP decode IR ===\n{}", compiled.ir_dump);
+
+    let input: Vec<i32> = (-(N as i32 / 2)..(N as i32 / 2)).collect();
+    let mut output: Vec<f32> = vec![0.0; N];
+    unsafe {
+        compiled.call_decompress_only(
+            input.as_ptr().cast(),
+            output.as_mut_ptr().cast(),
+            N_BLOCKS as u64,
+        );
+    }
+
+    let expected: Vec<f32> = input.iter().map(|x| (*x as f32) * scale as f32).collect();
+    // Floating-point equality is exact here because the scale is the same
+    // literal in both paths and the convert + multiply has no other rounding.
+    for (i, (a, b)) in output.iter().zip(expected.iter()).enumerate() {
+        assert_eq!(a, b, "mismatch at {i}: jit={a} expected={b}");
+    }
 }
 
 /// Apply-patches helper, monomorphized for i32.
