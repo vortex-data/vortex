@@ -89,6 +89,15 @@ impl DecimalValue {
         }
     }
 
+    /// Convert this `DecimalValue` to an [`i256`].
+    ///
+    /// This conversion always succeeds since [`i256`] can represent every stored variant.
+    pub fn as_i256(&self) -> i256 {
+        match_each_decimal_value!(self, |v| {
+            v.to_i256().vortex_expect("upcast to i256 must always succeed")
+        })
+    }
+
     /// Returns the 0 value given the [`DecimalType`].
     pub fn zero(decimal_type: &DecimalDType) -> Self {
         let smallest_type = DecimalType::smallest_decimal_value_type(decimal_type);

@@ -545,4 +545,58 @@ mod tests {
             BoolArray::from_iter([true, true, true, false])
         );
     }
+
+    /// Regression test for a fuzzer crash where a bound scalar used a wider storage type (I32)
+    /// than the array's storage type (I16), causing the cast in `between_unpack` to fail.
+    ///
+    /// The fix casts the bound to the array's storage type and, when the cast fails, uses the
+    /// overflow direction to determine the result without falling back to Arrow.
+    #[rstest]
+    // Upper bound too large (I32 > i16::MAX): upper constraint always satisfied → result from lower only.
+    #[case(DecimalValue::I16(1), DecimalValue::I32(82246), vec![0, 1, 2, 3])]
+    // Lower bound too large (I32 > i16::MAX): lower constraint never satisfied → all false.
+    #[case(DecimalValue::I32(82246), DecimalValue::I16(4), vec![])]
+    // Upper bound too small (negative I32 < i16::MIN): upper constraint never satisfied → all false.
+    #[case(DecimalValue::I16(1), DecimalValue::I32(-82246), vec![])]
+    // Lower bound too small (negative I32 < i16::MIN): lower constraint always satisfied → result from upper only.
+    #[case(DecimalValue::I32(-82246), DecimalValue::I16(2), vec![0, 1])]
+    fn test_between_decimal_mismatched_storage_types(
+        #[case] lower_val: DecimalValue,
+        #[case] upper_val: DecimalValue,
+        #[case] expected_indices: Vec<u64>,
+    ) {
+        // Array uses I16 storage with precision=5 (values fit in i16 even though precision=5
+        // nominally maps to I32 as the smallest storage type).
+        let decimal_type = DecimalDType::new(5, -67);
+        let array =
+            DecimalArray::new(buffer![1i16, 2i16, 3i16, 4i16], decimal_type, Validity::NonNullable)
+                .into_array();
+
+        let lower = ConstantArray::new(
+            Scalar::decimal(lower_val, decimal_type, Nullability::NonNullable),
+            array.len(),
+        )
+        .into_array();
+        let upper = ConstantArray::new(
+            Scalar::decimal(upper_val, decimal_type, Nullability::NonNullable),
+            array.len(),
+        )
+        .into_array();
+
+        let result = between_canonical(
+            &array,
+            &lower,
+            &upper,
+            &BetweenOptions {
+                lower_strict: StrictComparison::NonStrict,
+                upper_strict: StrictComparison::NonStrict,
+            },
+            &mut SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .execute::<BoolArray>(&mut SESSION.create_execution_ctx())
+        .unwrap();
+
+        assert_eq!(to_int_indices(result).unwrap(), expected_indices);
+    }
 }
