@@ -7,6 +7,7 @@ use arrow_array::BooleanArray;
 use arrow_buffer::NullBuffer;
 use arrow_ord::cmp;
 use arrow_ord::ord::make_comparator;
+use arrow_schema::Field;
 use arrow_schema::SortOptions;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -155,15 +156,14 @@ fn arrow_compare_arrays(
     // For nested types, fall back to `make_comparator` which does element-wise comparison.
     let arrow_array: BooleanArray = if left.dtype().is_nested() || right.dtype().is_nested() {
         let session = ctx.session().clone();
-        let rhs = session.arrow().execute_arrow(right.clone(), None, ctx)?;
+        // Convert lhs first to determine the target Arrow type, then convert rhs using that
+        // same type as the target. This mirrors the non-nested path and ensures both sides
+        // have identical Arrow types even when the two Vortex arrays use different underlying
+        // encodings for logically equivalent fields (e.g., VarBinArray → Binary vs
+        // VarBinViewArray → BinaryView for the same DType::Binary field inside a struct).
         let lhs = session.arrow().execute_arrow(left.clone(), None, ctx)?;
-
-        assert!(
-            lhs.data_type().equals_datatype(rhs.data_type()),
-            "lhs data_type: {}, rhs data_type: {}",
-            lhs.data_type(),
-            rhs.data_type()
-        );
+        let target_field = Field::new("", lhs.data_type().clone(), right.dtype().is_nullable());
+        let rhs = session.arrow().execute_arrow(right.clone(), Some(&target_field), ctx)?;
 
         compare_nested_arrow_arrays(lhs.as_ref(), rhs.as_ref(), operator)?
     } else {
@@ -506,6 +506,34 @@ mod tests {
             .binary(empty2.into_array(), Operator::Eq)
             .unwrap();
         let expected = BoolArray::from_iter([true, true, true, true, true]);
+        assert_arrays_eq!(result, expected);
+    }
+
+    /// Regression test: comparing struct arrays where the same logical field is backed by
+    /// different Vortex encodings (VarBinArray vs VarBinViewArray) must not panic.
+    /// Previously `arrow_compare_arrays` would assert that both sides had identical Arrow
+    /// data types, which failed when independent conversions chose different physical types
+    /// (Binary vs BinaryView) for the same logical DType::Binary field.
+    #[test]
+    fn struct_compare_mixed_binary_encodings() {
+        // LHS: struct with a VarBinArray (offset-based) binary field
+        let bin_field1 =
+            VarBinArray::from(vec!["apple".as_bytes(), "banana".as_bytes(), "cherry".as_bytes()]);
+        let struct1 = StructArray::from_fields(&[("data", bin_field1.into_array())]).unwrap();
+
+        // RHS: struct with a VarBinViewArray (view-based) binary field — same logical DType
+        let bin_field2 = VarBinViewArray::from_iter_bin([
+            "apple".as_bytes(),
+            "banana".as_bytes(),
+            "durian".as_bytes(),
+        ]);
+        let struct2 = StructArray::from_fields(&[("data", bin_field2.into_array())]).unwrap();
+
+        let result = struct1
+            .into_array()
+            .binary(struct2.into_array(), Operator::Eq)
+            .unwrap();
+        let expected = BoolArray::from_iter([true, true, false]);
         assert_arrays_eq!(result, expected);
     }
 
