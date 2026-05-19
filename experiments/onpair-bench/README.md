@@ -122,69 +122,111 @@ first few rows. 1024 also matches Vortex/fastlanes natural chunk granularity.
 
 Run: `cargo run --release -p onpair-bench -- sort_bench all 1000000`.
 
-Comparator correctness is asserted in code — all three sort methods produce
-the same permutation. The algorithm and its boundary case are also covered
-by `compare_fused::tests::matches_byte_order_random` (pairwise check
-across 2000 rows).
+### Three variants of `compare_fused`
 
-### Results (1M shuffled rows, then sort)
+All assume the rows share the same OnPair dict. Phase 1 (SIMD u16
+equality-skip) is identical across all three. They differ in **Phase 2**
+(what to do when tokens diverge):
 
-| Dataset | compare_fused (tokens) | byte cmp (pre-decoded, sort only) | byte cmp (decode + sort) |
-|---|---:|---:|---:|
-| tpch_l_comment | 616 ms (41 MB/s) | **324 ms (78 MB/s)** | 364 ms (69 MB/s) |
-| clickbench_title | 472 ms (280 MB/s) | **384 ms (344 MB/s)** | 579 ms (228 MB/s) |
-| clickbench_url | 690 ms (122 MB/s) | **351 ms (240 MB/s)** | 524 ms (161 MB/s) |
+| Variant | Phase 2 strategy | Storage cost |
+|---|---|---|
+| **v1** | `dict_table[]` → slice → `<[u8]>::cmp` | dict only |
+| **v2** | `token_prefix[]` (first-8-bytes-BE u64) → `u64::cmp`, with length-bounded validity check; slow path on tie or padding-conflated case | +8 B/token |
+| **v3** | `row_prefix[]` (first 8 bytes of decoded row) → `u64::cmp`, falls to v1 on tie | +8 B/row |
 
-Per-comparison cost (~`N log₂ N` ≈ 20M comparisons):
+The v2/v3 paths require a correctness check (the first differing byte
+position `k` must be within both tokens'/rows' real content) because
+zero-padding in the u64 conflates "string ends here" with "byte is 0".
+The naïve version without this check is wrong and fails the
+`matches_byte_order_random` test — debugged inline in `compare_fused.rs`.
 
-| Dataset | compare_fused | `<[u8]>::cmp` (libc memcmp) |
-|---|---:|---:|
-| tpch_l_comment | 31 ns | 16 ns |
-| clickbench_title | 24 ns | 19 ns |
-| clickbench_url | 35 ns | 18 ns |
+### Results (1M rows, all variants)
 
-### Honest analysis
+**Shuffled order (sort comparators see random pairs):**
 
-**The Phase 1 SIMD u16-skip works as designed, but the algorithm in its
-naive form is consistently ~2× slower per comparison than libc memcmp.**
-The reason is structural to sort workloads:
+| Dataset | v1 | v2 | v3 | byte cmp (pre-dec) | byte cmp (decode + sort) |
+|---|---:|---:|---:|---:|---:|
+| tpch_l_comment | 464 | 456 | **448** | **275** | 309 |
+| clickbench_title | 394 | **368** | 436 | 388 | 514 |
+| clickbench_url | **545** | 549 | 591 | **340** | 409 |
 
-- **Sort comparisons hit random pairs.** For a Timsort/quicksort comparator,
-  most pairs of rows are *not* sorted neighbours. Their first 1–2 tokens
-  almost always differ. Phase 1 contributes ~0 work; the dispatch to Phase 2
-  fires on essentially every comparison.
-- **Phase 2's per-call overhead is real.** Even one Phase 2 iteration costs:
-  one `dict_offsets[]` indexed load (×2), one slice construction (×2), one
-  generic `<[u8]>::cmp` call which then dispatches to memcmp. That's more
-  startup cost than a single memcmp on the whole row.
-- **libc memcmp is hard to beat on short strings.** It's hand-tuned assembly
-  with branch-free paths for ≤16 bytes.
+**Almost-sorted order (sort comparators see similar rows; Phase 1 actually skips):**
 
-`compare_fused` only beats the *end-to-end* decode+sort path on
-`clickbench_title` (472 ms vs 579 ms, ~18% win) — and only because Title is
-long enough that decode is itself a meaningful cost. For short
-(`l_comment`) or moderately-long (`url`) data, decoding is cheap, and the
-materialised bytes sort faster than `compare_fused`.
+| Dataset | v1 | v2 | v3 | byte cmp (pre-dec) | byte cmp (decode + sort) |
+|---|---:|---:|---:|---:|---:|
+| tpch_l_comment | 258 | 246 | **228** | **166** | 183 |
+| clickbench_title | 162 | **149** | 165 | **143** | 231 |
+| clickbench_url | 233 | **230** | 258 | **153** | 222 |
 
-**This is a negative result for the naive implementation, but not for the
-algorithm.** The clear next step is making Phase 2 cheap enough that it
-matches or beats memcmp's per-call overhead. Specifically:
+### One real win: **v2 on shuffled `clickbench_title` beats libc memcmp**
 
-1. **Inline-XOR Phase 2 for ≤16-byte tokens.** OnPair16's tokens fit in
-   `u128`. Load both, XOR, `TZCNT` to find the first differing byte, compare
-   those two bytes. No `<[u8]>::cmp` call, no slice construction, no memcmp
-   dispatch. This is exactly what the OnPair16 paper describes for its
-   internal LPM and is the obvious port.
-2. **Use the existing `dict_table: Vec<u64>` packed offset/length table** in
-   the `onpair-rs` crate (already built by `column::build_dict_table`) so
-   Phase 2 is one indexed load instead of two.
-3. **Specialise the comparator with `BITS` const-generic dispatch** the same
-   way `Column::decode_all_inner` already does, so the inner cursor inlines
-   per bit width.
+`compare_fused v2: 368 ms` vs `byte cmp: 388 ms` (5% faster) — the only
+combination where the dict-aware comparator beats raw memcmp on
+pre-materialised bytes. The structural reason: Title rows are very long
+(138 B avg) with strong learned-token redundancy (avg ~10 tokens/row), so
+the Phase 1 SIMD skip does substantial work even on shuffled pairs, and
+v2's u64 prefix avoids the slice-cmp dispatch entirely.
 
-If those reach `byte cmp (pre-decoded)` parity (~17 ns/cmp), `compare_fused`
-becomes a clear win on **encoded-form storage** because you skip decode
-entirely. That's the experiment to run next.
+For shorter (l_comment, 26 B avg) or less-redundant (url, 88 B avg) data,
+libc memcmp on materialised bytes wins because there isn't enough common
+prefix for Phase 1 to amortise the dispatch overhead.
+
+### Decode+sort end-to-end vs `compare_fused`
+
+This is the realistic comparison when your storage form is OnPair-encoded
+and you want to sort:
+
+| Dataset | best `compare_fused` | decode + sort | winner |
+|---|---:|---:|---|
+| l_comment shuffled | 448 | 309 | **decode + sort** |
+| l_comment almost-sorted | 228 | 183 | **decode + sort** |
+| title shuffled | **368** | 514 | **compare_fused v2** (28% faster) |
+| title almost-sorted | **149** | 231 | **compare_fused v2** (35% faster) |
+| url shuffled | 545 | 409 | **decode + sort** |
+| url almost-sorted | 230 | 222 | ~tied |
+
+`compare_fused v2` is a clear end-to-end win on **clickbench_title** in
+both orderings (decode is itself ~100 ms for 132 MiB of strings). For URL
+and l_comment, decode is cheap enough that materialising and using libc
+memcmp wins.
+
+### What we tried and what didn't help
+
+- **u128 stack-array XOR (originally proposed in earlier README)**: made it
+  worse. The `[0u8; 16]` zero-fill + `copy_from_slice` per call dominated
+  for short tokens.
+- **Packed `(first 7 bytes BE) | length` per token** (initial v2): wrong
+  — comparing length as a tiebreaker is invalid when both tokens are > 7
+  bytes (byte 7 determines order, not length). Caught by the random-pair
+  pairwise test. Fixed by switching to first-8-bytes packing with an
+  explicit `k < min(len_a, len_b)` validity check before trusting the u64
+  result.
+- **`sort_unstable_by` vs `sort_by`**: ~5% win across the board.
+- **Flat `Vec<u16>` + boundaries vs `Vec<Vec<u16>>`**: ~15-20% win, helps
+  both compare_fused and byte cmp equally — better cache locality, no
+  per-row allocation.
+
+### Honest takeaway
+
+`compare_fused` is **not a universal sort accelerator** in this naive
+implementation. libc memcmp is hard to beat on pre-decoded contiguous
+bytes — it's hand-tuned assembly with branch-free paths for short
+slices. The dict indirection in Phase 2 has unavoidable per-call cost.
+
+Where it does pay off:
+
+1. **Long highly-structured strings** (clickbench_title): v2 matches or
+   beats raw memcmp. Phase 1 SIMD skip does enough work to amortise.
+2. **End-to-end on data where decode is expensive** (any sufficiently long
+   column): you skip the decode entirely. The win scales with decoded
+   row length and is realistic for cold-cache scans of compressed
+   columns.
+
+Where it does not help today:
+
+- Short rows (l_comment, ~26 B): byte cmp is too cheap to beat.
+- Moderately long rows with weak prefix redundancy (URL): byte cmp wins.
+- Sort orders where Phase 1 skips few tokens (most shuffled cases).
 
 ## Next experiments
 

@@ -210,7 +210,18 @@ fn run_sort_subcommand(which: &str, max_rows: usize) -> Result<()> {
     let mut sections: Vec<(String, Vec<sort_bench::SortRow>)> = Vec::new();
     for (name, loader) in loaders {
         let rows = loader(max_rows)?;
-        let (sec_name, results) = sort_bench::run_sort_bench(name, rows)?;
+        // Shuffled and almost-sorted variants.
+        let r2 = rows.clone();
+        let (sec_name, results) =
+            sort_bench::run_sort_bench_with(name, rows, sort_bench::Order::Shuffled)?;
+        sort_bench::print_sort_table(&sec_name, &results);
+        sections.push((sec_name, results));
+
+        let (sec_name, results) = sort_bench::run_sort_bench_with(
+            &format!("{name} almost-sorted"),
+            r2,
+            sort_bench::Order::AlmostSorted,
+        )?;
         sort_bench::print_sort_table(&sec_name, &results);
         sections.push((sec_name, results));
     }
