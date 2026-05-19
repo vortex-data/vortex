@@ -1,0 +1,42 @@
+--- /tmp/lpm_upstream.rs	2026-05-19 22:34:18.859783430 +0000
++++ /tmp/onpair_rs/src/lpm/lpm.rs	2026-05-19 22:22:05.019813124 +0000
+@@ -181,6 +181,39 @@
+         None
+     }
+ 
++    /// Removes a pattern from the matcher.
++    ///
++    /// Used by Picky-BPE-style pruning during training. For short patterns
++    /// this is an exact hashmap removal; for long patterns we just clear the
++    /// terminal `id` on the trie node (leaving internal nodes in place,
++    /// which is fine because the trie is only traversed for entries that
++    /// also exist in `long_match_roots`).
++    pub fn remove(&mut self, entry: &[u8]) {
++        if entry.len() <= TRIE_PREFIX_LEN {
++            let prefix = Self::bytes_to_u64_le(entry, entry.len());
++            self.short_match_lookup.remove(&(prefix, entry.len() as u8));
++        } else {
++            let prefix = Self::bytes_to_u64_le(entry, TRIE_PREFIX_LEN);
++            if let Some(&root_idx) = self.long_match_roots.get(&prefix) {
++                let mut node_idx = root_idx;
++                for &byte in &entry[TRIE_PREFIX_LEN..] {
++                    let mut next = None;
++                    for &(c, idx) in &self.node_pool[node_idx as usize].children {
++                        if c == byte {
++                            next = Some(idx);
++                            break;
++                        }
++                    }
++                    match next {
++                        Some(idx) => node_idx = idx,
++                        None => return,
++                    }
++                }
++                self.node_pool[node_idx as usize].id = None;
++            }
++        }
++    }
++
+     /// Converts byte sequence to little-endian u64 with length masking
+     #[inline(always)]
+     fn bytes_to_u64_le(bytes: &[u8], len: usize) -> u64 {
