@@ -5,6 +5,8 @@
 mod avx2;
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx512;
+#[cfg(all(test, target_arch = "x86_64"))]
+mod perf_compare;
 
 use std::sync::LazyLock;
 
