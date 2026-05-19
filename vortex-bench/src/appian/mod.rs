@@ -17,7 +17,7 @@
 //! while the Parquet schema and registered table names preserve case → field-not-found).
 //!
 //! The conversion below lowercases every column at COPY time, and the table names in
-//! [`TABLES`] are already lowercase. Both engines then resolve the verbatim camelCase
+//! `TABLES` are already lowercase. Both engines then resolve the verbatim camelCase
 //! queries the same way: DataFusion lowercases the query identifiers and matches them
 //! against the lowercased Parquet schema, while DuckDB's case-insensitive unquoted
 //! identifier resolution makes the original case irrelevant.
