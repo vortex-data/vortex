@@ -8,6 +8,7 @@
 //! payloads once per database snapshot, stores identity/gzip/brotli bytes in
 //! memory, and lets handlers serve bytes directly on the hot path.
 
+use std::collections::VecDeque;
 use std::future::Future;
 use std::hash::Hasher as _;
 use std::io::Read as _;
@@ -49,6 +50,11 @@ use crate::slug::ChartKey;
 
 /// Number of charts included in one materialized group shard response.
 pub const GROUP_SHARD_CHARTS: usize = 8;
+
+/// Superseded read generations retained for pages opened before newer ingests
+/// completed. Each generation owns precompressed latest-100 artifacts, so keep
+/// this finite while covering ordinary CI bursts.
+const RETAINED_PREVIOUS_GENERATIONS: usize = 8;
 
 /// Cache policy for a materialized artifact route.
 #[derive(Debug, Clone, Copy)]
@@ -204,7 +210,8 @@ fn brotli_bytes(bytes: &[u8]) -> Result<Vec<u8>> {
 type RebuildFuture = Pin<Box<dyn Future<Output = Result<ReadGeneration>> + Send>>;
 type RebuildTask = Arc<dyn Fn() -> RebuildFuture + Send + Sync>;
 
-/// Shared in-memory store for the active and previous read generations.
+/// Shared in-memory store for the active and recently superseded read
+/// generations.
 #[derive(Clone)]
 pub struct ReadStore {
     inner: Arc<RwLock<ReadStoreInner>>,
@@ -213,7 +220,7 @@ pub struct ReadStore {
 
 struct ReadStoreInner {
     active: Arc<ReadGeneration>,
-    previous: Option<Arc<ReadGeneration>>,
+    previous: VecDeque<Arc<ReadGeneration>>,
 }
 
 #[derive(Default)]
@@ -231,7 +238,7 @@ impl ReadStore {
         Ok(Self {
             inner: Arc::new(RwLock::new(ReadStoreInner {
                 active: generation,
-                previous: None,
+                previous: VecDeque::new(),
             })),
             rebuild: Arc::new(AsyncMutex::new(RebuildState::default())),
         })
@@ -250,8 +257,8 @@ impl ReadStore {
         }
         inner
             .previous
-            .as_ref()
-            .filter(|generation| generation.id == id)
+            .iter()
+            .find(|generation| generation.id == id)
             .map(Arc::clone)
     }
 
@@ -302,7 +309,10 @@ impl ReadStore {
         let mut inner = self.inner.write();
         let previous = Arc::clone(&inner.active);
         inner.active = Arc::new(generation);
-        inner.previous = Some(previous);
+        inner.previous.push_front(previous);
+        while inner.previous.len() > RETAINED_PREVIOUS_GENERATIONS {
+            inner.previous.pop_back();
+        }
     }
 }
 
@@ -590,7 +600,7 @@ mod tests {
         Ok(ReadStore {
             inner: Arc::new(RwLock::new(ReadStoreInner {
                 active: Arc::new(empty_generation(id)?),
-                previous: None,
+                previous: VecDeque::new(),
             })),
             rebuild: Arc::new(AsyncMutex::new(RebuildState::default())),
         })
@@ -727,6 +737,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn install_evicts_only_beyond_retained_generation_limit() -> Result<()> {
+        let store = test_store("gen0")?;
+        for idx in 1..=(RETAINED_PREVIOUS_GENERATIONS + 2) {
+            store.install(empty_generation(&format!("gen{idx}"))?);
+        }
+
+        assert_eq!(
+            store.active().id(),
+            &format!("gen{}", RETAINED_PREVIOUS_GENERATIONS + 2)
+        );
+        assert!(
+            store.generation("gen2").is_some(),
+            "oldest retained generation should stay addressable"
+        );
+        assert!(
+            store.generation("gen1").is_none(),
+            "generations beyond the retention window should be evicted"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn concurrent_rebuild_requests_coalesce() -> Result<()> {
         let store = test_store("old")?;
         let calls = Arc::new(AtomicUsize::new(0));
@@ -757,7 +789,7 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         assert_eq!(store.active().id(), "gen2");
         assert!(store.generation("gen1").is_some());
-        assert!(store.generation("old").is_none());
+        assert!(store.generation("old").is_some());
         Ok(())
     }
 }

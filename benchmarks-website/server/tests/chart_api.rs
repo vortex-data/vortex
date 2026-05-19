@@ -233,7 +233,7 @@ async fn chart_page_window_caps_commits() -> Result<()> {
     let one_count = one["commits"].as_array().map(|a| a.len()).unwrap_or(0);
     assert_eq!(one_count, 1, "?n=1 should keep exactly one commit");
 
-    // ?n=all returns the unbounded view (the per-chart hard cap is gone).
+    // ?n=all remains the explicit full-history view.
     let all: Value = client
         .get(server.url(&format!("/api/chart/{slug}?n=all")))
         .send()
@@ -243,7 +243,8 @@ async fn chart_page_window_caps_commits() -> Result<()> {
     let all_count = all["commits"].as_array().map(|a| a.len()).unwrap_or(0);
     assert_eq!(all_count, full_count, "?n=all should match unbounded view");
 
-    // Even very large `?n` survives without being clamped.
+    // Very large numeric `?n` values are clamped. This small fixture is under
+    // the cap, so the visible count still matches the default response.
     let huge: Value = client
         .get(server.url(&format!("/api/chart/{slug}?n=99999")))
         .send()
@@ -253,7 +254,7 @@ async fn chart_page_window_caps_commits() -> Result<()> {
     let huge_count = huge["commits"].as_array().map(|a| a.len()).unwrap_or(0);
     assert_eq!(
         huge_count, full_count,
-        "?n=99999 should no longer be clamped to 1000"
+        "?n=99999 should clamp without changing this small fixture"
     );
 
     // Malformed ?n gracefully falls back to default.

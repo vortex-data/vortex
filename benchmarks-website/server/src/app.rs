@@ -33,6 +33,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use anyhow::ensure;
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::routing::get;
 use axum::routing::post;
 use tower_http::compression::CompressionLayer;
@@ -46,6 +47,13 @@ use crate::html;
 use crate::ingest;
 use crate::query_cache::QueryCache;
 use crate::read_model::ReadStore;
+
+/// Route-local JSON body limit for CI ingest envelopes.
+///
+/// Axum's `Json` extractor defaults to 2 MiB, which is too small for larger
+/// benchmark matrices once `post-ingest.py` wraps a JSONL result file in one
+/// envelope. Keep this bounded rather than disabling the extractor limit.
+const INGEST_BODY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 
 /// Shared state for all handlers. Cheap to clone (everything is `Arc`-shaped
 /// or a small `String`).
@@ -143,6 +151,7 @@ fn validate_bearer_token(name: &str, token: &str) -> Result<()> {
 pub fn public_router(state: AppState) -> Router {
     let ingest_routes = Router::new()
         .route("/api/ingest", post(ingest::handle))
+        .layer(DefaultBodyLimit::max(INGEST_BODY_LIMIT_BYTES))
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_bearer,
@@ -192,6 +201,7 @@ pub fn admin_router(state: AppState) -> Option<Router> {
 pub fn router(state: AppState) -> Router {
     let ingest_routes = Router::new()
         .route("/api/ingest", post(ingest::handle))
+        .layer(DefaultBodyLimit::max(INGEST_BODY_LIMIT_BYTES))
         .route_layer(axum::middleware::from_fn_with_state(
             state.clone(),
             require_bearer,

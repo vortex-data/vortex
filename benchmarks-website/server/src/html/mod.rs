@@ -110,7 +110,8 @@ pub fn router() -> Router<AppState> {
 /// is intentionally not in the URL.
 #[derive(Debug, Default, Deserialize)]
 pub struct UiQuery {
-    /// Override for the per-chart fetch size. Accepts `25|50|100|250|all`.
+    /// Override for the per-chart fetch size. Numeric values are clamped by
+    /// [`CommitWindow::parse`]; `all` opts into the full-history fallback.
     pub n: Option<String>,
     /// Comma-separated list of engines to keep visible across every chart.
     /// Empty / unset means no engine filter is active. Unknown engines are
