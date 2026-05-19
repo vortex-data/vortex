@@ -1,0 +1,35 @@
+[package]
+name = "vortex-jit-experiment"
+version = "0.1.0"
+edition = { workspace = true }
+license = { workspace = true }
+publish = false
+autoexamples = false
+
+[dependencies]
+cranelift = "0.130"
+cranelift-jit = "0.130"
+cranelift-module = "0.130"
+cranelift-native = "0.130"
+target-lexicon = { workspace = true }
+
+[dev-dependencies]
+
+[lints.rust]
+warnings = "warn"
+
+[lints.clippy]
+# Permissive: this crate is an experiment, not production code.
+# We still keep the basics on but relax the most invasive ones.
+all = { level = "warn", priority = -1 }
+unwrap_used = "allow"
+expect_used = "allow"
+panic = "allow"
+absolute_paths = "allow"
+cast_possible_truncation = "allow"
+needless_range_loop = "allow"
+many_single_char_names = "allow"
+
+[[bin]]
+name = "boundary-demo"
+path = "examples/boundary_demo.rs"
