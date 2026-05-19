@@ -1127,6 +1127,275 @@ obvious code well.
 
 ---
 
+## 12. Vector fusion at the IR level — and why this is HyPer's pattern
+
+The framework's stage protocol from §10 is the IR-level mechanization of
+fastlanes' Rust-level closure-parameter trick, which is itself a
+Rust-source mechanization of HyPer-style push codegen. This section pins
+that down because it's the single most important concept in the design.
+
+### HyPer's push model
+
+The pull / Volcano model executes `next()` per tuple, with virtual calls
+between operators and data round-tripping through memory at every
+boundary. Neumann's push model inverts it: operators have a compile-time
+`produce()` / `consume()` that emit code, not runtime iterators.
+
+```text
+SELECT SUM(x) FROM t WHERE x > 5
+
+scan.produce()    emits:  for tuple in t { filter.consume(tuple) }
+filter.consume(t) emits:  if t.x > 5 { sum.consume(t) }
+sum.consume(t)    emits:  acc += t.x
+
+  → stitched: for t in t { if t.x > 5 { acc += t.x } }
+```
+
+One loop, zero virtual calls. Inter-operator data flow is in SSA values,
+not memory. `consume()` is a *continuation*: the child knows what to do
+with the value it produced because the parent provided the consumer code
+as a callback during codegen.
+
+### Fastlanes already does this in Rust, at the macro level
+
+`fastlanes-0.5.0/src/macros.rs:100-174` — the `unpack!` macro takes a
+closure `|idx, elem|` and calls it per row of the bit-unpack. The closure
+body is the consumer continuation.
+
+FFoR's fused unpack (`fastlanes-0.5.0/src/ffor.rs:65-69`) plugs a fused op
+into exactly that slot:
+
+```rust
+for lane in 0..Self::LANES {
+    unpack!($T, W, input, lane, |$idx, $elem| {
+        output[$idx] = $elem.wrapping_add(reference)   // <-- the fusion
+    });
+}
+```
+
+vs plain unpack (`fastlanes-0.5.0/src/bitpacking.rs:110-114`):
+
+```rust
+for lane in 0..Self::LANES {
+    unpack!($T, W, input, lane, |$idx, $elem| {
+        output[$idx] = $elem                              // <-- no fusion
+    });
+}
+```
+
+Same machinery, different consumer body. Push-style fusion, mechanized at
+Rust source.
+
+One level higher,
+`encodings/fastlanes/src/for/array/for_decompress.rs:33-46` makes the
+strategy runtime-pluggable for one specific pair:
+
+```rust
+impl<T: ...> UnpackStrategy<T> for FoRStrategy<T> {
+    #[inline(always)]
+    unsafe fn unpack_chunk(&self, bit_width: usize, chunk: &[T], dst: &mut [T]) {
+        unsafe { FoR::unchecked_unfor_pack(bit_width, chunk, self.reference, dst); }
+    }
+}
+```
+
+That's HyPer's `consume()` callback at the chunk level, hand-wired for
+FoR over BitPacked. The JIT generalizes it to all pairs.
+
+### What LLVM emits from `unfor_pack` for u32, W=11
+
+After `#[inline(always)]` propagates the closure body into the `unpack!`
+macro expansion, and the outer `for lane in 0..32` auto-vectorizes:
+
+```text
+  vpbroadcastd ymm15, dword [reference]          ; broadcast ref once
+
+.outer:                                           ; per 8-lane SIMD chunk
+  vmovdqu      ymm0, [packed + 0]                 ; load packed word
+  vpsrld       ymm1, ymm0, 0                      ; row 0: shift
+  vpand        ymm1, ymm1, ymm_mask_11            ; row 0: mask
+  vpaddd       ymm1, ymm1, ymm15                  ; <-- FoR fusion (1 vpaddd)
+  vmovdqu      [out + 0], ymm1                    ; row 0: store
+
+  vpsrld       ymm1, ymm0, 11
+  vpand        ymm1, ymm1, ymm_mask_11
+  vpaddd       ymm1, ymm1, ymm15                  ; <-- FoR fusion
+  vmovdqu      [out + 32], ymm1
+
+  vpsrld       ymm1, ymm0, 22                     ; row 2: straddles 2 words
+  vpand        ymm1, ymm1, ymm_mask_10
+  vmovdqu      ymm2, [packed + 32]
+  vpslld       ymm3, ymm2, 10
+  vpand        ymm3, ymm3, ymm_mask_1_hi
+  vpor         ymm1, ymm1, ymm3
+  vpaddd       ymm1, ymm1, ymm15                  ; <-- FoR fusion
+  vmovdqu      [out + 64], ymm1
+  ; ... 29 more rows ...
+```
+
+The fusion: one `vpaddd` between unpack's final `vpor`/`vpand` and the
+store. Zero memory round-trip. ~32 vector adds per block — single-digit
+ns net cost.
+
+### What the Cranelift equivalent looks like — explicit SIMD, no auto-vectorization
+
+Cranelift's auto-vectorizer is much weaker than LLVM's. The "outer loop
+over scalar lanes auto-vectorizes" trick doesn't apply. We emit SIMD
+types directly:
+
+```text
+function %fused_unpack_for_u32_w11(packed: i64, out: i64, n_blocks: i32, ref: i32) {
+block0(v_packed, v_out, v_n, v_ref):
+    v_ref_vec = splat.i32x8 v_ref                     ; broadcast once
+    v_mask11  = vconst.i32x8 0x7FF; 0x7FF; ...
+    jump block1(iconst.i32 0)
+
+block1(v_i):
+    v_cond = icmp ult v_i, v_n
+    brif v_cond, block2, exit
+
+block2:
+    ; row 0
+    v_pw0 = load.i32x8 v_pack_b+0
+    v_r0  = ushr_imm v_pw0, 0
+    v_r0  = band v_r0, v_mask11
+    v_r0  = iadd v_r0, v_ref_vec                       ; <<< fusion point
+    store.i32x8 v_r0, v_out_b+0
+
+    ; row 1
+    v_r1 = ushr_imm v_pw0, 11
+    v_r1 = band v_r1, v_mask11
+    v_r1 = iadd v_r1, v_ref_vec                        ; <<< fusion
+    store.i32x8 v_r1, v_out_b+32
+
+    ; row 2 (straddles)
+    v_lo = ushr_imm v_pw0, 22
+    v_lo = band v_lo, v_mask10
+    v_pw1 = load.i32x8 v_pack_b+32
+    v_hi = ishl_imm v_pw1, 10
+    v_hi = band v_hi, v_mask1
+    v_r2 = bor v_lo, v_hi
+    v_r2 = iadd v_r2, v_ref_vec                        ; <<< fusion
+    store.i32x8 v_r2, v_out_b+64
+
+    ; ... 29 more rows ...
+
+    jump block1(iadd_imm v_i, 1)
+}
+```
+
+Same instruction sequence as LLVM, emitted explicitly. Cranelift's
+codegen for `i32x8 iadd` is the same `vpaddd` LLVM emits. **The codegen
+quality gap closes when we hand-write the vector IR** — the gap exists
+because LLVM does inference; we sidestep by being explicit.
+
+### How the framework mechanizes vector fusion
+
+The stage protocol from §10 *is* the IR-level form of fastlanes' closure
+trick. Chunks flow between stages as SSA Values, exactly the way `$elem`
+flows through the closure body.
+
+```rust
+impl JitStage for BitPackedStage {
+    fn output(&self) -> Form {
+        Form::Lane(self.t, Layout::FastLanesTransposed(self.lanes))
+    }
+    fn emit(&self, cx: &mut EmitCtx) -> VortexResult<()> {
+        let mut chunks = Vec::with_capacity(32);
+        for row in 0..32 {
+            chunks.push(self.emit_one_row(cx, row)?);   // i32x8 Value, no store
+        }
+        cx.put_output(Lanes::Int(LaneSlice::from_chunks(self.t, chunks)));
+        Ok(())
+    }
+}
+
+impl JitStage for ForStage {
+    fn input(&self) -> SmallVec<[Form; 1]> {
+        smallvec![Form::Lane(self.t, Layout::Either)]
+    }
+    fn output(&self) -> Form { Form::Lane(self.t, Layout::Same) }
+    fn emit(&self, cx: &mut EmitCtx) -> VortexResult<()> {
+        let xs = cx.take_input().into_int(self.t)?;
+        let ref_vec = cx.const_broadcast_int(self.t, self.reference);
+        let out = xs.map_chunks(cx, |b, x| b.iadd(x, ref_vec));   // one vpaddd per chunk
+        cx.put_output(out.into_lanes());
+        Ok(())
+    }
+}
+
+impl JitStage for StoreOutStage {
+    fn input(&self) -> SmallVec<[Form; 1]> {
+        smallvec![Form::Lane(self.t, Layout::Linear)]
+    }
+    fn emit(&self, cx: &mut EmitCtx) -> VortexResult<()> {
+        let xs = cx.take_input().into_int(self.t)?;
+        xs.store_to(cx, cx.runtime_arg(ArgKey::Out)?);   // one vmovdqu per chunk
+        Ok(())
+    }
+}
+```
+
+When the framework chains these three stages into one Cranelift function,
+BitPacked's output `Vec<Value>` is consumed by FoR's `take_input` directly
+— **no IR emitted in between, no memory touched, no temp buffer**. The
+inner IR is identical to the hand-fused version above:
+
+```text
+v_r0 = ushr_imm v_pw0, 0
+v_r0 = band     v_r0, v_mask11
+v_r0 = iadd     v_r0, v_ref_vec      ; ← BitPacked produced v_r0; FoR consumed it
+                                     ;   and produced this iadd; nothing in between.
+store.i32x8 v_r0, v_out_b+0          ; ← StoreOut consumed FoR's output.
+```
+
+HyPer's produce/consume continuation, written in Cranelift IR builders
+instead of C++ string templates. SSA Values are exactly the right
+currency for both compiler-construction continuations and SIMD-vector
+register-resident fusion — the concepts collapse to the same mechanism.
+
+### Adding a new stage that vector-fuses
+
+A Zigzag stage that wants to fuse over the FoR output:
+
+```rust
+impl JitStage for ZigzagStage {
+    fn input(&self)  -> SmallVec<[Form; 1]> {
+        smallvec![Form::Lane(self.t, Layout::Either)]
+    }
+    fn output(&self) -> Form { Form::Lane(self.t.signed(), Layout::Same) }
+    fn emit(&self, cx: &mut EmitCtx) -> VortexResult<()> {
+        let xs = cx.take_input().into_int(self.t)?;
+        let out = xs.map_chunks(cx, |b, x| {
+            let shifted = b.sshr_imm(x, 1);
+            let lsb     = b.band_imm(x, 1);
+            let neg     = b.ineg(lsb);
+            b.bxor(shifted, neg)            // 4 extra vector ops per chunk
+        });
+        cx.put_output(out.into_lanes());
+        Ok(())
+    }
+}
+```
+
+Chained as `Zigzag(For(BitPacked))`, the assembled inner IR per chunk:
+
+```text
+v_unpacked  = ... ushr / band / bor ...           ; from BitPacked
+v_for       = iadd      v_unpacked, v_ref_vec     ; from FoR
+v_shifted   = sshr_imm  v_for, 1                  ; from Zigzag
+v_lsb       = band_imm  v_for, 1
+v_neg       = ineg      v_lsb
+v_zigzag    = bxor      v_shifted, v_neg
+store.i32x8 v_zigzag, ...                         ; from StoreOut
+```
+
+Same code a human would write if hand-fusing Zigzag+FoR+BitPacked,
+generated mechanically because each stage's `take_input`/`put_output` is
+the IR-level form of HyPer's produce/consume.
+
+---
+
 ## Appendix A: research on the inter-module ABI
 
 What follows is what the surveys found about how today's encodings talk to each
