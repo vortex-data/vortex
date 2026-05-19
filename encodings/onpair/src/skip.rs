@@ -234,6 +234,33 @@ impl Bloom {
         true
     }
 
+    /// Insert with an explicit hash count (BitFunnel-style tiers).
+    /// `k=0` is a no-op.
+    #[inline]
+    fn insert_k(&mut self, h1: u32, h2: u32, k: u32) {
+        let mask = self.mask;
+        for probe_idx in 0..k {
+            let raw = (h1 as u64).wrapping_add((probe_idx as u64).wrapping_mul(h2 as u64));
+            let pos = raw & mask;
+            self.bits[(pos / 64) as usize] |= 1u64 << (pos % 64);
+        }
+    }
+
+    /// Probe with an explicit hash count. `k=0` returns `true`
+    /// (item is "always present" — its bits weren't actually inserted).
+    #[inline]
+    fn contains_k(&self, h1: u32, h2: u32, k: u32) -> bool {
+        let mask = self.mask;
+        for probe_idx in 0..k {
+            let raw = (h1 as u64).wrapping_add((probe_idx as u64).wrapping_mul(h2 as u64));
+            let pos = raw & mask;
+            if (self.bits[(pos / 64) as usize] >> (pos % 64)) & 1 == 0 {
+                return false;
+            }
+        }
+        true
+    }
+
     fn byte_size(&self) -> usize {
         self.bits.len() * size_of::<u64>()
     }
@@ -756,6 +783,882 @@ impl TokenPairBloom {
     }
 }
 
+// ---------------------------------------------------------------------------
+//                            CodeBigramBloom
+// ---------------------------------------------------------------------------
+
+/// Bloom filter over consecutive code pairs like [`TokenPairBloom`], but
+/// with a sound, precise `might_contain` for `LIKE '%needle%'` that
+/// enumerates **all valid tokenisations** of the needle instead of
+/// falling back to trigram checks for needles spanning 3+ tokens.
+///
+/// The build phase is identical to `TokenPairBloom`. The query phase
+/// runs a small DFA / DP over the needle bytes, trying every dict token
+/// that matches at each position. Because OnPair tokens are 1–16 bytes
+/// and needles are typically ≤ 30 bytes, the state space is tiny.
+///
+/// Sound: if a row truly contains the needle as a substring, then the
+/// row's code stream includes the needle tokenised at some alignment.
+/// The DP explores all such alignments and checks each code bigram
+/// against the bloom. At least one alignment must pass.
+pub struct CodeBigramBloom {
+    bloom: Bloom,
+}
+
+impl CodeBigramBloom {
+    /// Build the code-bigram Bloom for rows `lo..hi`.
+    pub fn build(dv: &DecodeView<'_>, lo: usize, hi: usize, bits_per_row: usize) -> Self {
+        let n_rows = hi - lo;
+        let mut bloom = Bloom::new(bits_per_row * n_rows.max(1), 3);
+        let mut rstart = dv.codes_offsets[lo] as usize;
+        for r in lo..hi {
+            let rend = dv.codes_offsets[r + 1] as usize;
+            let toks = &dv.codes[rstart..rend];
+            for w in toks.windows(2) {
+                let (h1, h2) = pair_hash(w[0], w[1]);
+                bloom.insert(h1, h2);
+            }
+            rstart = rend;
+        }
+        Self { bloom }
+    }
+
+    pub fn byte_size(&self) -> usize {
+        self.bloom.byte_size()
+    }
+
+    /// Sound necessary condition for `LIKE '%needle%'`.
+    ///
+    /// Exploits the fact that greedy LPM is **deterministic**: once we
+    /// know the first token boundary falls at byte `cover` in the
+    /// needle, `tokenize_needle(needle[cover..])` gives the unique
+    /// interior token sequence.  All interior code bigrams except the
+    /// last must be in the bloom. The last token may differ from the
+    /// actual row because the row has bytes beyond the needle that the
+    /// greedy tokeniser can see.
+    ///
+    /// We enumerate `MAX_TOKEN_SIZE + 1` cover values (0 = needle
+    /// starts at a token boundary, 1..=16 = needle starts `cover`
+    /// bytes before the end of some entry token).
+    pub fn might_contain(
+        &self,
+        dv: &DecodeView<'_>,
+        index: &DictIndex,
+        presence: &DictPresence,
+        needle: &[u8],
+    ) -> bool {
+        if needle.is_empty() {
+            return true;
+        }
+
+        // Case: needle fits entirely inside a single dict token.
+        for (id, &entry) in dv.dict_table.iter().enumerate() {
+            let tlen = (entry & 0xffff) as usize;
+            if tlen < needle.len() || !presence.is_set(id) {
+                continue;
+            }
+            let off = (entry >> 16) as usize;
+            if memchr::memmem::find(&dv.dict_bytes[off..off + tlen], needle).is_some() {
+                return true;
+            }
+        }
+
+        // cover = 0: needle starts at a token boundary.
+        if self.check_aligned(dv, index, needle, None) {
+            return true;
+        }
+
+        // cover = 1..max_token_len: needle starts inside a token.
+        let max_cover = 16.min(needle.len());
+        for cover in 1..=max_cover {
+            let suffix = &needle[..cover];
+            let remainder = &needle[cover..];
+            if remainder.is_empty() {
+                continue; // handled by single-token case above
+            }
+
+            // Find all present entry tokens ending with `suffix`,
+            // and check if any of them leads to a valid path.
+            for (id, &entry) in dv.dict_table.iter().enumerate() {
+                let tlen = (entry & 0xffff) as usize;
+                if tlen < cover || !presence.is_set(id) {
+                    continue;
+                }
+                let off = (entry >> 16) as usize;
+                if &dv.dict_bytes[off + tlen - cover..off + tlen] != suffix {
+                    continue;
+                }
+                if self.check_aligned(dv, index, remainder, Some(id as u16)) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Debug: find a row containing needle and print its actual
+    /// tokenization to understand why might_contain fails.
+    pub fn debug_fn(
+        &self,
+        dv: &DecodeView<'_>,
+        _index: &DictIndex,
+        _presence: &DictPresence,
+        needle: &[u8],
+        lo: usize,
+        hi: usize,
+    ) {
+        // Find a row containing the needle
+        for r in lo..hi {
+            let rlo = dv.codes_offsets[r] as usize;
+            let rhi = dv.codes_offsets[r + 1] as usize;
+            let toks = &dv.codes[rlo..rhi];
+            // Decode the row
+            let mut decoded = Vec::new();
+            let mut tok_boundaries = vec![0usize]; // byte offset of each token start
+            for &c in toks {
+                let entry = dv.dict_table[c as usize];
+                let off = (entry >> 16) as usize;
+                let len = (entry & 0xffff) as usize;
+                decoded.extend_from_slice(&dv.dict_bytes[off..off + len]);
+                tok_boundaries.push(decoded.len());
+            }
+            // Check if needle is in this row
+            if let Some(needle_pos) = memchr::memmem::find(&decoded, needle) {
+                eprintln!("  Row {r}: needle at byte {needle_pos}");
+                // Find which token(s) the needle spans
+                for (i, &c) in toks.iter().enumerate() {
+                    let tok_start = tok_boundaries[i];
+                    let tok_end = tok_boundaries[i + 1];
+                    if tok_end > needle_pos && tok_start < needle_pos + needle.len() {
+                        let entry = dv.dict_table[c as usize];
+                        let off = (entry >> 16) as usize;
+                        let len = (entry & 0xffff) as usize;
+                        let tb = &dv.dict_bytes[off..off + len];
+                        let cover_bytes = if tok_start <= needle_pos {
+                            tok_end - needle_pos
+                        } else {
+                            0
+                        };
+                        eprintln!("    tok[{i}] id={c} {:?} bytes={tok_start}..{tok_end} (cover from needle start: {cover_bytes})",
+                            std::str::from_utf8(tb).unwrap_or("?"));
+                        if i > 0 {
+                            let prev = toks[i - 1];
+                            let (h1, h2) = pair_hash(prev, c);
+                            eprintln!("      bigram({prev},{c}) in bloom: {}", self.bloom.contains(h1, h2));
+                        }
+                    }
+                }
+                // Show what cover value this corresponds to
+                let first_tok_idx = tok_boundaries.iter().position(|&b| b > needle_pos).unwrap() - 1;
+                let cover = tok_boundaries[first_tok_idx + 1] - needle_pos;
+                eprintln!("    → cover = {cover} (needle starts {0} bytes from end of token {first_tok_idx})",
+                    needle_pos - tok_boundaries[first_tok_idx]);
+                return;
+            }
+        }
+        eprintln!("  No row found containing needle {:?} in range {lo}..{hi} ({} rows)",
+            std::str::from_utf8(needle).unwrap_or("?"), hi - lo);
+    }
+
+    /// Check one alignment: delegates to the shared free function.
+    fn check_aligned(
+        &self,
+        dv: &DecodeView<'_>,
+        index: &DictIndex,
+        remainder: &[u8],
+        entry: Option<u16>,
+    ) -> bool {
+        check_aligned_on_bloom(&self.bloom, dv, index, remainder, entry)
+    }
+}
+
+// ---------------------------------------------------------------------------
+//                             HybridBloom
+// ---------------------------------------------------------------------------
+
+/// Code 2+3-gram Bloom filter.  Stores both consecutive **pairs**
+/// and consecutive **triples** of OnPair codes in a single bloom.
+/// Bigrams give signal on short needles (3+ tokens), trigrams add
+/// extra specificity on longer needles (4+ tokens).  Total
+/// insertions ~2N-3 per row — still ~15× sparser than byte trigrams.
+///
+/// Query: encode the needle via the dict, then check both code
+/// bigrams and code trigrams.  If either finds a missing entry →
+/// skip.
+/// BitFunnel-style **frequency-conscious** code-bigram skip filter.
+///
+/// Builds a per-chunk bloom over OnPair code bigrams, but skips
+/// inserting (and probing) bigrams that appear in too many chunks
+/// to be discriminative.  The skipped "ubiquitous" set is column-
+/// level metadata shared across all chunks.
+///
+/// Inspired by BitFunnel (Bing, SIGIR 2017): common terms saturate
+/// every signature equally, so omitting them concentrates bits on
+/// the rare bigrams that actually carry pruning signal.
+///
+/// Sound: skipping a ubiquitous bigram during query is equivalent
+/// to assuming the chunk contains it (which it almost certainly
+/// does — that's why it's ubiquitous).  Skipping during build saves
+/// space without changing soundness.
+pub struct HybridBloom {
+    bloom: Bloom,
+}
+
+/// Column-level table of code bigrams that appear in too many
+/// chunks to be discriminative. Shared across all per-chunk
+/// [`HybridBloom`] instances.
+///
+/// Stored as a sorted `Vec<u32>` of packed bigram IDs
+/// `(a << 16) | b` for O(log n) lookup. ~4 KB for 1000 entries.
+pub struct UbiquitousBigrams {
+    sorted: Vec<u32>,
+}
+
+impl UbiquitousBigrams {
+    /// Build the ubiquitous-bigram set from the column's full code
+    /// stream.  A bigram is considered ubiquitous iff it appears in
+    /// more than `threshold_pct`% of chunks of size `chunk_size`.
+    pub fn build(
+        codes: &[u16],
+        codes_offsets: &[u32],
+        chunk_size: usize,
+        threshold_pct: u8,
+    ) -> Self {
+        let n_rows = codes_offsets.len().saturating_sub(1);
+        let n_chunks = n_rows / chunk_size;
+        if n_chunks == 0 || threshold_pct == 0 {
+            return Self { sorted: Vec::new() };
+        }
+        let threshold = (n_chunks * threshold_pct as usize) / 100;
+
+        // Count chunks each bigram appears in. Use a HashMap keyed
+        // on packed u32 bigram IDs.
+        let mut counts: std::collections::HashMap<u32, u32> =
+            std::collections::HashMap::new();
+        let mut seen: std::collections::HashSet<u32> =
+            std::collections::HashSet::new();
+
+        for c in 0..n_chunks {
+            seen.clear();
+            let row_lo = c * chunk_size;
+            let row_hi = (c + 1) * chunk_size;
+            for r in row_lo..row_hi {
+                let rlo = codes_offsets[r] as usize;
+                let rhi = codes_offsets[r + 1] as usize;
+                for w in codes[rlo..rhi].windows(2) {
+                    let key = ((w[0] as u32) << 16) | (w[1] as u32);
+                    seen.insert(key);
+                }
+            }
+            for &key in &seen {
+                *counts.entry(key).or_insert(0) += 1;
+            }
+        }
+
+        let mut sorted: Vec<u32> = counts
+            .into_iter()
+            .filter(|&(_, c)| c as usize > threshold)
+            .map(|(k, _)| k)
+            .collect();
+        sorted.sort_unstable();
+        Self { sorted }
+    }
+
+    /// Empty ubiquitous set (no filtering).
+    pub fn empty() -> Self {
+        Self { sorted: Vec::new() }
+    }
+
+    #[inline]
+    pub fn contains(&self, a: u16, b: u16) -> bool {
+        let key = ((a as u32) << 16) | (b as u32);
+        self.sorted.binary_search(&key).is_ok()
+    }
+
+    pub fn len(&self) -> usize {
+        self.sorted.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.sorted.is_empty()
+    }
+
+    pub fn byte_size(&self) -> usize {
+        self.sorted.len() * size_of::<u32>()
+    }
+}
+
+/// Per-bigram tier table — assigns each bigram a probe count `k`
+/// based on its global frequency, in the spirit of BitFunnel's
+/// frequency-conscious row allocation.
+///
+/// Common bigrams get `k=0` (skipped entirely), rare bigrams get
+/// `k=3+` (high precision). Stored as sorted `Vec<(packed_id, k)>`
+/// pairs for binary-search lookup. Default tier (for bigrams not in
+/// the table) is `k=3`.
+pub struct BigramTiers {
+    /// Sorted (packed_bigram_id, k) pairs.
+    entries: Vec<(u32, u8)>,
+    /// Default k for bigrams not in the table.
+    default_k: u8,
+}
+
+impl BigramTiers {
+    /// Build tier table from full column codes.
+    ///
+    /// Tiers (by % of chunks containing the bigram):
+    ///   > top_pct%        → k=0 (skip)
+    ///   common_pct..top   → k=1
+    ///   medium_pct..common→ k=2
+    ///   ≤ medium_pct      → k=3 (default; not stored)
+    pub fn build(
+        codes: &[u16],
+        codes_offsets: &[u32],
+        chunk_size: usize,
+        top_pct: u8,
+        common_pct: u8,
+        medium_pct: u8,
+    ) -> Self {
+        let n_rows = codes_offsets.len().saturating_sub(1);
+        let n_chunks = n_rows / chunk_size;
+        if n_chunks == 0 {
+            return Self { entries: Vec::new(), default_k: 3 };
+        }
+        let t_top = (n_chunks * top_pct as usize) / 100;
+        let t_common = (n_chunks * common_pct as usize) / 100;
+        let t_medium = (n_chunks * medium_pct as usize) / 100;
+
+        let mut counts: std::collections::HashMap<u32, u32> =
+            std::collections::HashMap::new();
+        let mut seen: std::collections::HashSet<u32> =
+            std::collections::HashSet::new();
+        for c in 0..n_chunks {
+            seen.clear();
+            let row_lo = c * chunk_size;
+            let row_hi = (c + 1) * chunk_size;
+            for r in row_lo..row_hi {
+                let rlo = codes_offsets[r] as usize;
+                let rhi = codes_offsets[r + 1] as usize;
+                for w in codes[rlo..rhi].windows(2) {
+                    let key = ((w[0] as u32) << 16) | (w[1] as u32);
+                    seen.insert(key);
+                }
+            }
+            for &key in &seen {
+                *counts.entry(key).or_insert(0) += 1;
+            }
+        }
+
+        // Assign tier per bigram. Only store entries with k < default_k=3.
+        let mut entries: Vec<(u32, u8)> = counts
+            .into_iter()
+            .filter_map(|(k, c)| {
+                let c = c as usize;
+                let tier = if c > t_top {
+                    0u8
+                } else if c > t_common {
+                    1
+                } else if c > t_medium {
+                    2
+                } else {
+                    return None; // default tier, no entry needed
+                };
+                Some((k, tier))
+            })
+            .collect();
+        entries.sort_unstable_by_key(|&(k, _)| k);
+        Self { entries, default_k: 3 }
+    }
+
+    pub fn empty() -> Self {
+        Self { entries: Vec::new(), default_k: 3 }
+    }
+
+    /// Get the probe count `k` for a given bigram.
+    #[inline]
+    pub fn k_for(&self, a: u16, b: u16) -> u32 {
+        let key = ((a as u32) << 16) | (b as u32);
+        match self.entries.binary_search_by_key(&key, |&(k, _)| k) {
+            Ok(i) => self.entries[i].1 as u32,
+            Err(_) => self.default_k as u32,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn byte_size(&self) -> usize {
+        self.entries.len() * (size_of::<u32>() + size_of::<u8>())
+    }
+
+    /// Diagnostic: count entries per tier.
+    pub fn tier_counts(&self) -> [usize; 4] {
+        let mut c = [0usize; 4];
+        for &(_, k) in &self.entries {
+            c[k as usize] += 1;
+        }
+        c
+    }
+}
+
+impl HybridBloom {
+    /// Build the code-bigram Bloom for rows `lo..hi`, skipping any
+    /// bigrams that are in the column-level `ubiq` table.
+    pub fn build(
+        dv: &DecodeView<'_>,
+        lo: usize,
+        hi: usize,
+        bits_per_row: usize,
+        ubiq: &UbiquitousBigrams,
+    ) -> Self {
+        let n_rows = hi - lo;
+        let mut bloom = Bloom::new(bits_per_row * n_rows.max(1), 3);
+        let mut rstart = dv.codes_offsets[lo] as usize;
+        for r in lo..hi {
+            let rend = dv.codes_offsets[r + 1] as usize;
+            let toks = &dv.codes[rstart..rend];
+            for w in toks.windows(2) {
+                if ubiq.contains(w[0], w[1]) {
+                    continue;
+                }
+                let (h1, h2) = pair_hash(w[0], w[1]);
+                bloom.insert(h1, h2);
+            }
+            rstart = rend;
+        }
+        Self { bloom }
+    }
+
+    pub fn byte_size(&self) -> usize {
+        self.bloom.byte_size()
+    }
+
+    /// Sound necessary condition for `LIKE '%needle%'`.
+    ///
+    /// Encode the needle via the OnPair dict, then check code bigrams
+    /// against the bloom — skipping any ubiquitous bigrams (which
+    /// would always probe "true" and contribute no signal).
+    pub fn might_contain(
+        &self,
+        dv: &DecodeView<'_>,
+        index: &DictIndex,
+        presence: &DictPresence,
+        ubiq: &UbiquitousBigrams,
+        needle: &[u8],
+    ) -> bool {
+        if needle.is_empty() {
+            return true;
+        }
+
+        // Single-token case: needle fits inside one dict token.
+        for (id, &entry) in dv.dict_table.iter().enumerate() {
+            let tlen = (entry & 0xffff) as usize;
+            if tlen < needle.len() || !presence.is_set(id) {
+                continue;
+            }
+            let off = (entry >> 16) as usize;
+            if memchr::memmem::find(&dv.dict_bytes[off..off + tlen], needle).is_some() {
+                return true;
+            }
+        }
+
+        // cover = 0: needle starts at a token boundary.
+        if check_aligned_with_ubiq(&self.bloom, dv, index, needle, None, ubiq) {
+            return true;
+        }
+
+        // cover = 1..max_token_len: needle starts inside a token.
+        let max_cover = 16.min(needle.len());
+        for cover in 1..=max_cover {
+            let suffix = &needle[..cover];
+            let remainder = &needle[cover..];
+            if remainder.is_empty() {
+                continue;
+            }
+            for (id, &entry) in dv.dict_table.iter().enumerate() {
+                let tlen = (entry & 0xffff) as usize;
+                if tlen < cover || !presence.is_set(id) {
+                    continue;
+                }
+                let off = (entry >> 16) as usize;
+                if &dv.dict_bytes[off + tlen - cover..off + tlen] != suffix {
+                    continue;
+                }
+                if check_aligned_with_ubiq(
+                    &self.bloom, dv, index, remainder, Some(id as u16), ubiq,
+                ) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+}
+
+// ---------------------------------------------------------------------------
+//                              TieredBloom
+// ---------------------------------------------------------------------------
+
+/// Full BitFunnel-style code-bigram filter with **variable hash count
+/// per bigram** based on frequency tier. Rare bigrams get k=3+ hash
+/// functions (high precision), common bigrams get k=1 (single bit),
+/// ubiquitous bigrams get k=0 (skipped entirely).
+///
+/// The tier table is column-level metadata (shared across chunks).
+pub struct TieredBloom {
+    bloom: Bloom,
+}
+
+impl TieredBloom {
+    /// Build the tiered bloom for rows `lo..hi` using `tiers` for
+    /// the per-bigram k.
+    pub fn build(
+        dv: &DecodeView<'_>,
+        lo: usize,
+        hi: usize,
+        bits_per_row: usize,
+        tiers: &BigramTiers,
+    ) -> Self {
+        let n_rows = hi - lo;
+        // Use k=3 as the bloom's default; per-insert k overrides it.
+        let mut bloom = Bloom::new(bits_per_row * n_rows.max(1), 3);
+        let mut rstart = dv.codes_offsets[lo] as usize;
+        for r in lo..hi {
+            let rend = dv.codes_offsets[r + 1] as usize;
+            let toks = &dv.codes[rstart..rend];
+            for w in toks.windows(2) {
+                let k = tiers.k_for(w[0], w[1]);
+                if k == 0 {
+                    continue;
+                }
+                let (h1, h2) = pair_hash(w[0], w[1]);
+                bloom.insert_k(h1, h2, k);
+            }
+            rstart = rend;
+        }
+        Self { bloom }
+    }
+
+    pub fn byte_size(&self) -> usize {
+        self.bloom.byte_size()
+    }
+
+    /// Sound necessary condition for `LIKE '%needle%'` using tiered
+    /// bigram probes. Bigrams with `k=0` are skipped (treated as
+    /// always present), saving probes and avoiding zero-signal checks.
+    pub fn might_contain(
+        &self,
+        dv: &DecodeView<'_>,
+        index: &DictIndex,
+        presence: &DictPresence,
+        tiers: &BigramTiers,
+        needle: &[u8],
+    ) -> bool {
+        if needle.is_empty() {
+            return true;
+        }
+
+        for (id, &entry) in dv.dict_table.iter().enumerate() {
+            let tlen = (entry & 0xffff) as usize;
+            if tlen < needle.len() || !presence.is_set(id) {
+                continue;
+            }
+            let off = (entry >> 16) as usize;
+            if memchr::memmem::find(&dv.dict_bytes[off..off + tlen], needle).is_some() {
+                return true;
+            }
+        }
+
+        if check_aligned_tiered(&self.bloom, dv, index, needle, None, tiers) {
+            return true;
+        }
+
+        let max_cover = 16.min(needle.len());
+        for cover in 1..=max_cover {
+            let suffix = &needle[..cover];
+            let remainder = &needle[cover..];
+            if remainder.is_empty() {
+                continue;
+            }
+            for (id, &entry) in dv.dict_table.iter().enumerate() {
+                let tlen = (entry & 0xffff) as usize;
+                if tlen < cover || !presence.is_set(id) {
+                    continue;
+                }
+                let off = (entry >> 16) as usize;
+                if &dv.dict_bytes[off + tlen - cover..off + tlen] != suffix {
+                    continue;
+                }
+                if check_aligned_tiered(
+                    &self.bloom, dv, index, remainder, Some(id as u16), tiers,
+                ) {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+}
+
+/// Tiered version of `check_aligned`: uses per-bigram k for probes.
+/// Bigrams with k=0 are skipped (treated as always present).
+fn check_aligned_tiered(
+    bloom: &Bloom,
+    dv: &DecodeView<'_>,
+    index: &DictIndex,
+    remainder: &[u8],
+    entry: Option<u16>,
+    tiers: &BigramTiers,
+) -> bool {
+    let Some(toks) = tokenize_needle(dv, index, remainder) else {
+        return false;
+    };
+    if toks.is_empty() {
+        return entry.is_none();
+    }
+
+    let mut starts = Vec::with_capacity(toks.len());
+    let mut pos = 0usize;
+    for &t in &toks {
+        starts.push(pos);
+        let e = dv.dict_table[t as usize];
+        pos += (e & 0xffff) as usize;
+    }
+
+    let safe: Vec<bool> = starts
+        .iter()
+        .map(|&p| is_safe_position(dv, index, remainder, p))
+        .collect();
+
+    if let Some(e) = entry {
+        if safe[0] {
+            let k = tiers.k_for(e, toks[0]);
+            if k > 0 {
+                let (h1, h2) = pair_hash(e, toks[0]);
+                if !bloom.contains_k(h1, h2, k) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    for (i, w) in toks.windows(2).enumerate() {
+        if safe[i] && safe[i + 1] {
+            let k = tiers.k_for(w[0], w[1]);
+            if k > 0 {
+                let (h1, h2) = pair_hash(w[0], w[1]);
+                if !bloom.contains_k(h1, h2, k) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    true
+}
+
+// ---------------------------------------------------------------------------
+//                     Free functions for shared logic
+// ---------------------------------------------------------------------------
+
+/// Shared `check_aligned` logic that operates on an arbitrary `&Bloom`.
+/// Used by both `CodeBigramBloom` and `HybridBloom`.
+fn check_aligned_on_bloom(
+    bloom: &Bloom,
+    dv: &DecodeView<'_>,
+    index: &DictIndex,
+    remainder: &[u8],
+    entry: Option<u16>,
+) -> bool {
+    let Some(toks) = tokenize_needle(dv, index, remainder) else {
+        return false;
+    };
+    if toks.is_empty() {
+        return entry.is_none();
+    }
+
+    let mut starts = Vec::with_capacity(toks.len());
+    let mut pos = 0usize;
+    for &t in &toks {
+        starts.push(pos);
+        let e = dv.dict_table[t as usize];
+        pos += (e & 0xffff) as usize;
+    }
+
+    let safe: Vec<bool> = starts
+        .iter()
+        .map(|&p| is_safe_position(dv, index, remainder, p))
+        .collect();
+
+    if let Some(e) = entry {
+        if safe[0] {
+            let (h1, h2) = pair_hash(e, toks[0]);
+            if !bloom.contains(h1, h2) {
+                return false;
+            }
+        }
+    }
+
+    for (i, w) in toks.windows(2).enumerate() {
+        if safe[i] && safe[i + 1] {
+            let (h1, h2) = pair_hash(w[0], w[1]);
+            if !bloom.contains(h1, h2) {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+/// Like `check_aligned_on_bloom` but also **skips probing ubiquitous
+/// bigrams** (BitFunnel-style). Ubiquitous bigrams appear in nearly
+/// every chunk's bloom and contribute zero pruning signal, so we
+/// skip them on both insert and probe to free bloom space for the
+/// rare bigrams that actually carry information.
+fn check_aligned_with_ubiq(
+    bloom: &Bloom,
+    dv: &DecodeView<'_>,
+    index: &DictIndex,
+    remainder: &[u8],
+    entry: Option<u16>,
+    ubiq: &UbiquitousBigrams,
+) -> bool {
+    let Some(toks) = tokenize_needle(dv, index, remainder) else {
+        return false;
+    };
+    if toks.is_empty() {
+        return entry.is_none();
+    }
+
+    let mut starts = Vec::with_capacity(toks.len());
+    let mut pos = 0usize;
+    for &t in &toks {
+        starts.push(pos);
+        let e = dv.dict_table[t as usize];
+        pos += (e & 0xffff) as usize;
+    }
+
+    let safe: Vec<bool> = starts
+        .iter()
+        .map(|&p| is_safe_position(dv, index, remainder, p))
+        .collect();
+
+    if let Some(e) = entry {
+        if safe[0] && !ubiq.contains(e, toks[0]) {
+            let (h1, h2) = pair_hash(e, toks[0]);
+            if !bloom.contains(h1, h2) {
+                return false;
+            }
+        }
+    }
+
+    for (i, w) in toks.windows(2).enumerate() {
+        if safe[i] && safe[i + 1] && !ubiq.contains(w[0], w[1]) {
+            let (h1, h2) = pair_hash(w[0], w[1]);
+            if !bloom.contains(h1, h2) {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+/// Like `check_aligned_on_bloom` but checks code **trigrams** (windows
+/// of 3 codes). Each probe captures ~3–9 bytes of content. Needs 4+
+/// tokens to have any checkable trigram (skip the last window since
+/// the exit token may differ).
+fn check_aligned_trigram(
+    bloom: &Bloom,
+    dv: &DecodeView<'_>,
+    index: &DictIndex,
+    remainder: &[u8],
+    entry: Option<u16>,
+) -> bool {
+    let Some(toks) = tokenize_needle(dv, index, remainder) else {
+        return false;
+    };
+    if toks.is_empty() {
+        return entry.is_none();
+    }
+
+    let mut starts = Vec::with_capacity(toks.len());
+    let mut pos = 0usize;
+    for &t in &toks {
+        starts.push(pos);
+        let e = dv.dict_table[t as usize];
+        pos += (e & 0xffff) as usize;
+    }
+
+    let safe: Vec<bool> = starts
+        .iter()
+        .map(|&p| is_safe_position(dv, index, remainder, p))
+        .collect();
+
+    // Entry trigram: (entry, toks[0], toks[1]) — check if all safe.
+    if let Some(e) = entry {
+        if toks.len() >= 2 && safe[0] && safe[1] {
+            let (h1, h2) = triple_hash(e, toks[0], toks[1]);
+            if !bloom.contains(h1, h2) {
+                return false;
+            }
+        }
+    }
+
+    // Interior trigrams: (toks[i], toks[i+1], toks[i+2]).
+    // Skip the last window (involves the exit token which may differ).
+    for (i, w) in toks.windows(3).enumerate() {
+        if safe[i] && safe[i + 1] && safe[i + 2] {
+            let (h1, h2) = triple_hash(w[0], w[1], w[2]);
+            if !bloom.contains(h1, h2) {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+/// True iff the greedy-LPM token at position `pos` within `remainder`
+/// is guaranteed the same in the actual row. Shared by
+/// `CodeBigramBloom` and `HybridBloom`.
+#[inline]
+fn is_safe_position(
+    dv: &DecodeView<'_>,
+    index: &DictIndex,
+    remainder: &[u8],
+    pos: usize,
+) -> bool {
+    let remaining = &remainder[pos..];
+    if remaining.is_empty() {
+        return false;
+    }
+    let candidates = index.range_for(remaining[0]);
+    for id in candidates {
+        let entry = dv.dict_table[id];
+        let tlen = (entry & 0xffff) as usize;
+        if tlen <= remaining.len() {
+            continue;
+        }
+        let off = (entry >> 16) as usize;
+        let tbytes = &dv.dict_bytes[off..off + tlen];
+        if tbytes.starts_with(remaining) {
+            return false;
+        }
+    }
+    true
+}
+
+
 /// Find the single-byte dictionary token for byte `b`, if any. OnPair
 /// training always includes the 256 single-byte tokens, so this is
 /// `Some(_)` for any non-degenerate dictionary.
@@ -775,6 +1678,17 @@ fn pair_hash(a: u16, b: u16) -> (u32, u32) {
     let key = ((a as u32) << 16) | (b as u32);
     let h1 = splitmix32(key);
     let h2 = splitmix32(key ^ 0x27d4_eb2f);
+    (h1, h2)
+}
+
+#[inline]
+fn triple_hash(a: u16, b: u16, c: u16) -> (u32, u32) {
+    // Mix three code IDs into two 32-bit hashes for the bloom.
+    // Combine into a 48-bit key, then split-mix.
+    let lo = ((a as u32) << 16) | (b as u32);
+    let hi = c as u32;
+    let h1 = splitmix32(lo ^ hi.wrapping_mul(0x9e37_79b9));
+    let h2 = splitmix32(lo.wrapping_mul(0x85eb_ca6b) ^ hi);
     (h1, h2)
 }
 

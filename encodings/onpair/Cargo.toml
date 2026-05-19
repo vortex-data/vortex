@@ -46,3 +46,7 @@ harness = false
 [[example]]
 name = "skip"
 path = "examples/skip.rs"
+
+[[example]]
+name = "queries"
+path = "examples/queries.rs"

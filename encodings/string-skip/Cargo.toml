@@ -1,0 +1,29 @@
+[package]
+name = "string-skip"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Block-level skip indexes for string columns: range/prefix/substring pruning over dictionary-coded data"
+
+[lib]
+name = "string_skip"
+
+[dependencies]
+memchr = "2"
+bincode = { version = "1", default-features = false }
+serde = { version = "1", default-features = false, features = ["derive", "alloc", "std"] }
+thiserror = "2"
+
+[dev-dependencies]
+proptest = "1"
+criterion = { version = "0.5", default-features = false }
+rand = "0.9"
+rand_xoshiro = "0.7"
+parquet = "57"
+arrow-array = "57"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+
+[[bench]]
+name = "bloom_probes"
+harness = false

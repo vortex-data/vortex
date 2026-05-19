@@ -50,6 +50,7 @@ members = [
     "encodings/fsst",
     "encodings/onpair",
     "encodings/onpair-sys",
+    "encodings/string-skip",
     "encodings/pco",
     "encodings/sparse",
     "encodings/zigzag",

@@ -65,7 +65,12 @@ use vortex_onpair::DEFAULT_DICT12_CONFIG;
 use vortex_onpair::decode::OwnedDecodeInputs;
 use vortex_onpair::lpm::DictIndex;
 use vortex_onpair::onpair_compress;
+use vortex_onpair::skip::CodeBigramBloom;
 use vortex_onpair::skip::DictPresence;
+use vortex_onpair::skip::BigramTiers;
+use vortex_onpair::skip::HybridBloom;
+use vortex_onpair::skip::TieredBloom;
+use vortex_onpair::skip::UbiquitousBigrams;
 use vortex_onpair::skip::SeamBloom;
 use vortex_onpair::skip::TokenPairBloom;
 use vortex_onpair::skip::TrigramBloom;
@@ -91,8 +96,8 @@ struct Args {
     /// Bloom bits per row to sweep, comma-separated.
     #[arg(long, default_value = "8,16,32,64,128")]
     bits: String,
-    /// Variants to evaluate, comma-separated. Subset of `A,B,C,D,AB`.
-    #[arg(long, default_value = "A,B,C,D,AB")]
+    /// Variants to evaluate, comma-separated. Subset of `A,B,C,D,E,F,AB`.
+    #[arg(long, default_value = "A,B,C,D,E,F,AB")]
     variants: String,
 
     /// `LIKE '%S%'` needles, repeatable.
@@ -114,6 +119,21 @@ struct Args {
     #[arg(long, default_value_t = 0x9e37_79b9_7f4a_7c15_u64)]
     seed: u64,
 
+    /// BitFunnel-style ubiquity threshold for variant F: skip code
+    /// bigrams that appear in > N% of chunks. 0 = disabled (no skipping).
+    #[arg(long, default_value_t = 50)]
+    ubiq_pct: u8,
+
+    /// Sort rows lexicographically before chunking. Clusters similar
+    /// strings into the same chunks, reducing per-chunk bigram
+    /// diversity — should help saturation-bound columns.
+    #[arg(long)]
+    sort: bool,
+
+    /// LIKE '%…%' queries to show per-query detail for, repeatable.
+    #[arg(long)]
+    like: Vec<String>,
+
     /// Write full per-(variant, chunk_size, bits, category) CSV here.
     #[arg(long)]
     csv: Option<PathBuf>,
@@ -133,6 +153,12 @@ impl Pred {
         match self {
             Pred::StartsWith(s) => rows.iter().any(|r| r.starts_with(s.as_str())),
             Pred::Contains(s) => rows.iter().any(|r| r.contains(s.as_str())),
+        }
+    }
+    fn display(&self) -> String {
+        match self {
+            Pred::StartsWith(s) => format!("LIKE '{s}%'"),
+            Pred::Contains(s) => format!("LIKE '%{s}%'"),
         }
     }
     fn bytes(&self) -> &[u8] {
@@ -171,6 +197,11 @@ struct Row {
     eval_ns_per_q: u128,
     by_cat: BTreeMap<&'static str, Bucket>,
     total: Bucket,
+    total_raw_bytes: usize,
+    total_compressed_bytes: usize,
+    n_chunks: usize,
+    bytes_saved_per_q: f64,
+    compressed_saved_per_q: f64,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -186,15 +217,22 @@ fn main() -> anyhow::Result<()> {
             "B" => Ok("B"),
             "C" => Ok("C"),
             "D" => Ok("D"),
+            "E" => Ok("E"),
+            "F" => Ok("F"),
+            "G" => Ok("G"),
             "AB" => Ok("AB"),
-            other => anyhow::bail!("unknown variant {other:?} (want A|B|C|D|AB)"),
+            other => anyhow::bail!("unknown variant {other:?} (want A|B|C|D|E|F|G|AB)"),
         })
         .collect::<Result<_, _>>()?;
 
     // ----------------------------------------------------------- load + compress
     eprintln!("Loading column {:?} ...", args.column);
     let t0 = Instant::now();
-    let rows = load_column(&args.parquet, &args.column, args.max_rows)?;
+    let mut rows = load_column(&args.parquet, &args.column, args.max_rows)?;
+    if args.sort {
+        rows.sort();
+        eprintln!("  sorted {} rows lexicographically", rows.len());
+    }
     eprintln!(
         "loaded {} rows in {:?} ({} raw bytes)",
         rows.len(),
@@ -241,6 +279,43 @@ fn main() -> anyhow::Result<()> {
         }
         let n_aligned = nch * cs;
 
+        // BitFunnel-style ubiquitous-bigram set (column-level).
+        // Built once per chunk_size from the full code stream.
+        let ubiq = UbiquitousBigrams::build(
+            dv.codes, dv.codes_offsets, cs, args.ubiq_pct,
+        );
+        eprintln!(
+            "  ubiq bigrams (>{}% of chunks at cs={}): {} entries ({} B)",
+            args.ubiq_pct, cs, ubiq.len(), ubiq.byte_size(),
+        );
+
+        // BitFunnel-style tiered bigram k-counts (column-level).
+        // top 50% → k=0 (skip), 25-50% → k=1, 10-25% → k=2, ≤10% → k=3.
+        let tiers = BigramTiers::build(
+            dv.codes, dv.codes_offsets, cs, 50, 25, 10,
+        );
+        let tc = tiers.tier_counts();
+        eprintln!(
+            "  tier bigrams at cs={}: k=0:{} k=1:{} k=2:{} ({} B)",
+            cs, tc[0], tc[1], tc[2], tiers.byte_size(),
+        );
+
+        let chunk_raw_bytes: Vec<usize> = (0..nch)
+            .map(|c| rows[c * cs..(c + 1) * cs].iter().map(String::len).sum())
+            .collect();
+
+        // Compressed (OnPair) bytes per chunk: codes + codes_offsets, excluding shared dict.
+        let chunk_compressed_bytes: Vec<usize> = (0..nch)
+            .map(|c| {
+                let lo = c * cs;
+                let hi = (c + 1) * cs;
+                let n_tokens = (dv.codes_offsets[hi] - dv.codes_offsets[lo]) as usize;
+                let codes_bytes = n_tokens * 2; // u16 codes
+                let offsets_bytes = (cs + 1) * 4; // u32 offsets
+                codes_bytes + offsets_bytes
+            })
+            .collect();
+
         // A is independent of `bits`; build once per chunk_size.
         let t0 = Instant::now();
         let presence: Vec<DictPresence> = (0..nch)
@@ -254,7 +329,7 @@ fn main() -> anyhow::Result<()> {
             results.push(eval(
                 "A", cs, 0, n_aligned,
                 a_bytes, a_build_ns,
-                &workload, nch, &rows,
+                &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
                 |q, c| match q {
                     Pred::Contains(s) => presence[c].might_contain(&dv, s.as_bytes()),
                     Pred::StartsWith(s) => presence[c].might_starts_with(&dv, &index, s.as_bytes()),
@@ -287,7 +362,7 @@ fn main() -> anyhow::Result<()> {
                 results.push(eval(
                     "B", cs, bits, n_aligned,
                     b_bytes, b_build_ns,
-                    &workload, nch, &rows,
+                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
                     |q, c| bs[c].might_contain(q.bytes()),
                 ));
             }
@@ -297,7 +372,7 @@ fn main() -> anyhow::Result<()> {
                 results.push(eval(
                     "AB", cs, bits, n_aligned,
                     ab_bytes, ab_build_ns,
-                    &workload, nch, &rows,
+                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
                     |q, c| {
                         let pa = match q {
                             Pred::Contains(s) => presence[c].might_contain(&dv, s.as_bytes()),
@@ -321,7 +396,7 @@ fn main() -> anyhow::Result<()> {
                 results.push(eval(
                     "C", cs, bits, n_aligned,
                     c_bytes, c_build,
-                    &workload, nch, &rows,
+                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
                     |q, c| cs_idx[c].might_contain(&dv, &presence[c], q.bytes()),
                 ));
             }
@@ -337,7 +412,7 @@ fn main() -> anyhow::Result<()> {
                 results.push(eval(
                     "D", cs, bits, n_aligned,
                     d_bytes, d_build,
-                    &workload, nch, &rows,
+                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
                     |q, c| match q {
                         Pred::Contains(s) => {
                             ds[c].might_contain(&dv, &index, &presence[c], s.as_bytes())
@@ -349,9 +424,86 @@ fn main() -> anyhow::Result<()> {
                 ));
             }
 
+            // ---- E = CodeBigramBloom + A (DP-based contains) ----
+            if variants.contains(&"E") {
+                let t0 = Instant::now();
+                let es: Vec<CodeBigramBloom> = (0..nch)
+                    .map(|c| CodeBigramBloom::build(&dv, c * cs, (c + 1) * cs, bits))
+                    .collect();
+                let e_build = t0.elapsed().as_nanos() + a_build_ns;
+                let e_bytes = es.iter().map(CodeBigramBloom::byte_size).sum::<usize>() + a_bytes;
+                results.push(eval(
+                    "E", cs, bits, n_aligned,
+                    e_bytes, e_build,
+                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
+                    |q, c| match q {
+                        Pred::Contains(s) => {
+                            es[c].might_contain(&dv, &index, &presence[c], s.as_bytes())
+                        }
+                        Pred::StartsWith(s) => {
+                            presence[c].might_starts_with(&dv, &index, s.as_bytes())
+                        }
+                    },
+                ));
+            }
+
+            // ---- F = HybridBloom (BitFunnel-style code bigrams w/ ubiq skipping) ----
+            if variants.contains(&"F") {
+                let t0 = Instant::now();
+                let fs: Vec<HybridBloom> = (0..nch)
+                    .map(|c| HybridBloom::build(&dv, c * cs, (c + 1) * cs, bits, &ubiq))
+                    .collect();
+                let f_build = t0.elapsed().as_nanos() + a_build_ns;
+                // Include the column-level ubiq table in the cost (amortized per chunk).
+                let f_bytes = fs.iter().map(HybridBloom::byte_size).sum::<usize>()
+                    + a_bytes
+                    + ubiq.byte_size();
+                results.push(eval(
+                    "F", cs, bits, n_aligned,
+                    f_bytes, f_build,
+                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
+                    |q, c| match q {
+                        Pred::Contains(s) => {
+                            fs[c].might_contain(&dv, &index, &presence[c], &ubiq, s.as_bytes())
+                        }
+                        Pred::StartsWith(s) => {
+                            presence[c].might_starts_with(&dv, &index, s.as_bytes())
+                        }
+                    },
+                ));
+            }
+
+            // ---- G = TieredBloom (BitFunnel-style variable k per bigram) ----
+            if variants.contains(&"G") {
+                let t0 = Instant::now();
+                let gs: Vec<TieredBloom> = (0..nch)
+                    .map(|c| TieredBloom::build(&dv, c * cs, (c + 1) * cs, bits, &tiers))
+                    .collect();
+                let g_build = t0.elapsed().as_nanos() + a_build_ns;
+                let g_bytes = gs.iter().map(TieredBloom::byte_size).sum::<usize>()
+                    + a_bytes
+                    + tiers.byte_size();
+                results.push(eval(
+                    "G", cs, bits, n_aligned,
+                    g_bytes, g_build,
+                    &workload, nch, &rows, &chunk_raw_bytes, &chunk_compressed_bytes,
+                    |q, c| match q {
+                        Pred::Contains(s) => {
+                            gs[c].might_contain(&dv, &index, &presence[c], &tiers, s.as_bytes())
+                        }
+                        Pred::StartsWith(s) => {
+                            presence[c].might_starts_with(&dv, &index, s.as_bytes())
+                        }
+                    },
+                ));
+            }
+
             if !variants.contains(&"B")
                 && !variants.contains(&"C")
                 && !variants.contains(&"D")
+                && !variants.contains(&"E")
+                && !variants.contains(&"F")
+                && !variants.contains(&"G")
                 && !variants.contains(&"AB")
             {
                 break; // only A enabled — `bits` doesn't matter, run once
@@ -386,41 +538,56 @@ fn main() -> anyhow::Result<()> {
     if !args.quiet {
         println!();
         println!("=== Sweep results ===");
+        let total_compressed_mb = results.first()
+            .map(|r| r.total_compressed_bytes as f64 / (1024.0 * 1024.0))
+            .unwrap_or(0.0);
         println!(
-            "{:<5} {:>5} {:>5}  {:>6} {:>9}  {:>9}  {:>9}  {:>9}  {:>9}  {:>9}",
-            "var", "chunk", "bits", "B/row",
-            "subst", "prefix", "rare", "clickbench", "TOTAL", "eval_us",
+            "  Compressed column size (codes+offsets, excl dict): {:.1} MB",
+            total_compressed_mb,
         );
-        println!("{}", "-".repeat(96));
+        println!();
+        println!(
+            "{:<5} {:>5} {:>5}  {:>6} {:>6} {:>9} {:>11}  {:>9}  {:>9}  {:>9}  {:>9}",
+            "var", "chunk", "bits", "B/row", "skip%",
+            "saved/q", "comp_saved", "subst", "prefix", "TOTAL", "eval_us",
+        );
+        println!("{}", "-".repeat(110));
         for r in &results {
+            let skip_pct = 100.0 - r.total.kept_pct();
+            let saved_mb = r.bytes_saved_per_q / (1024.0 * 1024.0);
+            let comp_saved_mb = r.compressed_saved_per_q / (1024.0 * 1024.0);
             println!(
-                "{:<5} {:>5} {:>5}  {:>6.2} {:>+8.2}pp {:>+8.2}pp {:>+8.2}pp {:>+9.2}pp {:>+8.2}pp {:>9.1}",
+                "{:<5} {:>5} {:>5}  {:>6.2} {:>5.1}% {:>7.1}MB {:>9.1}MB {:>+8.2}pp {:>+8.2}pp {:>+8.2}pp {:>9.1}",
                 r.variant, r.chunk_size, r.bits, r.bytes_per_row,
+                skip_pct, saved_mb, comp_saved_mb,
                 cat_vs_floor(r, "auto/substring"),
                 cat_vs_floor(r, "auto/prefix"),
-                cat_vs_floor(r, "auto/rare"),
-                cat_vs_floor(r, "clickbench"),
                 r.total.vs_floor(),
                 r.eval_ns_per_q as f64 / 1000.0,
             );
         }
         println!();
-        println!("Numbers are `vs_floor` = (Pr[keep] − real_rate) in percentage points.");
+        println!("skip%   = avg fraction of chunks skipped per query (higher = better).");
+        println!("saved/q = avg raw bytes NOT read per query.");
+        println!("vs_floor numbers are (Pr[keep] − real_rate) in pp. 0 pp = optimal.");
         println!("Floor for substring on this data: {:.2}%", category_floor(&results, "auto/substring"));
-        println!("Lower vs_floor = tighter prefilter. 0 pp = optimal pruning.");
     }
 
     // ----------------------------------------------------------- Pareto + reco
     let pareto = pareto_for_substring(&results);
     println!();
     println!("=== Pareto frontier (substring workload) ===");
-    println!("{:<5} {:>5} {:>5}  {:>7}  {:>8}  {:>10}",
-        "var", "chunk", "bits", "B/row", "vs_floor", "eval_us");
-    println!("{}", "-".repeat(50));
+    println!("{:<5} {:>5} {:>5}  {:>7}  {:>6}  {:>9} {:>11}  {:>8}  {:>10}",
+        "var", "chunk", "bits", "B/row", "skip%", "saved/q", "comp_saved", "vs_floor", "eval_us");
+    println!("{}", "-".repeat(85));
     for r in &pareto {
+        let skip_pct = 100.0 - r.total.kept_pct();
+        let saved_mb = r.bytes_saved_per_q / (1024.0 * 1024.0);
+        let comp_saved_mb = r.compressed_saved_per_q / (1024.0 * 1024.0);
         println!(
-            "{:<5} {:>5} {:>5}  {:>7.2}  {:>+7.2}pp  {:>10.1}",
+            "{:<5} {:>5} {:>5}  {:>7.2}  {:>5.1}%  {:>7.1}MB {:>9.1}MB  {:>+7.2}pp  {:>10.1}",
             r.variant, r.chunk_size, r.bits, r.bytes_per_row,
+            skip_pct, saved_mb, comp_saved_mb,
             cat_vs_floor(r, "auto/substring"),
             r.eval_ns_per_q as f64 / 1000.0,
         );
@@ -436,6 +603,144 @@ fn main() -> anyhow::Result<()> {
     print_recommendation("tight   (≤ 16 B/row)", rec_tight);
     println!();
     println!("Eq-only workloads: A=DictPresence at 0.5 B/row is sufficient.");
+
+    // ----------------------------------------------------------- per-query detail
+    if !args.like.is_empty() {
+        let like_preds: Vec<Pred> = args.like.iter().map(|s| Pred::Contains(s.clone())).collect();
+
+        // Show detail for each (variant, bits) combo that exists in results.
+        let detail_configs: Vec<(&'static str, usize)> = results
+            .iter()
+            .map(|r| (r.variant, r.bits))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+
+        if !detail_configs.is_empty() {
+            let cs = *chunk_sizes.last().unwrap();
+            let nch = rows.len() / cs;
+            if nch > 0 {
+                let chunk_raw_bytes: Vec<usize> = (0..nch)
+                    .map(|c| rows[c * cs..(c + 1) * cs].iter().map(String::len).sum())
+                    .collect();
+                let total_raw: usize = chunk_raw_bytes.iter().sum();
+                let chunk_comp_bytes: Vec<usize> = (0..nch)
+                    .map(|c| {
+                        let lo = c * cs;
+                        let hi = (c + 1) * cs;
+                        let n_tokens = (dv.codes_offsets[hi] - dv.codes_offsets[lo]) as usize;
+                        n_tokens * 2 + (cs + 1) * 4
+                    })
+                    .collect();
+                let total_comp: usize = chunk_comp_bytes.iter().sum();
+
+                let presence: Vec<DictPresence> = (0..nch)
+                    .map(|c| DictPresence::build(&dv, c * cs, (c + 1) * cs))
+                    .collect();
+
+                println!();
+                println!("=== Per-query detail (chunk_size={cs}, {} chunks, {:.1} MB raw, {:.1} MB compressed) ===",
+                    nch, total_raw as f64 / (1024.0 * 1024.0),
+                    total_comp as f64 / (1024.0 * 1024.0));
+
+                // Pre-build all bloom variants at each bits setting.
+                let all_bits: Vec<usize> = detail_configs.iter().map(|&(_, b)| b).collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+
+                for &bits in &all_bits {
+                    let blooms_b: Vec<TrigramBloom> = (0..nch)
+                        .map(|c| {
+                            TrigramBloom::build_from_strings(
+                                rows[c * cs..(c + 1) * cs].iter().map(String::as_bytes),
+                                cs, bits.max(1),
+                            )
+                        })
+                        .collect();
+                    let blooms_c: Vec<SeamBloom> = (0..nch)
+                        .map(|c| SeamBloom::build(&dv, c * cs, (c + 1) * cs, bits.max(1)))
+                        .collect();
+                    let blooms_d: Vec<TokenPairBloom> = (0..nch)
+                        .map(|c| TokenPairBloom::build(&dv, c * cs, (c + 1) * cs, bits.max(1)))
+                        .collect();
+                    let blooms_e: Vec<CodeBigramBloom> = (0..nch)
+                        .map(|c| CodeBigramBloom::build(&dv, c * cs, (c + 1) * cs, bits.max(1)))
+                        .collect();
+                    let detail_ubiq = UbiquitousBigrams::build(
+                        dv.codes, dv.codes_offsets, cs, args.ubiq_pct,
+                    );
+                    let blooms_f: Vec<HybridBloom> = (0..nch)
+                        .map(|c| HybridBloom::build(&dv, c * cs, (c + 1) * cs, bits.max(1), &detail_ubiq))
+                        .collect();
+
+                    println!();
+                    println!("  --- bits/row={bits} ---");
+                    println!("  {:<40} {:>4} {:>6} {:>6} {:>5} {:>5} {:>5} {:>5} {:>5} {:>5}  {:>8}  {:>8}",
+                        "query", "real", "A", "B", "C", "D", "E", "F",
+                        "skip%", "F_s%", "raw_MB", "comp_sv");
+                    println!("  {}", "-".repeat(125));
+
+                    for pred in &like_preds {
+                        let mut real_count = 0usize;
+                        let mut kept_a = 0usize;
+                        let mut kept_b = 0usize;
+                        let mut kept_c = 0usize;
+                        let mut kept_d = 0usize;
+                        let mut kept_e = 0usize;
+                        let mut kept_f = 0usize;
+                        let mut comp_saved_f = 0usize;
+                        for c in 0..nch {
+                            let lo = c * cs;
+                            let hi = lo + cs;
+                            let real = pred.truly_matches(&rows[lo..hi]);
+                            let ka = match pred {
+                                Pred::Contains(s) => presence[c].might_contain(&dv, s.as_bytes()),
+                                Pred::StartsWith(s) => presence[c].might_starts_with(&dv, &index, s.as_bytes()),
+                            };
+                            let kb = blooms_b[c].might_contain(pred.bytes());
+                            let kc = blooms_c[c].might_contain(&dv, &presence[c], pred.bytes());
+                            let kd = match pred {
+                                Pred::Contains(s) => blooms_d[c].might_contain(&dv, &index, &presence[c], s.as_bytes()),
+                                Pred::StartsWith(s) => presence[c].might_starts_with(&dv, &index, s.as_bytes()),
+                            };
+                            let ke = match pred {
+                                Pred::Contains(s) => blooms_e[c].might_contain(&dv, &index, &presence[c], s.as_bytes()),
+                                Pred::StartsWith(s) => presence[c].might_starts_with(&dv, &index, s.as_bytes()),
+                            };
+                            let kf = match pred {
+                                Pred::Contains(s) => blooms_f[c].might_contain(&dv, &index, &presence[c], &detail_ubiq, s.as_bytes()),
+                                Pred::StartsWith(s) => presence[c].might_starts_with(&dv, &index, s.as_bytes()),
+                            };
+                            real_count += real as usize;
+                            kept_a += ka as usize;
+                            kept_b += kb as usize;
+                            kept_c += kc as usize;
+                            kept_d += kd as usize;
+                            kept_e += ke as usize;
+                            kept_f += kf as usize;
+                            if !kf {
+                                comp_saved_f += chunk_comp_bytes[c];
+                            }
+                        }
+                        let skip_f_pct = 100.0 * (nch - kept_f) as f64 / nch as f64;
+                        let comp_saved_mb = comp_saved_f as f64 / (1024.0 * 1024.0);
+                        let display = pred.display();
+                        let display_trunc = if display.len() > 40 {
+                            format!("{}…", &display[..39])
+                        } else {
+                            display
+                        };
+                        println!(
+                            "  {:<40} {:>4} {:>6} {:>6} {:>5} {:>5} {:>5} {:>5} {:>5.1} {:>4.1}% {:>8.1} {:>8.1}",
+                            display_trunc, real_count,
+                            kept_a, kept_b, kept_c, kept_d, kept_e, kept_f,
+                            skip_f_pct, skip_f_pct,
+                            total_comp as f64 / (1024.0 * 1024.0),
+                            comp_saved_mb,
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     Ok(())
 }
@@ -494,10 +799,16 @@ fn eval<F: FnMut(&Pred, usize) -> bool>(
     workload: &[(&'static str, Pred)],
     nch: usize,
     rows: &[String],
+    chunk_raw_bytes: &[usize],
+    chunk_compressed_bytes: &[usize],
     mut keep_fn: F,
 ) -> Row {
     let mut by_cat: BTreeMap<&'static str, Bucket> = BTreeMap::new();
     let mut total = Bucket::default();
+    let mut total_bytes_saved: usize = 0;
+    let mut total_compressed_saved: usize = 0;
+    let total_raw: usize = chunk_raw_bytes.iter().sum();
+    let total_compressed: usize = chunk_compressed_bytes.iter().sum();
     let t0 = Instant::now();
     for (tag, q) in workload {
         for c in 0..nch {
@@ -509,6 +820,10 @@ fn eval<F: FnMut(&Pred, usize) -> bool>(
                 !real || k,
                 "{variant} bits={bits} cs={chunk_size}: FN on chunk {c}, {q:?}"
             );
+            if !k {
+                total_bytes_saved += chunk_raw_bytes[c];
+                total_compressed_saved += chunk_compressed_bytes[c];
+            }
             let bucket = by_cat.entry(tag).or_default();
             bucket.n_c += 1;
             bucket.real += real as usize;
@@ -521,6 +836,7 @@ fn eval<F: FnMut(&Pred, usize) -> bool>(
         total.n_q += 1;
     }
     let eval_ns = t0.elapsed().as_nanos();
+    let n_q = total.n_q.max(1);
     Row {
         variant,
         chunk_size,
@@ -530,6 +846,11 @@ fn eval<F: FnMut(&Pred, usize) -> bool>(
         eval_ns_per_q: eval_ns / workload.len().max(1) as u128,
         by_cat,
         total,
+        total_raw_bytes: total_raw,
+        total_compressed_bytes: total_compressed,
+        n_chunks: nch,
+        bytes_saved_per_q: total_bytes_saved as f64 / n_q as f64,
+        compressed_saved_per_q: total_compressed_saved as f64 / n_q as f64,
     }
 }
 
