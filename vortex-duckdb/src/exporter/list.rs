@@ -4,6 +4,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use num_traits::AsPrimitive;
 use parking_lot::Mutex;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListArray;
@@ -13,7 +14,7 @@ use vortex::array::match_each_integer_ptype;
 use vortex::array::validity::Validity;
 use vortex::dtype::IntegerPType;
 use vortex::error::VortexResult;
-use vortex::error::vortex_err;
+use vortex::error::vortex_ensure;
 use vortex::mask::Mask;
 
 use super::ConversionCache;
@@ -110,40 +111,43 @@ impl<O: IntegerPType> ColumnExporter for ListExporter<O> {
         vector: &mut VectorRef,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
+        if len == 0 {
+            return vector.list_vector_set_size(0);
+        }
+
         // SAFETY: TODO(connor): Pretty sure that `export` needs to be `unsafe`.
         let duckdb_list_views: &mut [cpp::duckdb_list_entry] =
             unsafe { vector.as_slice_mut::<cpp::duckdb_list_entry>(len) };
-        debug_assert_eq!(duckdb_list_views.len(), len);
+        let offsets = &self.offsets.as_slice::<O>()[offset..offset + len + 1];
 
-        if len > 0 {
-            let offsets = &self.offsets.as_slice::<O>()[offset..offset + len + 1];
-            debug_assert_eq!(offsets.len(), len + 1);
+        let offset_start: u64 = offsets[0].as_().as_();
+        let offset_end = offsets[len].as_().as_();
+        vortex_ensure!(offset_end <= self.num_elements as u64);
 
-            for i in 0..len {
-                let offset = offsets[i]
-                    .to_u64()
-                    .ok_or_else(|| vortex_err!("somehow unable to convert an offset to u64"))?;
-                let length = (offsets[i + 1] - offsets[i])
-                    .to_u64()
-                    .ok_or_else(|| vortex_err!("somehow unable to convert an offset to u64"))?;
-
-                debug_assert!(offset + length <= self.num_elements as u64);
-
-                duckdb_list_views[i] = cpp::duckdb_list_entry { offset, length };
-            }
+        for i in 0..len {
+            let offset: u64 = offsets[i].as_().as_();
+            let next_offset: u64 = offsets[i + 1].as_().as_();
+            duckdb_list_views[i] = cpp::duckdb_list_entry {
+                offset: offset - offset_start,
+                length: next_offset - offset,
+            };
         }
 
-        let child = vector.list_vector_get_child_mut();
-        child.reference(&self.duckdb_elements.lock());
+        let sliced = {
+            let elements = &self.duckdb_elements.lock();
+            Vector::slice(elements, offset_start..offset_end)
+        };
 
-        vector.list_vector_set_size(self.num_elements as u64)?;
-
+        let child_len = offset_end - offset_start;
+        vector.list_vector_get_child_mut().reference(&sliced);
+        vector.list_vector_set_size(child_len)?;
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use num_traits::AsPrimitive;
     use vortex::array::IntoArray as _;
     use vortex::array::VortexSessionExecute;
     use vortex::array::arrays::VarBinArray;
@@ -153,52 +157,52 @@ mod tests {
     use vortex::dtype::DType;
     use vortex::dtype::PType;
     use vortex::encodings::runend::RunEnd;
-    use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
 
     use super::*;
     use crate::SESSION;
+    use crate::convert::FromLogicalType;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
     use crate::exporter::new_array_exporter;
 
     #[test]
-    fn test_export_empty_list() {
+    fn test_export_empty_list() -> VortexResult<()> {
         let list = ListArray::try_new(
             Buffer::<u32>::empty().into_array(),
             buffer![0u32].into_array(),
             Validity::AllValid,
-        )
-        .vortex_expect("list creation should succeed")
+        )?
         .into_array();
 
-        let list_type = LogicalType::list_type(LogicalType::uint32())
-            .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let list_type = LogicalType::list_type(LogicalType::uint32())?;
         let mut chunk = DataChunk::new([list_type]);
 
         let mut ctx = SESSION.create_execution_ctx();
-        new_array_exporter(list, &ConversionCache::default(), &mut ctx)
-            .unwrap()
-            .export(0, 0, chunk.get_vector_mut(0), &mut ctx)
-            .unwrap();
+        new_array_exporter(list, &ConversionCache::default(), &mut ctx)?.export(
+            0,
+            0,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
         chunk.set_len(0);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
 - FLAT UINTEGER[]: 0 = [ ]
 "#
         );
+        Ok(())
     }
 
     #[test]
-    fn test_export_u64_list() {
+    fn test_export_u64_list() -> VortexResult<()> {
         let list = ListArray::try_new(
             buffer![1u64, 2, 3, 4, 5].into_array(),
             buffer![0u8, 1, 2, 3, 4, 5].into_array(),
             Validity::AllValid,
-        )
-        .vortex_expect("list creation should succeed")
+        )?
         .into_array();
         assert_eq!(
             list.dtype(),
@@ -208,41 +212,92 @@ mod tests {
             )
         );
 
-        let list_type = LogicalType::list_type(LogicalType::uint64())
-            .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let list_type = LogicalType::list_type(LogicalType::uint64())?;
         let mut chunk = DataChunk::new([list_type]);
 
         let mut ctx = SESSION.create_execution_ctx();
-        new_array_exporter(list, &ConversionCache::default(), &mut ctx)
-            .unwrap()
-            .export(0, 5, chunk.get_vector_mut(0), &mut ctx)
-            .unwrap();
+        new_array_exporter(list, &ConversionCache::default(), &mut ctx)?.export(
+            0,
+            5,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
         chunk.set_len(5);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
 - FLAT UBIGINT[]: 5 = [ [1], [2], [3], [4], [5]]
 "#
         );
+        Ok(())
     }
 
-    // Ensure runend-compressed list is properly flattened
     #[test]
-    fn test_export_list_with_runend_elements() -> VortexResult<()> {
+    fn test_export_u64_list_two_pass() -> VortexResult<()> {
+        // [1], [2, 8], [3], [4], [5]
+        let elements = buffer![1u64, 2, 8, 3, 4, 5].into_array();
+        let offsets = buffer![0u8, 1, 3, 4, 5, 6].into_array();
+        let list = ListArray::try_new(elements, offsets, Validity::AllValid)?.into_array();
+
+        let u64_type = LogicalType::uint64();
+        let list_type = LogicalType::list_type(u64_type)?;
+        let mut chunk = DataChunk::new([list_type]);
+
         let mut ctx = SESSION.create_execution_ctx();
-        let elements = RunEnd::encode(buffer![100u32, 100, 200, 200, 200].into_array(), &mut ctx)?;
+        let exporter = new_array_exporter(list, &ConversionCache::default(), &mut ctx)?;
 
-        let list = ListArray::try_new(
-            elements.into_array(),
-            buffer![0u32, 2, 5].into_array(),
-            Validity::AllValid,
-        )
-        .vortex_expect("list creation should succeed")
-        .into_array();
+        exporter.export(0, 2, chunk.get_vector_mut(0), &mut ctx)?;
+        chunk.set_len(2);
 
-        let list_type = LogicalType::list_type(LogicalType::uint32())
-            .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        assert_eq!(
+            format!("{}", String::try_from(&*chunk)?),
+            r#"Chunk - [1 Columns]
+- FLAT UBIGINT[]: 2 = [ [1], [2, 8]]
+"#
+        );
+
+        let u64_type = LogicalType::uint64();
+        let list_vec = chunk.get_vector(0);
+        let list_child = list_vec.list_vector_get_child();
+        assert_eq!(
+            DType::from_logical_type(&list_child.logical_type(), false.into())?,
+            DType::from_logical_type(&u64_type, false.into())?
+        );
+        let child_len: usize = list_vec.list_vector_get_size().as_();
+        assert_eq!(child_len, 3);
+        let child_values = list_child.as_slice_with_len::<u64>(child_len);
+        assert_eq!(child_values, [1, 2, 8]);
+
+        exporter.export(2, 3, chunk.get_vector_mut(0), &mut ctx)?;
+        chunk.set_len(3);
+
+        assert_eq!(
+            format!("{}", String::try_from(&*chunk)?),
+            r#"Chunk - [1 Columns]
+- FLAT UBIGINT[]: 3 = [ [3], [4], [5]]
+"#
+        );
+
+        let list_vec = chunk.get_vector(0);
+        let child_len: usize = list_vec.list_vector_get_size().as_();
+        assert_eq!(child_len, 3);
+        let list_child = list_vec.list_vector_get_child();
+        let child_values = list_child.as_slice_with_len::<u64>(child_len);
+        assert_eq!(child_values, [3, 4, 5]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_export_runend_list() -> VortexResult<()> {
+        let mut ctx = SESSION.create_execution_ctx();
+        let elements_buffer = buffer![100f32, 100f32, 200f32, 200f32, 200f32].into_array();
+        let elements = RunEnd::encode(elements_buffer, &mut ctx)?.into_array();
+        let offsets = buffer![0u32, 2, 5].into_array();
+        let list = ListArray::try_new(elements, offsets, Validity::AllValid)?.into_array();
+
+        let list_type = LogicalType::list_type(LogicalType::float32())?;
         let mut chunk = DataChunk::new([list_type]);
 
         new_array_exporter(list, &ConversionCache::default(), &mut ctx)?.export(
@@ -256,7 +311,7 @@ mod tests {
         assert_eq!(
             format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
-- FLAT UINTEGER[]: 2 = [ [100, 100], [200, 200, 200]]
+- FLAT FLOAT[]: 2 = [ [100.0, 100.0], [200.0, 200.0, 200.0]]
 "#
         );
 
@@ -264,7 +319,7 @@ mod tests {
     }
 
     #[test]
-    fn test_export_non_empty_list_of_strings() {
+    fn test_export_string_list() -> VortexResult<()> {
         let list = ListArray::try_new(
             <VarBinArray as FromIterator<_>>::from_iter([
                 Some("abc"),
@@ -275,26 +330,28 @@ mod tests {
             .into_array(),
             buffer![0u8, 1, 2, 3, 4].into_array(),
             Validity::from_iter([true, true, false, true]),
-        )
-        .vortex_expect("list creation should succeed")
+        )?
         .into_array();
 
-        let list_type = LogicalType::list_type(LogicalType::varchar())
-            .vortex_expect("LogicalTypeRef creation should succeed for test data");
+        let list_type = LogicalType::list_type(LogicalType::varchar())?;
         let mut chunk = DataChunk::new([list_type]);
 
         let mut ctx = SESSION.create_execution_ctx();
-        new_array_exporter(list, &ConversionCache::default(), &mut ctx)
-            .unwrap()
-            .export(0, 4, chunk.get_vector_mut(0), &mut ctx)
-            .unwrap();
+        new_array_exporter(list, &ConversionCache::default(), &mut ctx)?.export(
+            0,
+            4,
+            chunk.get_vector_mut(0),
+            &mut ctx,
+        )?;
         chunk.set_len(4);
 
         assert_eq!(
-            format!("{}", String::try_from(&*chunk).unwrap()),
+            format!("{}", String::try_from(&*chunk)?),
             r#"Chunk - [1 Columns]
 - FLAT VARCHAR[]: 4 = [ [abc], [def], NULL, [ghi]]
 "#
         );
+
+        Ok(())
     }
 }

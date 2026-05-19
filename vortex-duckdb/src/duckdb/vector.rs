@@ -3,6 +3,7 @@
 
 use std::ffi::CStr;
 use std::ffi::c_void;
+use std::ops::Range;
 use std::ptr;
 
 use bitvec::macros::internal::funty::Fundamental;
@@ -61,6 +62,18 @@ impl Vector {
     /// Create a new vector with the given type and capacity.
     pub fn with_capacity(logical_type: &LogicalTypeRef, len: usize) -> Self {
         unsafe { Self::own(cpp::duckdb_create_vector(logical_type.as_ptr(), len as _)) }
+    }
+
+    /// Create a new vector that references other's element range.
+    /// Both vectors share the same buffer.
+    pub fn slice(other: &VectorRef, range: Range<u64>) -> Self {
+        unsafe {
+            Self::own(cpp::duckdb_vx_vector_slice(
+                other.as_ptr(),
+                range.start,
+                range.end,
+            ))
+        }
     }
 }
 
@@ -305,6 +318,10 @@ impl VectorRef {
 
     pub fn array_vector_get_child_mut(&mut self) -> &mut Self {
         unsafe { Vector::borrow_mut(cpp::duckdb_array_vector_get_child(self.as_ptr())) }
+    }
+
+    pub fn list_vector_get_size(&self) -> u64 {
+        unsafe { cpp::duckdb_list_vector_get_size(self.as_ptr()) }
     }
 
     pub fn list_vector_set_size(&self, size: u64) -> VortexResult<()> {
