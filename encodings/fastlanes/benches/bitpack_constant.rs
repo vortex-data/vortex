@@ -361,7 +361,70 @@ fn validate_eq_strategies() {
     check_eq!(23);
     check_eq!(24);
     check_eq!(29);
+
+    validate_v6();
 }
+
+/// Validate v6 W=8 and W=16 specializations against unpack reference.
+#[cfg(target_arch = "x86_64")]
+fn validate_v6() {
+    if !is_x86_feature_detected!("avx512f")
+        || !is_x86_feature_detected!("avx512bw")
+        || !is_x86_feature_detected!("bmi2")
+    {
+        return;
+    }
+
+    // W=8
+    {
+        const W: usize = 8;
+        const B: usize = 32 * W;
+        let constant: u32 = 0xA5;
+        let mut input = [0u32; 1024];
+        for i in 0..1024 {
+            input[i] = if i % 3 == 0 { constant } else { i as u32 & 0xFF };
+        }
+        let mut packed = [0u32; B];
+        BitPacking::pack::<W, B>(&input, &mut packed);
+        let mut expected = [0u32; 1024];
+        BitPacking::unpack::<W, B>(&packed, &mut expected);
+        let mut out = vec![0u64; 16];
+        // SAFETY: feature-gated.
+        unsafe {
+            block_eq_batch_avx512_v6_w8::<B>(std::slice::from_ref(&packed), constant, &mut out);
+        }
+        for i in 0..1024 {
+            let bit = (out[i / 64] >> (i % 64)) & 1 != 0;
+            assert_eq!(bit, expected[i] == constant, "v6_w8 mismatch at i={i}");
+        }
+    }
+
+    // W=16
+    {
+        const W: usize = 16;
+        const B: usize = 32 * W;
+        let constant: u32 = 0xBEEF;
+        let mut input = [0u32; 1024];
+        for i in 0..1024 {
+            input[i] = if i % 3 == 0 { constant } else { i as u32 & 0xFFFF };
+        }
+        let mut packed = [0u32; B];
+        BitPacking::pack::<W, B>(&input, &mut packed);
+        let mut expected = [0u32; 1024];
+        BitPacking::unpack::<W, B>(&packed, &mut expected);
+        let mut out = vec![0u64; 16];
+        unsafe {
+            block_eq_batch_avx512_v6_w16::<B>(std::slice::from_ref(&packed), constant, &mut out);
+        }
+        for i in 0..1024 {
+            let bit = (out[i / 64] >> (i % 64)) & 1 != 0;
+            assert_eq!(bit, expected[i] == constant, "v6_w16 mismatch at i={i}");
+        }
+    }
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+fn validate_v6() {}
 
 // Number of 1024-element FastLanes blocks per benchmark iteration. 64 blocks ~= 64Ki
 // constants per call which is large enough to make per-call overhead negligible.
@@ -664,9 +727,10 @@ use core::arch::x86_64::{
     __m128i, __m256i, __m512i, _kand_mask16, _mm256_and_si256, _mm256_castsi256_ps,
     _mm256_cmpeq_epi32, _mm256_loadu_si256, _mm256_movemask_ps, _mm256_or_si256,
     _mm256_set1_epi32, _mm256_setzero_si256, _mm256_xor_si256, _mm512_and_si512,
-    _mm512_cmpeq_epu32_mask, _mm512_loadu_si512, _mm512_or_si512, _mm512_set1_epi32,
-    _mm512_setzero_si512, _mm512_sll_epi32, _mm512_srl_epi32, _mm512_ternarylogic_epi32,
-    _mm512_testn_epi32_mask, _mm512_xor_si512, _mm_cvtsi32_si128,
+    _mm512_cmpeq_epi8_mask, _mm512_cmpeq_epi16_mask, _mm512_cmpeq_epu32_mask,
+    _mm512_loadu_si512, _mm512_or_si512, _mm512_set1_epi32, _mm512_setzero_si512,
+    _mm512_sll_epi32, _mm512_srl_epi32, _mm512_ternarylogic_epi32,
+    _mm512_testn_epi32_mask, _mm512_xor_si512, _mm_cvtsi32_si128, _pext_u64,
 };
 
 /// Hand-rolled AVX-512 row mask: load 32 packed u32 lanes as two `__m512i`,
@@ -1105,6 +1169,156 @@ unsafe fn block_eq_batch_avx2_v4_u32<const W: usize, const B: usize>(
                     m0 | (m1 << 8) | (m2 << 16) | (m3 << 24)
                 };
                 row_masks[row] = m;
+            }
+            let chunk = &mut out[b_idx * 16..b_idx * 16 + 16];
+            for u in 0..16 {
+                let lo = row_masks[ROW_FOR_K_U32[2 * u]] as u64;
+                let hi = row_masks[ROW_FOR_K_U32[2 * u + 1]] as u64;
+                chunk[u] = lo | (hi << 32);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v6: per-W natural-granularity cmpeq.
+//
+// Key insight: for W ∈ {8, 16, 32}, the packed layout has one W-bit element
+// per SIMD lane at byte/word/dword granularity. We can use `vpcmpeqb`,
+// `vpcmpeqw`, `vpcmpeqd` directly against a broadcast constant, getting a
+// kmask with one bit PER ELEMENT — not per row.
+//
+// One zmm cmpeq → 64 / 32 / 16 element results.
+// All 32 rows of a block collapse into the same SIMD work as 1-row in v4
+// — there's no per-row outer loop.
+//
+// Per block at W=8:
+//   - 8 zmm loads (covers 256 u32 = 1024 bytes = 1024 elements at 1 byte each)
+//   - 8 vpxor + 8 vpcmpeqb_mask = 16 SIMD ops to produce 8 × 64-bit kmasks
+//   - 4 PEXTs per kmask (extract per-row bits) + assembly = ~32 scalar ops
+//   - One final ROW_FOR_K shuffle
+// Per block at v4 W=8: ~6 ops × 32 rows = ~200 ops. v6 ≈ 5× fewer ops.
+//
+// For W ∉ {8, 16, 32}, fall back to v4 (or a specialized smear-then-extract
+// kernel — left as TODO).
+// ---------------------------------------------------------------------------
+
+/// W=8 specialization: byte-granularity vpcmpeqb against broadcast constant.
+///
+/// Packed layout for W=8, u32: each u32 holds 4 elements at byte positions
+/// [0..7], [8..15], [16..23], [24..31] = 4 rows worth of one lane.
+/// Across 32 lanes there are 8 packed u32s = 32 bytes = 32 elements per "row group of 4".
+/// curr_word covers 4 rows. Total: 8 curr_words × 4 rows = 32 rows × 32 lanes = 1024 elements.
+///
+/// Strategy: load 16 u32s (= 64 bytes = 16 lanes × 4 rows) per zmm; vpcmpeqb gives
+/// a 64-bit kmask with one bit per element. Then PEXT 4 row masks (16 bits each)
+/// out of that kmask. Two zmm loads cover all 32 lanes of one curr_word group.
+///
+/// # Safety
+/// AVX-512BW + BMI2 required.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx512vl,bmi2")]
+#[inline]
+unsafe fn block_eq_batch_avx512_v6_w8<const B: usize>(
+    blocks: &[[u32; B]],
+    constant: u32,
+    out: &mut [u64],
+) {
+    debug_assert_eq!(B, 32 * 8);
+    debug_assert_eq!(out.len(), 16 * blocks.len());
+
+    // SAFETY: feature-gated.
+    unsafe {
+        // Broadcast `constant` (low 8 bits) into every byte of a zmm.
+        let cb = _mm512_set1_epi32(((constant & 0xFF) * 0x0101_0101) as i32);
+
+        for (b_idx, blk) in blocks.iter().enumerate() {
+            let mut row_masks = [0u32; 32];
+            // 8 curr_words, each has 32 lanes × 4 rows of bytes.
+            // Per curr_word: 2 zmm loads (16 lanes each × 4 bytes/lane = 64 bytes per zmm).
+            for cw in 0..8 {
+                let base = blk.as_ptr().add(32 * cw) as *const __m512i;
+                let v0 = _mm512_loadu_si512(base);
+                let v1 = _mm512_loadu_si512(base.add(1));
+                // XOR + cmpeq against zero. (vpcmpeqb vs broadcast(C) would also work.)
+                let z0 = _mm512_xor_si512(v0, cb);
+                let z1 = _mm512_xor_si512(v1, cb);
+                let zero = _mm512_setzero_si512();
+                // 64-bit kmask: bit i = (byte i of z is zero) = (element i matches).
+                let m0: u64 = _mm512_cmpeq_epi8_mask(z0, zero);
+                let m1: u64 = _mm512_cmpeq_epi8_mask(z1, zero);
+                // Byte b of zmm corresponds to element at (row = 4cw + b%4, lane = b/4).
+                // So bits at positions {0, 4, 8, ..., 60} of m0 = row 4cw, lanes 0..15.
+                //    bits at positions {1, 5, 9, ..., 61} of m0 = row 4cw+1, lanes 0..15.
+                //    etc.
+                // Extract via PEXT with mask 0x1111...1111 << r.
+                for r in 0..4 {
+                    let pat = 0x1111_1111_1111_1111u64 << r;
+                    let lo = _pext_u64(m0, pat) as u32; // 16 bits, lanes 0..15
+                    let hi = _pext_u64(m1, pat) as u32; // 16 bits, lanes 16..31
+                    row_masks[4 * cw + r] = lo | (hi << 16);
+                }
+            }
+            // Same final permutation as v4.
+            let chunk = &mut out[b_idx * 16..b_idx * 16 + 16];
+            for u in 0..16 {
+                let lo = row_masks[ROW_FOR_K_U32[2 * u]] as u64;
+                let hi = row_masks[ROW_FOR_K_U32[2 * u + 1]] as u64;
+                chunk[u] = lo | (hi << 32);
+            }
+        }
+    }
+}
+
+/// W=16 specialization: word-granularity vpcmpeqw.
+///
+/// Each packed u32 holds 2 elements (rows 2*cw, 2*cw+1) for one lane.
+/// Per zmm load (16 u32s) we get 32 u16 elements = 16 lanes × 2 rows.
+/// vpcmpeqw → 32-bit kmask. PEXT 2 row masks of 16 bits each.
+/// 2 zmm loads per curr_word (lanes 0..15 + 16..31). 16 curr_words per block.
+///
+/// # Safety
+/// AVX-512BW + BMI2 required.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512dq,avx512vl,bmi2")]
+#[inline]
+unsafe fn block_eq_batch_avx512_v6_w16<const B: usize>(
+    blocks: &[[u32; B]],
+    constant: u32,
+    out: &mut [u64],
+) {
+    debug_assert_eq!(B, 32 * 16);
+    debug_assert_eq!(out.len(), 16 * blocks.len());
+
+    // SAFETY: feature-gated.
+    unsafe {
+        // Broadcast constant (low 16 bits) into every word of a zmm.
+        let lo16 = constant & 0xFFFF;
+        let cb = _mm512_set1_epi32(((lo16 | (lo16 << 16)) as i32));
+
+        for (b_idx, blk) in blocks.iter().enumerate() {
+            let mut row_masks = [0u32; 32];
+            // 16 curr_words, each has 32 lanes × 2 rows of words.
+            for cw in 0..16 {
+                let base = blk.as_ptr().add(32 * cw) as *const __m512i;
+                let v0 = _mm512_loadu_si512(base);
+                let v1 = _mm512_loadu_si512(base.add(1));
+                let z0 = _mm512_xor_si512(v0, cb);
+                let z1 = _mm512_xor_si512(v1, cb);
+                let zero = _mm512_setzero_si512();
+                let m0: u32 = _mm512_cmpeq_epi16_mask(z0, zero);
+                let m1: u32 = _mm512_cmpeq_epi16_mask(z1, zero);
+                // word b of zmm corresponds to element at (row = 2cw + b%2, lane = b/2).
+                // Bits {0, 2, 4, ..., 30} → row 2cw, lanes 0..15.
+                // Bits {1, 3, 5, ..., 31} → row 2cw+1, lanes 0..15.
+                let pat_even = 0x5555_5555u64;
+                let pat_odd = 0xAAAA_AAAAu64;
+                let lo_even = _pext_u64(m0 as u64, pat_even) as u32;
+                let lo_odd = _pext_u64(m0 as u64, pat_odd) as u32;
+                let hi_even = _pext_u64(m1 as u64, pat_even) as u32;
+                let hi_odd = _pext_u64(m1 as u64, pat_odd) as u32;
+                row_masks[2 * cw] = lo_even | (hi_even << 16);
+                row_masks[2 * cw + 1] = lo_odd | (hi_odd << 16);
             }
             let chunk = &mut out[b_idx * 16..b_idx * 16 + 16];
             for u in 0..16 {
@@ -2248,3 +2462,54 @@ u32_eq_benches!(u32_eq => 17);
 u32_eq_benches!(u32_eq => 23);
 u32_eq_benches!(u32_eq => 24);
 u32_eq_benches!(u32_eq => 29);
+
+// v6 specializations (W=8 byte-cmp, W=16 word-cmp) — explicit benches.
+#[divan::bench]
+fn u32_eq_block_batch_avx512_v6_w8(bencher: Bencher) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if !is_x86_feature_detected!("avx512f")
+            || !is_x86_feature_detected!("avx512bw")
+            || !is_x86_feature_detected!("bmi2")
+        {
+            return;
+        }
+        const W: usize = 8;
+        const B: usize = 32 * W;
+        let value: u32 = 0xA5;
+        let blocks = make_constant_packed_blocks::<W, B>(value);
+        let mut out: Vec<u64> = vec![0u64; 16 * EQ_BLOCKS];
+        bencher
+            .counter(ItemsCount::new(1024usize * EQ_BLOCKS))
+            .bench_local(|| {
+                // SAFETY: feature-gated.
+                unsafe { block_eq_batch_avx512_v6_w8::<B>(&blocks, black_box(value), &mut out) };
+                black_box(&mut out);
+            });
+    }
+}
+
+#[divan::bench]
+fn u32_eq_block_batch_avx512_v6_w16(bencher: Bencher) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if !is_x86_feature_detected!("avx512f")
+            || !is_x86_feature_detected!("avx512bw")
+            || !is_x86_feature_detected!("bmi2")
+        {
+            return;
+        }
+        const W: usize = 16;
+        const B: usize = 32 * W;
+        let value: u32 = 0xBEEF;
+        let blocks = make_constant_packed_blocks::<W, B>(value);
+        let mut out: Vec<u64> = vec![0u64; 16 * EQ_BLOCKS];
+        bencher
+            .counter(ItemsCount::new(1024usize * EQ_BLOCKS))
+            .bench_local(|| {
+                // SAFETY: feature-gated.
+                unsafe { block_eq_batch_avx512_v6_w16::<B>(&blocks, black_box(value), &mut out) };
+                black_box(&mut out);
+            });
+    }
+}
