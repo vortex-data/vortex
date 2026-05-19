@@ -224,6 +224,27 @@ impl LongestPrefixMatcher {
     pub fn size(&self) -> usize {
         self.next_id as usize
     }
+
+    /// Remap every token id stored in this matcher via `new_id_for_old`.
+    /// `new_id_for_old[old_id]` must yield the post-sort id of the token
+    /// previously assigned `old_id`.
+    ///
+    /// Equivalent to `from_dictionary(&sorted_dict)` but avoids rebuilding
+    /// the hashbrown tables from scratch — for a 65 536-entry dictionary
+    /// the in-place remap is roughly an order of magnitude faster than
+    /// `N` fresh inserts.
+    pub fn remap_ids(&mut self, new_id_for_old: &[Token]) {
+        debug_assert!(new_id_for_old.len() == self.next_id as usize);
+        for b in self.byte_to_id.iter_mut() {
+            *b = new_id_for_old[*b as usize];
+        }
+        for v in self.short_map.values_mut() {
+            *v = new_id_for_old[*v as usize];
+        }
+        for v in self.long_map.values_mut() {
+            *v = new_id_for_old[*v as usize];
+        }
+    }
 }
 
 #[cfg(test)]

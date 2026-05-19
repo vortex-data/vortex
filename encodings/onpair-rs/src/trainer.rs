@@ -276,6 +276,8 @@ pub fn train(data: &[u8], offsets: &[u32], n: usize, cfg: &TrainingConfig) -> Tr
 fn sort_dictionary(result: &mut TrainResult) {
     let n = result.dict.num_tokens();
 
+    // `perm[new_id] == old_id`: which old token id sorts into position
+    // `new_id` once we order by lexicographic bytes.
     let mut perm: Vec<Token> = (0..n as Token).collect();
     perm.sort_by(|&a, &b| {
         let pa = result.dict.data(a);
@@ -287,17 +289,20 @@ fn sort_dictionary(result: &mut TrainResult) {
     sorted.bytes.reserve(result.dict.bytes_used());
     sorted.offsets.reserve(n + 1);
     sorted.offsets.push(0);
-
-    for &old_id in &perm {
+    // While we copy tokens into their sorted order, also build the inverse
+    // permutation so we can remap the LPM in place rather than rebuild it.
+    let mut new_for_old: Vec<Token> = vec![0; n];
+    for (new_id, &old_id) in perm.iter().enumerate() {
         let s = result.dict.span(old_id);
         sorted
             .bytes
             .extend_from_slice(&result.dict.bytes[s.begin as usize..s.end as usize]);
         sorted.offsets.push(sorted.bytes.len() as u32);
+        new_for_old[old_id as usize] = new_id as Token;
     }
 
     result.dict = sorted;
-    result.lpm = LongestPrefixMatcher::from_dictionary(&result.dict);
+    result.lpm.remap_ids(&new_for_old);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
