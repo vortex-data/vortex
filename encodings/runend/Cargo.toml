@@ -36,6 +36,7 @@ itertools = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-fastlanes = { workspace = true }
 
 [features]
 arbitrary = ["dep:arbitrary", "vortex-array/arbitrary"]
@@ -51,4 +52,8 @@ harness = false
 
 [[bench]]
 name = "run_end_decode"
+harness = false
+
+[[bench]]
+name = "chunked_exec"
 harness = false

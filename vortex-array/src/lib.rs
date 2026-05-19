@@ -29,6 +29,8 @@ use vortex_session::registry::Context;
 
 use crate::session::ArraySession;
 
+#[doc(hidden)]
+pub mod _chunked_exec;
 pub mod accessor;
 pub mod aggregate_fn;
 #[doc(hidden)]

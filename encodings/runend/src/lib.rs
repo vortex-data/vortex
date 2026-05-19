@@ -8,6 +8,8 @@ pub use arbitrary::ArbitraryRunEndArray;
 pub use array::*;
 pub use iter::trimmed_ends_iter;
 
+#[doc(hidden)]
+pub mod _chunked_exec;
 mod array;
 #[cfg(feature = "arrow")]
 mod arrow;
