@@ -13,12 +13,12 @@
 
 use std::sync::Arc;
 
-use vortex_jit::stages::{AlpDecode, LoadIn, StoreOut};
+use vortex_jit::stages::{AlpDecode, BitPackedLoad, ForAdd, LoadIn, StoreOut};
 use vortex_jit::{Compiler, PType, Pipeline};
 
-const BLOCK: usize = 16;
+const BLOCK: usize = 64;
 
-fn main() {
+fn dump_alp_only() {
     let mut p = Pipeline::new(PType::I32, BLOCK);
     p.push(Arc::new(LoadIn { ptype: PType::I32 })).unwrap();
     p.push(Arc::new(AlpDecode {
@@ -30,20 +30,39 @@ fn main() {
     p.push(Arc::new(StoreOut { ptype: PType::F32 })).unwrap();
 
     let compiled = Compiler::new(vec![]).unwrap().compile(&p).unwrap();
-
-    // Read the first 4 KiB of the function. Cranelift emits a `ret` at the
-    // end; the rest may be padding or constant pool. Disasm will show us
-    // where the real function ends.
     let n = 4096;
     let bytes: &[u8] = unsafe { std::slice::from_raw_parts(compiled.raw_fn, n) };
-
     std::fs::write("/tmp/jit_alp.bin", bytes).expect("write");
+    println!("ALP only:  /tmp/jit_alp.bin  fn @ {:p}", compiled.raw_fn);
+}
 
-    println!("wrote {} bytes to /tmp/jit_alp.bin", n);
-    println!("kernel fn address: {:p}", compiled.raw_fn);
-    println!();
-    println!("Run:");
-    println!(
-        "  objdump -D -b binary -m i386:x86-64 -M intel --no-show-raw-insn /tmp/jit_alp.bin | head -80"
-    );
+fn dump_chain() {
+    let mut p = Pipeline::new(PType::I32, 128);
+    p.push(Arc::new(BitPackedLoad {
+        ptype: PType::I32,
+        bit_width: 11,
+    }))
+    .unwrap();
+    p.push(Arc::new(ForAdd {
+        ptype: PType::I32,
+        reference: 100,
+    }))
+    .unwrap();
+    p.push(Arc::new(AlpDecode {
+        in_ptype: PType::I32,
+        out_ptype: PType::F32,
+        scale: 0.01,
+    }))
+    .unwrap();
+    p.push(Arc::new(StoreOut { ptype: PType::F32 })).unwrap();
+    let compiled = Compiler::new(vec![]).unwrap().compile(&p).unwrap();
+    let n = 16 * 1024;
+    let bytes: &[u8] = unsafe { std::slice::from_raw_parts(compiled.raw_fn, n) };
+    std::fs::write("/tmp/jit_chain.bin", bytes).expect("write");
+    println!("4-stage chain: /tmp/jit_chain.bin  fn @ {:p}", compiled.raw_fn);
+}
+
+fn main() {
+    dump_alp_only();
+    dump_chain();
 }
