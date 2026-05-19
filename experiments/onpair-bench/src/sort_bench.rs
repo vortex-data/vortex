@@ -193,6 +193,53 @@ pub fn run_sort_bench_with(
         }
     }
 
+    // ── Method 0e: two-pass with 16B key + byte-cmp REFINEMENT ──────────
+    {
+        let mut keys: Vec<(u64, u64, u32)> = (0..n as u32)
+            .map(|i| {
+                let (k0, k1) = row_prefix2[i as usize];
+                (k0, k1, i)
+            })
+            .collect();
+        let t = Instant::now();
+        keys.sort_unstable_by(|a, b| (a.0, a.1).cmp(&(b.0, b.1)));
+        let mut idx = 0usize;
+        while idx < n {
+            let k = (keys[idx].0, keys[idx].1);
+            let mut j = idx + 1;
+            while j < n && (keys[j].0, keys[j].1) == k {
+                j += 1;
+            }
+            if j - idx > 1 {
+                keys[idx..j].sort_unstable_by(|&(_, _, ia), &(_, _, ib)| {
+                    let a = slice_at(&byte_flat, &byte_bd, ia as usize);
+                    let b = slice_at(&byte_flat, &byte_bd, ib as usize);
+                    a.cmp(b)
+                });
+            }
+            idx = j;
+        }
+        let elapsed = t.elapsed();
+        let indices: Vec<u32> = keys.into_iter().map(|(_, _, i)| i).collect();
+        results.push(SortRow {
+            method: "two-pass: 16B key + byte cmp refine".into(),
+            elapsed_ms: elapsed.as_millis(),
+            mb_per_s: (raw_bytes as f64 / 1024.0 / 1024.0) / elapsed.as_secs_f64(),
+            ns_per_row: elapsed.as_nanos() as f64 / n as f64,
+        });
+        if let Some(ref r) = reference {
+            for k in 0..n {
+                let ra = slice_at(&token_flat, &token_bd, r[k] as usize);
+                let rb = slice_at(&token_flat, &token_bd, indices[k] as usize);
+                if ra != rb {
+                    let ba = slice_at(&byte_flat, &byte_bd, r[k] as usize);
+                    let bb = slice_at(&byte_flat, &byte_bd, indices[k] as usize);
+                    assert_eq!(ba, bb, "two-pass-16-byte-refine order ≠ v1 order at k={k}");
+                }
+            }
+        }
+    }
+
     // ── Method 0d: two-pass with byte-cmp REFINEMENT ────────────────────
     // 32B key sort, then refine ties with byte cmp on materialised
     // decoded bytes (assumes you've paid for decode somewhere). Useful
