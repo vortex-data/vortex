@@ -5,9 +5,9 @@
 //! overhead dominates. Comparison points:
 //!
 //! - `cpu_tier`              — a single `tier()` query (the foundation).
-//! - `ops_add_tiny`          — `i32::ops().add(...)` on 1 element with the
+//! - `ops_add_tiny`          — `kernels().i32_add(...)` on 1 element with the
 //!   table reference hoisted out of the hot loop.
-//! - `ops_add_tiny_fresh`    — same, but resolving `i32::ops()` inside the
+//! - `ops_add_tiny_fresh`    — same, but resolving `kernels()` inside the
 //!   loop, so we pay the cache-load + null-check every iteration.
 //! - `direct_avx2_add_tiny`  — call the specialized AVX2 kernel directly
 //!   (zero dispatch). The floor.
@@ -18,7 +18,7 @@ use divan::Bencher;
 use divan::black_box;
 use vortex_simd::cpu::tier;
 use vortex_simd::kernels::scalar;
-use vortex_simd::ops::IntOps;
+
 use vortex_simd::{has_avx2, has_avx512};
 
 fn main() {
@@ -47,8 +47,9 @@ fn ops_add_tiny(bencher: Bencher) {
     let lhs = vec![1_i32; TINY];
     let rhs = vec![2_i32; TINY];
     let mut out = vec![0_i32; TINY];
-    let kernels = i32::ops();
-    bencher.bench_local(|| (kernels.add)(black_box(&lhs), black_box(&rhs), black_box(&mut out)));
+    let kernels = vortex_simd::kernels();
+    bencher
+        .bench_local(|| (kernels.i32_add)(black_box(&lhs), black_box(&rhs), black_box(&mut out)));
 }
 
 #[divan::bench]
@@ -57,8 +58,8 @@ fn ops_add_tiny_fresh(bencher: Bencher) {
     let rhs = vec![2_i32; TINY];
     let mut out = vec![0_i32; TINY];
     bencher.bench_local(|| {
-        let kernels = i32::ops();
-        (kernels.add)(black_box(&lhs), black_box(&rhs), black_box(&mut out))
+        let kernels = vortex_simd::kernels();
+        (kernels.i32_add)(black_box(&lhs), black_box(&rhs), black_box(&mut out))
     });
 }
 
@@ -93,6 +94,7 @@ fn ops_add_bulk(bencher: Bencher) {
     let lhs = vec![1_i32; BULK];
     let rhs = vec![2_i32; BULK];
     let mut out = vec![0_i32; BULK];
-    let kernels = i32::ops();
-    bencher.bench_local(|| (kernels.add)(black_box(&lhs), black_box(&rhs), black_box(&mut out)));
+    let kernels = vortex_simd::kernels();
+    bencher
+        .bench_local(|| (kernels.i32_add)(black_box(&lhs), black_box(&rhs), black_box(&mut out)));
 }

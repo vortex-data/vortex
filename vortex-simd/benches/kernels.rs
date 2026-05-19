@@ -9,7 +9,6 @@ use divan::counter::ItemsCount;
 use divan::{Bencher, black_box};
 use vortex_simd::cpu::{Tier, tier};
 use vortex_simd::kernels::scalar;
-use vortex_simd::ops::IntOps;
 
 fn main() {
     divan::main();
@@ -111,10 +110,10 @@ fn add_neon(bencher: Bencher) {
 fn add_ops_dispatch(bencher: Bencher) {
     let (lhs, rhs) = inputs();
     let mut out = vec![0_i32; N];
-    let kernels = i32::ops();
+    let kernels = vortex_simd::kernels();
     bencher
         .counter(ItemsCount::new(N))
-        .bench_local(|| (kernels.add)(black_box(&lhs), black_box(&rhs), black_box(&mut out)));
+        .bench_local(|| (kernels.i32_add)(black_box(&lhs), black_box(&rhs), black_box(&mut out)));
 }
 
 // ----- add (L1-resident: compute-bound) -----
@@ -166,10 +165,10 @@ fn add_small_avx512(bencher: Bencher) {
 fn add_small_ops_dispatch(bencher: Bencher) {
     let (lhs, rhs) = small_inputs();
     let mut out = vec![0_i32; SMALL];
-    let kernels = i32::ops();
+    let kernels = vortex_simd::kernels();
     bencher
         .counter(ItemsCount::new(SMALL))
-        .bench_local(|| (kernels.add)(black_box(&lhs), black_box(&rhs), black_box(&mut out)));
+        .bench_local(|| (kernels.i32_add)(black_box(&lhs), black_box(&rhs), black_box(&mut out)));
 }
 
 // ----- eq -----
@@ -247,8 +246,8 @@ fn eq_neon(bencher: Bencher) {
 fn eq_ops_dispatch(bencher: Bencher) {
     let (lhs, rhs) = inputs();
     let mut out = vec![0_u8; N / 8];
-    let kernels = i32::ops();
+    let kernels = vortex_simd::kernels();
     bencher
         .counter(ItemsCount::new(N))
-        .bench_local(|| (kernels.eq)(black_box(&lhs), black_box(&rhs), black_box(&mut out)));
+        .bench_local(|| (kernels.i32_eq)(black_box(&lhs), black_box(&rhs), black_box(&mut out)));
 }

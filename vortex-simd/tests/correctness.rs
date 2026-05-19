@@ -4,7 +4,6 @@
 use rstest::rstest;
 use vortex_simd::cpu::{Tier, tier};
 use vortex_simd::kernels::scalar;
-use vortex_simd::ops::IntOps;
 
 fn make_inputs(count: i32) -> (Vec<i32>, Vec<i32>) {
     // Mix of equal, off-by-one, and large-delta pairs so eq mask is non-trivial.
@@ -47,7 +46,7 @@ fn ops_add_matches_scalar(#[case] count: i32) {
     let mut want = vec![0_i32; vec_len(count)];
     let mut got = vec![0_i32; vec_len(count)];
     scalar::add_i32(&lhs, &rhs, &mut want);
-    (i32::ops().add)(&lhs, &rhs, &mut got);
+    (vortex_simd::kernels().i32_add)(&lhs, &rhs, &mut got);
     assert_eq!(want, got, "add mismatch at n={count}, tier={:?}", tier());
 }
 
@@ -70,7 +69,7 @@ fn ops_eq_matches_scalar(#[case] count: i32) {
     let mut want = vec![0_u8; bitmap_len];
     let mut got = vec![0_u8; bitmap_len];
     scalar::eq_i32(&lhs, &rhs, &mut want);
-    (i32::ops().eq)(&lhs, &rhs, &mut got);
+    (vortex_simd::kernels().i32_eq)(&lhs, &rhs, &mut got);
     assert_eq!(want, got, "eq mismatch at n={count}, tier={:?}", tier());
 }
 
