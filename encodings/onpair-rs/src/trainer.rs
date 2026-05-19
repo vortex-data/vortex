@@ -175,8 +175,12 @@ pub fn train(data: &[u8], offsets: &[u32], n: usize, cfg: &TrainingConfig) -> Tr
     // Pre-size to a multiple of the dictionary capacity (capped) so
     // hashbrown does not resize during the inner scan. Cap keeps the
     // initial allocation cache-friendly at bits=16 where 4× would be 4 MiB.
-    let mut freq: HashMap<u32, u8> =
-        HashMap::with_capacity(dict_capacity.saturating_mul(2).min(16_384));
+    // FxHash beats the default `foldhash` on small integer keys like ours.
+    let mut freq: HashMap<u32, u8, rustc_hash::FxBuildHasher> =
+        HashMap::with_capacity_and_hasher(
+            dict_capacity.saturating_mul(2).min(16_384),
+            rustc_hash::FxBuildHasher,
+        );
 
     let mut full_dictionary = false;
     let mut budget_exhausted = false;

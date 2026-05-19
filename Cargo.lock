@@ -6606,6 +6606,7 @@ dependencies = [
  "parquet 58.2.0",
  "rand 0.10.1",
  "rstest",
+ "rustc-hash",
  "vortex-onpair-sys",
 ]
 

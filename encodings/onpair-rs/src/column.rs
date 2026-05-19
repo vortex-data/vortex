@@ -471,10 +471,18 @@ impl Column {
     /// Trades CPU for compression ratio — runs the trainer
     /// `len(BITS_SWEEP)` times. The sweep covers the bit widths that
     /// dominate the Pareto frontier on real text/URL data.
+    ///
+    /// Verified-best bit widths from sweeps over 9..=16 on:
+    /// * synthetic URLs   → bits=10
+    /// * TPCH `l_comment` → bits=11
+    /// * ClickBench URL   → bits=14
+    /// * Wikipedia text   → bits=16
+    ///
+    /// The sweep below covers all four with seven trainings (~5–7× the
+    /// single-shot cost). For best-compression workloads only — single-shot
+    /// `compress` is faster when the right bit width is known.
     pub fn compress_auto(bytes: &[u8], offsets: &[u64]) -> Result<Self, Error> {
-        // Seed/threshold held constant; bit width is the dimension with the
-        // largest swing in compressed size on text-like corpora.
-        const BITS_SWEEP: &[u32] = &[10, 11, 12, 14];
+        const BITS_SWEEP: &[u32] = &[10, 11, 12, 13, 14, 15, 16];
         let cfgs: Vec<OnPairTrainingConfig> = BITS_SWEEP
             .iter()
             .map(|&b| OnPairTrainingConfig { bits: b, threshold: 0.5, seed: 42 })

@@ -21,6 +21,7 @@ aho-corasick = { workspace = true }
 hashbrown = { workspace = true }
 memchr = { workspace = true }
 rand = { workspace = true }
+rustc-hash = { workspace = true }
 
 [dev-dependencies]
 arrow-array = { workspace = true }
@@ -29,6 +30,10 @@ divan = { workspace = true }
 parquet = { workspace = true }
 rstest = { workspace = true }
 vortex-onpair-sys = { workspace = true }
+
+[[example]]
+name = "real_data_bench"
+required-features = []
 
 [[test]]
 name = "cross_impl"

@@ -18,11 +18,19 @@
 // match.
 
 use hashbrown::HashMap;
+use rustc_hash::FxBuildHasher;
 
 use crate::dict::Dictionary;
 use crate::types::{MAX_TOKEN_SIZE, Token};
 
 const SHORT_LEN: usize = 8;
+
+/// HashMap specialised for the LPM's integer-tuple keys. `FxHasher` is
+/// markedly faster than hashbrown's default `foldhash` on `(u64, u8)` and
+/// `(u128, u8)` because the keys are already well-distributed bytes pulled
+/// from the input; the standard multiply-with-prime mix is overkill and shows
+/// up in the profile.
+type LpmMap<K, V> = HashMap<K, V, FxBuildHasher>;
 
 /// Precomputed low-`len * 8`-bit masks for `u64` and `u128`. Indexed by
 /// `len` ∈ 0..=16. Replacing the branch-and-shift implementation cuts the
@@ -89,9 +97,9 @@ fn mask_u64(len: usize) -> u64 {
 #[derive(Debug, Clone)]
 pub struct LongestPrefixMatcher {
     /// Length 2..=8 tokens keyed by (low-8-byte u64, length).
-    short_map: HashMap<(u64, u8), Token>,
+    short_map: LpmMap<(u64, u8), Token>,
     /// Length 9..=16 tokens keyed by (full u128, length).
-    long_map: HashMap<(u128, u8), Token>,
+    long_map: LpmMap<(u128, u8), Token>,
     /// `byte_to_id[b]` is the Token ID of the length-1 entry for byte `b`.
     byte_to_id: [Token; 256],
     /// Next ID to assign. Stored as u32 so we can represent the full 16-bit
@@ -102,8 +110,8 @@ pub struct LongestPrefixMatcher {
 impl Default for LongestPrefixMatcher {
     fn default() -> Self {
         Self {
-            short_map: HashMap::new(),
-            long_map: HashMap::new(),
+            short_map: LpmMap::default(),
+            long_map: LpmMap::default(),
             byte_to_id: [0u16; 256],
             next_id: 0,
         }
@@ -118,8 +126,8 @@ impl LongestPrefixMatcher {
             byte_to_id[i as usize] = i;
         }
         Self {
-            short_map: HashMap::new(),
-            long_map: HashMap::new(),
+            short_map: LpmMap::default(),
+            long_map: LpmMap::default(),
             byte_to_id,
             next_id: 256,
         }
@@ -131,8 +139,11 @@ impl LongestPrefixMatcher {
     pub fn from_dictionary(dict: &Dictionary) -> Self {
         let n = dict.num_tokens();
         let mut me = Self {
-            short_map: HashMap::with_capacity(n.min(SHORT_LEN * 256)),
-            long_map: HashMap::new(),
+            short_map: LpmMap::with_capacity_and_hasher(
+                n.min(SHORT_LEN * 256),
+                FxBuildHasher,
+            ),
+            long_map: LpmMap::default(),
             byte_to_id: [0u16; 256],
             next_id: n as u32,
         };

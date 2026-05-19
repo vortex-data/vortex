@@ -122,10 +122,13 @@ fn read_parquet_strings(path: &PathBuf) -> Option<Vec<Vec<u8>>> {
             .iter()
             .position(|f| f.name() == name)?,
         None => {
-            // Pick first Utf8 / LargeUtf8 / Utf8View column.
+            // Pick first byte-string-typed column (Utf8 / Binary in any form).
             schema.fields().iter().position(|f| {
                 use arrow_schema::DataType::*;
-                matches!(f.data_type(), Utf8 | LargeUtf8 | Utf8View)
+                matches!(
+                    f.data_type(),
+                    Utf8 | LargeUtf8 | Utf8View | Binary | LargeBinary | BinaryView
+                )
             })?
         }
     };
@@ -135,6 +138,12 @@ fn read_parquet_strings(path: &PathBuf) -> Option<Vec<Vec<u8>>> {
         col_field.name(),
         col_field.data_type()
     );
+
+    // Optional row cap for the cases where we want to fit a full corpus in
+    // L3 / cap a single-bench run.
+    let cap: Option<usize> = env::var("ONPAIR_BENCH_ROWS")
+        .ok()
+        .and_then(|s| s.parse().ok());
 
     let mut rows: Vec<Vec<u8>> = Vec::new();
     let reader = builder.build().ok()?;
@@ -157,7 +166,28 @@ fn read_parquet_strings(path: &PathBuf) -> Option<Vec<Vec<u8>>> {
                     rows.push(s.unwrap_or("").as_bytes().to_vec());
                 }
             }
+            Binary => {
+                for s in arr.as_binary::<i32>().iter() {
+                    rows.push(s.unwrap_or(&[]).to_vec());
+                }
+            }
+            LargeBinary => {
+                for s in arr.as_binary::<i64>().iter() {
+                    rows.push(s.unwrap_or(&[]).to_vec());
+                }
+            }
+            BinaryView => {
+                for s in arr.as_binary_view().iter() {
+                    rows.push(s.unwrap_or(&[]).to_vec());
+                }
+            }
             _ => return None,
+        }
+        if let Some(c) = cap
+            && rows.len() >= c
+        {
+            rows.truncate(c);
+            break;
         }
     }
     Some(rows)
