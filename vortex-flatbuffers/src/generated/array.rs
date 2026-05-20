@@ -91,13 +91,12 @@ impl ::flatbuffers::SimpleToVerifyInSlice for Compression {}
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 pub const ENUM_MIN_PRECISION: u8 = 0;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
-pub const ENUM_MAX_PRECISION: u8 = 2;
+pub const ENUM_MAX_PRECISION: u8 = 1;
 #[deprecated(since = "2.0.0", note = "Use associated constants instead. This will no longer be generated in 2021.")]
 #[allow(non_camel_case_types)]
-pub const ENUM_VALUES_PRECISION: [Precision; 3] = [
+pub const ENUM_VALUES_PRECISION: [Precision; 2] = [
   Precision::Inexact,
   Precision::Exact,
-  Precision::Absent,
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
@@ -107,21 +106,18 @@ pub struct Precision(pub u8);
 impl Precision {
   pub const Inexact: Self = Self(0);
   pub const Exact: Self = Self(1);
-  pub const Absent: Self = Self(2);
 
   pub const ENUM_MIN: u8 = 0;
-  pub const ENUM_MAX: u8 = 2;
+  pub const ENUM_MAX: u8 = 1;
   pub const ENUM_VALUES: &'static [Self] = &[
     Self::Inexact,
     Self::Exact,
-    Self::Absent,
   ];
   /// Returns the variant's name or "" if unknown.
   pub fn variant_name(self) -> Option<&'static str> {
     match self {
       Self::Inexact => Some("Inexact"),
       Self::Exact => Some("Exact"),
-      Self::Absent => Some("Absent"),
       _ => None,
     }
   }

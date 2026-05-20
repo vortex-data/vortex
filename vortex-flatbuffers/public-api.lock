@@ -450,8 +450,6 @@ pub fn vortex_flatbuffers::array::Compression::run_verifier(&mut flatbuffers::ve
 
 impl vortex_flatbuffers::array::Precision
 
-pub const vortex_flatbuffers::array::Precision::Absent: Self
-
 pub const vortex_flatbuffers::array::Precision::ENUM_MAX: u8
 
 pub const vortex_flatbuffers::array::Precision::ENUM_MIN: u8
@@ -534,7 +532,7 @@ pub const vortex_flatbuffers::array::ENUM_MIN_PRECISION: u8
 
 pub const vortex_flatbuffers::array::ENUM_VALUES_COMPRESSION: [vortex_flatbuffers::array::Compression; 2]
 
-pub const vortex_flatbuffers::array::ENUM_VALUES_PRECISION: [vortex_flatbuffers::array::Precision; 3]
+pub const vortex_flatbuffers::array::ENUM_VALUES_PRECISION: [vortex_flatbuffers::array::Precision; 2]
 
 pub fn vortex_flatbuffers::array::finish_array_buffer<'a, 'b, A: flatbuffers::builder::Allocator + 'a>(&'b mut flatbuffers::builder::FlatBufferBuilder<'a, A>, flatbuffers::primitives::WIPOffset<vortex_flatbuffers::array::Array<'a>>)
 

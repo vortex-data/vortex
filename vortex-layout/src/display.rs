@@ -334,8 +334,8 @@ mod tests {
                     let expected = "\
 vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
 ├── numbers: vortex.chunked, dtype: i64?, children: 1, rows: 5
-│   └── [0]: vortex.flat, dtype: i64?, metadata: 187 bytes, rows: 5, segment 0, buffers=[40B, 1B], total=41B
-└── strings: vortex.flat, dtype: utf8, metadata: 122 bytes, rows: 5, segment 1, buffers=[43B, 80B], total=123B
+│   └── [0]: vortex.flat, dtype: i64?, metadata: 171 bytes, rows: 5, segment 0, buffers=[40B, 1B], total=41B
+└── strings: vortex.flat, dtype: utf8, metadata: 110 bytes, rows: 5, segment 1, buffers=[43B, 80B], total=123B
 ";
                     assert_eq!(output, expected);
                 })

@@ -47,7 +47,7 @@ impl WriteFlatBuffer for StatsSet {
                 fba::Precision::Inexact,
                 Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&min)))),
             ),
-            Precision::Absent => (fba::Precision::Absent, None),
+            Precision::Absent => (fba::Precision::Inexact, None),
         };
 
         let (max_precision, max) = match self.get(Stat::Max) {
@@ -59,7 +59,7 @@ impl WriteFlatBuffer for StatsSet {
                 fba::Precision::Inexact,
                 Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&max)))),
             ),
-            Precision::Absent => (fba::Precision::Absent, None),
+            Precision::Absent => (fba::Precision::Inexact, None),
         };
 
         let sum = self
@@ -132,11 +132,6 @@ impl StatsSet {
                     if let Some(max) = fb.max()
                         && let Some(stat_dtype) = stat_dtype
                     {
-                        let max_precision = fb.max_precision();
-                        if max_precision == fba::Precision::Absent {
-                            vortex_bail!("Corrupted max stat: value present with absent precision");
-                        }
-
                         let value =
                             ScalarValue::from_proto_bytes(max.bytes(), &stat_dtype, session)?;
                         let Some(value) = value else {
@@ -145,7 +140,7 @@ impl StatsSet {
 
                         stats_set.set(
                             Stat::Max,
-                            match max_precision {
+                            match fb.max_precision() {
                                 fba::Precision::Exact => Precision::Exact(value),
                                 fba::Precision::Inexact => Precision::Inexact(value),
                                 other => vortex_bail!("Corrupted max_precision field: {other:?}"),
@@ -157,11 +152,6 @@ impl StatsSet {
                     if let Some(min) = fb.min()
                         && let Some(stat_dtype) = stat_dtype
                     {
-                        let min_precision = fb.min_precision();
-                        if min_precision == fba::Precision::Absent {
-                            vortex_bail!("Corrupted min stat: value present with absent precision");
-                        }
-
                         let value =
                             ScalarValue::from_proto_bytes(min.bytes(), &stat_dtype, session)?;
                         let Some(value) = value else {
@@ -170,7 +160,7 @@ impl StatsSet {
 
                         stats_set.set(
                             Stat::Min,
-                            match min_precision {
+                            match fb.min_precision() {
                                 fba::Precision::Exact => Precision::Exact(value),
                                 fba::Precision::Inexact => Precision::Inexact(value),
                                 other => vortex_bail!("Corrupted min_precision field: {other:?}"),
