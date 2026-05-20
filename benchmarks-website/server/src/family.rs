@@ -111,7 +111,7 @@ pub struct Family {
 
 /// All five fact-table families, in the order [`crate::schema::TABLES`]
 /// applies their DDL. Adding a family appends one entry here.
-pub const FAMILIES: &[&'static Family] = &[
+pub const FAMILIES: &[&Family] = &[
     &QUERY_MEASUREMENTS,
     &COMPRESSION_TIMES,
     &COMPRESSION_SIZES,
