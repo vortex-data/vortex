@@ -42,54 +42,41 @@ pub(crate) fn fixed_width_uncompressed_size_in_bytes(
     array: &ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<u64>> {
-    let Some(value_size) = fixed_width_value_size(array.dtype(), array.len())? else {
+    let Some((size, include_validity)) = fixed_width_value_size(array.dtype(), array.len())? else {
         return Ok(None);
     };
 
-    if value_size.include_validity {
+    if include_validity {
         let validity_size =
             validity_uncompressed_size_in_bytes(array.validity()?.execute_mask(array.len(), ctx)?)?;
-        value_size
-            .size
-            .checked_add(validity_size)
+        size.checked_add(validity_size)
             .map(Some)
             .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))
     } else {
-        Ok(Some(value_size.size))
+        Ok(Some(size))
     }
 }
 
-struct FixedWidthValueSize {
-    size: u64,
-    include_validity: bool,
-}
-
-fn fixed_width_value_size(dtype: &DType, len: usize) -> VortexResult<Option<FixedWidthValueSize>> {
+fn fixed_width_value_size(dtype: &DType, len: usize) -> VortexResult<Option<(u64, bool)>> {
     let fixed = match dtype {
-        DType::Null => FixedWidthValueSize {
-            size: 0,
-            include_validity: false,
-        },
-        DType::Bool(_) => FixedWidthValueSize {
-            size: packed_bit_buffer_size_in_bytes(len)?,
-            include_validity: true,
-        },
-        DType::Primitive(ptype, _) => FixedWidthValueSize {
-            size: u64::try_from(len)
+        DType::Null => (0, false),
+        DType::Bool(_) => (packed_bit_buffer_size_in_bytes(len)?, true),
+        DType::Primitive(ptype, _) => (
+            u64::try_from(len)
                 .map_err(|e| vortex_err!("array length does not fit in u64: {e}"))?
                 .checked_mul(ptype.byte_width() as u64)
                 .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?,
-            include_validity: true,
-        },
-        DType::Decimal(decimal_type, _) => FixedWidthValueSize {
-            size: u64::try_from(len)
+            true,
+        ),
+        DType::Decimal(decimal_type, _) => (
+            u64::try_from(len)
                 .map_err(|e| vortex_err!("array length does not fit in u64: {e}"))?
                 .checked_mul(
                     DecimalType::smallest_decimal_value_type(decimal_type).byte_width() as u64,
                 )
                 .ok_or_else(|| vortex_err!("uncompressed size in bytes overflowed u64"))?,
-            include_validity: true,
-        },
+            true,
+        ),
         DType::Extension(ext_dtype) => {
             return fixed_width_value_size(ext_dtype.storage_dtype(), len);
         }
