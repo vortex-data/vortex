@@ -360,7 +360,12 @@ impl AppState {
 
         // Load the array.
         let reader = layout
-            .new_reader("".into(), self.vxf.segment_source(), &self.session)
+            .new_reader(
+                "".into(),
+                self.vxf.segment_source(),
+                &self.session,
+                &Default::default(),
+            )
             .vortex_expect("Failed to create reader");
         let array = reader
             .projection_evaluation(

@@ -61,13 +61,13 @@ impl DictReader {
         ctx: crate::LayoutReaderContext,
     ) -> VortexResult<Self> {
         let values_len = usize::try_from(layout.values.row_count())?;
-        let values = layout.values.new_reader_in_ctx(
+        let values = layout.values.new_reader(
             format!("{name}.values").into(),
             Arc::clone(&segment_source),
             &session,
             &ctx,
         )?;
-        let codes = layout.codes.new_reader_in_ctx(
+        let codes = layout.codes.new_reader(
             format!("{name}.codes").into(),
             segment_source,
             &session,
@@ -374,7 +374,7 @@ mod tests {
             );
             assert!(layout.encoding_id() == LayoutId::new("vortex.dict"));
             let actual = layout
-                .new_reader("".into(), segments, &session)
+                .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -458,7 +458,7 @@ mod tests {
                 )),
             );
             let mask = layout
-                .new_reader("".into(), segments, &session)
+                .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap()
                 .filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))
                 .unwrap()
@@ -519,7 +519,7 @@ mod tests {
             let expression = is_not_null(root());
             assert_eq!(layout.encoding_id(), LayoutId::new("vortex.dict"));
             let actual = layout
-                .new_reader("".into(), segments, &session)
+                .new_reader("".into(), segments, &session, &Default::default())
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),

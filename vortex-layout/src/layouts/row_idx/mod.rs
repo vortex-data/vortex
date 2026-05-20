@@ -370,7 +370,9 @@ mod tests {
             let expr = eq(root(), lit(3i32));
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments, &SESSION).unwrap(),
+                layout
+                    .new_reader("".into(), segments, &SESSION, &Default::default())
+                    .unwrap(),
                 SESSION.clone(),
             )
             .projection_evaluation(
@@ -411,7 +413,9 @@ mod tests {
             let expr = gt(row_idx(), lit(3u64));
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments, &SESSION).unwrap(),
+                layout
+                    .new_reader("".into(), segments, &SESSION, &Default::default())
+                    .unwrap(),
                 SESSION.clone(),
             )
             .projection_evaluation(
@@ -456,7 +460,9 @@ mod tests {
 
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments, &SESSION).unwrap(),
+                layout
+                    .new_reader("".into(), segments, &SESSION, &Default::default())
+                    .unwrap(),
                 SESSION.clone(),
             )
             .projection_evaluation(

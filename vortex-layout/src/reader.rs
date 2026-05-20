@@ -244,7 +244,7 @@ impl LazyReaderChildren {
         self.cache[idx].get_or_try_init(|| {
             let dtype = &self.dtypes[idx];
             let child = self.children.child(idx, dtype)?;
-            child.new_reader_in_ctx(
+            child.new_reader(
                 Arc::clone(&self.names[idx]),
                 Arc::clone(&self.segment_source),
                 &self.session,
@@ -254,7 +254,7 @@ impl LazyReaderChildren {
     }
 }
 
-/// Per-reader-tree dependency context, threaded through [`crate::VTable::new_reader_in_ctx`].
+/// Per-reader-tree dependency context, threaded through [`crate::VTable::new_reader`].
 ///
 /// Holds a typed-data registry keyed by [`TypeId`]. Ancestors publish values via
 /// [`Self::with`]; descendants retrieve them via [`Self::get`]. This is a *read-only*

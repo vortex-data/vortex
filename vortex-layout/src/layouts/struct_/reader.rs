@@ -618,7 +618,9 @@ mod tests {
     fn test_struct_layout_or(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+        let reader = layout
+            .new_reader("".into(), segments, &SESSION, &Default::default())
+            .unwrap();
         let filt = or(
             eq(col("a"), lit(7)),
             or(eq(col("b"), lit(5)), eq(col("a"), lit(3))),
@@ -636,7 +638,9 @@ mod tests {
     fn test_struct_layout(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+        let reader = layout
+            .new_reader("".into(), segments, &SESSION, &Default::default())
+            .unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
         let result = block_on(|_| {
             reader
@@ -652,7 +656,9 @@ mod tests {
     fn test_struct_layout_row_mask(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+        let reader = layout
+            .new_reader("".into(), segments, &SESSION, &Default::default())
+            .unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
         let result = block_on(|_| {
             reader
@@ -674,7 +680,9 @@ mod tests {
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+        let reader = layout
+            .new_reader("".into(), segments, &SESSION, &Default::default())
+            .unwrap();
         let expr = pack(
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
             Nullability::NonNullable,
@@ -713,7 +721,9 @@ mod tests {
         #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         // Read the layout source from the top.
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+        let reader = layout
+            .new_reader("".into(), segments, &SESSION, &Default::default())
+            .unwrap();
         let expr = get_item("a", root());
         let project = reader
             .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
@@ -744,7 +754,9 @@ mod tests {
         // Project out the nested struct field.
         // The projection should preserve the nulls of the `b` struct when we select out the
         // child column `c`.
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+        let reader = layout
+            .new_reader("".into(), segments, &SESSION, &Default::default())
+            .unwrap();
         let expr = select(
             vec![FieldName::from("c")],
             get_item("b", get_item("a", root())),
@@ -805,7 +817,9 @@ mod tests {
     fn test_empty_struct(
         #[from(empty_struct)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+        let reader = layout
+            .new_reader("".into(), segments, &SESSION, &Default::default())
+            .unwrap();
         let expr = pack(Vec::<(String, Expression)>::new(), Nullability::Nullable);
 
         let project = reader
@@ -856,7 +870,9 @@ mod tests {
         })
         .unwrap();
 
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+        let reader = layout
+            .new_reader("".into(), segments, &SESSION, &Default::default())
+            .unwrap();
 
         // DType mismatch: "age" is u8 but literal is i32
         let filt = eq(col("age"), lit(67i32));

@@ -276,7 +276,7 @@ mod test {
             );
 
             let result = layout
-                .new_reader("".into(), segments, &SESSION)?
+                .new_reader("".into(), segments, &SESSION, &Default::default())?
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &root(),
@@ -313,7 +313,7 @@ mod test {
 
             let expr = gt(root(), lit(3i32));
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
@@ -350,7 +350,7 @@ mod test {
                 .unwrap();
 
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &SESSION, &Default::default())
                 .unwrap()
                 .projection_evaluation(&(2..4), &root(), MaskFuture::new_true(2))
                 .unwrap()

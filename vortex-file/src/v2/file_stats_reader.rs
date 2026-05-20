@@ -310,7 +310,7 @@ mod tests {
                 )
                 .await?;
 
-            let child = layout.new_reader("".into(), segments, &SESSION)?;
+            let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
 
             let reader =
                 FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
@@ -349,7 +349,7 @@ mod tests {
                 )
                 .await?;
 
-            let child = layout.new_reader("".into(), segments, &SESSION)?;
+            let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
 
             let reader =
                 FileStatsLayoutReader::new(child, test_file_stats(0, 100), SESSION.clone());
@@ -400,7 +400,7 @@ mod tests {
                 )
                 .await?;
 
-            let child = layout.new_reader("".into(), segments, &SESSION)?;
+            let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
 
             // File-level stats: 1 null in deleted_at.
             let mut stats = StatsSet::default();
@@ -449,7 +449,7 @@ mod tests {
                 )
                 .await?;
 
-            let child = layout.new_reader("".into(), segments, &SESSION)?;
+            let child = layout.new_reader("".into(), segments, &SESSION, &Default::default())?;
 
             let reader =
                 FileStatsLayoutReader::new(child, test_file_null_count_stats(5), SESSION.clone());

@@ -66,29 +66,18 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
 
     /// Construct a new reader for this layout, using the given dependency context.
     ///
-    /// This is the entry point that propagates ancestor-registered overrides into
-    /// descendants — recursive callers inside layout implementations must use this method
-    /// (not [`Self::new_reader`]) so the context survives across the descent.
-    fn new_reader_in_ctx(
+    /// `ctx` is the typed-data registry threaded through reader construction (see
+    /// [`LayoutReaderContext`]). Top-level callers (file open, tests) typically pass
+    /// `&LayoutReaderContext::new()`; recursive callers inside layout implementations
+    /// must propagate the `ctx` they were handed so ancestor-published values reach
+    /// descendants.
+    fn new_reader(
         &self,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef>;
-
-    /// Convenience: construct a new reader for this layout using a fresh, empty context.
-    ///
-    /// Top-level callers (file open, tests) typically use this. Recursive calls inside
-    /// layout implementations should use [`Self::new_reader_in_ctx`] to propagate `ctx`.
-    fn new_reader(
-        &self,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        session: &VortexSession,
-    ) -> VortexResult<LayoutReaderRef> {
-        self.new_reader_in_ctx(name, segment_source, session, &LayoutReaderContext::new())
-    }
 }
 
 pub trait IntoLayout {
@@ -326,14 +315,14 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         V::segment_ids(&self.0)
     }
 
-    fn new_reader_in_ctx(
+    fn new_reader(
         &self,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
         ctx: &LayoutReaderContext,
     ) -> VortexResult<LayoutReaderRef> {
-        V::new_reader_in_ctx(&self.0, name, segment_source, session, ctx)
+        V::new_reader(&self.0, name, segment_source, session, ctx)
     }
 }
 

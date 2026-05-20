@@ -166,7 +166,7 @@ impl Layout for ForeignLayout {
         self.segment_ids.clone()
     }
 
-    fn new_reader_in_ctx(
+    fn new_reader(
         &self,
         _name: Arc<str>,
         _segment_source: Arc<dyn SegmentSource>,
