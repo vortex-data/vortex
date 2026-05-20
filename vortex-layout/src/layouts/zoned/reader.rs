@@ -42,6 +42,7 @@ impl ZonedReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: VortexSession,
+        ctx: crate::LayoutReaderContext,
     ) -> VortexResult<Self> {
         let dtypes = vec![
             layout.dtype.clone(),
@@ -54,6 +55,7 @@ impl ZonedReader {
             names,
             Arc::clone(&segment_source),
             session.clone(),
+            ctx,
         ));
 
         Ok(Self {

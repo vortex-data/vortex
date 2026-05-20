@@ -116,11 +116,28 @@ impl VTable for Zoned {
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef> {
+        Self::new_reader_in_ctx(
+            layout,
+            name,
+            segment_source,
+            session,
+            &crate::LayoutReaderContext::new(),
+        )
+    }
+
+    fn new_reader_in_ctx(
+        layout: &Self::Layout,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
+        ctx: &crate::LayoutReaderContext,
+    ) -> VortexResult<LayoutReaderRef> {
         Ok(Arc::new(ZonedReader::try_new(
             layout.clone(),
             name,
             segment_source,
             session.clone(),
+            ctx.clone(),
         )?))
     }
 

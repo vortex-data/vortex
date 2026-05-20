@@ -51,6 +51,7 @@ impl ChunkedReader {
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
+        ctx: crate::LayoutReaderContext,
     ) -> Self {
         let nchildren = layout.nchildren();
 
@@ -78,6 +79,7 @@ impl ChunkedReader {
             names,
             segment_source,
             session.clone(),
+            ctx,
         );
 
         Self {

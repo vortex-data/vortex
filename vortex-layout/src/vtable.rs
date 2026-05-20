@@ -19,6 +19,7 @@ use crate::LayoutChildType;
 use crate::LayoutEncoding;
 use crate::LayoutEncodingRef;
 use crate::LayoutId;
+use crate::LayoutReaderContext;
 use crate::LayoutReaderRef;
 use crate::LayoutRef;
 use crate::children::LayoutChildren;
@@ -58,12 +59,50 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     fn child_type(layout: &Self::Layout, idx: usize) -> LayoutChildType;
 
     /// Create a new reader for the layout.
+    ///
+    /// This is the legacy entry point — it does not see the [`LayoutReaderContext`]. For
+    /// leaf encodings with no children (e.g. `Flat`, `Foreign`) this is all you need: the
+    /// default [`Self::new_reader_in_ctx`] implementation forwards here and the ctx is
+    /// dropped, which is fine when there are no descendants to propagate to.
+    ///
+    /// Layouts with children should still implement this method, but **must also override**
+    /// [`Self::new_reader_in_ctx`] — see that method's documentation for the propagation
+    /// contract.
     fn new_reader(
         layout: &Self::Layout,
         name: Arc<str>,
         segment_source: Arc<dyn SegmentSource>,
         session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef>;
+
+    /// Create a new reader for the layout with awareness of the parent reader-tree's
+    /// [`LayoutReaderContext`].
+    ///
+    /// The context is a read-only typed-data registry: ancestors call
+    /// [`LayoutReaderContext::with`] to publish values; descendants call
+    /// [`LayoutReaderContext::get`] to consume them. Use this mechanism for cross-tree
+    /// dependencies that can't be passed through normal arguments — e.g., a parent
+    /// publishing a shared source that several descendant leaves need at construction
+    /// time.
+    ///
+    /// **Layouts with children MUST override this method** and propagate `ctx` to
+    /// descendants by calling [`Layout::new_reader_in_ctx`] (not the convenience
+    /// [`Layout::new_reader`]) when constructing child readers. If `ctx` is dropped at
+    /// any link in the chain, ancestor-published values won't reach affected
+    /// descendants. There is no compile-time check that catches this; the cost of a
+    /// missed propagation is a silent functional regression at runtime for any
+    /// descendant that looked up an ancestor-published value via `ctx.get::<T>()`.
+    ///
+    /// See `LazyReaderChildren::new` for the typical wiring on the implementor side.
+    fn new_reader_in_ctx(
+        layout: &Self::Layout,
+        name: Arc<str>,
+        segment_source: Arc<dyn SegmentSource>,
+        session: &VortexSession,
+        _ctx: &LayoutReaderContext,
+    ) -> VortexResult<LayoutReaderRef> {
+        Self::new_reader(layout, name, segment_source, session)
+    }
 
     /// Construct a new [`Layout`] from the provided parts.
     fn build(
