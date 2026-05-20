@@ -12,6 +12,7 @@ use crate::arrays::FilterArray;
 use crate::arrays::Patched;
 use crate::arrays::filter::FilterReduce;
 use crate::arrays::patched::PatchedArrayExt;
+use crate::arrays::patched::PatchedArraySlotsExt;
 
 impl FilterReduce for Patched {
     fn filter(array: ArrayView<'_, Self>, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
@@ -20,6 +21,11 @@ impl FilterReduce for Patched {
         //
         // This is helpful when we have a very selective filter that is clustered to a small
         // range.
+        //
+        // Chunk math is done relative to the position within the first chunk: the array's offset
+        // can be an arbitrary absolute value (after slicing) but only its remainder mod 1024
+        // shifts the chunk boundaries within this array's local coordinates.
+        let offset_within_chunk = array.offset() % 1024;
         let (chunk_start, chunk_stop) = match mask.slices() {
             AllOr::All | AllOr::None => {
                 // This is handled as the precondition to this method, see the FilterReduce
@@ -30,34 +36,36 @@ impl FilterReduce for Patched {
                 let (first, _) = slices[0];
                 let (_, last) = slices[slices.len() - 1];
 
-                // Convert mask indices to absolute positions by adding offset
                 (
-                    (array.offset() + first) / 1024,
-                    (array.offset() + last).div_ceil(1024),
+                    (offset_within_chunk + first) / 1024,
+                    (offset_within_chunk + last).div_ceil(1024),
                 )
             }
         };
 
-        let n_chunks = (array.offset() + array.len()).div_ceil(1024);
+        let n_chunks = (offset_within_chunk + array.len()).div_ceil(1024);
 
         // If all chunks already covered, there is nothing to do.
         if chunk_start == 0 && chunk_stop == n_chunks {
             return Ok(None);
         }
 
-        let sliced = array.slice_chunks(chunk_start..chunk_stop)?;
-
-        // Slice the mask according to if the chunk is sliced.
-        // Convert chunk bounds back to mask indices by subtracting offset.
-        let mask_start = (chunk_start * 1024).saturating_sub(array.offset());
+        // Convert chunk bounds back to local element indices, then slice the patched array down to
+        // the covered range.
+        let mask_start = (chunk_start * 1024).saturating_sub(offset_within_chunk);
         let mask_end = (chunk_stop * 1024)
-            .saturating_sub(array.offset())
+            .saturating_sub(offset_within_chunk)
             .min(array.len());
+
+        let inner = array.inner().slice(mask_start..mask_end)?;
+        let sliced = match array.patches().slice(mask_start..mask_end)? {
+            Some(patches) => Patched::wrap(inner, &patches, array.n_lanes()).into_array(),
+            None => inner,
+        };
+
         let remainder = mask.slice(mask_start..mask_end);
 
-        Ok(Some(
-            FilterArray::new(sliced.into_array(), remainder).into_array(),
-        ))
+        Ok(Some(FilterArray::new(sliced, remainder).into_array()))
     }
 }
 

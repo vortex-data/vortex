@@ -3,34 +3,25 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::ops::Range;
 
-use vortex_buffer::Buffer;
+use num_traits::AsPrimitive;
 use vortex_buffer::BufferMut;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
 use crate::array_slots;
 use crate::arrays::Patched;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::patched::TransposedPatches;
 use crate::arrays::patched::patch_lanes;
-use crate::buffer::BufferHandle;
 use crate::dtype::DType;
-use crate::dtype::IntegerPType;
-use crate::dtype::NativePType;
-use crate::dtype::PType;
 use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 use crate::patches::Patches;
@@ -38,34 +29,47 @@ use crate::validity::Validity;
 
 #[derive(Debug, Clone)]
 pub struct PatchedData {
-    /// Number of lanes the patch indices and values have been split into. Each of the `n_chunks`
-    /// of 1024 values is split into `n_lanes` lanes horizontally, each lane having 1024 / n_lanes
-    /// values that might be patched.
+    /// Number of lanes that *would* be used if these patches were transposed into the
+    /// data-parallel GPU layout.
+    ///
+    /// The patches are stored untransposed; this value is retained only as metadata so the
+    /// transpose configuration can be recovered later.
+    // Kept so the data-parallel GPU transpose can be re-added in the future without a format change.
     pub(super) n_lanes: usize,
 
-    /// The offset into that first chunk that is considered in bounds.
+    /// The absolute offset of the first in-view element, accounting for any slicing.
     ///
-    /// The patch indices of the first chunk less than `offset` should be skipped, and the offset
-    /// should be subtracted out of the remaining offsets to get their final position in the
-    /// executed array.
+    /// Patch indices are stored as global positions, so the final position of a patch within the
+    /// executed array is `index - offset`.
     pub(super) offset: usize,
+
+    /// Number of patches sliced off the start of the first in-view chunk.
+    ///
+    /// `chunk_offsets` are sliced at chunk granularity while the patches themselves are sliced at
+    /// element granularity, so this records how many leading patches of the first chunk fall
+    /// outside the view.
+    pub(super) offset_within_chunk: usize,
 }
 
 #[array_slots(Patched)]
 pub struct PatchedSlots {
     /// The inner array containing the base unpatched values.
     pub inner: ArrayRef,
-    /// The lane offsets array for locating patches within lanes.
-    pub lane_offsets: ArrayRef,
-    /// The indices of patched (exception) values.
+    /// The sorted global indices of patched (exception) values.
     pub patch_indices: ArrayRef,
     /// The patched (exception) values at the corresponding indices.
     pub patch_values: ArrayRef,
+    /// One offset per 1024-element chunk into `patch_indices`/`patch_values`.
+    pub chunk_offsets: ArrayRef,
 }
 
 impl Display for PatchedData {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "n_lanes: {}, offset: {}", self.n_lanes, self.offset)
+        write!(
+            f,
+            "n_lanes: {}, offset: {}, offset_within_chunk: {}",
+            self.n_lanes, self.offset, self.offset_within_chunk
+        )
     }
 }
 
@@ -94,76 +98,48 @@ impl PatchedData {
             slots.patch_indices.len(),
             slots.patch_values.len()
         );
+        vortex_ensure!(
+            slots.patch_indices.dtype().is_unsigned_int(),
+            "PatchedArray patch indices must be unsigned integers, got {}",
+            slots.patch_indices.dtype()
+        );
         Ok(())
     }
 }
 
 pub trait PatchedArrayExt: PatchedArraySlotsExt {
+    /// The transpose count retained as metadata. See `PatchedData::n_lanes`.
     #[inline]
     fn n_lanes(&self) -> usize {
         self.n_lanes
     }
 
+    /// The absolute offset of the first in-view element.
     #[inline]
     fn offset(&self) -> usize {
         self.offset
     }
 
+    /// Number of patches sliced off the start of the first in-view chunk.
     #[inline]
-    fn lane_range(&self, chunk: usize, lane: usize) -> VortexResult<Range<usize>> {
-        assert!(chunk * 1024 <= self.as_ref().len() + self.offset());
-        assert!(lane < self.n_lanes());
-
-        let start = self.lane_offsets().execute_scalar(
-            chunk * self.n_lanes() + lane,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )?;
-        let stop = self.lane_offsets().execute_scalar(
-            chunk * self.n_lanes() + lane + 1,
-            &mut LEGACY_SESSION.create_execution_ctx(),
-        )?;
-
-        let start = start
-            .as_primitive()
-            .as_::<usize>()
-            .ok_or_else(|| vortex_err!("could not cast lane_offset to usize"))?;
-
-        let stop = stop
-            .as_primitive()
-            .as_::<usize>()
-            .ok_or_else(|| vortex_err!("could not cast lane_offset to usize"))?;
-
-        Ok(start..stop)
+    fn offset_within_chunk(&self) -> usize {
+        self.offset_within_chunk
     }
 
-    fn slice_chunks(&self, chunks: Range<usize>) -> VortexResult<Array<Patched>> {
-        let lane_offsets_start = chunks.start * self.n_lanes();
-        let lane_offsets_stop = chunks.end * self.n_lanes() + 1;
-
-        let sliced_lane_offsets = self
-            .lane_offsets()
-            .slice(lane_offsets_start..lane_offsets_stop)?;
-        let indices = self.patch_indices().clone();
-        let values = self.patch_values().clone();
-
-        let begin = (chunks.start * 1024).saturating_sub(self.offset());
-        let end = (chunks.end * 1024)
-            .saturating_sub(self.offset())
-            .min(self.as_ref().len());
-
-        let offset = if chunks.start == 0 { self.offset() } else { 0 };
-        let inner = self.inner().slice(begin..end)?;
-        let len = inner.len();
-        let dtype = self.as_ref().dtype().clone();
-        let slots = PatchedSlots {
-            inner,
-            lane_offsets: sliced_lane_offsets,
-            patch_indices: indices,
-            patch_values: values,
+    /// Reconstruct the untransposed [`Patches`] backing this array.
+    fn patches(&self) -> Patches {
+        // SAFETY: a `Patched` array is only ever constructed from valid, sorted patches with
+        // matching index/value lengths and chunk offsets.
+        unsafe {
+            Patches::new_unchecked(
+                self.as_ref().len(),
+                self.offset(),
+                self.patch_indices().clone(),
+                self.patch_values().clone(),
+                Some(self.chunk_offsets().clone()),
+                Some(self.offset_within_chunk()),
+            )
         }
-        .into_slots();
-
-        Ok(unsafe { Patched::new_unchecked(dtype, len, slots, self.n_lanes(), offset) })
     }
 }
 
@@ -196,43 +172,57 @@ impl Patched {
         );
 
         let values_ptype = patches.dtype().as_ptype();
+        let n_lanes = match_each_native_ptype!(values_ptype, |V| { patch_lanes::<V>() });
 
-        let TransposedPatches {
-            n_lanes,
-            lane_offsets,
-            indices,
-            values,
-        } = transpose_patches(patches, ctx)?;
+        // Ensure the patches carry a chunk offset for every 1024-element chunk, computing them
+        // when the source patches don't already provide them.
+        let patches = match patches.chunk_offsets() {
+            Some(_) => patches.clone(),
+            None => {
+                let chunk_offsets = compute_chunk_offsets(patches, ctx)?;
+                // SAFETY: we only attach freshly computed chunk offsets to existing valid patches.
+                unsafe {
+                    Patches::new_unchecked(
+                        patches.array_len(),
+                        patches.offset(),
+                        patches.indices().clone(),
+                        patches.values().clone(),
+                        Some(chunk_offsets),
+                        Some(0),
+                    )
+                }
+            }
+        };
 
-        let lane_offsets = PrimitiveArray::from_buffer_handle(
-            BufferHandle::new_host(lane_offsets),
-            PType::U32,
-            Validity::NonNullable,
-        )
-        .into_array();
-        let indices = PrimitiveArray::from_buffer_handle(
-            BufferHandle::new_host(indices),
-            PType::U16,
-            Validity::NonNullable,
-        )
-        .into_array();
-        let values = PrimitiveArray::from_buffer_handle(
-            BufferHandle::new_host(values),
-            values_ptype,
-            Validity::NonNullable,
-        )
-        .into_array();
+        Ok(Self::wrap(inner, &patches, n_lanes))
+    }
 
+    /// Wrap an `inner` array and untransposed `patches` (which must carry chunk offsets) into a
+    /// [`Patched`] array.
+    pub(super) fn wrap(inner: ArrayRef, patches: &Patches, n_lanes: usize) -> Array<Patched> {
+        let chunk_offsets = patches
+            .chunk_offsets()
+            .clone()
+            .vortex_expect("Patched requires chunk offsets");
         let dtype = inner.dtype().clone();
         let len = inner.len();
         let slots = PatchedSlots {
             inner,
-            lane_offsets,
-            patch_indices: indices,
-            patch_values: values,
+            patch_indices: patches.indices().clone(),
+            patch_values: patches.values().clone(),
+            chunk_offsets,
         }
         .into_slots();
-        Ok(unsafe { Self::new_unchecked(dtype, len, slots, n_lanes, 0) })
+        unsafe {
+            Self::new_unchecked(
+                dtype,
+                len,
+                slots,
+                n_lanes,
+                patches.offset(),
+                patches.offset_within_chunk().unwrap_or(0),
+            )
+        }
     }
 
     pub(crate) unsafe fn new_unchecked(
@@ -241,123 +231,56 @@ impl Patched {
         slots: ArraySlots,
         n_lanes: usize,
         offset: usize,
+        offset_within_chunk: usize,
     ) -> Array<Patched> {
         unsafe {
             Array::from_parts_unchecked(
-                ArrayParts::new(Patched, dtype, len, PatchedData { n_lanes, offset })
-                    .with_slots(slots),
+                ArrayParts::new(
+                    Patched,
+                    dtype,
+                    len,
+                    PatchedData {
+                        n_lanes,
+                        offset,
+                        offset_within_chunk,
+                    },
+                )
+                .with_slots(slots),
             )
         }
     }
 }
 
-/// Transpose a set of patches from the default sorted layout into the data parallel layout.
-fn transpose_patches(patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<TransposedPatches> {
+/// Compute one `u64` chunk offset per 1024-element chunk for a set of sorted patches.
+///
+/// `chunk_offsets[c]` is the position in the patch arrays at which the patches for chunk `c`
+/// begin, i.e. the number of patches whose global index is less than `c * 1024`.
+fn compute_chunk_offsets(patches: &Patches, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     let array_len = patches.array_len();
     let offset = patches.offset();
+    let total_chunks = array_len.div_ceil(1024);
 
-    let indices = patches
-        .indices()
-        .clone()
-        .execute::<Canonical>(ctx)?
-        .into_primitive();
-
-    let values = patches
-        .values()
-        .clone()
-        .execute::<Canonical>(ctx)?
-        .into_primitive();
-
+    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let indices_ptype = indices.ptype();
-    let values_ptype = values.ptype();
 
-    let indices = indices.buffer_handle().clone().unwrap_host();
-    let values = values.buffer_handle().clone().unwrap_host();
+    let chunk_offsets = match_each_unsigned_integer_ptype!(indices_ptype, |I| {
+        let indices = indices.as_slice::<I>();
+        let mut offsets: BufferMut<u64> = BufferMut::with_capacity(total_chunks);
+        let mut pos = 0usize;
+        for chunk in 0..total_chunks {
+            let chunk_start = chunk * 1024;
+            while pos < indices.len() && {
+                let index: usize = indices[pos].as_();
+                index - offset < chunk_start
+            } {
+                pos += 1;
+            }
+            offsets.push(pos as u64);
+        }
+        offsets.freeze()
+    });
 
-    match_each_unsigned_integer_ptype!(indices_ptype, |I| {
-        match_each_native_ptype!(values_ptype, |V| {
-            let indices: Buffer<I> = Buffer::from_byte_buffer(indices);
-            let values: Buffer<V> = Buffer::from_byte_buffer(values);
-
-            Ok(transpose(
-                indices.as_slice(),
-                values.as_slice(),
-                offset,
-                array_len,
-            ))
-        })
-    })
-}
-
-#[expect(clippy::cast_possible_truncation)]
-fn transpose<I: IntegerPType, V: NativePType>(
-    indices_in: &[I],
-    values_in: &[V],
-    offset: usize,
-    array_len: usize,
-) -> TransposedPatches {
-    // Total number of slots is number of chunks times number of lanes.
-    let n_chunks = array_len.div_ceil(1024);
-    assert!(
-        n_chunks <= u32::MAX as usize,
-        "Cannot transpose patches for array with >= 4 trillion elements"
-    );
-
-    let n_lanes = patch_lanes::<V>();
-
-    // We know upfront how many indices and values we'll have.
-    let mut indices_buffer = BufferMut::with_capacity(indices_in.len());
-    let mut values_buffer = BufferMut::with_capacity(values_in.len());
-
-    // Number of patches in each chunk/lane.
-    let mut lane_offsets: BufferMut<u32> = BufferMut::zeroed(n_chunks * n_lanes + 1);
-
-    // Scan the index/value pairs once to get chunk/lane counts.
-    for index in indices_in {
-        let index = index.as_() - offset;
-        let chunk = index / 1024;
-        let lane = index % n_lanes;
-
-        lane_offsets[chunk * n_lanes + lane + 1] += 1;
-    }
-
-    for index in 1..lane_offsets.len() {
-        lane_offsets[index] += lane_offsets[index - 1];
-    }
-
-    // Loop over patches, writing them to final positions.
-    let indices_out = indices_buffer.spare_capacity_mut();
-    let values_out = values_buffer.spare_capacity_mut();
-    for (index, &value) in std::iter::zip(indices_in, values_in) {
-        let index = index.as_() - offset;
-        let chunk = index / 1024;
-        let lane = index % n_lanes;
-
-        let position = &mut lane_offsets[chunk * n_lanes + lane];
-        indices_out[*position as usize].write((index % 1024) as u16);
-        values_out[*position as usize].write(value);
-        *position += 1;
-    }
-
-    unsafe {
-        indices_buffer.set_len(indices_in.len());
-        values_buffer.set_len(values_in.len());
-    }
-
-    for index in indices_in {
-        let index = index.as_() - offset;
-        let chunk = index / 1024;
-        let lane = index % n_lanes;
-
-        lane_offsets[chunk * n_lanes + lane] -= 1;
-    }
-
-    TransposedPatches {
-        n_lanes,
-        lane_offsets: lane_offsets.freeze().into_byte_buffer(),
-        indices: indices_buffer.freeze().into_byte_buffer(),
-        values: values_buffer.freeze().into_byte_buffer(),
-    }
+    Ok(PrimitiveArray::new(chunk_offsets, Validity::NonNullable).into_array())
 }
 
 #[cfg(test)]

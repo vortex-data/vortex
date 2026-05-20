@@ -20,12 +20,18 @@ use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
 use crate::arrays::primitive::NativeValue;
 use crate::builtins::ArrayBuiltins;
+use crate::dtype::IntegerPType;
 use crate::dtype::NativePType;
 use crate::match_each_native_ptype;
+use crate::match_each_unsigned_integer_ptype;
 use crate::scalar_fn::fns::binary::CompareKernel;
 use crate::scalar_fn::fns::operators::CompareOperator;
 
 impl CompareKernel for Patched {
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "complexity is from nested match_each_* macros"
+    )]
     fn compare(
         lhs: ArrayView<'_, Self>,
         rhs: &ArrayRef,
@@ -59,50 +65,48 @@ impl CompareKernel for Patched {
 
         let mut bits = BitBufferMut::from_buffer(bits.unwrap_host().into_mut(), offset, len);
 
-        let lane_offsets = lhs.lane_offsets().clone().execute::<PrimitiveArray>(ctx)?;
         let indices = lhs.patch_indices().clone().execute::<PrimitiveArray>(ctx)?;
         let values = lhs.patch_values().clone().execute::<PrimitiveArray>(ctx)?;
-        let n_lanes = lhs.n_lanes();
+        let indices_ptype = indices.ptype();
 
         match_each_native_ptype!(values.ptype(), |V| {
             let offset = lhs.offset();
-            let indices = indices.as_slice::<u16>();
             let values = values.as_slice::<V>();
             let constant = constant
                 .as_primitive()
                 .as_::<V>()
                 .vortex_expect("compare constant not null");
 
-            let apply_patches = ApplyPatches {
-                bits: &mut bits,
-                offset,
-                n_lanes,
-                lane_offsets: lane_offsets.as_slice::<u32>(),
-                indices,
-                values,
-                constant,
-            };
+            match_each_unsigned_integer_ptype!(indices_ptype, |I| {
+                let apply_patches = ApplyPatches {
+                    bits: &mut bits,
+                    offset,
+                    indices: indices.as_slice::<I>(),
+                    values,
+                    constant,
+                };
 
-            match operator {
-                CompareOperator::Eq => {
-                    apply_patches.apply(|l, r| NativeValue(l) == NativeValue(r))?;
+                match operator {
+                    CompareOperator::Eq => {
+                        apply_patches.apply(|l, r| NativeValue(l) == NativeValue(r));
+                    }
+                    CompareOperator::NotEq => {
+                        apply_patches.apply(|l, r| NativeValue(l) != NativeValue(r));
+                    }
+                    CompareOperator::Gt => {
+                        apply_patches.apply(|l, r| NativeValue(l) > NativeValue(r));
+                    }
+                    CompareOperator::Gte => {
+                        apply_patches.apply(|l, r| NativeValue(l) >= NativeValue(r));
+                    }
+                    CompareOperator::Lt => {
+                        apply_patches.apply(|l, r| NativeValue(l) < NativeValue(r));
+                    }
+                    CompareOperator::Lte => {
+                        apply_patches.apply(|l, r| NativeValue(l) <= NativeValue(r));
+                    }
                 }
-                CompareOperator::NotEq => {
-                    apply_patches.apply(|l, r| NativeValue(l) != NativeValue(r))?;
-                }
-                CompareOperator::Gt => {
-                    apply_patches.apply(|l, r| NativeValue(l) > NativeValue(r))?;
-                }
-                CompareOperator::Gte => {
-                    apply_patches.apply(|l, r| NativeValue(l) >= NativeValue(r))?;
-                }
-                CompareOperator::Lt => {
-                    apply_patches.apply(|l, r| NativeValue(l) < NativeValue(r))?;
-                }
-                CompareOperator::Lte => {
-                    apply_patches.apply(|l, r| NativeValue(l) <= NativeValue(r))?;
-                }
-            }
+            });
         });
 
         let result = BoolArray::new(bits.freeze(), validity);
@@ -110,49 +114,35 @@ impl CompareKernel for Patched {
     }
 }
 
-struct ApplyPatches<'a, V: NativePType> {
+struct ApplyPatches<'a, I: IntegerPType, V: NativePType> {
     bits: &'a mut BitBufferMut,
     offset: usize,
-    n_lanes: usize,
-    lane_offsets: &'a [u32],
-    indices: &'a [u16],
+    indices: &'a [I],
     values: &'a [V],
     constant: V,
 }
 
-impl<V: NativePType> ApplyPatches<'_, V> {
-    fn apply<F>(self, cmp: F) -> VortexResult<()>
+impl<I: IntegerPType, V: NativePType> ApplyPatches<'_, I, V> {
+    fn apply<F>(self, cmp: F)
     where
         F: Fn(V, V) -> bool,
     {
-        for index in 0..(self.lane_offsets.len() - 1) {
-            let chunk = index / self.n_lanes;
-
-            let lane_start = self.lane_offsets[index] as usize;
-            let lane_end = self.lane_offsets[index + 1] as usize;
-
-            for (&patch_index, &patch_value) in std::iter::zip(
-                &self.indices[lane_start..lane_end],
-                &self.values[lane_start..lane_end],
-            ) {
-                let bit_index = chunk * 1024 + patch_index as usize;
-                // Skip any indices < the offset.
-                if bit_index < self.offset {
-                    continue;
-                }
-                let bit_index = bit_index - self.offset;
-                if bit_index >= self.bits.len() {
-                    break;
-                }
-                if cmp(patch_value, self.constant) {
-                    self.bits.set(bit_index)
-                } else {
-                    self.bits.unset(bit_index)
-                }
+        for (&patch_index, &patch_value) in std::iter::zip(self.indices, self.values) {
+            let bit_index: usize = patch_index.as_();
+            // Skip any indices < the offset.
+            if bit_index < self.offset {
+                continue;
+            }
+            let bit_index = bit_index - self.offset;
+            if bit_index >= self.bits.len() {
+                continue;
+            }
+            if cmp(patch_value, self.constant) {
+                self.bits.set(bit_index)
+            } else {
+                self.bits.unset(bit_index)
             }
         }
-
-        Ok(())
     }
 }
 

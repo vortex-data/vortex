@@ -21,6 +21,10 @@ use crate::match_each_native_ptype;
 use crate::match_each_unsigned_integer_ptype;
 
 impl TakeExecute for Patched {
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "complexity is from nested match_each_* macros"
+    )]
     fn take(
         array: ArrayView<'_, Self>,
         indices: &ArrayRef,
@@ -44,33 +48,30 @@ impl TakeExecute for Patched {
         } = inner.into_data_parts();
 
         let indices_ptype = indices.dtype().as_ptype();
+        let patch_indices = array
+            .patch_indices()
+            .clone()
+            .execute::<PrimitiveArray>(ctx)?;
+        let patch_indices_ptype = patch_indices.ptype();
 
         match_each_unsigned_integer_ptype!(indices_ptype, |I| {
             match_each_native_ptype!(ptype, |V| {
                 let indices = indices.clone().execute::<PrimitiveArray>(ctx)?;
-                let lane_offsets = array
-                    .lane_offsets()
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)?;
-                let patch_indices = array
-                    .patch_indices()
-                    .clone()
-                    .execute::<PrimitiveArray>(ctx)?;
                 let patch_values = array
                     .patch_values()
                     .clone()
                     .execute::<PrimitiveArray>(ctx)?;
                 let mut output = Buffer::<V>::from_byte_buffer(buffer.unwrap_host()).into_mut();
-                take_map(
-                    output.as_mut(),
-                    indices.as_slice::<I>(),
-                    array.offset(),
-                    array.len(),
-                    array.n_lanes(),
-                    lane_offsets.as_slice::<u32>(),
-                    patch_indices.as_slice::<u16>(),
-                    patch_values.as_slice::<V>(),
-                );
+                match_each_unsigned_integer_ptype!(patch_indices_ptype, |P| {
+                    take_map(
+                        output.as_mut(),
+                        indices.as_slice::<I>(),
+                        array.offset(),
+                        array.len(),
+                        patch_indices.as_slice::<P>(),
+                        patch_values.as_slice::<V>(),
+                    );
+                });
 
                 // SAFETY: output and validity still have same length after take_map returns.
                 unsafe {
@@ -87,33 +88,20 @@ impl TakeExecute for Patched {
 ///
 /// First, builds a hashmap from index to patch value, then uses the hashmap in a loop to collect
 /// the values.
-#[expect(clippy::too_many_arguments)]
-fn take_map<I: IntegerPType, V: NativePType>(
+fn take_map<I: IntegerPType, P: IntegerPType, V: NativePType>(
     output: &mut [V],
     indices: &[I],
     offset: usize,
     len: usize,
-    n_lanes: usize,
-    lane_offsets: &[u32],
-    patch_index: &[u16],
+    patch_index: &[P],
     patch_value: &[V],
 ) {
-    let n_chunks = (offset + len).div_ceil(1024);
     // Build a hashmap of patch_index -> values.
     let mut index_map = FxHashMap::with_capacity_and_hasher(patch_index.len(), Default::default());
-    for chunk in 0..n_chunks {
-        for lane in 0..n_lanes {
-            let lane_start = lane_offsets[chunk * n_lanes + lane];
-            let lane_end = lane_offsets[chunk * n_lanes + lane + 1];
-            for i in lane_start..lane_end {
-                let patch_idx = patch_index[i as usize];
-                let patch_value = patch_value[i as usize];
-
-                let index = chunk * 1024 + patch_idx as usize;
-                if index >= offset && index < offset + len {
-                    index_map.insert(index - offset, patch_value);
-                }
-            }
+    for (&patch_idx, &patch_value) in std::iter::zip(patch_index, patch_value) {
+        let index: usize = patch_idx.as_();
+        if index >= offset && index < offset + len {
+            index_map.insert(index - offset, patch_value);
         }
     }
 

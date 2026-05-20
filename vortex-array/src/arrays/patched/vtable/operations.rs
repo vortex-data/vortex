@@ -6,11 +6,9 @@ use vortex_error::VortexResult;
 use crate::ExecutionCtx;
 use crate::array::ArrayView;
 use crate::array::OperationsVTable;
-use crate::arrays::PrimitiveArray;
 use crate::arrays::patched::Patched;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
-use crate::optimizer::ArrayOptimizer;
 use crate::scalar::Scalar;
 
 impl OperationsVTable<Patched> for Patched {
@@ -19,35 +17,9 @@ impl OperationsVTable<Patched> for Patched {
         index: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Scalar> {
-        let chunk = (index + array.offset()) / 1024;
-
-        #[expect(
-            clippy::cast_possible_truncation,
-            reason = "N % 1024 always fits in u16"
-        )]
-        let chunk_index = ((index + array.offset()) % 1024) as u16;
-
-        let lane = (index + array.offset()) % array.n_lanes();
-
-        let range = array.lane_range(chunk, lane)?;
-
-        // Get the range of indices corresponding to the lane, potentially decoding them to avoid
-        // the overhead of repeated scalar_at calls.
-        let patch_indices = array
-            .patch_indices()
-            .slice(range.clone())?
-            .optimize()?
-            .execute::<PrimitiveArray>(ctx)?;
-
-        // NOTE: we do linear scan as lane has <= 32 patches, binary search would likely
-        //  be slower.
-        for (&patch_index, idx) in std::iter::zip(patch_indices.as_slice::<u16>(), range) {
-            if patch_index == chunk_index {
-                return array
-                    .patch_values()
-                    .execute_scalar(idx, ctx)?
-                    .cast(array.dtype());
-            }
+        // Constant-time chunked lookup via the untransposed patches' chunk offsets.
+        if let Some(patch) = array.patches().get_patched(index)? {
+            return patch.cast(array.dtype());
         }
 
         // Otherwise, access the underlying value.

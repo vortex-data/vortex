@@ -22,50 +22,27 @@
 //!
 //! # Details
 //!
-//! To patch an array, we first divide it into a set of chunks of length 1024, and then within
-//! each chunk, we assign each position to a lane. The number of lanes depends on the width of
-//! the underlying type.
-//!
-//! Thus, rather than sorting patch indices and values by their global offset, they are sorted
-//! primarily by their chunk, and then subsequently by their lanes.
+//! Patch indices and values are kept in their natural sorted (untransposed) layout, exactly like
+//! the [`Patches`](crate::patches::Patches) helper. To allow constant-time seeking to the patches
+//! belonging to a given chunk, we additionally store a `chunk_offsets` array holding one offset
+//! per 1024-element chunk.
 //!
 //! The Patched array layout has 4 children
 //!
 //! * `inner`: the inner array is the one containing encoded values, including the filler values
 //!   that need to be patched over at execution time
-//! * `lane_offsets`: this is an indexing buffer that allows you to see into ranges of the other
-//!   two children
-//! * `indices`: An array of `u16` chunk indices, indicating where within the chunk should the value
-//!   be overwritten by the patch value
-//! * `values`: The child array containing the patch values, which should be inserted over
-//!   the values of the `inner` at the locations provided by `indices`
+//! * `patch_indices`: a sorted array of unsigned global indices indicating which positions of
+//!   `inner` should be overwritten by the patch value
+//! * `patch_values`: the child array containing the patch values, which should be inserted over
+//!   the values of the `inner` at the locations provided by `patch_indices`
+//! * `chunk_offsets`: an indexing buffer with one entry per 1024-element chunk, so that the
+//!   patches for chunk `c` are `patch_indices[chunk_offsets[c]..chunk_offsets[c + 1]]`
 //!
-//! `indices` and `values` are aligned and accessed together.
+//! `patch_indices` and `patch_values` are aligned and accessed together.
 //!
-//! ```text
-//!
-//!                  chunk 0      chunk 0      chunk 0     chunk 0       chunk 0     chunk 0
-//!                  lane  0      lane 1       lane  2     lane 3        lane  4     lane  5
-//!              ┌────────────┬────────────┬────────────┬────────────┬────────────┬────────────┐
-//! lane_offsets │     0      │     0      │     2      │     2      │     3      │     5      │  ...
-//!              └─────┬──────┴─────┬──────┴─────┬──────┴──────┬─────┴──────┬─────┴──────┬─────┘
-//!                    │            │            │             │            │            │
-//!                    │            │            │             │            │            │
-//!              ┌─────┴────────────┘            └──────┬──────┘     ┌──────┘            └─────┐
-//!              │                                      │            │                         │
-//!              │                                      │            │                         │
-//!              │                                      │            │                         │
-//!              ▼────────────┬────────────┬────────────▼────────────▼────────────┬────────────▼
-//!    indices   │            │            │            │            │            │            │
-//!              │            │            │            │            │            │            │
-//!              ├────────────┼────────────┼────────────┼────────────┼────────────┼────────────┤
-//!    values    │            │            │            │            │            │            │
-//!              │            │            │            │            │            │            │
-//!              └────────────┴────────────┴────────────┴────────────┴────────────┴────────────┘
-//! ```
-//!
-//! It turns out that this layout is optimal for executing patching on GPUs, because the
-//! `lane_offsets` allows each thread in a warp to seek to its patches in constant time.
+//! The number of lanes that *would* be used if these patches were transposed into the
+//! data-parallel GPU layout is retained as `n_lanes` metadata, but no transpose is performed: the
+//! patches are stored untransposed.
 
 mod array;
 mod compute;
@@ -75,25 +52,16 @@ use std::env;
 use std::sync::LazyLock;
 
 pub use array::*;
-use vortex_buffer::ByteBuffer;
 pub use vtable::*;
 
-/// Patches that have been transposed into GPU format.
-struct TransposedPatches {
-    n_lanes: usize,
-    lane_offsets: ByteBuffer,
-    indices: ByteBuffer,
-    values: ByteBuffer,
-}
-
-/// Number of lanes used at patch time for a value of type `V`.
+/// Number of lanes that would be used at patch time for a value of type `V` if the patches were
+/// transposed into the data-parallel GPU layout.
 ///
 /// This is *NOT* equal to the number of FastLanes lanes for the type `V`, rather this is going to
-/// correspond to how many "lanes" we will end up copying data on.
+/// correspond to how many "lanes" we would end up copying data on.
 ///
-/// When applied on the CPU, this configuration doesn't really matter. On the GPU, it is based
-/// on the number of patches involved here.
-const fn patch_lanes<V: Sized>() -> usize {
+/// The patches themselves are stored untransposed; this value is retained only as metadata.
+pub(crate) const fn patch_lanes<V: Sized>() -> usize {
     // For types 32-bits or smaller, we use a 32 lane configuration, and for 64-bit we use 16 lanes.
     // This matches up with the number of lanes we use to execute copying results from bit-unpacking
     // from shared to global memory.

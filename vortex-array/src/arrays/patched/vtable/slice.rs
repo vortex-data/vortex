@@ -11,46 +11,20 @@ use crate::array::ArrayView;
 use crate::arrays::Patched;
 use crate::arrays::patched::PatchedArrayExt;
 use crate::arrays::patched::PatchedArraySlotsExt;
-use crate::arrays::patched::PatchedSlots;
 use crate::arrays::slice::SliceReduce;
 
 impl SliceReduce for Patched {
     fn slice(array: ArrayView<'_, Self>, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // We **always** slice the patches at 1024-element chunk boundaries. We keep the offset + len
-        // around so that when we execute we know how much to chop off.
-        let new_offset = (range.start + array.offset()) % 1024;
-        let chunk_start = (range.start + array.offset()) / 1024;
-        let chunk_stop = (range.end + array.offset()).div_ceil(1024);
-        let sliced_lane_offsets = array
-            .lane_offsets()
-            .slice((chunk_start * array.n_lanes())..(chunk_stop * array.n_lanes()) + 1)?;
-
-        // Unlike the patches, we slice the inner to the exact range. This is handled
-        // at execution time by making sure to skip patch indices that are < offset
-        // or >= len.
+        // Slice the inner to the exact range; the patches keep their own offset bookkeeping and
+        // are sliced at chunk granularity via `Patches::slice`.
         let inner = array.inner().slice(range.start..range.end)?;
-        let len = inner.len();
 
-        let slots = PatchedSlots {
-            inner,
-            lane_offsets: sliced_lane_offsets,
-            patch_indices: array.patch_indices().clone(),
-            patch_values: array.patch_values().clone(),
+        match array.patches().slice(range)? {
+            // Patches remain in the sliced range: rewrap them around the sliced inner.
+            Some(patches) => Ok(Some(Patched::wrap(inner, &patches, array.n_lanes()).into_array())),
+            // No patches overlap the slice, so the inner array already holds the final values.
+            None => Ok(Some(inner)),
         }
-        .into_slots();
-
-        Ok(Some(
-            unsafe {
-                Patched::new_unchecked(
-                    array.dtype().clone(),
-                    len,
-                    slots,
-                    array.n_lanes(),
-                    new_offset,
-                )
-            }
-            .into_array(),
-        ))
     }
 }
 
@@ -92,9 +66,9 @@ mod tests {
             @r#"
             root: vortex.patched(u16, len=9)
               inner: vortex.primitive(u16, len=9)
-              lane_offsets: vortex.primitive(u32, len=33)
-              patch_indices: vortex.primitive(u16, len=3)
-              patch_values: vortex.primitive(u16, len=3)
+              patch_indices: vortex.primitive(u32, len=2)
+              patch_values: vortex.primitive(u16, len=2)
+              chunk_offsets: vortex.primitive(u64, len=1)
             "#);
 
         let executed = sliced.execute::<Canonical>(&mut ctx)?.into_primitive();
