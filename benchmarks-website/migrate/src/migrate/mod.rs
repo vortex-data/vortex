@@ -32,11 +32,12 @@ use vortex_bench_server::db::measurement_id_compression_size;
 use vortex_bench_server::db::measurement_id_compression_time;
 use vortex_bench_server::db::measurement_id_query;
 use vortex_bench_server::db::measurement_id_random_access;
+use vortex_bench_server::family;
 use vortex_bench_server::records::CompressionSize;
 use vortex_bench_server::records::CompressionTime;
 use vortex_bench_server::records::QueryMeasurement;
 use vortex_bench_server::records::RandomAccessTime;
-use vortex_bench_server::schema::SCHEMA_DDL;
+use vortex_bench_server::schema::COMMITS_DDL;
 
 use self::accum::CompressionSizeAccum;
 use self::accum::CompressionTimeAccum;
@@ -134,8 +135,15 @@ pub fn open_target_db(path: &Path) -> Result<Connection> {
     remove_if_exists(&wal)?;
     let conn =
         Connection::open(path).with_context(|| format!("opening DuckDB at {}", path.display()))?;
-    conn.execute_batch(SCHEMA_DDL)
-        .context("applying v3 schema DDL")?;
+    // Apply the v3 schema. Drives off the per-fact-table `family::Family`
+    // registry the same way `vortex_bench_server::db::open` does — adding
+    // a sixth fact table only needs a new const there, not an edit here.
+    conn.execute_batch(COMMITS_DDL)
+        .context("applying commits dim DDL")?;
+    for fam in family::FAMILIES {
+        conn.execute_batch(fam.schema_ddl)
+            .with_context(|| format!("applying {} DDL", fam.table_name))?;
+    }
     Ok(conn)
 }
 
