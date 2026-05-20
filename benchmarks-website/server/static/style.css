@@ -92,10 +92,21 @@ html, body {
   overflow-x: hidden;
   background: var(--page-bg);
   color: var(--fg);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
+  /* Geist is loaded from unpkg by `render::web_font_links`; the
+   * fallback stack matches v2's `src/styles/index.css` so the site
+   * remains legible if the CDN is blocked. */
+  font-family: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "SF Pro Display", Roboto, sans-serif;
   font-size: 16px;
   line-height: 1.6;
+}
+
+/* All headings use Funnel Display, mirroring v2's
+ * `h1, h2, h3, h4, h5, h6` rule. Loaded from Google Fonts by
+ * `render::web_font_links`. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: "Funnel Display", sans-serif;
+  letter-spacing: -0.02em;
 }
 
 body {
@@ -395,7 +406,7 @@ main {
 }
 .group-count {
   color: var(--muted);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.7rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -573,7 +584,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 
 .score-value,
 .score-runtime {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-family: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.8rem;
   font-weight: 600;
 }

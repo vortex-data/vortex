@@ -30,7 +30,7 @@ const ICON_DARK_PNG: &[u8] = include_bytes!("../../static/icon-dark.png");
 
 /// Cache-busting suffix appended to every static asset URL. Bump on a UI
 /// release so cached browsers see the new bytes.
-pub(crate) const STATIC_ASSET_VERSION: &str = "bench-v3-ui-24";
+pub(crate) const STATIC_ASSET_VERSION: &str = "bench-v3-ui-25";
 
 /// Append the cache-bust query param to a static asset URL.
 pub(crate) fn versioned_asset(path: &str) -> String {

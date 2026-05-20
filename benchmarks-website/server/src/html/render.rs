@@ -48,6 +48,7 @@ pub(super) fn render_page(
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 title { (title) }
                 (favicon_links())
+                (web_font_links())
                 (theme_bootstrap_script())
                 link rel="stylesheet" href=(style_href);
             }
@@ -67,6 +68,22 @@ pub(super) fn render_page(
                 }
             }
         }
+    }
+}
+
+/// External web-font links — Geist (sans + mono) from unpkg and Funnel
+/// Display from Google Fonts. Mirrors v2's `index.html` so the v3 site
+/// reads in the same typeface (Geist for body, Funnel Display for
+/// headings, Geist Mono for the monospaced metrics columns). The
+/// preconnect hints shave a round-trip off the first load.
+fn web_font_links() -> Markup {
+    html! {
+        link rel="preconnect" href="https://fonts.googleapis.com";
+        link rel="preconnect" href="https://fonts.gstatic.com" crossorigin;
+        link rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=Funnel+Display:wght@300;400;500;600;700;800&display=swap";
+        link rel="stylesheet" href="https://unpkg.com/geist@1.3.0/dist/fonts/geist-sans/style.css";
+        link rel="stylesheet" href="https://unpkg.com/geist@1.3.0/dist/fonts/geist-mono/style.css";
     }
 }
 
@@ -256,6 +273,7 @@ pub(super) fn error_page(status: StatusCode, message: &str) -> Response {
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 title { (status.as_u16()) " — Vortex Benchmarks" }
                 (favicon_links())
+                (web_font_links())
                 (theme_bootstrap_script())
                 link rel="stylesheet" href=(style_href);
             }
