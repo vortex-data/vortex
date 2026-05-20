@@ -68,6 +68,10 @@ impl vortex_array::arrays::slice::SliceKernel for vortex_sparse::Sparse
 
 pub fn vortex_sparse::Sparse::slice(vortex_array::array::view::ArrayView<'_, Self>, core::ops::range::Range<usize>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
+impl vortex_array::scalar_fn::fns::between::kernel::BetweenKernel for vortex_sparse::Sparse
+
+pub fn vortex_sparse::Sparse::between(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::array::erased::ArrayRef, &vortex_array::array::erased::ArrayRef, &vortex_array::scalar_fn::fns::between::BetweenOptions, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
 impl vortex_array::scalar_fn::fns::binary::compare::CompareKernel for vortex_sparse::Sparse
 
 pub fn vortex_sparse::Sparse::compare(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::array::erased::ArrayRef, vortex_array::scalar_fn::fns::operators::CompareOperator, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
@@ -75,6 +79,10 @@ pub fn vortex_sparse::Sparse::compare(vortex_array::array::view::ArrayView<'_, S
 impl vortex_array::scalar_fn::fns::cast::kernel::CastReduce for vortex_sparse::Sparse
 
 pub fn vortex_sparse::Sparse::cast(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
+
+impl vortex_array::scalar_fn::fns::fill_null::kernel::FillNullKernel for vortex_sparse::Sparse
+
+pub fn vortex_sparse::Sparse::fill_null(vortex_array::array::view::ArrayView<'_, Self>, &vortex_array::scalar::Scalar, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::erased::ArrayRef>>
 
 impl vortex_array::scalar_fn::fns::not::kernel::NotReduce for vortex_sparse::Sparse
 

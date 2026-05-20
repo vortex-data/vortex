@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod between;
 mod cast;
 mod compare;
+mod fill_null;
 mod filter;
 pub(crate) mod is_constant;
+pub(crate) mod min_max;
+pub(crate) mod nan_count;
+pub(crate) mod null_count;
 pub(crate) mod sum;
 mod take;
 

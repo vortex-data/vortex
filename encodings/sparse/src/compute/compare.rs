@@ -66,7 +66,6 @@ mod tests {
     use vortex_array::scalar::Scalar;
     use vortex_array::scalar_fn::fns::operators::Operator;
     use vortex_array::session::ArraySession;
-    use vortex_array::session::ArraySessionExt;
     use vortex_buffer::buffer;
     use vortex_session::VortexSession;
 
@@ -77,12 +76,6 @@ mod tests {
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let session = VortexSession::empty().with::<ArraySession>();
         initialize(&session);
-        session
-    });
-
-    static CANONICAL_SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
-        let session = VortexSession::empty().with::<ArraySession>();
-        session.arrays().register(Sparse);
         session
     });
 
@@ -101,20 +94,22 @@ mod tests {
         )
         .unwrap();
         let arr = array.into_array();
-
         let len = arr.len();
-        let mut k_ctx = SESSION.create_execution_ctx();
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // Kernel path: compare pushes through the Sparse encoding.
         let kernel_bool = arr
             .binary(ConstantArray::new(rhs.clone(), len).into_array(), op)
             .unwrap()
-            .execute::<Canonical>(&mut k_ctx)
+            .execute::<Canonical>(&mut ctx)
             .unwrap();
 
-        let mut c_ctx = CANONICAL_SESSION.create_execution_ctx();
-        let canonical_bool = arr
+        // Baseline: canonicalize first, then compare on the PrimitiveArray.
+        let canonical_input = arr.execute::<Canonical>(&mut ctx).unwrap().into_array();
+        let canonical_bool = canonical_input
             .binary(ConstantArray::new(rhs, len).into_array(), op)
             .unwrap()
-            .execute::<Canonical>(&mut c_ctx)
+            .execute::<Canonical>(&mut ctx)
             .unwrap();
 
         assert_arrays_eq!(kernel_bool, canonical_bool);

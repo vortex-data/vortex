@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Benchmarks for the Sparse pushdown kernels (`is_constant`, `sum`, compare).
+//! Benchmarks for the Sparse pushdown kernels (`is_constant`, `sum`, `min_max`,
+//! `null_count`, compare).
 //!
 //! Each benchmark exercises the registered kernel path on a single representative
-//! sparse `i32` array. All three are `O(num_patches)`; the patch counts below are
-//! sized so each lands in the ~10-100µs range for a stable CodSpeed signal.
+//! sparse `i32` array. All are `O(num_patches)`; the patch counts below are sized so
+//! each lands in the ~10-100µs range for a stable CodSpeed signal. `between`/`fill_null`/
+//! `nan_count` are omitted since they mirror the compare/null_count cost profiles.
 
 #![expect(clippy::cast_possible_truncation)]
 
@@ -18,9 +20,15 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::VortexSessionExecute;
 use vortex_array::aggregate_fn::fns::is_constant::is_constant;
+use vortex_array::aggregate_fn::fns::min_max::min_max;
+use vortex_array::aggregate_fn::fns::null_count::null_count;
 use vortex_array::aggregate_fn::fns::sum::sum;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::dtype::DType;
+use vortex_array::dtype::Nullability;
+use vortex_array::dtype::PType;
 use vortex_array::scalar::Scalar;
 use vortex_array::scalar_fn::fns::operators::Operator;
 use vortex_array::session::ArraySession;
@@ -61,10 +69,25 @@ fn make_sparse(num_patches: usize, constant: bool) -> ArrayRef {
     .into_array()
 }
 
+/// Build a sparse `i32` array of `LEN` with a null fill and `num_patches` nullable patches
+/// (every third patch null), so `null_count` does real `O(P)` work over the patch validity.
+fn make_sparse_nullable(num_patches: usize) -> ArrayRef {
+    let stride = LEN / num_patches;
+    let indices: Buffer<u32> = (0..num_patches).map(|i| (i * stride) as u32).collect();
+    let values = PrimitiveArray::from_option_iter(
+        (0..num_patches).map(|i| if i % 3 == 0 { None } else { Some(i as i32) }),
+    )
+    .into_array();
+    let nullable = DType::Primitive(PType::I32, Nullability::Nullable);
+    Sparse::try_new(indices.into_array(), values, LEN, Scalar::null(nullable))
+        .vortex_expect("valid sparse")
+        .into_array()
+}
+
 #[divan::bench]
 fn sparse_is_constant(bencher: Bencher) {
     bencher
-        .with_inputs(|| (make_sparse(150_000, true), SESSION.create_execution_ctx()))
+        .with_inputs(|| (make_sparse(100_000, true), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
             divan::black_box(is_constant(&array, &mut ctx).vortex_expect("is_constant"))
         });
@@ -76,6 +99,29 @@ fn sparse_sum(bencher: Bencher) {
         .with_inputs(|| (make_sparse(100_000, false), SESSION.create_execution_ctx()))
         .bench_values(|(array, mut ctx)| {
             divan::black_box(sum(&array, &mut ctx).vortex_expect("sum"))
+        });
+}
+
+#[divan::bench]
+fn sparse_min_max(bencher: Bencher) {
+    bencher
+        .with_inputs(|| (make_sparse(40_000, false), SESSION.create_execution_ctx()))
+        .bench_values(|(array, mut ctx)| {
+            divan::black_box(min_max(&array, &mut ctx).vortex_expect("min_max"))
+        });
+}
+
+#[divan::bench]
+fn sparse_null_count(bencher: Bencher) {
+    bencher
+        .with_inputs(|| {
+            (
+                make_sparse_nullable(130_000),
+                SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_values(|(array, mut ctx)| {
+            divan::black_box(null_count(&array, &mut ctx).vortex_expect("null_count"))
         });
 }
 
