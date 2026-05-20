@@ -43,6 +43,7 @@ pub mod downloadable_dataset;
 pub mod fineweb;
 pub mod measurements;
 pub mod memory;
+pub mod onpair_bench;
 pub mod output;
 pub mod polarsignals;
 pub mod public_bi;
