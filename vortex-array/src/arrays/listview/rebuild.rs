@@ -15,6 +15,7 @@ use crate::aggregate_fn::fns::min_max::min_max;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::compute::REBUILD_DENSITY_THRESHOLD;
 use crate::builders::builder_with_capacity;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
@@ -375,6 +376,16 @@ impl ListViewArray {
             // any leading and trailing garbage data.
             self.rebuild_zero_copy_to_list()
         }
+    }
+
+    fn should_rebuild(&self, exact: bool) -> bool {
+        let density = if exact {
+            self.compute_density()
+        } else {
+            self.estimate_density().ok().flatten()
+        };
+
+        density.unwrap_or(1.0) < REBUILD_DENSITY_THRESHOLD
     }
 }
 

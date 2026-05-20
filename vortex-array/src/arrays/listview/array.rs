@@ -7,11 +7,13 @@ use std::sync::Arc;
 
 use num_traits::AsPrimitive;
 use smallvec::smallvec;
+use vortex_buffer::BitBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::ArraySlots;
@@ -19,6 +21,7 @@ use crate::LEGACY_SESSION;
 #[expect(deprecated)]
 use crate::ToCanonical as _;
 use crate::VortexSessionExecute;
+use crate::aggregate_fn::fns::sum::sum;
 use crate::array::Array;
 use crate::array::ArrayParts;
 use crate::array::TypedArrayRef;
@@ -30,6 +33,9 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::bool;
 use crate::dtype::DType;
 use crate::dtype::IntegerPType;
+use crate::expr::stats::Precision;
+use crate::expr::stats::Stat;
+use crate::expr::stats::StatsProvider;
 use crate::match_each_integer_ptype;
 use crate::validity::Validity;
 
@@ -395,6 +401,92 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
         #[expect(deprecated)]
         let sizes_primitive = self.sizes().to_primitive();
         validate_zctl(self.elements(), offsets_primitive, sizes_primitive).is_ok()
+    }
+
+    /// Returns a [`Mask`] of length `elements.len()` where each bit is set iff that
+    /// position in `elements` is referenced by at least one view.
+    ///
+    /// Walks every `(offset, size)` pair, canonicalizes both `offsets` and `sizes`,
+    /// and allocates a `BitBuffer` of length `elements.len()`, so it is extremely costly.
+    ///
+    /// Returns `None` when `elements` is empty.
+    fn compute_referenced_elements_mask(&self) -> Option<Mask> {
+        let len = self.elements().len();
+        if len == 0 {
+            return None;
+        }
+
+        let offsets_dtype = self.offsets().dtype();
+        let sizes_dtype = self.sizes().dtype();
+
+        #[expect(deprecated)]
+        let offsets_primitive = self.offsets().to_primitive();
+        #[expect(deprecated)]
+        let sizes_primitive = self.sizes().to_primitive();
+
+        let mut buf = BitBufferMut::new_unset(len);
+        let offset_len = self.as_ref().len();
+
+        match_each_integer_ptype!(offsets_dtype.as_ptype(), |O| {
+            match_each_integer_ptype!(sizes_dtype.as_ptype(), |S| {
+                let offsets_slice = offsets_primitive.as_slice::<O>();
+                let sizes_slice = sizes_primitive.as_slice::<S>();
+
+                (0..offset_len).for_each(|i| {
+                    let start = offsets_slice[i] as usize;
+                    let size = sizes_slice[i] as usize;
+                    buf.fill_range(start, start + size, true);
+                });
+            })
+        });
+
+        Some(Mask::from_buffer(buf.freeze()))
+    }
+
+    /// Exact fraction of `elements` referenced by some view, in `[0.0, 1.0]`. Extremely costly.
+    ///
+    /// Returns `None` when `elements` is empty.
+    fn compute_density(&self) -> Option<f32> {
+        self.compute_referenced_elements_mask()
+            .map(|mask| match mask {
+                Mask::AllTrue(_) => 1.0,
+                Mask::AllFalse(_) => 0.0,
+                Mask::Values(values) => values.true_count() as f32 / self.elements().len() as f32,
+            })
+    }
+
+    /// Upper-bound estimate of [`compute_density`](Self::compute_density) via
+    /// `sum(sizes) / elements.len()`, clamped to `[0.0, 1.0]`.
+    ///
+    /// Exact for non-overlapping views, but overcounts when multiple views share the same elements.
+    ///
+    /// Returns `Ok(None)` when `elements` is empty
+    fn estimate_density(&self) -> VortexResult<Option<f32>> {
+        let n_elts = self.elements().len();
+        if n_elts == 0 {
+            return Ok(None);
+        }
+
+        let sizes = self.sizes();
+        if sizes.is_empty() {
+            return Ok(Some(0.0));
+        }
+
+        // Try to fetch the cached sum stat, otherwise fall back to calculating it on the spot
+        let sizes_sum = if let Some(Precision::Exact(scalar)) = sizes.statistics().get(Stat::Sum)
+            && let Some(sum) = scalar.as_primitive().as_::<u64>()
+        {
+            sum
+        } else {
+            sum(sizes, &mut LEGACY_SESSION.create_execution_ctx())?
+                .as_primitive()
+                .as_::<u64>()
+                .unwrap()
+        };
+
+        let estimate = (sizes_sum as f32 / n_elts as f32).clamp(0.0, 1.0);
+
+        Ok(Some(estimate))
     }
 }
 impl<T: TypedArrayRef<ListView>> ListViewArrayExt for T {}
