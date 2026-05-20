@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -37,6 +38,18 @@ OUT_ROOT = DATA_DIR / "onpair-bench"
 BIN = "onpair-chunk-bench"
 MB = 1 << 20
 GIB = 1 << 30
+
+
+def clean_outputs() -> None:
+    """Remove generated OnPair benchmark output files.
+
+    Source parquet caches under `onpair-bench-src` are intentionally preserved.
+    """
+    if OUT_ROOT.exists():
+        print(f"==> removing {OUT_ROOT}", file=sys.stderr)
+        shutil.rmtree(OUT_ROOT)
+    else:
+        print(f"==> nothing to clean at {OUT_ROOT}", file=sys.stderr)
 
 
 def build_binary(release: bool) -> Path:
@@ -85,6 +98,17 @@ def ensure_parquet(binary: Path, col: Column) -> Path:
             check=True,
         )
         return path
+    if col.kind == "tpcds":
+        # DuckDB dsdgen → one parquet per table under <tpcds_dir>/parquet/.
+        out_dir = col.tpcds_dir()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        print(f"==> generating TPC-DS sf={col.scale_factor} tables (duckdb dsdgen)", file=sys.stderr)
+        subprocess.run(
+            [str(binary), "gen-tpcds", "--sf", str(col.scale_factor), "--out-dir", str(out_dir)],
+            cwd=REPO_ROOT,
+            check=True,
+        )
+        return path
     if col.kind == "parquet" and col.url:
         download(col.url, col.cache_path())
         return col.cache_path()
@@ -113,7 +137,6 @@ def run_column(binary: Path, col: Column, args) -> list[dict]:
     chunk_bytes = ",".join(str(int(mb * MB)) for mb in args.chunk_mb)
     bits = ",".join(str(b) for b in args.bits)
     thresholds = ",".join(str(t) for t in args.threshold)
-    deltas = ",".join("true" if d else "false" for d in args.delta_offsets)
     print(f"==> running {col.dataset_id}/{col.column}", file=sys.stderr)
     proc = subprocess.run(
         [
@@ -124,7 +147,6 @@ def run_column(binary: Path, col: Column, args) -> list[dict]:
             "--bits", bits,
             "--chunk-bytes", chunk_bytes,
             "--threshold", thresholds,
-            "--delta-offsets", deltas,
             "--sample-bytes", str(args.sample_bytes),
             "--file-target-bytes", str(int(args.file_target_mb * MB)),
             "--out-dir", str(OUT_ROOT),
@@ -149,7 +171,7 @@ def fmt_bytes(n: int) -> str:
 
 def markdown_table(rows: list[dict]) -> str:
     headers = [
-        "dataset", "column", "bits", "thr", "delta", "chunk", "rows", "uniq", "uniq%",
+        "dataset", "column", "bits", "thr", "chunk", "rows", "uniq", "uniq%",
         "chunks", "sample", "in-mem", "on-disk", "str→codec×", "str→files×",
         "enc GiB/s", "dec GiB/s", "ok", "onpair",
     ]
@@ -159,7 +181,6 @@ def markdown_table(rows: list[dict]) -> str:
         uniq_pct = 100.0 * r["unique_count"] / r["rows"] if r["rows"] else 0.0
         lines.append("| " + " | ".join([
             r["dataset_id"], r["column"], str(r["bits"]), f"{r['threshold']:.2f}",
-            "✓" if r["delta_offsets"] else "·",
             fmt_bytes(r["chunk_bytes"]), f"{r['rows']:,}", f"{r['unique_count']:,}",
             f"{uniq_pct:.1f}%", str(r["n_chunks"]),
             fmt_bytes(r["sample_bytes"]), fmt_bytes(r["in_memory_bytes"]),
@@ -173,18 +194,18 @@ def markdown_table(rows: list[dict]) -> str:
 
 def pivot_table(rows: list[dict]) -> str:
     """Per-column compression (str→codec×) across every param combo:
-    dict width (bits) × block size (chunk) × delta-offsets."""
+    dict width (bits) × block size (chunk)."""
     # Stable param-combo column order.
-    combos = sorted({(r["bits"], r["chunk_bytes"], r["delta_offsets"]) for r in rows})
+    combos = sorted({(r["bits"], r["chunk_bytes"]) for r in rows})
 
-    def combo_label(bits, chunk, delta):
-        return f"b{bits}/{fmt_bytes(chunk).split()[0]}{'+Δ' if delta else ''}"
+    def combo_label(bits, chunk):
+        return f"b{bits}/{fmt_bytes(chunk).split()[0]}"
 
     val = {}  # (dataset,column) -> {combo -> ratio}
     uniq = {}
     for r in rows:
         k = (r["dataset_id"], r["column"])
-        val.setdefault(k, {})[(r["bits"], r["chunk_bytes"], r["delta_offsets"])] = r["mem_ratio"]
+        val.setdefault(k, {})[(r["bits"], r["chunk_bytes"])] = r["mem_ratio"]
         uniq[k] = 100.0 * r["unique_count"] / r["rows"] if r["rows"] else 0.0
 
     headers = ["dataset/column", "uniq%"] + [combo_label(*c) for c in combos]
@@ -199,18 +220,11 @@ def pivot_table(rows: list[dict]) -> str:
 def consolidated_summary(rows: list[dict], args, pivot: str, full_table: str) -> str:
     """Everything in one place: params, datasets, verification, the per-column
     pivot, key findings, and the full per-cell table."""
-    from collections import Counter, defaultdict
+    from collections import Counter
 
     datasets = Counter(r["dataset_id"] for r in rows)
     cols = len({(r["dataset_id"], r["column"]) for r in rows})
     fails = [r for r in rows if not r["verified"] or not r["onpair_only"]]
-
-    # Delta no-regression check: per (column,bits,block), delta-best-of >= no-delta.
-    by = defaultdict(dict)
-    for r in rows:
-        by[(r["dataset_id"], r["column"], r["bits"], r["chunk_bytes"])][r["delta_offsets"]] = r["mem_ratio"]
-    regressions = [k for k, v in by.items()
-                   if True in v and False in v and v[True] < v[False] - 1e-9]
 
     # Best param per column (max str→codec×).
     best = {}
@@ -224,38 +238,34 @@ def consolidated_summary(rows: list[dict], args, pivot: str, full_table: str) ->
         "",
         "Each string column is OnPair-compressed per chunk (one dictionary each), "
         "every OnPair child is BtrBlocks-compressed, and the chunks are written to "
-        "real `.vortex` files that preserve the OnPair encoding. Offsets optionally "
-        "use delta (kept only when smaller). All cells are round-trip verified.",
+        "real `.vortex` files that preserve the OnPair encoding. The offset children "
+        "use the smaller of BtrBlocks-only and delta+BtrBlocks. All cells are round-trip verified.",
         "",
         "## Run parameters",
         f"- dict widths (bits): `{args.bits}`",
         f"- block sizes (uncompressed): `{[f'{m:g}MB' for m in args.chunk_mb]}`",
         f"- training threshold: `{args.threshold}`",
-        f"- delta-offsets (best-of): `{args.delta_offsets}`",
         f"- raw sample cap: `{args.sample_bytes:,}` bytes  |  file target: `{args.file_target_mb:g} MB`",
         "",
         "## Coverage",
         f"- **{len(rows)} cells**, **{cols} columns**, datasets: "
         + ", ".join(f"{k} ({v})" for k, v in sorted(datasets.items())),
         f"- round-trip + OnPair-only failures: **{len(fails)}**",
-        f"- delta size regressions (delta worse than no-delta): **{len(regressions)}**"
-        + ("" if not regressions else f" — {regressions}"),
         "",
-        "## str→codec× per column × (dict-width / block / delta)",
+        "## str→codec× per column × (dict-width / block)",
         "",
         pivot,
         "",
         "## Best configuration per column",
         "",
-        "| dataset/column | uniq% | best str→codec× | bits | block | delta |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| dataset/column | uniq% | best str→codec× | bits | block |",
+        "| --- | --- | --- | --- | --- |",
     ]
     for k in sorted(best, key=lambda k: best[k]["mem_ratio"]):
         r = best[k]
         up = 100.0 * r["unique_count"] / r["rows"] if r["rows"] else 0.0
         lines.append(f"| {k[0]}/{k[1]} | {up:.1f}% | {r['mem_ratio']:.2f}× | "
-                     f"{r['bits']} | {fmt_bytes(r['chunk_bytes'])} | "
-                     f"{'✓' if r['delta_offsets'] else '·'} |")
+                     f"{r['bits']} | {fmt_bytes(r['chunk_bytes'])} |")
     lines += ["", "## All cells", "", full_table, ""]
     return "\n".join(lines)
 
@@ -268,10 +278,6 @@ def main() -> int:
                    default=[1, 10, 100], help="per-chunk uncompressed MB budgets")
     p.add_argument("--threshold", type=lambda s: [float(x) for x in s.split(",")],
                    default=[0.2])
-    p.add_argument("--delta-offsets",
-                   type=lambda s: [x.strip().lower() in ("1", "true", "yes") for x in s.split(",")],
-                   default=[True, False],
-                   help="delta-encode offset children before compression (true,false to compare)")
     p.add_argument("--sample-bytes", type=int, default=1_000_000_000)
     p.add_argument("--file-target-mb", type=float, default=200.0)
     p.add_argument("--jobs", type=int, default=4, help="columns to run concurrently")
@@ -284,7 +290,13 @@ def main() -> int:
                    help="only these column names (comma-separated), e.g. l_comment,text")
     p.add_argument("--list", action="store_true",
                    help="list available dataset/column pairs and exit")
+    p.add_argument("--clean", action="store_true",
+                   help="delete generated OnPair benchmark .vortex files and summaries, then exit")
     args = p.parse_args()
+
+    if args.clean:
+        clean_outputs()
+        return 0
 
     if args.list:
         for c in COLUMNS:
@@ -334,7 +346,7 @@ def main() -> int:
             results.extend(run_column(binary, col, args))
 
     results.sort(key=lambda r: (r["dataset_id"], r["column"], r["bits"],
-                                r["threshold"], r["delta_offsets"], r["chunk_bytes"]))
+                                r["threshold"], r["chunk_bytes"]))
 
     summary_json = OUT_ROOT / "summary.json"
     summary_md = OUT_ROOT / "summary.md"
@@ -344,7 +356,7 @@ def main() -> int:
     table = markdown_table(results)
     pivot = pivot_table(results)
     summary_md.write_text(table + "\n")
-    pivot_md.write_text("# str→codec× per column × (dict-width / block / delta)\n\n"
+    pivot_md.write_text("# str→codec× per column × (dict-width / block)\n\n"
                         + pivot + "\n")
     consolidated.write_text(consolidated_summary(results, args, pivot, table))
 

@@ -50,6 +50,16 @@ enum Command {
         #[arg(long)]
         out_dir: PathBuf,
     },
+    /// Generate every TPC-DS table parquet for a scale factor via DuckDB
+    /// `dsdgen` (idempotent). Requires the `duckdb` CLI on PATH.
+    GenTpcds {
+        /// Scale factor (e.g. 10).
+        #[arg(long, default_value_t = 10.0)]
+        sf: f64,
+        /// Output directory; tables land in `<out-dir>/parquet/<table>.parquet`.
+        #[arg(long)]
+        out_dir: PathBuf,
+    },
     /// Compress one column across the matrix and emit JSON results.
     Run {
         /// Source parquet file.
@@ -70,11 +80,6 @@ enum Command {
         /// OnPair training thresholds.
         #[arg(long, value_delimiter = ',', default_value = "0.2")]
         threshold: Vec<f64>,
-        /// Whether to consider delta-encoding the offset children (keeping the
-        /// smaller of compressor-only vs delta+compressor per child, so it
-        /// never regresses). Pass `true,false` to benchmark both.
-        #[arg(long, value_delimiter = ',', default_value = "true,false")]
-        delta_offsets: Vec<bool>,
         /// Raw-payload sample cap (default ~1GB).
         #[arg(long, default_value_t = 1_000_000_000)]
         sample_bytes: u64,
@@ -97,6 +102,10 @@ async fn main() -> Result<()> {
             ensure_tpch_all_parquet(sf, &out_dir).await?;
             eprintln!("TPC-H (sf={sf}) ready under {}/parquet", out_dir.display());
         }
+        Command::GenTpcds { sf, out_dir } => {
+            vortex_bench::tpcds::duckdb::generate_tpcds(out_dir.clone(), format!("{sf}"))?;
+            eprintln!("TPC-DS (sf={sf}) ready under {}/parquet", out_dir.display());
+        }
         Command::Run {
             parquet,
             column,
@@ -104,7 +113,6 @@ async fn main() -> Result<()> {
             bits,
             chunk_bytes,
             threshold,
-            delta_offsets,
             sample_bytes,
             file_target_bytes,
             out_dir,
@@ -116,7 +124,6 @@ async fn main() -> Result<()> {
                 &bits,
                 &chunk_bytes,
                 &threshold,
-                &delta_offsets,
                 sample_bytes,
                 file_target_bytes,
                 &out_dir,

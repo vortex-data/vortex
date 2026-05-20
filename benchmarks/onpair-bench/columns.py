@@ -48,8 +48,8 @@ class Column:
 
     dataset_id: str
     column: str
-    kind: str  # "tpch" | "parquet"
-    # tpch
+    kind: str  # "tpch" | "tpcds" | "parquet"
+    # tpch / tpcds
     scale_factor: float = 10.0
     table: str = "lineitem"
     # parquet
@@ -60,14 +60,20 @@ class Column:
     def tpch_dir(self) -> Path:
         return SRC_DIR / f"tpch_sf{int(self.scale_factor)}"
 
+    def tpcds_dir(self) -> Path:
+        # Matches the path TpcDsBenchmark/generate_tpcds use.
+        return DATA_DIR / "tpcds" / f"{int(self.scale_factor)}"
+
     def cache_path(self) -> Path:
         return SRC_DIR / self.dataset_id / (self.cache or f"{self.column}.parquet")
 
     def parquet_path(self) -> Path:
-        """Resolved source: TPC-H generated path, an existing local copy, or the
-        repo-relative cache (download target)."""
+        """Resolved source: TPC-H/TPC-DS generated path, an existing local copy,
+        or the repo-relative cache (download target)."""
         if self.kind == "tpch":
             return self.tpch_dir() / "parquet" / f"{self.table}_0.parquet"
+        if self.kind == "tpcds":
+            return self.tpcds_dir() / "parquet" / f"{self.table}.parquet"
         if self.kind == "parquet":
             for p in self.local:
                 if Path(p).exists():
@@ -99,11 +105,24 @@ _TPCH_STR_COLS: dict[str, list[str]] = {
     "lineitem": ["l_returnflag", "l_linestatus", "l_shipinstruct", "l_shipmode", "l_comment"],
 }
 
+# A representative spread of TPC-DS string columns across cardinalities.
+_TPCDS_STR_COLS: dict[str, list[str]] = {
+    "item": ["i_item_desc", "i_product_name", "i_brand", "i_class", "i_category"],
+    "customer": ["c_email_address", "c_first_name", "c_last_name",
+                 "c_birth_country", "c_preferred_cust_flag"],
+    "customer_address": ["ca_street_name", "ca_city", "ca_zip", "ca_state", "ca_country"],
+}
+
 # The benchmark registry. Append a one-line `Column(...)` to grow the suite.
 COLUMNS: list[Column] = [
     *(
         Column(dataset_id="tpch-sf10", column=c, kind="tpch", scale_factor=10.0, table=t)
         for t, cols in _TPCH_STR_COLS.items()
+        for c in cols
+    ),
+    *(
+        Column(dataset_id="tpcds-sf10", column=c, kind="tpcds", scale_factor=10.0, table=t)
+        for t, cols in _TPCDS_STR_COLS.items()
         for c in cols
     ),
     # ClickBench "hits" — long high-cardinality URLs/titles vs short categoricals.

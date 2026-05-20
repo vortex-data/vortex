@@ -82,10 +82,6 @@ pub struct CellResult {
     pub bits: u32,
     /// OnPair training threshold.
     pub threshold: f64,
-    /// Whether delta-encoding was considered for the monotonic offset children.
-    /// When set, each offset child is kept as the smaller of {compressor-only,
-    /// delta + compressor}, so it can never regress vs compressor-only.
-    pub delta_offsets: bool,
     /// Per-chunk uncompressed byte budget.
     pub chunk_bytes: u64,
     /// Rows in the sampled prefix.
@@ -301,16 +297,12 @@ fn preserve_strategy() -> Arc<ChunkedLayoutStrategy> {
 /// transparently decompressed by the decode path's `execute::<PrimitiveArray>`.
 /// This is the big win for low-cardinality columns, whose codes / offsets /
 /// lengths are extremely compressible.
-fn compress_onpair_children(
-    op: &OnPairArray,
-    delta_offsets: bool,
-    ctx: &mut ExecutionCtx,
-) -> Result<OnPairArray> {
+fn compress_onpair_children(op: &OnPairArray, ctx: &mut ExecutionCtx) -> Result<OnPairArray> {
     let compressor = BtrBlocksCompressor::default();
-    // dict_offsets and codes_offsets are monotonic prefix sums; optionally
-    // delta-encode them before compression.
-    let dict_offsets = compress_offsets(op.dict_offsets(), delta_offsets, &compressor, ctx)?;
-    let codes_offsets = compress_offsets(op.codes_offsets(), delta_offsets, &compressor, ctx)?;
+    // dict_offsets and codes_offsets are monotonic prefix sums. Try both plain
+    // and FastLanes Delta forms for those children and keep the smaller result.
+    let dict_offsets = compress_offsets(op.dict_offsets(), &compressor, ctx)?;
+    let codes_offsets = compress_offsets(op.codes_offsets(), &compressor, ctx)?;
     let codes = compressor.compress(op.codes(), ctx)?;
     let lengths = compressor.compress(op.uncompressed_lengths(), ctx)?;
     Ok(OnPair::try_new(
@@ -325,22 +317,15 @@ fn compress_onpair_children(
     )?)
 }
 
-/// Compress a monotonic offset child. The plain path runs the child straight
-/// through the compressor. When `delta` is set, the child is *also* FastLanes
-/// delta-encoded (a reversible `DeltaArray` that canonicalizes back to the
-/// original offsets) with its `bases`/`deltas` children compressed, and the
-/// **smaller of the two** is kept — so enabling delta can only shrink a child,
-/// never regress it.
+/// Compress a monotonic offset child by comparing compressor-only against
+/// FastLanes Delta plus compressed `bases`/`deltas`, then keeping the smaller
+/// representation.
 fn compress_offsets(
     child: &ArrayRef,
-    delta: bool,
     compressor: &BtrBlocksCompressor,
     ctx: &mut ExecutionCtx,
 ) -> Result<ArrayRef> {
     let plain = compressor.compress(child, ctx)?;
-    if !delta {
-        return Ok(plain);
-    }
     let prim = child.clone().execute::<PrimitiveArray>(ctx)?;
     let len = prim.len();
     let children = Delta::try_from_primitive_array(&prim, ctx)?
@@ -358,8 +343,7 @@ fn compress_offsets(
     })
 }
 
-/// Run the full `bits × chunk_bytes × threshold × delta_offsets` matrix for one
-/// column.
+/// Run the full `bits × chunk_bytes × threshold` matrix for one column.
 #[expect(clippy::too_many_arguments)]
 pub async fn run_column(
     dataset_id: &str,
@@ -368,7 +352,6 @@ pub async fn run_column(
     bits: &[u32],
     chunk_bytes: &[u64],
     thresholds: &[f64],
-    delta_offsets: &[bool],
     sample_bytes: u64,
     file_target_bytes: u64,
     out_root: &Path,
@@ -384,21 +367,18 @@ pub async fn run_column(
     for &b in bits {
         for &cb in chunk_bytes {
             for &thr in thresholds {
-                for &delta in delta_offsets {
-                    let res = run_cell(
-                        dataset_id,
-                        column,
-                        &sample,
-                        b,
-                        thr,
-                        delta,
-                        cb,
-                        file_target_bytes,
-                        out_root,
-                    )
-                    .await?;
-                    results.push(res);
-                }
+                let res = run_cell(
+                    dataset_id,
+                    column,
+                    &sample,
+                    b,
+                    thr,
+                    cb,
+                    file_target_bytes,
+                    out_root,
+                )
+                .await?;
+                results.push(res);
             }
         }
     }
@@ -412,16 +392,14 @@ async fn run_cell(
     sample: &Sample,
     bits: u32,
     threshold: f64,
-    delta_offsets: bool,
     chunk_bytes: u64,
     file_target_bytes: u64,
     out_root: &Path,
 ) -> Result<CellResult> {
     let out_dir = out_root.join(dataset_id).join(column).join(format!(
-        "bits{bits}_chunk{}_thr{:.2}_delta{}",
+        "bits{bits}_chunk{}_thr{:.2}",
         human_bytes(chunk_bytes),
         threshold,
-        u8::from(delta_offsets),
     ));
     std::fs::create_dir_all(&out_dir)?;
 
@@ -438,7 +416,7 @@ async fn run_cell(
             move || -> Result<OnPairArray> {
                 let op = onpair_compress_array_default(&slice, config)?;
                 let mut ctx = SESSION.create_execution_ctx();
-                compress_onpair_children(&op, delta_offsets, &mut ctx)
+                compress_onpair_children(&op, &mut ctx)
             },
         ))
     });
@@ -501,7 +479,6 @@ async fn run_cell(
         column: column.to_string(),
         bits,
         threshold,
-        delta_offsets,
         chunk_bytes,
         rows: sample.rows as u64,
         unique_count: sample.unique_count,
