@@ -113,16 +113,12 @@ fn launch_variant(
     // anything we care about. (We slice it off before comparing.)
     let initial_output: Vec<u8> = vec![0u8; total_size as usize + 16];
 
-    let codes_dev: BufferHandle =
-        block_on(ctx.copy_to_device(codes.to_vec()).unwrap()).unwrap();
+    let codes_dev: BufferHandle = block_on(ctx.copy_to_device(codes.to_vec()).unwrap()).unwrap();
     let dict_padded_dev: BufferHandle =
         block_on(ctx.copy_to_device(padded.to_vec()).unwrap()).unwrap();
-    let lens_dev: BufferHandle =
-        block_on(ctx.copy_to_device(lens.to_vec()).unwrap()).unwrap();
-    let chunk_offs_dev: BufferHandle =
-        block_on(ctx.copy_to_device(chunk_offs).unwrap()).unwrap();
-    let output_dev: BufferHandle =
-        block_on(ctx.copy_to_device(initial_output).unwrap()).unwrap();
+    let lens_dev: BufferHandle = block_on(ctx.copy_to_device(lens.to_vec()).unwrap()).unwrap();
+    let chunk_offs_dev: BufferHandle = block_on(ctx.copy_to_device(chunk_offs).unwrap()).unwrap();
+    let output_dev: BufferHandle = block_on(ctx.copy_to_device(initial_output).unwrap()).unwrap();
 
     let total_tokens = codes.len();
     let total_chunks = total_tokens.div_ceil(chunk_size);

@@ -10307,6 +10307,7 @@ dependencies = [
  "bytes",
  "bzip2",
  "clap",
+ "cudarc",
  "futures",
  "get_dir",
  "glob",
@@ -10338,6 +10339,7 @@ dependencies = [
  "url",
  "uuid",
  "vortex",
+ "vortex-cuda",
  "vortex-onpair",
  "vortex-tensor",
 ]

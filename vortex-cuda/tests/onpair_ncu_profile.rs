@@ -47,7 +47,10 @@ fn build_stride_dict(stride: usize, lens_table: [u8; DICT_ENTRIES]) -> (Vec<u8>,
 }
 
 fn host_decode_stride(codes: &[u16], lens: &[u8]) -> usize {
-    codes.iter().map(|&c| lens[c as usize] as usize).sum::<usize>()
+    codes
+        .iter()
+        .map(|&c| lens[c as usize] as usize)
+        .sum::<usize>()
 }
 
 /// Launch a `(codes, chunk_offsets, dict_padded, lens, output, total_tokens)`
@@ -76,14 +79,16 @@ fn launch_stride_variant(
         chunk_offs.push(acc);
     }
 
-    let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-        .expect("ctx");
+    let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).expect("ctx");
     let codes_dev: BufferHandle = block_on(ctx.copy_to_device(codes).unwrap()).unwrap();
     let padded_dev: BufferHandle = block_on(ctx.copy_to_device(padded).unwrap()).unwrap();
     let lens_dev: BufferHandle = block_on(ctx.copy_to_device(lens).unwrap()).unwrap();
     let chunk_offs_dev: BufferHandle = block_on(ctx.copy_to_device(chunk_offs).unwrap()).unwrap();
-    let output_dev: BufferHandle =
-        block_on(ctx.copy_to_device(vec![0u8; total_size as usize + 16]).unwrap()).unwrap();
+    let output_dev: BufferHandle = block_on(
+        ctx.copy_to_device(vec![0u8; total_size as usize + 16])
+            .unwrap(),
+    )
+    .unwrap();
 
     let total_tokens = TOTAL_TOKENS;
     let cfg = LaunchConfig {
@@ -131,8 +136,11 @@ fn launch_const1() {
     let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).expect("ctx");
     let codes_dev: BufferHandle = block_on(ctx.copy_to_device(codes).unwrap()).unwrap();
     let dict_dev: BufferHandle = block_on(ctx.copy_to_device(dict_const1).unwrap()).unwrap();
-    let output_dev: BufferHandle =
-        block_on(ctx.copy_to_device(vec![0u8; total_size as usize + 16]).unwrap()).unwrap();
+    let output_dev: BufferHandle = block_on(
+        ctx.copy_to_device(vec![0u8; total_size as usize + 16])
+            .unwrap(),
+    )
+    .unwrap();
 
     let cfg = LaunchConfig {
         grid_dim: (
@@ -174,8 +182,11 @@ fn launch_const2() {
     let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).expect("ctx");
     let codes_dev: BufferHandle = block_on(ctx.copy_to_device(codes).unwrap()).unwrap();
     let dict_dev: BufferHandle = block_on(ctx.copy_to_device(dict_const2_u16).unwrap()).unwrap();
-    let output_dev: BufferHandle =
-        block_on(ctx.copy_to_device(vec![0u8; total_size as usize + 16]).unwrap()).unwrap();
+    let output_dev: BufferHandle = block_on(
+        ctx.copy_to_device(vec![0u8; total_size as usize + 16])
+            .unwrap(),
+    )
+    .unwrap();
 
     let cfg = LaunchConfig {
         grid_dim: (

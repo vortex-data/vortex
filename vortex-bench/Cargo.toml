@@ -67,9 +67,12 @@ tracing-subscriber = { workspace = true, features = [
 ] }
 url = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
+vortex-cuda = { workspace = true, optional = true }
+cudarc = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta = { workspace = true }
 
 [features]
+cuda = ["dep:cudarc", "dep:vortex-cuda"]
 unstable_encodings = ["vortex/unstable_encodings"]

@@ -102,10 +102,7 @@ fn measure_utf8_column(
     Some((raw_bytes, rows))
 }
 
-fn find_row_cap(
-    batches: &[arrow_array::RecordBatch],
-    col_idx: usize,
-) -> (usize, usize) {
+fn find_row_cap(batches: &[arrow_array::RecordBatch], col_idx: usize) -> (usize, usize) {
     let mut bytes: u64 = 0;
     let mut rows: usize = 0;
     for b in batches {
@@ -144,24 +141,45 @@ fn build_varbin_view(
 ) -> Option<VarBinViewArray> {
     let first = batches.first()?.column(col_idx);
     if first.as_any().is::<arrow_array::StringArray>() {
-        let it = batches.iter().flat_map(|b| {
-            let s = b.column(col_idx).as_any().downcast_ref::<arrow_array::StringArray>().unwrap();
-            (0..s.len()).map(move |i| s.value(i).to_string())
-        }).take(row_cap);
+        let it = batches
+            .iter()
+            .flat_map(|b| {
+                let s = b
+                    .column(col_idx)
+                    .as_any()
+                    .downcast_ref::<arrow_array::StringArray>()
+                    .unwrap();
+                (0..s.len()).map(move |i| s.value(i).to_string())
+            })
+            .take(row_cap);
         let v: Vec<String> = it.collect();
         Some(VarBinViewArray::from_iter_str(v.iter().map(|s| s.as_str())))
     } else if first.as_any().is::<arrow_array::LargeStringArray>() {
-        let it = batches.iter().flat_map(|b| {
-            let s = b.column(col_idx).as_any().downcast_ref::<arrow_array::LargeStringArray>().unwrap();
-            (0..s.len()).map(move |i| s.value(i).to_string())
-        }).take(row_cap);
+        let it = batches
+            .iter()
+            .flat_map(|b| {
+                let s = b
+                    .column(col_idx)
+                    .as_any()
+                    .downcast_ref::<arrow_array::LargeStringArray>()
+                    .unwrap();
+                (0..s.len()).map(move |i| s.value(i).to_string())
+            })
+            .take(row_cap);
         let v: Vec<String> = it.collect();
         Some(VarBinViewArray::from_iter_str(v.iter().map(|s| s.as_str())))
     } else if first.as_any().is::<arrow_array::StringViewArray>() {
-        let it = batches.iter().flat_map(|b| {
-            let s = b.column(col_idx).as_any().downcast_ref::<arrow_array::StringViewArray>().unwrap();
-            (0..s.len()).map(move |i| s.value(i).to_string())
-        }).take(row_cap);
+        let it = batches
+            .iter()
+            .flat_map(|b| {
+                let s = b
+                    .column(col_idx)
+                    .as_any()
+                    .downcast_ref::<arrow_array::StringViewArray>()
+                    .unwrap();
+                (0..s.len()).map(move |i| s.value(i).to_string())
+            })
+            .take(row_cap);
         let v: Vec<String> = it.collect();
         Some(VarBinViewArray::from_iter_str(v.iter().map(|s| s.as_str())))
     } else {
@@ -255,7 +273,9 @@ fn bench_column(
             zstd_array.dtype().nullability(),
         );
         let parts: ZstdDataParts = zstd_array.clone().into_data().into_parts(validity);
-        let ZstdDataParts { frames, metadata, .. } = parts;
+        let ZstdDataParts {
+            frames, metadata, ..
+        } = parts;
         let exec = block_on(zstd_kernel_prepare(frames, &metadata, &mut cuda_ctx))?;
         let _ = block_on(execute_zstd_kernel(exec, &mut cuda_ctx))?;
     }
@@ -267,7 +287,9 @@ fn bench_column(
             zstd_array.dtype().nullability(),
         );
         let parts: ZstdDataParts = zstd_array.clone().into_data().into_parts(validity);
-        let ZstdDataParts { frames, metadata, .. } = parts;
+        let ZstdDataParts {
+            frames, metadata, ..
+        } = parts;
         let exec = block_on(zstd_kernel_prepare(frames, &metadata, &mut cuda_ctx))?;
         let dur = block_on(execute_zstd_kernel(exec, &mut cuda_ctx))?;
         total_time += dur;
@@ -333,7 +355,11 @@ fn print_results(label: &str, results: &[ColResult]) {
 }
 
 fn run_dataset(path: PathBuf) -> anyhow::Result<()> {
-    let label = path.file_stem().and_then(|s| s.to_str()).unwrap_or("dataset").to_string();
+    let label = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("dataset")
+        .to_string();
     println!("[nvcomp-zstd-real-data] loading {}", path.display());
     let batches = load_parquet(&path)?;
     if batches.is_empty() {
@@ -398,7 +424,10 @@ fn run_dataset(path: PathBuf) -> anyhow::Result<()> {
         };
         match bench_column(field.name(), raw_bytes, row_cap, vbv, iters) {
             Ok(r) => results.push(r),
-            Err(e) => println!("[nvcomp-zstd-real-data]   bench failed for {}: {e}", field.name()),
+            Err(e) => println!(
+                "[nvcomp-zstd-real-data]   bench failed for {}: {e}",
+                field.name()
+            ),
         }
     }
     print_results(&label, &results);
@@ -408,7 +437,9 @@ fn run_dataset(path: PathBuf) -> anyhow::Result<()> {
 fn bench(_c: &mut Criterion) {
     let path_env = env::var("NVCOMP_DATA_PATH").or_else(|_| env::var("ONPAIR_DATA_PATH"));
     let Ok(paths) = path_env else {
-        println!("[nvcomp-zstd-real-data] set NVCOMP_DATA_PATH or ONPAIR_DATA_PATH (colon-separated parquet paths)");
+        println!(
+            "[nvcomp-zstd-real-data] set NVCOMP_DATA_PATH or ONPAIR_DATA_PATH (colon-separated parquet paths)"
+        );
         return;
     };
     for p in paths.split(':').filter(|s| !s.is_empty()) {

@@ -260,12 +260,12 @@ mod tests {
                     None => false,
                 };
                 assert_eq!(
-                    got, want,
+                    got,
+                    want,
                     "prefix={:?} row={s:?}",
                     std::str::from_utf8(prefix)
                 );
             }
         }
     }
-
 }

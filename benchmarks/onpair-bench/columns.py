@@ -12,6 +12,8 @@ Source kinds:
                 repo-relative cache on first use) and/or ``local`` paths to
                 reuse if already present. Nothing is hard-required: a column
                 with no resolvable source is skipped by ``run.py``.
+* ``text``    — a newline-delimited raw text file converted to a single-column
+                parquet cache by ``run.py``.
 
 All generated/downloaded data lives **under the repo** (``vortex-bench/data``),
 resolved relative to this file — so the benchmark works from any checkout
@@ -32,6 +34,7 @@ SRC_DIR = DATA_DIR / "onpair-bench-src"
 CLICKBENCH_URL = "https://datasets.clickhouse.com/hits_compatible/hits.parquet"
 FINEWEB_URL = ("https://huggingface.co/datasets/HuggingFaceFW/fineweb/"
                "resolve/v1.4.0/sample/10BT/000_00000.parquet")
+DBTEXT_URL_BASE = "https://raw.githubusercontent.com/cwida/fsst/master/paper/dbtext"
 
 # Optional pre-existing local copies to reuse instead of downloading (machine
 # specific; ignored if absent).
@@ -74,7 +77,7 @@ class Column:
             return self.tpch_dir() / "parquet" / f"{self.table}_0.parquet"
         if self.kind == "tpcds":
             return self.tpcds_dir() / "parquet" / f"{self.table}.parquet"
-        if self.kind == "parquet":
+        if self.kind in ("parquet", "text"):
             for p in self.local:
                 if Path(p).exists():
                     return Path(p)
@@ -86,6 +89,14 @@ def _parquet_cols(dataset_id, columns, *, url, cache):
     return [
         Column(dataset_id=dataset_id, column=c, kind="parquet", url=url, cache=cache,
                local=_LOCAL.get(dataset_id, []))
+        for c in columns
+    ]
+
+
+def _dbtext_cols(columns):
+    return [
+        Column(dataset_id="dbtext", column=c, kind="text",
+               url=f"{DBTEXT_URL_BASE}/{c}", cache=f"{c}.parquet")
         for c in columns
     ]
 
@@ -113,6 +124,14 @@ _TPCDS_STR_COLS: dict[str, list[str]] = {
     "customer_address": ["ca_street_name", "ca_city", "ca_zip", "ca_state", "ca_country"],
 }
 
+_DBTEXT_COLS = [
+    "hex", "yago", "email", "wiki", "uuid", "urls2", "urls",
+    "firstname", "lastname", "city", "credentials", "street", "movies",
+    "faust", "hamlet", "chinese", "japanese", "wikipedia",
+    "genome", "location",
+    "c_name", "l_comment", "ps_comment",
+]
+
 # The benchmark registry. Append a one-line `Column(...)` to grow the suite.
 COLUMNS: list[Column] = [
     *(
@@ -131,6 +150,8 @@ COLUMNS: list[Column] = [
     # FineWeb 10BT sample — long free text + URLs + low-cardinality categoricals.
     *_parquet_cols("fineweb", ["text", "url", "file_path", "dump", "language"],
                    url=FINEWEB_URL, cache="fineweb_10BT_000.parquet"),
+    # FSST paper's dbtext corpus: 23 raw text columns under cwida/fsst.
+    *_dbtext_cols(_DBTEXT_COLS),
     # OnPair paper's book-reviews corpus (single `text` column). No public URL —
     # reused from a local copy if present, otherwise skipped.
     Column(dataset_id="book-reviews", column="text", kind="parquet",

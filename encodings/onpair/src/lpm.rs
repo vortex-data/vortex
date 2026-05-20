@@ -129,15 +129,16 @@ pub(crate) fn tokenize_needle(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::DEFAULT_DICT12_CONFIG;
-    use crate::decode::OwnedDecodeInputs;
-    use crate::onpair_compress;
     use vortex_array::LEGACY_SESSION;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::dtype::DType;
     use vortex_array::dtype::Nullability;
+
+    use super::*;
+    use crate::DEFAULT_DICT12_CONFIG;
+    use crate::decode::OwnedDecodeInputs;
+    use crate::onpair_compress;
 
     fn build_array(strings: &[&str]) -> OwnedDecodeInputs {
         let varbin = VarBinArray::from_iter(

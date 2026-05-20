@@ -103,7 +103,12 @@ fn pick_kernel(dict_max_len: u8, mean_bpt: f32) -> KernelChoice {
         _ => unreachable!(),
     };
 
-    KernelChoice { name, chunk_size, block_warps, stride }
+    KernelChoice {
+        name,
+        chunk_size,
+        block_warps,
+        stride,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -180,19 +185,23 @@ fn time_kernel_us(
     total_tokens: usize,
     iters: u32,
 ) -> VortexResult<f64> {
-    let chunk_offs = build_chunk_offsets(codes_dev, padded_dev, lens_dev, chunk_size, total_tokens)?;
+    let chunk_offs =
+        build_chunk_offsets(codes_dev, padded_dev, lens_dev, chunk_size, total_tokens)?;
 
     let timed = TimedLaunchStrategy::default();
     let timer = Arc::clone(&timed.total_time_ns);
     let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?
         .with_launch_strategy(Arc::new(timed));
-    let chunk_offs_dev: BufferHandle =
-        block_on(ctx.copy_to_device(chunk_offs)?)?;
+    let chunk_offs_dev: BufferHandle = block_on(ctx.copy_to_device(chunk_offs)?)?;
 
     let func = ctx.load_function(kernel_name, &[])?;
     let total_chunks = total_tokens.div_ceil(chunk_size);
     let cfg = LaunchConfig {
-        grid_dim: (u32::try_from(total_chunks.div_ceil(block_warps as usize)).unwrap(), 1, 1),
+        grid_dim: (
+            u32::try_from(total_chunks.div_ceil(block_warps as usize)).unwrap(),
+            1,
+            1,
+        ),
         block_dim: (block_warps * 32, 1, 1),
         shared_mem_bytes: 0,
     };
@@ -207,15 +216,23 @@ fn time_kernel_us(
     // Warm-up: 3 untimed launches.
     for _ in 0..3 {
         ctx.launch_kernel_config(&func, cfg, total_tokens, |args| {
-            args.arg(&codes_v).arg(&chunk_offs_v).arg(&padded_v)
-                .arg(&lens_v).arg(&output_v).arg(&total_tokens_u64);
+            args.arg(&codes_v)
+                .arg(&chunk_offs_v)
+                .arg(&padded_v)
+                .arg(&lens_v)
+                .arg(&output_v)
+                .arg(&total_tokens_u64);
         })?;
     }
     timer.store(0, Ordering::Relaxed);
     for _ in 0..iters {
         ctx.launch_kernel_config(&func, cfg, total_tokens, |args| {
-            args.arg(&codes_v).arg(&chunk_offs_v).arg(&padded_v)
-                .arg(&lens_v).arg(&output_v).arg(&total_tokens_u64);
+            args.arg(&codes_v)
+                .arg(&chunk_offs_v)
+                .arg(&padded_v)
+                .arg(&lens_v)
+                .arg(&output_v)
+                .arg(&total_tokens_u64);
         })?;
     }
     let total_ns = timer.load(Ordering::Relaxed) as f64;
@@ -338,11 +355,15 @@ fn onpair_dispatch_benchmark() {
     let codes_dev: BufferHandle = block_on(ctx.copy_to_device(codes.clone()).unwrap()).unwrap();
 
     println!();
-    println!("OnPair dispatch benchmark — {} tokens/run, {} timed launches",
-             total_tokens, iters);
+    println!(
+        "OnPair dispatch benchmark — {} tokens/run, {} timed launches",
+        total_tokens, iters
+    );
     println!();
-    println!("{:<38}  {:>8}  {:>12}  {:>12}  {:>10}",
-             "Workload", "Mean bpt", "Dispatch", "Best fixed", "Δ from best");
+    println!(
+        "{:<38}  {:>8}  {:>12}  {:>12}  {:>10}",
+        "Workload", "Mean bpt", "Dispatch", "Best fixed", "Δ from best"
+    );
     println!("{}", "-".repeat(90));
 
     for wl in workloads() {
@@ -350,28 +371,43 @@ fn onpair_dispatch_benchmark() {
         let total_out: u64 = codes.iter().map(|&c| wl.lens[c as usize] as u64).sum();
         let mean_bpt = wl.mean_bpt(&codes);
 
-        let padded_dev: BufferHandle =
-            block_on(ctx.copy_to_device(padded).unwrap()).unwrap();
+        let padded_dev: BufferHandle = block_on(ctx.copy_to_device(padded).unwrap()).unwrap();
         let lens_dev: BufferHandle =
             block_on(ctx.copy_to_device(wl.lens.clone()).unwrap()).unwrap();
         let output_dev: BufferHandle = block_on(
-            ctx.copy_to_device(vec![0u8; total_out as usize + 16]).unwrap()
-        ).unwrap();
+            ctx.copy_to_device(vec![0u8; total_out as usize + 16])
+                .unwrap(),
+        )
+        .unwrap();
 
         let dispatched = pick_kernel(wl.dict_max_len, mean_bpt);
         let disp_us = time_kernel_us(
-            dispatched.name, dispatched.chunk_size, dispatched.block_warps,
-            &codes_dev, &padded_dev, &lens_dev, &output_dev,
-            total_tokens, iters,
-        ).expect("dispatch run");
+            dispatched.name,
+            dispatched.chunk_size,
+            dispatched.block_warps,
+            &codes_dev,
+            &padded_dev,
+            &lens_dev,
+            &output_dev,
+            total_tokens,
+            iters,
+        )
+        .expect("dispatch run");
 
         let mut all: Vec<(String, f64)> = Vec::new();
         for &(k, csz, warps) in candidates_for(wl.stride) {
             let us = time_kernel_us(
-                k, csz, warps,
-                &codes_dev, &padded_dev, &lens_dev, &output_dev,
-                total_tokens, iters,
-            ).expect("candidate run");
+                k,
+                csz,
+                warps,
+                &codes_dev,
+                &padded_dev,
+                &lens_dev,
+                &output_dev,
+                total_tokens,
+                iters,
+            )
+            .expect("candidate run");
             all.push((k.to_string(), us));
         }
 
@@ -382,11 +418,14 @@ fn onpair_dispatch_benchmark() {
             .unwrap();
         let delta_pct = (disp_us - best_us) / best_us * 100.0;
 
-        println!("{:<38}  {:>8.2}  {:>12}  {:>12}  {:>+9.2}%",
-                 wl.label, mean_bpt,
-                 format!("{:.2}µs", disp_us),
-                 format!("{:.2}µs", best_us),
-                 delta_pct);
+        println!(
+            "{:<38}  {:>8.2}  {:>12}  {:>12}  {:>+9.2}%",
+            wl.label,
+            mean_bpt,
+            format!("{:.2}µs", disp_us),
+            format!("{:.2}µs", best_us),
+            delta_pct
+        );
         println!("    dispatched: {} ({:.2}µs)", dispatched.name, disp_us);
         println!("    best fixed: {} ({:.2}µs)", best_name, best_us);
         for (name, us) in &all {

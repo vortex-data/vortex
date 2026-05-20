@@ -25,6 +25,10 @@ use std::hash::Hasher;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+#[cfg(feature = "cuda")]
+use std::sync::atomic::AtomicU64;
+#[cfg(feature = "cuda")]
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use anyhow::Context;
@@ -34,6 +38,16 @@ use arrow_array::LargeStringArray;
 use arrow_array::RecordBatch;
 use arrow_array::StringArray;
 use arrow_array::StringViewArray;
+#[cfg(feature = "cuda")]
+use cudarc::driver::CudaView;
+#[cfg(feature = "cuda")]
+use cudarc::driver::LaunchConfig;
+#[cfg(feature = "cuda")]
+use cudarc::driver::PushKernelArg;
+#[cfg(feature = "cuda")]
+use cudarc::driver::sys::CUevent_flags;
+#[cfg(feature = "cuda")]
+use cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC;
 use futures::future::try_join_all;
 use parquet::arrow::ProjectionMask;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
@@ -49,17 +63,33 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::struct_::StructArrayExt;
+#[cfg(feature = "cuda")]
+use vortex::array::match_each_integer_ptype;
 use vortex::array::validity::Validity;
 use vortex::compressor::BtrBlocksCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
+#[cfg(feature = "cuda")]
+use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::encodings::fastlanes::Delta;
+#[cfg(feature = "cuda")]
+use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::layout::layouts::chunked::writer::ChunkedLayoutStrategy;
 use vortex::layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex::utils::aliases::hash_set::HashSet;
+#[cfg(feature = "cuda")]
+use vortex_cuda::CudaBufferExt;
+#[cfg(feature = "cuda")]
+use vortex_cuda::CudaExecutionCtx;
+#[cfg(feature = "cuda")]
+use vortex_cuda::CudaKernelEvents;
+#[cfg(feature = "cuda")]
+use vortex_cuda::CudaSession;
+#[cfg(feature = "cuda")]
+use vortex_cuda::LaunchStrategy;
 use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArray;
 use vortex_onpair::OnPairArrayExt;
@@ -110,6 +140,9 @@ pub struct CellResult {
     pub encode_gib_s: f64,
     /// `sample_bytes / decode_time`.
     pub decode_gib_s: f64,
+    /// CUDA kernel-only timings for GPU OnPair decompression, if requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu: Option<GpuCellResult>,
     /// `sample_bytes / in_memory_bytes`.
     pub mem_ratio: f64,
     /// `sample_bytes / on_disk_bytes`.
@@ -121,6 +154,67 @@ pub struct CellResult {
     pub onpair_only: bool,
     /// Directory holding this cell's `.vortex` files + `meta.json`.
     pub out_dir: String,
+}
+
+/// CUDA kernel-only OnPair decompression results for one benchmark cell.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuCellResult {
+    /// Timed kernel launches per kernel variant.
+    pub iterations: u64,
+    /// Total bytes decoded into raw UTF-8 output buffers per iteration.
+    pub decoded_bytes: u64,
+    /// Number of OnPair chunks, and therefore launches per iteration.
+    pub chunks: usize,
+    /// Auto-selected kernel based on dictionary lengths.
+    pub auto_kernel: String,
+    /// Fastest measured kernel among all applicable variants.
+    pub best_kernel: String,
+    /// Auto-selected kernel average time across all chunks.
+    pub auto_decode_ms: f64,
+    /// Fastest measured kernel average time across all chunks.
+    pub best_decode_ms: f64,
+    /// Whether output byte validation was requested.
+    pub validated: bool,
+    /// Whether every applicable kernel produced bytes equal to CPU decode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verified: Option<bool>,
+    /// `decoded_bytes / auto_decode_ms`.
+    pub auto_decode_gib_s: f64,
+    /// `decoded_bytes / best_decode_ms`.
+    pub best_decode_gib_s: f64,
+    /// Per-kernel timing rows.
+    pub kernels: Vec<GpuKernelResult>,
+}
+
+/// One CUDA kernel timing result.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuKernelResult {
+    /// CUDA function name.
+    pub kernel: String,
+    /// Average CUDA event time for decoding all chunks once.
+    pub decode_ms: f64,
+    /// Raw decoded bytes per second.
+    pub decode_gib_s: f64,
+    /// Whether this kernel was applicable to all chunks.
+    pub applicable: bool,
+    /// Whether this kernel's GPU bytes matched CPU bytes, if validation was requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verified: Option<bool>,
+    /// If not applicable, the reason.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// If validation failed, the first mismatch detail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validation_error: Option<String>,
+}
+
+/// Configuration for optional CUDA kernel-only OnPair decompression timing.
+#[derive(Debug, Clone, Copy)]
+pub struct GpuBenchmarkConfig {
+    /// Timed iterations for each kernel variant.
+    pub iterations: u64,
+    /// Copy each kernel's raw output back and compare against CPU-decoded bytes.
+    pub validate: bool,
 }
 
 /// Encoding id of the OnPair array, used to assert on-disk encoding.
@@ -355,6 +449,7 @@ pub async fn run_column(
     sample_bytes: u64,
     file_target_bytes: u64,
     out_root: &Path,
+    gpu_config: Option<GpuBenchmarkConfig>,
 ) -> Result<Vec<CellResult>> {
     let sample = build_sample(parquet_path, column, sample_bytes)?;
     tracing::info!(
@@ -376,6 +471,7 @@ pub async fn run_column(
                     cb,
                     file_target_bytes,
                     out_root,
+                    gpu_config,
                 )
                 .await?;
                 results.push(res);
@@ -395,6 +491,7 @@ async fn run_cell(
     chunk_bytes: u64,
     file_target_bytes: u64,
     out_root: &Path,
+    gpu_config: Option<GpuBenchmarkConfig>,
 ) -> Result<CellResult> {
     let out_dir = out_root.join(dataset_id).join(column).join(format!(
         "bits{bits}_chunk{}_thr{:.2}",
@@ -472,6 +569,10 @@ async fn run_cell(
     let t1 = Instant::now();
     let (verified, onpair_only) = verify_roundtrip(&files, column, &sample.array).await?;
     let decode_secs = t1.elapsed().as_secs_f64();
+    let gpu = match gpu_config {
+        Some(config) => Some(run_gpu_kernel_bench(&onpairs, config).await?),
+        None => None,
+    };
 
     let gib = sample.raw_bytes as f64 / GIB;
     let result = CellResult {
@@ -500,6 +601,7 @@ async fn run_cell(
         } else {
             0.0
         },
+        gpu,
         mem_ratio: ratio(sample.raw_bytes, in_memory_bytes),
         disk_ratio: ratio(sample.raw_bytes, on_disk_bytes),
         verified,
@@ -512,6 +614,687 @@ async fn run_cell(
         serde_json::to_vec_pretty(&result)?,
     )?;
     Ok(result)
+}
+
+#[cfg(not(feature = "cuda"))]
+async fn run_gpu_kernel_bench(
+    _onpairs: &[OnPairArray],
+    _config: GpuBenchmarkConfig,
+) -> Result<GpuCellResult> {
+    anyhow::bail!(
+        "GPU OnPair benchmark requested, but vortex-bench was built without --features cuda"
+    )
+}
+
+#[cfg(feature = "cuda")]
+#[derive(Debug, Default)]
+struct TimedLaunchStrategy {
+    total_time_ns: Arc<AtomicU64>,
+}
+
+#[cfg(feature = "cuda")]
+impl TimedLaunchStrategy {
+    fn timer(&self) -> Arc<AtomicU64> {
+        Arc::clone(&self.total_time_ns)
+    }
+}
+
+#[cfg(feature = "cuda")]
+impl LaunchStrategy for TimedLaunchStrategy {
+    fn event_flags(&self) -> CUevent_flags {
+        CU_EVENT_BLOCKING_SYNC
+    }
+
+    fn on_complete(&self, events: &CudaKernelEvents, _len: usize) -> VortexResult<()> {
+        #[allow(clippy::cast_possible_truncation)]
+        let elapsed_nanos = events.duration()?.as_nanos() as u64;
+        self.total_time_ns
+            .fetch_add(elapsed_nanos, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+#[cfg(feature = "cuda")]
+struct GpuOnPairChunk {
+    rows: usize,
+    decoded_bytes: u64,
+    total_tokens: usize,
+    dict_max_len: u8,
+    dict_mean_len: f32,
+    all_len_1: bool,
+    all_len_2: bool,
+    codes: vortex::array::buffer::BufferHandle,
+    codes_offsets: vortex::array::buffer::BufferHandle,
+    dict_padded: vortex::array::buffer::BufferHandle,
+    dict_s8: vortex::array::buffer::BufferHandle,
+    dict_s4: vortex::array::buffer::BufferHandle,
+    dict_const1: vortex::array::buffer::BufferHandle,
+    dict_const2: vortex::array::buffer::BufferHandle,
+    dict_table: vortex::array::buffer::BufferHandle,
+    dict_bytes: vortex::array::buffer::BufferHandle,
+    output_offsets: vortex::array::buffer::BufferHandle,
+    validity: vortex::array::buffer::BufferHandle,
+    lens: vortex::array::buffer::BufferHandle,
+    chunk_offsets_32: vortex::array::buffer::BufferHandle,
+    chunk_offsets_64: vortex::array::buffer::BufferHandle,
+    chunk_offsets_128: vortex::array::buffer::BufferHandle,
+    chunk_offsets_256: vortex::array::buffer::BufferHandle,
+    chunk_offsets_512: vortex::array::buffer::BufferHandle,
+    chunk_offsets_1024: vortex::array::buffer::BufferHandle,
+    output: vortex::array::buffer::BufferHandle,
+    expected_bytes: Vec<u8>,
+}
+
+#[cfg(feature = "cuda")]
+#[derive(Debug, Clone, Copy)]
+enum KernelLayout {
+    Ref,
+    Stride16,
+    Stride8,
+    Stride4,
+    Const1,
+    Const2,
+}
+
+#[cfg(feature = "cuda")]
+#[derive(Debug, Clone, Copy)]
+struct KernelVariant {
+    name: &'static str,
+    layout: KernelLayout,
+    chunk_size: usize,
+    block_warps: u32,
+}
+
+#[cfg(feature = "cuda")]
+const GPU_KERNELS: &[KernelVariant] = &[
+    KernelVariant {
+        name: "onpair",
+        layout: KernelLayout::Ref,
+        chunk_size: 0,
+        block_warps: 0,
+    },
+    KernelVariant {
+        name: "onpair_shmem",
+        layout: KernelLayout::Stride16,
+        chunk_size: 32,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_2tpt",
+        layout: KernelLayout::Stride16,
+        chunk_size: 64,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_s8",
+        layout: KernelLayout::Stride8,
+        chunk_size: 32,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_s8_2tpt",
+        layout: KernelLayout::Stride8,
+        chunk_size: 64,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_s8_4tpt",
+        layout: KernelLayout::Stride8,
+        chunk_size: 128,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_s8_8tpt",
+        layout: KernelLayout::Stride8,
+        chunk_size: 256,
+        block_warps: 12,
+    },
+    KernelVariant {
+        name: "onpair_shmem_s4l1",
+        layout: KernelLayout::Stride4,
+        chunk_size: 32,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_s4l1_2tpt",
+        layout: KernelLayout::Stride4,
+        chunk_size: 64,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_s4l1_4tpt",
+        layout: KernelLayout::Stride4,
+        chunk_size: 128,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_s4l1_8tpt",
+        layout: KernelLayout::Stride4,
+        chunk_size: 256,
+        block_warps: 12,
+    },
+    KernelVariant {
+        name: "onpair_shmem_s4l1_16tpt",
+        layout: KernelLayout::Stride4,
+        chunk_size: 512,
+        block_warps: 8,
+    },
+    KernelVariant {
+        name: "onpair_shmem_s4l1_32tpt",
+        layout: KernelLayout::Stride4,
+        chunk_size: 1024,
+        block_warps: 8,
+    },
+    KernelVariant {
+        name: "onpair_shmem_const1",
+        layout: KernelLayout::Const1,
+        chunk_size: 512,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_const2",
+        layout: KernelLayout::Const2,
+        chunk_size: 256,
+        block_warps: 16,
+    },
+];
+
+#[cfg(feature = "cuda")]
+async fn run_gpu_kernel_bench(
+    onpairs: &[OnPairArray],
+    config: GpuBenchmarkConfig,
+) -> Result<GpuCellResult> {
+    let iterations = config.iterations.max(1);
+    let mut setup_ctx = CudaSession::create_execution_ctx(&SESSION)?;
+    let mut chunks = Vec::with_capacity(onpairs.len());
+    for op in onpairs {
+        chunks.push(stage_gpu_chunk(op, &mut setup_ctx).await?);
+    }
+    setup_ctx.synchronize_stream()?;
+
+    let decoded_bytes = chunks.iter().map(|c| c.decoded_bytes).sum::<u64>();
+    let auto_kernel = pick_auto_kernel(&chunks).to_string();
+    let mut kernels = Vec::with_capacity(GPU_KERNELS.len());
+
+    for variant in GPU_KERNELS {
+        if let Some(reason) = inapplicable_reason(*variant, &chunks) {
+            kernels.push(GpuKernelResult {
+                kernel: variant.name.to_string(),
+                decode_ms: 0.0,
+                decode_gib_s: 0.0,
+                applicable: false,
+                verified: None,
+                reason: Some(reason),
+                validation_error: None,
+            });
+            continue;
+        }
+
+        let decode_ms = time_kernel_variant(*variant, &chunks, iterations)?;
+        let validation_error = if config.validate {
+            validate_kernel_variant(*variant, &chunks).await.err()
+        } else {
+            None
+        };
+        let verified = config.validate.then_some(validation_error.is_none());
+        kernels.push(GpuKernelResult {
+            kernel: variant.name.to_string(),
+            decode_ms,
+            decode_gib_s: gib_s(decoded_bytes, decode_ms),
+            applicable: true,
+            verified,
+            reason: None,
+            validation_error: validation_error.map(|e| e.to_string()),
+        });
+    }
+
+    let auto = kernels
+        .iter()
+        .find(|r| r.kernel == auto_kernel && r.applicable)
+        .with_context(|| format!("auto kernel {auto_kernel} was not timed"))?;
+    let best = kernels
+        .iter()
+        .filter(|r| r.applicable && (!config.validate || r.verified == Some(true)))
+        .min_by(|a, b| a.decode_ms.total_cmp(&b.decode_ms))
+        .context("no applicable verified CUDA OnPair kernels")?;
+
+    Ok(GpuCellResult {
+        iterations,
+        decoded_bytes,
+        chunks: chunks.len(),
+        auto_kernel,
+        best_kernel: best.kernel.clone(),
+        auto_decode_ms: auto.decode_ms,
+        best_decode_ms: best.decode_ms,
+        validated: config.validate,
+        verified: config.validate.then(|| {
+            kernels
+                .iter()
+                .filter(|r| r.applicable)
+                .all(|r| r.verified == Some(true))
+        }),
+        auto_decode_gib_s: auto.decode_gib_s,
+        best_decode_gib_s: best.decode_gib_s,
+        kernels,
+    })
+}
+
+#[cfg(feature = "cuda")]
+async fn stage_gpu_chunk(op: &OnPairArray, ctx: &mut CudaExecutionCtx) -> Result<GpuOnPairChunk> {
+    let codes_arr = op
+        .codes()
+        .clone()
+        .execute::<PrimitiveArray>(ctx.execution_ctx())?;
+    let codes_offsets_arr = op
+        .codes_offsets()
+        .clone()
+        .execute::<PrimitiveArray>(ctx.execution_ctx())?;
+    let dict_offsets_arr = op
+        .dict_offsets()
+        .clone()
+        .execute::<PrimitiveArray>(ctx.execution_ctx())?;
+    let lens_arr = op
+        .uncompressed_lengths()
+        .clone()
+        .execute::<PrimitiveArray>(ctx.execution_ctx())?;
+    let decoded = op
+        .clone()
+        .into_array()
+        .execute::<VarBinViewArray>(ctx.execution_ctx())?;
+    let mut expected_bytes = Vec::with_capacity(usize::try_from(decoded.nbytes()).unwrap_or(0));
+    decoded.with_iterator(|values| {
+        for value in values.flatten() {
+            expected_bytes.extend_from_slice(value);
+        }
+    });
+
+    let codes_u16: Vec<u16> = match_each_integer_ptype!(codes_arr.ptype(), |P| {
+        codes_arr
+            .as_slice::<P>()
+            .iter()
+            .map(|&v| v as u16)
+            .collect()
+    });
+
+    let dict_bytes_host = op.dict_bytes().as_slice();
+    let (dict_padded, lens_table) = match_each_integer_ptype!(dict_offsets_arr.ptype(), |P| {
+        let offsets = dict_offsets_arr.as_slice::<P>();
+        let dict_size = offsets.len().saturating_sub(1);
+        let mut padded = vec![0u8; dict_size * vortex_onpair::MAX_TOKEN_SIZE];
+        let mut lens = vec![0u8; dict_size];
+        for i in 0..dict_size {
+            let start = offsets[i] as usize;
+            let end = offsets[i + 1] as usize;
+            let len = end.saturating_sub(start);
+            padded[i * vortex_onpair::MAX_TOKEN_SIZE..i * vortex_onpair::MAX_TOKEN_SIZE + len]
+                .copy_from_slice(&dict_bytes_host[start..end]);
+            lens[i] = u8::try_from(len).unwrap_or(u8::MAX);
+        }
+        (padded, lens)
+    });
+
+    let decoded_bytes = match_each_integer_ptype!(lens_arr.ptype(), |P| {
+        lens_arr.as_slice::<P>().iter().map(|&v| v as u64).sum()
+    });
+    let total_tokens = codes_u16.len();
+    let dict_max_len = *lens_table.iter().max().unwrap_or(&0);
+    let dict_mean_len = if lens_table.is_empty() {
+        0.0
+    } else {
+        lens_table.iter().map(|&v| v as u64).sum::<u64>() as f32 / lens_table.len() as f32
+    };
+    let all_len_1 = !lens_table.is_empty() && lens_table.iter().all(|&l| l == 1);
+    let all_len_2 = !lens_table.is_empty() && lens_table.iter().all(|&l| l == 2);
+
+    let dict_table: Vec<u64> = match_each_integer_ptype!(dict_offsets_arr.ptype(), |P| {
+        let offsets = dict_offsets_arr.as_slice::<P>();
+        (0..offsets.len().saturating_sub(1))
+            .map(|i| {
+                let off = offsets[i] as u64;
+                let len = (offsets[i + 1] - offsets[i]) as u64;
+                (off << 16) | len
+            })
+            .collect()
+    });
+    let mut dict_bytes_with_pad = Vec::with_capacity(dict_bytes_host.len() + 16);
+    dict_bytes_with_pad.extend_from_slice(dict_bytes_host);
+    dict_bytes_with_pad.extend(std::iter::repeat_n(0u8, 16));
+
+    let mut output_offsets = Vec::with_capacity(op.len() + 1);
+    output_offsets.push(0u64);
+    let mut acc = 0u64;
+    match_each_integer_ptype!(lens_arr.ptype(), |P| {
+        for &l in lens_arr.as_slice::<P>() {
+            acc += l as u64;
+            output_offsets.push(acc);
+        }
+    });
+    let validity = vec![0xFFu8; op.len().div_ceil(8)];
+
+    let mut dict_s8 = vec![0u8; lens_table.len() * 8];
+    let mut dict_s4 = vec![0u8; lens_table.len() * 4];
+    let mut dict_const1 = vec![0u8; lens_table.len()];
+    let mut dict_const2 = vec![0u8; lens_table.len() * 2];
+    for (i, len) in lens_table.iter().copied().enumerate() {
+        let src = i * vortex_onpair::MAX_TOKEN_SIZE;
+        let n8 = usize::from(len).min(8);
+        dict_s8[i * 8..i * 8 + n8].copy_from_slice(&dict_padded[src..src + n8]);
+        let n4 = usize::from(len).min(4);
+        dict_s4[i * 4..i * 4 + n4].copy_from_slice(&dict_padded[src..src + n4]);
+        if len >= 1 {
+            dict_const1[i] = dict_padded[src];
+        }
+        let n2 = usize::from(len).min(2);
+        dict_const2[i * 2..i * 2 + n2].copy_from_slice(&dict_padded[src..src + n2]);
+    }
+
+    let chunk_offsets_32 = chunk_offsets(&codes_u16, &lens_table, 32, decoded_bytes);
+    let chunk_offsets_64 = chunk_offsets(&codes_u16, &lens_table, 64, decoded_bytes);
+    let chunk_offsets_128 = chunk_offsets(&codes_u16, &lens_table, 128, decoded_bytes);
+    let chunk_offsets_256 = chunk_offsets(&codes_u16, &lens_table, 256, decoded_bytes);
+    let chunk_offsets_512 = chunk_offsets(&codes_u16, &lens_table, 512, decoded_bytes);
+    let chunk_offsets_1024 = chunk_offsets(&codes_u16, &lens_table, 1024, decoded_bytes);
+
+    Ok(GpuOnPairChunk {
+        rows: op.len(),
+        decoded_bytes,
+        total_tokens,
+        dict_max_len,
+        dict_mean_len,
+        all_len_1,
+        all_len_2,
+        codes: ctx.copy_to_device::<u16, _>(codes_u16)?.await?,
+        codes_offsets: ctx
+            .copy_to_device::<u64, _>(codes_offsets_to_u64(&codes_offsets_arr))?
+            .await?,
+        dict_padded: ctx.copy_to_device::<u8, _>(dict_padded)?.await?,
+        dict_s8: ctx.copy_to_device::<u8, _>(dict_s8)?.await?,
+        dict_s4: ctx.copy_to_device::<u8, _>(dict_s4)?.await?,
+        dict_const1: ctx.copy_to_device::<u8, _>(dict_const1)?.await?,
+        dict_const2: ctx.copy_to_device::<u8, _>(dict_const2)?.await?,
+        dict_table: ctx.copy_to_device::<u64, _>(dict_table)?.await?,
+        dict_bytes: ctx.copy_to_device::<u8, _>(dict_bytes_with_pad)?.await?,
+        output_offsets: ctx.copy_to_device::<u64, _>(output_offsets)?.await?,
+        validity: ctx.copy_to_device::<u8, _>(validity)?.await?,
+        lens: ctx.copy_to_device::<u8, _>(lens_table)?.await?,
+        chunk_offsets_32: ctx.copy_to_device::<u64, _>(chunk_offsets_32)?.await?,
+        chunk_offsets_64: ctx.copy_to_device::<u64, _>(chunk_offsets_64)?.await?,
+        chunk_offsets_128: ctx.copy_to_device::<u64, _>(chunk_offsets_128)?.await?,
+        chunk_offsets_256: ctx.copy_to_device::<u64, _>(chunk_offsets_256)?.await?,
+        chunk_offsets_512: ctx.copy_to_device::<u64, _>(chunk_offsets_512)?.await?,
+        chunk_offsets_1024: ctx.copy_to_device::<u64, _>(chunk_offsets_1024)?.await?,
+        output: ctx
+            .copy_to_device::<u8, _>(vec![0u8; decoded_bytes as usize + 16])?
+            .await?,
+        expected_bytes,
+    })
+}
+
+#[cfg(feature = "cuda")]
+fn codes_offsets_to_u64(codes_offsets_arr: &PrimitiveArray) -> Vec<u64> {
+    match_each_integer_ptype!(codes_offsets_arr.ptype(), |P| {
+        codes_offsets_arr
+            .as_slice::<P>()
+            .iter()
+            .map(|&v| v as u64)
+            .collect()
+    })
+}
+
+#[cfg(feature = "cuda")]
+fn chunk_offsets(codes: &[u16], lens: &[u8], chunk_size: usize, expected_total: u64) -> Vec<u64> {
+    let total_chunks = codes.len().div_ceil(chunk_size);
+    let mut offsets = Vec::with_capacity(total_chunks + 1);
+    offsets.push(0);
+    let mut acc = 0u64;
+    for chunk_idx in 0..total_chunks {
+        let start = chunk_idx * chunk_size;
+        let end = (start + chunk_size).min(codes.len());
+        for code in &codes[start..end] {
+            acc += u64::from(lens[usize::from(*code)]);
+        }
+        offsets.push(acc);
+    }
+    debug_assert_eq!(acc, expected_total);
+    offsets
+}
+
+#[cfg(feature = "cuda")]
+fn inapplicable_reason(variant: KernelVariant, chunks: &[GpuOnPairChunk]) -> Option<String> {
+    match variant.layout {
+        KernelLayout::Ref | KernelLayout::Stride16 => None,
+        KernelLayout::Stride8 => chunks
+            .iter()
+            .any(|c| c.dict_max_len > 8)
+            .then(|| "dictionary entry longer than 8 bytes".to_string()),
+        KernelLayout::Stride4 => chunks
+            .iter()
+            .any(|c| c.dict_max_len > 4)
+            .then(|| "dictionary entry longer than 4 bytes".to_string()),
+        KernelLayout::Const1 => chunks
+            .iter()
+            .any(|c| !c.all_len_1)
+            .then(|| "not every dictionary entry is exactly 1 byte".to_string()),
+        KernelLayout::Const2 => chunks
+            .iter()
+            .any(|c| !c.all_len_2)
+            .then(|| "not every dictionary entry is exactly 2 bytes".to_string()),
+    }
+}
+
+#[cfg(feature = "cuda")]
+fn pick_auto_kernel(chunks: &[GpuOnPairChunk]) -> &'static str {
+    if chunks.iter().all(|c| c.all_len_1) {
+        return "onpair_shmem_const1";
+    }
+    if chunks.iter().all(|c| c.all_len_2) {
+        return "onpair_shmem_const2";
+    }
+
+    let dict_max_len = chunks.iter().map(|c| c.dict_max_len).max().unwrap_or(16);
+    let mean_bpt = if chunks.is_empty() {
+        0.0
+    } else {
+        chunks.iter().map(|c| c.dict_mean_len).sum::<f32>() / chunks.len() as f32
+    };
+    let _ = mean_bpt;
+
+    if dict_max_len <= 4 {
+        "onpair_shmem_s4l1_16tpt"
+    } else if dict_max_len <= 8 {
+        "onpair_shmem_s8_4tpt"
+    } else {
+        "onpair_shmem_2tpt"
+    }
+}
+
+#[cfg(feature = "cuda")]
+fn time_kernel_variant(
+    variant: KernelVariant,
+    chunks: &[GpuOnPairChunk],
+    iterations: u64,
+) -> Result<f64> {
+    let timed = TimedLaunchStrategy::default();
+    let timer = timed.timer();
+    let mut ctx =
+        CudaSession::create_execution_ctx(&SESSION)?.with_launch_strategy(Arc::new(timed));
+    let function = if matches!(variant.layout, KernelLayout::Ref) {
+        ctx.load_function("onpair", &[u64::PTYPE])?
+    } else {
+        ctx.load_function(variant.name, &[])?
+    };
+
+    for _ in 0..2 {
+        for chunk in chunks {
+            launch_variant(&mut ctx, &function, variant, chunk)?;
+        }
+    }
+    timer.store(0, Ordering::Relaxed);
+    for _ in 0..iterations {
+        for chunk in chunks {
+            launch_variant(&mut ctx, &function, variant, chunk)?;
+        }
+    }
+    ctx.synchronize_stream()?;
+
+    Ok(timer.load(Ordering::Relaxed) as f64 / 1_000_000.0 / iterations as f64)
+}
+
+#[cfg(feature = "cuda")]
+async fn validate_kernel_variant(variant: KernelVariant, chunks: &[GpuOnPairChunk]) -> Result<()> {
+    let mut ctx = CudaSession::create_execution_ctx(&SESSION)?;
+    let function = if matches!(variant.layout, KernelLayout::Ref) {
+        ctx.load_function("onpair", &[u64::PTYPE])?
+    } else {
+        ctx.load_function(variant.name, &[])?
+    };
+
+    for chunk in chunks {
+        launch_variant(&mut ctx, &function, variant, chunk)?;
+    }
+    ctx.synchronize_stream()?;
+
+    for (idx, chunk) in chunks.iter().enumerate() {
+        let host = chunk.output.clone().into_host().await;
+        let actual = &host.as_ref()[..chunk.expected_bytes.len()];
+        if actual != chunk.expected_bytes.as_slice() {
+            let mismatch = actual
+                .iter()
+                .zip(&chunk.expected_bytes)
+                .position(|(a, b)| a != b)
+                .unwrap_or_else(|| actual.len().min(chunk.expected_bytes.len()));
+            anyhow::bail!(
+                "{} chunk {} output mismatch at byte {}: gpu={:?} cpu={:?}",
+                variant.name,
+                idx,
+                mismatch,
+                actual.get(mismatch),
+                chunk.expected_bytes.get(mismatch)
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "cuda")]
+fn launch_variant(
+    ctx: &mut CudaExecutionCtx,
+    function: &cudarc::driver::CudaFunction,
+    variant: KernelVariant,
+    chunk: &GpuOnPairChunk,
+) -> Result<()> {
+    let codes = chunk.codes.cuda_view::<u16>()?;
+    let output = chunk.output.cuda_view::<u8>()?;
+    let total_tokens = chunk.total_tokens as u64;
+
+    match variant.layout {
+        KernelLayout::Ref => {
+            let codes_offsets = chunk.codes_offsets.cuda_view::<u64>()?;
+            let dict_table = chunk.dict_table.cuda_view::<u64>()?;
+            let dict_bytes = chunk.dict_bytes.cuda_view::<u8>()?;
+            let output_offsets = chunk.output_offsets.cuda_view::<u64>()?;
+            let validity = chunk.validity.cuda_view::<u8>()?;
+            let rows = chunk.rows as u64;
+            ctx.launch_kernel(function, chunk.rows, |args| {
+                args.arg(&codes)
+                    .arg(&codes_offsets)
+                    .arg(&dict_table)
+                    .arg(&dict_bytes)
+                    .arg(&output_offsets)
+                    .arg(&validity)
+                    .arg(&output)
+                    .arg(&rows);
+            })?;
+        }
+        KernelLayout::Stride16 | KernelLayout::Stride8 | KernelLayout::Stride4 => {
+            let (dict, chunk_offsets) = match variant.layout {
+                KernelLayout::Stride16 => (
+                    chunk.dict_padded.cuda_view::<u8>()?,
+                    chunk_offsets_for_variant(chunk, variant.chunk_size)?,
+                ),
+                KernelLayout::Stride8 => (
+                    chunk.dict_s8.cuda_view::<u8>()?,
+                    chunk_offsets_for_variant(chunk, variant.chunk_size)?,
+                ),
+                KernelLayout::Stride4 => (
+                    chunk.dict_s4.cuda_view::<u8>()?,
+                    chunk_offsets_for_variant(chunk, variant.chunk_size)?,
+                ),
+                _ => unreachable!(),
+            };
+            let lens = chunk.lens.cuda_view::<u8>()?;
+            let cfg = launch_config(chunk.total_tokens, variant.chunk_size, variant.block_warps);
+            ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
+                args.arg(&codes)
+                    .arg(&chunk_offsets)
+                    .arg(&dict)
+                    .arg(&lens)
+                    .arg(&output)
+                    .arg(&total_tokens);
+            })?;
+        }
+        KernelLayout::Const1 => {
+            let dict = chunk.dict_const1.cuda_view::<u8>()?;
+            let cfg = launch_config(chunk.total_tokens, variant.chunk_size, variant.block_warps);
+            ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
+                args.arg(&codes).arg(&dict).arg(&output).arg(&total_tokens);
+            })?;
+        }
+        KernelLayout::Const2 => {
+            let dict = chunk.dict_const2.cuda_view::<u8>()?;
+            let cfg = launch_config(chunk.total_tokens, variant.chunk_size, variant.block_warps);
+            ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
+                args.arg(&codes).arg(&dict).arg(&output).arg(&total_tokens);
+            })?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "cuda")]
+fn chunk_offsets_for_variant(
+    chunk: &GpuOnPairChunk,
+    chunk_size: usize,
+) -> Result<CudaView<'_, u64>> {
+    match chunk_size {
+        32 => Ok(chunk.chunk_offsets_32.cuda_view::<u64>()?),
+        64 => Ok(chunk.chunk_offsets_64.cuda_view::<u64>()?),
+        128 => Ok(chunk.chunk_offsets_128.cuda_view::<u64>()?),
+        256 => Ok(chunk.chunk_offsets_256.cuda_view::<u64>()?),
+        512 => Ok(chunk.chunk_offsets_512.cuda_view::<u64>()?),
+        1024 => Ok(chunk.chunk_offsets_1024.cuda_view::<u64>()?),
+        _ => anyhow::bail!("unsupported OnPair chunk size {chunk_size}"),
+    }
+}
+
+#[cfg(feature = "cuda")]
+fn launch_config(total_tokens: usize, chunk_size: usize, block_warps: u32) -> LaunchConfig {
+    let total_chunks = total_tokens.div_ceil(chunk_size);
+    LaunchConfig {
+        grid_dim: (
+            u32::try_from(total_chunks.div_ceil(block_warps as usize)).unwrap_or(u32::MAX),
+            1,
+            1,
+        ),
+        block_dim: (block_warps * 32, 1, 1),
+        shared_mem_bytes: 0,
+    }
+}
+
+#[cfg(feature = "cuda")]
+fn gib_s(bytes: u64, ms: f64) -> f64 {
+    if ms == 0.0 {
+        0.0
+    } else {
+        (bytes as f64 / GIB) / (ms / 1_000.0)
+    }
 }
 
 /// Write one group of OnPair chunks (wrapped in single-field structs) to a

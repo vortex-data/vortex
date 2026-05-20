@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::Parser;
 use clap::Subcommand;
+use vortex_bench::onpair_bench::GpuBenchmarkConfig;
 use vortex_bench::onpair_bench::ensure_tpch_all_parquet;
 use vortex_bench::onpair_bench::run_column;
 use vortex_bench::setup_logging_and_tracing;
@@ -89,6 +90,15 @@ enum Command {
         /// Output root for the `.vortex` files.
         #[arg(long)]
         out_dir: PathBuf,
+        /// Also benchmark CUDA kernel-only OnPair decompression.
+        #[arg(long)]
+        gpu_decode: bool,
+        /// Timed CUDA iterations for each applicable kernel.
+        #[arg(long, default_value_t = 10)]
+        gpu_iters: u64,
+        /// Copy GPU output bytes back and compare every applicable kernel against CPU decode.
+        #[arg(long)]
+        gpu_validate: bool,
     },
 }
 
@@ -116,6 +126,9 @@ async fn main() -> Result<()> {
             sample_bytes,
             file_target_bytes,
             out_dir,
+            gpu_decode,
+            gpu_iters,
+            gpu_validate,
         } => {
             let results = run_column(
                 &dataset_id,
@@ -127,6 +140,10 @@ async fn main() -> Result<()> {
                 sample_bytes,
                 file_target_bytes,
                 &out_dir,
+                gpu_decode.then_some(GpuBenchmarkConfig {
+                    iterations: gpu_iters,
+                    validate: gpu_validate,
+                }),
             )
             .await?;
             println!("{}", serde_json::to_string_pretty(&results)?);

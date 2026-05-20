@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -40,6 +41,10 @@ MB = 1 << 20
 GIB = 1 << 30
 
 
+def available_cores() -> int:
+    return os.cpu_count() or 1
+
+
 def clean_outputs() -> None:
     """Remove generated OnPair benchmark output files.
 
@@ -52,11 +57,16 @@ def clean_outputs() -> None:
         print(f"==> nothing to clean at {OUT_ROOT}", file=sys.stderr)
 
 
-def build_binary(release: bool) -> Path:
+def build_binary(release: bool, cuda: bool) -> Path:
     profile = ["--release"] if release else []
-    print(f"==> building {BIN} ({'release' if release else 'dev'})", file=sys.stderr)
+    features = ["--features", "cuda"] if cuda else []
+    print(
+        f"==> building {BIN} ({'release' if release else 'dev'}"
+        f"{', cuda' if cuda else ''})",
+        file=sys.stderr,
+    )
     subprocess.run(
-        ["cargo", "build", *profile, "-p", "vortex-bench", "--bin", BIN],
+        ["cargo", "build", *profile, "-p", "vortex-bench", "--bin", BIN, *features],
         cwd=REPO_ROOT,
         check=True,
     )
@@ -79,6 +89,21 @@ def download(url: str, dest: Path) -> None:
         import urllib.request
         with urllib.request.urlopen(url) as r, open(tmp, "wb") as f:
             shutil.copyfileobj(r, f)
+    tmp.rename(dest)
+
+
+def text_to_parquet(src: Path, dest: Path, column: str) -> None:
+    """Convert a newline-delimited text file to a one-column parquet file."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    print(f"==> converting {src} -> {dest}", file=sys.stderr)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with open(src, encoding="utf-8", errors="replace") as f:
+        values = [line.rstrip("\n\r") for line in f]
+    table = pa.table({column: pa.array(values, type=pa.string())})
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    pq.write_table(table, tmp)
     tmp.rename(dest)
 
 
@@ -111,6 +136,12 @@ def ensure_parquet(binary: Path, col: Column) -> Path:
         return path
     if col.kind == "parquet" and col.url:
         download(col.url, col.cache_path())
+        return col.cache_path()
+    if col.kind == "text" and col.url:
+        raw_path = SRC_DIR / col.dataset_id / "raw" / f"{col.column}.txt"
+        if not raw_path.exists():
+            download(col.url, raw_path)
+        text_to_parquet(raw_path, col.cache_path(), col.column)
         return col.cache_path()
     raise FileNotFoundError(
         f"parquet for {col.dataset_id}/{col.column} not found at {path} "
@@ -150,6 +181,15 @@ def run_column(binary: Path, col: Column, args) -> list[dict]:
             "--sample-bytes", str(args.sample_bytes),
             "--file-target-bytes", str(int(args.file_target_mb * MB)),
             "--out-dir", str(OUT_ROOT),
+            *(
+                [
+                    "--gpu-decode",
+                    "--gpu-iters", str(args.gpu_iters),
+                    *(["--gpu-validate"] if args.gpu_validate else []),
+                ]
+                if args.gpu_decode
+                else []
+            ),
         ],
         cwd=REPO_ROOT,
         capture_output=True,
@@ -173,12 +213,21 @@ def markdown_table(rows: list[dict]) -> str:
     headers = [
         "dataset", "column", "bits", "thr", "chunk", "rows", "uniq", "uniq%",
         "chunks", "sample", "in-mem", "on-disk", "str→codec×", "str→files×",
-        "enc GiB/s", "dec GiB/s", "ok", "onpair",
+        "enc GiB/s", "dec GiB/s", "gpu auto", "gpu best", "ok", "onpair",
     ]
     lines = ["| " + " | ".join(headers) + " |",
              "| " + " | ".join("---" for _ in headers) + " |"]
     for r in rows:
         uniq_pct = 100.0 * r["unique_count"] / r["rows"] if r["rows"] else 0.0
+        gpu = r.get("gpu")
+        gpu_auto = ""
+        gpu_best = ""
+        if gpu:
+            gpu_auto = f"{gpu['auto_kernel']} {gpu['auto_decode_gib_s']:.1f}"
+            gpu_best = f"{gpu['best_kernel']} {gpu['best_decode_gib_s']:.1f}"
+            if gpu.get("validated"):
+                status = "ok" if gpu.get("verified") else "bad"
+                gpu_best = f"{gpu_best} ({status})"
         lines.append("| " + " | ".join([
             r["dataset_id"], r["column"], str(r["bits"]), f"{r['threshold']:.2f}",
             fmt_bytes(r["chunk_bytes"]), f"{r['rows']:,}", f"{r['unique_count']:,}",
@@ -186,7 +235,7 @@ def markdown_table(rows: list[dict]) -> str:
             fmt_bytes(r["sample_bytes"]), fmt_bytes(r["in_memory_bytes"]),
             fmt_bytes(r["on_disk_bytes"]), f"{r['mem_ratio']:.2f}",
             f"{r['disk_ratio']:.2f}", f"{r['encode_gib_s']:.2f}",
-            f"{r['decode_gib_s']:.2f}", "✓" if r["verified"] else "✗",
+            f"{r['decode_gib_s']:.2f}", gpu_auto, gpu_best, "✓" if r["verified"] else "✗",
             "✓" if r["onpair_only"] else "✗",
         ]) + " |")
     return "\n".join(lines)
@@ -224,7 +273,14 @@ def consolidated_summary(rows: list[dict], args, pivot: str, full_table: str) ->
 
     datasets = Counter(r["dataset_id"] for r in rows)
     cols = len({(r["dataset_id"], r["column"]) for r in rows})
-    fails = [r for r in rows if not r["verified"] or not r["onpair_only"]]
+    fails = [
+        r for r in rows
+        if (
+            not r["verified"]
+            or not r["onpair_only"]
+            or (r.get("gpu", {}).get("validated") and not r["gpu"].get("verified"))
+        )
+    ]
 
     # Best param per column (max str→codec×).
     best = {}
@@ -246,6 +302,9 @@ def consolidated_summary(rows: list[dict], args, pivot: str, full_table: str) ->
         f"- block sizes (uncompressed): `{[f'{m:g}MB' for m in args.chunk_mb]}`",
         f"- training threshold: `{args.threshold}`",
         f"- raw sample cap: `{args.sample_bytes:,}` bytes  |  file target: `{args.file_target_mb:g} MB`",
+        f"- GPU kernel-only decode: `{'on' if args.gpu_decode else 'off'}`"
+        + (f" ({args.gpu_iters} timed iterations)" if args.gpu_decode else ""),
+        f"- GPU byte validation: `{'on' if args.gpu_validate else 'off'}`",
         "",
         "## Coverage",
         f"- **{len(rows)} cells**, **{cols} columns**, datasets: "
@@ -280,7 +339,14 @@ def main() -> int:
                    default=[0.2])
     p.add_argument("--sample-bytes", type=int, default=1_000_000_000)
     p.add_argument("--file-target-mb", type=float, default=200.0)
-    p.add_argument("--jobs", type=int, default=4, help="columns to run concurrently")
+    p.add_argument("--gpu-decode", action="store_true",
+                   help="also time CUDA kernel-only OnPair decompression for all applicable kernels")
+    p.add_argument("--gpu-iters", type=int, default=10,
+                   help="timed CUDA iterations per kernel when --gpu-decode is set")
+    p.add_argument("--gpu-validate", action="store_true",
+                   help="copy GPU output back and compare every applicable kernel against CPU bytes")
+    p.add_argument("--jobs", type=int, default=0,
+                   help="columns to run concurrently (default: all available CPU cores)")
     p.add_argument("--dev", action="store_true", help="dev build instead of release")
     p.add_argument("--datasets", type=lambda s: {x.strip() for x in s.split(",")},
                    default=None,
@@ -298,6 +364,10 @@ def main() -> int:
         clean_outputs()
         return 0
 
+    if args.gpu_validate and not args.gpu_decode:
+        print("--gpu-validate requires --gpu-decode", file=sys.stderr)
+        return 1
+
     if args.list:
         for c in COLUMNS:
             print(f"{c.dataset_id}\t{c.column}")
@@ -311,7 +381,7 @@ def main() -> int:
         print("no columns match the given --datasets/--columns filters", file=sys.stderr)
         return 1
 
-    binary = build_binary(release=not args.dev)
+    binary = build_binary(release=not args.dev, cuda=args.gpu_decode)
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
 
     results: list[dict] = []
@@ -336,8 +406,11 @@ def main() -> int:
                   file=sys.stderr)
     print(f"==> {len(selected)}/{len(columns)} columns selected", file=sys.stderr)
 
-    if args.jobs > 1:
-        with ThreadPoolExecutor(max_workers=args.jobs) as pool:
+    jobs = args.jobs if args.jobs > 0 else available_cores()
+    print(f"==> running with {jobs} column worker(s)", file=sys.stderr)
+
+    if jobs > 1:
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
             futs = {pool.submit(run_column, binary, c, args): c for c in selected}
             for fut in as_completed(futs):
                 results.extend(fut.result())
@@ -364,9 +437,16 @@ def main() -> int:
     print(f"\nWrote {consolidated} (everything in one place)\n"
           f"Wrote {summary_json}\nWrote {summary_md}\nWrote {pivot_md}", file=sys.stderr)
 
-    failures = [r for r in results if not r["verified"] or not r["onpair_only"]]
+    failures = [
+        r for r in results
+        if (
+            not r["verified"]
+            or not r["onpair_only"]
+            or (r.get("gpu", {}).get("validated") and not r["gpu"].get("verified"))
+        )
+    ]
     if failures:
-        print(f"\n{len(failures)} cell(s) FAILED round-trip / onpair-only check",
+        print(f"\n{len(failures)} cell(s) FAILED round-trip / onpair-only / GPU validation check",
               file=sys.stderr)
         return 1
     return 0

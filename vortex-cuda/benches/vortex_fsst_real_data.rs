@@ -85,10 +85,7 @@ fn measure_utf8_column(
     Some((raw_bytes, rows))
 }
 
-fn find_row_cap(
-    batches: &[arrow_array::RecordBatch],
-    col_idx: usize,
-) -> (usize, usize) {
+fn find_row_cap(batches: &[arrow_array::RecordBatch], col_idx: usize) -> (usize, usize) {
     let mut bytes: u64 = 0;
     let mut rows: usize = 0;
     for b in batches {
@@ -126,26 +123,47 @@ fn build_varbin(
     let dtype = DType::Utf8(Nullability::NonNullable);
     if first.as_any().is::<arrow_array::StringArray>() {
         Some(VarBinArray::from_iter(
-            batches.iter().flat_map(|b| {
-                let s = b.column(col_idx).as_any().downcast_ref::<arrow_array::StringArray>().unwrap();
-                (0..s.len()).map(move |i| Some(s.value(i).as_bytes()))
-            }).take(row_cap),
+            batches
+                .iter()
+                .flat_map(|b| {
+                    let s = b
+                        .column(col_idx)
+                        .as_any()
+                        .downcast_ref::<arrow_array::StringArray>()
+                        .unwrap();
+                    (0..s.len()).map(move |i| Some(s.value(i).as_bytes()))
+                })
+                .take(row_cap),
             dtype,
         ))
     } else if first.as_any().is::<arrow_array::LargeStringArray>() {
         Some(VarBinArray::from_iter(
-            batches.iter().flat_map(|b| {
-                let s = b.column(col_idx).as_any().downcast_ref::<arrow_array::LargeStringArray>().unwrap();
-                (0..s.len()).map(move |i| Some(s.value(i).as_bytes()))
-            }).take(row_cap),
+            batches
+                .iter()
+                .flat_map(|b| {
+                    let s = b
+                        .column(col_idx)
+                        .as_any()
+                        .downcast_ref::<arrow_array::LargeStringArray>()
+                        .unwrap();
+                    (0..s.len()).map(move |i| Some(s.value(i).as_bytes()))
+                })
+                .take(row_cap),
             dtype,
         ))
     } else if first.as_any().is::<arrow_array::StringViewArray>() {
         Some(VarBinArray::from_iter(
-            batches.iter().flat_map(|b| {
-                let s = b.column(col_idx).as_any().downcast_ref::<arrow_array::StringViewArray>().unwrap();
-                (0..s.len()).map(move |i| Some(s.value(i).as_bytes()))
-            }).take(row_cap),
+            batches
+                .iter()
+                .flat_map(|b| {
+                    let s = b
+                        .column(col_idx)
+                        .as_any()
+                        .downcast_ref::<arrow_array::StringViewArray>()
+                        .unwrap();
+                    (0..s.len()).map(move |i| Some(s.value(i).as_bytes()))
+                })
+                .take(row_cap),
             dtype,
         ))
     } else {
@@ -223,9 +241,7 @@ fn print_results(label: &str, results: &[ColResult]) {
     println!();
     println!("# {label}");
     println!();
-    println!(
-        "| Column | Rows | Raw MB | Cmp MB | Ratio | Decode ms | GiB/s [raw] | GiB/s [cmp] |"
-    );
+    println!("| Column | Rows | Raw MB | Cmp MB | Ratio | Decode ms | GiB/s [raw] | GiB/s [cmp] |");
     println!("|---|---|---|---|---|---|---|---|");
     let mut total_raw = 0usize;
     let mut total_cmp = 0usize;
@@ -260,7 +276,11 @@ fn print_results(label: &str, results: &[ColResult]) {
 }
 
 fn run_dataset(path: PathBuf) -> anyhow::Result<()> {
-    let label = path.file_stem().and_then(|s| s.to_str()).unwrap_or("dataset").to_string();
+    let label = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("dataset")
+        .to_string();
     println!("[vortex-fsst-real-data] loading {}", path.display());
     let batches = load_parquet(&path)?;
     if batches.is_empty() {

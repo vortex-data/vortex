@@ -100,7 +100,11 @@ async fn main() -> Result<()> {
 
     println!("---");
     println!("Output: {}", output_path.display());
-    println!("File size: {} bytes ({:.2} GiB)", file_size, file_size as f64 / (1024.0 * 1024.0 * 1024.0));
+    println!(
+        "File size: {} bytes ({:.2} GiB)",
+        file_size,
+        file_size as f64 / (1024.0 * 1024.0 * 1024.0)
+    );
     println!("Rows: {}", total_rows);
     println!("Row groups: {}", metadata.row_groups().len());
     println!("Wall time: {:?}", elapsed);

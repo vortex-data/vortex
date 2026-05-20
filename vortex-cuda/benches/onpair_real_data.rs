@@ -49,7 +49,10 @@ use crate::timed_launch_strategy::TimedLaunchStrategy;
 /// (GH200) sweet spot for the `2tpt` kernel after the §7.1
 /// local-memory spill fix; on A100 the original 8 wins.
 fn warps_per_block() -> u32 {
-    match env::var("ONPAIR_WARPS_PER_BLOCK").ok().and_then(|s| s.parse::<u32>().ok()) {
+    match env::var("ONPAIR_WARPS_PER_BLOCK")
+        .ok()
+        .and_then(|s| s.parse::<u32>().ok())
+    {
         Some(w) if (1..=16).contains(&w) => w,
         _ => 12,
     }
@@ -71,9 +74,7 @@ struct ColResult {
 }
 
 /// Load a parquet file and concatenate all batches into one Vec<RecordBatch>.
-fn load_parquet(
-    path: &PathBuf,
-) -> anyhow::Result<Vec<arrow_array::RecordBatch>> {
+fn load_parquet(path: &PathBuf) -> anyhow::Result<Vec<arrow_array::RecordBatch>> {
     let file = std::fs::File::open(path)?;
     let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
     let reader = builder.build()?;
@@ -104,10 +105,7 @@ fn measure_utf8_column(
             for i in 0..s.len() {
                 raw_bytes += s.value(i).len();
             }
-        } else if let Some(s) = col
-            .as_any()
-            .downcast_ref::<arrow_array::StringViewArray>()
-        {
+        } else if let Some(s) = col.as_any().downcast_ref::<arrow_array::StringViewArray>() {
             rows += s.len();
             for i in 0..s.len() {
                 raw_bytes += s.value(i).len();
@@ -124,10 +122,7 @@ const VARBIN_BYTE_CAP: u64 = 3_500_000_000;
 
 /// Find the largest row prefix of this column whose total bytes is ≤
 /// VARBIN_BYTE_CAP. Returns (row_cap, byte_total_within_cap).
-fn find_row_cap(
-    batches: &[arrow_array::RecordBatch],
-    col_idx: usize,
-) -> (usize, usize) {
+fn find_row_cap(batches: &[arrow_array::RecordBatch], col_idx: usize) -> (usize, usize) {
     let mut bytes: u64 = 0;
     let mut rows: usize = 0;
     for b in batches {
@@ -150,10 +145,7 @@ fn find_row_cap(
                 bytes += l;
                 rows += 1;
             }
-        } else if let Some(s) = col
-            .as_any()
-            .downcast_ref::<arrow_array::StringViewArray>()
-        {
+        } else if let Some(s) = col.as_any().downcast_ref::<arrow_array::StringViewArray>() {
             for i in 0..s.len() {
                 let l = s.value(i).len() as u64;
                 if bytes + l > VARBIN_BYTE_CAP {
@@ -256,7 +248,11 @@ fn bench_column(
         .execute::<PrimitiveArray>(setup_ctx.execution_ctx())?;
 
     let codes_u16: Vec<u16> = match_each_integer_ptype!(codes_arr.ptype(), |P| {
-        codes_arr.as_slice::<P>().iter().map(|&v| v as u16).collect()
+        codes_arr
+            .as_slice::<P>()
+            .iter()
+            .map(|&v| v as u16)
+            .collect()
     });
 
     let dict_bytes_host: &[u8] = onpair.dict_bytes().as_slice();
@@ -478,19 +474,12 @@ fn bench_column(
     let validity_device = block_on(setup_ctx.copy_to_device(validity_bits)?)?;
     let lens_table_device = block_on(setup_ctx.copy_to_device(lens_table.clone())?)?;
     let chunk_offsets_device = block_on(setup_ctx.copy_to_device(chunk_offsets)?)?;
-    let chunk_offsets_64_device =
-        block_on(setup_ctx.copy_to_device(chunk_offsets_64)?)?;
-    let chunk_offsets_128_device =
-        block_on(setup_ctx.copy_to_device(chunk_offsets_128)?)?;
-    let chunk_offsets_256_device =
-        block_on(setup_ctx.copy_to_device(chunk_offsets_256)?)?;
-    let chunk_offsets_512_device =
-        block_on(setup_ctx.copy_to_device(chunk_offsets_512)?)?;
-    let chunk_offsets_1024_device =
-        block_on(setup_ctx.copy_to_device(chunk_offsets_1024)?)?;
-    let device_output = block_on(
-        setup_ctx.copy_to_device(vec![0u8; total_size as usize + 16])?,
-    )?;
+    let chunk_offsets_64_device = block_on(setup_ctx.copy_to_device(chunk_offsets_64)?)?;
+    let chunk_offsets_128_device = block_on(setup_ctx.copy_to_device(chunk_offsets_128)?)?;
+    let chunk_offsets_256_device = block_on(setup_ctx.copy_to_device(chunk_offsets_256)?)?;
+    let chunk_offsets_512_device = block_on(setup_ctx.copy_to_device(chunk_offsets_512)?)?;
+    let chunk_offsets_1024_device = block_on(setup_ctx.copy_to_device(chunk_offsets_1024)?)?;
+    let device_output = block_on(setup_ctx.copy_to_device(vec![0u8; total_size as usize + 16])?)?;
 
     let codes_v = codes_device.cuda_view::<u16>().unwrap();
     let chunk_offsets_v = chunk_offsets_device.cuda_view::<u64>().unwrap();
@@ -534,7 +523,11 @@ fn bench_column(
     {
         let num_rows_u64 = rows as u64;
         let codes_off_u64: Vec<u64> = match_each_integer_ptype!(codes_offsets_arr.ptype(), |P| {
-            codes_offsets_arr.as_slice::<P>().iter().map(|&v| v as u64).collect()
+            codes_offsets_arr
+                .as_slice::<P>()
+                .iter()
+                .map(|&v| v as u64)
+                .collect()
         });
         let codes_off_device = block_on(setup_ctx.copy_to_device(codes_off_u64)?)?;
         let codes_off_v = codes_off_device.cuda_view::<u64>().unwrap();
@@ -568,8 +561,7 @@ fn bench_column(
                     .arg(&num_rows_u64);
             })?;
         }
-        let kernel_time_ms =
-            (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
+        let kernel_time_ms = (timer.load(Ordering::Relaxed) as f64) / 1_000_000.0 / iters as f64;
         results.push(ColResult {
             name: format!("{name} [ref]"),
             rows,
@@ -1373,8 +1365,7 @@ fn bench_column(
         // Hopper supports up to ~228 KB shared per SM with opt-in; bump cap to
         // 96 KB to allow stride-16 dict (64 KB at 4096-entry dict-12) to
         // reside in shared.
-        let tma_enabled = env::var("ONPAIR_ENABLE_TMA").is_ok()
-            && shared_bytes <= 96 * 1024;
+        let tma_enabled = env::var("ONPAIR_ENABLE_TMA").is_ok() && shared_bytes <= 96 * 1024;
         if tma_enabled {
             let dict_entries_u32 = dict_entries as u32;
             let tma_cfg = LaunchConfig {
