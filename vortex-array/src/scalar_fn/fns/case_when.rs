@@ -258,7 +258,7 @@ impl ScalarFnVTable for CaseWhen {
     }
 }
 
-/// Average run length at which slicing + `extend_from_array` becomes cheaper than `scalar_at`.
+/// Average run length at which slicing + context-aware builder appends become cheaper than `scalar_at`.
 /// Measured empirically via benchmarks.
 const SLICE_CROSSOVER_RUN_LEN: usize = 4;
 
@@ -272,7 +272,7 @@ fn merge_case_branches(
 ) -> VortexResult<ArrayRef> {
     if branches.len() == 1 {
         let (mask, then_value) = &branches[0];
-        return zip_impl(then_value, &else_value, mask);
+        return zip_impl(then_value, &else_value, mask, ctx);
     }
 
     let output_nullability = branches
@@ -314,7 +314,14 @@ fn merge_case_branches(
             ctx,
         )
     } else {
-        merge_run_by_run(&branch_arrays, &else_value, &spans, &output_dtype, builder)
+        merge_run_by_run(
+            &branch_arrays,
+            &else_value,
+            &spans,
+            &output_dtype,
+            builder,
+            ctx,
+        )
     }
 }
 
@@ -348,7 +355,7 @@ fn merge_row_by_row(
     Ok(builder.finish())
 }
 
-/// Bulk-copies each span via `slice()` + `extend_from_array`.
+/// Bulk-copies each span via `slice()` and context-aware builder appends.
 /// Preferred when runs are long enough that memcpy dominates over per-slice allocation cost.
 /// Lazy cast via `arr.cast(output_dtype)` is executed once per span as a block.
 fn merge_run_by_run(
@@ -357,21 +364,25 @@ fn merge_run_by_run(
     spans: &[(usize, usize, usize)],
     output_dtype: &DType,
     mut builder: Box<dyn ArrayBuilder>,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrayRef> {
     let else_value = else_value.cast(output_dtype.clone())?;
     let len = else_value.len();
     for (start, end, branch_idx) in spans {
         if builder.len() < *start {
-            builder.extend_from_array(&else_value.slice(builder.len()..*start)?);
+            else_value
+                .slice(builder.len()..*start)?
+                .append_to_builder(builder.as_mut(), ctx)?;
         }
-        builder.extend_from_array(
-            &branch_arrays[*branch_idx]
-                .cast(output_dtype.clone())?
-                .slice(*start..*end)?,
-        );
+        branch_arrays[*branch_idx]
+            .cast(output_dtype.clone())?
+            .slice(*start..*end)?
+            .append_to_builder(builder.as_mut(), ctx)?;
     }
     if builder.len() < len {
-        builder.extend_from_array(&else_value.slice(builder.len()..len)?);
+        else_value
+            .slice(builder.len()..len)?
+            .append_to_builder(builder.as_mut(), ctx)?;
     }
 
     Ok(builder.finish())
