@@ -355,7 +355,7 @@ fn merge_row_by_row(
     Ok(builder.finish())
 }
 
-/// Bulk-copies each span via `slice()` + context-aware builder appends.
+/// Bulk-copies each span via `slice()` and context-aware builder appends.
 /// Preferred when runs are long enough that memcpy dominates over per-slice allocation cost.
 /// Lazy cast via `arr.cast(output_dtype)` is executed once per span as a block.
 fn merge_run_by_run(
