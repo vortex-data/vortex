@@ -34,7 +34,7 @@ use crate::scalar::ScalarValue;
 /// See [`NanCount`] for details.
 pub fn nan_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
     // Short-circuit using cached array statistics.
-    if let Some(Precision::Exact(nan_count_scalar)) = array.statistics().get(Stat::NaNCount) {
+    if let Precision::Exact(nan_count_scalar) = array.statistics().get(Stat::NaNCount) {
         return usize::try_from(&nan_count_scalar)
             .map_err(|e| vortex_err!("Failed to convert NaN count stat to usize: {e}"));
     }

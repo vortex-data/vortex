@@ -25,7 +25,7 @@ use crate::scalar::ScalarValue;
 
 /// Return the number of null values in an array.
 pub fn null_count(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<usize> {
-    if let Some(Precision::Exact(null_count_scalar)) = array.statistics().get(Stat::NullCount) {
+    if let Precision::Exact(null_count_scalar) = array.statistics().get(Stat::NullCount) {
         return usize::try_from(&null_count_scalar)
             .map_err(|e| vortex_err!("Failed to convert null count stat to usize: {e}"));
     }
@@ -170,7 +170,7 @@ mod tests {
         assert_eq!(null_count(&array, &mut ctx)?, 2);
         assert_eq!(
             array.statistics().get_as::<u64>(Stat::NullCount),
-            Some(Precision::exact(2u64))
+            Precision::exact(2u64)
         );
         Ok(())
     }

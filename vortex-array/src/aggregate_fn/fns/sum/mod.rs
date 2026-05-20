@@ -41,7 +41,7 @@ use crate::scalar::Scalar;
 /// See [`Sum`] for details.
 pub fn sum(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Scalar> {
     // Short-circuit using cached array statistics.
-    if let Some(Precision::Exact(sum_scalar)) = array.statistics().get(Stat::Sum) {
+    if let Precision::Exact(sum_scalar) = array.statistics().get(Stat::Sum) {
         return Ok(sum_scalar);
     }
 
@@ -379,7 +379,7 @@ mod tests {
 
         // For non-float types, try statistics short-circuit with accumulator.
         if !matches!(&sum_dtype, DType::Primitive(p, _) if p.is_float())
-            && let Some(Precision::Exact(sum_scalar)) = array.statistics().get(Stat::Sum)
+            && let Precision::Exact(sum_scalar) = array.statistics().get(Stat::Sum)
         {
             return add_scalars(&sum_dtype, &sum_scalar, accumulator);
         }

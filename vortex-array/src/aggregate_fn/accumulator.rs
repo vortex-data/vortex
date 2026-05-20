@@ -122,7 +122,7 @@ impl<V: AggregateFnVTable> DynAccumulator for Accumulator<V> {
         // 0. Legacy stats bridge: if this aggregate is still cached under a legacy Stat slot,
         //    consume that exact stat before kernel dispatch or decode.
         if let Some(stat) = Stat::from_aggregate_fn(&self.aggregate_fn)
-            && let Some(Precision::Exact(partial)) = batch.statistics().get(stat)
+            && let Precision::Exact(partial) = batch.statistics().get(stat)
         {
             let partial = if partial.dtype() == &self.partial_dtype {
                 partial

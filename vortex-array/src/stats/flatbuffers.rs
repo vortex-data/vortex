@@ -38,45 +38,33 @@ impl WriteFlatBuffer for StatsSet {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
-        let (min_precision, min) = self
-            .get(Stat::Min)
-            .map(|min| {
-                (
-                    if min.is_exact() {
-                        fba::Precision::Exact
-                    } else {
-                        fba::Precision::Inexact
-                    },
-                    Some(
-                        fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(
-                            &min.into_inner(),
-                        ))),
-                    ),
-                )
-            })
-            .unwrap_or_else(|| (fba::Precision::Inexact, None));
+        let (min_precision, min) = match self.get(Stat::Min) {
+            Precision::Exact(min) => (
+                fba::Precision::Exact,
+                Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&min)))),
+            ),
+            Precision::Inexact(min) => (
+                fba::Precision::Inexact,
+                Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&min)))),
+            ),
+            Precision::Absent => (fba::Precision::Absent, None),
+        };
 
-        let (max_precision, max) = self
-            .get(Stat::Max)
-            .map(|max| {
-                (
-                    if max.is_exact() {
-                        fba::Precision::Exact
-                    } else {
-                        fba::Precision::Inexact
-                    },
-                    Some(
-                        fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(
-                            &max.into_inner(),
-                        ))),
-                    ),
-                )
-            })
-            .unwrap_or_else(|| (fba::Precision::Inexact, None));
+        let (max_precision, max) = match self.get(Stat::Max) {
+            Precision::Exact(max) => (
+                fba::Precision::Exact,
+                Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&max)))),
+            ),
+            Precision::Inexact(max) => (
+                fba::Precision::Inexact,
+                Some(fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&max)))),
+            ),
+            Precision::Absent => (fba::Precision::Absent, None),
+        };
 
         let sum = self
             .get(Stat::Sum)
-            .and_then(Precision::as_exact)
+            .as_exact()
             .map(|sum| fbb.create_vector(&ScalarValue::to_proto_bytes::<Vec<u8>>(Some(&sum))));
 
         let stat_args = &fba::ArrayStatsArgs {
@@ -87,22 +75,22 @@ impl WriteFlatBuffer for StatsSet {
             sum,
             is_sorted: self
                 .get_as::<bool>(Stat::IsSorted, &DType::Bool(Nullability::NonNullable))
-                .and_then(Precision::as_exact),
+                .as_exact(),
             is_strict_sorted: self
                 .get_as::<bool>(Stat::IsStrictSorted, &DType::Bool(Nullability::NonNullable))
-                .and_then(Precision::as_exact),
+                .as_exact(),
             is_constant: self
                 .get_as::<bool>(Stat::IsConstant, &DType::Bool(Nullability::NonNullable))
-                .and_then(Precision::as_exact),
+                .as_exact(),
             null_count: self
                 .get_as::<u64>(Stat::NullCount, &PType::U64.into())
-                .and_then(Precision::as_exact),
+                .as_exact(),
             uncompressed_size_in_bytes: self
                 .get_as::<u64>(Stat::UncompressedSizeInBytes, &PType::U64.into())
-                .and_then(Precision::as_exact),
+                .as_exact(),
             nan_count: self
                 .get_as::<u64>(Stat::NaNCount, &PType::U64.into())
-                .and_then(Precision::as_exact),
+                .as_exact(),
         };
 
         Ok(fba::ArrayStats::create(fbb, stat_args))
@@ -144,6 +132,11 @@ impl StatsSet {
                     if let Some(max) = fb.max()
                         && let Some(stat_dtype) = stat_dtype
                     {
+                        let max_precision = fb.max_precision();
+                        if max_precision == fba::Precision::Absent {
+                            vortex_bail!("Corrupted max stat: value present with absent precision");
+                        }
+
                         let value =
                             ScalarValue::from_proto_bytes(max.bytes(), &stat_dtype, session)?;
                         let Some(value) = value else {
@@ -152,7 +145,7 @@ impl StatsSet {
 
                         stats_set.set(
                             Stat::Max,
-                            match fb.max_precision() {
+                            match max_precision {
                                 fba::Precision::Exact => Precision::Exact(value),
                                 fba::Precision::Inexact => Precision::Inexact(value),
                                 other => vortex_bail!("Corrupted max_precision field: {other:?}"),
@@ -164,6 +157,11 @@ impl StatsSet {
                     if let Some(min) = fb.min()
                         && let Some(stat_dtype) = stat_dtype
                     {
+                        let min_precision = fb.min_precision();
+                        if min_precision == fba::Precision::Absent {
+                            vortex_bail!("Corrupted min stat: value present with absent precision");
+                        }
+
                         let value =
                             ScalarValue::from_proto_bytes(min.bytes(), &stat_dtype, session)?;
                         let Some(value) = value else {
@@ -172,7 +170,7 @@ impl StatsSet {
 
                         stats_set.set(
                             Stat::Min,
-                            match fb.min_precision() {
+                            match min_precision {
                                 fba::Precision::Exact => Precision::Exact(value),
                                 fba::Precision::Inexact => Precision::Inexact(value),
                                 other => vortex_bail!("Corrupted min_precision field: {other:?}"),

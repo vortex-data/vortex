@@ -40,6 +40,7 @@ table ArrayNode {
 enum Precision: uint8 {
     Inexact = 0,
     Exact = 1,
+    Absent = 2,
 }
 
 table ArrayStats {

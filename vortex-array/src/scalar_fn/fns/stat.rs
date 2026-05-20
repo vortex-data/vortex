@@ -185,7 +185,7 @@ fn stat_array(
             .statistics()
             .with_typed_stats_set(|stats| stats.get(stat))
             // We don't mind whether the stat is approxed or not, since these are row-wise bounds.
-            .map(|stat| stat.into_inner())
+            .into_inner()
             .and_then(Scalar::into_value)
     } else {
         tracing::trace!(
