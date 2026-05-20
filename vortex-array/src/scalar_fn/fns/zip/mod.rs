@@ -196,6 +196,8 @@ pub(crate) fn zip_impl(
         return if_false.cast(return_type);
     }
 
+    // `append_to_builder` requires exact dtype equality, so normalize branch
+    // nullability to the output dtype before appending slices into the builder.
     let if_true = if_true.cast(return_type.clone())?;
     let if_false = if_false.cast(return_type.clone())?;
 
