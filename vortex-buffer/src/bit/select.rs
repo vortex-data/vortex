@@ -87,6 +87,12 @@ fn scan_chunks(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usi
     scan_chunks_impl(chunks, remaining, pos)
 }
 
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+#[inline]
+fn scan_chunks_impl(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usize, usize) {
+    scan_chunks_scalar(chunks, remaining, pos)
+}
+
 #[cfg(target_arch = "x86_64")]
 #[inline]
 fn scan_chunks_impl(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usize, usize) {
