@@ -43,19 +43,36 @@ fi
 # shellcheck disable=SC1091
 . "$HOME/.cargo/env" 2>/dev/null || true
 
-# Pause the autopilot for the duration of the migration: stop both
-# timers so the deploy timer can't fire every 60s and try to restart
-# the server mid-migration, and the backup timer can't POST to a
-# stopped server. The trap restores them on any exit path (success or
-# failure) so an aborted migration doesn't permanently silence the
-# autopilot.
-log "stopping autopilot timers (deploy + backup) for migration window"
-sudo /bin/systemctl stop vortex-bench-deploy.timer vortex-bench-backup.timer || true
-restore_timers() {
-    log "restoring autopilot timers (deploy + backup)"
-    sudo /bin/systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer || true
+# Pause the autopilot for the duration of the migration. Stopping the
+# timers alone is not enough — if deploy.service or backup.service is
+# already mid-run, the active oneshot keeps going and can restart the
+# server or call /api/admin/snapshot while the migrator owns the DB.
+# Stop the services first (interrupting any active run, idempotent
+# no-op if inactive), then the timers, then the server.
+#
+# The migration_succeeded flag is flipped to 1 only after the server
+# comes back healthy. The trap restores the autopilot on success; on
+# failure the autopilot stays paused so the operator can perform the
+# documented mv-rollback without the deploy timer trying to re-fetch
+# origin and run a fresh build on top of the half-rolled-back DB.
+migration_succeeded=0
+log "stopping autopilot services (deploy + backup) + timers for migration window"
+sudo /bin/systemctl stop \
+    vortex-bench-deploy.service vortex-bench-deploy.timer \
+    vortex-bench-backup.service vortex-bench-backup.timer || true
+restore_autopilot() {
+    if [ "$migration_succeeded" = "1" ]; then
+        log "restoring autopilot timers (deploy + backup)"
+        sudo /bin/systemctl start \
+            vortex-bench-deploy.timer vortex-bench-backup.timer || true
+    else
+        log "migration did not complete — leaving autopilot timers stopped"
+        log "  inspect with: systemctl status vortex-bench-server vortex-bench-deploy.timer vortex-bench-backup.timer"
+        log "  after rollback and verification, restart timers with:"
+        log "    sudo systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer"
+    fi
 }
-trap restore_timers EXIT
+trap restore_autopilot EXIT
 
 log "stopping vortex-bench-server"
 sudo /bin/systemctl stop vortex-bench-server
@@ -78,8 +95,12 @@ pushd "$REPO_DIR" >/dev/null
 if ! cargo run --release --quiet -p vortex-bench-migrate -- "$@"; then
     popd >/dev/null
     echo "ERROR: migration failed. Server is still stopped." >&2
-    echo "  Restore previous DB with: mv \"$prev\" \"$VORTEX_BENCH_DB\"" >&2
-    echo "  Then: sudo systemctl start vortex-bench-server" >&2
+    echo "  Roll back:" >&2
+    echo "    mv \"$prev\" \"$VORTEX_BENCH_DB\"" >&2
+    echo "    [ -f \"${prev}.wal\" ] && mv \"${prev}.wal\" \"${VORTEX_BENCH_DB}.wal\" || true" >&2
+    echo "  Then start the server and re-enable autopilot timers:" >&2
+    echo "    sudo systemctl start vortex-bench-server" >&2
+    echo "    sudo systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer" >&2
     exit 3
 fi
 popd >/dev/null
@@ -91,6 +112,7 @@ sudo /bin/systemctl start vortex-bench-server
 deadline=$(( $(date +%s) + 30 ))
 while [ "$(date +%s)" -lt "$deadline" ]; do
     if curl -fsS --max-time 3 "${SERVER_URL}/health" >/dev/null 2>&1; then
+        migration_succeeded=1
         log "migrate ok — server is up"
         log "  prev DB kept at ${prev} (delete when you've verified data)"
         exit 0
@@ -98,5 +120,10 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
     sleep 1
 done
 echo "ERROR: server did not respond on /health within 30s" >&2
-echo "  prev DB kept at ${prev} for rollback" >&2
+echo "  prev DB kept at ${prev} (and ${prev}.wal if present) for rollback:" >&2
+echo "    sudo systemctl stop vortex-bench-server" >&2
+echo "    mv \"$prev\" \"$VORTEX_BENCH_DB\"" >&2
+echo "    [ -f \"${prev}.wal\" ] && mv \"${prev}.wal\" \"${VORTEX_BENCH_DB}.wal\" || true" >&2
+echo "    sudo systemctl start vortex-bench-server" >&2
+echo "    sudo systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer" >&2
 exit 1

@@ -134,11 +134,21 @@ fi
 # INGEST_BEARER_TOKEN makes the server fail startup; an empty
 # ADMIN_BEARER_TOKEN leaves the admin listener unbound. Both cases mean
 # starting the units now would just produce noisy failures — enable but
-# defer the start instead.
-ingest_set=$(grep -E '^INGEST_BEARER_TOKEN=.+' "$ENV_FILE" || true)
-admin_set=$(grep -E '^ADMIN_BEARER_TOKEN=.+' "$ENV_FILE" || true)
+# defer the start instead. Source the env file in a subshell and test
+# the runtime values: the prior `grep '^X=.+'` heuristic matched
+# explicitly-empty `X=""` lines (the two quote characters satisfy `.+`)
+# and started units that immediately failed validate_bearer_token.
+tokens_set=$(
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+    set +a
+    if [ -n "${INGEST_BEARER_TOKEN:-}" ] && [ -n "${ADMIN_BEARER_TOKEN:-}" ]; then
+        echo yes
+    fi
+)
 
-if [ -n "$ingest_set" ] && [ -n "$admin_set" ]; then
+if [ "$tokens_set" = "yes" ]; then
     log "tokens present in ${ENV_FILE} — enabling + starting timers and server"
     sudo systemctl enable --now vortex-bench-deploy.timer
     sudo systemctl enable --now vortex-bench-backup.timer

@@ -213,13 +213,18 @@ sudo $EDITOR /etc/vortex-bench.env
 #    .github/workflows/<bench>.yml so CI can keep posting.
 #    ADMIN_BEARER_TOKEN never leaves the box (used only by ops/* scripts).
 
-# 4. Start the units. install.sh enables but does NOT start the units
-#    when the env file still has empty tokens (so the first run has live
-#    secrets). Now that step 3 filled them in, start them:
-sudo systemctl start vortex-bench-server vortex-bench-deploy.timer vortex-bench-backup.timer
+# 4. Start the deploy + backup timers. install.sh enables but does NOT
+#    start the units when the env file still has empty tokens (so the
+#    first run has live secrets). We start ONLY the timers here, not
+#    vortex-bench-server itself — there's no binary at
+#    /var/lib/vortex-bench/bin/vortex-bench-server until the deploy
+#    timer's first fire builds and installs one. Once the binary
+#    exists, vortex-bench-server starts automatically via the deploy
+#    timer's restart step.
+sudo systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer
 
-# 5. Wait ~90s. The deploy timer's first fire builds the binary and
-#    starts the server. Tail it:
+# 5. Watch the first deploy build the binary and bring the server up
+#    (~60-90s for a cold cargo build, then /health responds).
 journalctl -fu vortex-bench-deploy.service
 
 # 6. Smoke check (server is up but the DB is empty — schema applied,
@@ -481,9 +486,12 @@ curl -fsS -X POST \
     "${ADMIN_URL:-http://127.0.0.1:3001}/api/admin/snapshot?ts=manual-${ts}"
 ```
 
-The endpoint returns the on-disk location in its JSON `snapshot_dir`
-field — that's the canonical path regardless of any
-`VORTEX_BENCH_SNAPSHOT_DIR` override.
+The response's `snapshot_dir` JSON field reports the server's
+on-disk path. For the timer-driven backup loop, this is always
+`${VORTEX_BENCH_SNAPSHOT_DIR}/<ts>` because the same env file feeds
+both the server and `backup.sh`. The two MUST stay aligned —
+`backup.sh` tars the path it computes from its own env, not the
+server-returned path.
 
 ### "Token rotation"
 

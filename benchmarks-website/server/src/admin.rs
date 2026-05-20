@@ -331,7 +331,13 @@ fn export_snapshot_tables(conn: &mut Connection, target: &Path) -> Result<()> {
     conn.execute_batch("BEGIN TRANSACTION READ ONLY")
         .context("begin read-only snapshot transaction")?;
     if let Err(err) = copy_each_table(conn, target) {
-        let _ = conn.execute_batch("ROLLBACK");
+        if let Err(rb_err) = conn.execute_batch("ROLLBACK") {
+            tracing::warn!(
+                error = ?rb_err,
+                "rolling back snapshot read-only transaction failed; the original \
+                 export error (returned to the caller) is the actionable one"
+            );
+        }
         return Err(err);
     }
     conn.execute_batch("COMMIT")
@@ -519,7 +525,14 @@ fn run_select(conn: &mut Connection, sql: &str) -> Result<QueryResult> {
             Ok(value)
         }
         Err(err) => {
-            let _ = conn.execute_batch("ROLLBACK");
+            if let Err(rb_err) = conn.execute_batch("ROLLBACK") {
+                tracing::warn!(
+                    error = ?rb_err,
+                    "rolling back admin SQL read-only transaction failed; the \
+                     original query error (returned to the caller) is the \
+                     actionable one"
+                );
+            }
             Err(err)
         }
     }
@@ -604,6 +617,9 @@ fn format_table(r: &QueryResult) -> String {
         write_row(&mut out, row, &widths);
     }
     write_separator(&mut out, &widths, '└', '┴', '┘');
+    // writeln! into a String only errors if the underlying Write impl
+    // returns one — fmt::Write for String is infallible — so the
+    // Result is discarded by design.
     let _ = writeln!(
         out,
         "({} row{}{})",

@@ -174,12 +174,20 @@ fi
 # Force mode (FORCE=1 / .force-rebuild) explicitly opts out of this fast
 # path: the operator asked for "redeploy and reverify", not "skip if the
 # byte image matches", so we must still restart + /health-poll.
+#
+# An empty last_sha (no stamp file, OR a stamp file we just rejected as
+# pointing at a vanished commit at line 130) ALSO opts out: the only
+# guarantee that the symlink's current target was health-verified comes
+# from the stamp file being present. Without it the live binary could
+# be a partially-applied prior deploy that crashed between symlink swap
+# and the restart, in which case the byte-equal path would stamp
+# success without ever restarting the server.
 new_hash="$(sha256sum "$new_binary" | awk '{print $1}')"
 current_hash=""
 if [ -L "$BIN_SYMLINK" ] && [ -e "$BIN_SYMLINK" ]; then
     current_hash="$(sha256sum "$BIN_SYMLINK" | awk '{print $1}')"
 fi
-if [ "$force" = "0" ] && [ "$new_hash" = "$current_hash" ]; then
+if [ "$force" = "0" ] && [ -n "$last_sha" ] && [ "$new_hash" = "$current_hash" ]; then
     log "binary unchanged (sha256 ${new_hash:0:12}); skipping restart"
     echo "$new_sha" > "$STAMP_FILE"
     exit 0
@@ -192,8 +200,13 @@ fi
 # the final transition is `rename(2)`, which IS atomic on POSIX: create
 # the new symlink under a sibling name, then `mv -Tf` it onto $BIN_SYMLINK.
 # Same pattern is used in both rollback paths below.
+# Include a per-process suffix so two deploys within the same UTC
+# second (e.g. timer fire racing with a manual force-rebuild) cannot
+# collide on the versioned filename. Without it, the second `install`
+# would overwrite the first's binary and `prev_target` could end up
+# pointing at a path whose contents are not the prior binary anymore.
 ts="$(date -u +%Y%m%dT%H%M%SZ)"
-versioned="${BIN_DIR}/vortex-bench-server.${ts}"
+versioned="${BIN_DIR}/vortex-bench-server.${ts}.$$"
 install -m 0755 "$new_binary" "$versioned"
 prev_target=""
 if [ -L "$BIN_SYMLINK" ]; then
