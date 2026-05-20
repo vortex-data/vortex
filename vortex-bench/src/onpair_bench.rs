@@ -41,9 +41,13 @@ use arrow_array::StringViewArray;
 #[cfg(feature = "cuda")]
 use cudarc::driver::CudaView;
 #[cfg(feature = "cuda")]
+use cudarc::driver::DevicePtrMut;
+#[cfg(feature = "cuda")]
 use cudarc::driver::LaunchConfig;
 #[cfg(feature = "cuda")]
 use cudarc::driver::PushKernelArg;
+#[cfg(feature = "cuda")]
+use cudarc::driver::result::memset_d8_async;
 #[cfg(feature = "cuda")]
 use cudarc::driver::sys::CUevent_flags;
 #[cfg(feature = "cuda")]
@@ -66,6 +70,8 @@ use vortex::array::arrays::struct_::StructArrayExt;
 #[cfg(feature = "cuda")]
 use vortex::array::match_each_integer_ptype;
 use vortex::array::validity::Validity;
+#[cfg(feature = "cuda")]
+use vortex::array::vtable::child_to_validity;
 use vortex::compressor::BtrBlocksCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::FieldNames;
@@ -73,6 +79,10 @@ use vortex::dtype::FieldNames;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
 use vortex::encodings::fastlanes::Delta;
+#[cfg(feature = "cuda")]
+use vortex::encodings::zstd::Zstd;
+#[cfg(feature = "cuda")]
+use vortex::encodings::zstd::ZstdDataParts;
 #[cfg(feature = "cuda")]
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
@@ -90,6 +100,10 @@ use vortex_cuda::CudaKernelEvents;
 use vortex_cuda::CudaSession;
 #[cfg(feature = "cuda")]
 use vortex_cuda::LaunchStrategy;
+#[cfg(feature = "cuda")]
+use vortex_cuda::ZstdKernelPrep;
+#[cfg(feature = "cuda")]
+use vortex_cuda::nvcomp::zstd as nvcomp_zstd;
 use vortex_onpair::OnPair;
 use vortex_onpair::OnPairArray;
 use vortex_onpair::OnPairArrayExt;
@@ -99,6 +113,12 @@ use vortex_onpair::onpair_compress_array_default;
 use crate::SESSION;
 
 const GIB: f64 = (1usize << 30) as f64;
+#[cfg(feature = "cuda")]
+const NVCOMP_ZSTD_VALUES_PER_FRAME: usize = 2048;
+#[cfg(feature = "cuda")]
+const NVCOMP_ZSTD_LEVEL: i32 = -10;
+#[cfg(feature = "cuda")]
+const NVCOMP_ZSTD_LEVELS: &[i32] = &[-10, 1, 3];
 
 /// One row of benchmark output: a single `(column, bits, chunk, threshold)`
 /// cell.
@@ -184,6 +204,61 @@ pub struct GpuCellResult {
     pub best_decode_gib_s: f64,
     /// Per-kernel timing rows.
     pub kernels: Vec<GpuKernelResult>,
+    /// nvCOMP ZSTD hardware-backend GPU decompression comparison.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nvcomp_zstd_hw: Option<NvcompZstdGpuResult>,
+    /// nvCOMP ZSTD GPU decompression comparison over several compression levels.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub nvcomp_zstd: Vec<NvcompZstdGpuResult>,
+}
+
+/// nvCOMP ZSTD hardware-backend GPU decompression comparison for the same strings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NvcompZstdGpuResult {
+    /// Whether nvCOMP accepted and ran the requested hardware backend.
+    pub supported: bool,
+    /// Error returned while forcing the hardware backend, if unsupported.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Timed nvCOMP launches.
+    pub iterations: u64,
+    /// nvCOMP backend requested.
+    pub backend: String,
+    /// ZSTD compression level used to create comparison frames.
+    pub zstd_level: i32,
+    /// String values per independent ZSTD frame.
+    pub values_per_frame: usize,
+    /// Raw string bytes represented by the frames.
+    pub raw_bytes: u64,
+    /// Sum of compressed ZSTD frame sizes.
+    pub compressed_bytes: u64,
+    /// Number of independent ZSTD frames.
+    pub frames: usize,
+    /// `raw_bytes / compressed_bytes`.
+    pub compression_ratio: f64,
+    /// Average CUDA event time for one batched nvCOMP hardware decompress pass.
+    pub decode_ms: f64,
+    /// Raw string bytes per second.
+    pub decode_gib_s: f64,
+    /// Compressed input bytes per second.
+    pub compressed_gib_s: f64,
+}
+
+/// CUDA kernel-only OnPair decompression results loaded from existing Vortex files.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuVortexDecodeResult {
+    /// Existing Vortex files used as input.
+    pub files: Vec<String>,
+    /// Column extracted from each file.
+    pub column: String,
+    /// Total logical rows across all OnPair chunks.
+    pub rows: u64,
+    /// Total in-memory bytes of the loaded OnPair chunks.
+    pub in_memory_bytes: u64,
+    /// Total OnPair dictionary bytes across all chunks.
+    pub dict_bytes: u64,
+    /// CUDA kernel-only timings and optional validation.
+    pub gpu: GpuCellResult,
 }
 
 /// One CUDA kernel timing result.
@@ -215,6 +290,35 @@ pub struct GpuBenchmarkConfig {
     pub iterations: u64,
     /// Copy each kernel's raw output back and compare against CPU-decoded bytes.
     pub validate: bool,
+}
+
+/// Load existing benchmark `.vortex` files, extract an OnPair column, and run
+/// CUDA kernel-only decompression without rebuilding the files from Parquet.
+pub async fn run_vortex_gpu_decode(
+    files: &[PathBuf],
+    column: &str,
+    gpu_config: GpuBenchmarkConfig,
+) -> Result<GpuVortexDecodeResult> {
+    let onpairs = read_onpair_chunks(files, column).await?;
+    let rows = onpairs.iter().map(|a| a.len() as u64).sum();
+    let in_memory_bytes = onpairs
+        .iter()
+        .map(|a| a.clone().into_array().nbytes())
+        .sum();
+    let dict_bytes = onpairs.iter().map(|a| a.dict_bytes().len() as u64).sum();
+    let gpu = run_gpu_kernel_bench(&onpairs, gpu_config).await?;
+
+    Ok(GpuVortexDecodeResult {
+        files: files
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect(),
+        column: column.to_string(),
+        rows,
+        in_memory_bytes,
+        dict_bytes,
+        gpu,
+    })
 }
 
 /// Encoding id of the OnPair array, used to assert on-disk encoding.
@@ -732,6 +836,36 @@ const GPU_KERNELS: &[KernelVariant] = &[
         block_warps: 16,
     },
     KernelVariant {
+        name: "onpair_shmem_4tpt_wpb8",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 8,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_wpb8_occ",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 8,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_split8",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_split8_wpb8",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 8,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_split8_wpb8_occ",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 8,
+    },
+    KernelVariant {
         name: "onpair_shmem_s8",
         layout: KernelLayout::Stride8,
         chunk_size: 32,
@@ -811,7 +945,7 @@ async fn run_gpu_kernel_bench(
     config: GpuBenchmarkConfig,
 ) -> Result<GpuCellResult> {
     let iterations = config.iterations.max(1);
-    let mut setup_ctx = CudaSession::create_execution_ctx(&SESSION)?;
+    let mut setup_ctx = create_cuda_execution_ctx()?;
     let mut chunks = Vec::with_capacity(onpairs.len());
     for op in onpairs {
         chunks.push(stage_gpu_chunk(op, &mut setup_ctx).await?);
@@ -863,6 +997,55 @@ async fn run_gpu_kernel_bench(
         .filter(|r| r.applicable && (!config.validate || r.verified == Some(true)))
         .min_by(|a, b| a.decode_ms.total_cmp(&b.decode_ms))
         .context("no applicable verified CUDA OnPair kernels")?;
+    let nvcomp_zstd_hw = run_nvcomp_zstd_bench(
+        onpairs,
+        iterations,
+        NVCOMP_ZSTD_LEVEL,
+        nvcomp_zstd::DecompressBackend::Hardware,
+    )
+    .await
+    .unwrap_or_else(|error| NvcompZstdGpuResult {
+        supported: false,
+        error: Some(format!("{error:#}")),
+        iterations,
+        backend: "hardware".to_string(),
+        zstd_level: NVCOMP_ZSTD_LEVEL,
+        values_per_frame: NVCOMP_ZSTD_VALUES_PER_FRAME,
+        raw_bytes: decoded_bytes,
+        compressed_bytes: 0,
+        frames: 0,
+        compression_ratio: 0.0,
+        decode_ms: 0.0,
+        decode_gib_s: 0.0,
+        compressed_gib_s: 0.0,
+    });
+    let mut nvcomp_zstd = Vec::with_capacity(NVCOMP_ZSTD_LEVELS.len());
+    for &level in NVCOMP_ZSTD_LEVELS {
+        nvcomp_zstd.push(
+            run_nvcomp_zstd_bench(
+                onpairs,
+                iterations,
+                level,
+                nvcomp_zstd::DecompressBackend::Default,
+            )
+            .await
+            .unwrap_or_else(|error| NvcompZstdGpuResult {
+                supported: false,
+                error: Some(format!("{error:#}")),
+                iterations,
+                backend: "default".to_string(),
+                zstd_level: level,
+                values_per_frame: NVCOMP_ZSTD_VALUES_PER_FRAME,
+                raw_bytes: decoded_bytes,
+                compressed_bytes: 0,
+                frames: 0,
+                compression_ratio: 0.0,
+                decode_ms: 0.0,
+                decode_gib_s: 0.0,
+                compressed_gib_s: 0.0,
+            }),
+        );
+    }
 
     Ok(GpuCellResult {
         iterations,
@@ -882,6 +1065,8 @@ async fn run_gpu_kernel_bench(
         auto_decode_gib_s: auto.decode_gib_s,
         best_decode_gib_s: best.decode_gib_s,
         kernels,
+        nvcomp_zstd_hw: Some(nvcomp_zstd_hw),
+        nvcomp_zstd,
     })
 }
 
@@ -1037,6 +1222,182 @@ async fn stage_gpu_chunk(op: &OnPairArray, ctx: &mut CudaExecutionCtx) -> Result
 }
 
 #[cfg(feature = "cuda")]
+async fn run_nvcomp_zstd_bench(
+    onpairs: &[OnPairArray],
+    iterations: u64,
+    zstd_level: i32,
+    backend: nvcomp_zstd::DecompressBackend,
+) -> Result<NvcompZstdGpuResult> {
+    let iterations = iterations.max(1);
+    let mut setup_ctx = create_cuda_execution_ctx()?;
+    let mut values = Vec::new();
+    let mut raw_bytes = 0u64;
+
+    for op in onpairs {
+        let decoded = op
+            .clone()
+            .into_array()
+            .execute::<VarBinViewArray>(setup_ctx.execution_ctx())?;
+        decoded.with_iterator(|iter| {
+            for value in iter.flatten() {
+                raw_bytes += value.len() as u64;
+                values.push(value.to_vec());
+            }
+        });
+    }
+
+    if values.is_empty() {
+        anyhow::bail!("cannot run nvCOMP zstd comparison for empty input");
+    }
+
+    let vbv = VarBinViewArray::from_iter_bin(values.iter().map(Vec::as_slice));
+    let zstd_array = Zstd::from_var_bin_view_without_dict(
+        &vbv,
+        zstd_level,
+        NVCOMP_ZSTD_VALUES_PER_FRAME,
+        setup_ctx.execution_ctx(),
+    )?;
+    let opts = nvcomp_zstd::ZstdDecompressOpts { backend };
+
+    let (compressed_bytes, frames) = {
+        let validity = child_to_validity(
+            zstd_array.as_ref().slots()[0].as_ref(),
+            zstd_array.dtype().nullability(),
+        );
+        let parts: ZstdDataParts = zstd_array.clone().into_data().into_parts(validity);
+        let bytes = parts.frames.iter().map(|f| f.len() as u64).sum();
+        (bytes, parts.frames.len())
+    };
+
+    let mut ctx = create_cuda_execution_ctx()?;
+    for _ in 0..2 {
+        let exec = prepare_zstd_exec(&zstd_array, &mut ctx, opts, backend).await?;
+        execute_nvcomp_zstd(exec, &mut ctx, opts, backend)?;
+    }
+
+    let mut total_ms = 0.0;
+    for _ in 0..iterations {
+        let exec = prepare_zstd_exec(&zstd_array, &mut ctx, opts, backend).await?;
+        total_ms += execute_nvcomp_zstd(exec, &mut ctx, opts, backend)?;
+    }
+    ctx.synchronize_stream()?;
+
+    let decode_ms = total_ms / iterations as f64;
+    Ok(NvcompZstdGpuResult {
+        supported: true,
+        error: None,
+        iterations,
+        backend: nvcomp_backend_name(backend).to_string(),
+        zstd_level,
+        values_per_frame: NVCOMP_ZSTD_VALUES_PER_FRAME,
+        raw_bytes,
+        compressed_bytes,
+        frames,
+        compression_ratio: ratio(raw_bytes, compressed_bytes),
+        decode_ms,
+        decode_gib_s: gib_s(raw_bytes, decode_ms),
+        compressed_gib_s: gib_s(compressed_bytes, decode_ms),
+    })
+}
+
+#[cfg(feature = "cuda")]
+async fn prepare_zstd_exec(
+    zstd_array: &vortex::encodings::zstd::ZstdArray,
+    ctx: &mut CudaExecutionCtx,
+    opts: nvcomp_zstd::ZstdDecompressOpts,
+    backend: nvcomp_zstd::DecompressBackend,
+) -> Result<ZstdKernelPrep> {
+    let validity = child_to_validity(
+        zstd_array.as_ref().slots()[0].as_ref(),
+        zstd_array.dtype().nullability(),
+    );
+    let parts: ZstdDataParts = zstd_array.clone().into_data().into_parts(validity);
+    let ZstdDataParts {
+        frames, metadata, ..
+    } = parts;
+    vortex_cuda::zstd_kernel_prepare_with_opts(frames, &metadata, ctx, opts)
+        .await
+        .with_context(|| {
+            format!(
+                "failed to prepare nvCOMP zstd {} decode",
+                nvcomp_backend_name(backend)
+            )
+        })
+}
+
+#[cfg(feature = "cuda")]
+fn execute_nvcomp_zstd(
+    mut exec: ZstdKernelPrep,
+    ctx: &mut CudaExecutionCtx,
+    opts: nvcomp_zstd::ZstdDecompressOpts,
+    backend: nvcomp_zstd::DecompressBackend,
+) -> Result<f64> {
+    let stream = ctx.stream();
+    let cuda_ctx = stream.context();
+    let start_event = cuda_ctx
+        .new_event(Some(CU_EVENT_BLOCKING_SYNC))
+        .map_err(|e| anyhow::anyhow!("failed to create nvCOMP start event: {e:?}"))?;
+    let end_event = cuda_ctx
+        .new_event(Some(CU_EVENT_BLOCKING_SYNC))
+        .map_err(|e| anyhow::anyhow!("failed to create nvCOMP end event: {e:?}"))?;
+
+    start_event
+        .record(stream)
+        .map_err(|e| anyhow::anyhow!("failed to record nvCOMP start event: {e:?}"))?;
+
+    let (device_actual_sizes_ptr, record_actual_sizes) =
+        exec.device_actual_sizes.device_ptr_mut(stream);
+    let (nvcomp_temp_buffer_ptr, record_temp) = exec.nvcomp_temp_buffer.device_ptr_mut(stream);
+    let (device_statuses_ptr, record_statuses) = exec.device_statuses.device_ptr_mut(stream);
+
+    unsafe {
+        nvcomp_zstd::decompress_async_with_opts(
+            exec.frame_ptrs_ptr as _,
+            exec.frame_sizes_ptr as _,
+            exec.output_sizes_ptr as _,
+            device_actual_sizes_ptr as _,
+            exec.num_frames,
+            nvcomp_temp_buffer_ptr as _,
+            exec.nvcomp_temp_buffer_size,
+            exec.output_ptrs_ptr as _,
+            device_statuses_ptr as _,
+            stream.cu_stream().cast(),
+            opts,
+        )
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "nvCOMP zstd {} decompress failed: {e}",
+                nvcomp_backend_name(backend)
+            )
+        })?;
+    }
+    drop((record_actual_sizes, record_temp, record_statuses));
+
+    end_event
+        .record(stream)
+        .map_err(|e| anyhow::anyhow!("failed to record nvCOMP end event: {e:?}"))?;
+    stream
+        .synchronize()
+        .map_err(|e| anyhow::anyhow!("failed to synchronize nvCOMP stream: {e:?}"))?;
+    let elapsed_ms = start_event.elapsed_ms(&end_event).map_err(|e| {
+        anyhow::anyhow!(
+            "failed to time nvCOMP {} decode: {e:?}",
+            nvcomp_backend_name(backend)
+        )
+    })?;
+    Ok(f64::from(elapsed_ms))
+}
+
+#[cfg(feature = "cuda")]
+fn nvcomp_backend_name(backend: nvcomp_zstd::DecompressBackend) -> &'static str {
+    match backend {
+        nvcomp_zstd::DecompressBackend::Default => "default",
+        nvcomp_zstd::DecompressBackend::Hardware => "hardware",
+        nvcomp_zstd::DecompressBackend::Cuda => "cuda",
+    }
+}
+
+#[cfg(feature = "cuda")]
 fn codes_offsets_to_u64(codes_offsets_arr: &PrimitiveArray) -> Vec<u64> {
     match_each_integer_ptype!(codes_offsets_arr.ptype(), |P| {
         codes_offsets_arr
@@ -1122,8 +1483,7 @@ fn time_kernel_variant(
 ) -> Result<f64> {
     let timed = TimedLaunchStrategy::default();
     let timer = timed.timer();
-    let mut ctx =
-        CudaSession::create_execution_ctx(&SESSION)?.with_launch_strategy(Arc::new(timed));
+    let mut ctx = create_cuda_execution_ctx()?.with_launch_strategy(Arc::new(timed));
     let function = if matches!(variant.layout, KernelLayout::Ref) {
         ctx.load_function("onpair", &[u64::PTYPE])?
     } else {
@@ -1148,13 +1508,14 @@ fn time_kernel_variant(
 
 #[cfg(feature = "cuda")]
 async fn validate_kernel_variant(variant: KernelVariant, chunks: &[GpuOnPairChunk]) -> Result<()> {
-    let mut ctx = CudaSession::create_execution_ctx(&SESSION)?;
+    let mut ctx = create_cuda_execution_ctx()?;
     let function = if matches!(variant.layout, KernelLayout::Ref) {
         ctx.load_function("onpair", &[u64::PTYPE])?
     } else {
         ctx.load_function(variant.name, &[])?
     };
 
+    poison_kernel_outputs(&ctx, chunks)?;
     for chunk in chunks {
         launch_variant(&mut ctx, &function, variant, chunk)?;
     }
@@ -1180,6 +1541,48 @@ async fn validate_kernel_variant(variant: KernelVariant, chunks: &[GpuOnPairChun
         }
     }
 
+    Ok(())
+}
+
+#[cfg(feature = "cuda")]
+fn create_cuda_execution_ctx() -> Result<CudaExecutionCtx> {
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        CudaSession::create_execution_ctx(&SESSION)
+    }));
+    std::panic::set_hook(previous_hook);
+
+    match result {
+        Ok(ctx) => ctx.context("failed to create CUDA execution context"),
+        Err(payload) => anyhow::bail!(
+            "failed to initialize CUDA execution context: {}",
+            panic_payload_message(payload.as_ref())
+        ),
+    }
+}
+
+#[cfg(feature = "cuda")]
+fn panic_payload_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(msg) = payload.downcast_ref::<&str>() {
+        (*msg).to_string()
+    } else if let Some(msg) = payload.downcast_ref::<String>() {
+        msg.clone()
+    } else {
+        "unknown panic".to_string()
+    }
+}
+
+#[cfg(feature = "cuda")]
+fn poison_kernel_outputs(ctx: &CudaExecutionCtx, chunks: &[GpuOnPairChunk]) -> Result<()> {
+    for chunk in chunks {
+        let ptr = chunk.output.cuda_device_ptr()?;
+        // Validation must not inherit correct bytes from a previous kernel.
+        unsafe {
+            memset_d8_async(ptr, 0xA5, chunk.output.len(), ctx.stream().cu_stream())
+                .map_err(|e| anyhow::anyhow!("failed to poison GPU output buffer: {e}"))?;
+        }
+    }
     Ok(())
 }
 
@@ -1353,6 +1756,42 @@ async fn verify_roundtrip(
         }
     }
     Ok((row == original.len(), onpair_only))
+}
+
+async fn read_onpair_chunks(files: &[PathBuf], column: &str) -> Result<Vec<OnPairArray>> {
+    use futures::StreamExt;
+
+    let mut onpairs = Vec::new();
+    for path in files {
+        let vxf = SESSION.open_options().open_path(path.clone()).await?;
+        let mut stream = vxf.scan()?.into_array_stream()?;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            let strct = chunk.execute::<StructArray>(&mut SESSION.create_execution_ctx())?;
+            let field = strct
+                .unmasked_field_by_name(column)
+                .with_context(|| format!("missing field '{column}' in {}", path.display()))?;
+            if field.encoding_id().to_string() != ONPAIR_ENCODING {
+                anyhow::bail!(
+                    "{} field '{column}' is {}, expected {ONPAIR_ENCODING}",
+                    path.display(),
+                    field.encoding_id()
+                );
+            }
+            onpairs.push(field.clone().try_downcast::<OnPair>().map_err(|array| {
+                anyhow::anyhow!(
+                    "{} field '{column}' could not be downcast as OnPair: {}",
+                    path.display(),
+                    array.encoding_id()
+                )
+            })?);
+        }
+    }
+
+    if onpairs.is_empty() {
+        anyhow::bail!("no OnPair chunks found for column '{column}'");
+    }
+    Ok(onpairs)
 }
 
 fn ratio(num: u64, den: u64) -> f64 {

@@ -50,6 +50,7 @@ use kernel::ZstdBuffersExecutor;
 use kernel::ZstdExecutor;
 pub use kernel::ZstdKernelPrep;
 pub use kernel::zstd_kernel_prepare;
+pub use kernel::zstd_kernel_prepare_with_opts;
 pub use pinned::PinnedByteBufferPool;
 pub use pinned::PinnedPoolStats;
 pub use pinned::PooledPinnedBuffer;

@@ -91,6 +91,22 @@ pub async fn zstd_kernel_prepare(
     metadata: &ZstdMetadata,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<ZstdKernelPrep> {
+    zstd_kernel_prepare_with_opts(
+        frames,
+        metadata,
+        ctx,
+        nvcomp_zstd::ZstdDecompressOpts::default(),
+    )
+    .await
+}
+
+/// Prepares ZSTD kernel metadata and device buffers with explicit nvCOMP options.
+pub async fn zstd_kernel_prepare_with_opts(
+    frames: Vec<ByteBuffer>,
+    metadata: &ZstdMetadata,
+    ctx: &mut CudaExecutionCtx,
+    opts: nvcomp_zstd::ZstdDecompressOpts,
+) -> VortexResult<ZstdKernelPrep> {
     // Gather frames' metadata.
     let frame_sizes: Vec<usize> = frames.iter().map(|f| f.len()).collect();
     let output_sizes: Vec<usize> = metadata
@@ -107,9 +123,13 @@ pub async fn zstd_kernel_prepare(
     let num_frames = frames.len();
 
     // Temporary internal buffer size for nvCOMP ZSTD decompression.
-    let nvcomp_temp_buffer_size =
-        nvcomp_zstd::get_decompress_temp_size(num_frames, output_size_max, output_size_total)
-            .map_err(|e| vortex_err!("nvcomp get_decompress_temp_size failed: {}", e))?;
+    let nvcomp_temp_buffer_size = nvcomp_zstd::get_decompress_temp_size_with_opts(
+        num_frames,
+        output_size_max,
+        output_size_total,
+        opts,
+    )
+    .map_err(|e| vortex_err!("nvcomp get_decompress_temp_size failed: {}", e))?;
 
     // Async copy frames to the device.
     let frame_futs = frames

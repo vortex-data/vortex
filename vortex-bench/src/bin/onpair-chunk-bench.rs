@@ -24,6 +24,7 @@ use clap::Subcommand;
 use vortex_bench::onpair_bench::GpuBenchmarkConfig;
 use vortex_bench::onpair_bench::ensure_tpch_all_parquet;
 use vortex_bench::onpair_bench::run_column;
+use vortex_bench::onpair_bench::run_vortex_gpu_decode;
 use vortex_bench::setup_logging_and_tracing;
 
 const MB: u64 = 1 << 20;
@@ -75,8 +76,8 @@ enum Command {
         /// OnPair dictionary bit widths.
         #[arg(long, value_delimiter = ',', default_value = "12,16")]
         bits: Vec<u32>,
-        /// Per-chunk uncompressed byte budgets (default 1MB,10MB,100MB).
-        #[arg(long, value_delimiter = ',', default_values_t = [MB, 10 * MB, 100 * MB])]
+        /// Per-chunk uncompressed byte budgets (default 1MB,10MB,100MB,1000MB).
+        #[arg(long, value_delimiter = ',', default_values_t = [MB, 10 * MB, 100 * MB, 1000 * MB])]
         chunk_bytes: Vec<u64>,
         /// OnPair training thresholds.
         #[arg(long, value_delimiter = ',', default_value = "0.2")]
@@ -93,6 +94,21 @@ enum Command {
         /// Also benchmark CUDA kernel-only OnPair decompression.
         #[arg(long)]
         gpu_decode: bool,
+        /// Timed CUDA iterations for each applicable kernel.
+        #[arg(long, default_value_t = 10)]
+        gpu_iters: u64,
+        /// Copy GPU output bytes back and compare every applicable kernel against CPU decode.
+        #[arg(long)]
+        gpu_validate: bool,
+    },
+    /// Run CUDA OnPair decode directly from existing `.vortex` files.
+    GpuDecodeVortex {
+        /// Existing `.vortex` file or directory containing `*.vortex` parts.
+        #[arg(long, value_name = "FILE_OR_DIR", required = true)]
+        vortex: Vec<PathBuf>,
+        /// OnPair string column to extract from each file.
+        #[arg(long)]
+        column: String,
         /// Timed CUDA iterations for each applicable kernel.
         #[arg(long, default_value_t = 10)]
         gpu_iters: u64,
@@ -148,6 +164,48 @@ async fn main() -> Result<()> {
             .await?;
             println!("{}", serde_json::to_string_pretty(&results)?);
         }
+        Command::GpuDecodeVortex {
+            vortex,
+            column,
+            gpu_iters,
+            gpu_validate,
+        } => {
+            let files = collect_vortex_files(&vortex)?;
+            let result = run_vortex_gpu_decode(
+                &files,
+                &column,
+                GpuBenchmarkConfig {
+                    iterations: gpu_iters,
+                    validate: gpu_validate,
+                },
+            )
+            .await?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
     }
     Ok(())
+}
+
+fn collect_vortex_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    for path in paths {
+        if path.is_dir() {
+            let mut entries = std::fs::read_dir(path)?
+                .map(|entry| entry.map(|e| e.path()))
+                .collect::<std::io::Result<Vec<_>>>()?;
+            entries.sort();
+            files.extend(entries.into_iter().filter(|p| {
+                p.extension()
+                    .and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext == "vortex")
+            }));
+        } else {
+            files.push(path.clone());
+        }
+    }
+
+    if files.is_empty() {
+        anyhow::bail!("no .vortex files found");
+    }
+    Ok(files)
 }

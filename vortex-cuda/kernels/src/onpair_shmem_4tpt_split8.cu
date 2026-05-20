@@ -8,14 +8,10 @@
 
 // OnPair decompress — 4 tokens per thread, 128 tokens per warp-chunk.
 //
-// Doubles the amortisation knob beyond `onpair_shmem_2tpt`. With each
-// warp covering 128 tokens (up to ~512 B output for short-mean text)
-// the body drain saturates all 32 lanes and the head/tail epilogue
-// shrinks to a single occurrence per ~500 B of output.
-//
-// Cost: 4× warp scans (20 `__shfl_up_sync` per warp), 4× byte-write
-// ladders. Register pressure is higher — `__launch_bounds__(512, 2)`
-// gives each thread up to 64 registers at 32 warps/SM occupancy.
+// Variant of `onpair_shmem_4tpt` that splits short-token emission at 8 bytes.
+// NCU showed a high fraction of predicated-off byte stores on long-text columns;
+// this keeps the same scan/drain shape while cutting the byte ladder in half for
+// the common len <= 8 case.
 
 #ifndef WARPS_PER_BLOCK_MAX
 #define WARPS_PER_BLOCK_MAX 16u
@@ -23,11 +19,10 @@
 #ifndef ONPAIR_LAUNCH_BOUNDS
 #define ONPAIR_LAUNCH_BOUNDS __launch_bounds__(512, 2)
 #endif
-// Each warp holds up to 128 × 16 = 2048 B token bytes plus head-shift
-// slack. Round up to 16-B multiple.
 #define WARP_BUF_BYTES 2080u
 
-__device__ inline uint32_t warp_inclusive_scan_u32_4tpt(uint32_t x, int lane) {
+__device__ inline uint32_t warp_inclusive_scan_u32_4tpt_split8(uint32_t x,
+                                                               int lane) {
     constexpr unsigned mask = 0xffffffffu;
 #pragma unroll
     for (int offset = 1; offset < 32; offset <<= 1) {
@@ -39,18 +34,31 @@ __device__ inline uint32_t warp_inclusive_scan_u32_4tpt(uint32_t x, int lane) {
     return x;
 }
 
-__device__ inline void emit_token(uint8_t *s_buf, uint32_t base,
-                                  const uint4 &tok, uint32_t len) {
+__device__ inline void emit_token_split8(uint8_t *s_buf, uint32_t base,
+                                         const uint4 &tok, uint32_t len) {
     const uint8_t *tb = reinterpret_cast<const uint8_t *>(&tok);
+    if (len <= 8u) {
 #pragma unroll
-    for (int j = 0; j < 16; ++j) {
-        if (j < (int)len) {
+        for (int j = 0; j < 8; ++j) {
+            if (j < (int)len) {
+                s_buf[base + j] = tb[j];
+            }
+        }
+    } else {
+#pragma unroll
+        for (int j = 0; j < 8; ++j) {
             s_buf[base + j] = tb[j];
+        }
+#pragma unroll
+        for (int j = 8; j < 16; ++j) {
+            if (j < (int)len) {
+                s_buf[base + j] = tb[j];
+            }
         }
     }
 }
 
-extern "C" __global__ ONPAIR_LAUNCH_BOUNDS void onpair_shmem_4tpt(
+extern "C" __global__ ONPAIR_LAUNCH_BOUNDS void onpair_shmem_4tpt_split8(
     const uint16_t *__restrict codes, const uint64_t *__restrict chunk_offsets,
     const uint8_t *__restrict dict_padded, const uint8_t *__restrict lens,
     uint8_t *__restrict output_bytes, uint64_t total_tokens) {
@@ -66,9 +74,6 @@ extern "C" __global__ ONPAIR_LAUNCH_BOUNDS void onpair_shmem_4tpt(
     __shared__ __align__(16) uint8_t s_buf_all[WARPS_PER_BLOCK_MAX * WARP_BUF_BYTES];
     uint8_t *s_buf_base = &s_buf_all[warp_id * WARP_BUF_BYTES];
 
-    // Lane handles tokens i_k = chunk*128 + lane + k*32 for k in 0..4.
-    // Layout: all 32 lanes' i0 first (32 tokens), then all i1 (32 tokens),
-    // then i2, i3 — keeps in-warp scan/excl arithmetic linear in lane id.
     uint64_t base_i = chunk * 128u + (uint64_t)lane;
     uint4 t[4];
     uint32_t l[4];
@@ -91,7 +96,7 @@ extern "C" __global__ ONPAIR_LAUNCH_BOUNDS void onpair_shmem_4tpt(
     uint32_t acc_base = 0u;
 #pragma unroll
     for (int k = 0; k < 4; ++k) {
-        const uint32_t incl = warp_inclusive_scan_u32_4tpt(l[k], lane);
+        const uint32_t incl = warp_inclusive_scan_u32_4tpt_split8(l[k], lane);
         excl[k] = acc_base + (incl - l[k]);
         sub_total[k] = __shfl_sync(mask, incl, 31);
         acc_base += sub_total[k];
@@ -105,12 +110,11 @@ extern "C" __global__ ONPAIR_LAUNCH_BOUNDS void onpair_shmem_4tpt(
 #pragma unroll
     for (int k = 0; k < 4; ++k) {
         if (l[k] > 0u) {
-            emit_token(s_buf, excl[k], t[k], l[k]);
+            emit_token_split8(s_buf, excl[k], t[k], l[k]);
         }
     }
     __syncwarp();
 
-    // Phase 4: aligned drain (head / body / tail).
     const uint32_t head = head_pre < warp_total ? head_pre : warp_total;
     if ((uint32_t)lane < head) {
         output_bytes[out_start + (uint64_t)lane] = s_buf[lane];

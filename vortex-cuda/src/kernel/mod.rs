@@ -32,6 +32,7 @@ pub(crate) use arrays::DictExecutor;
 pub(crate) use arrays::SharedExecutor;
 pub use encodings::ZstdKernelPrep;
 pub use encodings::zstd_kernel_prepare;
+pub use encodings::zstd_kernel_prepare_with_opts;
 pub(crate) use encodings::*;
 pub(crate) use filter::FilterExecutor;
 pub(crate) use patches::types::load_patches_to_gpu;

@@ -32,9 +32,10 @@
 // `len`. The over-copy tail is overwritten by the next token in the SAME
 // row, so within-row writes are race-free.
 //
-// To avoid an INTER-row write race (one row's last-token over-copy clobbering
-// the next row's true bytes), the last token in every row writes only `len`
-// bytes instead of 16. Every other token does the fixed 16-byte over-copy.
+// To avoid an INTER-row write race, every token copy is capped to the row's
+// remaining output bytes. That preserves the fast 16-byte over-copy through
+// most of the row while preventing a near-tail token from clobbering the next
+// row before the row's final token runs.
 
 template <typename OffT>
 struct OnPairArgs {
@@ -59,20 +60,23 @@ __device__ inline void onpair_decode_row(const OnPairArgs<OffT> &args, uint64_t 
         return;
     }
     uint64_t out_pos = args.output_offsets[sid];
+    const uint64_t out_end = args.output_offsets[sid + 1];
 
-    // All tokens except the last in this row: fixed 16-byte over-copy.
+    // Keep the fixed 16-byte over-copy except near the row tail, where it
+    // would otherwise spill into the next row's output bytes.
     while (in_pos + 1 < in_end) {
         const uint16_t code = args.codes[in_pos];
         const uint64_t entry = args.dict_table[code];
         const uint32_t off = (uint32_t)(entry >> 16);
         const uint32_t len = (uint32_t)(entry & 0xffffu);
-        memcpy(args.output_bytes + out_pos, args.dict_bytes + off, 16);
+        const uint32_t remaining = (uint32_t)(out_end - out_pos);
+        const uint32_t copy_len = remaining < 16u ? remaining : 16u;
+        memcpy(args.output_bytes + out_pos, args.dict_bytes + off, copy_len);
         out_pos += len;
         in_pos += (OffT)1;
     }
 
-    // Last token: write only its true length to avoid clobbering the next
-    // row's output bytes (rows share one contiguous output buffer).
+    // Last token: write only its true length.
     const uint16_t code = args.codes[in_pos];
     const uint64_t entry = args.dict_table[code];
     const uint32_t off = (uint32_t)(entry >> 16);

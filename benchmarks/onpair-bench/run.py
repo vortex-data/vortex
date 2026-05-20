@@ -334,7 +334,7 @@ def main() -> int:
     p.add_argument("--bits", type=lambda s: [int(x) for x in s.split(",")],
                    default=[12, 16])
     p.add_argument("--chunk-mb", type=lambda s: [float(x) for x in s.split(",")],
-                   default=[1, 10, 100], help="per-chunk uncompressed MB budgets")
+                   default=[1, 10, 100, 1000], help="per-chunk uncompressed MB budgets")
     p.add_argument("--threshold", type=lambda s: [float(x) for x in s.split(",")],
                    default=[0.2])
     p.add_argument("--sample-bytes", type=int, default=1_000_000_000)

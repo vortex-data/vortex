@@ -164,6 +164,82 @@ fn launch_variant(
     host_bytes.as_ref()[..total_size as usize].to_vec()
 }
 
+fn launch_const1(codes: &[u16], dict: &[u8], total_size: usize) -> Vec<u8> {
+    let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        .expect("create CUDA execution ctx");
+    let initial_output = vec![0u8; total_size + 16];
+
+    let codes_dev: BufferHandle = block_on(ctx.copy_to_device(codes.to_vec()).unwrap()).unwrap();
+    let dict_dev: BufferHandle = block_on(ctx.copy_to_device(dict.to_vec()).unwrap()).unwrap();
+    let output_dev: BufferHandle = block_on(ctx.copy_to_device(initial_output).unwrap()).unwrap();
+
+    let func = ctx
+        .load_function("onpair_shmem_const1", &[])
+        .expect("load `onpair_shmem_const1` PTX");
+    let codes_v = codes_dev.cuda_view::<u16>().unwrap();
+    let dict_v = dict_dev.cuda_view::<u8>().unwrap();
+    let output_v = output_dev.cuda_view::<u8>().unwrap();
+    let total_tokens = codes.len();
+    let total_tokens_u64 = total_tokens as u64;
+    let cfg = LaunchConfig {
+        grid_dim: (u32::try_from(total_tokens.div_ceil(512)).unwrap(), 1, 1),
+        block_dim: (16 * 32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    ctx.launch_kernel_config(&func, cfg, total_tokens, |args| {
+        args.arg(&codes_v)
+            .arg(&dict_v)
+            .arg(&output_v)
+            .arg(&total_tokens_u64);
+    })
+    .expect("kernel launch");
+
+    let host_bytes = output_dev
+        .as_device()
+        .copy_to_host_sync(Alignment::of::<u8>())
+        .expect("copy output back to host");
+    host_bytes.as_ref()[..total_size].to_vec()
+}
+
+fn launch_const2(codes: &[u16], dict: &[u16], total_size: usize) -> Vec<u8> {
+    let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+        .expect("create CUDA execution ctx");
+    let initial_output = vec![0u8; total_size + 16];
+
+    let codes_dev: BufferHandle = block_on(ctx.copy_to_device(codes.to_vec()).unwrap()).unwrap();
+    let dict_dev: BufferHandle = block_on(ctx.copy_to_device(dict.to_vec()).unwrap()).unwrap();
+    let output_dev: BufferHandle = block_on(ctx.copy_to_device(initial_output).unwrap()).unwrap();
+
+    let func = ctx
+        .load_function("onpair_shmem_const2", &[])
+        .expect("load `onpair_shmem_const2` PTX");
+    let codes_v = codes_dev.cuda_view::<u16>().unwrap();
+    let dict_v = dict_dev.cuda_view::<u16>().unwrap();
+    let output_v = output_dev.cuda_view::<u8>().unwrap();
+    let total_tokens = codes.len();
+    let total_tokens_u64 = total_tokens as u64;
+    let cfg = LaunchConfig {
+        grid_dim: (u32::try_from(total_tokens.div_ceil(256)).unwrap(), 1, 1),
+        block_dim: (16 * 32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    ctx.launch_kernel_config(&func, cfg, total_tokens, |args| {
+        args.arg(&codes_v)
+            .arg(&dict_v)
+            .arg(&output_v)
+            .arg(&total_tokens_u64);
+    })
+    .expect("kernel launch");
+
+    let host_bytes = output_dev
+        .as_device()
+        .copy_to_host_sync(Alignment::of::<u8>())
+        .expect("copy output back to host");
+    host_bytes.as_ref()[..total_size].to_vec()
+}
+
 /// Production `onpair_shmem_2tpt` decodes exactly what the host decoder
 /// computes.
 #[vortex_cuda_macros::test]
@@ -199,6 +275,38 @@ fn onpair_shmem_4tpt_matches_host_decode() {
         &lens,
         expected.len() as u64,
     );
+    assert_eq!(actual, expected);
+}
+
+#[vortex_cuda_macros::test]
+fn onpair_shmem_const1_matches_host_decode() {
+    let dict = [b'A', b'B', b'C', b'D'];
+    let codes: Vec<u16> = build_test_codes(777)
+        .into_iter()
+        .map(|c| c % dict.len() as u16)
+        .collect();
+    let expected: Vec<u8> = codes.iter().map(|&c| dict[c as usize]).collect();
+    let actual = launch_const1(&codes, &dict, expected.len());
+    assert_eq!(actual, expected);
+}
+
+#[vortex_cuda_macros::test]
+fn onpair_shmem_const2_matches_host_decode() {
+    let dict = [
+        u16::from_le_bytes(*b"aa"),
+        u16::from_le_bytes(*b"bb"),
+        u16::from_le_bytes(*b"cc"),
+        u16::from_le_bytes(*b"dd"),
+    ];
+    let codes: Vec<u16> = build_test_codes(777)
+        .into_iter()
+        .map(|c| c % dict.len() as u16)
+        .collect();
+    let mut expected = Vec::with_capacity(codes.len() * 2);
+    for &code in &codes {
+        expected.extend_from_slice(&dict[code as usize].to_le_bytes());
+    }
+    let actual = launch_const2(&codes, &dict, expected.len());
     assert_eq!(actual, expected);
 }
 

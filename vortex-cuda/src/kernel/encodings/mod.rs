@@ -26,5 +26,6 @@ pub(crate) use zigzag::ZigZagExecutor;
 pub(crate) use zstd::ZstdExecutor;
 pub use zstd::ZstdKernelPrep;
 pub use zstd::zstd_kernel_prepare;
+pub use zstd::zstd_kernel_prepare_with_opts;
 #[cfg(feature = "unstable_encodings")]
 pub(crate) use zstd_buffers::ZstdBuffersExecutor;
