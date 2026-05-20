@@ -204,7 +204,7 @@ fn write_estimate<T: Into<u64>>(estimate: Option<Precision<T>>, out: &mut vx_est
             out.r#type = vx_estimate_type::VX_ESTIMATE_INEXACT;
             out.estimate = value.into();
         }
-        None => {
+        Some(Precision::Absent) | None => {
             out.r#type = vx_estimate_type::VX_ESTIMATE_UNKNOWN;
         }
     }

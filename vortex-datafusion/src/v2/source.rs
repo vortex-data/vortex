@@ -669,6 +669,6 @@ fn estimate_to_df_precision(est: Option<&Precision<u64>>) -> DFPrecision<usize> 
         Some(Precision::Inexact(v)) => {
             DFPrecision::Inexact(usize::try_from(*v).unwrap_or(usize::MAX))
         }
-        None => DFPrecision::Absent,
+        Some(Precision::Absent) | None => DFPrecision::Absent,
     }
 }

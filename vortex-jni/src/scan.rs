@@ -216,7 +216,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeScan_partitionCount(
         let (rows, cardinality) = match scan.partition_count() {
             Some(Precision::Exact(v)) => (v as jlong, 2),
             Some(Precision::Inexact(v)) => (v as jlong, 1),
-            None => (0, 0),
+            Some(Precision::Absent) | None => (0, 0),
         };
         out.set_region(env, 0, &[rows, cardinality])?;
         Ok(())
@@ -286,7 +286,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativePartition_rowCount(
         let (rows, cardinality) = match partition.row_count() {
             Some(Precision::Exact(v)) => (v as jlong, 2),
             Some(Precision::Inexact(v)) => (v as jlong, 1),
-            None => (0, 0),
+            Some(Precision::Absent) | None => (0, 0),
         };
         out.set_region(env, 0, &[rows, cardinality])?;
         Ok(())

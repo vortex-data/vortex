@@ -608,7 +608,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                 // Post-filter estimate is always a heuristic.
                 Cardinality::Estimate(postfilter_cardinality(v, has_non_optional_filter))
             }
-            None => Cardinality::Unknown,
+            Some(Precision::Absent) | None => Cardinality::Unknown,
         }
     }
 

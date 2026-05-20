@@ -204,7 +204,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDataSource_rowCount(
         let (rows, cardinality) = match ds.inner.row_count() {
             Some(Precision::Exact(r)) => (r as jlong, 2),
             Some(Precision::Inexact(r)) => (r as jlong, 1),
-            None => (0, 0),
+            Some(Precision::Absent) | None => (0, 0),
         };
         out.set_region(env, 0, &[rows, cardinality])?;
         Ok(())
