@@ -43,6 +43,20 @@ fi
 # shellcheck disable=SC1091
 . "$HOME/.cargo/env" 2>/dev/null || true
 
+# Pause the autopilot for the duration of the migration: stop both
+# timers so the deploy timer can't fire every 60s and try to restart
+# the server mid-migration, and the backup timer can't POST to a
+# stopped server. The trap restores them on any exit path (success or
+# failure) so an aborted migration doesn't permanently silence the
+# autopilot.
+log "stopping autopilot timers (deploy + backup) for migration window"
+sudo /bin/systemctl stop vortex-bench-deploy.timer vortex-bench-backup.timer || true
+restore_timers() {
+    log "restoring autopilot timers (deploy + backup)"
+    sudo /bin/systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer || true
+}
+trap restore_timers EXIT
+
 log "stopping vortex-bench-server"
 sudo /bin/systemctl stop vortex-bench-server
 

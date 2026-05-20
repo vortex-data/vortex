@@ -36,7 +36,9 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::routing::get;
 use axum::routing::post;
+use parking_lot::Mutex;
 use tower_http::compression::CompressionLayer;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::admin;
 use crate::api;
@@ -84,6 +86,19 @@ pub struct AppState {
     /// `~/.duckdb/extensions/...`. Defaults to `<db_path parent>/duckdb-extensions`.
     /// Override via [`AppState::with_extension_dir`].
     pub extension_dir: Arc<PathBuf>,
+    /// Process-local reservation set for snapshot `ts` values currently being
+    /// written.
+    ///
+    /// Two concurrent `/api/admin/snapshot?ts=X` calls in the same process race
+    /// at the `tmp -> target` rename step; Linux `rename(2)` overwrites an
+    /// existing destination, so without this reservation the second call would
+    /// silently clobber the first. The set is consulted + populated atomically
+    /// in the snapshot handler before any disk work, and the entry is removed
+    /// whether the call succeeds or fails. Single `vortex-bench-server` process
+    /// per host is the supported deployment; cross-process race is out of scope
+    /// (`ensure_distinct_binds` already forbids two processes binding the same
+    /// DB path concurrently in normal operation).
+    pub pending_snapshots: Arc<Mutex<HashSet<String>>>,
 }
 
 impl AppState {
@@ -108,6 +123,7 @@ impl AppState {
             read_store: Arc::new(read_store),
             snapshot_dir: Arc::new(snapshot_dir),
             extension_dir: Arc::new(extension_dir),
+            pending_snapshots: Arc::new(Mutex::new(HashSet::new())),
         })
     }
 

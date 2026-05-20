@@ -171,18 +171,27 @@ if [ ! -x "$new_binary" ]; then
 fi
 
 # --- Compare hashes; skip restart if cargo produced byte-identical output ---
+# Force mode (FORCE=1 / .force-rebuild) explicitly opts out of this fast
+# path: the operator asked for "redeploy and reverify", not "skip if the
+# byte image matches", so we must still restart + /health-poll.
 new_hash="$(sha256sum "$new_binary" | awk '{print $1}')"
 current_hash=""
 if [ -L "$BIN_SYMLINK" ] && [ -e "$BIN_SYMLINK" ]; then
     current_hash="$(sha256sum "$BIN_SYMLINK" | awk '{print $1}')"
 fi
-if [ "$new_hash" = "$current_hash" ]; then
+if [ "$force" = "0" ] && [ "$new_hash" = "$current_hash" ]; then
     log "binary unchanged (sha256 ${new_hash:0:12}); skipping restart"
     echo "$new_sha" > "$STAMP_FILE"
     exit 0
 fi
 
 # --- Install + atomic symlink swap ---
+# `ln -sfnT` is unlink+create — there is a brief window where $BIN_SYMLINK
+# does not exist, and a concurrent reader (e.g. systemctl restart firing
+# from another timer fire) would see ENOENT. Do the swap in two steps so
+# the final transition is `rename(2)`, which IS atomic on POSIX: create
+# the new symlink under a sibling name, then `mv -Tf` it onto $BIN_SYMLINK.
+# Same pattern is used in both rollback paths below.
 ts="$(date -u +%Y%m%dT%H%M%SZ)"
 versioned="${BIN_DIR}/vortex-bench-server.${ts}"
 install -m 0755 "$new_binary" "$versioned"
@@ -190,14 +199,23 @@ prev_target=""
 if [ -L "$BIN_SYMLINK" ]; then
     prev_target="$(readlink "$BIN_SYMLINK")"
 fi
-ln -sfnT "$versioned" "$BIN_SYMLINK"
+
+atomic_symlink() {
+    # $1 = symlink target, $2 = symlink path
+    local target="$1" path="$2" staging
+    staging="${path}.new.$$"
+    ln -snT -- "$target" "$staging"
+    mv -Tf -- "$staging" "$path"
+}
+
+atomic_symlink "$versioned" "$BIN_SYMLINK"
 log "swapped symlink → ${versioned}"
 
 # --- Restart + verify ---
 if ! sudo /bin/systemctl restart vortex-bench-server; then
     err "systemctl restart failed"
     if [ -n "$prev_target" ]; then
-        ln -sfnT "$prev_target" "$BIN_SYMLINK"
+        atomic_symlink "$prev_target" "$BIN_SYMLINK"
         sudo /bin/systemctl restart vortex-bench-server || true
     fi
     exit 5
@@ -216,9 +234,26 @@ done
 if [ "$healthy" != "1" ]; then
     err "/health did not respond within 30s — rolling back"
     if [ -n "$prev_target" ]; then
-        ln -sfnT "$prev_target" "$BIN_SYMLINK"
+        atomic_symlink "$prev_target" "$BIN_SYMLINK"
         sudo /bin/systemctl restart vortex-bench-server || true
-        log "rolled back symlink to ${prev_target}"
+        # Verify the rolled-back binary is itself healthy before claiming
+        # clean rollback. A "previous binary" that's also broken (e.g. a
+        # prior failed deploy nobody caught) needs a louder signal.
+        roll_deadline=$(( $(date +%s) + 30 ))
+        roll_healthy=0
+        while [ "$(date +%s)" -lt "$roll_deadline" ]; do
+            if curl -fsS --max-time 3 "${SERVER_URL}/health" >/dev/null 2>&1; then
+                roll_healthy=1
+                break
+            fi
+            sleep 1
+        done
+        if [ "$roll_healthy" = "1" ]; then
+            log "rolled back symlink to ${prev_target} (verified healthy)"
+            exit 6
+        fi
+        err "rollback to ${prev_target} ALSO failed /health — server is down; manual intervention required"
+        exit 7
     else
         err "no previous binary to roll back to"
     fi

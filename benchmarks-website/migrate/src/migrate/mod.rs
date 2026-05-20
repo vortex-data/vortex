@@ -95,6 +95,12 @@ pub struct MigrationSummary {
     /// `value_bytes` for compression_sizes' replace path) differed
     /// from the kept row's. Non-zero is a smell worth investigating.
     pub deduped_with_conflict: u64,
+    /// `file-sizes-*.json.gz` source files that failed to download /
+    /// decode / parse. Non-zero means the migrated DB has missing
+    /// compression-size history from at least one v2 source file; the
+    /// CLI fails by default in that case unless
+    /// `--allow-missing-file-sizes` is passed.
+    pub file_sizes_failed: u64,
 }
 
 impl MigrationSummary {
@@ -184,6 +190,7 @@ pub fn run(source: &Source, target: &Path) -> Result<MigrationSummary> {
         info!(name = %name, "Migrating file-sizes");
         if let Err(e) = migrate_file_sizes(source, &name, &commits, &mut summary, &mut cs) {
             warn!("file-sizes file {name} failed: {e:#}");
+            summary.file_sizes_failed += 1;
         }
     }
 

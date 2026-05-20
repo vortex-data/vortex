@@ -54,9 +54,18 @@ body=$(jq -nc --arg sql "$sql" '{sql: $sql}' 2>/dev/null) || {
     fi
 }
 
+# Write the Authorization header to a 0600 file and pass via `-H @path`
+# so the bearer token never appears in argv (visible to anyone reading
+# `ps aux`). Same pattern in backup.sh.
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/vortex-bench-inspect.XXXXXX")"
+trap 'rm -rf "$scratch"' EXIT
+auth_header="${scratch}/auth.hdr"
+umask 077
+printf 'Authorization: Bearer %s\n' "${ADMIN_BEARER_TOKEN}" > "$auth_header"
+
 curl -fsS \
     -X POST \
-    -H "Authorization: Bearer ${ADMIN_BEARER_TOKEN}" \
+    -H "@${auth_header}" \
     -H "Content-Type: application/json" \
     --data-binary "$body" \
     "${ADMIN_URL}/api/admin/sql?format=${format}"

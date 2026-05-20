@@ -20,18 +20,29 @@
 #
 # Usage:
 #   ./benchmarks-website/ops/install.sh
-#   RUN_USER=ec2-user REPO_DIR=$HOME/vortex ./benchmarks-website/ops/install.sh
+#   REPO_DIR=$HOME/vortex ./benchmarks-website/ops/install.sh
+#
+# Only REPO_DIR is honored as an env override; the run user, state-dir,
+# env-file, systemd-dir, and sudoers-file paths are pinned (they have
+# to match the shipped systemd units, which hard-code these values).
 
 set -euo pipefail
 
-RUN_USER="${RUN_USER:-ec2-user}"
-RUN_GROUP="${RUN_GROUP:-${RUN_USER}}"
+# The installed systemd units hard-code `User=ec2-user`,
+# `EnvironmentFile=/etc/vortex-bench.env`, and the
+# `/var/lib/vortex-bench` state-dir. Keep these values aligned with
+# the units in `systemd/` and the runbook in `README.md`; the script
+# does NOT template the units at install time. Anyone running on a
+# different user / state-dir / env-file path needs to hand-edit the
+# units before this script copies them into /etc/systemd/system.
+RUN_USER="ec2-user"
+RUN_GROUP="${RUN_USER}"
 REPO_DIR="${REPO_DIR:-$HOME/vortex}"
-STATE_DIR="${STATE_DIR:-/var/lib/vortex-bench}"
-LOG_DIR="${LOG_DIR:-/var/log/vortex-bench}"
-ENV_FILE="${ENV_FILE:-/etc/vortex-bench.env}"
-SYSTEMD_DIR="${SYSTEMD_DIR:-/etc/systemd/system}"
-SUDOERS_FILE="${SUDOERS_FILE:-/etc/sudoers.d/vortex-bench}"
+STATE_DIR="/var/lib/vortex-bench"
+LOG_DIR="/var/log/vortex-bench"
+ENV_FILE="/etc/vortex-bench.env"
+SYSTEMD_DIR="/etc/systemd/system"
+SUDOERS_FILE="/etc/sudoers.d/vortex-bench"
 
 ops_dir="${REPO_DIR}/benchmarks-website/ops"
 if [ ! -d "$ops_dir" ]; then

@@ -13,8 +13,14 @@ Reads bare v3 records from a JSONL file produced by `vortex-bench --gh-json-v3`,
 fills the `commit` envelope by shelling out to `git show`, and POSTs the
 envelope to `<server>/api/ingest` with a bearer token.
 
-Standard library only -- urllib, json, subprocess. Large JSONL files are split
-into bounded envelopes before POSTing. No retries, no spool, no outbox. See
+Standard library only -- urllib, json, subprocess. The default envelope size
+(60 MiB, just under the server's 64 MiB body limit) is sized so a single
+JSONL run normally posts in one envelope -- preserving the "per-file
+all-or-nothing" contract the server documents. If the JSONL is large enough
+that splitting kicks in, the script emits a warning and proceeds with the
+chunked semantics (per-chunk commit, mid-chunk failure leaves earlier chunks
+ingested; subsequent retries re-upsert via the server's ON CONFLICT
+idempotency on `measurement_id`). See
 `benchmarks-website/planning/02-contracts.md` and
 `benchmarks-website/planning/components/emitter.md`.
 """
@@ -32,7 +38,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 SCHEMA_VERSION = 1
-DEFAULT_MAX_ENVELOPE_BYTES = 8 * 1024 * 1024
+# Default sized to fit comfortably under the server's 64 MiB ingest body
+# limit while leaving headroom for HTTP and JSON framing overhead. The
+# point is to keep a normal JSONL run in one envelope so the documented
+# "per-file all-or-nothing" contract holds.
+DEFAULT_MAX_ENVELOPE_BYTES = 60 * 1024 * 1024
 
 
 def parse_args() -> argparse.Namespace:
@@ -225,6 +235,14 @@ def main() -> int:
     }
 
     chunks = chunk_envelopes(run_meta, commit, records, args.max_envelope_bytes)
+    if len(chunks) > 1:
+        print(
+            f"warning: JSONL exceeds --max-envelope-bytes ({args.max_envelope_bytes} B); "
+            f"splitting into {len(chunks)} envelopes. Each chunk commits independently on "
+            "the server, so a mid-stream failure leaves earlier chunks ingested. "
+            "Re-run on failure to re-upsert via measurement_id ON CONFLICT.",
+            file=sys.stderr,
+        )
     inserted = 0
     updated = 0
     raw_bodies: list[str] = []

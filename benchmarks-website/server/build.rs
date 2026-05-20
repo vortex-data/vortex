@@ -9,11 +9,14 @@ fn main() {
     }
 
     // Capture the git SHA at build time so /health can confirm the
-    // running process matches what the deploy timer last saw. Falls
-    // back to "unknown" outside a git checkout (e.g. shallow CI
+    // running process matches what the deploy timer last saw. Emit the
+    // full 40-hex SHA so operators can compare directly to the value
+    // in `/var/lib/vortex-bench/last-deployed-sha` (also full SHA);
+    // the runbook tells them to verify equality with no truncation.
+    // Falls back to "unknown" outside a git checkout (e.g. shallow CI
     // clones, source tarballs) so the build never fails on this.
     let sha = Command::new("git")
-        .args(["rev-parse", "--short=12", "HEAD"])
+        .args(["rev-parse", "HEAD"])
         .output()
         .ok()
         .filter(|o| o.status.success())

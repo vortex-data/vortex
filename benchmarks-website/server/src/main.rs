@@ -3,8 +3,9 @@
 
 //! Binary entrypoint for `vortex-bench-server`.
 //!
-//! Reads the following environment variables before handing off to
-//! [`vortex_bench_server::app::router`]:
+//! Reads the following environment variables before constructing the two
+//! routers it serves ([`vortex_bench_server::app::public_router`] and,
+//! when `ADMIN_BEARER_TOKEN` is set, [`vortex_bench_server::app::admin_router`]):
 //!
 //! - `INGEST_BEARER_TOKEN` — required and non-empty. Token presented by ingest clients
 //!   on `Authorization: Bearer <token>`. Compared in constant time.
@@ -33,18 +34,20 @@
 //!   only. When set and `VORTEX_BENCH_BIND` is not, the public listener
 //!   binds `0.0.0.0:$PORT`. Does not affect the admin listener.
 //! - `VORTEX_BENCH_ADMIN_BIND` — `host:port` the **admin** listener binds
-//!   to when `ADMIN_BEARER_TOKEN` is set. Default `127.0.0.1:3001`. Keeping
-//!   the default loopback-only ensures `/api/admin/*` never reaches the
-//!   public network even when `VORTEX_BENCH_BIND=0.0.0.0:3000`. Must
-//!   resolve to a different address than the public bind.
+//!   to when `ADMIN_BEARER_TOKEN` is set. Default `127.0.0.1:3001`. The
+//!   address MUST resolve to a loopback IP (`127.0.0.0/8` or `::1`); the
+//!   server refuses to start otherwise. This is the load-bearing guarantee
+//!   that `/api/admin/*` never reaches the public network even when
+//!   `VORTEX_BENCH_BIND=0.0.0.0:3000`. Must also resolve to a different
+//!   address than the public bind.
 //! - `VORTEX_BENCH_LOG` — `tracing-subscriber` env filter spec. Default
 //!   `info`.
 //!
-//! SIGTERM and SIGINT both trigger a graceful drain — in-flight requests
-//! are allowed to finish before the process exits. systemd's
+//! On Unix, SIGTERM and SIGINT both trigger a graceful drain — in-flight
+//! requests are allowed to finish before the process exits. systemd's
 //! `TimeoutStopSec` (default 90s) bounds the grace window, which matters
 //! because `systemctl restart` is what the deploy timer fires on every
-//! new binary roll.
+//! new binary roll. On non-Unix targets only Ctrl-C/SIGINT is wired.
 
 use std::env;
 use std::net::SocketAddr;
@@ -118,6 +121,7 @@ async fn main() -> Result<()> {
                 .await
                 .with_context(|| format!("binding admin listener to {admin_bind}"))?;
             let admin_addr = listener.local_addr()?;
+            ensure_admin_is_loopback(&admin_bind, admin_addr)?;
             ensure_distinct_binds(public_addr, admin_addr)?;
             Some((listener, admin_addr))
         }
@@ -167,6 +171,27 @@ fn ensure_distinct_binds(public: SocketAddr, admin: SocketAddr) -> Result<()> {
     Ok(())
 }
 
+/// Refuse to start if the admin listener resolved to a non-loopback
+/// address. Without this guard, `VORTEX_BENCH_ADMIN_BIND=0.0.0.0:3001`
+/// (or any public IP / unspecified address / non-loopback hostname)
+/// would silently expose `/api/admin/*` — the bearer-gated SQL and
+/// snapshot endpoints — to the public network. The contract is that the
+/// admin listener is loopback-only and the only way callers reach it is
+/// from the same host. An operator who genuinely wants remote admin
+/// access should put it behind an SSH tunnel rather than opening the
+/// bind, so this check is intentionally strict.
+fn ensure_admin_is_loopback(spec: &str, admin: SocketAddr) -> Result<()> {
+    if !admin.ip().is_loopback() {
+        return Err(anyhow!(
+            "admin listener resolved to {admin} (from VORTEX_BENCH_ADMIN_BIND={spec:?}); \
+             /api/admin/* must remain loopback-only. Use 127.0.0.1, ::1, or \
+             a hostname that resolves to a loopback address; reach admin from \
+             elsewhere via an SSH tunnel"
+        ));
+    }
+    Ok(())
+}
+
 /// Resolves when the process receives SIGINT or SIGTERM. Used as the
 /// graceful-shutdown future for `axum::serve` so a `systemctl restart`
 /// (SIGTERM) lets in-flight requests finish before the process exits.
@@ -191,5 +216,69 @@ async fn shutdown_signal() {
     tokio::select! {
         _ = ctrl_c => tracing::info!("received SIGINT — shutting down"),
         _ = terminate => tracing::info!("received SIGTERM — shutting down"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::SocketAddr;
+
+    use super::ensure_admin_is_loopback;
+    use super::ensure_distinct_binds;
+
+    #[test]
+    fn admin_loopback_v4_passes() {
+        let addr: SocketAddr = "127.0.0.1:3001".parse().unwrap();
+        ensure_admin_is_loopback("127.0.0.1:3001", addr).expect("127.0.0.1 is loopback");
+    }
+
+    #[test]
+    fn admin_loopback_v6_passes() {
+        let addr: SocketAddr = "[::1]:3001".parse().unwrap();
+        ensure_admin_is_loopback("[::1]:3001", addr).expect("::1 is loopback");
+    }
+
+    #[test]
+    fn admin_loopback_127_8_subnet_passes() {
+        // The entire 127.0.0.0/8 block is loopback.
+        let addr: SocketAddr = "127.1.2.3:3001".parse().unwrap();
+        ensure_admin_is_loopback("127.1.2.3:3001", addr).expect("127.0.0.0/8 is loopback");
+    }
+
+    #[test]
+    fn admin_zero_v4_rejected() {
+        let addr: SocketAddr = "0.0.0.0:3001".parse().unwrap();
+        let err = ensure_admin_is_loopback("0.0.0.0:3001", addr)
+            .expect_err("0.0.0.0 must be rejected as non-loopback");
+        let msg = err.to_string();
+        assert!(msg.contains("loopback-only"), "{msg}");
+    }
+
+    #[test]
+    fn admin_zero_v6_rejected() {
+        let addr: SocketAddr = "[::]:3001".parse().unwrap();
+        ensure_admin_is_loopback("[::]:3001", addr)
+            .expect_err(":: must be rejected as non-loopback");
+    }
+
+    #[test]
+    fn admin_public_ip_rejected() {
+        let addr: SocketAddr = "10.0.0.5:3001".parse().unwrap();
+        ensure_admin_is_loopback("10.0.0.5:3001", addr)
+            .expect_err("private/public IP must be rejected as non-loopback");
+    }
+
+    #[test]
+    fn distinct_binds_passes() {
+        let p: SocketAddr = "127.0.0.1:3000".parse().unwrap();
+        let a: SocketAddr = "127.0.0.1:3001".parse().unwrap();
+        ensure_distinct_binds(p, a).expect("different ports are distinct");
+    }
+
+    #[test]
+    fn same_bind_rejected() {
+        let p: SocketAddr = "127.0.0.1:3000".parse().unwrap();
+        let a: SocketAddr = "127.0.0.1:3000".parse().unwrap();
+        ensure_distinct_binds(p, a).expect_err("identical binds must be rejected");
     }
 }

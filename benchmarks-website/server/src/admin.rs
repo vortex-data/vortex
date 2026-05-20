@@ -37,8 +37,10 @@
 //! Body: `{ "sql": "SELECT ..." }`. Query: `?format=json|table` (default
 //! `json`). Only `SELECT`, `WITH`, `PRAGMA`, `SHOW`, `DESCRIBE`, and
 //! `EXPLAIN` statements are allowed — anything else is rejected with 403.
-//! The connection mutex is held for the duration of the call, so a slow
-//! SELECT briefly delays ingest.
+//! Results are capped at [`ADMIN_SQL_ROW_LIMIT`] rows; responses past
+//! that cap include `"truncated": true`. The handler runs each query on
+//! its own cloned connection inside a `BEGIN TRANSACTION READ ONLY`
+//! wrapper, so concurrent ingest writes proceed without contention.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -181,6 +183,15 @@ pub async fn snapshot(
 ) -> Result<impl IntoResponse, AdminError> {
     validate_ts(&q.ts)?;
     let target: PathBuf = state.snapshot_dir.join(&q.ts);
+
+    // Process-local `ts` reservation. Two concurrent calls with the
+    // same `ts` would otherwise both write tmp directories and then
+    // race at the `rename(2)` step — Linux silently overwrites an
+    // existing destination, so the loser's snapshot disappears with no
+    // signal. The reservation closes that race within a single
+    // `vortex-bench-server` process (the supported deployment).
+    let _ticket = SnapshotTicket::acquire(&state, &q.ts, &target)?;
+
     if target.exists() {
         return Err(AdminError::Conflict(format!(
             "snapshot directory already exists: {}",
@@ -198,17 +209,16 @@ pub async fn snapshot(
 
     let result = write_snapshot(&state, &tmp).await;
     if let Err(err) = result {
-        let _ = std::fs::remove_dir_all(&tmp);
+        cleanup_partial(&tmp);
         return Err(AdminError::Internal(err));
     }
-    // Re-check `target` immediately before the rename. `std::fs::rename` on
-    // Linux overwrites an existing destination atomically, so without this
-    // guard two concurrent calls with the same `ts` would both finish and
-    // the second `rename` would silently clobber the first snapshot. A small
-    // theoretical window remains between this check and the rename itself,
-    // but it closes the practical race and needs no platform-specific code.
+    // The ticket guarantees no other in-process call has the same `ts`
+    // reserved, so the final `rename(2)` will land cleanly. We still
+    // recheck `target.exists()` because a different process or an
+    // operator hand-creating the dir would also lose data on a silent
+    // overwrite.
     if target.exists() {
-        let _ = std::fs::remove_dir_all(&tmp);
+        cleanup_partial(&tmp);
         return Err(AdminError::Conflict(format!(
             "snapshot directory already exists: {}",
             target.display()
@@ -221,12 +231,61 @@ pub async fn snapshot(
             target.display()
         )
     }) {
-        let _ = std::fs::remove_dir_all(&tmp);
+        cleanup_partial(&tmp);
         return Err(AdminError::Internal(err));
     }
     Ok(Json(SnapshotResponse {
         snapshot_dir: target.display().to_string(),
     }))
+}
+
+/// RAII guard that holds a `ts` in [`AppState::pending_snapshots`] for the
+/// duration of one `/api/admin/snapshot` call. Dropping the guard always
+/// releases the reservation, even on panic or early-return error paths.
+struct SnapshotTicket {
+    state: AppState,
+    ts: String,
+}
+
+impl SnapshotTicket {
+    fn acquire(state: &AppState, ts: &str, target: &Path) -> Result<Self, AdminError> {
+        let inserted = state.pending_snapshots.lock().insert(ts.to_string());
+        if !inserted {
+            return Err(AdminError::Conflict(format!(
+                "snapshot for ts={ts} is already in flight (target {})",
+                target.display()
+            )));
+        }
+        Ok(Self {
+            state: state.clone(),
+            ts: ts.to_string(),
+        })
+    }
+}
+
+impl Drop for SnapshotTicket {
+    fn drop(&mut self) {
+        self.state.pending_snapshots.lock().remove(&self.ts);
+    }
+}
+
+/// Best-effort cleanup of a partially-written snapshot tmp dir. Logs the
+/// failure rather than silently discarding it, so a wedge (disk full,
+/// permission flip) is visible in the journal even when no automated
+/// sweeper is wired up.
+fn cleanup_partial(path: &Path) {
+    if let Err(err) = std::fs::remove_dir_all(path) {
+        // ENOENT just means the dir never got created or was already
+        // cleaned up by a sibling caller; ignore it. Anything else
+        // deserves a warn.
+        if err.kind() != std::io::ErrorKind::NotFound {
+            tracing::warn!(
+                path = %path.display(),
+                error = ?err,
+                "failed to clean up partial snapshot tmp dir; manual sweep may be needed"
+            );
+        }
+    }
 }
 
 /// Per-call unique temp directory used to stage a snapshot before the atomic

@@ -16,7 +16,8 @@
 # data files themselves.
 #
 # The instance IAM role must already permit s3:PutObject under
-# $S3_BACKUP_PREFIX. (Same bucket the v2 backup script used.)
+# $S3_BACKUP_PREFIX. The v3 bucket is vortex-benchmark-results-database
+# (distinct from v2's vortex-ci-benchmark-results).
 
 set -euo pipefail
 
@@ -43,17 +44,30 @@ local_dir="${VORTEX_BENCH_SNAPSHOT_DIR}/${ts}"
 archive="${VORTEX_BENCH_SNAPSHOT_DIR}/${ts}.tar.gz"
 remote="${S3_BACKUP_PREFIX}/${ts}.tar.gz"
 
+# Per-PID scratch files so a manual `bash backup.sh` invocation running
+# alongside the timer-driven invocation does not clobber each other's
+# response capture or the curl auth header. Cleaned up on exit/trap.
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/vortex-bench-backup.XXXXXX")"
+trap 'rm -rf "$scratch"' EXIT
+response="${scratch}/snapshot.out"
+auth_header="${scratch}/auth.hdr"
+
+# Write the Authorization header to a 0600 file and pass via `-H @path`
+# so the bearer token never appears in argv (visible to anyone reading
+# `ps aux`). Same pattern in inspect.sh.
+umask 077
+printf 'Authorization: Bearer %s\n' "${ADMIN_BEARER_TOKEN}" > "$auth_header"
+
 log "triggering /api/admin/snapshot?ts=${ts}"
-http_status=$(curl -sS -o /tmp/snapshot.out -w '%{http_code}' \
+http_status=$(curl -sS -o "$response" -w '%{http_code}' \
     -X POST \
-    -H "Authorization: Bearer ${ADMIN_BEARER_TOKEN}" \
+    -H "@${auth_header}" \
     "${ADMIN_URL}/api/admin/snapshot?ts=${ts}" || echo "000")
 if [ "$http_status" != "200" ]; then
     echo "ERROR: /api/admin/snapshot returned ${http_status}" >&2
-    cat /tmp/snapshot.out >&2 || true
+    cat "$response" >&2 || true
     exit 3
 fi
-rm -f /tmp/snapshot.out
 
 if [ ! -d "$local_dir" ]; then
     echo "ERROR: server reported success but ${local_dir} does not exist" >&2

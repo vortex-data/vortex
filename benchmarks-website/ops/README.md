@@ -27,8 +27,8 @@ out-of-tree state — every script and unit lives in
   Vortex snapshot (`schema.sql` + one `<table>.vortex` per table),
   `tar czf`s it, and uploads to
   `s3://vortex-benchmark-results-database/v3-backups/<UTC ts>.tar.gz`.
-  The vortex DuckDB extension is auto-installed from the community
-  repo on first call. Vortex compresses the BIGINT[] runtime arrays
+  The vortex DuckDB extension is auto-installed from the DuckDB core
+  extension repo on first call. Vortex compresses the BIGINT[] runtime arrays
   and string columns roughly an order of magnitude better than
   gzipped CSV — and dogfoods the project's own format.
 - For ad-hoc reads, `inspect.sh` calls a bearer-gated `/api/admin/sql`
@@ -48,7 +48,7 @@ out-of-tree state — every script and unit lives in
 │  /var/lib/vortex-bench/                                              │
 │    bench.duckdb                 ← live DB                            │
 │    bench.duckdb.wal                                                  │
-│    bench.prev-<ts>.duckdb       ← pre-migration backup, last 1-2     │
+│    bench.prev-<ts>.duckdb       ← pre-migration backup, never pruned │
 │    bin/                                                              │
 │      vortex-bench-server        ← symlink → versioned binary         │
 │      vortex-bench-server.<ts>   ← versioned, last $KEEP_BINARIES (3) │
@@ -70,7 +70,7 @@ out-of-tree state — every script and unit lives in
 │  Logs: journalctl -u vortex-bench-{server,deploy,backup}             │
 └──────────────────────────────────────────────────────────────────────┘
                               │
-                              │ aws s3 sync
+                              │ aws s3 cp  <ts>.tar.gz
                               ▼
                 ┌───────────────────────────────────────┐
                 │ s3://vortex-benchmark-results-database/│
@@ -213,34 +213,39 @@ sudo $EDITOR /etc/vortex-bench.env
 #    .github/workflows/<bench>.yml so CI can keep posting.
 #    ADMIN_BEARER_TOKEN never leaves the box (used only by ops/* scripts).
 
-# 4. Wait ~90s. The deploy timer's first fire builds the binary and
+# 4. Start the units. install.sh enables but does NOT start the units
+#    when the env file still has empty tokens (so the first run has live
+#    secrets). Now that step 3 filled them in, start them:
+sudo systemctl start vortex-bench-server vortex-bench-deploy.timer vortex-bench-backup.timer
+
+# 5. Wait ~90s. The deploy timer's first fire builds the binary and
 #    starts the server. Tail it:
 journalctl -fu vortex-bench-deploy.service
 
-# 5. Smoke check (server is up but the DB is empty — schema applied,
+# 6. Smoke check (server is up but the DB is empty — schema applied,
 #    no rows).
 curl -fsS http://127.0.0.1:3000/health | jq
 ./benchmarks-website/ops/inspect.sh "SELECT COUNT(*) FROM commits;"
 
-# 6. Populate the DB. migrate.sh stops the server, runs the migrator,
+# 7. Populate the DB. migrate.sh stops the server, runs the migrator,
 #    and restarts it. The deploy timer never does this — populating
 #    the DB is a one-time admin action, distinct from deploying code.
 /var/lib/vortex-bench/ops/migrate.sh run --output /var/lib/vortex-bench/bench.duckdb
 
-# 7. Verify the backup loop end-to-end. Fire one backup manually and
+# 8. Verify the backup loop end-to-end. Fire one backup manually and
 #    confirm a tarball lands in S3.
 sudo systemctl start vortex-bench-backup.service
 journalctl -u vortex-bench-backup.service --since '2 min ago' --no-pager
 aws s3 ls s3://vortex-benchmark-results-database/v3-backups/ | tail -3
 
-# 8. (Alternative to step 6: preserve an existing $HOME/bench.duckdb
+# 9. (Alternative to step 7: preserve an existing $HOME/bench.duckdb
 #    instead of re-migrating.)
 sudo systemctl stop vortex-bench-server
 sudo -u ec2-user mv ~/bench.duckdb /var/lib/vortex-bench/bench.duckdb
 sudo systemctl start vortex-bench-server
 ```
 
-After step 7, the system is fully self-driving: deploys happen
+After step 8, the system is fully self-driving: deploys happen
 automatically within 60s of merge to develop, snapshots upload
 automatically every hour, and the lifecycle rule expires old ones.
 You don't need to SSH in for routine operations.
@@ -382,7 +387,11 @@ vortex-bench-migrate --`, so the migrator's CLI is whatever it is on
 the current branch. As of writing the invocation is:
 
 ```bash
-/var/lib/vortex-bench/ops/migrate.sh run --output "$VORTEX_BENCH_DB"
+# $VORTEX_BENCH_DB lives in /etc/vortex-bench.env, not the operator
+# shell, so source it before invoking. Falls back to the canonical path
+# if the env var isn't set.
+source /etc/vortex-bench.env
+/var/lib/vortex-bench/ops/migrate.sh run --output "${VORTEX_BENCH_DB:-/var/lib/vortex-bench/bench.duckdb}"
 ```
 
 The script stops the server, snapshots the current DB to
@@ -462,13 +471,19 @@ If you want to take an out-of-band snapshot (e.g. before a risky
 operation), just call the same endpoint the timer does:
 
 ```bash
+# Read $ADMIN_BEARER_TOKEN + $ADMIN_URL from the env file rather than
+# greping the file in line (the grep below is whitespace-fragile and
+# would mangle a token that contained '=').
+source /etc/vortex-bench.env
 ts=$(date -u +%Y%m%dT%H%M%SZ)
 curl -fsS -X POST \
-    -H "Authorization: Bearer $(grep ^ADMIN_BEARER_TOKEN /etc/vortex-bench.env | cut -d= -f2)" \
-    "http://127.0.0.1:3001/api/admin/snapshot?ts=manual-${ts}"
+    -H "Authorization: Bearer ${ADMIN_BEARER_TOKEN}" \
+    "${ADMIN_URL:-http://127.0.0.1:3001}/api/admin/snapshot?ts=manual-${ts}"
 ```
 
-It lands at `/var/lib/vortex-bench/snapshots/manual-<ts>/`.
+The endpoint returns the on-disk location in its JSON `snapshot_dir`
+field — that's the canonical path regardless of any
+`VORTEX_BENCH_SNAPSHOT_DIR` override.
 
 ### "Token rotation"
 
