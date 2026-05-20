@@ -420,6 +420,20 @@ pub(crate) fn insta_settings() -> insta::Settings {
     let mut s = insta::Settings::clone_current();
     s.set_snapshot_path("snapshots");
     s.set_prepend_module_to_snapshot(false);
+    // Redact the build SHA so the locked snapshots survive every commit.
+    // The footer in `render::site_footer` embeds the real `git rev-parse
+    // HEAD` of the build (captured by `build.rs` into
+    // `VORTEX_BENCH_BUILD_SHA`); without redaction the three HTML
+    // snapshots would diff on every PR.
+    s.add_filter(
+        r"https://github\.com/vortex-data/vortex/commit/[0-9a-f]+",
+        "https://github.com/vortex-data/vortex/commit/<build-sha>",
+    );
+    // Short SHA inside the linked footer code tag. The trailing
+    // `</code></a>` anchors the match to that one site — the `"unknown"`
+    // fallback emitted outside a git checkout isn't hex, so it won't
+    // collide.
+    s.add_filter(r">[0-9a-f]{7}</code></a>", "><build-sha></code></a>");
     s
 }
 

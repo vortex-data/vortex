@@ -56,6 +56,7 @@ pub(super) fn render_page(
                 (filter_state_script(filter))
                 (site_header(universe, filter))
                 main { (body) }
+                (site_footer())
                 @match scripts {
                     PageScripts::Empty => {
                         script src=(chart_init_src) defer {}
@@ -65,6 +66,33 @@ pub(super) fn render_page(
                         script src=(chart_zoom_src) defer {}
                         script src=(chart_init_src) defer {}
                     },
+                }
+            }
+        }
+    }
+}
+
+/// Bottom-of-page footer that surfaces the build's git SHA so operators
+/// (and curious visitors) can correlate what they're looking at to a
+/// specific commit. `VORTEX_BENCH_BUILD_SHA` is captured by `build.rs`
+/// — same source `/health` uses — so the footer and the health probe
+/// are always in lockstep.
+///
+/// When the binary was built outside a git checkout (shallow CI clone,
+/// source tarball) the SHA is the literal `"unknown"`; we render the
+/// label without a link in that case.
+fn site_footer() -> Markup {
+    let full_sha = env!("VORTEX_BENCH_BUILD_SHA");
+    let short_sha: &str = full_sha.get(..7).unwrap_or(full_sha);
+    let commit_url = format!("https://github.com/vortex-data/vortex/commit/{full_sha}");
+    html! {
+        footer.site-footer {
+            span.site-footer-label { "build " }
+            @if full_sha == "unknown" {
+                code.site-footer-sha { (short_sha) }
+            } @else {
+                a.site-footer-sha href=(commit_url) rel="noopener noreferrer" target="_blank" {
+                    code { (short_sha) }
                 }
             }
         }
@@ -282,6 +310,7 @@ pub(super) fn error_page(status: StatusCode, message: &str) -> Response {
                 main {
                     p.empty { (message) }
                 }
+                (site_footer())
             }
         }
     };

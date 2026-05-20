@@ -1270,3 +1270,42 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
   .chart-wrap { height: 350px; }
   main > .chart-card:not(.chart-grid .chart-card) .chart-wrap { height: 420px; }
 }
+
+/* ----------------------------------------------------------------------
+ * Footer
+ * ----------------------------------------------------------------------
+ * Emitted by `render::site_footer` at the bottom of every page. The
+ * `build <sha>` text links the short SHA to the matching commit on
+ * GitHub so the rendered page is always traceable to a source revision.
+ * Kept small + muted so it sits below the content without competing.
+ */
+.site-footer {
+  padding: 1.5rem 2rem 2rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.site-footer-label {
+  color: var(--muted);
+}
+
+.site-footer-sha code {
+  font-family: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo,
+    Consolas, monospace;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+a.site-footer-sha {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a.site-footer-sha:hover,
+a.site-footer-sha:hover code {
+  color: var(--accent);
+  text-decoration: none;
+}
