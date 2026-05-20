@@ -10,7 +10,9 @@ use super::count_ones::align_offset_len;
 /// Returns `None` if `nth` is out of bounds.
 ///
 /// Uses architecture-specific optimizations:
-/// - **aarch64**: NEON `vcnt`-based popcount for the word-level scan.
+/// - **aarch64**: NEON `vcnt`-based popcount for the 64-byte chunk scan.
+/// - **x86_64 + AVX-512 VPOPCNTDQ**: 64-byte chunk scan.
+/// - **x86_64 + AVX-512 VBMI2**: byte-lane compress for the final in-word select.
 /// - **x86_64 + BMI2**: `pdep` + `tzcnt` for the final in-word select.
 /// - **Scalar fallback**: 4× unrolled word scan with `count_ones`, byte-level narrowing.
 #[inline]
@@ -32,7 +34,17 @@ pub fn bit_select(bytes: &[u8], offset: usize, len: usize, nth: usize) -> Option
 
     // ── aligned middle bytes ────────────────────────────────────────────
     if !middle.is_empty() {
-        let (words, tail_bytes) = middle.as_chunks::<8>();
+        let (chunks, tail_bytes) = middle.as_chunks::<64>();
+
+        let (rem, new_pos, chunk_idx) = scan_chunks(chunks, remaining, pos);
+        remaining = rem;
+        pos = new_pos;
+
+        if chunk_idx < chunks.len() {
+            return Some(pos + select_in_chunk(&chunks[chunk_idx], remaining));
+        }
+
+        let (words, tail_bytes) = tail_bytes.as_chunks::<8>();
 
         let (rem, new_pos, word_idx) = scan_words(words, remaining, pos);
         remaining = rem;
@@ -64,6 +76,126 @@ pub fn bit_select(bytes: &[u8], offset: usize, len: usize, nth: usize) -> Option
     None
 }
 
+// ── 64-byte chunk scan ──────────────────────────────────────────────────
+
+/// Scan `chunks` accumulating popcounts. Returns `(remaining, position, chunk_index)`.
+///
+/// If `chunk_index < chunks.len()`, the target bit is inside that chunk and `remaining`
+/// is the rank *within* that chunk. Otherwise all chunks were consumed.
+#[inline]
+fn scan_chunks(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usize, usize) {
+    scan_chunks_impl(chunks, remaining, pos)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[inline]
+fn scan_chunks_impl(chunks: &[[u8; 64]], remaining: usize, pos: usize) -> (usize, usize, usize) {
+    if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512vpopcntdq") {
+        // SAFETY: runtime detection guarantees the required target features.
+        return unsafe { scan_chunks_avx512_vpopcnt(chunks, remaining, pos) };
+    }
+
+    scan_chunks_scalar(chunks, remaining, pos)
+}
+
+#[cfg(target_arch = "aarch64")]
+#[allow(clippy::cast_possible_truncation)] // u64 → usize is lossless on aarch64 (64-bit)
+#[inline]
+fn scan_chunks_impl(
+    chunks: &[[u8; 64]],
+    mut remaining: usize,
+    mut pos: usize,
+) -> (usize, usize, usize) {
+    use std::arch::aarch64::vcntq_u8;
+    use std::arch::aarch64::vgetq_lane_u64;
+    use std::arch::aarch64::vld1q_u8;
+    use std::arch::aarch64::vpaddlq_u8;
+    use std::arch::aarch64::vpaddlq_u16;
+    use std::arch::aarch64::vpaddlq_u32;
+
+    for (idx, chunk) in chunks.iter().enumerate() {
+        let ptr = chunk.as_ptr();
+        // SAFETY: chunk is exactly 64 bytes split across four 128-bit NEON loads.
+        // NEON vld1q_u8 supports unaligned access.
+        let total = unsafe {
+            let pop_0 = vcntq_u8(vld1q_u8(ptr));
+            let pop_1 = vcntq_u8(vld1q_u8(ptr.add(16)));
+            let pop_2 = vcntq_u8(vld1q_u8(ptr.add(32)));
+            let pop_3 = vcntq_u8(vld1q_u8(ptr.add(48)));
+            let sums_0 = vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(pop_0)));
+            let sums_1 = vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(pop_1)));
+            let sums_2 = vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(pop_2)));
+            let sums_3 = vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(pop_3)));
+
+            (vgetq_lane_u64::<0>(sums_0)
+                + vgetq_lane_u64::<1>(sums_0)
+                + vgetq_lane_u64::<0>(sums_1)
+                + vgetq_lane_u64::<1>(sums_1)
+                + vgetq_lane_u64::<0>(sums_2)
+                + vgetq_lane_u64::<1>(sums_2)
+                + vgetq_lane_u64::<0>(sums_3)
+                + vgetq_lane_u64::<1>(sums_3)) as usize
+        };
+
+        if remaining < total {
+            return (remaining, pos, idx);
+        }
+
+        remaining -= total;
+        pos += 512;
+    }
+
+    (remaining, pos, chunks.len())
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512vpopcntdq")]
+unsafe fn scan_chunks_avx512_vpopcnt(
+    chunks: &[[u8; 64]],
+    mut remaining: usize,
+    mut pos: usize,
+) -> (usize, usize, usize) {
+    use std::arch::x86_64::_mm512_loadu_si512;
+    use std::arch::x86_64::_mm512_popcnt_epi64;
+    use std::arch::x86_64::_mm512_reduce_add_epi64;
+
+    for (idx, chunk) in chunks.iter().enumerate() {
+        // SAFETY: chunk is exactly 64 bytes. `_mm512_loadu_si512` supports unaligned access.
+        let block = unsafe { _mm512_loadu_si512(chunk.as_ptr().cast()) };
+        let counts = _mm512_popcnt_epi64(block);
+        let total = _mm512_reduce_add_epi64(counts) as usize;
+
+        if remaining < total {
+            return (remaining, pos, idx);
+        }
+
+        remaining -= total;
+        pos += 512;
+    }
+
+    (remaining, pos, chunks.len())
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+#[inline]
+fn scan_chunks_scalar(
+    chunks: &[[u8; 64]],
+    mut remaining: usize,
+    mut pos: usize,
+) -> (usize, usize, usize) {
+    for (idx, chunk) in chunks.iter().enumerate() {
+        let total = count_ones_chunk(chunk);
+        if remaining < total {
+            return (remaining, pos, idx);
+        }
+
+        remaining -= total;
+        pos += 512;
+    }
+
+    (remaining, pos, chunks.len())
+}
+
 // ── Word-level scan ─────────────────────────────────────────────────────
 
 /// Scan `words` accumulating popcounts. Returns `(remaining, position, word_index)`.
@@ -75,114 +207,15 @@ fn scan_words(words: &[[u8; 8]], remaining: usize, pos: usize) -> (usize, usize,
     scan_words_impl(words, remaining, pos)
 }
 
-// ── aarch64 NEON scan ───────────────────────────────────────────────────
+// ── Scalar word scan ────────────────────────────────────────────────────
 
-#[cfg(target_arch = "aarch64")]
-#[allow(clippy::cast_possible_truncation)] // u64 → usize is lossless on aarch64 (64-bit)
 #[inline]
-fn scan_words_impl(
-    words: &[[u8; 8]],
-    mut remaining: usize,
-    mut pos: usize,
-) -> (usize, usize, usize) {
-    use std::arch::aarch64::vcntq_u8;
-    use std::arch::aarch64::vgetq_lane_u64;
-    use std::arch::aarch64::vld1q_u8;
-    use std::arch::aarch64::vpaddlq_u8;
-    use std::arch::aarch64::vpaddlq_u16;
-    use std::arch::aarch64::vpaddlq_u32;
-
-    let mut idx = 0;
-
-    // Process 4 u64 words at a time using two 128-bit NEON registers.
-    while idx + 4 <= words.len() {
-        let ptr = words[idx].as_ptr();
-        // SAFETY: idx + 4 <= words.len() guarantees 32 contiguous bytes from ptr.
-        // NEON vld1q_u8 supports unaligned access.
-        let (count_0, count_1, count_2, count_3) = unsafe {
-            let pop_lo = vcntq_u8(vld1q_u8(ptr));
-            let pop_hi = vcntq_u8(vld1q_u8(ptr.add(16)));
-            let sums_lo = vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(pop_lo)));
-            let sums_hi = vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(pop_hi)));
-            (
-                vgetq_lane_u64::<0>(sums_lo) as usize,
-                vgetq_lane_u64::<1>(sums_lo) as usize,
-                vgetq_lane_u64::<0>(sums_hi) as usize,
-                vgetq_lane_u64::<1>(sums_hi) as usize,
-            )
-        };
-
-        let total = count_0 + count_1 + count_2 + count_3;
-        if remaining >= total {
-            remaining -= total;
-            pos += 256;
-            idx += 4;
-            continue;
-        }
-
-        // Narrow down to the exact word.
-        if remaining < count_0 {
-            return (remaining, pos, idx);
-        }
-        remaining -= count_0;
-        pos += 64;
-        if remaining < count_1 {
-            return (remaining, pos, idx + 1);
-        }
-        remaining -= count_1;
-        pos += 64;
-        if remaining < count_2 {
-            return (remaining, pos, idx + 2);
-        }
-        remaining -= count_2;
-        pos += 64;
-        return (remaining, pos, idx + 3);
-    }
-
-    // Process pairs.
-    while idx + 2 <= words.len() {
-        let ptr = words[idx].as_ptr();
-        // SAFETY: idx + 2 <= words.len() guarantees 16 contiguous bytes.
-        let (count_0, count_1) = unsafe {
-            let pop = vcntq_u8(vld1q_u8(ptr));
-            let sums = vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(pop)));
-            (
-                vgetq_lane_u64::<0>(sums) as usize,
-                vgetq_lane_u64::<1>(sums) as usize,
-            )
-        };
-        let total = count_0 + count_1;
-        if remaining < total {
-            if remaining < count_0 {
-                return (remaining, pos, idx);
-            }
-            return (remaining - count_0, pos + 64, idx + 1);
-        }
-        remaining -= total;
-        pos += 128;
-        idx += 2;
-    }
-
-    // Single trailing word.
-    if idx < words.len() {
-        let word = u64::from_le_bytes(words[idx]);
-        let count = word.count_ones() as usize;
-        if remaining < count {
-            return (remaining, pos, idx);
-        }
-        remaining -= count;
-        pos += 64;
-        idx += 1;
-    }
-
-    (remaining, pos, idx)
+fn scan_words_impl(words: &[[u8; 8]], remaining: usize, pos: usize) -> (usize, usize, usize) {
+    scan_words_scalar(words, remaining, pos)
 }
 
-// ── Scalar scan (x86_64 / generic) ─────────────────────────────────────
-
-#[cfg(not(target_arch = "aarch64"))]
 #[inline]
-fn scan_words_impl(
+fn scan_words_scalar(
     words: &[[u8; 8]],
     mut remaining: usize,
     mut pos: usize,
@@ -234,6 +267,83 @@ fn scan_words_impl(
     }
 
     (remaining, pos, idx)
+}
+
+// ── In-chunk select ─────────────────────────────────────────────────────
+
+/// Position of the `nth` set bit inside a 64-byte chunk (0-indexed).
+#[inline]
+fn select_in_chunk(chunk: &[u8; 64], nth: usize) -> usize {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if is_x86_feature_detected!("avx512f")
+            && is_x86_feature_detected!("avx512vpopcntdq")
+            && is_x86_feature_detected!("avx512vbmi2")
+        {
+            // SAFETY: runtime detection guarantees the required target features.
+            return unsafe { select_in_chunk_vbmi2(chunk, nth) };
+        }
+    }
+
+    select_in_chunk_scalar(chunk, nth)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512vpopcntdq,avx512vbmi2")]
+unsafe fn select_in_chunk_vbmi2(chunk: &[u8; 64], mut nth: usize) -> usize {
+    use std::arch::x86_64::_mm512_loadu_si512;
+    use std::arch::x86_64::_mm512_popcnt_epi64;
+    use std::arch::x86_64::_mm512_storeu_epi64;
+
+    let words = chunk.as_chunks::<8>().0;
+
+    // SAFETY: chunk is exactly 64 bytes. `_mm512_loadu_si512` supports unaligned access.
+    let block = unsafe { _mm512_loadu_si512(chunk.as_ptr().cast()) };
+    let counts = _mm512_popcnt_epi64(block);
+    let mut lane_counts = [0_i64; 8];
+
+    // SAFETY: `lane_counts` has room for all eight i64 lanes.
+    unsafe { _mm512_storeu_epi64(lane_counts.as_mut_ptr(), counts) };
+
+    for (idx, count) in lane_counts.into_iter().enumerate() {
+        let count = count as usize;
+        if nth < count {
+            return idx * 64 + select_in_word(u64::from_le_bytes(words[idx]), nth);
+        }
+        nth -= count;
+    }
+
+    unreachable!("select_in_chunk: nth exceeds popcount")
+}
+
+#[inline]
+fn select_in_chunk_scalar(chunk: &[u8; 64], mut nth: usize) -> usize {
+    let words = chunk.as_chunks::<8>().0;
+
+    for (idx, word) in words.iter().enumerate() {
+        let word = u64::from_le_bytes(*word);
+        let count = word.count_ones() as usize;
+        if nth < count {
+            return idx * 64 + select_in_word(word, nth);
+        }
+        nth -= count;
+    }
+
+    unreachable!("select_in_chunk: nth exceeds popcount")
+}
+
+#[cfg(not(target_arch = "aarch64"))]
+#[inline]
+fn count_ones_chunk(chunk: &[u8; 64]) -> usize {
+    let words = chunk.as_chunks::<8>().0;
+    u64::from_le_bytes(words[0]).count_ones() as usize
+        + u64::from_le_bytes(words[1]).count_ones() as usize
+        + u64::from_le_bytes(words[2]).count_ones() as usize
+        + u64::from_le_bytes(words[3]).count_ones() as usize
+        + u64::from_le_bytes(words[4]).count_ones() as usize
+        + u64::from_le_bytes(words[5]).count_ones() as usize
+        + u64::from_le_bytes(words[6]).count_ones() as usize
+        + u64::from_le_bytes(words[7]).count_ones() as usize
 }
 
 // ── In-word select ──────────────────────────────────────────────────────
@@ -348,6 +458,9 @@ mod tests {
     #[case(1, 64)]
     #[case(0, 65)]
     #[case(3, 256)]
+    #[case(0, 512)]
+    #[case(0, 513)]
+    #[case(5, 1024)]
     fn test_select_agrees_with_naive(#[case] offset: usize, #[case] len: usize) {
         let total_bits = offset + len;
         let total_bytes = total_bits.div_ceil(8);
