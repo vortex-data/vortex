@@ -393,13 +393,10 @@ mod tests {
     }
 
     #[test]
-    fn all_invalid_primitive_matches_materialized_size() -> VortexResult<()> {
+    fn all_invalid_primitive_excludes_uniform_validity_size() -> VortexResult<()> {
         let array = PrimitiveArray::new(buffer![0i32, 0, 0], Validity::AllInvalid).into_array();
 
-        assert_eq!(
-            aggregate(&array)?,
-            materialized_uncompressed_size_in_bytes(&array)
-        );
+        assert_eq!(aggregate(&array)?, 12);
         Ok(())
     }
 
@@ -426,13 +423,10 @@ mod tests {
     }
 
     #[test]
-    fn all_invalid_bool_matches_materialized_size() -> VortexResult<()> {
+    fn all_invalid_bool_excludes_uniform_validity_size() -> VortexResult<()> {
         let array = BoolArray::from_iter([None::<bool>, None, None]).into_array();
 
-        assert_eq!(
-            aggregate(&array)?,
-            materialized_uncompressed_size_in_bytes(&array)
-        );
+        assert_eq!(aggregate(&array)?, 1);
         Ok(())
     }
 

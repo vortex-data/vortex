@@ -593,14 +593,12 @@ impl IntoArray for &MaskValues {
 /// [`UncompressedSizeInBytes`](crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes)
 /// aggregate for canonical arrays and encoding kernels that report that aggregate directly.
 ///
-/// A mask with all valid values contributes no bytes, because Vortex does not materialize a
-/// validity buffer for all-valid arrays. An all-invalid mask contributes the size of the canonical
-/// constant false validity array. A mixed mask contributes the packed bit-buffer size, rounded up
+/// Uniform masks contribute no bytes, because Vortex does not materialize a validity buffer for
+/// all-valid or all-invalid arrays. A mixed mask contributes the packed bit-buffer size, rounded up
 /// to whole bytes.
 pub fn validity_uncompressed_size_in_bytes(validity: Mask) -> VortexResult<u64> {
     match validity {
-        Mask::AllTrue(_) => Ok(0),
-        Mask::AllFalse(len) => Ok(ConstantArray::new(false, len).into_array().nbytes()),
+        Mask::AllTrue(_) | Mask::AllFalse(_) => Ok(0),
         Mask::Values(values) => u64::try_from(values.len().div_ceil(8))
             .map_err(|e| vortex_err!("Failed to convert bit buffer length to u64: {e}")),
     }
@@ -625,9 +623,9 @@ mod tests {
 
     #[rstest]
     #[case(Mask::AllTrue(9), 0)]
-    #[case(Mask::AllFalse(9), Mask::AllFalse(9).into_array().nbytes())]
+    #[case(Mask::AllFalse(9), 0)]
     #[case(Mask::from_iter([true, false, true, true, false, true, false, true, true]), 2)]
-    fn validity_uncompressed_size_matches_canonical_mask_size(
+    fn validity_uncompressed_size_matches_validity_buffer_size(
         #[case] mask: Mask,
         #[case] expected: u64,
     ) -> vortex_error::VortexResult<()> {
