@@ -159,11 +159,14 @@ unsafe fn scan_chunks_avx512_vpopcnt(
     use std::arch::x86_64::_mm512_popcnt_epi64;
     use std::arch::x86_64::_mm512_reduce_add_epi64;
 
+    use vortex_error::VortexExpect;
+
     for (idx, chunk) in chunks.iter().enumerate() {
         // SAFETY: chunk is exactly 64 bytes. `_mm512_loadu_si512` supports unaligned access.
         let block = unsafe { _mm512_loadu_si512(chunk.as_ptr().cast()) };
         let counts = _mm512_popcnt_epi64(block);
-        let total = _mm512_reduce_add_epi64(counts) as usize;
+        let total =
+            usize::try_from(_mm512_reduce_add_epi64(counts)).vortex_expect("must fit in usize");
 
         if remaining < total {
             return (remaining, pos, idx);
@@ -295,6 +298,8 @@ unsafe fn select_in_chunk_vbmi2(chunk: &[u8; 64], mut nth: usize) -> usize {
     use std::arch::x86_64::_mm512_popcnt_epi64;
     use std::arch::x86_64::_mm512_storeu_epi64;
 
+    use vortex_error::VortexExpect;
+
     let words = chunk.as_chunks::<8>().0;
 
     // SAFETY: chunk is exactly 64 bytes. `_mm512_loadu_si512` supports unaligned access.
@@ -306,7 +311,7 @@ unsafe fn select_in_chunk_vbmi2(chunk: &[u8; 64], mut nth: usize) -> usize {
     unsafe { _mm512_storeu_epi64(lane_counts.as_mut_ptr(), counts) };
 
     for (idx, count) in lane_counts.into_iter().enumerate() {
-        let count = count as usize;
+        let count = usize::try_from(count).vortex_expect("must fit in usize");
         if nth < count {
             return idx * 64 + select_in_word(u64::from_le_bytes(words[idx]), nth);
         }
