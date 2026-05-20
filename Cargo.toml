@@ -424,3 +424,11 @@ datafusion-physical-expr-common = { git = "https://github.com/apache/datafusion"
 datafusion-physical-plan = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
 datafusion-pruning = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
 datafusion-sqllogictest = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+
+# Extra patches
+datafusion-sql = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-functions-nested = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-expr-common = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-functions-aggregate = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-functions-aggregate-common = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-doc = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
