@@ -1,12 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+pub mod columnar;
+
 use std::borrow::Cow;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::iter;
 use std::sync::Arc;
 
+pub use columnar::BUFFER_COLUMNS_DTYPE;
+pub use columnar::ColumnarArrayTree;
+pub use columnar::ColumnarSerializedArray;
+pub use columnar::DEFAULT_STATS;
+pub use columnar::StatsColumns;
+pub use columnar::StatsColumnsBuilder;
+pub use columnar::compute_buffer_offsets;
+pub use columnar::compute_subtree_sizes;
+pub use columnar::nodes_columns_dtype;
+pub use columnar::serialize_to_columnar_tree;
+pub use columnar::stats_columns_dtype;
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::Follow;
 use flatbuffers::WIPOffset;
