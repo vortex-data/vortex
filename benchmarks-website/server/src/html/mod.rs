@@ -72,14 +72,11 @@ use self::landing::landing_body;
 use self::render::PageScripts;
 use self::render::error_page;
 use self::render::render_page;
-use self::static_assets::serve_apple_touch_icon_png;
 use self::static_assets::serve_chart_init_js;
 use self::static_assets::serve_chart_js;
 use self::static_assets::serve_chart_zoom_js;
-use self::static_assets::serve_favicon_16_png;
-use self::static_assets::serve_favicon_32_png;
-use self::static_assets::serve_favicon_ico;
-use self::static_assets::serve_site_webmanifest;
+use self::static_assets::serve_icon_dark_png;
+use self::static_assets::serve_icon_light_png;
 use self::static_assets::serve_style_css;
 use self::static_assets::serve_vortex_black_png;
 use self::static_assets::serve_vortex_white_png;
@@ -106,11 +103,8 @@ pub fn router() -> Router<AppState> {
         .route("/static/style.css", get(serve_style_css))
         .route("/Vortex_Black_NoBG.png", get(serve_vortex_black_png))
         .route("/Vortex_White_NoBG.png", get(serve_vortex_white_png))
-        .route("/favicon.ico", get(serve_favicon_ico))
-        .route("/favicon-16x16.png", get(serve_favicon_16_png))
-        .route("/favicon-32x32.png", get(serve_favicon_32_png))
-        .route("/apple-touch-icon.png", get(serve_apple_touch_icon_png))
-        .route("/site.webmanifest", get(serve_site_webmanifest))
+        .route("/static/icon-light.png", get(serve_icon_light_png))
+        .route("/static/icon-dark.png", get(serve_icon_dark_png))
 }
 
 /// Query string for HTML routes. `?n=` overrides the commit window;
@@ -194,7 +188,7 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
         PageScripts::Chart
     };
     render_page(
-        "bench.vortex.dev",
+        "Vortex Benchmarks",
         "Vortex benchmarks (v3 alpha)",
         landing_body(&landing_groups, universe.as_ref()),
         scripts,
@@ -288,7 +282,7 @@ async fn chart_page(
         (chart, payload_json)
     };
 
-    let title = format!("{} — bench.vortex.dev", chart.display_name);
+    let title = format!("{} — Vortex Benchmarks", chart.display_name);
     let subtitle = chart.display_name.clone();
     let filter = ui.filter_state();
     let universe = api::cached_filter_universe(&state).await.ok();
@@ -321,7 +315,7 @@ async fn group_page(
     let Some(group) = groups.iter().find(|group| group.slug == group_slug) else {
         return error_page(StatusCode::NOT_FOUND, "group not found").into_response();
     };
-    let title = format!("{} — bench.vortex.dev", group.name);
+    let title = format!("{} — Vortex Benchmarks", group.name);
     let subtitle = group.name.clone();
     let filter = ui.filter_state();
     let universe = generation.filter_universe();

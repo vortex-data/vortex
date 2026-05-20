@@ -70,23 +70,25 @@ pub(super) fn render_page(
     }
 }
 
-/// Browser tab metadata: favicons (16 / 32 / .ico / apple-touch) + the
-/// PWA manifest. Mirrors v2's `index.html` so the v3 tab carries the
-/// same brand mark and home-screen icon. Files are served by
-/// [`super::static_assets`] from the v2 `public/` directory the
-/// `include_bytes!` calls reach into.
+/// Browser tab icon links. Two transparent square sigils — the black
+/// one for light-mode tabs, the white one for dark-mode tabs — picked
+/// via `prefers-color-scheme` media queries. A third unmediated link
+/// covers browsers that don't honour the media query (the dark version
+/// is used since GitHub-style developer audiences skew dark-mode); the
+/// `apple-touch-icon` is also the dark sigil so the iOS home-screen
+/// icon shows the sigil over iOS's default tile colour.
+///
+/// v2's `public/favicon-*.png` set is intentionally not used here:
+/// those assets have white backgrounds baked in, which render as a
+/// glaring white square on dark-mode tabs.
 fn favicon_links() -> Markup {
-    let favicon_ico = versioned_asset("/favicon.ico");
-    let favicon_16 = versioned_asset("/favicon-16x16.png");
-    let favicon_32 = versioned_asset("/favicon-32x32.png");
-    let apple_touch = versioned_asset("/apple-touch-icon.png");
-    let manifest = versioned_asset("/site.webmanifest");
+    let icon_light = versioned_asset("/static/icon-light.png");
+    let icon_dark = versioned_asset("/static/icon-dark.png");
     html! {
-        link rel="icon" href=(favicon_ico) sizes="any";
-        link rel="icon" type="image/png" sizes="16x16" href=(favicon_16);
-        link rel="icon" type="image/png" sizes="32x32" href=(favicon_32);
-        link rel="apple-touch-icon" sizes="180x180" href=(apple_touch);
-        link rel="manifest" href=(manifest);
+        link rel="icon" type="image/png" media="(prefers-color-scheme: light)" href=(icon_light);
+        link rel="icon" type="image/png" media="(prefers-color-scheme: dark)" href=(icon_dark);
+        link rel="icon" type="image/png" href=(icon_dark);
+        link rel="apple-touch-icon" href=(icon_dark);
     }
 }
 
@@ -252,7 +254,7 @@ pub(super) fn error_page(status: StatusCode, message: &str) -> Response {
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
-                title { (status.as_u16()) " — bench.vortex.dev" }
+                title { (status.as_u16()) " — Vortex Benchmarks" }
                 (favicon_links())
                 (theme_bootstrap_script())
                 link rel="stylesheet" href=(style_href);

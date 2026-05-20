@@ -225,7 +225,7 @@ a:hover { text-decoration: underline; }
   margin: 0 0 0 1.5rem;
   color: var(--fg);
   font-size: 1.25rem;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.2;
   white-space: nowrap;
 }
@@ -301,7 +301,7 @@ a:hover { text-decoration: underline; }
 
 .repo-link {
   padding: 0.5rem 1rem;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .github-logo {
@@ -525,7 +525,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   margin: 0 0 0.5rem;
   color: var(--muted);
   font-size: 0.75rem;
-  font-weight: 650;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -548,7 +548,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   min-width: 2.25rem;
   color: var(--accent);
   font-size: 0.75rem;
-  font-weight: 650;
+  font-weight: 600;
   text-transform: uppercase;
   font-variant-numeric: tabular-nums;
 }
@@ -558,7 +558,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   flex: 1;
   overflow: hidden;
   color: var(--fg);
-  font-weight: 550;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -575,7 +575,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 .score-runtime {
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   font-size: 0.8rem;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .score-value { color: var(--accent); }
@@ -676,7 +676,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
   color: var(--accent-fg);
 }
 .filter-chip--all {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 /* ----------------------------------------------------------------------
@@ -849,7 +849,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 .chart-card-title {
   margin: 0 0 0.4rem;
   font-size: 0.95rem;
-  font-weight: 600;
+  font-weight: 500;
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
