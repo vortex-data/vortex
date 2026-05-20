@@ -15,10 +15,6 @@ use std::fmt::Debug;
 use std::ptr;
 use std::sync::Arc;
 
-use arrow_schema::DataType;
-use arrow_schema::Field;
-use arrow_schema::Fields;
-use arrow_schema::Schema;
 use arrow_schema::ffi::FFI_ArrowSchema;
 use async_trait::async_trait;
 pub(crate) use canonical::CanonicalDeviceArrayExport;
@@ -172,8 +168,8 @@ pub trait DeviceArrayExt {
     ///
     /// Arrow arrays are not self-describing: consumers need both the [`ArrowDeviceArray`] and an
     /// Arrow schema to interpret the buffer layout. This helper derives the schema from the
-    /// Vortex dtype using the session's Arrow conversion rules, adapts it to the physical layout
-    /// produced by the device exporter, and returns it alongside the device array.
+    /// Vortex dtype using the session's Arrow conversion rules and returns it alongside the device
+    /// array.
     ///
     /// Top-level struct arrays are exported as table-like Arrow schemas and struct-shaped device
     /// arrays. Top-level non-struct arrays are exported as column-shaped field schemas and
@@ -215,52 +211,12 @@ fn arrow_schema_for_array(
 ) -> VortexResult<FFI_ArrowSchema> {
     let arrow = ctx.execution_ctx().session().arrow();
     match array.dtype() {
-        DType::Struct(..) => Ok(FFI_ArrowSchema::try_from(&device_array_schema(
-            &arrow.to_arrow_schema(array.dtype())?,
-        ))?),
-        _ => Ok(FFI_ArrowSchema::try_from(&device_array_field(
-            &arrow.to_arrow_field("", array.dtype())?,
-        ))?),
-    }
-}
-
-/// Convert an Arrow schema to the form described by this device exporter.
-///
-/// The session-level Arrow conversion describes Vortex arrays as Arrow logical types. This pass is
-/// the single place where those types are adapted to the physical layouts emitted by the CUDA
-/// `ArrowDeviceArray` exporter, while preserving field names, nullability, and metadata.
-fn device_array_schema(schema: &Schema) -> Schema {
-    Schema::new_with_metadata(
-        schema
-            .fields()
-            .iter()
-            .map(|field| device_array_field(field.as_ref()))
-            .collect::<Vec<_>>(),
-        schema.metadata().clone(),
-    )
-}
-
-/// Convert a single Arrow field to the form described by this device exporter.
-fn device_array_field(field: &Field) -> Field {
-    field
-        .clone()
-        .with_data_type(device_array_data_type(field.data_type()))
-}
-
-/// Convert an Arrow logical dtype to the form described by this device exporter.
-///
-/// This currently preserves Arrow view types such as `Utf8View` and `BinaryView`, because the CUDA
-/// exporter emits Arrow view-layout buffers for Vortex string/binary arrays. Struct children are
-/// adapted recursively.
-fn device_array_data_type(data_type: &DataType) -> DataType {
-    match data_type {
-        DataType::Struct(fields) => DataType::Struct(Fields::from(
-            fields
-                .iter()
-                .map(|field| device_array_field(field.as_ref()))
-                .collect::<Vec<_>>(),
-        )),
-        _ => data_type.clone(),
+        DType::Struct(..) => Ok(FFI_ArrowSchema::try_from(
+            arrow.to_arrow_schema(array.dtype())?,
+        )?),
+        _ => Ok(FFI_ArrowSchema::try_from(
+            arrow.to_arrow_field("", array.dtype())?,
+        )?),
     }
 }
 
@@ -288,75 +244,4 @@ pub(crate) fn check_validity_empty(validity: &Validity) -> VortexResult<()> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-
-    use super::*;
-
-    #[rstest]
-    #[case::utf8_view(DataType::Utf8View)]
-    #[case::binary_view(DataType::BinaryView)]
-    #[case::unchanged_leaf(DataType::UInt32)]
-    fn device_array_data_type_preserves_leafs(#[case] input: DataType) {
-        assert_eq!(device_array_data_type(&input), input);
-    }
-
-    #[test]
-    fn device_array_data_type_recurses_into_struct_fields() {
-        let data_type = DataType::Struct(Fields::from(vec![
-            Field::new("utf8", DataType::Utf8View, true),
-            Field::new("binary", DataType::BinaryView, false),
-            Field::new("int", DataType::Int32, false),
-        ]));
-
-        assert_eq!(
-            device_array_data_type(&data_type),
-            DataType::Struct(Fields::from(vec![
-                Field::new("utf8", DataType::Utf8View, true),
-                Field::new("binary", DataType::BinaryView, false),
-                Field::new("int", DataType::Int32, false),
-            ]))
-        );
-    }
-
-    #[test]
-    fn device_array_field_preserves_name_nullability_and_metadata() {
-        let field = Field::new("strings", DataType::Utf8View, true).with_metadata(
-            [("key".to_string(), "value".to_string())]
-                .into_iter()
-                .collect(),
-        );
-
-        assert_eq!(
-            device_array_field(&field),
-            Field::new("strings", DataType::Utf8View, true).with_metadata(field.metadata().clone())
-        );
-    }
-
-    #[test]
-    fn device_array_schema_preserves_schema_metadata() {
-        let schema = Schema::new_with_metadata(
-            vec![
-                Field::new("strings", DataType::Utf8View, false),
-                Field::new("binary", DataType::BinaryView, true),
-            ],
-            [("schema-key".to_string(), "schema-value".to_string())]
-                .into_iter()
-                .collect(),
-        );
-
-        assert_eq!(
-            device_array_schema(&schema),
-            Schema::new_with_metadata(
-                vec![
-                    Field::new("strings", DataType::Utf8View, false),
-                    Field::new("binary", DataType::BinaryView, true),
-                ],
-                schema.metadata().clone(),
-            )
-        );
-    }
 }
