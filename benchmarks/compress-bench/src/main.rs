@@ -192,7 +192,7 @@ async fn run_compress(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(&mut writer, measurements.timings, &targets)?;
+            render_table(&mut writer, measurements.timings, &targets, None)?;
             render_table(
                 &mut writer,
                 measurements.ratios,
@@ -201,6 +201,7 @@ async fn run_compress(
                 } else {
                     vec![]
                 },
+                None,
             )
         }
         DisplayFormat::GhJson => {

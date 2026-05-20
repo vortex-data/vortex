@@ -468,7 +468,7 @@ async fn run_random_access(
 
     match display_format {
         DisplayFormat::Table => {
-            render_table(&mut writer, measurements, &targets)?;
+            render_table(&mut writer, measurements, &targets, None)?;
         }
         DisplayFormat::GhJson => {
             print_measurements_json(&mut writer, measurements)?;

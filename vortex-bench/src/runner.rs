@@ -465,13 +465,13 @@ pub fn export_results<W: Write>(
 
     if !memory.is_empty() {
         match display_format {
-            DisplayFormat::Table => render_table(&mut output, memory, &targets)?,
+            DisplayFormat::Table => render_table(&mut output, memory, &targets, None)?,
             DisplayFormat::GhJson => print_measurements_json(&mut output, memory)?,
         };
     }
 
     match display_format {
-        DisplayFormat::Table => render_table(&mut output, queries, &targets)?,
+        DisplayFormat::Table => render_table(&mut output, queries, &targets, None)?,
         DisplayFormat::GhJson => print_measurements_json(&mut output, queries)?,
     };
 

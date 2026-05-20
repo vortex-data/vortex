@@ -10,21 +10,26 @@ use clap::value_parser;
 use duckdb_bench::DuckClient;
 use tokio::runtime::Runtime;
 use vortex::metrics::tracing::set_global_labels;
+use vortex::utils::aliases::hash_map::HashMap;
+use vortex::utils::aliases::hash_set::HashSet;
 use vortex_bench::BenchmarkArg;
 use vortex_bench::CompactionStrategy;
 use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Opt;
 use vortex_bench::Opts;
+use vortex_bench::Target;
 use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::create_output_writer;
 use vortex_bench::display::DisplayFormat;
+use vortex_bench::display::render_table;
 use vortex_bench::runner::BenchmarkMode;
 use vortex_bench::runner::SqlBenchmarkRunner;
 use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
 use vortex_bench::v3;
+use vortex_bench::v3::V3Record;
 
 /// Common arguments shared across benchmarks
 #[derive(Parser)]
@@ -64,6 +69,11 @@ struct Args {
     #[arg(long)]
     gh_json_v3: Option<PathBuf>,
 
+    /// Compare with a JSONL file exported with --gh-json-v3.
+    /// The intersection of queries, formats, and datasets is displayed.
+    #[arg(short, long)]
+    baseline: Option<PathBuf>,
+
     #[arg(long, default_value_t = false)]
     track_memory: bool,
 
@@ -73,7 +83,7 @@ struct Args {
     #[arg(long, default_value = "unknown")]
     runner: String,
 
-    #[arg(long, value_delimiter = ',', value_parser = value_parser!(Format))]
+    #[arg(long, default_value = "vortex", value_delimiter = ',', value_parser = value_parser!(Format))]
     formats: Vec<Format>,
 
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
@@ -196,14 +206,80 @@ fn main() -> anyhow::Result<()> {
     )?;
 
     if !args.explain {
+        let current_records = runner.v3_records();
+
         if let Some(path) = args.gh_json_v3.as_ref() {
-            v3::write_jsonl_to_path(path, &runner.v3_records())?;
+            v3::write_jsonl_to_path(path, &current_records)?;
         }
 
         let benchmark_id = format!("duckdb-{}", benchmark.dataset_name());
-        let writer = create_output_writer(&args.display_format, args.output_path, &benchmark_id)?;
-        runner.export_to(&args.display_format, writer)?;
+        let mut writer =
+            create_output_writer(&args.display_format, args.output_path, &benchmark_id)?;
+
+        if let Some(baseline_path) = args.baseline
+            && matches!(args.display_format, DisplayFormat::Table)
+        {
+            let baseline_records = v3::read_jsonl_from_path(&baseline_path)?;
+            let baseline_map = build_query_baseline_map(&baseline_records, &current_records);
+            let targets = args
+                .formats
+                .iter()
+                .map(|f| Target::new(Engine::DuckDB, *f))
+                .collect::<Vec<_>>();
+            let results = runner.into_results();
+            if !results.memory_measurements.is_empty() {
+                render_table(&mut writer, results.memory_measurements, &targets, None)?;
+            }
+            render_table(
+                &mut writer,
+                results.query_measurements,
+                &targets,
+                Some(&baseline_map),
+            )?;
+        } else {
+            runner.export_to(&args.display_format, writer)?;
+        }
     }
 
     Ok(())
+}
+
+fn build_query_baseline_map(
+    baseline: &[V3Record],
+    current: &[V3Record],
+) -> HashMap<(u32, String), u64> {
+    let current_dims: HashSet<(String, Option<String>, Option<String>)> = current
+        .iter()
+        .filter_map(|r| {
+            if let V3Record::QueryMeasurement(qm) = r {
+                Some((
+                    qm.dataset.clone(),
+                    qm.dataset_variant.clone(),
+                    qm.scale_factor.clone(),
+                ))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    baseline
+        .iter()
+        .filter_map(|r| {
+            if let V3Record::QueryMeasurement(qm) = r {
+                let dims = (
+                    qm.dataset.clone(),
+                    qm.dataset_variant.clone(),
+                    qm.scale_factor.clone(),
+                );
+                if current_dims.contains(&dims) {
+                    Some(((qm.query_idx, qm.format.clone()), qm.value_ns))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+        .collect()
 }

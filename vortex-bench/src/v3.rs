@@ -69,9 +69,13 @@
 //! [`vortex_bench_server::records`]: ../../../benchmarks-website/server/src/records.rs
 //! [`vortex_bench_migrate::classifier`]: ../../../benchmarks-website/migrate/src/classifier.rs
 
+use std::io::BufRead;
+use std::io::Result;
 use std::io::Write;
+use std::path::Path;
 use std::sync::LazyLock;
 
+use serde::Deserialize;
 use serde::Serialize;
 use target_lexicon::Triple;
 
@@ -100,7 +104,7 @@ pub static ENV_TRIPLE: LazyLock<String> = LazyLock::new(|| {
 ///
 /// Each variant flattens its inner record next to a `"kind"` field, matching the
 /// shape consumed by `/api/ingest`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum V3Record {
     /// SQL query suite measurement (TPC-H/TPC-DS/ClickBench/...).
@@ -120,7 +124,7 @@ pub enum V3Record {
 ///
 /// Memory fields are populated together (all four or none), matching the
 /// `--track-memory` instrumentation.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryMeasurementRecord {
     /// 40-hex lowercase commit SHA.
     pub commit_sha: String,
@@ -167,7 +171,7 @@ pub struct QueryMeasurementRecord {
 }
 
 /// A single encode-or-decode timing from `compress-bench`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompressionTimeRecord {
     /// 40-hex lowercase commit SHA.
     pub commit_sha: String,
@@ -190,7 +194,7 @@ pub struct CompressionTimeRecord {
 }
 
 /// On-disk size of a compressed file from `compress-bench`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompressionSizeRecord {
     /// 40-hex lowercase commit SHA.
     pub commit_sha: String,
@@ -206,7 +210,7 @@ pub struct CompressionSizeRecord {
 }
 
 /// A single take-time timing from `random-access-bench`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RandomAccessTimeRecord {
     /// 40-hex lowercase commit SHA.
     pub commit_sha: String,
@@ -227,7 +231,7 @@ pub struct RandomAccessTimeRecord {
 ///
 /// Carries timing **and** the side counters in one row, mirroring the
 /// `vector_search_runs` fact table.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VectorSearchRunRecord {
     /// 40-hex lowercase commit SHA.
     pub commit_sha: String,
@@ -467,7 +471,7 @@ pub fn vector_search_record(
 /// Write `records` as JSONL (one JSON object per line) to `writer`.
 ///
 /// JSONL is the on-disk format consumed by `scripts/post-ingest.py`.
-pub fn write_jsonl<W: Write>(writer: &mut W, records: &[V3Record]) -> std::io::Result<()> {
+pub fn write_jsonl<W: Write>(writer: &mut W, records: &[V3Record]) -> Result<()> {
     for record in records {
         let line = serde_json::to_string(record).map_err(std::io::Error::other)?;
         writer.write_all(line.as_bytes())?;
@@ -477,12 +481,32 @@ pub fn write_jsonl<W: Write>(writer: &mut W, records: &[V3Record]) -> std::io::R
 }
 
 /// Write `records` as JSONL to `path`, creating parent directories as needed.
-pub fn write_jsonl_to_path(path: &std::path::Path, records: &[V3Record]) -> std::io::Result<()> {
+pub fn write_jsonl_to_path(path: &Path, records: &[V3Record]) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let mut file = std::fs::File::create(path)?;
     write_jsonl(&mut file, records)
+}
+
+pub fn read_jsonl_from_path(path: &Path) -> Result<Vec<V3Record>> {
+    let file = std::fs::File::open(path)?;
+    let reader = std::io::BufReader::new(file);
+    let mut records = Vec::new();
+    for (i, line) in reader.lines().enumerate() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let record: V3Record = serde_json::from_str(&line).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("{}:{}: {e}", path.display(), i + 1),
+            )
+        })?;
+        records.push(record);
+    }
+    Ok(records)
 }
 
 fn duration_as_ns(d: std::time::Duration) -> u64 {
