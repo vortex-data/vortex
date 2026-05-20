@@ -238,6 +238,7 @@ pub unsafe extern "C-unwind" fn vx_data_source_scan(
                     scan.partition_count().map(|x| match x {
                         Precision::Exact(v) => Precision::Exact(v as u64),
                         Precision::Inexact(v) => Precision::Inexact(v as u64),
+                        Precision::Absent => Precision::Absent,
                     }),
                     unsafe { &mut *estimate },
                 );

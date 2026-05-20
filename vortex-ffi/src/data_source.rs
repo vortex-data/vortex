@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
+use vortex::expr::stats::Precision::Absent;
 use vortex::expr::stats::Precision::Exact;
 use vortex::expr::stats::Precision::Inexact;
 use vortex::file::multi::MultiFileDataSource;
@@ -124,7 +125,7 @@ pub unsafe extern "C-unwind" fn vx_data_source_get_row_count(
             rc.r#type = vx_estimate_type::VX_ESTIMATE_INEXACT;
             rc.estimate = rows;
         }
-        None => {
+        Some(Absent) | None => {
             rc.r#type = vx_estimate_type::VX_ESTIMATE_UNKNOWN;
         }
     }
