@@ -56,22 +56,31 @@ fi
 # documented mv-rollback without the deploy timer trying to re-fetch
 # origin and run a fresh build on top of the half-rolled-back DB.
 migration_succeeded=0
+# The sudoers fragment install.sh writes lists each unit on its own
+# Cmnd line, and sudoers requires argv match exactly. Multi-unit
+# `systemctl stop A B C D` would NOT be authorized by per-unit
+# entries — it must be split into N single-unit invocations. Same on
+# the success-restore path. Drop the `|| true` so a real sudo failure
+# surfaces in the journal instead of silently no-op'ing the
+# autopilot pause (the exact failure mode cycles 1-4 chased).
 log "stopping autopilot services (deploy + backup) + timers for migration window"
-sudo /bin/systemctl stop \
-    vortex-bench-deploy.service vortex-bench-deploy.timer \
-    vortex-bench-backup.service vortex-bench-backup.timer || true
+sudo /bin/systemctl stop vortex-bench-deploy.timer
+sudo /bin/systemctl stop vortex-bench-deploy.service
+sudo /bin/systemctl stop vortex-bench-backup.timer
+sudo /bin/systemctl stop vortex-bench-backup.service
 restore_autopilot() {
     if [ "$migration_succeeded" = "1" ]; then
         log "restoring autopilot timers (deploy + backup)"
-        sudo /bin/systemctl start \
-            vortex-bench-deploy.timer vortex-bench-backup.timer || true
+        sudo /bin/systemctl start vortex-bench-deploy.timer
+        sudo /bin/systemctl start vortex-bench-backup.timer
     else
         log "migration did not complete — leaving autopilot timers stopped"
         log "  inspect with: systemctl status vortex-bench-server \\"
         log "    vortex-bench-deploy.service vortex-bench-deploy.timer \\"
         log "    vortex-bench-backup.service vortex-bench-backup.timer"
         log "  after rollback and verification, restart timers with:"
-        log "    sudo systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer"
+        log "    sudo systemctl start vortex-bench-deploy.timer"
+        log "    sudo systemctl start vortex-bench-backup.timer"
     fi
 }
 trap restore_autopilot EXIT
@@ -102,7 +111,8 @@ if ! cargo run --release --quiet -p vortex-bench-migrate -- "$@"; then
     echo "    [ -f \"${prev}.wal\" ] && mv \"${prev}.wal\" \"${VORTEX_BENCH_DB}.wal\" || true" >&2
     echo "  Then start the server and re-enable autopilot timers:" >&2
     echo "    sudo systemctl start vortex-bench-server" >&2
-    echo "    sudo systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer" >&2
+    echo "    sudo systemctl start vortex-bench-deploy.timer" >&2
+    echo "    sudo systemctl start vortex-bench-backup.timer" >&2
     exit 3
 fi
 popd >/dev/null

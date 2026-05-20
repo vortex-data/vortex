@@ -51,7 +51,10 @@ out-of-tree state — every script and unit lives in
 │    bench.prev-<ts>.duckdb       ← pre-migration backup, never pruned │
 │    bin/                                                              │
 │      vortex-bench-server        ← symlink → versioned binary         │
-│      vortex-bench-server.<ts>   ← versioned, last $KEEP_BINARIES (3) │
+│      vortex-bench-server.<ts>.<pid>                                  │
+│                                   ← versioned (PID suffix breaks   │
+│                                     same-second collisions), last  │
+│                                     $KEEP_BINARIES (3)             │
 │    snapshots/<ts>/              ← transient vortex-snapshot landing  │
 │    last-deployed-sha            ← stamp file for the deploy timer    │
 │    .deploy.lock                 ← flock guard                        │
@@ -221,7 +224,8 @@ sudo $EDITOR /etc/vortex-bench.env
 #    timer's first fire builds and installs one. Once the binary
 #    exists, vortex-bench-server starts automatically via the deploy
 #    timer's restart step.
-sudo systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer
+sudo systemctl start vortex-bench-deploy.timer
+sudo systemctl start vortex-bench-backup.timer
 
 # 5. Watch the first deploy build the binary and bring the server up
 #    (~60-90s for a cold cargo build, then /health responds).
@@ -293,7 +297,7 @@ cat /var/lib/vortex-bench/last-deployed-sha
 
 # Which versioned binary the symlink currently points at:
 readlink /var/lib/vortex-bench/bin/vortex-bench-server
-# → /var/lib/vortex-bench/bin/vortex-bench-server.<UTC ts of build>
+# → /var/lib/vortex-bench/bin/vortex-bench-server.<UTC ts of build>.<pid>
 
 # What the live process baked in at compile time:
 curl -fsS http://127.0.0.1:3000/health | jq '{build_sha, db_path, schema_version}'
@@ -325,7 +329,7 @@ Sample output:
 BEFORE:
   pid:        12345
   started:    Wed 2026-05-08 14:30:01 UTC
-  binary:     /var/lib/vortex-bench/bin/vortex-bench-server.20260508T143000Z
+  binary:     /var/lib/vortex-bench/bin/vortex-bench-server.20260508T143000Z.18342
   /health:    {"status":"ok",...,"build_sha":"abc123..."}
 
 running: sudo systemctl restart vortex-bench-server
@@ -333,7 +337,7 @@ running: sudo systemctl restart vortex-bench-server
 AFTER:
   pid:        12678        ← different pid proves it restarted
   started:    Wed 2026-05-08 14:35:42 UTC
-  binary:     /var/lib/vortex-bench/bin/vortex-bench-server.20260508T143000Z
+  binary:     /var/lib/vortex-bench/bin/vortex-bench-server.20260508T143000Z.18342
   /health:    {"status":"ok",...,"build_sha":"abc123..."}
 
 RESTART OK
@@ -419,7 +423,8 @@ mv /var/lib/vortex-bench/bench.prev-<ts>.duckdb /var/lib/vortex-bench/bench.duck
     mv /var/lib/vortex-bench/bench.prev-<ts>.duckdb.wal \
        /var/lib/vortex-bench/bench.duckdb.wal
 sudo systemctl start vortex-bench-server
-sudo systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer
+sudo systemctl start vortex-bench-deploy.timer
+sudo systemctl start vortex-bench-backup.timer
 ```
 
 ### "What's in the database right now?"
@@ -662,8 +667,13 @@ sudo systemctl start vortex-bench-backup.service
 journalctl -fu vortex-bench-backup.service
 ```
 
-If the script reports a 503 from `/api/admin/snapshot`, the server
-started without `ADMIN_BEARER_TOKEN`. Edit the env file, restart, retry.
+If the script reports `http_status=000` (connection refused) on the
+admin URL, the server started without `ADMIN_BEARER_TOKEN` — the admin
+listener never bound, so curl can't reach anything. Edit the env file,
+restart `vortex-bench-server`, retry. (A 503 from
+`require_admin_bearer` is a defensive belt-and-braces branch — in
+production the admin router is unmounted when the token is unset, so
+that branch is unreachable.)
 
 ### Migrating to a new EC2 host
 

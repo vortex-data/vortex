@@ -195,7 +195,8 @@ else
     sudo systemctl enable vortex-bench-backup.timer
     sudo systemctl enable vortex-bench-server.service
     log "after editing ${ENV_FILE}, run:"
-    log "  sudo systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer"
+    log "  sudo systemctl start vortex-bench-deploy.timer"
+    log "  sudo systemctl start vortex-bench-backup.timer"
     log "  (server starts automatically on the deploy timer's first fire)"
 fi
 
