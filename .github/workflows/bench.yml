@@ -63,7 +63,7 @@ jobs:
 
       - name: Install DuckDB
         run: |
-          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.2/duckdb_cli-linux-amd64.zip | funzip > duckdb
+          wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.5.3/duckdb_cli-linux-amd64.zip | funzip > duckdb
           chmod +x duckdb
           echo "$PWD" >> $GITHUB_PATH
 
