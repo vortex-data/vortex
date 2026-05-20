@@ -242,13 +242,7 @@ impl From<duckdb::Error> for RecordError {
 }
 
 fn apply_record(tx: &duckdb::Transaction<'_>, record: &Record) -> Result<bool, RecordError> {
-    match record {
-        Record::QueryMeasurement(r) => insert_query_measurement(tx, r),
-        Record::CompressionTime(r) => insert_compression_time(tx, r),
-        Record::CompressionSize(r) => insert_compression_size(tx, r),
-        Record::RandomAccessTime(r) => insert_random_access(tx, r),
-        Record::VectorSearchRun(r) => insert_vector_search(tx, r),
-    }
+    (crate::family::family_for_record(record).apply_record)(tx, record)
 }
 
 pub(crate) fn insert_query_measurement(

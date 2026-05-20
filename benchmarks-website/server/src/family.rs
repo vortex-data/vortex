@@ -79,12 +79,6 @@ pub struct Family {
     ///
     /// `pub(crate)` because [`RecordError`] is itself `pub(crate)` (it
     /// is intra-server error plumbing, not part of the public API).
-    ///
-    /// `#[allow(dead_code)]` is the Phase-1 stub allowance: this field
-    /// is wired by [`apply_record`] adapters below but not yet read by
-    /// any caller. Phase 2 routes [`crate::ingest::apply_record`]
-    /// through this dispatch, at which point the allow can be removed.
-    #[allow(dead_code)]
     pub(crate) apply_record: fn(&Transaction<'_>, &Record) -> Result<bool, RecordError>,
 
     /// Collect this family's chart payload for the supplied [`ChartKey`].

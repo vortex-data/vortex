@@ -21,23 +21,18 @@ use crate::slug::GroupKey;
 
 /// Collect every group + chart link derivable from the data. Used by both
 /// `GET /api/groups` and the HTML landing page.
+///
+/// Iterates the per-fact-table [`crate::family::FAMILIES`] registry rather
+/// than spelling out the five `collect_*_group(s)` calls inline — adding a
+/// sixth fact table only requires one new const in `family.rs`.
 pub(crate) fn collect_groups(conn: &Connection) -> Result<Vec<Group>> {
     let mut groups: Vec<Group> = Vec::new();
 
-    let qm_groups = collect_query_groups(conn).context("collect_query_groups")?;
-    groups.extend(qm_groups);
-
-    if let Some(g) = collect_compression_time_group(conn)? {
-        groups.push(g);
+    for family in crate::family::FAMILIES {
+        let family_groups = (family.collect_groups)(conn)
+            .with_context(|| format!("collect_groups for {}", family.table_name))?;
+        groups.extend(family_groups);
     }
-    if let Some(g) = collect_compression_size_group(conn)? {
-        groups.push(g);
-    }
-    if let Some(g) = collect_random_access_group(conn)? {
-        groups.push(g);
-    }
-    let vsr_groups = collect_vector_search_groups(conn)?;
-    groups.extend(vsr_groups);
 
     for group in &mut groups {
         let key = GroupKey::from_slug(&group.slug)

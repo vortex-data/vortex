@@ -41,37 +41,7 @@ pub(crate) fn chart_payload(
     key: &ChartKey,
     window: &CommitWindow,
 ) -> Result<Option<ChartResponse>> {
-    match key {
-        ChartKey::QueryMeasurement {
-            dataset,
-            dataset_variant,
-            scale_factor,
-            storage,
-            query_idx,
-        } => collect_query_chart(
-            conn,
-            dataset,
-            dataset_variant,
-            scale_factor,
-            storage,
-            *query_idx,
-            window,
-        ),
-        ChartKey::CompressionTime {
-            dataset,
-            dataset_variant,
-        } => collect_compression_time_chart(conn, dataset, dataset_variant, window),
-        ChartKey::CompressionSize {
-            dataset,
-            dataset_variant,
-        } => collect_compression_size_chart(conn, dataset, dataset_variant, window),
-        ChartKey::RandomAccess { dataset } => collect_random_access_chart(conn, dataset, window),
-        ChartKey::VectorSearch {
-            dataset,
-            layout,
-            threshold,
-        } => collect_vector_search_chart(conn, dataset, layout, *threshold, window),
-    }
+    (crate::family::family_for_chart_key(key).collect_chart_for_key)(conn, key, window)
 }
 
 /// Collect every chart inside one group. Returns `None` if the group has no
