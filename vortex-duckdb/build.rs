@@ -14,6 +14,7 @@ use std::process::Command;
 use std::process::exit;
 
 use bindgen::Abi;
+use bindgen::callbacks::ParseCallbacks;
 
 const DUCKDB_RELEASES_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
 const DUCKDB_SOURCE_RELEASE_URL: &str = "https://github.com/duckdb/duckdb/archive/refs/tags";
@@ -44,6 +45,26 @@ const SOURCE_FILES: [&str; 17] = [
 
 const DOWNLOAD_MAX_RETRIES: i32 = 3;
 const DOWNLOAD_TIMEOUT: u64 = 90;
+
+#[derive(Debug)]
+struct BindgenCargoCallbacks;
+
+impl ParseCallbacks for BindgenCargoCallbacks {
+    fn read_env_var(&self, key: &str) {
+        println!("cargo:rerun-if-env-changed={key}");
+    }
+
+    fn header_file(&self, filename: &str) {
+        println!("cargo:rerun-if-changed={filename}");
+    }
+
+    fn include_file(&self, _filename: &str) {
+        // We do not want to let bindgen add DuckDB headers from OUT_DIR to Cargo's fingerprint.
+        // Those files are extracted during this build script, so their mtimes are newer than
+        // Cargo's build-script output timestamp and would force one extra
+        // rebuild after a clean build.
+    }
+}
 
 #[derive(Debug, Clone)]
 enum DuckDBVersion {
@@ -306,9 +327,7 @@ fn c2rust(crate_dir: &Path, duckdb_include_dir: &Path) {
         .clang_arg(format!("-I{}", duckdb_include_dir.display()))
         .clang_arg(format!("-I{}", crate_dir.join("cpp/include").display()))
         .generate_comments(true)
-        // Tell cargo to invalidate the built crate whenever any of the
-        // included header files changed.
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
+        .parse_callbacks(Box::new(BindgenCargoCallbacks))
         .generate();
 
     let bindings = match bindings {
@@ -339,7 +358,6 @@ fn cpp(duckdb_include_dir: &Path) {
         .include("cpp/include")
         .files(SOURCE_FILES)
         .compile("vortex-duckdb-extras");
-    // bindgen generates rerun-if-changed for .h/.hpp files
     for e in SOURCE_FILES {
         println!("cargo:rerun-if-changed={e}");
     }
@@ -450,6 +468,7 @@ fn main() {
     };
 
     let duckdb_include_dir = inner_dir.join("src").join("include");
+    println!("cargo:rerun-if-changed=cpp/include");
     c2rust(&crate_dir, &duckdb_include_dir);
     cpp(&duckdb_include_dir);
     rust2c(&crate_dir);
