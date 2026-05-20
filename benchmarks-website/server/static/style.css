@@ -109,6 +109,14 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.02em;
 }
 
+/* Code blocks use Geist Mono, mirroring v2's `code, pre` rule. The
+ * fallback stack matches what the explicit-mono usages further down
+ * declare so a CDN-blocked client still gets a monospace font. */
+code, pre {
+  font-family: "Geist Mono", ui-monospace, "SFMono-Regular", Menlo,
+    Consolas, monospace;
+}
+
 body {
   padding-top: var(--header-height);
 }
@@ -148,6 +156,11 @@ a:hover { text-decoration: underline; }
 }
 
 .header-content {
+  /* Sticky-header inner background. v2 maps this to `--bg-secondary`,
+   * the elevated grey in dark mode (`#121219`); v3's `--bg` resolves
+   * to the same colour. Using `--code-bg` here flattened the header
+   * against the page in dark mode. */
+  background: var(--bg);
   position: relative;
   display: flex;
   align-items: center;
@@ -156,7 +169,6 @@ a:hover { text-decoration: underline; }
   width: 100%;
   height: 100%;
   padding: 0 2rem;
-  background: var(--code-bg);
 }
 
 .header-left,
@@ -235,7 +247,7 @@ a:hover { text-decoration: underline; }
   display: none;
   margin: 0 0 0 1.5rem;
   color: var(--fg);
-  font-size: 1.25rem;
+  font-size: 1.5rem;
   font-weight: 500;
   line-height: 1.2;
   white-space: nowrap;
@@ -370,7 +382,11 @@ main {
   list-style: none;
   cursor: pointer;
   display: block;
-  background: var(--code-bg);
+  /* Elevated surface — v2's `.benchmark-header` uses `--bg-secondary`
+   * (`#121219` in dark mode); `--card-bg` is the v3 alias for that
+   * elevated colour. Using `--code-bg` here flattened the disclosure
+   * bar against the page in dark mode. */
+  background: var(--card-bg);
   border-radius: 12px 12px 0 0;
   user-select: none;
 }
@@ -399,10 +415,14 @@ main {
 }
 .group-summary:hover .group-summary-row { background: var(--bg); }
 .group-name {
+  /* `.group-name` is a `<span>` in `landing.rs`, so it doesn't inherit
+   * from the `h1, h2, ..., h6` rule. v2's `.benchmark-title` applies
+   * Funnel Display explicitly; mirror that here. */
+  font-family: "Funnel Display", sans-serif;
   font-weight: 600;
   font-size: 1.35rem;
   line-height: 1.2;
-  letter-spacing: 0;
+  letter-spacing: -0.02em;
 }
 .group-count {
   color: var(--muted);
@@ -486,12 +506,18 @@ main {
 }
 .group-details > .chart-grid {
   padding: 1.25rem;
-  background: var(--bg);
+  /* Page-level surface behind the chart cards. v2's `.benchmark-graphs`
+   * uses `--bg-color` (`#050507` in dark mode); `--page-bg` is the v3
+   * alias for the page colour. Using `--bg` here made the grid behind
+   * cards appear lighter than the body, inverting v2's elevation. */
+  background: var(--page-bg);
 }
 
 .benchmark-scores-summary {
   border-bottom: 1px solid var(--border);
-  background: var(--code-bg);
+  /* Elevated surface, same role as v2's `.benchmark-scores-summary`
+   * which uses `--bg-secondary`. */
+  background: var(--card-bg);
   padding: 0.75rem 2rem;
   margin: 0;
 }
