@@ -51,6 +51,24 @@ def build_binary(release: bool) -> Path:
     return REPO_ROOT / "target" / target / BIN
 
 
+def download(url: str, dest: Path) -> None:
+    """Stream `url` to `dest` (atomically via a .part file). Uses curl/wget if
+    available, else urllib — so it works without extra deps."""
+    import shutil
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + ".part")
+    print(f"==> downloading {url}\n        -> {dest}", file=sys.stderr)
+    if shutil.which("curl"):
+        subprocess.run(["curl", "-L", "--fail", "-o", str(tmp), url], check=True)
+    elif shutil.which("wget"):
+        subprocess.run(["wget", "-O", str(tmp), url], check=True)
+    else:
+        import urllib.request
+        with urllib.request.urlopen(url) as r, open(tmp, "wb") as f:
+            shutil.copyfileobj(r, f)
+    tmp.rename(dest)
+
+
 def ensure_parquet(binary: Path, col: Column) -> Path:
     path = col.parquet_path()
     if path.exists():
@@ -67,9 +85,12 @@ def ensure_parquet(binary: Path, col: Column) -> Path:
             check=True,
         )
         return path
+    if col.kind == "parquet" and col.url:
+        download(col.url, col.cache_path())
+        return col.cache_path()
     raise FileNotFoundError(
         f"parquet for {col.dataset_id}/{col.column} not found at {path} "
-        f"and no generator wired up for kind={col.kind!r}"
+        f"and no download url configured"
     )
 
 
