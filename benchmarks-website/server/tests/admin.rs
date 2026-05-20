@@ -461,7 +461,7 @@ async fn admin_snapshot_creates_export_directory() -> Result<()> {
         .context("snapshot_dir field")?;
     let dir_path = std::path::PathBuf::from(dir);
     assert!(dir_path.exists(), "{dir} should exist");
-    // schema.sql is written verbatim from SCHEMA_DDL.
+    // schema.sql is the assembled COMMITS_DDL + per-family DDL concatenation.
     assert!(
         dir_path.join("schema.sql").exists(),
         "{dir}/schema.sql should exist"

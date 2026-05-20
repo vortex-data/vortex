@@ -49,7 +49,7 @@
 //! | [`auth`]      | Bearer-token middleware for `/api/ingest`.                                                  |
 //! | [`admin`]     | `/api/admin/*` handlers + admin-bearer middleware. See `ops/README.md` for the operator flow. |
 //! | [`db`]        | [`db::DbHandle`] task-local connection cloning + the per-fact-table `measurement_id_*` hash functions. |
-//! | [`schema`]    | DuckDB DDL ([`schema::SCHEMA_DDL`]) and the wire schema version.                            |
+//! | [`schema`]    | DuckDB DDL ([`schema::COMMITS_DDL`] + per-family DDL constants) and the wire schema version.|
 //! | [`records`]   | Wire shapes for `POST /api/ingest`.                                                         |
 //! | [`family`]    | Per-fact-table [`family::Family`] registry tying together table name, slug prefixes, `measurement_id_*`, `apply_record`, and the read-API collectors. |
 //! | [`ingest`]    | `POST /api/ingest` handler, cache invalidation, and read-model rebuild scheduling.          |

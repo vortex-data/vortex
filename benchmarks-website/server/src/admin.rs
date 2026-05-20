@@ -15,7 +15,8 @@
 //! ### `POST /api/admin/snapshot?ts=<id>`
 //!
 //! Writes a snapshot directory `<snapshot_dir>/<ts>/` containing:
-//! - `schema.sql` — verbatim copy of [`crate::schema::SCHEMA_DDL`], so a
+//! - `schema.sql` — concatenated DDL ([`crate::schema::COMMITS_DDL`] plus
+//!   every [`crate::family::FAMILIES`] entry's `schema_ddl`), so a
 //!   restore knows how to recreate the tables before bulk-loading.
 //! - `<table>.vortex` for every table in [`crate::schema::TABLES`] —
 //!   each produced by a `COPY (SELECT * FROM <table>) TO …
@@ -71,6 +72,7 @@ use thiserror::Error;
 
 use crate::app::AppState;
 use crate::db;
+use crate::family;
 use crate::schema;
 
 const ADMIN_SQL_ROW_LIMIT: usize = 10_000;
@@ -301,8 +303,15 @@ fn tmp_snapshot_dir(target: &Path, ts: &str) -> PathBuf {
 async fn write_snapshot(state: &AppState, target: &Path) -> Result<()> {
     // Schema is just our DDL string verbatim; restore reads this with
     // `duckdb -init schema.sql` (or `.read schema.sql`) before
-    // bulk-loading the per-table vortex files.
-    std::fs::write(target.join("schema.sql"), schema::SCHEMA_DDL)
+    // bulk-loading the per-table vortex files. The DDL is assembled
+    // from the commits dim + every fact-table family in the same order
+    // `db::open()` applies them.
+    let mut schema_sql = String::with_capacity(8 * 1024);
+    schema_sql.push_str(schema::COMMITS_DDL);
+    for fam in family::FAMILIES {
+        schema_sql.push_str(fam.schema_ddl);
+    }
+    std::fs::write(target.join("schema.sql"), schema_sql)
         .with_context(|| format!("writing schema.sql under {}", target.display()))?;
 
     let target_for_db = target.to_path_buf();

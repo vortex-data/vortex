@@ -91,7 +91,12 @@
 //!
 //! There is no migration framework. If you change the schema:
 //!
-//! 1. Update [`SCHEMA_DDL`] and the matching [`crate::records`] struct.
+//! 1. Update the per-family DDL constant ([`COMMITS_DDL`] for the dim,
+//!    [`QUERY_MEASUREMENTS_DDL`] / [`COMPRESSION_TIMES_DDL`] /
+//!    [`COMPRESSION_SIZES_DDL`] / [`RANDOM_ACCESS_TIMES_DDL`] /
+//!    [`VECTOR_SEARCH_RUNS_DDL`] for the facts), the matching
+//!    [`crate::records`] struct, and the [`crate::family::Family`] entry
+//!    that ties them together.
 //! 2. Update or delete any local `bench.duckdb` (the migrator's
 //!    `open_target_db` already deletes-and-recreates).
 //! 3. Bump [`SCHEMA_VERSION`] if the wire envelope's
@@ -99,8 +104,10 @@
 //!
 //! A real forward-only migration framework is post-cutover work.
 
-/// DDL for the `commits` dim plus the five fact tables.
-pub const SCHEMA_DDL: &str = r#"
+/// DDL for the `commits` dim table. The five fact-table DDLs live with
+/// their respective [`crate::family::Family`] declarations; [`crate::db::open`]
+/// applies this constant first, then iterates [`crate::family::FAMILIES`].
+pub const COMMITS_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS commits (
     commit_sha       TEXT        PRIMARY KEY NOT NULL,
     timestamp        TIMESTAMPTZ NOT NULL,
@@ -112,7 +119,11 @@ CREATE TABLE IF NOT EXISTS commits (
     tree_sha         TEXT        NOT NULL,
     url              TEXT        NOT NULL
 );
+"#;
 
+/// DDL for the `query_measurements` fact table. Wired into
+/// [`crate::family::QUERY_MEASUREMENTS::schema_ddl`].
+pub const QUERY_MEASUREMENTS_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS query_measurements (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
     commit_sha       TEXT        NOT NULL,
@@ -131,7 +142,11 @@ CREATE TABLE IF NOT EXISTS query_measurements (
     virtual_delta    BIGINT,
     env_triple       TEXT
 );
+"#;
 
+/// DDL for the `compression_times` fact table. Wired into
+/// [`crate::family::COMPRESSION_TIMES::schema_ddl`].
+pub const COMPRESSION_TIMES_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS compression_times (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
     commit_sha       TEXT        NOT NULL,
@@ -143,7 +158,11 @@ CREATE TABLE IF NOT EXISTS compression_times (
     all_runtimes_ns  BIGINT[]    NOT NULL,
     env_triple       TEXT
 );
+"#;
 
+/// DDL for the `compression_sizes` fact table. Wired into
+/// [`crate::family::COMPRESSION_SIZES::schema_ddl`].
+pub const COMPRESSION_SIZES_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS compression_sizes (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
     commit_sha       TEXT        NOT NULL,
@@ -152,7 +171,11 @@ CREATE TABLE IF NOT EXISTS compression_sizes (
     format           TEXT        NOT NULL,
     value_bytes      BIGINT      NOT NULL
 );
+"#;
 
+/// DDL for the `random_access_times` fact table. Wired into
+/// [`crate::family::RANDOM_ACCESS_TIMES::schema_ddl`].
+pub const RANDOM_ACCESS_TIMES_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS random_access_times (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
     commit_sha       TEXT        NOT NULL,
@@ -162,7 +185,11 @@ CREATE TABLE IF NOT EXISTS random_access_times (
     all_runtimes_ns  BIGINT[]    NOT NULL,
     env_triple       TEXT
 );
+"#;
 
+/// DDL for the `vector_search_runs` fact table. Wired into
+/// [`crate::family::VECTOR_SEARCH_RUNS::schema_ddl`].
+pub const VECTOR_SEARCH_RUNS_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS vector_search_runs (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
     commit_sha       TEXT        NOT NULL,

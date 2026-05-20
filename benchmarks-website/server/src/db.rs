@@ -27,12 +27,13 @@ use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::Semaphore;
 use twox_hash::XxHash64;
 
+use crate::family;
 use crate::records::CompressionSize;
 use crate::records::CompressionTime;
 use crate::records::QueryMeasurement;
 use crate::records::RandomAccessTime;
 use crate::records::VectorSearchRun;
-use crate::schema::SCHEMA_DDL;
+use crate::schema::COMMITS_DDL;
 
 const READ_CONCURRENCY_LIMIT: usize = 4;
 
@@ -72,8 +73,12 @@ pub fn open<P: AsRef<Path>>(path: P, extension_dir: &Path) -> Result<DbHandle> {
     let conn = Connection::open(path.as_ref())
         .with_context(|| format!("opening DuckDB at {}", path.as_ref().display()))?;
     apply_extension_directory(&conn, extension_dir)?;
-    conn.execute_batch(SCHEMA_DDL)
-        .context("applying schema DDL")?;
+    conn.execute_batch(COMMITS_DDL)
+        .context("applying commits dim DDL")?;
+    for fam in family::FAMILIES {
+        conn.execute_batch(fam.schema_ddl)
+            .with_context(|| format!("applying {} DDL", fam.table_name))?;
+    }
     Ok(DbHandle::new(conn))
 }
 

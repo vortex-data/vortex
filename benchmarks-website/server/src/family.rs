@@ -65,6 +65,14 @@ pub struct Family {
     /// Slug prefix for groups of this family's charts (e.g. `qmg`).
     pub group_slug_prefix: &'static str,
 
+    /// `CREATE TABLE IF NOT EXISTS <table_name> (...)` for this family.
+    /// [`crate::db::open`] runs the [`crate::schema::COMMITS_DDL`] dim
+    /// table first, then iterates [`FAMILIES`] and applies this DDL for
+    /// every family. Adding a sixth fact table means one new const DDL
+    /// in [`crate::schema`] plus pointing this field at it; no new edit
+    /// in `db::open()`.
+    pub schema_ddl: &'static str,
+
     /// Compute the deterministic `measurement_id` for a record of this
     /// family. The caller is responsible for ensuring `record` is this
     /// family's variant (see [`family_for_record`]); calling with a
@@ -160,6 +168,7 @@ pub const QUERY_MEASUREMENTS: Family = Family {
     table_name: "query_measurements",
     chart_slug_prefix: "qm",
     group_slug_prefix: "qmg",
+    schema_ddl: crate::schema::QUERY_MEASUREMENTS_DDL,
     measurement_id: query_measurement_id,
     apply_record: query_apply_record,
     collect_chart_for_key: query_collect_chart,
@@ -172,6 +181,7 @@ pub const COMPRESSION_TIMES: Family = Family {
     table_name: "compression_times",
     chart_slug_prefix: "ct",
     group_slug_prefix: "ctg",
+    schema_ddl: crate::schema::COMPRESSION_TIMES_DDL,
     measurement_id: compression_time_measurement_id,
     apply_record: compression_time_apply_record,
     collect_chart_for_key: compression_time_collect_chart,
@@ -184,6 +194,7 @@ pub const COMPRESSION_SIZES: Family = Family {
     table_name: "compression_sizes",
     chart_slug_prefix: "cs",
     group_slug_prefix: "csg",
+    schema_ddl: crate::schema::COMPRESSION_SIZES_DDL,
     measurement_id: compression_size_measurement_id,
     apply_record: compression_size_apply_record,
     collect_chart_for_key: compression_size_collect_chart,
@@ -196,6 +207,7 @@ pub const RANDOM_ACCESS_TIMES: Family = Family {
     table_name: "random_access_times",
     chart_slug_prefix: "rat",
     group_slug_prefix: "rag",
+    schema_ddl: crate::schema::RANDOM_ACCESS_TIMES_DDL,
     measurement_id: random_access_measurement_id,
     apply_record: random_access_apply_record,
     collect_chart_for_key: random_access_collect_chart,
@@ -208,6 +220,7 @@ pub const VECTOR_SEARCH_RUNS: Family = Family {
     table_name: "vector_search_runs",
     chart_slug_prefix: "vsr",
     group_slug_prefix: "vsg",
+    schema_ddl: crate::schema::VECTOR_SEARCH_RUNS_DDL,
     measurement_id: vector_search_measurement_id,
     apply_record: vector_search_apply_record,
     collect_chart_for_key: vector_search_collect_chart,
@@ -469,6 +482,46 @@ mod tests {
             sorted.len(),
             group_prefixes.len(),
             "group prefixes distinct"
+        );
+    }
+
+    /// Per-fact-table `measurement_id` hashes carry the family's
+    /// `table_name` as a per-domain seed (see `crate::db::hasher_for`),
+    /// so two families sharing the same `commit_sha + dataset + format`
+    /// dim tuple still produce distinct row keys. This regression test
+    /// builds a [`crate::records::CompressionTime`] and a
+    /// [`crate::records::CompressionSize`] over the same overlapping
+    /// dim subset and asserts the hashes are non-zero and distinct.
+    #[test]
+    fn measurement_id_per_family_seed_keeps_overlapping_dims_distinct() {
+        use crate::records::CompressionSize;
+        use crate::records::CompressionTime;
+
+        let ct = Record::CompressionTime(CompressionTime {
+            commit_sha: "0000000000000000000000000000000000000000".into(),
+            dataset: "shared".into(),
+            dataset_variant: None,
+            format: "vortex".into(),
+            op: "encode".into(),
+            value_ns: 0,
+            all_runtimes_ns: vec![],
+            env_triple: None,
+        });
+        let cs = Record::CompressionSize(CompressionSize {
+            commit_sha: "0000000000000000000000000000000000000000".into(),
+            dataset: "shared".into(),
+            dataset_variant: None,
+            format: "vortex".into(),
+            value_bytes: 0,
+        });
+        let ct_id = (COMPRESSION_TIMES.measurement_id)(&ct);
+        let cs_id = (COMPRESSION_SIZES.measurement_id)(&cs);
+        assert_ne!(ct_id, 0, "compression_times hash must not be zero");
+        assert_ne!(cs_id, 0, "compression_sizes hash must not be zero");
+        assert_ne!(
+            ct_id, cs_id,
+            "per-family table_name seed must keep overlapping-dim hashes distinct \
+             across families"
         );
     }
 }
