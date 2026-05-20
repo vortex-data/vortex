@@ -6,12 +6,6 @@ package dev.vortex.spark.read;
 import dev.vortex.api.Expression;
 import dev.vortex.api.Expression.BinaryOp;
 import dev.vortex.api.Expression.TimeUnit;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
 import org.apache.spark.sql.connector.expressions.Literal;
 import org.apache.spark.sql.connector.expressions.NamedReference;
 import org.apache.spark.sql.connector.expressions.filter.AlwaysFalse;
@@ -33,9 +27,19 @@ import org.apache.spark.sql.types.IntegerType;
 import org.apache.spark.sql.types.LongType;
 import org.apache.spark.sql.types.ShortType;
 import org.apache.spark.sql.types.StringType;
+import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.StructType;
 import org.apache.spark.sql.types.TimestampNTZType;
 import org.apache.spark.sql.types.TimestampType;
 import org.apache.spark.unsafe.types.UTF8String;
+
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * Translates {@link Predicate Spark V2 predicates} into Vortex {@link Expression}s for predicate pushdown.
@@ -46,27 +50,59 @@ import org.apache.spark.unsafe.types.UTF8String;
  */
 final class SparkPredicateToVortexExpression {
 
-    private SparkPredicateToVortexExpression() {}
+    private SparkPredicateToVortexExpression() {
+    }
 
     /**
-     * Returns true if the given Spark predicate can be translated to a Vortex expression and references only the
-     * supplied {@code dataColumns}.
+     * Returns true if the given Spark predicate can be translated to a Vortex expression and every named reference
+     * resolves to a real field path under {@code dataColumnTypes}.
+     *
+     * <p>{@code dataColumnTypes} maps each pushable top-level column name to its top-level Spark {@link DataType};
+     * partition columns and columns the scan does not project should not appear in the map. For nested references
+     * (for example {@code info.email}) the validator walks the named reference part by part, descending into
+     * {@link StructType} fields so that {@code info} must be a struct that contains an {@code email} field.
      *
      * <p>This is the cheap check used in {@code SupportsPushDownV2Filters.pushPredicates} to decide which predicates
      * Spark can drop. It does not allocate any native expressions; if it returns true, {@link #convert(Predicate)} must
      * succeed (otherwise callers would silently drop predicates).
      */
-    static boolean isPushable(Predicate predicate, Set<String> dataColumns) {
+    static boolean isPushable(Predicate predicate, Map<String, DataType> dataColumnTypes) {
         for (NamedReference ref : predicate.references()) {
-            String[] parts = ref.fieldNames();
-            if (parts.length == 0) {
-                return false;
-            }
-            if (!dataColumns.contains(parts[0])) {
+            if (!resolveFieldPath(ref.fieldNames(), dataColumnTypes)) {
                 return false;
             }
         }
         return isStructurallyPushable(predicate);
+    }
+
+    /**
+     * Walks {@code parts} against {@code dataColumnTypes}, descending through {@link StructType} fields for
+     * dot-separated nested references. Returns true only when every part resolves to an actual field in the
+     * schema.
+     */
+    private static boolean resolveFieldPath(String[] parts, Map<String, DataType> dataColumnTypes) {
+        if (parts.length == 0) {
+            return false;
+        }
+        DataType current = dataColumnTypes.get(parts[0]);
+        if (current == null) {
+            return false;
+        }
+        for (int i = 1; i < parts.length; i++) {
+            if (!(current instanceof StructType struct)) {
+                return false;
+            }
+            Optional<StructField> field = findField(struct, parts[i]);
+            if (field.isEmpty()) {
+                return false;
+            }
+            current = field.get().dataType();
+        }
+        return true;
+    }
+
+    private static Optional<StructField> findField(StructType struct, String name) {
+        return Arrays.stream(struct.fields()).filter(structField -> structField.name().equals(name)).findFirst();
     }
 
     private static boolean isStructurallyPushable(Predicate predicate) {
@@ -99,7 +135,7 @@ final class SparkPredicateToVortexExpression {
                 yield true;
             }
             case "STARTS_WITH", "ENDS_WITH", "CONTAINS" ->
-                children.length == 2 && isPushableFieldRef(children[0]) && isPushableStringLiteral(children[1]);
+                    children.length == 2 && isPushableFieldRef(children[0]) && isPushableStringLiteral(children[1]);
             // `BOOLEAN_EXPRESSION` wraps a bare boolean-valued child. We only handle the case
             // where the child itself is a field reference (e.g. `WHERE bool_col`).
             case "BOOLEAN_EXPRESSION" -> children.length == 1 && isPushableFieldRef(children[0]);
@@ -142,12 +178,12 @@ final class SparkPredicateToVortexExpression {
             case "=", "<>", "!=", ">", ">=", "<", "<=" -> convertComparison(predicate.name(), children);
             case "IS_NULL" -> children.length == 1 ? columnOf(children[0]).map(Expression::isNull) : Optional.empty();
             case "IS_NOT_NULL" ->
-                children.length == 1 ? columnOf(children[0]).map(Expression::isNotNull) : Optional.empty();
+                    children.length == 1 ? columnOf(children[0]).map(Expression::isNotNull) : Optional.empty();
             case "IN" -> convertIn(children);
             case "STARTS_WITH" ->
-                convertStringMatch(children, /* leadingWildcard= */ false, /* trailingWildcard= */ true);
+                    convertStringMatch(children, /* leadingWildcard= */ false, /* trailingWildcard= */ true);
             case "ENDS_WITH" ->
-                convertStringMatch(children, /* leadingWildcard= */ true, /* trailingWildcard= */ false);
+                    convertStringMatch(children, /* leadingWildcard= */ true, /* trailingWildcard= */ false);
             case "CONTAINS" -> convertStringMatch(children, /* leadingWildcard= */ true, /* trailingWildcard= */ true);
             case "BOOLEAN_EXPRESSION" -> children.length == 1 ? columnOf(children[0]) : Optional.empty();
             default -> Optional.empty();
@@ -291,7 +327,9 @@ final class SparkPredicateToVortexExpression {
         return expr instanceof NamedReference;
     }
 
-    /** Returns the Vortex column expression for a Spark named reference, walking nested struct fields. */
+    /**
+     * Returns the Vortex column expression for a Spark named reference, walking nested struct fields.
+     */
     private static Optional<Expression> columnOf(org.apache.spark.sql.connector.expressions.Expression expr) {
         if (!(expr instanceof NamedReference)) {
             return Optional.empty();
@@ -463,7 +501,9 @@ final class SparkPredicateToVortexExpression {
         return Optional.empty();
     }
 
-    /** Extract the unscaled integer value of a Spark decimal literal at the supplied {@code scale}. */
+    /**
+     * Extract the unscaled integer value of a Spark decimal literal at the supplied {@code scale}.
+     */
     private static BigInteger unscaledValueOf(Object value, int scale) {
         BigDecimal decimal;
         if (value instanceof Decimal) {

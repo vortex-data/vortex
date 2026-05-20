@@ -10,10 +10,12 @@ import com.google.common.collect.Maps;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.apache.spark.sql.connector.catalog.CatalogV2Util;
 import org.apache.spark.sql.connector.catalog.Column;
 import org.apache.spark.sql.connector.expressions.NamedReference;
 import org.apache.spark.sql.connector.expressions.Transform;
@@ -22,7 +24,7 @@ import org.apache.spark.sql.connector.read.Scan;
 import org.apache.spark.sql.connector.read.ScanBuilder;
 import org.apache.spark.sql.connector.read.SupportsPushDownRequiredColumns;
 import org.apache.spark.sql.connector.read.SupportsPushDownV2Filters;
-import org.apache.spark.sql.types.StructField;
+import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.StructType;
 
 /** Spark V2 {@link ScanBuilder} for table scans over Vortex files. */
@@ -127,11 +129,8 @@ public final class VortexScanBuilder
      */
     @Override
     public void pruneColumns(StructType requiredSchema) {
-        // TODO(aduffy): support deeply nested schema prunes
         columns.clear();
-        for (StructField field : requiredSchema.fields()) {
-            columns.add(Column.create(field.name(), field.dataType()));
-        }
+        columns.addAll(Arrays.asList(CatalogV2Util.structTypeToV2Columns(requiredSchema)));
     }
 
     /**
@@ -145,16 +144,16 @@ public final class VortexScanBuilder
      */
     @Override
     public Predicate[] pushPredicates(Predicate[] predicates) {
-        Set<String> dataColumns = new HashSet<>();
+        Map<String, DataType> dataColumnTypes = new HashMap<>();
         for (Column column : columns) {
             if (!partitionColumnNames.contains(column.name())) {
-                dataColumns.add(column.name());
+                dataColumnTypes.put(column.name(), column.dataType());
             }
         }
         List<Predicate> pushed = new ArrayList<>();
         List<Predicate> postScan = new ArrayList<>();
         for (Predicate predicate : predicates) {
-            if (SparkPredicateToVortexExpression.isPushable(predicate, dataColumns)) {
+            if (SparkPredicateToVortexExpression.isPushable(predicate, dataColumnTypes)) {
                 pushed.add(predicate);
             } else {
                 postScan.add(predicate);
