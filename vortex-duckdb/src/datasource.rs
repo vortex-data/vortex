@@ -230,16 +230,16 @@ pub struct ColumnStatisticsAggregate {
 impl ColumnStatisticsAggregate {
     pub fn new(stats: &StatsSet) -> Self {
         let min = match stats.get(Stat::Min) {
-            Some(Precision::Exact(min)) => Some(min),
+            Precision::Exact(min) => Some(min),
             _ => None,
         };
         let max = match stats.get(Stat::Max) {
-            Some(Precision::Exact(max)) => Some(max),
+            Precision::Exact(max) => Some(max),
             _ => None,
         };
 
         let max_string_length =
-            if let Some(Precision::Exact(value)) = stats.get(Stat::UncompressedSizeInBytes) {
+            if let Precision::Exact(value) = stats.get(Stat::UncompressedSizeInBytes) {
                 // DuckDB's string length is u32
                 #[allow(clippy::cast_possible_truncation)]
                 Some(value.as_primitive().as_u64().vortex_expect("not a u64") as u32)
@@ -248,9 +248,7 @@ impl ColumnStatisticsAggregate {
             };
 
         let has_null = match stats.get(Stat::NullCount) {
-            Some(Precision::Exact(cnt)) => {
-                cnt.as_primitive().as_u64().vortex_expect("not a u64") > 0
-            }
+            Precision::Exact(cnt) => cnt.as_primitive().as_u64().vortex_expect("not a u64") > 0,
             _ => true,
         };
 

@@ -1193,15 +1193,15 @@ mod scheme_selection_tests {
         assert!(compressed.is::<BitPacked>());
         assert_eq!(
             compressed.statistics().get_as::<u64>(Stat::NullCount),
-            Some(Precision::exact(0u64))
+            Precision::exact(0u64)
         );
         assert_eq!(
             compressed.statistics().get_as::<u32>(Stat::Min),
-            Some(Precision::exact(0u32))
+            Precision::exact(0u32)
         );
         assert_eq!(
             compressed.statistics().get_as::<u32>(Stat::Max),
-            Some(Precision::exact(15u32))
+            Precision::exact(15u32)
         );
         Ok(())
     }

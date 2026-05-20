@@ -273,7 +273,7 @@ mod tests {
 
             assert_eq!(
                 result.statistics().get_as::<bool>(Stat::IsSorted),
-                Some(Precision::Exact(true))
+                Precision::Exact(true)
             );
         })
     }
@@ -325,16 +325,16 @@ mod tests {
             assert_eq!(
                 result.statistics().get_as::<String>(Stat::Min),
                 // The typo is correct, we need this to be truncated.
-                Some(Precision::Inexact(
+                Precision::Inexact(
                     // spellchecker:ignore-next-line
                     "Another string that's meant to be smaller than the previous valu".to_string()
-                ))
+                )
             );
             assert_eq!(
                 result.statistics().get_as::<String>(Stat::Max),
-                Some(Precision::Inexact(
+                Precision::Inexact(
                     "Long value to test that the statistics are actually truncated, j".to_string()
-                ))
+                )
             );
         })
     }
