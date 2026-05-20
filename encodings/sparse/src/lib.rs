@@ -65,9 +65,11 @@ mod canonical;
 mod compute;
 mod kernel;
 mod ops;
+mod plugin;
 mod rules;
 mod slice;
 
+pub use plugin::SparsePatchedPlugin;
 use vortex_array::aggregate_fn::AggregateFnVTable as _;
 use vortex_array::aggregate_fn::fns::is_constant::IsConstant;
 use vortex_array::aggregate_fn::fns::min_max::MinMax;

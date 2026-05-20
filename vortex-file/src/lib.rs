@@ -117,6 +117,7 @@ use vortex_bytebool::ByteBool;
 use vortex_fsst::FSST;
 use vortex_pco::Pco;
 use vortex_session::VortexSession;
+use vortex_sparse::SparsePatchedPlugin;
 use vortex_zigzag::ZigZag;
 pub use writer::*;
 
@@ -182,6 +183,13 @@ pub fn register_default_encodings(session: &VortexSession) {
     vortex_runend::initialize(session);
     vortex_sequence::initialize(session);
     vortex_sparse::initialize(session);
+
+    if use_experimental_patches() {
+        // Override Sparse registration with a plugin that decodes primitive Sparse arrays
+        // as a Patched array over a constant fill. Must run after `vortex_sparse::initialize`
+        // so it takes priority for the same encoding id.
+        session.arrays().register(SparsePatchedPlugin);
+    }
 
     #[cfg(feature = "unstable_encodings")]
     vortex_tensor::initialize(session);
