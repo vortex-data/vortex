@@ -38,7 +38,7 @@
 //! Body: `{ "sql": "SELECT ..." }`. Query: `?format=json|table` (default
 //! `json`). Only `SELECT`, `WITH`, `PRAGMA`, `SHOW`, `DESCRIBE`, and
 //! `EXPLAIN` statements are allowed — anything else is rejected with 403.
-//! Results are capped at [`ADMIN_SQL_ROW_LIMIT`] rows; responses past
+//! Results are capped at `ADMIN_SQL_ROW_LIMIT` rows; responses past
 //! that cap include `"truncated": true`. The handler runs each query on
 //! its own cloned connection inside a `BEGIN TRANSACTION READ ONLY`
 //! wrapper, so concurrent ingest writes proceed without contention.

@@ -39,7 +39,7 @@ impl CommitWindow {
     /// Parse the `?n=...` query string parameter. `None` and malformed values
     /// fall back to [`CommitWindow::default`]. `"all"` (any case) means
     /// unbounded. Numeric values are floored to `1` so `?n=0` becomes
-    /// `?n=1`, and values above [`MAX_NUMERIC_COMMIT_WINDOW`] are clamped.
+    /// `?n=1`, and values above `MAX_NUMERIC_COMMIT_WINDOW` are clamped.
     /// Any further reduction in rendered point count happens client-side
     /// (see `static/chart-init.js` for the LTTB pass on the visible
     /// commit range).

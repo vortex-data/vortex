@@ -121,8 +121,8 @@ CREATE TABLE IF NOT EXISTS commits (
 );
 "#;
 
-/// DDL for the `query_measurements` fact table. Wired into
-/// [`crate::family::QUERY_MEASUREMENTS::schema_ddl`].
+/// DDL for the `query_measurements` fact table. Wired into the
+/// `schema_ddl` field of [`crate::family::QUERY_MEASUREMENTS`].
 pub const QUERY_MEASUREMENTS_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS query_measurements (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
@@ -144,8 +144,8 @@ CREATE TABLE IF NOT EXISTS query_measurements (
 );
 "#;
 
-/// DDL for the `compression_times` fact table. Wired into
-/// [`crate::family::COMPRESSION_TIMES::schema_ddl`].
+/// DDL for the `compression_times` fact table. Wired into the
+/// `schema_ddl` field of [`crate::family::COMPRESSION_TIMES`].
 pub const COMPRESSION_TIMES_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS compression_times (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
@@ -160,8 +160,8 @@ CREATE TABLE IF NOT EXISTS compression_times (
 );
 "#;
 
-/// DDL for the `compression_sizes` fact table. Wired into
-/// [`crate::family::COMPRESSION_SIZES::schema_ddl`].
+/// DDL for the `compression_sizes` fact table. Wired into the
+/// `schema_ddl` field of [`crate::family::COMPRESSION_SIZES`].
 pub const COMPRESSION_SIZES_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS compression_sizes (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
@@ -173,8 +173,8 @@ CREATE TABLE IF NOT EXISTS compression_sizes (
 );
 "#;
 
-/// DDL for the `random_access_times` fact table. Wired into
-/// [`crate::family::RANDOM_ACCESS_TIMES::schema_ddl`].
+/// DDL for the `random_access_times` fact table. Wired into the
+/// `schema_ddl` field of [`crate::family::RANDOM_ACCESS_TIMES`].
 pub const RANDOM_ACCESS_TIMES_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS random_access_times (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,
@@ -187,8 +187,8 @@ CREATE TABLE IF NOT EXISTS random_access_times (
 );
 "#;
 
-/// DDL for the `vector_search_runs` fact table. Wired into
-/// [`crate::family::VECTOR_SEARCH_RUNS::schema_ddl`].
+/// DDL for the `vector_search_runs` fact table. Wired into the
+/// `schema_ddl` field of [`crate::family::VECTOR_SEARCH_RUNS`].
 pub const VECTOR_SEARCH_RUNS_DDL: &str = r#"
 CREATE TABLE IF NOT EXISTS vector_search_runs (
     measurement_id   BIGINT      PRIMARY KEY NOT NULL,

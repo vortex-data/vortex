@@ -20,11 +20,11 @@
 //! # Phase 1 status
 //!
 //! This module currently coexists with the per-family free functions in
-//! [`crate::api::charts`], [`crate::api::groups`], [`crate::db`], and
-//! [`crate::ingest`]; each [`Family`]'s function-pointer fields point at
-//! those free functions. Phase 2 of the refactor migrates call sites
+//! [`mod@crate::api::charts`], [`mod@crate::api::groups`], [`crate::db`],
+//! and [`crate::ingest`]; each [`Family`]'s function-pointer fields point
+//! at those free functions. Phase 2 of the refactor migrates call sites
 //! (`apply_record` in [`crate::ingest`], `chart_payload` in
-//! [`crate::api::charts`], `collect_groups` and `collect_health` in
+//! [`mod@crate::api::charts`], `collect_groups` and `collect_health` in
 //! [`crate::api`]) to dispatch via this registry. Phase 3 moves the free-
 //! function bodies into the family wrappers and deletes the originals.
 
