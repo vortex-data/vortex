@@ -18,6 +18,7 @@ use bindgen::Abi;
 const DUCKDB_RELEASES_URL: &str = "https://github.com/duckdb/duckdb/releases/download";
 const DUCKDB_SOURCE_RELEASE_URL: &str = "https://github.com/duckdb/duckdb/archive/refs/tags";
 const DUCKDB_SOURCE_COMMIT_URL: &str = "https://github.com/duckdb/duckdb/archive";
+const DEFAULT_DUCKDB_VERSION: &str = "1.5.3";
 
 const BUILD_ARTIFACTS: [&str; 3] = ["libduckdb.dylib", "libduckdb.so", "libduckdb_static.a"];
 
@@ -384,7 +385,7 @@ fn main() {
     // e.g. reordering fields in C++ structs.
     let version = env::var("DUCKDB_VERSION")
         // You can also change this version to a commit hash
-        .unwrap_or_else(|_| "1.5.2".to_owned());
+        .unwrap_or_else(|_| DEFAULT_DUCKDB_VERSION.to_owned());
     let version = DuckDBVersion::from(&version);
     match &version {
         DuckDBVersion::Release(v) => println!("cargo:info=Using DuckDB release version: {v}"),
