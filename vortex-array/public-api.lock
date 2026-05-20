@@ -13082,7 +13082,7 @@ impl<T: core::marker::Copy> core::marker::Copy for vortex_array::expr::stats::Pr
 
 impl<T> core::default::Default for vortex_array::expr::stats::Precision<T>
 
-pub fn vortex_array::expr::stats::Precision<T>::default() -> Self
+pub fn vortex_array::expr::stats::Precision<T>::default() -> vortex_array::expr::stats::Precision<T>
 
 impl<T> core::marker::StructuralPartialEq for vortex_array::expr::stats::Precision<T>
 
