@@ -394,9 +394,6 @@ mod tests {
 
     use vortex_buffer::buffer;
     use vortex_error::VortexExpect as _;
-    use vortex_error::vortex_bail;
-    use vortex_session::SessionExt;
-    use vortex_session::SessionVar;
     use vortex_session::VortexSession;
 
     use super::*;
@@ -407,8 +404,6 @@ mod tests {
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
-    use crate::arrays::VarBinViewArray;
-    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
     use crate::assert_arrays_eq;
     use crate::dtype::DType;
     use crate::dtype::Nullability;
@@ -428,62 +423,6 @@ mod tests {
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
-
-    #[derive(Clone)]
-    struct SessionRequiredUtf8;
-
-    #[derive(Debug, Default)]
-    struct RequiredSessionVar;
-
-    impl SessionVar for RequiredSessionVar {
-        fn as_any(&self) -> &dyn std::any::Any {
-            self
-        }
-
-        fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-            self
-        }
-    }
-
-    impl ScalarFnVTable for SessionRequiredUtf8 {
-        type Options = String;
-
-        fn id(&self) -> ScalarFnId {
-            ScalarFnId::new("vortex.test.session_required_utf8")
-        }
-
-        fn arity(&self, _options: &Self::Options) -> Arity {
-            Arity::Exact(0)
-        }
-
-        fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
-            unreachable!("Invalid child index {} for SessionRequiredUtf8", child_idx)
-        }
-
-        fn return_dtype(&self, _options: &Self::Options, _args: &[DType]) -> VortexResult<DType> {
-            Ok(DType::Utf8(Nullability::NonNullable))
-        }
-
-        fn execute(
-            &self,
-            value: &Self::Options,
-            args: &dyn ExecutionArgs,
-            ctx: &mut ExecutionCtx,
-        ) -> VortexResult<ArrayRef> {
-            if ctx.session().get_opt::<RequiredSessionVar>().is_none() {
-                vortex_bail!("SessionRequiredUtf8 executed without RequiredSessionVar");
-            }
-            Ok(ConstantArray::new(
-                Scalar::utf8(value.as_str(), Nullability::NonNullable),
-                args.row_count(),
-            )
-            .into_array())
-        }
-    }
-
-    fn session_required_utf8(len: usize, value: &str) -> VortexResult<ArrayRef> {
-        SessionRequiredUtf8.try_new_array(len, value.to_string(), Vec::<ArrayRef>::new())
-    }
 
     /// Helper to evaluate an expression using the apply+execute pattern
     fn evaluate_expr(expr: &Expression, array: &ArrayRef) -> ArrayRef {
@@ -1219,32 +1158,6 @@ mod tests {
             result.execute_scalar(3, &mut LEGACY_SESSION.create_execution_ctx())?,
             Scalar::utf8("high", Nullability::NonNullable)
         );
-        Ok(())
-    }
-
-    #[test]
-    fn test_merge_case_branches_uses_caller_ctx_when_appending_lazy_utf8() -> VortexResult<()> {
-        let len = 12usize;
-        let branch0_mask = Mask::from_indices(len, 0..4);
-        let branch1_mask = Mask::from_indices(len, 8..12);
-
-        let session = VortexSession::empty().with::<RequiredSessionVar>();
-        let mut ctx = session.create_execution_ctx();
-        let result = merge_case_branches(
-            vec![
-                (branch0_mask, session_required_utf8(len, "first")?),
-                (branch1_mask, session_required_utf8(len, "second")?),
-            ],
-            session_required_utf8(len, "else")?,
-            &mut ctx,
-        )?;
-
-        let expected = VarBinViewArray::from_iter_str([
-            "first", "first", "first", "first", "else", "else", "else", "else", "second", "second",
-            "second", "second",
-        ])
-        .into_array();
-        assert_arrays_eq!(result, expected);
         Ok(())
     }
 

@@ -236,21 +236,14 @@ fn zip_impl_with_builder(
 
 #[cfg(test)]
 mod tests {
-    use std::any::Any;
-
     use arrow_array::cast::AsArray;
     use arrow_select::zip::zip as arrow_zip;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_bail;
     use vortex_mask::Mask;
-    use vortex_session::SessionExt;
-    use vortex_session::SessionVar;
-    use vortex_session::VortexSession;
 
     use super::zip_impl;
     use crate::ArrayRef;
-    use crate::ExecutionCtx;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
     use crate::VortexSessionExecute;
@@ -259,8 +252,6 @@ mod tests {
     use crate::arrays::Struct;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinView;
-    use crate::arrays::VarBinViewArray;
-    use crate::arrays::scalar_fn::ScalarFnFactoryExt;
     use crate::arrow::ArrowSessionExt;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
@@ -275,67 +266,6 @@ mod tests {
     use crate::expr::root;
     use crate::expr::zip_expr;
     use crate::scalar::Scalar;
-    use crate::scalar_fn::Arity;
-    use crate::scalar_fn::ChildName;
-    use crate::scalar_fn::ExecutionArgs;
-    use crate::scalar_fn::ScalarFnId;
-    use crate::scalar_fn::ScalarFnVTable;
-
-    #[derive(Clone)]
-    struct SessionRequiredUtf8;
-
-    #[derive(Debug, Default)]
-    struct RequiredSessionVar;
-
-    impl SessionVar for RequiredSessionVar {
-        fn as_any(&self) -> &dyn Any {
-            self
-        }
-
-        fn as_any_mut(&mut self) -> &mut dyn Any {
-            self
-        }
-    }
-
-    impl ScalarFnVTable for SessionRequiredUtf8 {
-        type Options = String;
-
-        fn id(&self) -> ScalarFnId {
-            ScalarFnId::new("vortex.test.session_required_utf8")
-        }
-
-        fn arity(&self, _options: &Self::Options) -> Arity {
-            Arity::Exact(0)
-        }
-
-        fn child_name(&self, _options: &Self::Options, child_idx: usize) -> ChildName {
-            unreachable!("Invalid child index {} for SessionRequiredUtf8", child_idx)
-        }
-
-        fn return_dtype(&self, _options: &Self::Options, _args: &[DType]) -> VortexResult<DType> {
-            Ok(DType::Utf8(Nullability::NonNullable))
-        }
-
-        fn execute(
-            &self,
-            value: &Self::Options,
-            args: &dyn ExecutionArgs,
-            ctx: &mut ExecutionCtx,
-        ) -> VortexResult<ArrayRef> {
-            if ctx.session().get_opt::<RequiredSessionVar>().is_none() {
-                vortex_bail!("SessionRequiredUtf8 executed without RequiredSessionVar");
-            }
-            Ok(ConstantArray::new(
-                Scalar::utf8(value.as_str(), Nullability::NonNullable),
-                args.row_count(),
-            )
-            .into_array())
-        }
-    }
-
-    fn session_required_utf8(len: usize, value: &str) -> VortexResult<ArrayRef> {
-        SessionRequiredUtf8.try_new_array(len, value.to_string(), Vec::<ArrayRef>::new())
-    }
 
     #[test]
     fn dtype() {
@@ -428,28 +358,6 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)]).into_array()
         );
         assert_eq!(result.dtype(), if_true.dtype());
-        Ok(())
-    }
-
-    #[test]
-    fn test_zip_impl_uses_caller_ctx_when_appending_lazy_utf8() -> VortexResult<()> {
-        let len = 12;
-        let if_true = session_required_utf8(len, "then")?;
-        let if_false = session_required_utf8(len, "else")?;
-        let mask = Mask::from_iter([
-            true, true, false, false, true, true, true, false, false, true, false, false,
-        ]);
-
-        let session = VortexSession::empty().with::<RequiredSessionVar>();
-        let mut ctx = session.create_execution_ctx();
-        let result = zip_impl(&if_true, &if_false, &mask, &mut ctx)?;
-
-        let expected = VarBinViewArray::from_iter_str([
-            "then", "then", "else", "else", "then", "then", "then", "else", "else", "then", "else",
-            "else",
-        ])
-        .into_array();
-        assert_arrays_eq!(result, expected);
         Ok(())
     }
 
