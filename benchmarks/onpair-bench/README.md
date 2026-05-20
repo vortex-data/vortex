@@ -30,6 +30,14 @@ python benchmarks/onpair-bench/run.py --dev      # faster build, slower run
 python benchmarks/onpair-bench/run.py --sample-bytes 50000000 --chunk-mb 1,10  # quick smoke
 ```
 
+The orchestrator is also a `uv` project:
+
+```bash
+cd benchmarks/onpair-bench
+uv run python run.py --sample-bytes 50000000 --chunk-mb 1,10
+uv run python run.py --clean                    # delete generated .vortex output + summaries
+```
+
 Defaults: `bits = {12, 16}`, `chunk = {1, 10, 100} MB` (uncompressed budget,
 split on equal-ish row boundaries), `threshold = 0.5`, `sample = 1 GB` of raw
 string payload, `file-target = 200 MB`.
@@ -53,6 +61,8 @@ compressed bytes:
 value-dictionary may beat OnPair's token dictionary.
 
 Source parquet is cached under `vortex-bench/data/onpair-bench-src/`.
+`--clean` removes `vortex-bench/data/onpair-bench/` but leaves source parquet
+caches intact.
 
 ## Adding datasets / columns
 
