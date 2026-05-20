@@ -255,7 +255,28 @@ def main() -> int:
     p.add_argument("--file-target-mb", type=float, default=200.0)
     p.add_argument("--jobs", type=int, default=4, help="columns to run concurrently")
     p.add_argument("--dev", action="store_true", help="dev build instead of release")
+    p.add_argument("--datasets", type=lambda s: {x.strip() for x in s.split(",")},
+                   default=None,
+                   help="only these dataset ids (comma-separated), e.g. tpch-sf10,fineweb")
+    p.add_argument("--columns", type=lambda s: {x.strip() for x in s.split(",")},
+                   default=None,
+                   help="only these column names (comma-separated), e.g. l_comment,text")
+    p.add_argument("--list", action="store_true",
+                   help="list available dataset/column pairs and exit")
     args = p.parse_args()
+
+    if args.list:
+        for c in COLUMNS:
+            print(f"{c.dataset_id}\t{c.column}")
+        return 0
+
+    # Restrict to the requested datasets / columns (both filters are AND-ed).
+    columns = [c for c in COLUMNS
+               if (args.datasets is None or c.dataset_id in args.datasets)
+               and (args.columns is None or c.column in args.columns)]
+    if not columns:
+        print("no columns match the given --datasets/--columns filters", file=sys.stderr)
+        return 1
 
     binary = build_binary(release=not args.dev)
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -265,7 +286,7 @@ def main() -> int:
     # columns never race on generation, then keep only columns that are present
     # and string-typed.
     selected: list[Column] = []
-    for col in COLUMNS:
+    for col in columns:
         try:
             parquet = ensure_parquet(binary, col)
         except FileNotFoundError as e:
@@ -280,7 +301,7 @@ def main() -> int:
         else:
             print(f"-- skip {col.dataset_id}/{col.column} (missing or non-string)",
                   file=sys.stderr)
-    print(f"==> {len(selected)}/{len(COLUMNS)} columns selected", file=sys.stderr)
+    print(f"==> {len(selected)}/{len(columns)} columns selected", file=sys.stderr)
 
     if args.jobs > 1:
         with ThreadPoolExecutor(max_workers=args.jobs) as pool:
