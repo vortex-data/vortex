@@ -54,7 +54,7 @@ pub(crate) fn collect_groups(conn: &Connection) -> Result<Vec<Group>> {
     Ok(groups)
 }
 
-fn collect_query_groups(conn: &Connection) -> Result<Vec<Group>> {
+pub(crate) fn collect_query_groups(conn: &Connection) -> Result<Vec<Group>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT dataset, dataset_variant, scale_factor, storage, query_idx
@@ -175,7 +175,7 @@ fn group_name_query(
     name
 }
 
-fn collect_compression_time_group(conn: &Connection) -> Result<Option<Group>> {
+pub(crate) fn collect_compression_time_group(conn: &Connection) -> Result<Option<Group>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT dataset, dataset_variant
@@ -221,7 +221,7 @@ fn collect_compression_time_group(conn: &Connection) -> Result<Option<Group>> {
     }
 }
 
-fn collect_compression_size_group(conn: &Connection) -> Result<Option<Group>> {
+pub(crate) fn collect_compression_size_group(conn: &Connection) -> Result<Option<Group>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT dataset, dataset_variant
@@ -267,7 +267,7 @@ fn collect_compression_size_group(conn: &Connection) -> Result<Option<Group>> {
     }
 }
 
-fn collect_random_access_group(conn: &Connection) -> Result<Option<Group>> {
+pub(crate) fn collect_random_access_group(conn: &Connection) -> Result<Option<Group>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT DISTINCT dataset
@@ -297,7 +297,7 @@ fn collect_random_access_group(conn: &Connection) -> Result<Option<Group>> {
     }
 }
 
-fn collect_vector_search_groups(conn: &Connection) -> Result<Vec<Group>> {
+pub(crate) fn collect_vector_search_groups(conn: &Connection) -> Result<Vec<Group>> {
     let mut stmt = conn.prepare(
         r#"
         SELECT dataset, layout, threshold

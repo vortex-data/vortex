@@ -316,7 +316,7 @@ fn push_window_limit(binds: &mut Vec<Box<dyn ToSql>>, window: &CommitWindow) {
     }
 }
 
-fn collect_query_chart(
+pub(crate) fn collect_query_chart(
     conn: &Connection,
     dataset: &str,
     dataset_variant: &Option<String>,
@@ -408,7 +408,7 @@ fn collect_query_chart(
     Ok(Some(acc.finish(name, UnitKind::TimeNs, history)))
 }
 
-fn collect_compression_time_chart(
+pub(crate) fn collect_compression_time_chart(
     conn: &Connection,
     dataset: &str,
     dataset_variant: &Option<String>,
@@ -477,7 +477,7 @@ fn collect_compression_time_chart(
     Ok(Some(acc.finish(name, UnitKind::TimeNs, history)))
 }
 
-fn collect_compression_size_chart(
+pub(crate) fn collect_compression_size_chart(
     conn: &Connection,
     dataset: &str,
     dataset_variant: &Option<String>,
@@ -544,7 +544,7 @@ fn collect_compression_size_chart(
     Ok(Some(acc.finish(name, UnitKind::Bytes, history)))
 }
 
-fn collect_random_access_chart(
+pub(crate) fn collect_random_access_chart(
     conn: &Connection,
     dataset: &str,
     window: &CommitWindow,
@@ -601,7 +601,7 @@ fn collect_random_access_chart(
     )))
 }
 
-fn collect_vector_search_chart(
+pub(crate) fn collect_vector_search_chart(
     conn: &Connection,
     dataset: &str,
     layout: &str,

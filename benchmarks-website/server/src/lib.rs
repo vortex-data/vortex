@@ -51,6 +51,7 @@
 //! | [`db`]        | [`db::DbHandle`] task-local connection cloning + the per-fact-table `measurement_id_*` hash functions. |
 //! | [`schema`]    | DuckDB DDL ([`schema::SCHEMA_DDL`]) and the wire schema version.                            |
 //! | [`records`]   | Wire shapes for `POST /api/ingest`.                                                         |
+//! | [`family`]    | Per-fact-table [`family::Family`] registry tying together table name, slug prefixes, `measurement_id_*`, `apply_record`, and the read-API collectors. |
 //! | [`ingest`]    | `POST /api/ingest` handler, cache invalidation, and read-model rebuild scheduling.          |
 //! | [`error`]     | [`error::IngestError`] and [`error::ApiError`] with their HTTP-status mapping.              |
 //! | [`slug`]      | [`slug::ChartKey`] / [`slug::GroupKey`] enums + base64url round-trip.                       |
@@ -83,6 +84,7 @@ pub mod app;
 pub mod auth;
 pub mod db;
 pub mod error;
+pub mod family;
 pub mod html;
 pub mod ingest;
 pub mod query_cache;
