@@ -129,8 +129,13 @@ filter_paths=(
 
 if [ -z "$last_sha" ] || ! git cat-file -e "${last_sha}^{commit}" 2>/dev/null; then
     # First run, or stamp points at a commit we no longer have. Treat
-    # as "must rebuild" so we don't silently skip a real change.
+    # as "must rebuild" so we don't silently skip a real change. Clear
+    # last_sha in the vanished-commit branch too so the hash-equal
+    # restart-skip fast path below sees an empty last_sha and forces a
+    # full restart + /health verify (the prior stamp commit being gone
+    # means we can't trust whatever the symlink currently points at).
     log "first run / unknown stamp '${last_sha:-<empty>}'; full rebuild"
+    last_sha=""
     relevant_changed=1
 else
     if git diff --name-only "${last_sha}" "${new_sha}" -- "${filter_paths[@]}" | grep -q .; then

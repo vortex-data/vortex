@@ -67,7 +67,9 @@ restore_autopilot() {
             vortex-bench-deploy.timer vortex-bench-backup.timer || true
     else
         log "migration did not complete — leaving autopilot timers stopped"
-        log "  inspect with: systemctl status vortex-bench-server vortex-bench-deploy.timer vortex-bench-backup.timer"
+        log "  inspect with: systemctl status vortex-bench-server \\"
+        log "    vortex-bench-deploy.service vortex-bench-deploy.timer \\"
+        log "    vortex-bench-backup.service vortex-bench-backup.timer"
         log "  after rollback and verification, restart timers with:"
         log "    sudo systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer"
     fi

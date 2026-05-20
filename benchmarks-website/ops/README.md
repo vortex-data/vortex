@@ -404,12 +404,22 @@ The script stops the server, snapshots the current DB to
 runs the migrator, and starts the server back up. Total downtime is
 roughly one rebuild cycle.
 
-If the migrate fails partway, the script leaves the server stopped and
-prints the rollback command. To roll back manually:
+`migrate.sh` also stops `vortex-bench-deploy.{service,timer}` and
+`vortex-bench-backup.{service,timer}` on entry so the autopilot can't
+race against the migrator's exclusive DB access. On success the timers
+restart automatically; on **failure** they intentionally stay stopped
+(the script's stderr instructions print the exact rollback sequence).
+
+If the migrate fails partway, the script leaves the server stopped AND
+the autopilot timers stopped. To roll back manually:
 
 ```bash
 mv /var/lib/vortex-bench/bench.prev-<ts>.duckdb /var/lib/vortex-bench/bench.duckdb
+[ -f /var/lib/vortex-bench/bench.prev-<ts>.duckdb.wal ] && \
+    mv /var/lib/vortex-bench/bench.prev-<ts>.duckdb.wal \
+       /var/lib/vortex-bench/bench.duckdb.wal
 sudo systemctl start vortex-bench-server
+sudo systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer
 ```
 
 ### "What's in the database right now?"

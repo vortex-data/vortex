@@ -77,13 +77,43 @@ sudo install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" \
     "$LOG_DIR"
 
 # --- 2. Sudoers fragment ---
-# Let RUN_USER restart/start/stop only vortex-bench-server, no password.
-# The script that uses this is ops/deploy.sh (atomic restart after build).
+# Let RUN_USER restart/start/stop/status the v3 systemd units without a
+# password. Scope is intentionally tight: only the four units the
+# autopilot owns, only the four verbs ops/migrate.sh and ops/deploy.sh
+# call. The other v3 admin operations (editing /etc/vortex-bench.env,
+# moving /var/lib/vortex-bench files) still require a full sudo session
+# the operator can audit.
 log "writing sudoers fragment to ${SUDOERS_FILE}"
 sudo tee "$SUDOERS_FILE" >/dev/null <<EOF
 # Auto-deploy + manual migration helpers run as ${RUN_USER}; only the
-# systemctl call into the server unit needs root.
-${RUN_USER} ALL=(root) NOPASSWD: /bin/systemctl restart vortex-bench-server, /bin/systemctl start vortex-bench-server, /bin/systemctl stop vortex-bench-server, /bin/systemctl status vortex-bench-server, /usr/bin/systemctl restart vortex-bench-server, /usr/bin/systemctl start vortex-bench-server, /usr/bin/systemctl stop vortex-bench-server, /usr/bin/systemctl status vortex-bench-server
+# systemctl calls into the v3 units need root. Both /bin/ and /usr/bin/
+# are listed because Amazon Linux 2023 ships systemctl at /usr/bin while
+# Debian-style hosts keep the /bin compatibility symlink.
+${RUN_USER} ALL=(root) NOPASSWD: \\
+    /bin/systemctl restart vortex-bench-server, \\
+    /bin/systemctl start vortex-bench-server, \\
+    /bin/systemctl stop vortex-bench-server, \\
+    /bin/systemctl status vortex-bench-server, \\
+    /usr/bin/systemctl restart vortex-bench-server, \\
+    /usr/bin/systemctl start vortex-bench-server, \\
+    /usr/bin/systemctl stop vortex-bench-server, \\
+    /usr/bin/systemctl status vortex-bench-server, \\
+    /bin/systemctl start vortex-bench-deploy.service, \\
+    /bin/systemctl start vortex-bench-deploy.timer, \\
+    /bin/systemctl stop vortex-bench-deploy.service, \\
+    /bin/systemctl stop vortex-bench-deploy.timer, \\
+    /usr/bin/systemctl start vortex-bench-deploy.service, \\
+    /usr/bin/systemctl start vortex-bench-deploy.timer, \\
+    /usr/bin/systemctl stop vortex-bench-deploy.service, \\
+    /usr/bin/systemctl stop vortex-bench-deploy.timer, \\
+    /bin/systemctl start vortex-bench-backup.service, \\
+    /bin/systemctl start vortex-bench-backup.timer, \\
+    /bin/systemctl stop vortex-bench-backup.service, \\
+    /bin/systemctl stop vortex-bench-backup.timer, \\
+    /usr/bin/systemctl start vortex-bench-backup.service, \\
+    /usr/bin/systemctl start vortex-bench-backup.timer, \\
+    /usr/bin/systemctl stop vortex-bench-backup.service, \\
+    /usr/bin/systemctl stop vortex-bench-backup.timer
 EOF
 sudo chmod 0440 "$SUDOERS_FILE"
 sudo visudo -cf "$SUDOERS_FILE" >/dev/null
@@ -149,19 +179,24 @@ tokens_set=$(
 )
 
 if [ "$tokens_set" = "yes" ]; then
-    log "tokens present in ${ENV_FILE} — enabling + starting timers and server"
+    log "tokens present in ${ENV_FILE} — enabling + starting deploy/backup timers"
+    # NB: we do NOT start vortex-bench-server.service here. The binary
+    # at /var/lib/vortex-bench/bin/vortex-bench-server does not exist
+    # until the deploy timer's first fire builds and installs one; the
+    # server then comes up automatically when deploy.sh runs `systemctl
+    # restart vortex-bench-server` after the symlink swap. Starting
+    # the server unit before that would just produce a noisy failure.
     sudo systemctl enable --now vortex-bench-deploy.timer
     sudo systemctl enable --now vortex-bench-backup.timer
     sudo systemctl enable vortex-bench-server.service
-    sudo systemctl start vortex-bench-server.service || \
-        log "  server didn't start — likely no binary yet; deploy timer will handle it"
 else
-    log "tokens not set in ${ENV_FILE} — timers and server enabled but not started"
+    log "tokens not set in ${ENV_FILE} — timers enabled but not started"
     sudo systemctl enable vortex-bench-deploy.timer
     sudo systemctl enable vortex-bench-backup.timer
     sudo systemctl enable vortex-bench-server.service
     log "after editing ${ENV_FILE}, run:"
-    log "  sudo systemctl start vortex-bench-server vortex-bench-deploy.timer vortex-bench-backup.timer"
+    log "  sudo systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer"
+    log "  (server starts automatically on the deploy timer's first fire)"
 fi
 
 log ""
