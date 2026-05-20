@@ -242,15 +242,19 @@ fn test_take_execute_kernel_skips_bool_filter_child() -> VortexResult<()> {
     Ok(())
 }
 
-fn execute_large_primitive_full_take(filter_mask: Mask) -> VortexResult<Option<crate::ArrayRef>> {
+fn execute_primitive_take(
+    filter_mask: Mask,
+    take_len: usize,
+) -> VortexResult<Option<crate::ArrayRef>> {
     let child_len = filter_mask.len();
+    let filtered_len = filter_mask.true_count();
     let child_len_u32 = u32::try_from(child_len)?;
     let filter = FilterArray::new(
         PrimitiveArray::from_iter(0..child_len_u32).into_array(),
         filter_mask,
     )
     .into_array();
-    let indices = PrimitiveArray::from_iter((0..filter.len()).map(|idx| idx as u64));
+    let indices = PrimitiveArray::from_iter((0..take_len).map(|idx| (idx % filtered_len) as u64));
     let parent = DictArray::try_new(indices.into_array(), filter.clone())?.into_array();
     let mut ctx = ExecutionCtx::new(VortexSession::empty());
 
@@ -260,22 +264,51 @@ fn execute_large_primitive_full_take(filter_mask: Mask) -> VortexResult<Option<c
 #[test]
 fn test_take_execute_kernel_materializes_large_full_take() -> VortexResult<()> {
     let filtered_len = super::BIG_TAKE_FALLBACK_LEN;
-    let result = execute_large_primitive_full_take(Mask::from_indices(
-        filtered_len * 2,
-        (0..filtered_len).map(|idx| idx * 2),
-    ))?;
+    let result = execute_primitive_take(
+        Mask::from_indices(filtered_len * 2, (0..filtered_len).map(|idx| idx * 2)),
+        filtered_len,
+    )?;
 
     assert!(result.is_none());
     Ok(())
 }
 
 #[test]
+fn test_take_execute_kernel_materializes_huge_fixed_width_fanout() -> VortexResult<()> {
+    let filtered_len = super::BIG_TAKE_FALLBACK_MIN_FIXED_WIDTH_TAKE_LEN
+        / super::BIG_TAKE_FALLBACK_MIN_FIXED_WIDTH_RATIO;
+    let result = execute_primitive_take(
+        Mask::from_indices(filtered_len * 2, (0..filtered_len).map(|idx| idx * 2)),
+        super::BIG_TAKE_FALLBACK_MIN_FIXED_WIDTH_TAKE_LEN,
+    )?;
+
+    assert!(result.is_none());
+    Ok(())
+}
+
+#[test]
+fn test_take_execute_kernel_keeps_moderate_fixed_width_fanout_fused() -> VortexResult<()> {
+    let filtered_len = super::BIG_TAKE_FALLBACK_MIN_FIXED_WIDTH_TAKE_LEN
+        / super::BIG_TAKE_FALLBACK_MIN_FIXED_WIDTH_RATIO;
+    let result = execute_primitive_take(
+        Mask::from_indices(filtered_len * 2, (0..filtered_len).map(|idx| idx * 2)),
+        filtered_len * (super::BIG_TAKE_FALLBACK_MIN_FIXED_WIDTH_RATIO - 1),
+    )?;
+
+    assert!(result.is_some());
+    Ok(())
+}
+
+#[test]
 fn test_take_execute_kernel_materializes_large_contiguous_full_take() -> VortexResult<()> {
     let filtered_len = super::BIG_TAKE_FALLBACK_LEN;
-    let result = execute_large_primitive_full_take(Mask::from_slices(
-        filtered_len * 2,
-        vec![(filtered_len / 2, filtered_len / 2 + filtered_len)],
-    ))?;
+    let result = execute_primitive_take(
+        Mask::from_slices(
+            filtered_len * 2,
+            vec![(filtered_len / 2, filtered_len / 2 + filtered_len)],
+        ),
+        filtered_len,
+    )?;
 
     assert!(result.is_none());
     Ok(())

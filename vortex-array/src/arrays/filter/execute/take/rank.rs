@@ -15,7 +15,7 @@ use crate::dtype::IntegerPType;
 use crate::match_each_integer_ptype;
 
 #[inline]
-pub(super) fn translate_indices(
+pub(in crate::arrays::filter) fn translate_indices(
     filter: &Mask,
     indices: &PrimitiveArray,
     indices_validity: Option<&BitBuffer>,
@@ -26,7 +26,7 @@ pub(super) fn translate_indices(
 }
 
 #[inline]
-pub(super) fn contiguous_sequential_take_range_indices(
+pub(in crate::arrays::filter) fn contiguous_sequential_take_range_indices(
     filter: &Mask,
     indices: &PrimitiveArray,
 ) -> VortexResult<Option<(usize, usize)>> {
@@ -36,7 +36,7 @@ pub(super) fn contiguous_sequential_take_range_indices(
 }
 
 #[inline]
-pub(super) fn sequential_take_len(
+pub(in crate::arrays::filter) fn sequential_take_len(
     indices: &PrimitiveArray,
     filtered_len: usize,
 ) -> VortexResult<Option<usize>> {
@@ -63,7 +63,7 @@ fn sequential_take_len_typed<P: IntegerPType>(
     Ok(Some(ranks.len()))
 }
 
-pub(super) fn translate_ranks<P: IntegerPType>(
+pub(in crate::arrays::filter) fn translate_ranks<P: IntegerPType>(
     filter: &Mask,
     ranks: &[P],
     ranks_validity: Option<&BitBuffer>,
@@ -124,7 +124,10 @@ where
 }
 
 #[inline]
-pub(super) fn validate_rank<P: IntegerPType>(rank: P, filtered_len: usize) -> VortexResult<usize> {
+pub(in crate::arrays::filter) fn validate_rank<P: IntegerPType>(
+    rank: P,
+    filtered_len: usize,
+) -> VortexResult<usize> {
     let rank: usize = rank.as_();
     if rank >= filtered_len {
         vortex_bail!(OutOfBounds: rank, 0, filtered_len);
@@ -133,7 +136,7 @@ pub(super) fn validate_rank<P: IntegerPType>(rank: P, filtered_len: usize) -> Vo
 }
 
 #[inline]
-pub(super) fn contiguous_sequential_take_range<P: IntegerPType>(
+pub(in crate::arrays::filter) fn contiguous_sequential_take_range<P: IntegerPType>(
     filter: &Mask,
     ranks: &[P],
 ) -> VortexResult<Option<(usize, usize)>> {
@@ -149,7 +152,7 @@ pub(super) fn contiguous_sequential_take_range<P: IntegerPType>(
 }
 
 #[inline]
-pub(super) fn contiguous_filter_start(filter: &Mask) -> Option<usize> {
+pub(in crate::arrays::filter) fn contiguous_filter_start(filter: &Mask) -> Option<usize> {
     let start = filter.first()?;
     let end = filter.last()?.checked_add(1)?;
     (end - start == filter.true_count()).then_some(start)

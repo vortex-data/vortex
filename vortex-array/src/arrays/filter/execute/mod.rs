@@ -37,6 +37,7 @@ mod listview;
 mod primitive;
 mod slice;
 mod struct_;
+pub mod take;
 mod varbinview;
 
 /// A helper function that lazily filters a [`Validity`] with selection mask values.

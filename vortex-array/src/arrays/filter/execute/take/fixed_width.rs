@@ -8,7 +8,6 @@ use vortex_error::VortexResult;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
-use super::Filter;
 use super::rank::contiguous_filter_start;
 use super::rank::contiguous_sequential_take_range;
 use super::rank::translate_ranks;
@@ -18,6 +17,7 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::DecimalArray;
+use crate::arrays::Filter;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::decimal::DecimalArrayExt;
 use crate::arrays::filter::FilterArrayExt;
@@ -29,7 +29,7 @@ use crate::match_each_native_ptype;
 use crate::validity::Validity;
 
 #[inline]
-pub(super) fn take_primitive(
+pub(in crate::arrays::filter) fn take_primitive(
     array: ArrayView<'_, Filter>,
     indices: &PrimitiveArray,
     ctx: &mut ExecutionCtx,
@@ -53,7 +53,7 @@ pub(super) fn take_primitive(
 }
 
 #[inline]
-pub(super) fn take_decimal(
+pub(in crate::arrays::filter) fn take_decimal(
     array: ArrayView<'_, Filter>,
     indices: &PrimitiveArray,
     ctx: &mut ExecutionCtx,

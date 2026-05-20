@@ -17,26 +17,23 @@ use self::fixed_width::take_primitive;
 use self::rank::contiguous_sequential_take_range_indices;
 use self::rank::sequential_take_len;
 use self::rank::translate_indices;
-use super::Filter;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::array::ArrayView;
 use crate::arrays::ConstantArray;
+use crate::arrays::Filter;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::dict::TakeExecute;
-use crate::arrays::dict::TakeExecuteAdaptor;
 use crate::arrays::filter::FilterArrayExt;
 use crate::builtins::ArrayBuiltins;
 use crate::dtype::DType;
 use crate::executor::ExecutionCtx;
-use crate::kernel::ParentKernelSet;
 use crate::scalar::Scalar;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<Filter> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor(Filter))]);
-
 const BIG_TAKE_FALLBACK_LEN: usize = 4096;
+const BIG_TAKE_FALLBACK_MIN_FIXED_WIDTH_TAKE_LEN: usize = 25_000;
+const BIG_TAKE_FALLBACK_MIN_FIXED_WIDTH_RATIO: usize = 10;
 const SMALL_TAKE_RANK_LOOKUP_DIVISOR: usize = 80;
 const SMALL_TAKE_RANK_LOOKUP_MAX: usize = 256;
 
@@ -99,7 +96,22 @@ fn take_impl(
 }
 
 fn should_materialize_big_take(array: ArrayView<'_, Filter>, indices: &ArrayRef) -> bool {
-    indices.len() >= array.len() && array.len() >= BIG_TAKE_FALLBACK_LEN
+    let filtered_len = array.len();
+    let take_len = indices.len();
+
+    if take_len < filtered_len {
+        return false;
+    }
+
+    if filtered_len >= BIG_TAKE_FALLBACK_LEN {
+        return true;
+    }
+
+    let child_dtype = array.child().dtype();
+    let fixed_width_child = child_dtype.is_primitive() || child_dtype.is_decimal();
+    fixed_width_child
+        && take_len >= BIG_TAKE_FALLBACK_MIN_FIXED_WIDTH_TAKE_LEN
+        && take_len >= filtered_len.saturating_mul(BIG_TAKE_FALLBACK_MIN_FIXED_WIDTH_RATIO)
 }
 
 impl TakeExecute for Filter {
