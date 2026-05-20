@@ -408,3 +408,19 @@ debug = false
 debug-assertions = false
 strip = "debuginfo"
 incremental = false
+
+[patch.crates-io]
+datafusion = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-catalog = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-common = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-common-runtime = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-datasource = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-execution = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-expr = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-functions = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-physical-expr = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-physical-expr-adapter = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-physical-expr-common = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-physical-plan = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-pruning = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
+datafusion-sqllogictest = { git = "https://github.com/apache/datafusion", branch = "branch-54" }
