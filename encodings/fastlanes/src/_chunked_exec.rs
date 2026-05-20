@@ -19,11 +19,13 @@ use vortex_array::_chunked_exec::CHUNK_LEN;
 use vortex_array::_chunked_exec::Scratch;
 use vortex_array::_chunked_exec::primitive::PrimitiveChunkKernel;
 use vortex_array::_chunked_exec::primitive::PrimitiveChunkKernelDispatcher;
+use vortex_array::_chunked_exec::primitive::PatchedProducer;
 use vortex_array::_chunked_exec::primitive::PrimitiveChunkProducer;
 use vortex_array::_chunked_exec::take_into_uninit;
 use vortex_array::arrays::Dict;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::dict::DictArraySlotsExt;
+use vortex_array::arrays::primitive::PrimitiveArrayExt as _;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::NativePType;
 use vortex_array::dtype::Nullability;
@@ -311,6 +313,184 @@ impl<T: NativePType> PrimitiveChunkKernel<T> for BitPackedDictKernel<T> {
     }
 }
 
+// ----------------------------------------------------------------------------------
+// Plain BitPacked<P> -> Primitive chunked producer (no gather, no patches).
+// ----------------------------------------------------------------------------------
+
+/// Bit-unpacks a `BitPacked<P>` array (without internal patches) one 1024-element chunk at
+/// a time into the output. Used as the *base* of a chunked
+/// [`vortex_array::_chunked_exec::primitive::PatchedProducer`] so patch overlay happens
+/// chunk-locally instead of scattering into a fully-materialised buffer.
+///
+/// For v1 this requires `offset == 0` (non-sliced).
+pub struct BitPackedPrimitiveProducer<T: NativePType + BitPacking> {
+    packed: ByteBuffer,
+    bit_width: usize,
+    elems_per_chunk: usize,
+    full_chunks: usize,
+    trailer_len: usize,
+    remaining: usize,
+    chunk_idx: usize,
+    scratch: Box<[MaybeUninit<T>; CHUNK_LEN]>,
+}
+
+impl<T: NativePType + BitPacking> BitPackedPrimitiveProducer<T> {
+    fn new(packed: ByteBuffer, bit_width: usize, len: usize) -> Self {
+        let elems_per_chunk = 128 * bit_width / size_of::<T>();
+        Self {
+            packed,
+            bit_width,
+            elems_per_chunk,
+            full_chunks: len / CHUNK_LEN,
+            trailer_len: len % CHUNK_LEN,
+            remaining: len,
+            chunk_idx: 0,
+            scratch: Box::new([const { MaybeUninit::<T>::uninit() }; CHUNK_LEN]),
+        }
+    }
+
+    unsafe fn unpack_into(&mut self, chunk_index: usize, dst: *mut T) {
+        let packed_bytes = self.packed.as_ref();
+        // SAFETY: fastlanes layout; bit_width-derived chunk size.
+        let packed_slice: &[T] = unsafe {
+            std::slice::from_raw_parts(
+                packed_bytes.as_ptr().cast::<T>(),
+                packed_bytes.len() / size_of::<T>(),
+            )
+        };
+        let chunk = &packed_slice[chunk_index * self.elems_per_chunk
+            ..chunk_index * self.elems_per_chunk + self.elems_per_chunk];
+        let dst_slice: &mut [T] = unsafe { std::slice::from_raw_parts_mut(dst, 1024) };
+        unsafe { BitPacking::unchecked_unpack(self.bit_width, chunk, dst_slice) };
+    }
+
+    fn write_next(&mut self, dst: *mut T, dst_cap: usize) -> Option<usize> {
+        if self.remaining == 0 {
+            return None;
+        }
+        if self.chunk_idx < self.full_chunks {
+            let n = CHUNK_LEN.min(dst_cap);
+            debug_assert!(n >= 1024);
+            // SAFETY: dst has dst_cap ≥ 1024 cells.
+            unsafe { self.unpack_into(self.chunk_idx, dst) };
+            self.chunk_idx += 1;
+            self.remaining -= 1024;
+            Some(1024)
+        } else if self.trailer_len > 0 {
+            // Unpack the trailing fastlanes chunk into the local scratch, copy the prefix.
+            let scratch_ptr = self.scratch.as_mut_ptr().cast::<T>();
+            // SAFETY: scratch has CHUNK_LEN cells.
+            unsafe { self.unpack_into(self.chunk_idx, scratch_ptr) };
+            let n = self.trailer_len.min(dst_cap);
+            // SAFETY: scratch[..n] just initialised; dst has n cells.
+            unsafe { std::ptr::copy_nonoverlapping(scratch_ptr, dst, n) };
+            self.trailer_len -= n;
+            self.remaining -= n;
+            if self.trailer_len == 0 {
+                self.chunk_idx += 1;
+            }
+            Some(n)
+        } else {
+            None
+        }
+    }
+}
+
+impl<T: NativePType + BitPacking> PrimitiveChunkProducer<T> for BitPackedPrimitiveProducer<T> {
+    fn next_chunk<'a>(
+        &mut self,
+        scratch: &'a mut Scratch<T>,
+    ) -> VortexResult<Option<&'a [T]>> {
+        let ptr = scratch.as_uninit_mut().as_mut_ptr().cast::<T>();
+        match self.write_next(ptr, CHUNK_LEN) {
+            Some(n) => Ok(Some(unsafe { std::slice::from_raw_parts(ptr, n) })),
+            None => Ok(None),
+        }
+    }
+
+    fn next_chunk_into_uninit(
+        &mut self,
+        _scratch: &mut Scratch<T>,
+        dst: &mut [MaybeUninit<T>],
+    ) -> VortexResult<Option<usize>> {
+        Ok(self.write_next(dst.as_mut_ptr().cast::<T>(), dst.len()))
+    }
+
+    fn remaining(&self) -> usize {
+        self.remaining
+    }
+}
+
+/// Construct a [`BitPackedPrimitiveProducer`] for an unsigned, non-sliced, patch-free
+/// `BitPacked<T>` array.
+pub fn build_bitpacked_primitive_producer<T: NativePType + BitPacking + UnsignedPType>(
+    bp: &vortex_array::Array<BitPacked>,
+) -> Option<BitPackedPrimitiveProducer<T>> {
+    if bp.offset() != 0 || bp.patches().is_some() {
+        return None;
+    }
+    let packed = bp.packed().clone().unwrap_host();
+    Some(BitPackedPrimitiveProducer::<T>::new(
+        packed,
+        bp.bit_width() as usize,
+        bp.as_ref().len(),
+    ))
+}
+
+/// Split a non-sliced `BitPacked<T>`-with-internal-patches into a chunked
+/// [`PatchedProducer`] that overlays the (formerly internal) patches chunk-locally over
+/// the bit-unpacked base.
+///
+/// This re-expresses the "patches inside BitPacked" layout as the "PatchedArray on top of
+/// patchless BitPacked" layout, but decoded through the chunked engine so the patch
+/// overlay happens while each base chunk is still hot in L1 — instead of scattering into
+/// a fully-materialised N-element buffer the way the canonical executor does.
+pub fn build_chunked_patched_over_bitpacked<T>(
+    bp: &vortex_array::Array<BitPacked>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<PatchedProducer<T>>>
+where
+    T: NativePType + BitPacking + UnsignedPType,
+{
+    if bp.offset() != 0 {
+        return Ok(None);
+    }
+    let packed = bp.packed().clone().unwrap_host();
+    let base = BitPackedPrimitiveProducer::<T>::new(
+        packed,
+        bp.bit_width() as usize,
+        bp.as_ref().len(),
+    );
+
+    let (indices, values) = match bp.patches() {
+        Some(patches) => {
+            let off = patches.offset();
+            let indices_prim =
+                patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+            let values_prim = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
+            let idx_u32: Buffer<u32> =
+                vortex_array::match_each_integer_ptype!(indices_prim.ptype(), |P| {
+                    indices_prim
+                        .as_slice::<P>()
+                        .iter()
+                        .map(|&v| {
+                            let p: usize = num_traits::AsPrimitive::<usize>::as_(v);
+                            (p - off) as u32
+                        })
+                        .collect()
+                });
+            (idx_u32, values_prim.into_buffer::<T>())
+        }
+        None => (Buffer::<u32>::empty(), Buffer::<T>::empty()),
+    };
+
+    Ok(Some(PatchedProducer::<T>::new(
+        Box::new(base),
+        indices,
+        values,
+    )))
+}
+
 /// Register the bit-packed chunked kernels onto `dispatcher` for every supported `T`.
 pub fn register_chunk_kernels(dispatcher: &mut PrimitiveChunkKernelDispatcher) {
     macro_rules! register_all_for {
@@ -397,6 +577,47 @@ mod tests {
             .map(|c| dict_values.as_slice()[*c as usize])
             .collect();
         assert_eq!(buf.as_slice(), expected.as_slice());
+        Ok(())
+    }
+
+    #[test]
+    fn chunked_patched_over_bitpacked_matches_canonical() -> VortexResult<()> {
+        use vortex_array::_chunked_exec::Scratch;
+        use vortex_array::_chunked_exec::primitive::PrimitiveChunkProducer;
+
+        use crate::BitPackedArrayExt;
+
+        let (session, _dispatcher) = session_dispatcher();
+        let mut ctx = session.create_execution_ctx();
+
+        // Values where most fit in 4 bits but every 13th is an exception → patches.
+        let n = 5000usize;
+        let values: Vec<u32> = (0..n)
+            .map(|i| if i % 13 == 0 { 1000 + i as u32 } else { (i % 16) as u32 })
+            .collect();
+        let prim = PrimitiveArray::new(
+            Buffer::<u32>::from_iter(values.iter().copied()),
+            Validity::NonNullable,
+        );
+        let bp = BitPackedData::encode(&prim.into_array(), 4, &mut ctx)?;
+        assert!(bp.patches().is_some(), "expected exceptions to become patches");
+
+        // Canonical decode (Layout A: patches inside BitPacked).
+        let canonical = bp
+            .clone()
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        assert_eq!(canonical.as_slice::<u32>(), values.as_slice());
+
+        // Chunked patched-over-bitpacked (Layout B).
+        let mut producer = super::build_chunked_patched_over_bitpacked::<u32>(&bp, &mut ctx)?
+            .expect("non-sliced");
+        let mut scratch = Scratch::<u32>::new();
+        let mut out = Vec::with_capacity(n);
+        while let Some(chunk) = producer.next_chunk(&mut scratch)? {
+            out.extend_from_slice(chunk);
+        }
+        assert_eq!(out, values);
         Ok(())
     }
 }

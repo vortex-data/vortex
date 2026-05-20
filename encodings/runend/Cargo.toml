@@ -61,3 +61,7 @@ harness = false
 [[bench]]
 name = "chunked_sinks"
 harness = false
+
+[[bench]]
+name = "chunked_patched"
+harness = false

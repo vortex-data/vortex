@@ -477,10 +477,6 @@ fn dispatch_dict_producer<T: NativePType>(
     })
 }
 
-// ---------------------------------------------------------------------------------------
-// RunEnd<Primitive> producer
-// ---------------------------------------------------------------------------------------
-
 /// Stream a `RunEnd<Primitive>` by walking the run-ends and replicating each run value
 /// into chunk-sized strides.
 pub struct RunEndPrimitiveProducer<T: NativePType, E: NativePType> {
@@ -633,6 +629,92 @@ pub fn build_runend_producer<T: NativePType>(
             len,
         )?)
     }))
+}
+
+// ---------------------------------------------------------------------------------------
+// Patched producer — overlay sorted patches chunk-locally over any inner producer
+// ---------------------------------------------------------------------------------------
+
+/// Wraps any inner [`PrimitiveChunkProducer`] (the base, e.g. a bit-packed primitive) and
+/// overlays a sorted list of `(index, value)` patches chunk-by-chunk.
+///
+/// This is the chunked answer to "decode the base fully, then scatter exceptions into the
+/// whole buffer". Because patch indices are sorted and chunks are emitted in order, the
+/// overlay is a monotonic merge-walk: for each base chunk the producer applies only the
+/// patches that fall inside that chunk's logical range, writing them while the chunk is
+/// still resident in the scratch (and therefore in L1). The canonical path scatters
+/// patches into the full N-element output, so each write can miss a cold cache line once
+/// N spills L2/L3.
+///
+/// Patch indices are logical positions in the *decoded* array (post-offset).
+pub struct PatchedProducer<T: NativePType> {
+    inner: Box<dyn PrimitiveChunkProducer<T>>,
+    inner_scratch: Scratch<T>,
+    patch_indices: Buffer<u32>,
+    patch_values: Buffer<T>,
+    patch_cursor: usize,
+    pos: usize,
+}
+
+impl<T: NativePType> PatchedProducer<T> {
+    /// Build from an inner producer plus sorted patch indices/values.
+    ///
+    /// `patch_indices` must be sorted ascending and in-range for the inner producer's
+    /// logical length.
+    pub fn new(
+        inner: Box<dyn PrimitiveChunkProducer<T>>,
+        patch_indices: Buffer<u32>,
+        patch_values: Buffer<T>,
+    ) -> Self {
+        Self {
+            inner,
+            inner_scratch: Scratch::<T>::new(),
+            patch_indices,
+            patch_values,
+            patch_cursor: 0,
+            pos: 0,
+        }
+    }
+}
+
+impl<T: NativePType> PrimitiveChunkProducer<T> for PatchedProducer<T> {
+    fn next_chunk<'a>(
+        &mut self,
+        scratch: &'a mut Scratch<T>,
+    ) -> VortexResult<Option<&'a [T]>> {
+        // Decode the base chunk into the driver's scratch directly.
+        let n = match self
+            .inner
+            .next_chunk_into_uninit(&mut self.inner_scratch, scratch.as_uninit_mut())?
+        {
+            Some(n) => n,
+            None => return Ok(None),
+        };
+        let chunk_end = self.pos + n;
+        let ptr = scratch.as_uninit_mut().as_mut_ptr().cast::<T>();
+
+        // Overlay the patches that fall within [pos, chunk_end) — they are sorted, so we
+        // advance the cursor monotonically.
+        let idxs = self.patch_indices.as_slice();
+        let vals = self.patch_values.as_slice();
+        while self.patch_cursor < idxs.len() {
+            let gidx = idxs[self.patch_cursor] as usize;
+            if gidx >= chunk_end {
+                break;
+            }
+            // SAFETY: gidx ∈ [pos, chunk_end); chunk_end - pos = n ≤ CHUNK_LEN; the scratch
+            // cell at gidx - pos was just initialised by the base decode.
+            unsafe { ptr.add(gidx - self.pos).write(vals[self.patch_cursor]) };
+            self.patch_cursor += 1;
+        }
+        self.pos = chunk_end;
+        // SAFETY: scratch[..n] is fully initialised (base decode + patch overlay).
+        Ok(Some(unsafe { std::slice::from_raw_parts(ptr, n) }))
+    }
+
+    fn remaining(&self) -> usize {
+        self.inner.remaining()
+    }
 }
 
 // ---------------------------------------------------------------------------------------
