@@ -137,5 +137,6 @@ echo "    sudo systemctl stop vortex-bench-server" >&2
 echo "    mv \"$prev\" \"$VORTEX_BENCH_DB\"" >&2
 echo "    [ -f \"${prev}.wal\" ] && mv \"${prev}.wal\" \"${VORTEX_BENCH_DB}.wal\" || true" >&2
 echo "    sudo systemctl start vortex-bench-server" >&2
-echo "    sudo systemctl start vortex-bench-deploy.timer vortex-bench-backup.timer" >&2
+echo "    sudo systemctl start vortex-bench-deploy.timer" >&2
+echo "    sudo systemctl start vortex-bench-backup.timer" >&2
 exit 1

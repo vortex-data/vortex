@@ -16,10 +16,13 @@
 #   5. Else: sync working tree + cargo build --release -p vortex-bench-server.
 #   6. Compare new binary's sha256 to the currently-running symlink target.
 #      If unchanged (cargo did no real work), update stamp + exit 0.
-#   7. Else: copy to bin/vortex-bench-server.<ts>, atomically swap the
-#      symlink, sudo systemctl restart vortex-bench-server.
-#   8. Wait for /health. On failure: revert symlink, restart, error out
-#      (do NOT update the stamp — next tick retries).
+#   7. Else: copy to bin/vortex-bench-server.<ts>.<pid> (PID suffix
+#      breaks same-second deploy collisions), atomically swap the
+#      symlink (staging symlink + `mv -Tf` so the swap is rename(2)),
+#      sudo systemctl restart vortex-bench-server.
+#   8. Wait for /health. On failure: revert symlink, restart the prior
+#      binary, re-probe /health (so a rollback to an also-broken
+#      binary is loud), do NOT update the stamp — next tick retries.
 #   9. On success: update stamp, prune binary versions older than $KEEP_BINARIES.
 #
 # The working-tree sync is `git checkout --force --detach <sha>`, not

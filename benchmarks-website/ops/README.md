@@ -667,13 +667,13 @@ sudo systemctl start vortex-bench-backup.service
 journalctl -fu vortex-bench-backup.service
 ```
 
-If the script reports `http_status=000` (connection refused) on the
-admin URL, the server started without `ADMIN_BEARER_TOKEN` — the admin
-listener never bound, so curl can't reach anything. Edit the env file,
-restart `vortex-bench-server`, retry. (A 503 from
-`require_admin_bearer` is a defensive belt-and-braces branch — in
-production the admin router is unmounted when the token is unset, so
-that branch is unreachable.)
+If the script logs `ERROR: /api/admin/snapshot returned 000` (curl
+couldn't connect to the admin URL), the server started without
+`ADMIN_BEARER_TOKEN` — the admin listener never bound, so curl can't
+reach anything. Edit the env file, restart `vortex-bench-server`,
+retry. (A 503 from `require_admin_bearer` is a defensive
+belt-and-braces branch — in production the admin router is unmounted
+when the token is unset, so that branch is unreachable.)
 
 ### Migrating to a new EC2 host
 
