@@ -56,8 +56,6 @@ pub type vortex_array::aggregate_fn::combined::Combined<T>::Partial = (alloc::bo
 
 pub fn vortex_array::aggregate_fn::combined::Combined<T>::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::combined::Combined<T>::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::combined::Combined<T>::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::combined::Combined<T>::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
@@ -116,8 +114,6 @@ pub type vortex_array::aggregate_fn::combined::BinaryCombined::Left: vortex_arra
 
 pub type vortex_array::aggregate_fn::combined::BinaryCombined::Right: vortex_array::aggregate_fn::AggregateFnVTable
 
-pub fn vortex_array::aggregate_fn::combined::BinaryCombined::coerce_args(&self, &vortex_array::aggregate_fn::combined::CombinedOptions<Self>, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::combined::BinaryCombined::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::combined::CombinedOptions<Self>>
 
 pub fn vortex_array::aggregate_fn::combined::BinaryCombined::finalize(&self, vortex_array::ArrayRef, vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -145,8 +141,6 @@ impl vortex_array::aggregate_fn::combined::BinaryCombined for vortex_array::aggr
 pub type vortex_array::aggregate_fn::fns::mean::Mean::Left = vortex_array::aggregate_fn::fns::sum::Sum
 
 pub type vortex_array::aggregate_fn::fns::mean::Mean::Right = vortex_array::aggregate_fn::fns::count::Count
-
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::coerce_args(&self, &vortex_array::aggregate_fn::combined::PairOptions<<vortex_array::aggregate_fn::fns::sum::Sum as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <vortex_array::aggregate_fn::fns::count::Count as vortex_array::aggregate_fn::AggregateFnVTable>::Options>, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::combined::CombinedOptions<Self>>
 
@@ -193,8 +187,6 @@ pub type vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::Opti
 pub type vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::Partial = vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinctPartial
 
 pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
@@ -246,8 +238,6 @@ pub type vortex_array::aggregate_fn::fns::count::Count::Partial = u64
 
 pub fn vortex_array::aggregate_fn::fns::count::Count::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::fns::count::Count::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::fns::count::Count::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::count::Count::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
@@ -293,8 +283,6 @@ pub type vortex_array::aggregate_fn::fns::first::First::Options = vortex_array::
 pub type vortex_array::aggregate_fn::fns::first::First::Partial = vortex_array::aggregate_fn::fns::first::FirstPartial
 
 pub fn vortex_array::aggregate_fn::fns::first::First::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::aggregate_fn::fns::first::First::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::first::First::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
@@ -356,8 +344,6 @@ pub type vortex_array::aggregate_fn::fns::is_constant::IsConstant::Partial = vor
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
@@ -413,8 +399,6 @@ pub type vortex_array::aggregate_fn::fns::is_sorted::IsSorted::Options = vortex_
 pub type vortex_array::aggregate_fn::fns::is_sorted::IsSorted::Partial = vortex_array::aggregate_fn::fns::is_sorted::IsSortedPartial
 
 pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
@@ -506,8 +490,6 @@ pub type vortex_array::aggregate_fn::fns::last::Last::Partial = vortex_array::ag
 
 pub fn vortex_array::aggregate_fn::fns::last::Last::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::fns::last::Last::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::fns::last::Last::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::last::Last::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
@@ -560,8 +542,6 @@ pub type vortex_array::aggregate_fn::fns::mean::Mean::Left = vortex_array::aggre
 
 pub type vortex_array::aggregate_fn::fns::mean::Mean::Right = vortex_array::aggregate_fn::fns::count::Count
 
-pub fn vortex_array::aggregate_fn::fns::mean::Mean::coerce_args(&self, &vortex_array::aggregate_fn::combined::PairOptions<<vortex_array::aggregate_fn::fns::sum::Sum as vortex_array::aggregate_fn::AggregateFnVTable>::Options, <vortex_array::aggregate_fn::fns::count::Count as vortex_array::aggregate_fn::AggregateFnVTable>::Options>, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::aggregate_fn::combined::CombinedOptions<Self>>
 
 pub fn vortex_array::aggregate_fn::fns::mean::Mean::finalize(&self, vortex_array::ArrayRef, vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -605,8 +585,6 @@ pub type vortex_array::aggregate_fn::fns::min_max::MinMax::Options = vortex_arra
 pub type vortex_array::aggregate_fn::fns::min_max::MinMax::Partial = vortex_array::aggregate_fn::fns::min_max::MinMaxPartial
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
@@ -686,8 +664,6 @@ pub type vortex_array::aggregate_fn::fns::nan_count::NanCount::Partial = u64
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
@@ -735,8 +711,6 @@ pub type vortex_array::aggregate_fn::fns::null_count::NullCount::Options = vorte
 pub type vortex_array::aggregate_fn::fns::null_count::NullCount::Partial = u64
 
 pub fn vortex_array::aggregate_fn::fns::null_count::NullCount::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::aggregate_fn::fns::null_count::NullCount::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::null_count::NullCount::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
@@ -800,8 +774,6 @@ pub type vortex_array::aggregate_fn::fns::sum::Sum::Partial = vortex_array::aggr
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
@@ -851,8 +823,6 @@ pub type vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::Uncompress
 pub type vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::Partial = u64
 
 pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
@@ -1008,8 +978,6 @@ pub fn vortex_array::aggregate_fn::AggregateFnRef::as_<V: vortex_array::aggregat
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::as_opt<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self) -> core::option::Option<&<V as vortex_array::aggregate_fn::AggregateFnVTable>::Options>
 
-pub fn vortex_array::aggregate_fn::AggregateFnRef::coerce_args(&self, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::AggregateFnRef::id(&self) -> vortex_array::aggregate_fn::AggregateFnId
 
 pub fn vortex_array::aggregate_fn::AggregateFnRef::is<V: vortex_array::aggregate_fn::AggregateFnVTable>(&self) -> bool
@@ -1110,8 +1078,6 @@ pub type vortex_array::aggregate_fn::AggregateFnVTable::Partial: 'static + core:
 
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::AggregateFnVTable::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::AggregateFnVTable::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
@@ -1145,8 +1111,6 @@ pub type vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::Opti
 pub type vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::Partial = vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinctPartial
 
 pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::all_non_distinct::AllNonDistinct::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
@@ -1182,8 +1146,6 @@ pub type vortex_array::aggregate_fn::fns::count::Count::Partial = u64
 
 pub fn vortex_array::aggregate_fn::fns::count::Count::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::fns::count::Count::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::fns::count::Count::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::count::Count::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
@@ -1217,8 +1179,6 @@ pub type vortex_array::aggregate_fn::fns::first::First::Options = vortex_array::
 pub type vortex_array::aggregate_fn::fns::first::First::Partial = vortex_array::aggregate_fn::fns::first::FirstPartial
 
 pub fn vortex_array::aggregate_fn::fns::first::First::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::aggregate_fn::fns::first::First::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::first::First::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
@@ -1254,8 +1214,6 @@ pub type vortex_array::aggregate_fn::fns::is_constant::IsConstant::Partial = vor
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::is_constant::IsConstant::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
@@ -1289,8 +1247,6 @@ pub type vortex_array::aggregate_fn::fns::is_sorted::IsSorted::Options = vortex_
 pub type vortex_array::aggregate_fn::fns::is_sorted::IsSorted::Partial = vortex_array::aggregate_fn::fns::is_sorted::IsSortedPartial
 
 pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::is_sorted::IsSorted::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
@@ -1326,8 +1282,6 @@ pub type vortex_array::aggregate_fn::fns::last::Last::Partial = vortex_array::ag
 
 pub fn vortex_array::aggregate_fn::fns::last::Last::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::fns::last::Last::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::fns::last::Last::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::last::Last::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
@@ -1361,8 +1315,6 @@ pub type vortex_array::aggregate_fn::fns::min_max::MinMax::Options = vortex_arra
 pub type vortex_array::aggregate_fn::fns::min_max::MinMax::Partial = vortex_array::aggregate_fn::fns::min_max::MinMaxPartial
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::min_max::MinMax::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
@@ -1398,8 +1350,6 @@ pub type vortex_array::aggregate_fn::fns::nan_count::NanCount::Partial = u64
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::nan_count::NanCount::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
@@ -1433,8 +1383,6 @@ pub type vortex_array::aggregate_fn::fns::null_count::NullCount::Options = vorte
 pub type vortex_array::aggregate_fn::fns::null_count::NullCount::Partial = u64
 
 pub fn vortex_array::aggregate_fn::fns::null_count::NullCount::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::aggregate_fn::fns::null_count::NullCount::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::fns::null_count::NullCount::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
@@ -1470,8 +1418,6 @@ pub type vortex_array::aggregate_fn::fns::sum::Sum::Partial = vortex_array::aggr
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::fns::sum::Sum::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::sum::Sum::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
@@ -1506,8 +1452,6 @@ pub type vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::Uncompress
 
 pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
 
-pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
-
 pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
 pub fn vortex_array::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
@@ -1541,8 +1485,6 @@ pub type vortex_array::aggregate_fn::combined::Combined<T>::Options = vortex_arr
 pub type vortex_array::aggregate_fn::combined::Combined<T>::Partial = (alloc::boxed::Box<dyn vortex_array::aggregate_fn::DynAccumulator>, alloc::boxed::Box<dyn vortex_array::aggregate_fn::DynAccumulator>)
 
 pub fn vortex_array::aggregate_fn::combined::Combined<T>::accumulate(&self, &mut Self::Partial, &vortex_array::Columnar, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_array::aggregate_fn::combined::Combined<T>::coerce_args(&self, &Self::Options, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::dtype::DType>
 
 pub fn vortex_array::aggregate_fn::combined::Combined<T>::combine_partials(&self, &mut Self::Partial, vortex_array::scalar::Scalar) -> vortex_error::VortexResult<()>
 
@@ -9264,15 +9206,9 @@ pub fn vortex_array::dtype::extension::ExtDType<V>::try_new(<V as vortex_array::
 
 impl<V: vortex_array::dtype::extension::ExtVTable> vortex_array::dtype::extension::ExtDType<V>
 
-pub fn vortex_array::dtype::extension::ExtDType<V>::can_coerce_from(&self, &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::can_coerce_to(&self, &vortex_array::dtype::DType) -> bool
-
 pub fn vortex_array::dtype::extension::ExtDType<V>::erased(self) -> vortex_array::dtype::extension::ExtDTypeRef
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::dtype::extension::ExtDType<V>::least_supertype(&self, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::dtype::extension::ExtDType<V>::metadata(&self) -> &<V as vortex_array::dtype::extension::ExtVTable>::Metadata
 
@@ -9312,10 +9248,6 @@ pub struct vortex_array::dtype::extension::ExtDTypeRef(_)
 
 impl vortex_array::dtype::extension::ExtDTypeRef
 
-pub fn vortex_array::dtype::extension::ExtDTypeRef::can_coerce_from(&self, &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::can_coerce_to(&self, &vortex_array::dtype::DType) -> bool
-
 pub fn vortex_array::dtype::extension::ExtDTypeRef::display_metadata(&self) -> impl core::fmt::Display + '_
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::eq_ignore_nullability(&self, &Self) -> bool
@@ -9323,8 +9255,6 @@ pub fn vortex_array::dtype::extension::ExtDTypeRef::eq_ignore_nullability(&self,
 pub fn vortex_array::dtype::extension::ExtDTypeRef::id(&self) -> vortex_array::dtype::extension::ExtId
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::is_nullable(&self) -> bool
-
-pub fn vortex_array::dtype::extension::ExtDTypeRef::least_supertype(&self, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::dtype::extension::ExtDTypeRef::nullability(&self) -> vortex_array::dtype::Nullability
 
@@ -9386,15 +9316,9 @@ pub type vortex_array::dtype::extension::ExtVTable::Metadata: 'static + core::ma
 
 pub type vortex_array::dtype::extension::ExtVTable::NativeValue<'a>: core::fmt::Display
 
-pub fn vortex_array::dtype::extension::ExtVTable::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::dtype::extension::ExtVTable::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
 pub fn vortex_array::dtype::extension::ExtVTable::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::dtype::extension::ExtVTable::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::dtype::extension::ExtVTable::least_supertype(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::dtype::extension::ExtVTable::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -9410,15 +9334,9 @@ pub type vortex_array::extension::datetime::Date::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Date::NativeValue<'a> = vortex_array::extension::datetime::DateValue
 
-pub fn vortex_array::extension::datetime::Date::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::extension::datetime::Date::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
 pub fn vortex_array::extension::datetime::Date::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::extension::datetime::Date::least_supertype(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Date::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -9434,15 +9352,9 @@ pub type vortex_array::extension::datetime::Time::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Time::NativeValue<'a> = vortex_array::extension::datetime::TimeValue
 
-pub fn vortex_array::extension::datetime::Time::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::extension::datetime::Time::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
 pub fn vortex_array::extension::datetime::Time::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::extension::datetime::Time::least_supertype(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Time::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -9458,15 +9370,9 @@ pub type vortex_array::extension::datetime::Timestamp::Metadata = vortex_array::
 
 pub type vortex_array::extension::datetime::Timestamp::NativeValue<'a> = vortex_array::extension::datetime::TimestampValue<'a>
 
-pub fn vortex_array::extension::datetime::Timestamp::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::extension::datetime::Timestamp::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
 pub fn vortex_array::extension::datetime::Timestamp::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::extension::datetime::Timestamp::least_supertype(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Timestamp::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -9482,15 +9388,9 @@ pub type vortex_array::extension::uuid::Uuid::Metadata = vortex_array::extension
 
 pub type vortex_array::extension::uuid::Uuid::NativeValue<'a> = uuid::Uuid
 
-pub fn vortex_array::extension::uuid::Uuid::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::extension::uuid::Uuid::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
 pub fn vortex_array::extension::uuid::Uuid::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::uuid::Uuid::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::extension::uuid::Uuid::least_supertype(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::uuid::Uuid::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -9664,11 +9564,15 @@ pub fn vortex_array::dtype::DType::is_nested(&self) -> bool
 
 pub fn vortex_array::dtype::DType::is_nullable(&self) -> bool
 
+pub fn vortex_array::dtype::DType::is_numeric(&self) -> bool
+
 pub fn vortex_array::dtype::DType::is_primitive(&self) -> bool
 
 pub fn vortex_array::dtype::DType::is_signed_int(&self) -> bool
 
 pub fn vortex_array::dtype::DType::is_struct(&self) -> bool
+
+pub fn vortex_array::dtype::DType::is_temporal(&self) -> bool
 
 pub fn vortex_array::dtype::DType::is_union(&self) -> bool
 
@@ -9687,28 +9591,6 @@ pub fn vortex_array::dtype::DType::struct_<I: core::iter::traits::collect::IntoI
 pub fn vortex_array::dtype::DType::union_nullability(&self, vortex_array::dtype::Nullability) -> Self
 
 pub fn vortex_array::dtype::DType::with_nullability(&self, vortex_array::dtype::Nullability) -> Self
-
-impl vortex_array::dtype::DType
-
-pub fn vortex_array::dtype::DType::all_coercible_to(&[vortex_array::dtype::DType], &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::dtype::DType::are_coercible(&[vortex_array::dtype::DType]) -> bool
-
-pub fn vortex_array::dtype::DType::can_coerce_from(&self, &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::dtype::DType::can_coerce_to(&self, &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::dtype::DType::coerce_all_to(&[vortex_array::dtype::DType], &vortex_array::dtype::DType) -> core::option::Option<alloc::vec::Vec<vortex_array::dtype::DType>>
-
-pub fn vortex_array::dtype::DType::coerce_to_supertype(&[vortex_array::dtype::DType]) -> core::option::Option<alloc::vec::Vec<vortex_array::dtype::DType>>
-
-pub fn vortex_array::dtype::DType::is_numeric(&self) -> bool
-
-pub fn vortex_array::dtype::DType::is_temporal(&self) -> bool
-
-pub fn vortex_array::dtype::DType::least_supertype(&self, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
-
-pub fn vortex_array::dtype::DType::least_supertype_of(&[vortex_array::dtype::DType]) -> core::option::Option<vortex_array::dtype::DType>
 
 impl vortex_array::dtype::DType
 
@@ -10101,10 +9983,6 @@ impl vortex_array::dtype::PType
 pub fn vortex_array::dtype::PType::from_i32(i32) -> core::option::Option<vortex_array::dtype::PType>
 
 pub fn vortex_array::dtype::PType::is_valid(i32) -> bool
-
-impl vortex_array::dtype::PType
-
-pub fn vortex_array::dtype::PType::least_supertype(self, vortex_array::dtype::PType) -> core::option::Option<vortex_array::dtype::PType>
 
 impl core::clone::Clone for vortex_array::dtype::PType
 
@@ -12620,8 +12498,6 @@ impl<A: core::fmt::Display> core::fmt::Display for vortex_array::expr::transform
 
 pub fn vortex_array::expr::transform::PartitionedExpr<A>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
-pub fn vortex_array::expr::transform::coerce_expression(vortex_array::expr::Expression, &vortex_array::dtype::DType) -> vortex_error::VortexResult<vortex_array::expr::Expression>
-
 pub fn vortex_array::expr::transform::partition<A: vortex_array::expr::AnnotationFn>(vortex_array::expr::Expression, &vortex_array::dtype::DType, A) -> vortex_error::VortexResult<vortex_array::expr::transform::PartitionedExpr<<A as vortex_array::expr::AnnotationFn>::Annotation>> where <A as vortex_array::expr::AnnotationFn>::Annotation: core::fmt::Display, vortex_array::dtype::FieldName: core::convert::From<<A as vortex_array::expr::AnnotationFn>::Annotation>
 
 pub fn vortex_array::expr::transform::replace(vortex_array::expr::Expression, &vortex_array::expr::Expression, vortex_array::expr::Expression) -> vortex_array::expr::Expression
@@ -13366,15 +13242,9 @@ pub type vortex_array::extension::datetime::Date::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Date::NativeValue<'a> = vortex_array::extension::datetime::DateValue
 
-pub fn vortex_array::extension::datetime::Date::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::extension::datetime::Date::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
 pub fn vortex_array::extension::datetime::Date::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Date::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::extension::datetime::Date::least_supertype(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Date::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -13422,15 +13292,9 @@ pub type vortex_array::extension::datetime::Time::Metadata = vortex_array::exten
 
 pub type vortex_array::extension::datetime::Time::NativeValue<'a> = vortex_array::extension::datetime::TimeValue
 
-pub fn vortex_array::extension::datetime::Time::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::extension::datetime::Time::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
 pub fn vortex_array::extension::datetime::Time::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Time::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::extension::datetime::Time::least_supertype(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Time::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -13480,15 +13344,9 @@ pub type vortex_array::extension::datetime::Timestamp::Metadata = vortex_array::
 
 pub type vortex_array::extension::datetime::Timestamp::NativeValue<'a> = vortex_array::extension::datetime::TimestampValue<'a>
 
-pub fn vortex_array::extension::datetime::Timestamp::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::extension::datetime::Timestamp::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
 pub fn vortex_array::extension::datetime::Timestamp::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::datetime::Timestamp::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::extension::datetime::Timestamp::least_supertype(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::datetime::Timestamp::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -13580,15 +13438,9 @@ pub type vortex_array::extension::uuid::Uuid::Metadata = vortex_array::extension
 
 pub type vortex_array::extension::uuid::Uuid::NativeValue<'a> = uuid::Uuid
 
-pub fn vortex_array::extension::uuid::Uuid::can_coerce_from(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
-pub fn vortex_array::extension::uuid::Uuid::can_coerce_to(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> bool
-
 pub fn vortex_array::extension::uuid::Uuid::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_array::extension::uuid::Uuid::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_array::extension::uuid::Uuid::least_supertype(&vortex_array::dtype::extension::ExtDType<Self>, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_array::extension::uuid::Uuid::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
@@ -16350,8 +16202,6 @@ pub fn vortex_array::scalar_fn::fns::between::Between::arity(&self, &Self::Optio
 
 pub fn vortex_array::scalar_fn::fns::between::Between::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::between::Between::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::between::Between::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::between::Between::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -16478,8 +16328,6 @@ pub fn vortex_array::scalar_fn::fns::binary::Binary::arity(&self, &Self::Options
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::binary::Binary::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::binary::Binary::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::execute(&self, &vortex_array::scalar_fn::fns::operators::Operator, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -16568,8 +16416,6 @@ pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::arity(&self, &Self::Op
 
 pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -16649,8 +16495,6 @@ pub type vortex_array::scalar_fn::fns::cast::Cast::Options = vortex_array::dtype
 pub fn vortex_array::scalar_fn::fns::cast::Cast::arity(&self, &vortex_array::dtype::DType) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::cast::Cast::child_name(&self, &vortex_array::dtype::DType, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::cast::Cast::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::cast::Cast::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -16820,8 +16664,6 @@ pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::arity(&self, &S
 
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -16901,8 +16743,6 @@ pub type vortex_array::scalar_fn::fns::fill_null::FillNull::Options = vortex_arr
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -17012,8 +16852,6 @@ pub fn vortex_array::scalar_fn::fns::get_item::GetItem::arity(&self, &vortex_arr
 
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::get_item::GetItem::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::execute(&self, &vortex_array::dtype::FieldName, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -17057,8 +16895,6 @@ pub type vortex_array::scalar_fn::fns::is_not_null::IsNotNull::Options = vortex_
 pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -17104,8 +16940,6 @@ pub fn vortex_array::scalar_fn::fns::is_null::IsNull::arity(&self, &Self::Option
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::is_null::IsNull::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -17149,8 +16983,6 @@ pub type vortex_array::scalar_fn::fns::like::Like::Options = vortex_array::scala
 pub fn vortex_array::scalar_fn::fns::like::Like::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::like::Like::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::like::Like::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::like::Like::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -17276,8 +17108,6 @@ pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::arity(&self, &
 
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -17362,8 +17192,6 @@ pub fn vortex_array::scalar_fn::fns::literal::Literal::arity(&self, &Self::Optio
 
 pub fn vortex_array::scalar_fn::fns::literal::Literal::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::literal::Literal::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::literal::Literal::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::literal::Literal::execute(&self, &vortex_array::scalar::Scalar, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -17407,8 +17235,6 @@ pub type vortex_array::scalar_fn::fns::mask::Mask::Options = vortex_array::scala
 pub fn vortex_array::scalar_fn::fns::mask::Mask::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::mask::Mask::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::mask::Mask::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::mask::Mask::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -17586,8 +17412,6 @@ pub fn vortex_array::scalar_fn::fns::merge::Merge::arity(&self, &Self::Options) 
 
 pub fn vortex_array::scalar_fn::fns::merge::Merge::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::merge::Merge::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::merge::Merge::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::merge::Merge::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -17631,8 +17455,6 @@ pub type vortex_array::scalar_fn::fns::not::Not::Options = vortex_array::scalar_
 pub fn vortex_array::scalar_fn::fns::not::Not::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::not::Not::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::not::Not::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::not::Not::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -17884,8 +17706,6 @@ pub fn vortex_array::scalar_fn::fns::pack::Pack::arity(&self, &Self::Options) ->
 
 pub fn vortex_array::scalar_fn::fns::pack::Pack::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::pack::Pack::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::pack::Pack::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::pack::Pack::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -17959,8 +17779,6 @@ pub type vortex_array::scalar_fn::fns::root::Root::Options = vortex_array::scala
 pub fn vortex_array::scalar_fn::fns::root::Root::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::root::Root::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::root::Root::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::root::Root::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -18050,8 +17868,6 @@ pub fn vortex_array::scalar_fn::fns::select::Select::arity(&self, &vortex_array:
 
 pub fn vortex_array::scalar_fn::fns::select::Select::child_name(&self, &vortex_array::scalar_fn::fns::select::FieldSelection, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::select::Select::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::select::Select::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::scalar_fn::fns::select::FieldSelection>
 
 pub fn vortex_array::scalar_fn::fns::select::Select::execute(&self, &vortex_array::scalar_fn::fns::select::FieldSelection, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -18095,8 +17911,6 @@ pub type vortex_array::scalar_fn::fns::stat::StatFn::Options = vortex_array::sca
 pub fn vortex_array::scalar_fn::fns::stat::StatFn::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::stat::StatFn::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::stat::StatFn::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::stat::StatFn::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -18226,8 +18040,6 @@ pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::arity(&self, &Self
 
 pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -18356,8 +18168,6 @@ pub fn vortex_array::scalar_fn::fns::zip::Zip::arity(&self, &Self::Options) -> v
 
 pub fn vortex_array::scalar_fn::fns::zip::Zip::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::zip::Zip::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::zip::Zip::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::zip::Zip::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -18455,8 +18265,6 @@ pub type vortex_array::scalar_fn::internal::row_count::RowCount::Options = vorte
 pub fn vortex_array::scalar_fn::internal::row_count::RowCount::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::internal::row_count::RowCount::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::internal::row_count::RowCount::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::internal::row_count::RowCount::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -18640,8 +18448,6 @@ pub fn vortex_array::scalar_fn::ForeignScalarFnVTable::arity(&self, &Self::Optio
 
 pub fn vortex_array::scalar_fn::ForeignScalarFnVTable::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::ForeignScalarFnVTable::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::ForeignScalarFnVTable::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::ForeignScalarFnVTable::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -18705,8 +18511,6 @@ impl vortex_array::scalar_fn::ScalarFnRef
 pub fn vortex_array::scalar_fn::ScalarFnRef::as_<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> &<V as vortex_array::scalar_fn::ScalarFnVTable>::Options
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::as_opt<V: vortex_array::scalar_fn::ScalarFnVTable>(&self) -> core::option::Option<&<V as vortex_array::scalar_fn::ScalarFnVTable>::Options>
-
-pub fn vortex_array::scalar_fn::ScalarFnRef::coerce_args(&self, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::ScalarFnRef::downcast<V: vortex_array::scalar_fn::ScalarFnVTable>(self) -> alloc::sync::Arc<vortex_array::scalar_fn::TypedScalarFnInstance<V>>
 
@@ -18854,8 +18658,6 @@ pub fn vortex_array::scalar_fn::ScalarFnVTable::arity(&self, &Self::Options) -> 
 
 pub fn vortex_array::scalar_fn::ScalarFnVTable::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::ScalarFnVTable::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::ScalarFnVTable::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::ScalarFnVTable::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -18891,8 +18693,6 @@ pub type vortex_array::scalar_fn::ForeignScalarFnVTable::Options = vortex_array:
 pub fn vortex_array::scalar_fn::ForeignScalarFnVTable::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::ForeignScalarFnVTable::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::ForeignScalarFnVTable::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::ForeignScalarFnVTable::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -18930,8 +18730,6 @@ pub fn vortex_array::scalar_fn::fns::between::Between::arity(&self, &Self::Optio
 
 pub fn vortex_array::scalar_fn::fns::between::Between::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::between::Between::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::between::Between::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::between::Between::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -18967,8 +18765,6 @@ pub type vortex_array::scalar_fn::fns::binary::Binary::Options = vortex_array::s
 pub fn vortex_array::scalar_fn::fns::binary::Binary::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::binary::Binary::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::binary::Binary::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -19006,8 +18802,6 @@ pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::arity(&self, &Self::Op
 
 pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::case_when::CaseWhen::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -19043,8 +18837,6 @@ pub type vortex_array::scalar_fn::fns::cast::Cast::Options = vortex_array::dtype
 pub fn vortex_array::scalar_fn::fns::cast::Cast::arity(&self, &vortex_array::dtype::DType) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::cast::Cast::child_name(&self, &vortex_array::dtype::DType, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::cast::Cast::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::cast::Cast::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -19082,8 +18874,6 @@ pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::arity(&self, &S
 
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::dynamic::DynamicComparison::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -19119,8 +18909,6 @@ pub type vortex_array::scalar_fn::fns::fill_null::FillNull::Options = vortex_arr
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::fill_null::FillNull::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -19158,8 +18946,6 @@ pub fn vortex_array::scalar_fn::fns::get_item::GetItem::arity(&self, &vortex_arr
 
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::get_item::GetItem::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::get_item::GetItem::execute(&self, &vortex_array::dtype::FieldName, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -19195,8 +18981,6 @@ pub type vortex_array::scalar_fn::fns::is_not_null::IsNotNull::Options = vortex_
 pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::is_not_null::IsNotNull::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -19234,8 +19018,6 @@ pub fn vortex_array::scalar_fn::fns::is_null::IsNull::arity(&self, &Self::Option
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::is_null::IsNull::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::is_null::IsNull::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -19271,8 +19053,6 @@ pub type vortex_array::scalar_fn::fns::like::Like::Options = vortex_array::scala
 pub fn vortex_array::scalar_fn::fns::like::Like::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::like::Like::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::like::Like::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::like::Like::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -19310,8 +19090,6 @@ pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::arity(&self, &
 
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::list_contains::ListContains::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -19347,8 +19125,6 @@ pub type vortex_array::scalar_fn::fns::literal::Literal::Options = vortex_array:
 pub fn vortex_array::scalar_fn::fns::literal::Literal::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::literal::Literal::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::literal::Literal::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::literal::Literal::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -19386,8 +19162,6 @@ pub fn vortex_array::scalar_fn::fns::mask::Mask::arity(&self, &Self::Options) ->
 
 pub fn vortex_array::scalar_fn::fns::mask::Mask::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::mask::Mask::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::mask::Mask::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::mask::Mask::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -19423,8 +19197,6 @@ pub type vortex_array::scalar_fn::fns::merge::Merge::Options = vortex_array::sca
 pub fn vortex_array::scalar_fn::fns::merge::Merge::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::merge::Merge::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::merge::Merge::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::merge::Merge::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -19462,8 +19234,6 @@ pub fn vortex_array::scalar_fn::fns::not::Not::arity(&self, &Self::Options) -> v
 
 pub fn vortex_array::scalar_fn::fns::not::Not::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::not::Not::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::not::Not::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::not::Not::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -19499,8 +19269,6 @@ pub type vortex_array::scalar_fn::fns::pack::Pack::Options = vortex_array::scala
 pub fn vortex_array::scalar_fn::fns::pack::Pack::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::pack::Pack::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::pack::Pack::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::pack::Pack::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -19538,8 +19306,6 @@ pub fn vortex_array::scalar_fn::fns::root::Root::arity(&self, &Self::Options) ->
 
 pub fn vortex_array::scalar_fn::fns::root::Root::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::root::Root::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::root::Root::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::root::Root::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -19575,8 +19341,6 @@ pub type vortex_array::scalar_fn::fns::select::Select::Options = vortex_array::s
 pub fn vortex_array::scalar_fn::fns::select::Select::arity(&self, &vortex_array::scalar_fn::fns::select::FieldSelection) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::select::Select::child_name(&self, &vortex_array::scalar_fn::fns::select::FieldSelection, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::select::Select::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::select::Select::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<vortex_array::scalar_fn::fns::select::FieldSelection>
 
@@ -19614,8 +19378,6 @@ pub fn vortex_array::scalar_fn::fns::stat::StatFn::arity(&self, &Self::Options) 
 
 pub fn vortex_array::scalar_fn::fns::stat::StatFn::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::stat::StatFn::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::stat::StatFn::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::stat::StatFn::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -19651,8 +19413,6 @@ pub type vortex_array::scalar_fn::fns::variant_get::VariantGet::Options = vortex
 pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::variant_get::VariantGet::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -19690,8 +19450,6 @@ pub fn vortex_array::scalar_fn::fns::zip::Zip::arity(&self, &Self::Options) -> v
 
 pub fn vortex_array::scalar_fn::fns::zip::Zip::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
 
-pub fn vortex_array::scalar_fn::fns::zip::Zip::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
-
 pub fn vortex_array::scalar_fn::fns::zip::Zip::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
 pub fn vortex_array::scalar_fn::fns::zip::Zip::execute(&self, &Self::Options, &dyn vortex_array::scalar_fn::ExecutionArgs, &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
@@ -19727,8 +19485,6 @@ pub type vortex_array::scalar_fn::internal::row_count::RowCount::Options = vorte
 pub fn vortex_array::scalar_fn::internal::row_count::RowCount::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::internal::row_count::RowCount::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::internal::row_count::RowCount::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::internal::row_count::RowCount::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 
@@ -20081,8 +19837,6 @@ pub type vortex_array::scalar_fn::fns::stat::StatFn::Options = vortex_array::sca
 pub fn vortex_array::scalar_fn::fns::stat::StatFn::arity(&self, &Self::Options) -> vortex_array::scalar_fn::Arity
 
 pub fn vortex_array::scalar_fn::fns::stat::StatFn::child_name(&self, &Self::Options, usize) -> vortex_array::scalar_fn::ChildName
-
-pub fn vortex_array::scalar_fn::fns::stat::StatFn::coerce_args(&self, &Self::Options, &[vortex_array::dtype::DType]) -> vortex_error::VortexResult<alloc::vec::Vec<vortex_array::dtype::DType>>
 
 pub fn vortex_array::scalar_fn::fns::stat::StatFn::deserialize(&self, &[u8], &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Options>
 

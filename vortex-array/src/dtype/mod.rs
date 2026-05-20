@@ -10,7 +10,6 @@
 mod arbitrary;
 pub mod arrow;
 mod bigint;
-mod coercion;
 mod decimal;
 mod dtype_impl;
 pub mod extension;

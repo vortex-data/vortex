@@ -127,11 +127,6 @@ impl ScalarFnRef {
         self.0.return_dtype(arg_types)
     }
 
-    /// Coerce the argument types for this scalar function.
-    pub fn coerce_args(&self, arg_types: &[DType]) -> VortexResult<Vec<DType>> {
-        self.0.coerce_args(arg_types)
-    }
-
     /// Transforms the expression into one representing the validity of this expression.
     pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
         Ok(self.0.validity(expr)?.unwrap_or_else(|| {

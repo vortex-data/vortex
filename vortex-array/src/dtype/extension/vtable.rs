@@ -7,7 +7,6 @@ use std::hash::Hash;
 
 use vortex_error::VortexResult;
 
-use crate::dtype::DType;
 use crate::dtype::extension::ExtDType;
 use crate::dtype::extension::ExtId;
 use crate::scalar::ScalarValue;
@@ -38,33 +37,6 @@ pub trait ExtVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
 
     /// Validate that the given storage type is compatible with this extension type.
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()>;
-
-    /// Can a value of `other` be implicitly widened into this type? (e.g. GeographyType might
-    /// accept Point, LineString, etc.)
-    ///
-    /// Implementors only need to override one of `can_coerce_from` or `can_coerce_to`. We have both
-    /// so that either side of the coercion can provide the logic.
-    fn can_coerce_from(ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
-        let _ = (ext_dtype, other);
-        false
-    }
-
-    /// Can this type be implicitly widened into `other`?
-    ///
-    /// Implementors only need to override one of `can_coerce_from` or `can_coerce_to`. We have both
-    /// so that either side of the coercion can provide the logic.
-    fn can_coerce_to(ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
-        let _ = (ext_dtype, other);
-        false
-    }
-
-    /// Given two types in a Uniform context, what is their least supertype?
-    ///
-    /// Return None if no supertype exists.
-    fn least_supertype(ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {
-        let _ = (ext_dtype, other);
-        None
-    }
 
     // Methods related to the extension scalar values.
 

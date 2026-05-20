@@ -130,8 +130,6 @@ pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::deserialize_metadata
 
 pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::id(&self) -> vortex_array::dtype::extension::ExtId
 
-pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::least_supertype(&vortex_array::dtype::extension::typed::ExtDType<Self>, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
-
 pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 
 pub fn vortex_tensor::fixed_shape_tensor::FixedShapeTensor::unpack_native<'a>(&'a vortex_array::dtype::extension::typed::ExtDType<Self>, &'a vortex_array::scalar::scalar_value::ScalarValue) -> vortex_error::VortexResult<Self::NativeValue>
@@ -573,8 +571,6 @@ pub type vortex_tensor::vector::Vector::NativeValue<'a> = &'a vortex_array::scal
 pub fn vortex_tensor::vector::Vector::deserialize_metadata(&self, &[u8]) -> vortex_error::VortexResult<Self::Metadata>
 
 pub fn vortex_tensor::vector::Vector::id(&self) -> vortex_array::dtype::extension::ExtId
-
-pub fn vortex_tensor::vector::Vector::least_supertype(&vortex_array::dtype::extension::typed::ExtDType<Self>, &vortex_array::dtype::DType) -> core::option::Option<vortex_array::dtype::DType>
 
 pub fn vortex_tensor::vector::Vector::serialize_metadata(&self, &Self::Metadata) -> vortex_error::VortexResult<alloc::vec::Vec<u8>>
 

@@ -50,14 +50,14 @@ scalar_fn(struct.pack):
 Delaying the computation in this way allows for many more optimizations to be performed later, including fused 
 computation of several expressions at once, as is commonly done by the Vortex GPU compute context.
 
-## Type Coercion
+## Type Checking
 
 Vortex expressions are strictly typed. This means that the input data types to an expression must exactly match the
 expected data types of the expression's signature.
 
-For example, all binary functions require the same data type for both inputs. Any coercion of types should be performed
-by the caller before constructing the expression. This allows Vortex to be agnostic to the type coercion rules of 
-different compute engines.
+For example, all binary functions require the same data type for both inputs. Any casts should be performed by the caller
+before constructing the expression. This allows Vortex to be agnostic to the type conversion rules of different compute
+engines.
 
-The notable exception to this rule, is that many expressions permit null-coercion. For example, the equality comparison
-function allows comparing a `u32` and `u32?` array, but not a `u32` and `i32` array.
+The notable exception to this rule is nullability. For example, the equality comparison function allows comparing a
+`u32` and `u32?` array, but not a `u32` and `i32` array.

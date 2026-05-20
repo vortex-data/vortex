@@ -179,35 +179,6 @@ impl ExtVTable for Timestamp {
         })
     }
 
-    fn can_coerce_from(ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
-        let DType::Extension(other_ext) = other else {
-            return false;
-        };
-        let Some(other_opts) = other_ext.metadata_opt::<Timestamp>() else {
-            return false;
-        };
-        let our_opts = ext_dtype.metadata();
-        our_opts.tz == other_opts.tz
-            && our_opts.unit <= other_opts.unit
-            && (ext_dtype.storage_dtype().is_nullable() || !other.is_nullable())
-    }
-
-    fn least_supertype(ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {
-        let DType::Extension(other_ext) = other else {
-            return None;
-        };
-        let other_opts = other_ext.metadata_opt::<Timestamp>()?;
-        let our_opts = ext_dtype.metadata();
-        if our_opts.tz != other_opts.tz {
-            return None;
-        }
-        let finest = our_opts.unit.min(other_opts.unit);
-        let union_null = ext_dtype.storage_dtype().nullability() | other.nullability();
-        Some(DType::Extension(
-            Timestamp::new_with_tz(finest, our_opts.tz.clone(), union_null).erased(),
-        ))
-    }
-
     fn validate_dtype(ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
         vortex_ensure!(
             matches!(ext_dtype.storage_dtype(), DType::Primitive(PType::I64, _)),
@@ -317,63 +288,6 @@ mod tests {
             format!("{}", scalar.as_extension()),
             "1969-12-31T19:00:00-05:00[America/New_York]"
         );
-    }
-
-    #[test]
-    fn least_supertype_timestamp_units() {
-        use crate::dtype::Nullability::NonNullable;
-
-        let secs = DType::Extension(Timestamp::new(TimeUnit::Seconds, NonNullable).erased());
-        let ns = DType::Extension(Timestamp::new(TimeUnit::Nanoseconds, NonNullable).erased());
-        let expected =
-            DType::Extension(Timestamp::new(TimeUnit::Nanoseconds, NonNullable).erased());
-        assert_eq!(secs.least_supertype(&ns).unwrap(), expected);
-        assert_eq!(ns.least_supertype(&secs).unwrap(), expected);
-    }
-
-    #[test]
-    fn least_supertype_timestamp_tz_mismatch() {
-        use crate::dtype::Nullability::NonNullable;
-
-        let utc = DType::Extension(
-            Timestamp::new_with_tz(TimeUnit::Seconds, Some(Arc::from("UTC")), NonNullable).erased(),
-        );
-        let none = DType::Extension(Timestamp::new(TimeUnit::Seconds, NonNullable).erased());
-        assert!(utc.least_supertype(&none).is_none());
-    }
-
-    #[test]
-    fn least_supertype_timestamp_same_tz() {
-        use crate::dtype::Nullability::NonNullable;
-
-        let utc_s = DType::Extension(
-            Timestamp::new_with_tz(TimeUnit::Seconds, Some(Arc::from("UTC")), NonNullable).erased(),
-        );
-        let utc_ns = DType::Extension(
-            Timestamp::new_with_tz(TimeUnit::Nanoseconds, Some(Arc::from("UTC")), NonNullable)
-                .erased(),
-        );
-        let expected = DType::Extension(
-            Timestamp::new_with_tz(TimeUnit::Nanoseconds, Some(Arc::from("UTC")), NonNullable)
-                .erased(),
-        );
-        assert_eq!(utc_s.least_supertype(&utc_ns).unwrap(), expected);
-    }
-
-    #[test]
-    fn can_coerce_from_timestamp_tz() {
-        use crate::dtype::Nullability::NonNullable;
-
-        let utc = DType::Extension(
-            Timestamp::new_with_tz(TimeUnit::Nanoseconds, Some(Arc::from("UTC")), NonNullable)
-                .erased(),
-        );
-        let utc_s = DType::Extension(
-            Timestamp::new_with_tz(TimeUnit::Seconds, Some(Arc::from("UTC")), NonNullable).erased(),
-        );
-        let none = DType::Extension(Timestamp::new(TimeUnit::Nanoseconds, NonNullable).erased());
-        assert!(utc.can_coerce_from(&utc_s));
-        assert!(!utc.can_coerce_from(&none));
     }
 
     #[test]

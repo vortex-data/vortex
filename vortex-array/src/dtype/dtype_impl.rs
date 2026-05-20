@@ -222,6 +222,23 @@ impl DType {
         matches!(self, Decimal(..))
     }
 
+    /// Check if `self` is numeric.
+    pub fn is_numeric(&self) -> bool {
+        matches!(self, Primitive(..) | Decimal(..))
+    }
+
+    /// Check if `self` is a temporal extension type.
+    pub fn is_temporal(&self) -> bool {
+        match self {
+            Extension(ext) => {
+                use crate::dtype::extension::Matcher;
+                use crate::extension::datetime::AnyTemporal;
+                AnyTemporal::matches(ext)
+            }
+            _ => false,
+        }
+    }
+
     /// Check if `self` is a [`DType::Utf8`]
     pub fn is_utf8(&self) -> bool {
         matches!(self, Utf8(_))
@@ -510,6 +527,16 @@ mod tests {
             Timestamp::new_with_tz(TimeUnit::Seconds, Some("ET".into()), Nullable).erased(),
         );
         assert!(!t1.eq_ignore_nullability(&t2));
+    }
+
+    #[test]
+    fn is_numeric() {
+        assert!(DType::Primitive(PType::I32, NonNullable).is_numeric());
+        assert!(DType::Primitive(PType::F64, NonNullable).is_numeric());
+        assert!(DType::Decimal(DecimalDType::new(10, 2), NonNullable).is_numeric());
+        assert!(!DType::Bool(NonNullable).is_numeric());
+        assert!(!DType::Utf8(NonNullable).is_numeric());
+        assert!(!DType::Null.is_numeric());
     }
 
     #[test]

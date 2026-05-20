@@ -98,20 +98,6 @@ impl ScalarFnVTable for Binary {
         write!(f, ")")
     }
 
-    fn coerce_args(&self, operator: &Self::Options, args: &[DType]) -> VortexResult<Vec<DType>> {
-        let lhs = &args[0];
-        let rhs = &args[1];
-        if operator.is_arithmetic() || operator.is_comparison() {
-            let supertype = lhs.least_supertype(rhs).ok_or_else(|| {
-                vortex_error::vortex_err!("No common supertype for {} and {}", lhs, rhs)
-            })?;
-            Ok(vec![supertype.clone(), supertype])
-        } else {
-            // Boolean And/Or: no coercion
-            Ok(args.to_vec())
-        }
-    }
-
     fn return_dtype(&self, operator: &Operator, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let lhs = &arg_dtypes[0];
         let rhs = &arg_dtypes[1];

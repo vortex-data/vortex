@@ -108,28 +108,6 @@ impl ExtVTable for Time {
         Ok(())
     }
 
-    fn can_coerce_from(ext_dtype: &ExtDType<Self>, other: &DType) -> bool {
-        let DType::Extension(other_ext) = other else {
-            return false;
-        };
-        let Some(other_unit) = other_ext.metadata_opt::<Time>() else {
-            return false;
-        };
-        let our_unit = ext_dtype.metadata();
-        our_unit <= other_unit && (ext_dtype.storage_dtype().is_nullable() || !other.is_nullable())
-    }
-
-    fn least_supertype(ext_dtype: &ExtDType<Self>, other: &DType) -> Option<DType> {
-        let DType::Extension(other_ext) = other else {
-            return None;
-        };
-        let other_unit = other_ext.metadata_opt::<Time>()?;
-        let our_unit = ext_dtype.metadata();
-        let finest = (*our_unit).min(*other_unit);
-        let union_null = ext_dtype.storage_dtype().nullability() | other.nullability();
-        Some(DType::Extension(Time::new(finest, union_null).erased()))
-    }
-
     fn unpack_native<'a>(
         ext_dtype: &'a ExtDType<Self>,
         storage_value: &'a ScalarValue,
@@ -208,17 +186,6 @@ mod tests {
 
         let scalar = Scalar::new(dtype, Some(ScalarValue::Primitive(PValue::I32(0))));
         assert_eq!(format!("{}", scalar.as_extension()), "00:00:00");
-    }
-
-    #[test]
-    fn least_supertype_time_units() {
-        use crate::dtype::Nullability::NonNullable;
-
-        let secs = DType::Extension(Time::new(TimeUnit::Seconds, NonNullable).erased());
-        let ns = DType::Extension(Time::new(TimeUnit::Nanoseconds, NonNullable).erased());
-        let expected = DType::Extension(Time::new(TimeUnit::Nanoseconds, NonNullable).erased());
-        assert_eq!(secs.least_supertype(&ns).unwrap(), expected);
-        assert_eq!(ns.least_supertype(&secs).unwrap(), expected);
     }
 
     #[test]

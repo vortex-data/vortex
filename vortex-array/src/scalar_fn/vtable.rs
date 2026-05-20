@@ -94,19 +94,6 @@ pub trait ScalarFnVTable: 'static + Sized + Clone + Send + Sync {
         write!(f, ")")
     }
 
-    /// Coerce the arguments of this function.
-    ///
-    /// This is optionally used by Vortex users when performing type coercion over a Vortex
-    /// expression. Note that direct Vortex query engine integrations (e.g. DuckDB, DataFusion,
-    /// etc.) do not perform type coercion and rely on the engine's own logical planner.
-    ///
-    /// Note that the default implementation simply returns the arguments without coercion, and it
-    /// is expected that the [`ScalarFnVTable::return_dtype`] call may still fail.
-    fn coerce_args(&self, options: &Self::Options, args: &[DType]) -> VortexResult<Vec<DType>> {
-        let _ = options;
-        Ok(args.to_vec())
-    }
-
     /// Compute the return [`DType`] of the expression if evaluated over the given input types.
     ///
     /// # Preconditions

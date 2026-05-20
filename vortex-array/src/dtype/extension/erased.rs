@@ -99,21 +99,6 @@ impl ExtDTypeRef {
     pub(crate) fn validate_storage_value(&self, storage_value: &ScalarValue) -> VortexResult<()> {
         self.0.validate_scalar_value(storage_value)
     }
-
-    /// Can a value of `other` be implicitly coerced into this extension type?
-    pub fn can_coerce_from(&self, other: &DType) -> bool {
-        self.0.can_coerce_from(other)
-    }
-
-    /// Can this extension type be implicitly coerced into `other`?
-    pub fn can_coerce_to(&self, other: &DType) -> bool {
-        self.0.can_coerce_to(other)
-    }
-
-    /// Compute the least supertype of this extension type and another type.
-    pub fn least_supertype(&self, other: &DType) -> Option<DType> {
-        self.0.least_supertype(other)
-    }
 }
 
 /// Methods for downcasting type-erased extension dtypes.
