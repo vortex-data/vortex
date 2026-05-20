@@ -36,7 +36,12 @@
 #   3  git fetch failed
 #   4  cargo build failed
 #   5  systemctl restart failed
-#   6  /health check failed (rolled back to previous binary)
+#   6  /health check failed; rolled back to previous binary successfully
+#   7  /health check failed AND rollback to the previous binary ALSO
+#      failed /health — server is down, manual intervention required.
+#      This is the worst-case path; the timer will retry on next tick
+#      but the prior binary is itself broken, so the retry will not
+#      heal the host.
 
 set -euo pipefail
 

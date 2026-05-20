@@ -182,6 +182,17 @@ CREATE TABLE IF NOT EXISTS vector_search_runs (
 
 /// Schema version expected by the server. The ingest envelope's
 /// `run_meta.schema_version` must match this exactly at alpha.
+///
+/// Coupled sites that MUST agree on this value (see
+/// `benchmarks-website/AGENTS.md` → "Wire shapes are a coordinated change"):
+///
+/// - This constant.
+/// - The producer-side wire-shape source of truth in
+///   [`vortex_bench::v3`](../../../vortex-bench/src/v3.rs).
+/// - The CI ingest wrapper at `scripts/post-ingest.py`, which fills the
+///   envelope's `run_meta.schema_version` from a hardcoded Python constant.
+///   Bumping `SCHEMA_VERSION` without bumping `post-ingest.py` makes every
+///   CI run 400 at ingest until the script is updated.
 pub const SCHEMA_VERSION: i32 = 1;
 
 /// Every table in the schema, in the order a fresh boot creates them.

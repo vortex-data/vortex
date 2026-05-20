@@ -24,8 +24,12 @@ pub const DEFAULT_COMMIT_WINDOW: u32 = 100;
 /// `origin/ct/vfvb:benchmarks-website/index.html`. Group names not in this
 /// list sort after every listed name in alphabetical order. The order is
 /// significant for the landing page render — every group is collapsed by
-/// default, and only the first group's chart payloads are inlined into the
-/// HTML so opening it skips a fetch round-trip.
+/// default, and the disclosure list is rendered in this sequence. Chart
+/// payloads are NOT inlined into the landing HTML; every group hydrates
+/// from versioned shard artifacts under
+/// `/api/artifacts/{generation}/groups/{slug}/shards/{i}` on first
+/// intent/open, served from the precomputed read store (see
+/// `server/ARCHITECTURE.md` → "Hot Read Path").
 pub const GROUP_ORDER: &[&str] = &[
     "Random Access",
     "Compression",

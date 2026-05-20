@@ -26,7 +26,10 @@ The operator runbook is [`ops/README.md`](ops/README.md).
   [`vortex-bench/src/v3.rs`](../vortex-bench/src/v3.rs), and (until cutover)
   [`migrate/src/classifier.rs`](migrate/src/classifier.rs) must agree.
   Bumping a shape means changing all three plus the snapshot fixtures in
-  one commit.
+  one commit. `SCHEMA_VERSION` has a fourth coupled site —
+  [`scripts/post-ingest.py`](../scripts/post-ingest.py), the CI ingest
+  wrapper — which hardcodes the version as a Python literal; bump it in
+  lockstep or every CI ingest run 400s.
 - **`measurement_id` is server-internal.** Never put it on the wire. It is
   a deterministic hash over `commit_sha` plus the dim tuple, computed in
   [`server/src/db.rs`](server/src/db.rs) and reused by the migrator via
@@ -40,12 +43,17 @@ The operator runbook is [`ops/README.md`](ops/README.md).
 - **Don't re-introduce a server-side commit cap.** `?n=all` is the default
   for HTML routes; visual downsampling happens client-side via LTTB on the
   visible commit range only.
-- **Don't refetch on every scope change.** The chart fetches its full
-  history once. Pan, zoom, slider, and the range strip rebuild in place
-  via the in-memory LTTB pass on the cached payload. The single exception
-  is the inline-payload zoom-out path: when the user zooms past the first
-  group's inlined `LANDING_INLINE_N` window for the first time,
-  `chart-init.js` lazy-fetches `?n=all` once and replaces the payload.
+- **Don't refetch on every scope change.** Once a chart's payload is in
+  memory, pan/zoom/slider/range-strip all rebuild in place via the
+  in-memory LTTB pass on the cached payload. The single exception is the
+  latest-100 → full-history zoom-out path: charts initially hydrate from a
+  `LANDING_INLINE_N`-sized shard payload (the materialized latest-100
+  artifact, served from `/api/artifacts/{generation}/groups/{slug}/shards/{i}`);
+  when the user zooms past that window for the first time,
+  `chart-init.js` lazy-fetches `?n=all` once and replaces the latest-100
+  payload in place. `LANDING_INLINE_N` is the legacy name for the
+  latest-100 window default; nothing is inlined into the landing HTML
+  anymore.
 
 ## Footguns we have already hit
 

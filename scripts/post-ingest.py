@@ -20,9 +20,17 @@ all-or-nothing" contract the server documents. If the JSONL is large enough
 that splitting kicks in, the script emits a warning and proceeds with the
 chunked semantics (per-chunk commit, mid-chunk failure leaves earlier chunks
 ingested; subsequent retries re-upsert via the server's ON CONFLICT
-idempotency on `measurement_id`). See
-`benchmarks-website/planning/02-contracts.md` and
-`benchmarks-website/planning/components/emitter.md`.
+idempotency on `measurement_id`).
+
+Wire-contract pointers (kept in sync as a coordinated change per
+`benchmarks-website/AGENTS.md`):
+
+- `benchmarks-website/server/src/records.rs` — envelope + per-record wire
+  shapes that the server deserializes.
+- `vortex-bench/src/v3.rs` — bare-record producer that writes the JSONL this
+  script wraps.
+- `benchmarks-website/server/src/schema.rs` — `SCHEMA_VERSION` source of
+  truth that the `SCHEMA_VERSION` constant below MUST equal at every bump.
 """
 
 from __future__ import annotations
@@ -37,6 +45,10 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 
+# MUST equal `benchmarks-website/server/src/schema.rs::SCHEMA_VERSION`.
+# Bumping this is a coordinated change across schema.rs, records.rs, v3.rs,
+# and this script. See `benchmarks-website/AGENTS.md` ("Wire shapes are a
+# coordinated change") for the full list of coupled sites.
 SCHEMA_VERSION = 1
 # Default sized to fit comfortably under the server's 64 MiB ingest body
 # limit while leaving headroom for HTTP and JSON framing overhead. The
