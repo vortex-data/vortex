@@ -639,18 +639,19 @@ impl FileFormat for VortexFormat {
 
 fn scalar_stat_to_df(
     stat: Stat,
-    value: Option<stats::Precision<VortexScalarValue>>,
+    value: stats::Precision<VortexScalarValue>,
     stats_dtype: &DType,
     target_dtype: &DType,
 ) -> Option<stats::Precision<DFScalarValue>> {
     let stat_dtype = stat.dtype(stats_dtype)?;
 
-    value?
-        .try_map(|stat_value| {
+    value
+        .map(|stat_value| {
             Scalar::try_new(stat_dtype, Some(stat_value))?
                 .cast(target_dtype)?
                 .try_to_df()
         })
+        .transpose()
         .ok()
 }
 

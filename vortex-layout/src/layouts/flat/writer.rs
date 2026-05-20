@@ -81,8 +81,8 @@ fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
     stat: Stat,
     truncation: F,
 ) {
-    if let Some(sv) = statistics.get(stat) {
-        if let Some((truncated_value, truncated)) = truncation(sv.into_inner()) {
+    if let Some(sv) = statistics.get(stat).into_inner() {
+        if let Some((truncated_value, truncated)) = truncation(sv) {
             if truncated && let Some(v) = truncated_value.into_value() {
                 statistics.set(stat, Precision::Inexact(v));
             }

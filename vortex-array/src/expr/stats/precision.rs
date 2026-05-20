@@ -50,8 +50,13 @@ impl<T> Precision<Option<T>> {
 }
 
 impl<T, E> Precision<Result<T, E>> {
+    /// Transpose a `Precision<Result<T, E>>` into a `Result<Precision<T>, E>`.
     pub fn transpose(self) -> Result<Precision<T>, E> {
-        todo!()
+        match self {
+            Self::Exact(value) => value.map(Precision::Exact),
+            Self::Inexact(value) => value.map(Precision::Inexact),
+            Self::Absent => Ok(Precision::Absent),
+        }
     }
 }
 

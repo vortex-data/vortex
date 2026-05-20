@@ -119,6 +119,7 @@ where
         match self {
             Precision::Exact(v) => DFPrecision::Exact(v),
             Precision::Inexact(v) => DFPrecision::Inexact(v),
+            Precision::Absent => DFPrecision::Absent,
         }
     }
 }
