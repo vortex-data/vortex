@@ -17,6 +17,7 @@ use vortex::array::arrays::primitive::PrimitiveDataParts;
 use vortex::array::arrays::struct_::StructDataParts;
 use vortex::array::arrays::varbinview::VarBinViewDataParts;
 use vortex::array::buffer::BufferHandle;
+use vortex::buffer::Buffer;
 use vortex::dtype::DecimalType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -157,12 +158,24 @@ fn export_canonical(
                 check_validity_empty(&validity)?;
 
                 let views = ctx.ensure_on_device(views).await?;
-                let mut buffers = Vec::with_capacity(data_buffers.len() + 2);
+                let mut buffers = Vec::with_capacity(data_buffers.len() + 3);
                 buffers.push(None);
                 buffers.push(Some(views));
                 for buffer in data_buffers.iter() {
                     buffers.push(Some(ctx.ensure_on_device(buffer.clone()).await?));
                 }
+                // Nanoarrow's Utf8View/BinaryView C layout stores the variadic data buffer sizes
+                // as the final buffer slot, after the null bitmap, views, and data buffers.
+                let variadic_buffer_sizes = data_buffers
+                    .iter()
+                    .map(|buffer| i64::try_from(buffer.len()))
+                    .collect::<Result<Vec<_>, _>>()?;
+                buffers.push(Some(
+                    ctx.ensure_on_device(BufferHandle::new_host(
+                        Buffer::from(variadic_buffer_sizes).into_byte_buffer(),
+                    ))
+                    .await?,
+                ));
 
                 let n_buffers = i64::try_from(buffers.len())?;
                 let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
@@ -171,7 +184,8 @@ fn export_canonical(
                     length: len as i64,
                     null_count: 0,
                     offset: 0,
-                    // Arrow Utf8View/BinaryView layout: optional null bitmap, views, and data buffers.
+                    // Arrow Utf8View/BinaryView layout: optional null bitmap, views, data buffers,
+                    // and trailing variadic buffer sizes.
                     n_buffers,
                     buffers: private_data.buffer_ptrs.as_mut_ptr(),
                     n_children: 0,
@@ -275,21 +289,27 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
 
         if !private_data_ptr.is_null() {
             let mut private_data = Box::from_raw(private_data_ptr.cast::<PrivateData>());
-            let children = mem::take(&mut private_data.children);
-            for child in children {
-                if !child.is_null() {
-                    if let Some(release) = (*child).release {
-                        release(child);
-                    }
-                    // Children are allocated with Box::into_raw in PrivateData::new, so the
-                    // release callback must also reclaim the ArrowArray allocation itself.
-                    drop(Box::from_raw(child));
-                }
-            }
+            release_children(&mut private_data);
         }
 
         // update the release function to NULL to avoid any possibility of double-frees.
         (*array).release = None;
+    }
+}
+
+unsafe fn release_children(private_data: &mut PrivateData) {
+    unsafe {
+        let children = mem::take(&mut private_data.children);
+        for child in children {
+            if !child.is_null() {
+                if let Some(release) = (*child).release {
+                    release(child);
+                }
+                // Children are allocated with Box::into_raw in PrivateData::new, so the
+                // release callback must also reclaim the ArrowArray allocation itself.
+                drop(Box::from_raw(child));
+            }
+        }
     }
 }
 
@@ -316,10 +336,18 @@ mod tests {
     use vortex::extension::datetime::TimeUnit;
     use vortex::session::VortexSession;
 
-    use super::release_array;
     use crate::arrow::ARROW_DEVICE_CUDA;
+    use crate::arrow::ArrowArray;
     use crate::arrow::DeviceArrayExt;
     use crate::session::CudaSession;
+
+    unsafe fn release_exported_array(array: *mut ArrowArray) {
+        unsafe {
+            if let Some(release) = (*array).release {
+                release(array);
+            }
+        }
+    }
 
     #[rstest]
     #[case::u8(PrimitiveArray::from_iter(0u8..10).into_array(), 10)]
@@ -348,7 +376,7 @@ mod tests {
         assert!(device_array.array.release.is_some());
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -364,7 +392,7 @@ mod tests {
         assert_eq!(device_array.array.null_count, 7);
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -383,7 +411,7 @@ mod tests {
         assert!(device_array.array.release.is_some());
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -406,7 +434,7 @@ mod tests {
         assert!(device_array.array.release.is_some());
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -425,7 +453,7 @@ mod tests {
         assert!(device_array.array.release.is_some());
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -444,18 +472,19 @@ mod tests {
 
         assert_eq!(device_array.array.length, 3);
         assert_eq!(device_array.array.null_count, 0);
-        // VarBinView export: null buffer + views + data buffers
-        assert_eq!(device_array.array.n_buffers, 3);
+        // VarBinView export: null buffer + views + data buffers + variadic buffer sizes
+        assert_eq!(device_array.array.n_buffers, 4);
         let n_buffers = usize::try_from(device_array.array.n_buffers)?;
         let buffers = unsafe { std::slice::from_raw_parts(device_array.array.buffers, n_buffers) };
         assert!(buffers[0].is_null());
         assert!(!buffers[1].is_null());
         assert!(!buffers[2].is_null());
+        assert!(!buffers[3].is_null());
         assert_eq!(device_array.array.n_children, 0);
         assert!(device_array.array.release.is_some());
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -484,7 +513,7 @@ mod tests {
         assert!(device_array.array.release.is_some());
         assert_eq!(device_array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut device_array.array) };
+        unsafe { release_exported_array(&raw mut device_array.array) };
         Ok(())
     }
 
@@ -521,7 +550,7 @@ mod tests {
         assert_eq!(exported.array.array.n_children, 3);
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut exported.array.array) };
+        unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
     }
 
@@ -540,7 +569,7 @@ mod tests {
         assert_eq!(exported.array.array.n_children, 0);
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut exported.array.array) };
+        unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
     }
 
@@ -560,11 +589,11 @@ mod tests {
         let field = Field::try_from(&exported.schema)?;
         assert_eq!(field, Field::new("", DataType::Utf8View, false));
         assert_eq!(exported.array.array.length, 3);
-        assert_eq!(exported.array.array.n_buffers, 3);
+        assert_eq!(exported.array.array.n_buffers, 4);
         assert_eq!(exported.array.array.n_children, 0);
         assert_eq!(exported.array.device_type, ARROW_DEVICE_CUDA);
 
-        unsafe { release_array(&raw mut exported.array.array) };
+        unsafe { release_exported_array(&raw mut exported.array.array) };
         Ok(())
     }
 }
