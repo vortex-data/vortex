@@ -107,10 +107,7 @@ def parse_args() -> argparse.Namespace:
         "--max-envelope-bytes",
         type=int,
         default=DEFAULT_MAX_ENVELOPE_BYTES,
-        help=(
-            "Maximum encoded JSON bytes per POST before splitting records "
-            f"(default: {DEFAULT_MAX_ENVELOPE_BYTES})."
-        ),
+        help=(f"Maximum encoded JSON bytes per POST before splitting records (default: {DEFAULT_MAX_ENVELOPE_BYTES})."),
     )
     return parser.parse_args()
 
@@ -261,8 +258,7 @@ def main() -> int:
     for idx, (envelope, body) in enumerate(chunks, start=1):
         if len(chunks) > 1:
             print(
-                "POST chunk "
-                f"{idx}/{len(chunks)} records={len(envelope['records'])} bytes={len(body)}",
+                f"POST chunk {idx}/{len(chunks)} records={len(envelope['records'])} bytes={len(body)}",
                 file=sys.stderr,
             )
         status, response = post(args.server, body, token, args.timeout)
@@ -270,8 +266,7 @@ def main() -> int:
 
         if status >= 400:
             print(
-                f"error: POST {args.server}/api/ingest chunk {idx}/{len(chunks)} "
-                f"-> {status}\n{body_text}",
+                f"error: POST {args.server}/api/ingest chunk {idx}/{len(chunks)} -> {status}\n{body_text}",
                 file=sys.stderr,
             )
             return 1

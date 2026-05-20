@@ -72,9 +72,14 @@ use self::landing::landing_body;
 use self::render::PageScripts;
 use self::render::error_page;
 use self::render::render_page;
+use self::static_assets::serve_apple_touch_icon_png;
 use self::static_assets::serve_chart_init_js;
 use self::static_assets::serve_chart_js;
 use self::static_assets::serve_chart_zoom_js;
+use self::static_assets::serve_favicon_16_png;
+use self::static_assets::serve_favicon_32_png;
+use self::static_assets::serve_favicon_ico;
+use self::static_assets::serve_site_webmanifest;
 use self::static_assets::serve_style_css;
 use self::static_assets::serve_vortex_black_png;
 use self::static_assets::serve_vortex_white_png;
@@ -101,6 +106,11 @@ pub fn router() -> Router<AppState> {
         .route("/static/style.css", get(serve_style_css))
         .route("/Vortex_Black_NoBG.png", get(serve_vortex_black_png))
         .route("/Vortex_White_NoBG.png", get(serve_vortex_white_png))
+        .route("/favicon.ico", get(serve_favicon_ico))
+        .route("/favicon-16x16.png", get(serve_favicon_16_png))
+        .route("/favicon-32x32.png", get(serve_favicon_32_png))
+        .route("/apple-touch-icon.png", get(serve_apple_touch_icon_png))
+        .route("/site.webmanifest", get(serve_site_webmanifest))
 }
 
 /// Query string for HTML routes. `?n=` overrides the commit window;

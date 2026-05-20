@@ -18,10 +18,15 @@ const CHART_INIT_JS: &[u8] = include_bytes!("../../static/chart-init.js");
 const STYLE_CSS: &[u8] = include_bytes!("../../static/style.css");
 const VORTEX_BLACK_PNG: &[u8] = include_bytes!("../../../public/Vortex_Black_NoBG.png");
 const VORTEX_WHITE_PNG: &[u8] = include_bytes!("../../../public/Vortex_White_NoBG.png");
+const FAVICON_ICO: &[u8] = include_bytes!("../../../public/favicon.ico");
+const FAVICON_16_PNG: &[u8] = include_bytes!("../../../public/favicon-16x16.png");
+const FAVICON_32_PNG: &[u8] = include_bytes!("../../../public/favicon-32x32.png");
+const APPLE_TOUCH_ICON_PNG: &[u8] = include_bytes!("../../../public/apple-touch-icon.png");
+const SITE_WEBMANIFEST: &[u8] = include_bytes!("../../../public/site.webmanifest");
 
 /// Cache-busting suffix appended to every static asset URL. Bump on a UI
 /// release so cached browsers see the new bytes.
-pub(crate) const STATIC_ASSET_VERSION: &str = "bench-v3-ui-22";
+pub(crate) const STATIC_ASSET_VERSION: &str = "bench-v3-ui-23";
 
 /// Append the cache-bust query param to a static asset URL.
 pub(crate) fn versioned_asset(path: &str) -> String {
@@ -50,6 +55,26 @@ pub(crate) async fn serve_vortex_black_png() -> impl IntoResponse {
 
 pub(crate) async fn serve_vortex_white_png() -> impl IntoResponse {
     static_response(VORTEX_WHITE_PNG, "image/png")
+}
+
+pub(crate) async fn serve_favicon_ico() -> impl IntoResponse {
+    static_response(FAVICON_ICO, "image/x-icon")
+}
+
+pub(crate) async fn serve_favicon_16_png() -> impl IntoResponse {
+    static_response(FAVICON_16_PNG, "image/png")
+}
+
+pub(crate) async fn serve_favicon_32_png() -> impl IntoResponse {
+    static_response(FAVICON_32_PNG, "image/png")
+}
+
+pub(crate) async fn serve_apple_touch_icon_png() -> impl IntoResponse {
+    static_response(APPLE_TOUCH_ICON_PNG, "image/png")
+}
+
+pub(crate) async fn serve_site_webmanifest() -> impl IntoResponse {
+    static_response(SITE_WEBMANIFEST, "application/manifest+json")
 }
 
 fn static_response(bytes: &'static [u8], content_type: &'static str) -> Response {

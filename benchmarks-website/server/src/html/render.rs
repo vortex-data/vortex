@@ -47,6 +47,7 @@ pub(super) fn render_page(
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 title { (title) }
+                (favicon_links())
                 (theme_bootstrap_script())
                 link rel="stylesheet" href=(style_href);
             }
@@ -66,6 +67,26 @@ pub(super) fn render_page(
                 }
             }
         }
+    }
+}
+
+/// Browser tab metadata: favicons (16 / 32 / .ico / apple-touch) + the
+/// PWA manifest. Mirrors v2's `index.html` so the v3 tab carries the
+/// same brand mark and home-screen icon. Files are served by
+/// [`super::static_assets`] from the v2 `public/` directory the
+/// `include_bytes!` calls reach into.
+fn favicon_links() -> Markup {
+    let favicon_ico = versioned_asset("/favicon.ico");
+    let favicon_16 = versioned_asset("/favicon-16x16.png");
+    let favicon_32 = versioned_asset("/favicon-32x32.png");
+    let apple_touch = versioned_asset("/apple-touch-icon.png");
+    let manifest = versioned_asset("/site.webmanifest");
+    html! {
+        link rel="icon" href=(favicon_ico) sizes="any";
+        link rel="icon" type="image/png" sizes="16x16" href=(favicon_16);
+        link rel="icon" type="image/png" sizes="32x32" href=(favicon_32);
+        link rel="apple-touch-icon" sizes="180x180" href=(apple_touch);
+        link rel="manifest" href=(manifest);
     }
 }
 
@@ -232,6 +253,7 @@ pub(super) fn error_page(status: StatusCode, message: &str) -> Response {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
                 title { (status.as_u16()) " — bench.vortex.dev" }
+                (favicon_links())
                 (theme_bootstrap_script())
                 link rel="stylesheet" href=(style_href);
             }

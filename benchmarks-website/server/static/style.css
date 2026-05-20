@@ -23,15 +23,19 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --bg: #050507;
-    --page-bg: #121219;
+    /* Elevation hierarchy mirrors v2: page background sits at the
+     * deeper colour, cards / dropdowns / toolbars rise to the lighter
+     * grey. The previous assignment had cards darker than the page,
+     * which read as overly contrasty dark voids on the landing grid. */
+    --bg: #121219;
+    --page-bg: #050507;
     --fg: #f5f5f7;
     --muted: #a0a0b0;
     --accent: #8a9cff;
     --accent-fg: #050507;
     --border: #30303a;
-    --card-bg: #050507;
-    --code-bg: #121219;
+    --card-bg: #121219;
+    --code-bg: #050507;
     --tooltip-bg: #1a1c22;
     --tooltip-fg: #f5f5f5;
     --good: #4ade80;
@@ -60,15 +64,17 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #050507;
-  --page-bg: #121219;
+  /* See the matching `@media (prefers-color-scheme: dark)` block above
+   * for the rationale on the --bg / --page-bg / --card-bg assignment. */
+  --bg: #121219;
+  --page-bg: #050507;
   --fg: #f5f5f7;
   --muted: #a0a0b0;
   --accent: #8a9cff;
   --accent-fg: #050507;
   --border: #30303a;
-  --card-bg: #050507;
-  --code-bg: #121219;
+  --card-bg: #121219;
+  --code-bg: #050507;
   --tooltip-bg: #1a1c22;
   --tooltip-fg: #f5f5f5;
   --good: #4ade80;
