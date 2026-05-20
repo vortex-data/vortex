@@ -208,6 +208,13 @@ enum LikeKind<'a> {
 
 impl<'a> LikeKind<'a> {
     fn parse(pattern: &'a [u8]) -> Option<Self> {
+        // The fast-path matchers below do not understand SQL LIKE escape sequences (e.g. `\%`
+        // matching a literal `%`). If the pattern contains a backslash we fall back to the
+        // general implementation, which correctly interprets escapes.
+        if pattern.contains(&b'\\') {
+            return None;
+        }
+
         // `prefix%` (including just `%` where prefix is empty)
         if let Some(prefix) = pattern.strip_suffix(b"%")
             && !prefix.contains(&b'%')
