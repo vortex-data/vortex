@@ -344,29 +344,24 @@ mod tests {
     use crate::ParquetVariant;
     use crate::array::ParquetVariantArrayExt;
 
-    type Roundtrip = fn(ArrayRef) -> VortexResult<ArrayRef>;
+    fn roundtrip(array: ArrayRef) -> VortexResult<ArrayRef> {
+        let dtype = array.dtype().clone();
+        let len = array.len();
 
-    #[fixture]
-    fn roundtrip() -> Roundtrip {
-        |array| {
-            let dtype = array.dtype().clone();
-            let len = array.len();
+        let session = VortexSession::empty().with::<ArraySession>();
+        session.arrays().register(ParquetVariant);
 
-            let session = VortexSession::empty().with::<ArraySession>();
-            session.arrays().register(ParquetVariant);
+        let ctx = ArrayContext::empty();
+        let serialized = array.serialize(&ctx, &session, &SerializeOptions::default())?;
 
-            let ctx = ArrayContext::empty();
-            let serialized = array.serialize(&ctx, &session, &SerializeOptions::default())?;
-
-            let mut concat = ByteBufferMut::empty();
-            for buf in serialized {
-                concat.extend_from_slice(buf.as_ref());
-            }
-            let concat = concat.freeze();
-
-            let parts = SerializedArray::try_from(concat)?;
-            parts.decode(&dtype, len, &ReadContext::new(ctx.to_ids()), &session)
+        let mut concat = ByteBufferMut::empty();
+        for buf in serialized {
+            concat.extend_from_slice(buf.as_ref());
         }
+        let concat = concat.freeze();
+
+        let parts = SerializedArray::try_from(concat)?;
+        parts.decode(&dtype, len, &ReadContext::new(ctx.to_ids()), &session)
     }
 
     #[fixture]
@@ -506,7 +501,7 @@ mod tests {
     }
 
     #[rstest]
-    fn test_serde_roundtrip_typed_value_variant(roundtrip: Roundtrip) -> VortexResult<()> {
+    fn test_serde_roundtrip_typed_value_variant() -> VortexResult<()> {
         let outer_metadata =
             VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
 
@@ -542,7 +537,7 @@ mod tests {
     }
 
     #[rstest]
-    fn test_serde_roundtrip_with_nullable_validity(roundtrip: Roundtrip) -> VortexResult<()> {
+    fn test_serde_roundtrip_with_nullable_validity() -> VortexResult<()> {
         let metadata =
             VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
         let value = VarBinViewArray::from_iter_bin([b"\x10", b"\x11", b"\x12"]).into_array();
@@ -563,7 +558,7 @@ mod tests {
     }
 
     #[rstest]
-    fn test_serde_roundtrip_typed_value_int32(roundtrip: Roundtrip) -> VortexResult<()> {
+    fn test_serde_roundtrip_typed_value_int32() -> VortexResult<()> {
         let outer_metadata =
             VarBinViewArray::from_iter_bin([b"\x01\x00", b"\x01\x00", b"\x01\x00"]).into_array();
         let typed_value = buffer![10i32, 20, 30].into_array();

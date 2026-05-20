@@ -16,6 +16,7 @@ use vortex_array::arrays::ListArray;
 use vortex_array::arrays::ListViewArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::Variant;
 use vortex_array::arrays::VariantArray;
 use vortex_array::arrays::extension::ExtensionArrayExt;
 use vortex_array::arrays::fixed_size_list::FixedSizeListArrayExt;
@@ -257,7 +258,14 @@ impl CascadingCompressor {
                     self.compress_physical_slots(variant_array.core_storage(), exec_ctx)?;
                 let shredded = variant_array
                     .shredded()
-                    .map(|arr| self.compress_physical_slots(arr, exec_ctx))
+                    .map(|arr| {
+                        // Avoid stack-overflow for variant shredded values
+                        if arr.is::<Variant>() {
+                            self.compress_physical_slots(arr, exec_ctx)
+                        } else {
+                            self.compress(arr, exec_ctx)
+                        }
+                    })
                     .transpose()?;
 
                 Ok(VariantArray::try_new(core_storage, shredded)?.into_array())
