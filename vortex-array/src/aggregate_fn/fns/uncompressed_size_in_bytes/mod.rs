@@ -305,6 +305,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
+    use vortex_mask::Mask;
 
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -320,12 +321,17 @@ mod tests {
     use crate::arrays::ChunkedArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
+    use crate::arrays::DictArray;
     use crate::arrays::ExtensionArray;
+    use crate::arrays::FilterArray;
     use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListArray;
     use crate::arrays::ListViewArray;
+    use crate::arrays::MaskedArray;
     use crate::arrays::NullArray;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::SharedArray;
+    use crate::arrays::SliceArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
@@ -486,6 +492,82 @@ mod tests {
         )
         .into_array()
         .slice(1..4)?;
+
+        assert_eq!(
+            aggregate(&array)?,
+            materialized_uncompressed_size_in_bytes(&array)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn variable_width_wrappers_match_materialized_size() -> VortexResult<()> {
+        let nullable_strings = || {
+            VarBinViewArray::from_iter_nullable_str([
+                Some("short"),
+                Some("a string that is longer than inline"),
+                None,
+                Some("omega"),
+            ])
+            .into_array()
+        };
+        let non_nullable_strings = || {
+            VarBinViewArray::from_iter_str([
+                "short",
+                "a string that is longer than inline",
+                "middle",
+                "omega",
+            ])
+            .into_array()
+        };
+
+        let cases = vec![
+            SliceArray::try_new(nullable_strings(), 1..4)?.into_array(),
+            FilterArray::try_new(
+                nullable_strings(),
+                Mask::from_iter([true, false, true, true]),
+            )?
+            .into_array(),
+            SharedArray::new(nullable_strings()).into_array(),
+            MaskedArray::try_new(
+                non_nullable_strings(),
+                Validity::from_iter([true, false, true, true]),
+            )?
+            .into_array(),
+        ];
+
+        for array in cases {
+            assert_eq!(
+                aggregate(&array)?,
+                materialized_uncompressed_size_in_bytes(&array)
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn dict_string_values_match_materialized_size() -> VortexResult<()> {
+        let codes = buffer![0u8, 1, 1, 2, 0].into_array();
+        let values = VarBinViewArray::from_iter_str([
+            "short",
+            "a string that is longer than inline",
+            "omega",
+        ])
+        .into_array();
+        let array = DictArray::try_new(codes, values)?.into_array();
+
+        assert_eq!(
+            aggregate(&array)?,
+            materialized_uncompressed_size_in_bytes(&array)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn dict_u64_values_match_materialized_size() -> VortexResult<()> {
+        let codes = buffer![0u8, 2, 1, 2, 0].into_array();
+        let values = buffer![10u64, 20, 30].into_array();
+        let array = DictArray::try_new(codes, values)?.into_array();
 
         assert_eq!(
             aggregate(&array)?,

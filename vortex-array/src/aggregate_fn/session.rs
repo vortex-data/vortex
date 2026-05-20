@@ -28,7 +28,6 @@ use crate::aggregate_fn::fns::min_max::MinMax;
 use crate::aggregate_fn::fns::nan_count::NanCount;
 use crate::aggregate_fn::fns::null_count::NullCount;
 use crate::aggregate_fn::fns::sum::Sum;
-use crate::aggregate_fn::fns::uncompressed_size_in_bytes::FixedWidthUncompressedSizeInBytesKernel;
 use crate::aggregate_fn::fns::uncompressed_size_in_bytes::UncompressedSizeInBytes;
 use crate::aggregate_fn::kernels::DynAggregateKernel;
 use crate::aggregate_fn::kernels::DynGroupedAggregateKernel;
@@ -37,17 +36,13 @@ use crate::array::ArrayId;
 use crate::array::VTable;
 use crate::arrays::Chunked;
 use crate::arrays::Dict;
-use crate::arrays::Filter;
 use crate::arrays::List;
-use crate::arrays::Masked;
-use crate::arrays::Patched;
-use crate::arrays::Shared;
-use crate::arrays::Slice;
 use crate::arrays::VarBin;
 use crate::arrays::chunked::compute::aggregate::ChunkedArrayAggregate;
 use crate::arrays::dict::compute::is_constant::DictIsConstantKernel;
 use crate::arrays::dict::compute::is_sorted::DictIsSortedKernel;
 use crate::arrays::dict::compute::min_max::DictMinMaxKernel;
+use crate::arrays::dict::compute::uncompressed_size::DictUncompressedSizeInBytesKernel;
 use crate::arrays::list::compute::uncompressed_size::ListUncompressedSizeInBytesKernel;
 use crate::arrays::varbin::compute::uncompressed_size::VarBinUncompressedSizeInBytesKernel;
 
@@ -112,37 +107,12 @@ impl Default for AggregateFnSession {
         this.register_aggregate_kernel(
             Dict.id(),
             Some(UncompressedSizeInBytes.id()),
-            &FixedWidthUncompressedSizeInBytesKernel,
-        );
-        this.register_aggregate_kernel(
-            Filter.id(),
-            Some(UncompressedSizeInBytes.id()),
-            &FixedWidthUncompressedSizeInBytesKernel,
+            &DictUncompressedSizeInBytesKernel,
         );
         this.register_aggregate_kernel(
             List.id(),
             Some(UncompressedSizeInBytes.id()),
             &ListUncompressedSizeInBytesKernel,
-        );
-        this.register_aggregate_kernel(
-            Masked.id(),
-            Some(UncompressedSizeInBytes.id()),
-            &FixedWidthUncompressedSizeInBytesKernel,
-        );
-        this.register_aggregate_kernel(
-            Patched.id(),
-            Some(UncompressedSizeInBytes.id()),
-            &FixedWidthUncompressedSizeInBytesKernel,
-        );
-        this.register_aggregate_kernel(
-            Shared.id(),
-            Some(UncompressedSizeInBytes.id()),
-            &FixedWidthUncompressedSizeInBytesKernel,
-        );
-        this.register_aggregate_kernel(
-            Slice.id(),
-            Some(UncompressedSizeInBytes.id()),
-            &FixedWidthUncompressedSizeInBytesKernel,
         );
         this.register_aggregate_kernel(
             VarBin.id(),

@@ -11,6 +11,7 @@ mod mask;
 pub(crate) mod min_max;
 pub(crate) mod rules;
 mod slice;
+pub(crate) mod uncompressed_size;
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
