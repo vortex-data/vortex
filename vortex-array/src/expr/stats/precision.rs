@@ -22,17 +22,12 @@ use crate::scalar::ScalarValue;
 /// This is statistic specific, for max this will be an upper bound. Meaning that the actual max
 /// in an array is guaranteed to be less than or equal to the inexact value, but equal to the exact
 /// value.
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Default, Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Precision<T> {
     Exact(T),
     Inexact(T),
+    #[default]
     Absent,
-}
-
-impl<T> Default for Precision<T> {
-    fn default() -> Self {
-        Self::Absent
-    }
 }
 
 impl<T> Precision<Option<T>> {

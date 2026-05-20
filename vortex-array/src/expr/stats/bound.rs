@@ -248,7 +248,7 @@ impl<T: PartialOrd> PartialOrd<T> for UpperBound<T> {
                     Some(o)
                 }
             }),
-            Absent => return None,
+            Absent => None,
         }
     }
 }
