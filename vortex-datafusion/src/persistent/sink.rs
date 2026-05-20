@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::sync::Arc;
 
 use arrow_schema::SchemaRef;
@@ -69,10 +68,6 @@ impl DisplayAs for VortexSink {
 
 #[async_trait]
 impl DataSink for VortexSink {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn metrics(&self) -> Option<MetricsSet> {
         None
     }
