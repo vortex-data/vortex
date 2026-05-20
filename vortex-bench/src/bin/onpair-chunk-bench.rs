@@ -70,8 +70,9 @@ enum Command {
         /// OnPair training thresholds.
         #[arg(long, value_delimiter = ',', default_value = "0.2")]
         threshold: Vec<f64>,
-        /// Whether to delta-encode the offset children before compression.
-        /// Pass `true,false` to benchmark both.
+        /// Whether to consider delta-encoding the offset children (keeping the
+        /// smaller of compressor-only vs delta+compressor per child, so it
+        /// never regresses). Pass `true,false` to benchmark both.
         #[arg(long, value_delimiter = ',', default_value = "true,false")]
         delta_offsets: Vec<bool>,
         /// Raw-payload sample cap (default ~1GB).

@@ -82,8 +82,9 @@ pub struct CellResult {
     pub bits: u32,
     /// OnPair training threshold.
     pub threshold: f64,
-    /// Whether the monotonic offset children were delta-encoded before
-    /// compression ("delta + compressor") or compressed directly.
+    /// Whether delta-encoding was considered for the monotonic offset children.
+    /// When set, each offset child is kept as the smaller of {compressor-only,
+    /// delta + compressor}, so it can never regress vs compressor-only.
     pub delta_offsets: bool,
     /// Per-chunk uncompressed byte budget.
     pub chunk_bytes: u64,
@@ -324,19 +325,21 @@ fn compress_onpair_children(
     )?)
 }
 
-/// Compress a monotonic offset child. When `delta` is set, the child is first
-/// FastLanes delta-encoded (a reversible `DeltaArray` that canonicalizes back
-/// to the original offsets), and its `bases`/`deltas` children are then run
-/// through the compressor — "delta + compressor". Otherwise the raw offsets go
-/// straight to the compressor — "compressor only".
+/// Compress a monotonic offset child. The plain path runs the child straight
+/// through the compressor. When `delta` is set, the child is *also* FastLanes
+/// delta-encoded (a reversible `DeltaArray` that canonicalizes back to the
+/// original offsets) with its `bases`/`deltas` children compressed, and the
+/// **smaller of the two** is kept — so enabling delta can only shrink a child,
+/// never regress it.
 fn compress_offsets(
     child: &ArrayRef,
     delta: bool,
     compressor: &BtrBlocksCompressor,
     ctx: &mut ExecutionCtx,
 ) -> Result<ArrayRef> {
+    let plain = compressor.compress(child, ctx)?;
     if !delta {
-        return Ok(compressor.compress(child, ctx)?);
+        return Ok(plain);
     }
     let prim = child.clone().execute::<PrimitiveArray>(ctx)?;
     let len = prim.len();
@@ -345,7 +348,14 @@ fn compress_offsets(
         .children();
     let bases = compressor.compress(&children[0], ctx)?;
     let deltas = compressor.compress(&children[1], ctx)?;
-    Ok(Delta::try_new(bases, deltas, 0, len)?.into_array())
+    let delta_arr = Delta::try_new(bases, deltas, 0, len)?.into_array();
+    // Keep whichever is smaller in memory (a faithful proxy for on-disk, since
+    // the OnPair tree is written as-is).
+    Ok(if delta_arr.nbytes() < plain.nbytes() {
+        delta_arr
+    } else {
+        plain
+    })
 }
 
 /// Run the full `bits × chunk_bytes × threshold × delta_offsets` matrix for one
