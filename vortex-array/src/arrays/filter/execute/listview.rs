@@ -55,18 +55,7 @@ pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) 
     // - Offsets and sizes are derived from existing valid child arrays.
     // - Offsets and sizes have the same length (both filtered by `selection_mask`).
     // - Validity matches the filtered array's nullability.
-    let new_array = unsafe {
-        ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
-    };
-
-    let kept_row_fraction = selection_mask.true_count() as f32 / array.sizes().len() as f32;
-    if kept_row_fraction < listview::compute::REBUILD_DENSITY_THRESHOLD {
-        new_array
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
-            .vortex_expect("ListViewArray rebuild to zero-copy List should always succeed")
-    } else {
-        new_array
-    }
+    unsafe { ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity) }
 }
 
 #[cfg(test)]
