@@ -11,10 +11,10 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrays::ListView;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::listview::ListViewDataParts;
+use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::arrow::session::ArrowSessionExt;
 use crate::builtins::ArrayBuiltins;
@@ -27,15 +27,16 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
-    // Check for Vortex ListViewArray and convert directly.
-    let array = match array.try_downcast::<ListView>() {
-        Ok(array) => return list_view_to_list_view::<O>(array, elements_field, ctx),
-        Err(array) => array,
+    let array = array.execute::<ListViewArray>(ctx)?;
+
+    // If array is sparse, rebuild before handing it to Arrow
+    let array = if array.should_rebuild(false, ctx)? {
+        array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
+    } else {
+        array
     };
 
-    // Otherwise, we execute to ListViewArray and convert.
-    let list_view_array = array.execute::<ListViewArray>(ctx)?;
-    list_view_to_list_view::<O>(list_view_array, elements_field, ctx)
+    list_view_to_list_view::<O>(array, elements_field, ctx)
 }
 
 fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
