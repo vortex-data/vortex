@@ -636,13 +636,15 @@ fn run_select_in_transaction(conn: &Connection, sql: &str) -> Result<QueryResult
 /// column are a misuse but not a reason to fail the request; the lossy
 /// replacement (U+FFFD) surfaces so the caller can see something is wrong.
 ///
-/// `Decimal` and `Timestamp` are rendered explicitly (decimal via Display,
-/// timestamp via RFC 3339 from the (`TimeUnit`, `i64`) tuple) so they round
-/// trip as human-readable strings instead of Rust enum-variant Debug
-/// output. Other compound types (`List`, `Struct`, `Array`, `Map`, `Union`,
-/// `Enum`) are rare in this database's schema; they fall back to a
-/// best-effort Debug rendering tagged with the type name so the caller can
-/// see something printable and we can extend this match when we hit one.
+/// `Decimal` is rendered via its Display impl. `Timestamp` is rendered as
+/// `<unit>:<raw>` (one of `s|ms|us|ns:<count-since-epoch>`) so it
+/// round-trips through JSON unambiguously without pulling chrono / time
+/// in as a dependency; consumers that want a human-readable ISO-8601
+/// can post-process the string. Other compound types (`List`, `Struct`,
+/// `Array`, `Map`, `Union`, `Enum`) are rare in this database's schema;
+/// they fall back to a best-effort Debug rendering tagged with the type
+/// name so the caller can see something printable and we can extend
+/// this match when we hit one.
 fn value_ref_to_json(v: ValueRef<'_>) -> Value {
     use duckdb::types::TimeUnit;
     match v {

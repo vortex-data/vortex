@@ -144,8 +144,8 @@ $ git -C ~/vortex remote set-url origin https://github.com/vortex-data/vortex.gi
 $ ./benchmarks-website/ops/install.sh
 ```
 
-This is idempotent. It creates `/var/lib/vortex-bench/` and `/var/log/vortex-bench/` owned by
-`ec2-user`, drops a sudoers fragment at `/etc/sudoers.d/vortex-bench`, copies
+This is idempotent. It creates `/var/lib/vortex-bench/` owned by `ec2-user` (logs go to
+journalctl, not to a file), drops a sudoers fragment at `/etc/sudoers.d/vortex-bench`, copies
 `/etc/vortex-bench.env` from the template (mode 0600), symlinks `/var/lib/vortex-bench/ops` to the
 repo's `ops/`, and installs the systemd units.
 
@@ -234,14 +234,17 @@ prefixed with `[deploy <UTC-ts>]`. Look for these milestones (paraphrased; the l
 to grep are bolded):
 
 - **`building <7-char-sha> (was <prev>)`** -- cargo build starts.
-- **`swapped symlink ->`** -- atomic binary swap landed; the next /health probe is imminent.
-- **`deploy ok: <7-char-sha> -> live (binary <ts>)`** -- /health passed and the deploy committed
+- **`swapped symlink →`** -- atomic binary swap landed; the next /health probe is imminent.
+  (The arrow is the literal Unicode `→` deploy.sh emits, not ASCII `->`.)
+- **`deploy ok: <7-char-sha> → live (binary <ts>)`** -- /health passed and the deploy committed
   the stamp. This is the success line.
 
 `Ctrl-C` out of `journalctl` once the `deploy ok:` line appears. If a deploy fails it will exit
-with one of the codes documented at the bottom of [`README.md`](README.md#failure-modes-conceptual)
-(1 lock contention, 2 git fetch, 3 git rev-parse, 4 cargo build, 5 systemctl restart, 6 /health
-failed but rolled back OK, 7 /health failed AND rollback also broken -- server is down).
+with one of the exit codes documented at the head of [`deploy.sh`](deploy.sh) and surfaced row
+by row in [the symptom table](#what-to-do-if-a-step-fails) below: 1 lock contention, 2 config
+error, 3 git fetch or checkout, 4 cargo build, 5 systemctl restart (with rollback re-probed),
+6 /health failed but rolled back OK, 7 /health failed AND rollback also broken -- server is
+down.
 
 ## Phase 6: Verify the server is up
 

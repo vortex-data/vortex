@@ -714,6 +714,37 @@ mod tests {
         Ok(())
     }
 
+    /// `accepts_encoding` rejects malformed q-values (parse failure, out
+    /// of range, non-finite). Previously the parser treated every
+    /// non-numeric q-value as `true` (accept), which was non-conformant
+    /// in the opposite direction from the original q=0 bug.
+    #[test]
+    fn accepts_encoding_rejects_malformed_q_values() {
+        // Malformed numeric inputs: not a number, empty, out of range,
+        // non-finite. Each should reject the encoding.
+        for raw in [
+            "gzip;q=foo",
+            "gzip;q=",
+            "gzip;q=2",
+            "gzip;q=1.5",
+            "gzip;q=-0.1",
+            "gzip;q=NaN",
+            "gzip;q=inf",
+        ] {
+            assert!(
+                !accepts_encoding(raw, "gzip"),
+                "should reject malformed q-value: {raw:?}"
+            );
+        }
+        // Valid edge q-values still accepted.
+        for raw in ["gzip", "gzip;q=1", "gzip;q=1.0", "gzip;q=0.001"] {
+            assert!(
+                accepts_encoding(raw, "gzip"),
+                "should accept valid q-value: {raw:?}"
+            );
+        }
+    }
+
     #[test]
     fn encoded_artifact_returns_304_for_matching_etag() -> Result<()> {
         let artifact = EncodedArtifact::new("abc123", br#"{"ok":true}"#.to_vec())?;

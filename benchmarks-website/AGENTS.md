@@ -33,9 +33,11 @@ The operator runbook is [`ops/README.md`](ops/README.md).
   lockstep or every CI ingest run 400s. The server-side validation in
   `records.rs` + `ingest.rs` and the echo in `/health` all consume the
   constant through `crate::schema`.
-- **Numeric `?n=` is clamped to 1000; `?n=all` is uncapped.** The HTML
-  routes still default to `?n=all` (the no-server-side-cap commitment for
-  the default path is honored). The numeric path is bounded by
+- **Numeric `?n=` is clamped to 1000; `?n=all` is the uncapped escape
+  hatch.** HTML routes hydrate from the materialized latest-100 shard
+  artifact by default; `?n=all` is an explicit opt-in
+  (chart-init.js's full-history zoom-out hop uses it once, and curl
+  power users can request it). The numeric `?n=` path is bounded by
   `MAX_NUMERIC_COMMIT_WINDOW` in [`server/src/api/window.rs`](server/src/api/window.rs)
   as a DoS-protection floor against `curl ...?n=99999999`. If you need
   full history, use `?n=all`. Do NOT raise the numeric cap or remove it
@@ -58,10 +60,12 @@ The operator runbook is [`ops/README.md`](ops/README.md).
   develop push now fails the bench workflow and triggers the existing
   `incident.io` alert. The gate is `vars.V3_INGEST_URL != ''` so forks
   and unconfigured environments are unaffected.
-- **Don't re-introduce a server-side commit cap on `?n=all`.** The HTML
-  routes default to `?n=all`; visual downsampling happens client-side via
-  LTTB on the visible commit range only. Numeric `?n=` is clamped per the
-  bullet above; the unbounded path is `?n=all`.
+- **Don't re-introduce a server-side commit cap on `?n=all`.** `?n=all`
+  is the uncapped escape hatch (chart-init.js fetches it once for the
+  zoom-out path); visual downsampling happens client-side via LTTB on
+  the visible commit range only. Numeric `?n=` is clamped per the bullet
+  above. Default fetches from chart-init.js use the materialized
+  latest-100 shard artifact, not `?n=all`.
 - **Don't refetch on every scope change.** Once a chart's payload is in
   memory, pan/zoom/slider/range-strip all rebuild in place via the
   in-memory LTTB pass on the cached payload. The single exception is the

@@ -327,4 +327,31 @@ mod tests {
         let a: SocketAddr = "127.0.0.1:3000".parse().unwrap();
         ensure_distinct_binds(p, a).expect_err("identical binds must be rejected");
     }
+
+    #[test]
+    fn unspecified_v4_collides_with_loopback_same_port() {
+        // The motivating case for the cycle-1 ensure_distinct_binds fix:
+        // public on 0.0.0.0:3000 + admin on 127.0.0.1:3000 would silently
+        // bind to overlapping ports; the OS would EADDRINUSE at bind time
+        // with no actionable diagnostic. Catch it pre-bind.
+        let p: SocketAddr = "0.0.0.0:3000".parse().unwrap();
+        let a: SocketAddr = "127.0.0.1:3000".parse().unwrap();
+        ensure_distinct_binds(p, a)
+            .expect_err("0.0.0.0:3000 + 127.0.0.1:3000 must be rejected as a port-collision");
+    }
+
+    #[test]
+    fn unspecified_v4_different_port_from_loopback_passes() {
+        let p: SocketAddr = "0.0.0.0:3000".parse().unwrap();
+        let a: SocketAddr = "127.0.0.1:3001".parse().unwrap();
+        ensure_distinct_binds(p, a).expect("distinct ports must not be rejected");
+    }
+
+    #[test]
+    fn unspecified_v6_collides_with_v6_loopback_same_port() {
+        let p: SocketAddr = "[::]:3000".parse().unwrap();
+        let a: SocketAddr = "[::1]:3000".parse().unwrap();
+        ensure_distinct_binds(p, a)
+            .expect_err("[::]:3000 + [::1]:3000 must be rejected as a port-collision");
+    }
 }

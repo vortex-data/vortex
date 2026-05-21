@@ -249,7 +249,7 @@ async fn chart_page_window_caps_commits() -> Result<()> {
     // integration test sanity-checks the round-trip on a small fixture: the
     // clamp is well above the fixture's 3 commits, so the visible count
     // matches the default response. The contract is "clamp is applied;
-    // huge_count is &lt;= MAX_NUMERIC_COMMIT_WINDOW AND equals
+    // huge_count is <= MAX_NUMERIC_COMMIT_WINDOW AND equals
     // min(MAX_NUMERIC_COMMIT_WINDOW, full_count)" rather than the prior
     // tautological `huge_count == full_count`.
     let huge: Value = client

@@ -140,7 +140,18 @@ echo "ERROR: server did not respond on /health within 30s" >&2
 # broken/half-migrated binary against the new DB, and the rollback `mv`
 # below races against the still-open file handle (on Linux the mv
 # succeeds but the live server keeps writing to the unlinked inode).
-sudo /bin/systemctl stop vortex-bench-server || true
+# Do NOT swallow a `systemctl stop` failure with `|| true` here: if the
+# stop fails (mid-procedure sudoers regression, systemd bus stuck), the
+# rollback `mv` below races a still-running server and the operator
+# corrupts the prev DB by following the printed instructions verbatim.
+# Bail loudly so the operator fixes the stop path before any mv.
+if ! sudo /bin/systemctl stop vortex-bench-server; then
+    echo "CRITICAL: 'sudo systemctl stop vortex-bench-server' failed." >&2
+    echo "  Do NOT run the rollback mv lines below until the server is" >&2
+    echo "  verifiably stopped (check 'systemctl status vortex-bench-server')." >&2
+    echo "  The autopilot timers stay paused; debug the stop first." >&2
+    exit 4
+fi
 echo "  server stopped. Roll back:" >&2
 echo "    mv \"$prev\" \"$VORTEX_BENCH_DB\"" >&2
 echo "    [ -f \"${prev}.wal\" ] && mv \"${prev}.wal\" \"${VORTEX_BENCH_DB}.wal\" || true" >&2

@@ -186,6 +186,88 @@ async fn admin_sql_allows_single_trailing_semicolon() -> Result<()> {
     Ok(())
 }
 
+/// `validate_read_only` / `ensure_single_statement` skip leading and
+/// trailing SQL comments (both `-- line` and `/* block */`) without
+/// confusing them for additional statements. Regression test for the
+/// cycle-1 fix that added the `skip_leading_noise` helper.
+#[tokio::test]
+async fn admin_sql_accepts_leading_line_comment() -> Result<()> {
+    let server = Server::start_with_admin().await?;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(server.admin_url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({ "sql": "-- justify the call\nSELECT 1 AS x" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    assert_eq!(body["rows"], json!([[1]]));
+    Ok(())
+}
+
+#[tokio::test]
+async fn admin_sql_accepts_leading_block_comment() -> Result<()> {
+    let server = Server::start_with_admin().await?;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(server.admin_url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({ "sql": "/* note */ SELECT 1 AS x" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    assert_eq!(body["rows"], json!([[1]]));
+    Ok(())
+}
+
+#[tokio::test]
+async fn admin_sql_accepts_trailing_line_comment_after_semicolon() -> Result<()> {
+    let server = Server::start_with_admin().await?;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(server.admin_url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({ "sql": "SELECT 1 AS x; -- trailing note\n" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    assert_eq!(body["rows"], json!([[1]]));
+    Ok(())
+}
+
+#[tokio::test]
+async fn admin_sql_accepts_trailing_block_comment_after_semicolon() -> Result<()> {
+    let server = Server::start_with_admin().await?;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(server.admin_url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({ "sql": "SELECT 1 AS x; /* trailing note */" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let body: Value = resp.json().await?;
+    assert_eq!(body["rows"], json!([[1]]));
+    Ok(())
+}
+
+#[tokio::test]
+async fn admin_sql_rejects_second_statement_after_comment() -> Result<()> {
+    let server = Server::start_with_admin().await?;
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(server.admin_url("/api/admin/sql"))
+        .bearer_auth(ADMIN_TOKEN)
+        .json(&json!({ "sql": "SELECT 1; /* a */ SELECT 2" }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 403);
+    Ok(())
+}
+
 #[tokio::test]
 async fn admin_sql_allows_semicolon_inside_string_literal() -> Result<()> {
     let server = Server::start_with_admin().await?;
