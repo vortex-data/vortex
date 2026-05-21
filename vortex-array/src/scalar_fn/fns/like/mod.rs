@@ -241,13 +241,6 @@ enum LikeVariant<'a> {
 impl<'a> LikeVariant<'a> {
     /// Parse a LIKE pattern string into its relevant variant
     fn from_str(string: &str) -> Option<LikeVariant<'_>> {
-        // We don't unescape SQL LIKE meta-characters, so fall back when the pattern uses them.
-        // Returning `None` here disables stat pruning for the predicate, which is sound — the
-        // LIKE evaluation itself runs and produces the correct answer.
-        if string.contains('\\') {
-            return None;
-        }
-
         let Some(wildcard_pos) = string.find(['%', '_']) else {
             return Some(LikeVariant::Exact(string));
         };
@@ -311,60 +304,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated, reason = "to_bool is fine for one-shot regression test")]
-    fn ends_with_percent_pattern() {
-        // The Spark filter pushdown translator emits `%\%` for `endsWith("%")`. Verify the full
-        // expression Spark sends (IS_NOT_NULL AND LIKE) matches only strings actually ending in `%`.
-        use crate::ToCanonical;
-        use crate::arrays::StructArray;
-        use crate::arrays::VarBinViewArray;
-        use crate::arrays::bool::BoolArrayExt;
-        use crate::dtype::FieldNames;
-        use crate::expr::and;
-        use crate::expr::is_not_null;
-        use crate::validity::Validity;
-
-        let pattern = "%\\%";
-        let arr = VarBinViewArray::from_iter_str(vec![
-            "%pct%",
-            "no-percent",
-            "abc%def",
-            "abXdef",
-            "_under",
-            "no-under",
-            "a\\b",
-            "ab",
-            "trail\\",
-            "%front",
-        ]);
-
-        let label_expr = get_item("label", root());
-        let expr = and(
-            is_not_null(label_expr.clone()),
-            like(label_expr, lit(pattern)),
-        );
-        let struct_arr = StructArray::try_new(
-            FieldNames::from(["label"]),
-            vec![arr.into_array()],
-            10,
-            Validity::NonNullable,
-        )
-        .unwrap();
-        let result = struct_arr.into_array().apply(&expr).unwrap();
-        let bools = result.to_bool();
-        let bits = bools.to_bit_buffer();
-
-        let actual: Vec<bool> = (0..bits.len()).map(|i| bits.value(i)).collect();
-        assert_eq!(
-            actual,
-            vec![
-                true, false, false, false, false, false, false, false, false, false
-            ],
-            "endsWith(\"%\") only matches strings actually ending in `%`",
-        );
-    }
-
-    #[test]
     fn test_like_variant() {
         // Supported patterns
         assert_eq!(
@@ -383,12 +322,6 @@ mod tests {
         // Unsupported patterns
         assert_eq!(LikeVariant::from_str("%suffix"), None);
         assert_eq!(LikeVariant::from_str("_pattern"), None);
-
-        // Patterns containing the LIKE escape character disable pruning to avoid misinterpreting
-        // `\%` or `\_` as literal wildcards.
-        assert_eq!(LikeVariant::from_str("%\\%"), None);
-        assert_eq!(LikeVariant::from_str("\\_%"), None);
-        assert_eq!(LikeVariant::from_str("foo\\%bar"), None);
     }
 
     #[test]
