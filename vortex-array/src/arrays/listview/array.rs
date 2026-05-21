@@ -466,7 +466,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     /// Returns `Ok(1.0)` when `elements` is empty.
     fn estimate_density(&self, ctx: &mut ExecutionCtx) -> VortexResult<f32> {
         let n_elts = self.elements().len();
-        if self.elements().is_empty() {
+        if n_elts == 0 {
             return Ok(1.0);
         }
 
