@@ -9,9 +9,7 @@ use vortex_mask::MaskValues;
 
 use crate::arrays::ListViewArray;
 use crate::arrays::filter::execute::filter_validity;
-use crate::arrays::listview;
 use crate::arrays::listview::ListViewArrayExt;
-use crate::arrays::listview::ListViewRebuildMode;
 
 /// [`ListViewArray`] filter implementation.
 ///
