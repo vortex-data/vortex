@@ -91,15 +91,15 @@ fn overlap_differential_exact_lower_than_estimate() -> VortexResult<()> {
 }
 
 #[test]
-fn empty_elements_returns_zero() -> VortexResult<()> {
+fn empty_elements_returns_one() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_empty_elements_listview();
 
     let exact = lv.compute_density(&mut ctx)?;
     let est = lv.estimate_density(&mut ctx)?;
 
-    assert!(exact.abs() < EPS);
-    assert!(est.abs() < EPS);
+    assert!((exact - 1.0).abs() < EPS);
+    assert!((est - 1.0).abs() < EPS);
     Ok(())
 }
 
