@@ -13,6 +13,8 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::listview::DEFAULT_REBUILD_DENSITY_THRESHOLD;
+use crate::arrays::listview::ListViewArrayExt;
 use crate::arrays::listview::ListViewDataParts;
 use crate::arrays::listview::ListViewRebuildMode;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
@@ -29,8 +31,11 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
 ) -> VortexResult<arrow_array::ArrayRef> {
     let array = array.execute::<ListViewArray>(ctx)?;
 
-    // If array is sparse, rebuild before handing it to Arrow
-    let array = if array.should_rebuild(false, ctx)? {
+    // If the array is sufficiently sparse, rebuild before handing it to Arrow. Otherwise downstream
+    // consumers hold an elements buffer containing unreferenced data in memory indefinitely,
+    // and any compute pass over that buffer wastes work on data nothing references.
+    let density = array.estimate_density(ctx)?;
+    let array = if density < DEFAULT_REBUILD_DENSITY_THRESHOLD {
         array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
     } else {
         array

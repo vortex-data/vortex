@@ -407,16 +407,13 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     /// Walks every `(offset, size)` pair, canonicalizes both `offsets` and `sizes`,
     /// and allocates a `BitBuffer` of length `elements.len()`, so it is extremely costly.
     ///
-    /// Returns `Ok(None)` when `elements` is empty.
-    #[allow(clippy::cognitive_complexity, clippy::unnecessary_fallible_conversions)]
-    fn compute_referenced_elements_mask(
-        &self,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Mask>> {
+    /// **Preconditions**
+    ///
+    /// Assumes that `self.elements()` is non-empty.
+    #[allow(clippy::cognitive_complexity)]
+    fn compute_referenced_elements_mask(&self, ctx: &mut ExecutionCtx) -> VortexResult<Mask> {
+        debug_assert!(!self.elements().is_empty());
         let len = self.elements().len();
-        if len == 0 {
-            return Ok(None);
-        }
 
         let offsets_primitive = self.offsets().clone().execute::<PrimitiveArray>(ctx)?;
         let sizes_primitive = self.sizes().clone().execute::<PrimitiveArray>(ctx)?;
@@ -430,29 +427,35 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
                 let sizes_slice = sizes_primitive.as_slice::<S>();
 
                 for i in 0..offset_len {
-                    let start =
-                        usize::try_from(offsets_slice[i]).vortex_expect("offset must fit in usize");
-                    let size =
-                        usize::try_from(sizes_slice[i]).vortex_expect("size must fit in usize");
+                    let start: usize = offsets_slice[i].as_();
+                    let size: usize = sizes_slice[i].as_();
                     buf.fill_range(start, start + size, true);
                 }
             })
         });
 
-        Ok(Some(Mask::from_buffer(buf.freeze())))
+        Ok(Mask::from_buffer(buf.freeze()))
     }
 
     /// Exact fraction of `elements` referenced by some view, in `[0.0, 1.0]`. Extremely costly.
     ///
-    /// Returns `Ok(None)` when `elements` is empty.
-    fn compute_density(&self, ctx: &mut ExecutionCtx) -> VortexResult<Option<f32>> {
-        Ok(self
-            .compute_referenced_elements_mask(ctx)?
-            .map(|mask| match mask {
-                Mask::AllTrue(_) => 1.0,
-                Mask::AllFalse(_) => 0.0,
-                Mask::Values(values) => values.true_count() as f32 / self.elements().len() as f32,
-            }))
+    /// Returns `Ok(1.0)` when `elements` is empty.
+    fn compute_density(&self, ctx: &mut ExecutionCtx) -> VortexResult<f32> {
+        if self.elements().is_empty() {
+            return Ok(1.0);
+        }
+
+        if self.sizes().is_empty() {
+            return Ok(0.0);
+        }
+
+        let density = match self.compute_referenced_elements_mask(ctx)? {
+            Mask::AllTrue(_) => 1.0,
+            Mask::AllFalse(_) => 0.0,
+            Mask::Values(values) => values.true_count() as f32 / self.elements().len() as f32,
+        };
+
+        Ok(density)
     }
 
     /// Upper-bound estimate of [`compute_density`](Self::compute_density) via
@@ -460,19 +463,19 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
     ///
     /// Exact for non-overlapping views, but overcounts when multiple views share the same elements.
     ///
-    /// Returns `Ok(None)` when `elements` is empty.
-    fn estimate_density(&self, ctx: &mut ExecutionCtx) -> VortexResult<Option<f32>> {
+    /// Returns `Ok(1.0)` when `elements` is empty.
+    fn estimate_density(&self, ctx: &mut ExecutionCtx) -> VortexResult<f32> {
         let n_elts = self.elements().len();
-        if n_elts == 0 {
-            return Ok(None);
+        if self.elements().is_empty() {
+            return Ok(1.0);
         }
 
         let sizes = self.sizes();
         if sizes.is_empty() {
-            return Ok(Some(0.0));
+            return Ok(0.0);
         }
 
-        // compute_stat short-circuits on a cached exact Sum and otherwise computes-and-caches.
+        // compute_stat short-circuits on a cached exact Sum and otherwise computes
         let sizes_sum = sizes
             .statistics()
             .compute_stat(Stat::Sum, ctx)?
@@ -481,9 +484,11 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             .as_::<u64>()
             .ok_or_else(|| vortex_err!("could not cast sum of sizes to u64"))?;
 
-        let estimate = (sizes_sum as f32 / n_elts as f32).clamp(0.0, 1.0);
+        let estimate = (sizes_sum as f32 / n_elts as f32).min(1.0);
 
-        Ok(Some(estimate))
+        debug_assert!(estimate >= 0.0);
+
+        Ok(estimate)
     }
 }
 impl<T: TypedArrayRef<ListView>> ListViewArrayExt for T {}

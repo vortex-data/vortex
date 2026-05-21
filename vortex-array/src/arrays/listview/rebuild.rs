@@ -6,7 +6,6 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 #[expect(deprecated)]
@@ -31,7 +30,10 @@ use crate::scalar_fn::fns::operators::Operator;
 /// A `ListViewArray` can accumulate unreferenced bytes in its `elements` buffer after
 /// metadata-only operations like `take` and `filter`. When density (referenced fraction of `elements`)
 /// falls below this threshold, the benefits of a rebuild may outweigh its cost.
-const REBUILD_DENSITY_THRESHOLD: f32 = 0.1;
+///
+/// This is a somewhat arbitrary rule-of-thumb and may be suboptimal depending on different use cases and
+/// list element dtypes.
+pub const DEFAULT_REBUILD_DENSITY_THRESHOLD: f32 = 0.1;
 
 /// Modes for rebuilding a [`ListViewArray`].
 pub enum ListViewRebuildMode {
@@ -383,16 +385,6 @@ impl ListViewArray {
             // any leading and trailing garbage data.
             self.rebuild_zero_copy_to_list()
         }
-    }
-
-    pub fn should_rebuild(&self, exact: bool, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
-        let density = if exact {
-            self.compute_density(ctx)?
-        } else {
-            self.estimate_density(ctx)?
-        };
-
-        Ok(density.unwrap_or(1.0) < REBUILD_DENSITY_THRESHOLD)
     }
 }
 

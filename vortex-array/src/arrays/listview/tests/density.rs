@@ -33,8 +33,8 @@ fn test_execution_ctx() -> ExecutionCtx {
 fn full_density_no_overlap() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_basic_listview();
-    let exact = lv.compute_density(&mut ctx)?.expect("non-empty elements");
-    let est = lv.estimate_density(&mut ctx)?.expect("non-empty elements");
+    let exact = lv.compute_density(&mut ctx)?;
+    let est = lv.estimate_density(&mut ctx)?;
 
     assert!((exact - 1.0).abs() < EPS);
     assert!((est - 1.0).abs() < EPS);
@@ -45,8 +45,8 @@ fn full_density_no_overlap() -> VortexResult<()> {
 fn sparse_no_overlap_matches_exact() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_large_listview();
-    let exact = lv.compute_density(&mut ctx)?.expect("non-empty");
-    let est = lv.estimate_density(&mut ctx)?.expect("non-empty");
+    let exact = lv.compute_density(&mut ctx)?;
+    let est = lv.estimate_density(&mut ctx)?;
 
     assert!((exact - 0.5).abs() < EPS);
     assert!((est - 0.5).abs() < EPS);
@@ -57,12 +57,8 @@ fn sparse_no_overlap_matches_exact() -> VortexResult<()> {
 fn all_empty_lists_is_zero_density() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_empty_lists_listview();
-    let exact = lv
-        .compute_density(&mut ctx)?
-        .expect("elements has length 1");
-    let est = lv
-        .estimate_density(&mut ctx)?
-        .expect("elements has length 1");
+    let exact = lv.compute_density(&mut ctx)?;
+    let est = lv.estimate_density(&mut ctx)?;
 
     assert_eq!(exact, 0.0);
     assert_eq!(est, 0.0);
@@ -73,8 +69,8 @@ fn all_empty_lists_is_zero_density() -> VortexResult<()> {
 fn overlap_full_coverage_clamps_estimate() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_overlapping_listview();
-    let exact = lv.compute_density(&mut ctx)?.expect("non-empty");
-    let est = lv.estimate_density(&mut ctx)?.expect("non-empty");
+    let exact = lv.compute_density(&mut ctx)?;
+    let est = lv.estimate_density(&mut ctx)?;
 
     assert!((exact - 1.0).abs() < EPS);
     assert!((est - 1.0).abs() < EPS);
@@ -86,8 +82,8 @@ fn overlap_differential_exact_lower_than_estimate() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_sparse_overlapping_listview();
 
-    let exact = lv.compute_density(&mut ctx)?.expect("non-empty");
-    let est = lv.estimate_density(&mut ctx)?.expect("non-empty");
+    let exact = lv.compute_density(&mut ctx)?;
+    let est = lv.estimate_density(&mut ctx)?;
 
     assert!((exact - 0.25).abs() < EPS);
     assert!((est - 0.40).abs() < EPS);
@@ -95,12 +91,15 @@ fn overlap_differential_exact_lower_than_estimate() -> VortexResult<()> {
 }
 
 #[test]
-fn empty_elements_returns_none() -> VortexResult<()> {
+fn empty_elements_returns_zero() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_empty_elements_listview();
 
-    assert!(lv.compute_density(&mut ctx)?.is_none());
-    assert!(lv.estimate_density(&mut ctx)?.is_none());
+    let exact = lv.compute_density(&mut ctx)?;
+    let est = lv.estimate_density(&mut ctx)?;
+
+    assert!(exact.abs() < EPS);
+    assert!(est.abs() < EPS);
     Ok(())
 }
 
@@ -114,7 +113,7 @@ fn estimate_uses_cached_sum_stat() -> VortexResult<()> {
         .statistics()
         .set(Stat::Sum, Precision::Exact(ScalarValue::from(5u64)));
 
-    let est = lv.estimate_density(&mut ctx)?.expect("non-empty");
+    let est = lv.estimate_density(&mut ctx)?;
     assert!((est - 0.5).abs() < EPS);
     Ok(())
 }
@@ -123,9 +122,7 @@ fn estimate_uses_cached_sum_stat() -> VortexResult<()> {
 fn referenced_mask_set_bits_match_views() -> VortexResult<()> {
     let mut ctx = test_execution_ctx();
     let lv = create_sparse_overlapping_listview();
-    let mask = lv
-        .compute_referenced_elements_mask(&mut ctx)?
-        .expect("non-empty elements");
+    let mask = lv.compute_referenced_elements_mask(&mut ctx)?;
     let bits = match mask {
         Mask::Values(v) => v,
         _ => panic!("expected Values mask"),
