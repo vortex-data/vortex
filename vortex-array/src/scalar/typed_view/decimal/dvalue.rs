@@ -21,13 +21,17 @@ use crate::dtype::i256;
 use crate::match_each_decimal_value;
 use crate::match_each_decimal_value_type;
 
-/// Performs a checked binary operation at the wider of the two operand types.
-macro_rules! checked_binary_op {
+/// Widens both operands to the larger of their two decimal types, then applies the checked op.
+macro_rules! checked_widening_binary_op {
     ($self:expr, $other:expr, $op:path) => {{
         let target = $self.decimal_type().max($other.decimal_type());
         match_each_decimal_value_type!(target, |T| {
-            let a: T = $self.cast()?;
-            let b: T = $other.cast()?;
+            let a: T = $self
+                .cast()
+                .vortex_expect("widening cast to wider decimal type must always succeed");
+            let b: T = $other
+                .cast()
+                .vortex_expect("widening cast to wider decimal type must always succeed");
             Some(DecimalValue::from($op(&a, &b)?))
         })
     }};
@@ -142,22 +146,22 @@ impl DecimalValue {
 
     /// Checked addition. Returns `None` on overflow.
     pub fn checked_add(&self, other: &Self) -> Option<Self> {
-        checked_binary_op!(self, other, CheckedAdd::checked_add)
+        checked_widening_binary_op!(self, other, CheckedAdd::checked_add)
     }
 
     /// Checked subtraction. Returns `None` on overflow.
     pub fn checked_sub(&self, other: &Self) -> Option<Self> {
-        checked_binary_op!(self, other, CheckedSub::checked_sub)
+        checked_widening_binary_op!(self, other, CheckedSub::checked_sub)
     }
 
     /// Checked multiplication. Returns `None` on overflow.
     pub fn checked_mul(&self, other: &Self) -> Option<Self> {
-        checked_binary_op!(self, other, CheckedMul::checked_mul)
+        checked_widening_binary_op!(self, other, CheckedMul::checked_mul)
     }
 
     /// Checked division. Returns `None` on overflow or division by zero.
     pub fn checked_div(&self, other: &Self) -> Option<Self> {
-        checked_binary_op!(self, other, CheckedDiv::checked_div)
+        checked_widening_binary_op!(self, other, CheckedDiv::checked_div)
     }
 }
 
