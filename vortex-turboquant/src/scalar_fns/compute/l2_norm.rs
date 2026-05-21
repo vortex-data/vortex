@@ -4,6 +4,7 @@
 //! `L2Norm` execute-parent kernel that intercepts `L2Norm(TQDecode(tq))` and returns the
 //! stored per-row norms directly instead of decoding and recomputing.
 
+use num_traits::Zero;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -12,6 +13,7 @@ use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex_array::dtype::Nullability;
+use vortex_array::match_each_float_ptype;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::optimizer::kernels::ExecuteParentFn;
 use vortex_array::scalar_fn::ScalarFnVTable;
@@ -60,6 +62,20 @@ fn l2_norm_tq_decode_execute_parent(
 
     let tq_array = child.as_::<ScalarFn>().child_at(0).clone();
     let parsed = parse_storage_norms_only(tq_array, ctx)?;
+
+    // Fall back to the canonical `L2Norm` path on the (adversarial) case where any stored
+    // norm is strictly negative. Encode always produces non-negative norms (via `L2Norm`,
+    // which returns `sqrt(sum_sq)`), but a hand-constructed TurboQuant storage could carry
+    // arbitrary values in the `norms` child. Returning the stored bits verbatim would then
+    // violate `L2Norm`'s always-non-negative output invariant. The canonical path runs the
+    // in-flight decode rescaling and reapplies the stored norm, so its `L2Norm` output is
+    // `|stored_norm|` for every row by construction.
+    let has_negative_norm = match_each_float_ptype!(parsed.norms.ptype(), |T| {
+        parsed.norms.as_slice::<T>().iter().any(|n| *n < T::zero())
+    });
+    if has_negative_norm {
+        return Ok(None);
+    }
 
     let norms_validity = match parent.dtype().nullability() {
         Nullability::NonNullable => Validity::NonNullable,

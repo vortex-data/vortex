@@ -294,6 +294,11 @@ fn encode_rejects_nan_input() -> VortexResult<()> {
 
     let result = execute_tq_encode(input, &TurboQuantConfig::default(), &mut ctx);
     assert!(result.is_err(), "encode must reject NaN input rows");
+    let error = result.err().unwrap().to_string();
+    assert!(
+        error.contains("non-finite"),
+        "expected non-finite error, got: {error}"
+    );
     Ok(())
 }
 

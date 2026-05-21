@@ -169,12 +169,12 @@ impl ScalarFnVTable for TQEncode {
         // with the stored row norm.
         //
         // This is a data-dependent defined-behavior failure (analogous to `checked_add` on
-        // integer overflow), so per the `ScalarFnVTable::is_fallible` contract — used by
+        // integer overflow). The `ScalarFnVTable::is_fallible` contract is used by
         // optimizers to decide whether to speculatively evaluate over unreferenced inputs,
-        // for example pushing a scalar function down to a dictionary's values array — this
-        // function reports as fallible. Without it, speculative dictionary pushdown could
-        // surface non-finite-norm errors on rows that the consumer would never have
-        // referenced under normal evaluation.
+        // for example pushing a scalar function down to a dictionary's values array. By
+        // reporting as fallible we block that speculation; without this, speculative
+        // dictionary pushdown could surface non-finite-norm errors on rows that the
+        // consumer would never have referenced under normal evaluation.
         true
     }
 }

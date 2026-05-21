@@ -35,17 +35,38 @@ use crate::vector::storage::parse_storage;
 
 const DIM: u32 = 128;
 
-/// Fast path: `L2Norm(TQDecode(tq_arr))` returns the storage `norms` field bit-for-bit.
+/// Fast path: `L2Norm(TQDecode(tq_arr))` returns the storage `norms` field bit-for-bit
+/// across every supported element ptype, so the kernel's per-ptype buffer-handle plumbing
+/// is exercised at `f16`, `f32`, and `f64` rather than only the default `f32`.
 ///
-/// `TQDecode` rescales each decoded direction in flight by the reciprocal of its own L2 norm
-/// before re-applying the stored row norm, so decoded rows preserve the stored norm exactly.
-/// Bit-exact equality with the parsed `norms` child confirms the session-registered kernel
-/// fired instead of recomputing the norm from a materialized decode.
-#[test]
-fn l2_norm_over_tq_decode_returns_stored_norms() -> VortexResult<()> {
+/// `TQDecode` rescales each decoded direction in flight by the reciprocal of its own L2
+/// norm before re-applying the stored row norm, so decoded rows preserve the stored norm
+/// exactly. Bit-exact equality with the parsed `norms` child is consistent with the
+/// session-registered kernel firing (the canonical-cross-check test below pins the
+/// equivalence under arithmetic).
+#[rstest]
+#[case::f16(PType::F16)]
+#[case::f32(PType::F32)]
+#[case::f64(PType::F64)]
+fn l2_norm_over_tq_decode_returns_stored_norms(#[case] ptype: PType) -> VortexResult<()> {
     let session = test_session();
     let mut ctx = session.create_execution_ctx();
-    let input = f32_vector_array(DIM, 4, 0.25, Validity::NonNullable)?;
+    let rows = 4;
+    let raw = (0..rows * DIM as usize)
+        .map(|i| ((i % 17) as f32 - 8.0) * 0.25)
+        .collect::<Vec<_>>();
+    let input = match ptype {
+        PType::F16 => {
+            let values: Vec<half::f16> = raw.iter().copied().map(half::f16::from_f32).collect();
+            vector_array(DIM, &values, Validity::NonNullable)?
+        }
+        PType::F32 => vector_array(DIM, &raw, Validity::NonNullable)?,
+        PType::F64 => {
+            let values: Vec<f64> = raw.iter().copied().map(f64::from).collect();
+            vector_array(DIM, &values, Validity::NonNullable)?
+        }
+        _ => unreachable!("ptype must be float"),
+    };
     let config = TurboQuantConfig::try_new(3, 42, 3)?;
 
     let encoded = execute_tq_encode(input, &config, &mut ctx)?;
