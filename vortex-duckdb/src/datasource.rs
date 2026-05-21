@@ -31,7 +31,6 @@ use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::FieldName;
-use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
@@ -63,7 +62,6 @@ use vortex::scalar_fn::fns::pack::Pack;
 use vortex::scan::DataSource;
 use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
-use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -351,6 +349,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
                 .has_non_optional_filter
                 .store(true, Ordering::Relaxed);
         }
+        println!("{}", projection.display_tree());
 
         debug!(
             %projection,
@@ -718,7 +717,9 @@ fn extract_projection_expr(
     let mut real_column_count = 0;
 
     // DuckDB uses u64 as column indices but Rust uses usize
-    for (column_pos, (&column_id, column_field)) in ids.iter().zip(column_fields.as_ref()).enumerate() {
+    for (column_pos, (&column_id, column_field)) in
+        ids.iter().zip(column_fields.as_ref()).enumerate()
+    {
         let column_id = if has_projection_ids {
             let column_id: usize = column_id.as_();
             column_ids[column_id]
@@ -758,7 +759,7 @@ fn extract_projection_expr(
     let mut uncasted_fields = Vec::new();
     let mut casted_fields = Vec::new();
 
-    for (&column_id, column_field) in ids.iter().zip(column_fields.as_ref()) {
+    for &column_id in ids {
         let column_id = if has_projection_ids {
             let column_id: usize = column_id.as_();
             column_ids[column_id]
@@ -769,7 +770,9 @@ fn extract_projection_expr(
             continue;
         }
         let column_id: usize = column_id.as_();
+        let column_field = &column_fields[column_id];
         let field_name = FieldName::from(Arc::from(column_fields[column_id].name.as_str()));
+        println!("field: {column_field:?}");
         if column_field.casted {
             casted_fields.push((field_name, column_field.dtype.clone()));
         } else {
@@ -777,17 +780,22 @@ fn extract_projection_expr(
         }
     }
 
+    println!("casted fields: {casted_fields:?}");
+
     let projection = if casted_fields.is_empty() {
         select(uncasted_fields, root())
     } else {
         let mut fields = Vec::new();
-        for field in uncasted_fields {
-            fields.push(get_item(field, root()));
-        }
         for (field, dtype) in casted_fields {
-            fields.push(cast(get_item(field, root()), dtype));
+            println!("casted {field:?} to {dtype}");
+            fields.push((field.clone(), cast(get_item(field, root()), dtype)));
         }
-        merge(fields)
+        if uncasted_fields.is_empty() {
+            pack(fields, false.into())
+        } else {
+            let select = select(uncasted_fields, root());
+            merge([pack(fields, false.into()), select])
+        }
     };
 
     let projection = with_file_row_number(projection, file_row_number_column_pos.is_some());
