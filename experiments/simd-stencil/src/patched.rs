@@ -37,7 +37,7 @@ mod imp {
         ".globl alp_scale_stencil_end",
         ".p2align 4",
         "alp_scale_stencil_start:",
-        ".byte 0x48, 0xb8", // REX.W + B8: movabs rax, imm64
+        ".byte 0x48, 0xb8",             // REX.W + B8: movabs rax, imm64
         ".byte 0, 0, 0, 0, 0, 0, 0, 0", // imm64 patch site (offset 2)
         "vmovq xmm0, rax",
         "vbroadcastsd zmm0, xmm0",
@@ -85,7 +85,10 @@ mod imp {
                     -1,
                     0,
                 ) as *mut u8;
-                assert!(!code.is_null() && code != libc::MAP_FAILED as *mut u8, "mmap failed");
+                assert!(
+                    !code.is_null() && code != libc::MAP_FAILED as *mut u8,
+                    "mmap failed"
+                );
 
                 ptr::copy_nonoverlapping(start as *const u8, code, len);
                 // Patch the scale constant into the movabs immediate.
@@ -106,8 +109,11 @@ mod imp {
         }
 
         /// Decode one tile of `digits` (`i64`) into `out` (`f64`).
+        ///
+        /// # Safety
+        /// `digits` and `out` must each be valid for one full 1024-element tile.
         #[inline(always)]
-        pub fn run_tile(&self, digits: *const i64, out: *mut f64) {
+        pub unsafe fn run_tile(&self, digits: *const i64, out: *mut f64) {
             // SAFETY: caller guarantees `digits`/`out` cover one full tile.
             unsafe { (self.func)(digits, out) }
         }
@@ -148,10 +154,10 @@ mod imp {
             unfor_unpack_u64(w, &enc.packed[off..off + plen], enc.reference[t], &mut td);
             undelta_u64(&td, &mut tu);
             untranspose_u64(&tu, &mut digits);
-            stencil.run_tile(
-                digits.as_ptr().cast::<i64>(),
-                out[t * TILE..].as_mut_ptr(),
-            );
+            // SAFETY: `digits` is one tile; `out[t*TILE..]` has a full tile left.
+            unsafe {
+                stencil.run_tile(digits.as_ptr().cast::<i64>(), out[t * TILE..].as_mut_ptr());
+            }
         }
         out
     }

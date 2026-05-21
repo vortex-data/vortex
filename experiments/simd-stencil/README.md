@@ -46,13 +46,65 @@ and copy-and-patch handles each differently:
 ## Results
 
 Hardware: Intel Xeon (Skylake-class), AVX-512F/DQ/BW/VL/CD + BMI2, 4 cores.
-`RUSTFLAGS="-C target-cpu=native"`, `~1M` elements per column.
+`RUSTFLAGS="-C target-cpu=native"`, `~1M` elements per column. Median decode
+throughput (higher is better); `xN` is speedup over `materialized`.
 
-<!-- RESULTS_TABLE -->
+| Stack | materialized | fused | aot | patched | vortex (real) |
+|---|---|---|---|---|---|
+| `delta(bitpack)` u32 | 812 M/s (1.0x) | 1.27 G/s (1.57x) | 1.36 G/s (1.68x) | — | **1.45 G/s** (1.79x) |
+| `alp(delta(ffor(bitpack)))` f64 | 259 M/s (1.0x) | 638 M/s (2.46x) | 640 M/s (2.47x) | 518 M/s (2.00x) | **1.11 G/s** (4.29x) |
+| `rle(alp(delta(ffor(bitpack))))` f64 | 406 M/s (1.0x) | 456 M/s (1.12x) | 441 M/s (1.08x) | 428 M/s (1.05x) | — |
+
+### What the numbers say
+
+1. **Tiled fusion beats per-layer materialization, same kernels.** With identical
+   stencils, the `fused` L1-tiled pipeline is 1.6x (A) to 2.5x (B) faster than
+   `materialized`, which writes a full-column buffer per layer. This is the core
+   result: the win comes from never spilling intermediates to DRAM, not from
+   better kernels. On stack C the RLE expand stage is memory-bound and dominates,
+   so the gap shrinks to 1.1x.
+
+2. **Cheap-to-build `fused` already matches AOT.** Const-generic monomorphisation
+   per bit-width (`aot`) is within noise of the runtime-width `fused` path
+   (A: 1.36 vs 1.27 G/s; B: 640 vs 638 M/s; C: tie). The `fastlanes` kernels are
+   `#[inline(never)]` either way and per-tile width dispatch is cheap, so the
+   combinatorial AOT build buys almost nothing here. A copy-and-patch planner that
+   *selects* pre-built stencils gets AOT-class throughput without AOT-class build
+   cost.
+
+3. **A single-op patched leaf is slower than fused — copy-and-patch needs
+   body-stitching.** The `patched` path (B: 518 M/s) is *slower* than `fused`
+   (638 M/s) despite baking the ALP scale as an immediate. The cost is the
+   per-tile call boundary into the runtime-emitted stencil plus the lost
+   cross-stage inlining (untranspose can no longer fuse with the scale multiply).
+   The constant-folding win is real but smaller than what one indirect call per
+   1024 elements costs. **Conclusion: patching constants into a single op does not
+   pay; the technique only wins if op *bodies* are stitched into one loop so the
+   call boundaries disappear.** That is the body-stitching variant listed under
+   future work, and this negative result is the strongest argument for building
+   it.
+
+4. **vs real Vortex.** Vortex's production `execute` is fastest on A and B — but
+   it decodes its *own* encoding of the data, which its compressor made shallower
+   (≈2 layers: ALP/Delta over bitpacking) than the explicit 4-layer stacks here.
+   So the prototype does not beat Vortex's decode of *these* columns; it beats the
+   same-kernel `materialized` model of per-layer decode. The apples-to-apples
+   4-layer comparison Vortex's public API cannot construct is precisely
+   `materialized` vs `fused`, where fusion wins.
 
 ### Build ("compile") latency
 
-<!-- DISPATCH_TABLE -->
+| Operation | Median |
+|---|---|
+| `build_patched_stencil` (mmap + copy + patch + mprotect) | 4.7 µs |
+| `build_and_run_one_tile` (build + decode 1024 elems) | 8.0 µs |
+
+The copy + 8-byte patch is sub-microsecond; the ~4.7 µs is dominated by the
+`mmap`/`mprotect` syscalls that allocate and re-protect the page. Amortised over
+a multi-millisecond column decode this is negligible, and a real framework would
+pool executable pages to drive per-stencil build into the sub-µs "memcpy" regime.
+Either way it is many orders of magnitude below the seconds an LLVM recompile
+would need to reach the same code quality.
 
 ## How this becomes a framework
 
@@ -87,15 +139,20 @@ data-driven instead of hand-written.
 - **Interpreted/fused backend** (`fused` here): walk the plan per tile, calling
   each selected stencil through a function pointer with constants as arguments.
   Robust, portable, already within a small factor of AOT.
-- **Patched backend** (`patched` here): for plans whose data-dependent constants
-  dominate the inner loop, stitch the selected stencil *bodies* into one
-  executable buffer and patch immediates in. This removes per-stage call
-  overhead and lets the constants fold, approaching AOT quality with
-  `~memcpy`-cost "compilation".
+- **Patched backend** (true copy-and-patch): stitch the selected stencil
+  *bodies* into one executable buffer and patch immediates in. The result (3)
+  above shows why this must stitch bodies, not call per-op stencils: a patched
+  *single* op adds a call boundary per tile and loses cross-stage inlining, so it
+  ran slower than `fused`. The payoff only materialises once all the op bodies
+  live in one loop with no internal calls — then constants fold and there is no
+  dispatch, approaching AOT quality with `~memcpy`-cost "compilation". The
+  `patched` strategy in this prototype is the partial form (patched leaf +
+  selected integer stages); the full backend is future work.
 
-The planner picks the backend per column: cheap plans run interpreted; hot,
-constant-heavy plans get patched. Both share the identical stencil library, so
-correctness is established once.
+The planner would pick the backend per column: cheap plans run interpreted;
+since `fused` already matches AOT here, body-stitched patching is only worth it
+for plans dominated by data-dependent constants in tight inner loops. Both
+backends share the identical stencil library, so correctness is established once.
 
 ### 4. Where it plugs into Vortex
 

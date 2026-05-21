@@ -13,13 +13,13 @@
 //! `alp(delta(ffor(bitpacking)))` cascade, so stack A is decoded as Vortex's
 //! Delta encoding and stack B as Vortex's ALP encoding of the identical inputs.
 
+use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::LEGACY_SESSION;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
-use vortex_alp::alp_encode;
 use vortex_buffer::Buffer;
 use vortex_fastlanes::Delta;
 

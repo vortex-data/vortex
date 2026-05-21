@@ -82,7 +82,11 @@ pub fn decode_b(enc: &EncodedB) -> Vec<f64> {
         });
         undelta_u64(&td, &mut tu);
         untranspose_u64(&tu, &mut digits);
-        alp_scale_tile(&digits, enc.scale, tile_f64_mut(&mut out[t * TILE..(t + 1) * TILE]));
+        alp_scale_tile(
+            &digits,
+            enc.scale,
+            tile_f64_mut(&mut out[t * TILE..(t + 1) * TILE]),
+        );
     }
     out
 }

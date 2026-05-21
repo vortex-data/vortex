@@ -26,6 +26,16 @@
 //! only variable, so the kernels (`fastlanes` bit-unpack / undelta / untranspose,
 //! plus the ALP scale and RLE expand stencils) are identical across all four.
 
+// This is an experimental prototype / benchmark crate: panics-on-misuse and
+// numeric casts are acceptable here in a way they would not be in shipping code.
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::cast_possible_truncation,
+    clippy::many_single_char_names,
+    clippy::identity_op
+)]
+
 pub mod encode;
 pub mod kernels;
 pub mod patched;

@@ -37,7 +37,8 @@ mod patched_build {
         bencher.bench(|| {
             let mut out = [0f64; 1024];
             let stencil = AlpScaleStencil::build(black_box(0.01));
-            stencil.run_tile(digits.as_ptr(), out.as_mut_ptr());
+            // SAFETY: `digits` and `out` are both full 1024-element tiles.
+            unsafe { stencil.run_tile(digits.as_ptr(), out.as_mut_ptr()) };
             black_box(out[0])
         });
     }
