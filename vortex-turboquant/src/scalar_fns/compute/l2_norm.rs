@@ -4,7 +4,6 @@
 //! `L2Norm` execute-parent kernel that intercepts `L2Norm(TQDecode(tq))` and returns the
 //! stored per-row norms directly instead of decoding and recomputing.
 
-use num_traits::Zero;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -64,14 +63,25 @@ fn l2_norm_tq_decode_execute_parent(
     let parsed = parse_storage_norms_only(tq_array, ctx)?;
 
     // Fall back to the canonical `L2Norm` path on the (adversarial) case where any stored
-    // norm is strictly negative. Encode always produces non-negative norms (via `L2Norm`,
-    // which returns `sqrt(sum_sq)`), but a hand-constructed TurboQuant storage could carry
-    // arbitrary values in the `norms` child. Returning the stored bits verbatim would then
-    // violate `L2Norm`'s always-non-negative output invariant. The canonical path runs the
-    // in-flight decode rescaling and reapplies the stored norm, so its `L2Norm` output is
-    // `|stored_norm|` for every row by construction.
+    // norm has its sign bit set. Encode always produces non-negative norms (via `L2Norm`,
+    // which returns `sqrt(sum_sq)` and never yields `-0.0`), but a hand-constructed
+    // TurboQuant storage could carry arbitrary values in the `norms` child. Returning the
+    // stored bits verbatim would then violate `L2Norm`'s always-non-negative output
+    // invariant. The canonical path runs the in-flight decode rescaling and reapplies the
+    // stored norm, so its `L2Norm` output is `|stored_norm|` for every row by construction.
+    //
+    // Using `is_sign_negative` rather than `< T::zero()` is load-bearing: `-0.0 < 0.0` is
+    // `false` per IEEE 754, so a literal comparison would miss a stored `-0.0` while the
+    // canonical path would still collapse it to `+0.0` via `sqrt(sum_sq)`.
+    //
+    // The scan is `O(rows)` over a buffer the just-completed `parse_storage_norms_only`
+    // materialized, so it does not move the kernel out of its constant-time-per-row regime.
     let has_negative_norm = match_each_float_ptype!(parsed.norms.ptype(), |T| {
-        parsed.norms.as_slice::<T>().iter().any(|n| *n < T::zero())
+        parsed
+            .norms
+            .as_slice::<T>()
+            .iter()
+            .any(|n| n.is_sign_negative())
     });
     if has_negative_norm {
         return Ok(None);

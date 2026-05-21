@@ -269,3 +269,105 @@ fn l2_norm_over_tq_decode_matches_canonical(#[case] dim: u32) -> VortexResult<()
     }
     Ok(())
 }
+
+/// Adversarial: a hand-constructed TurboQuant storage with a `-5.0` or `-0.0` stored norm
+/// makes the fast path fall back to the canonical `L2Norm(execute(TQDecode))` path so that
+/// the result preserves `L2Norm`'s always-non-negative output invariant. The kernel scans
+/// the parsed `norms` once and triggers fallback via `is_sign_negative`, which covers both
+/// strictly-negative values and `-0.0` (where the literal `< 0` comparison would fail per
+/// IEEE 754).
+#[rstest]
+#[case::strict_negative(-5.0_f32)]
+#[case::negative_zero(-0.0_f32)]
+fn l2_norm_over_tq_decode_with_negative_stored_norm_falls_back(
+    #[case] stored: f32,
+) -> VortexResult<()> {
+    let session = test_session();
+    let mut ctx = session.create_execution_ctx();
+    let metadata = TurboQuantMetadata {
+        element_ptype: PType::F32,
+        dimensions: DIM,
+        bit_width: 1,
+        seed: 42,
+        num_rounds: 3,
+    };
+
+    let norms =
+        PrimitiveArray::new::<f32>(Buffer::copy_from([stored]), Validity::NonNullable).into_array();
+    let codes = PrimitiveArray::new::<u8>(vec![0u8; DIM as usize], Validity::NonNullable);
+    let codes = FixedSizeListArray::try_new(codes.into_array(), DIM, Validity::NonNullable, 1)?
+        .into_array();
+    let storage = StructArray::try_new(
+        FieldNames::from(["norms", "codes"]),
+        vec![norms, codes],
+        1,
+        Validity::NonNullable,
+    )?;
+    let tq = ExtensionArray::try_new_from_vtable(TurboQuant, metadata, storage.into_array())?
+        .into_array();
+
+    let decoded = TQDecode::try_new_array(tq)?.into_array();
+    let result: PrimitiveArray = L2Norm::try_new_array(decoded, 1)?
+        .into_array()
+        .execute(&mut ctx)?;
+
+    // Whatever path runs, the result is an `L2Norm` output and must be non-negative; in
+    // particular the kernel must NOT return the stored sign-negative value verbatim. The
+    // exact magnitude depends on which centroid the all-zero codes decode to; we only
+    // assert the sign and finiteness, which is what `L2Norm`'s contract pins.
+    assert_eq!(result.as_slice::<f32>().len(), 1);
+    let value = result.as_slice::<f32>()[0];
+    assert!(
+        value.is_finite() && !value.is_sign_negative(),
+        "L2Norm result must be non-negative and finite (got {value})"
+    );
+    Ok(())
+}
+
+/// Adversarial: a hand-constructed TurboQuant storage whose `codes` child has row validity
+/// narrower than the outer struct's must fail the fast path the same way it fails the
+/// canonical decode path (see `malformed::decode_rejects_child_masks_that_disagree_with_struct_validity`).
+/// `parse_storage_norms_only` executes the `codes` FSL wrapper specifically to enforce this
+/// invariant.
+#[test]
+fn l2_norm_over_tq_decode_rejects_codes_validity_narrower_than_struct() -> VortexResult<()> {
+    let session = test_session();
+    let mut ctx = session.create_execution_ctx();
+    let metadata = TurboQuantMetadata {
+        element_ptype: PType::F32,
+        dimensions: DIM,
+        bit_width: 1,
+        seed: 42,
+        num_rounds: 3,
+    };
+
+    let norms =
+        PrimitiveArray::new::<f32>(Buffer::copy_from([1.0f32, 1.0, 1.0]), Validity::NonNullable)
+            .into_array();
+    let codes = PrimitiveArray::new::<u8>(vec![0u8; 3 * DIM as usize], Validity::NonNullable);
+    let codes = FixedSizeListArray::try_new(
+        codes.into_array(),
+        DIM,
+        Validity::from_iter([true, false, true]),
+        3,
+    )?
+    .into_array();
+    let storage = StructArray::try_new(
+        FieldNames::from(["norms", "codes"]),
+        vec![norms, codes],
+        3,
+        Validity::NonNullable,
+    )?;
+    let tq = ExtensionArray::try_new_from_vtable(TurboQuant, metadata, storage.into_array())?
+        .into_array();
+
+    let decoded = TQDecode::try_new_array(tq)?.into_array();
+    let result: VortexResult<PrimitiveArray> = L2Norm::try_new_array(decoded, 3)?
+        .into_array()
+        .execute(&mut ctx);
+    assert!(
+        result.is_err(),
+        "kernel must reject codes-validity narrower than struct-validity"
+    );
+    Ok(())
+}
