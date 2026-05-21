@@ -21,6 +21,7 @@ use vortex_array::dtype::FieldMask;
 use vortex_array::expr::Expression;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
@@ -290,9 +291,11 @@ impl LayoutReader for ChunkedReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
-        let dtype = expr.return_dtype(self.dtype())?;
         if row_range.is_empty() {
-            return Ok(future::ready(Ok(Canonical::empty(&dtype).into_array())).boxed());
+            return Ok(future::ready(Ok(
+                Canonical::empty(&expr.return_dtype(self.dtype())?).into_array()
+            ))
+            .boxed());
         }
 
         let mut chunk_evals = vec![];
@@ -311,13 +314,16 @@ impl LayoutReader for ChunkedReader {
             // Split the mask over each chunk.
             let chunks: Vec<_> = FuturesOrdered::from_iter(chunk_evals).try_collect().await?;
 
+            vortex_ensure!(!chunks.is_empty(), "Empty chunks were checked earlier");
+
             // If there is only one chunk, we can return it directly.
             if chunks.len() == 1 {
                 return Ok(chunks.into_iter().next().vortex_expect("one chunk"));
             }
 
+            let return_dtype = chunks[0].dtype().clone();
             // Combine the arrays.
-            Ok(ChunkedArray::try_new(chunks, dtype)?.into_array())
+            Ok(ChunkedArray::try_new(chunks, return_dtype)?.into_array())
         }
         .boxed())
     }
