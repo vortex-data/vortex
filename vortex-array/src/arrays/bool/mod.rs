@@ -8,7 +8,7 @@ pub use array::BoolArrayExt;
 pub use array::BoolData;
 pub use array::BoolDataParts;
 
-pub mod compute;
+pub(crate) mod compute;
 
 mod vtable;
 pub use compute::rules::BoolMaskedValidityRule;

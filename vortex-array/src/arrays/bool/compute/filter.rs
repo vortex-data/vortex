@@ -2,10 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_buffer::get_bit;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -30,7 +32,7 @@ impl FilterReduce for Bool {
         let src = array.to_bit_buffer();
         let density = mask_values.density();
         let buffer = if density < SPARSE_DENSITY_THRESHOLD {
-            filter_sparse(&src, mask_values.bit_buffer(), mask.true_count())
+            filter_sparse(&src, mask_values, mask.true_count())
         } else {
             filter_bitbuffer_by_mask(&src, mask_values.bit_buffer(), mask.true_count())
         };
@@ -39,9 +41,35 @@ impl FilterReduce for Bool {
     }
 }
 
-/// Sparse filter using direct bit iteration. Avoids materializing a `Vec<usize>`
-/// of indices by streaming set-bit positions from the mask's `BitIndexIterator`.
-fn filter_sparse(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
+fn filter_sparse(src: &BitBuffer, mask_values: &MaskValues, true_count: usize) -> BitBuffer {
+    if let Some(slices) = mask_values.cached_slices() {
+        filter_slices(src, true_count, slices.iter().copied())
+    } else if let Some(indices) = mask_values.cached_indices() {
+        let buffer = src.inner().as_ref();
+        let offset = src.offset();
+        BitBuffer::collect_bool(indices.len(), |idx| {
+            // SAFETY: `collect_bool` calls the closure exactly `indices.len()` times.
+            let idx = unsafe { *indices.get_unchecked(idx) };
+            get_bit(buffer, offset + idx)
+        })
+    } else {
+        filter_set_bits(src, mask_values.bit_buffer(), true_count)
+    }
+}
+
+fn filter_slices(
+    src: &BitBuffer,
+    output_len: usize,
+    slices: impl Iterator<Item = (usize, usize)>,
+) -> BitBuffer {
+    let mut builder = BitBufferMut::with_capacity(output_len);
+    for (start, end) in slices {
+        builder.append_buffer(&src.slice(start..end));
+    }
+    builder.freeze()
+}
+
+fn filter_set_bits(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
     let buffer = src.inner().as_ref();
     let offset = src.offset();
     let mut indices = mask_buf.set_indices();
@@ -270,66 +298,10 @@ fn pext_byte_lut(src: u64, mask: u64) -> u64 {
     result
 }
 
-/// Branchless parallel-prefix PEXT (Hacker's Delight ch. 7-4).
-///
-/// Kept for benchmarking comparison. The byte-LUT approach is faster in practice
-/// (~12ns vs ~18ns per word) due to lower instruction count and no data dependencies.
-#[inline(always)]
-pub fn pext_parallel_prefix(src: u64, mask: u64) -> u64 {
-    let mut x = src & mask;
-    let mut m = mask;
-    let mut mk = !mask << 1;
-
-    macro_rules! round {
-        ($shift:expr) => {
-            let mut mp = mk ^ (mk << 1);
-            mp ^= mp << 2;
-            mp ^= mp << 4;
-            mp ^= mp << 8;
-            mp ^= mp << 16;
-            mp ^= mp << 32;
-            let mv = mp & m;
-            m = (m ^ mv) | (mv >> (1u64 << $shift));
-            let t = x & mv;
-            x = (x ^ t) | (t >> (1u64 << $shift));
-            mk &= !mp;
-        };
-    }
-
-    round!(0);
-    round!(1);
-    round!(2);
-    round!(3);
-    round!(4);
-    round!(5);
-
-    let _ = (m, mk);
-    x
-}
-
-/// Serial bit-by-bit PEXT for benchmarking comparison against the parallel-prefix version.
-#[inline(always)]
-pub fn pext_serial(src: u64, mut mask: u64) -> u64 {
-    let mut result: u64 = 0;
-    let mut bit: u32 = 0;
-
-    while mask != 0 {
-        let lowest = mask & mask.wrapping_neg();
-        if src & lowest != 0 {
-            result |= 1u64 << bit;
-        }
-        bit += 1;
-        mask ^= lowest;
-    }
-
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
     use rstest::rstest;
-    use vortex_error::VortexExpect;
     use vortex_mask::Mask;
 
     use super::*;
@@ -348,11 +320,30 @@ mod tests {
     }
 
     #[test]
-    fn filter_bool_sparse() {
+    fn filter_bool_sparse_index_mask() {
         let arr = BoolArray::from_iter([true, true, false]);
+        let mask = Mask::from_indices(3, [0, 2]);
 
-        let filtered = filter_sparse(&arr.to_bit_buffer(), &BitBuffer::from_indices(4, [0, 2]), 2);
-        assert_eq!(vec![true, false], filtered.iter().collect_vec())
+        let filtered = arr.filter(mask).unwrap();
+        assert_arrays_eq!(filtered, BoolArray::from_iter([true, false]));
+    }
+
+    #[test]
+    fn filter_bool_sparse_slice_mask() {
+        let arr = BoolArray::from_iter([true, true, false]);
+        let mask = Mask::from_slices(3, vec![(0, 1), (2, 3)]);
+
+        let filtered = arr.filter(mask).unwrap();
+        assert_arrays_eq!(filtered, BoolArray::from_iter([true, false]));
+    }
+
+    #[test]
+    fn filter_bool_sparse_buffer_mask() {
+        let arr = BoolArray::from_iter([true, true, false]);
+        let mask = Mask::from_buffer(BitBuffer::from_iter([true, false, true]));
+
+        let filtered = arr.filter(mask).unwrap();
+        assert_arrays_eq!(filtered, BoolArray::from_iter([true, false]));
     }
 
     #[test]
@@ -360,15 +351,7 @@ mod tests {
         let arr = BoolArray::from_iter([true, true, false]);
 
         let filtered =
-            filter_bitbuffer_by_mask(&arr.to_bit_buffer(), &BitBuffer::from_indices(4, [0, 2]), 2);
-        assert_eq!(vec![true, false], filtered.iter().collect_vec())
-    }
-
-    #[test]
-    fn filter_bool_by_index_test() {
-        let arr = BoolArray::from_iter([true, true, false]);
-
-        let filtered = filter_indices(&arr.to_bit_buffer(), 2, &[0, 2]);
+            filter_bitbuffer_by_mask(&arr.to_bit_buffer(), &BitBuffer::from_indices(3, [0, 2]), 2);
         assert_eq!(vec![true, false], filtered.iter().collect_vec())
     }
 
