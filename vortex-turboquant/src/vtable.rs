@@ -26,18 +26,20 @@ use crate::vector::storage::CODES_FIELD;
 use crate::vector::storage::NORMS_FIELD;
 use crate::vector::tq_padded_dim;
 
-/// TurboQuant logical extension type.
+/// TurboQuant logical extension type. Per-array configuration lives in [`TurboQuantMetadata`].
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct TurboQuant;
 
-/// Serialized metadata for a TurboQuant extension array.
+/// Serialized metadata for a TurboQuant extension array. The fields together suffice to
+/// reconstruct the SORF transform and centroid codebook at decode time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TurboQuantMetadata {
-    /// Original vector element type and stored norm type.
+    /// Original vector element ptype and stored row-norm ptype. Restricted to `f16` / `f32` /
+    /// `f64`.
     pub element_ptype: PType,
-    /// Original vector dimension before SORF padding.
+    /// Original vector dimension before SORF padding to the next power of two.
     pub dimensions: u32,
-    /// Bits per coordinate in the scalar quantizer codebook.
+    /// Bits per coordinate in the scalar quantizer codebook (`1..=8`).
     pub bit_width: u8,
     /// Seed used to derive the deterministic SORF transform.
     pub seed: u64,
@@ -106,6 +108,8 @@ impl ExtVTable for TurboQuant {
     }
 }
 
+/// Wire-format representation of [`TurboQuantMetadata`]. Field tags MUST NOT change once
+/// shipped; new fields must use unused tags and remain optional.
 #[derive(Clone, PartialEq, Message)]
 struct TurboQuantMetadataProto {
     #[prost(enumeration = "PType", tag = "1")]
@@ -158,6 +162,8 @@ pub(crate) fn tq_storage_dtype(
     ))
 }
 
+/// Validate [`TurboQuantMetadata`] invariants. Called on both serialize and deserialize so a
+/// corrupted on-disk metadata block errors out rather than decoding into nonsense.
 fn validate_tq_metadata(metadata: &TurboQuantMetadata) -> VortexResult<()> {
     vortex_ensure!(
         metadata.dimensions >= MIN_DIMENSION,
@@ -175,6 +181,8 @@ fn validate_tq_metadata(metadata: &TurboQuantMetadata) -> VortexResult<()> {
     TurboQuantConfig::try_new(metadata.bit_width, metadata.seed, metadata.num_rounds).map(|_| ())
 }
 
+/// Validate that `dtype` matches the storage shape produced by [`tq_storage_dtype`] for
+/// `metadata`. Called from [`TurboQuant::validate_dtype`].
 fn validate_tq_storage_dtype(metadata: &TurboQuantMetadata, dtype: &DType) -> VortexResult<()> {
     let DType::Struct(fields, _) = dtype else {
         vortex_bail!("TurboQuant storage dtype must be a Struct, got {dtype}");
