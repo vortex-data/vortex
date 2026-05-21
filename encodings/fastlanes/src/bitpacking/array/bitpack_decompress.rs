@@ -687,6 +687,8 @@ mod tests {
         let reference = bitpacked
             .clone()
             .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)?
+            .into_array()
             .cast(u32_dtype.clone())?
             .execute::<PrimitiveArray>(&mut ctx)?;
 
@@ -712,6 +714,8 @@ mod tests {
 
         let reference_sliced = sliced
             .clone()
+            .into_array()
+            .execute::<PrimitiveArray>(&mut ctx)?
             .into_array()
             .cast(u32_dtype)?
             .execute::<PrimitiveArray>(&mut ctx)?;
