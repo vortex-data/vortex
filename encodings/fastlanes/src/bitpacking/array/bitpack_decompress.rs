@@ -106,16 +106,16 @@ where
     let len = array.len();
     let mut uninit_range = builder.uninit_range(len);
 
-    // SAFETY: We initialize all `len` values below via `decode_cast_into` and the patch loop.
+    // SAFETY: We initialize all `len` values below via `decode_map_into` and the patch loop.
     unsafe {
         uninit_range.append_mask(array.validity()?.execute_mask(len, ctx)?);
     }
 
-    // SAFETY: `decode_cast_into` writes a value to every slot in this range.
+    // SAFETY: `decode_map_into` writes a value to every slot in this range.
     let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, len) };
 
     let mut chunks = array.unpacked_chunks::<F>()?;
-    chunks.decode_cast_into(uninit_slice, |v: F| v.as_());
+    chunks.decode_map_into(uninit_slice, |v: F| v.as_());
 
     if let Some(patches) = array.patches() {
         apply_cast_patches_to_uninit_range::<F, T>(&mut uninit_range, &patches, ctx)?;

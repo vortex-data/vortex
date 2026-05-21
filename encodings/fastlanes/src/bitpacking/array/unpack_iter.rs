@@ -104,50 +104,6 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         )
     }
 
-    /// Decode all chunks (initial, full, and trailer), mapping each value through `f` and writing
-    /// the result into a differently-typed `output`.
-    ///
-    /// Unlike [`decode_into`](Self::decode_into), full chunks cannot be unpacked directly into the
-    /// output because the output element type `U` differs from the packed type `T`. Each chunk is
-    /// unpacked into the small internal scratch buffer (which stays resident in cache) and then
-    /// mapped value-by-value into `output`. This avoids materializing a full-length `T`-typed
-    /// intermediate buffer, which is the win for cast-on-decompression (e.g. bit-packed `u16` cast
-    /// to `u32`).
-    pub fn decode_cast_into<U: Copy>(&mut self, output: &mut [MaybeUninit<U>], f: impl Fn(T) -> U) {
-        let mut local_idx = 0;
-
-        if let Some(initial) = self.initial() {
-            for (dst, &src) in output[..initial.len()].iter_mut().zip(initial.iter()) {
-                dst.write(f(src));
-            }
-            local_idx += initial.len();
-        }
-
-        // `initial` already handled the only chunk when `num_chunks == 1`; mirror the guard in
-        // `decode_full_chunks_into_at` so we don't decode chunk 0 twice.
-        if self.num_chunks != 1 {
-            let mut chunks = self.full_chunks();
-            while let Some(chunk) = chunks.next() {
-                for (dst, &src) in output[local_idx..][..CHUNK_SIZE]
-                    .iter_mut()
-                    .zip(chunk.iter())
-                {
-                    dst.write(f(src));
-                }
-                local_idx += CHUNK_SIZE;
-            }
-        }
-
-        if let Some(trailer) = self.trailer() {
-            for (dst, &src) in output[local_idx..][..trailer.len()]
-                .iter_mut()
-                .zip(trailer.iter())
-            {
-                dst.write(f(src));
-            }
-        }
-    }
-
     pub fn full_chunks(&mut self) -> BitUnpackIterator<'_, T> {
         let elems_per_chunk = self.elems_per_chunk();
         let last_chunk_is_sliced = self.last_chunk_is_sliced() as usize;
@@ -160,6 +116,15 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
             self.num_chunks - last_chunk_is_sliced,
             first_chunk_is_sliced,
         )
+    }
+
+    /// Decode all chunks (initial, full, and trailer), mapping each value through `f` and writing
+    /// the result into a differently-typed `output`.
+    ///
+    /// Kept as a cast-oriented alias for callers that want the old name. Internal code can call
+    /// `decode_map_into` directly.
+    pub fn decode_cast_into<U: Copy>(&mut self, output: &mut [MaybeUninit<U>], f: impl Fn(T) -> U) {
+        self.decode_map_into(output, f);
     }
 }
 
@@ -225,70 +190,79 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
         })
     }
 
-    /// Decode all chunks (initial, full, and trailer) into the output range.
-    /// This consolidates the logic for handling all three chunk types in one place.
-    pub fn decode_into(&mut self, output: &mut [MaybeUninit<T>]) {
+    /// Decode all chunks (initial, full, and trailer), calling `write_chunk` for each concrete
+    /// unpacked chunk and its corresponding output range.
+    pub(crate) fn decode_chunks_into<U>(
+        &mut self,
+        output: &mut [MaybeUninit<U>],
+        mut write_chunk: impl FnMut(&[T], &mut [MaybeUninit<U>]),
+    ) {
+        debug_assert_eq!(output.len(), self.len);
         let mut local_idx = 0;
 
-        // Handle initial partial chunk if present
         if let Some(initial) = self.initial() {
-            local_idx = initial.len();
-
-            // TODO(connor): use `maybe_uninit_write_slice` feature when it gets stabilized.
-            // https://github.com/rust-lang/rust/issues/79995
-            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
-            let init_initial: &[MaybeUninit<T>] = unsafe { mem::transmute(initial) };
-            output[..local_idx].copy_from_slice(init_initial);
+            let chunk_len = initial.len();
+            write_chunk(initial, &mut output[..chunk_len]);
+            local_idx += chunk_len;
         }
 
-        // Handle full chunks
-        local_idx = self.decode_full_chunks_into_at(output, local_idx);
+        if self.num_chunks != 1 {
+            let first_chunk_is_sliced = self.first_chunk_is_sliced();
+            let last_chunk_is_sliced = self.last_chunk_is_sliced();
+            let full_chunks_range =
+                (first_chunk_is_sliced as usize)..(self.num_chunks - last_chunk_is_sliced as usize);
 
-        // Handle trailing partial chunk if present
+            let packed_slice: &[T::Physical] = buffer_as_slice(&self.packed);
+            let elems_per_chunk = self.elems_per_chunk();
+            for i in full_chunks_range {
+                let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
+
+                unsafe {
+                    let dst: &mut [MaybeUninit<T>] = &mut self.buffer;
+                    // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
+                    let dst: &mut [T::Physical] = mem::transmute(dst);
+                    self.strategy.unpack_chunk(self.bit_width, chunk, dst);
+                }
+
+                // SAFETY: `unpack_chunk` initialized the whole scratch chunk above.
+                let unpacked: &[T] = unsafe { mem::transmute(&self.buffer[..]) };
+                write_chunk(unpacked, &mut output[local_idx..local_idx + CHUNK_SIZE]);
+                local_idx += CHUNK_SIZE;
+            }
+        }
+
         if let Some(trailer) = self.trailer() {
-            // TODO(connor): use `maybe_uninit_write_slice` feature when it gets stabilized.
-            // https://github.com/rust-lang/rust/issues/79995
-            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
-            let init_trailer: &[MaybeUninit<T>] = unsafe { mem::transmute(trailer) };
-            output[local_idx..][..init_trailer.len()].copy_from_slice(init_trailer);
+            let chunk_len = trailer.len();
+            write_chunk(trailer, &mut output[local_idx..local_idx + chunk_len]);
+            local_idx += chunk_len;
         }
+
+        debug_assert_eq!(local_idx, self.len);
     }
 
-    /// Unpack full chunks into output range starting at the given index.
-    /// Returns the next local index to write to.
-    fn decode_full_chunks_into_at(
+    /// Decode all chunks (initial, full, and trailer), mapping each unpacked value through `f`.
+    pub(crate) fn decode_map_into<U>(
         &mut self,
-        output: &mut [MaybeUninit<T>],
-        start_idx: usize,
-    ) -> usize {
-        // If there's only one chunk it has been handled already by `initial` method
-        if self.num_chunks == 1 {
-            // Return the start_idx since initial already wrote everything.
-            return start_idx;
-        }
-
-        let first_chunk_is_sliced = self.first_chunk_is_sliced();
-
-        let last_chunk_is_sliced = self.last_chunk_is_sliced();
-        let full_chunks_range =
-            (first_chunk_is_sliced as usize)..(self.num_chunks - last_chunk_is_sliced as usize);
-
-        let mut local_idx = start_idx;
-
-        let packed_slice: &[T::Physical] = buffer_as_slice(&self.packed);
-        let elems_per_chunk = self.elems_per_chunk();
-        for i in full_chunks_range {
-            let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
-
-            unsafe {
-                let uninit_dst = &mut output[local_idx..local_idx + CHUNK_SIZE];
-                // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout
-                let dst: &mut [T::Physical] = mem::transmute(uninit_dst);
-                self.strategy.unpack_chunk(self.bit_width, chunk, dst);
+        output: &mut [MaybeUninit<U>],
+        mut f: impl FnMut(T) -> U,
+    ) {
+        self.decode_chunks_into(output, |chunk, dst| {
+            for (dst, &src) in dst.iter_mut().zip(chunk.iter()) {
+                dst.write(f(src));
             }
-            local_idx += CHUNK_SIZE;
-        }
-        local_idx
+        });
+    }
+
+    /// Decode all chunks (initial, full, and trailer) into the output range.
+    /// This is the identity mapping of [`decode_map_into`](Self::decode_map_into).
+    pub fn decode_into(&mut self, output: &mut [MaybeUninit<T>]) {
+        self.decode_chunks_into(output, |chunk, dst| {
+            // TODO(connor): use `maybe_uninit_write_slice` feature when it gets stabilized.
+            // https://github.com/rust-lang/rust/issues/79995
+            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
+            let initialized: &[MaybeUninit<T>] = unsafe { mem::transmute(chunk) };
+            dst.copy_from_slice(initialized);
+        });
     }
 
     /// Access last chunk of the array if the last chunk has fewer than 1024 due to slicing

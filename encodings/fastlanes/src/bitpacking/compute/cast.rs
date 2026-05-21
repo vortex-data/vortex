@@ -121,10 +121,15 @@ mod tests {
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::dtype::DType;
+    use vortex_array::dtype::NativePType;
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
+    use vortex_array::match_each_integer_ptype;
+    use vortex_array::scalar_fn::fns::cast::CastKernel;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
 
+    use crate::BitPacked;
     use crate::BitPackedArray;
     use crate::BitPackedData;
 
@@ -164,6 +169,65 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)
         );
+    }
+
+    #[test]
+    fn test_cast_bitpacked_widening_integer_matrix() -> VortexResult<()> {
+        fn values<T: NativePType>(len: usize) -> PrimitiveArray {
+            PrimitiveArray::from_iter((0..len).map(|i| {
+                let value = if i % 17 == 0 { 31 } else { i % 8 };
+                <T as num_traits::FromPrimitive>::from_usize(value)
+                    .expect("test values fit every integer ptype")
+            }))
+        }
+
+        fn supported(src: PType, tgt: PType) -> bool {
+            src.is_int()
+                && tgt.is_int()
+                && tgt.byte_width() > src.byte_width()
+                && (src.is_unsigned_int() || tgt.is_signed_int())
+        }
+
+        let ptypes = [
+            PType::I8,
+            PType::I16,
+            PType::I32,
+            PType::I64,
+            PType::U8,
+            PType::U16,
+            PType::U32,
+            PType::U64,
+        ];
+        let lengths = [0, 1, 7, 1023, 1024, 1025, 2051];
+
+        for src in ptypes {
+            for tgt in ptypes {
+                if !supported(src, tgt) {
+                    continue;
+                }
+
+                for len in lengths {
+                    let source = match_each_integer_ptype!(src, |S| { values::<S>(len) });
+                    let source_ref = source.clone().into_array();
+                    let packed = bp(&source_ref, 3);
+                    let target = DType::Primitive(tgt, Nullability::NonNullable);
+
+                    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+                    let casted =
+                        <BitPacked as CastKernel>::cast(packed.as_view(), &target, &mut ctx)?
+                            .expect(
+                                "supported widening integer cast should hit BitPacked CastKernel",
+                            );
+                    let reference = source_ref
+                        .cast(target)?
+                        .execute::<PrimitiveArray>(&mut ctx)?;
+
+                    assert_arrays_eq!(casted, reference);
+                }
+            }
+        }
+
+        Ok(())
     }
 
     #[rstest]
