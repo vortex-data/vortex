@@ -68,7 +68,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
     bit_packed_iter.decode_into(uninit_slice);
 
     if let Some(patches) = array.patches() {
-        apply_patches_to_uninit_range(&mut uninit_range, &patches, ctx)?;
+        apply_patches_to_uninit_range_fn(&mut uninit_range, &patches, ctx, |v: T| v)?;
     };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
@@ -118,7 +118,7 @@ where
     chunks.decode_map_into(uninit_slice, |v: F| v.as_());
 
     if let Some(patches) = array.patches() {
-        apply_cast_patches_to_uninit_range::<F, T>(&mut uninit_range, &patches, ctx)?;
+        apply_patches_to_uninit_range_fn(&mut uninit_range, &patches, ctx, |v: F| v.as_())?;
     }
 
     // SAFETY: A correct validity mask of `len` values was set via `append_mask`, and the same
@@ -129,55 +129,20 @@ where
     Ok(())
 }
 
-/// Like [`apply_patches_to_uninit_range`], but the stored patch values have physical type `F` and
-/// are cast to the wider output type `T` before being written.
-fn apply_cast_patches_to_uninit_range<F, T>(
+/// Applies the patches to the uninitialized range, casting each stored patch value of physical
+/// type `S` to the output type `T` via the identity-or-widening map `f`.
+pub fn apply_patches_to_uninit_range_fn<S: NativePType, T: NativePType, Fun: Fn(S) -> T>(
     dst: &mut UninitRange<T>,
     patches: &Patches,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<()>
-where
-    F: NativePType + AsPrimitive<T>,
-    T: NativePType,
-{
-    assert_eq!(patches.array_len(), dst.len());
-
-    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
-    let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-    assert!(values.all_valid(ctx)?, "Patch values must be all valid");
-    let values = values.as_slice::<F>();
-
-    match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
-        for (index, &value) in indices.as_slice::<P>().iter().zip_eq(values) {
-            dst.set_value(
-                <P as AsPrimitive<usize>>::as_(*index) - patches.offset(),
-                value.as_(),
-            );
-        }
-    });
-    Ok(())
-}
-
-pub fn apply_patches_to_uninit_range<T: NativePType>(
-    dst: &mut UninitRange<T>,
-    patches: &Patches,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<()> {
-    apply_patches_to_uninit_range_fn(dst, patches, ctx, |x| x)
-}
-
-pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
-    dst: &mut UninitRange<T>,
-    patches: &Patches,
-    ctx: &mut ExecutionCtx,
-    f: F,
+    f: Fun,
 ) -> VortexResult<()> {
     assert_eq!(patches.array_len(), dst.len());
 
     let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
     assert!(values.all_valid(ctx)?, "Patch values must be all valid");
-    let values = values.as_slice::<T>();
+    let values = values.as_slice::<S>();
 
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
         for (index, &value) in indices.as_slice::<P>().iter().zip_eq(values) {

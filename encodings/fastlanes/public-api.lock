@@ -34,9 +34,7 @@ pub fn vortex_fastlanes::bitpack_compress::gather_patches(&vortex_array::arrays:
 
 pub mod vortex_fastlanes::bitpack_decompress
 
-pub fn vortex_fastlanes::bitpack_decompress::apply_patches_to_uninit_range<T: vortex_array::dtype::ptype::NativePType>(&mut vortex_array::builders::primitive::UninitRange<'_, T>, &vortex_array::patches::Patches, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()>
-
-pub fn vortex_fastlanes::bitpack_decompress::apply_patches_to_uninit_range_fn<T: vortex_array::dtype::ptype::NativePType, F: core::ops::function::Fn(T) -> T>(&mut vortex_array::builders::primitive::UninitRange<'_, T>, &vortex_array::patches::Patches, &mut vortex_array::executor::ExecutionCtx, F) -> vortex_error::VortexResult<()>
+pub fn vortex_fastlanes::bitpack_decompress::apply_patches_to_uninit_range_fn<S: vortex_array::dtype::ptype::NativePType, T: vortex_array::dtype::ptype::NativePType, Fun: core::ops::function::Fn(S) -> T>(&mut vortex_array::builders::primitive::UninitRange<'_, T>, &vortex_array::patches::Patches, &mut vortex_array::executor::ExecutionCtx, Fun) -> vortex_error::VortexResult<()>
 
 pub fn vortex_fastlanes::bitpack_decompress::count_exceptions(u8, &[usize]) -> usize
 

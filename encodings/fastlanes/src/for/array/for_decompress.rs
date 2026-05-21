@@ -123,7 +123,7 @@ pub(crate) fn fused_decompress<
             &mut uninit_range,
             &patches,
             ctx,
-            |v| v.wrapping_add(&ref_),
+            |v: T| v.wrapping_add(&ref_),
         )?;
     };
 
