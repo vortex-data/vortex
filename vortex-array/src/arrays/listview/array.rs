@@ -433,7 +433,9 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
                 let sizes_slice = sizes_primitive.as_slice::<S>();
 
                 (0..offset_len).for_each(|i| {
+                    #[allow(clippy::cast_possible_truncation)]
                     let start = offsets_slice[i] as usize;
+                    #[allow(clippy::cast_possible_truncation)]
                     let size = sizes_slice[i] as usize;
                     buf.fill_range(start, start + size, true);
                 });
@@ -481,7 +483,7 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             sum(sizes, &mut LEGACY_SESSION.create_execution_ctx())?
                 .as_primitive()
                 .as_::<u64>()
-                .unwrap()
+                .expect("sum should cast to u64")
         };
 
         let estimate = (sizes_sum as f32 / n_elts as f32).clamp(0.0, 1.0);
