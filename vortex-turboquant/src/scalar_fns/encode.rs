@@ -162,7 +162,20 @@ impl ScalarFnVTable for TQEncode {
     }
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
-        false
+        // `encode_vector` returns an error for any input row whose L2 norm is non-finite
+        // (`NaN`, `+inf`, or a finite-input row whose squared sum overflows `f32`). The
+        // check lives in `vector::normalize::normalize_vectors` and exists so the in-flight
+        // decode-side norm correction in `scalar_fns::decode::decode_typed` cannot disagree
+        // with the stored row norm.
+        //
+        // This is a data-dependent defined-behavior failure (analogous to `checked_add` on
+        // integer overflow), so per the `ScalarFnVTable::is_fallible` contract — used by
+        // optimizers to decide whether to speculatively evaluate over unreferenced inputs,
+        // for example pushing a scalar function down to a dictionary's values array — this
+        // function reports as fallible. Without it, speculative dictionary pushdown could
+        // surface non-finite-norm errors on rows that the consumer would never have
+        // referenced under normal evaluation.
+        true
     }
 }
 

@@ -158,8 +158,11 @@ pub(crate) fn parse_storage(
 
 /// Narrow form of [`parse_storage`] that returns only the `norms` child plus the outer
 /// struct validity. Used by the `L2Norm(TQDecode(_))` kernel so the fast path does not
-/// execute the `codes` child it has no use for. The `norms` child's validity is still
-/// validated against the struct's; the `codes` child is not touched.
+/// materialize the `codes` child's per-byte elements that it has no use for. Both children's
+/// row validity is still validated against the struct's so that malformed-validity inputs
+/// fail here exactly as they fail in [`parse_storage`]; only the inner `u8` element buffer
+/// of the `codes` child is skipped. The per-byte centroid-index range is not checked either
+/// way, since the codes are not decoded on this fast path.
 pub(crate) fn parse_storage_norms_only(
     input: ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -172,16 +175,22 @@ pub(crate) fn parse_storage_norms_only(
         .clone()
         .execute(ctx)?;
 
+    // Execute only the `codes` FSL wrapper so we can validate its row-level validity covers
+    // the struct's. The inner `u8` element buffer is intentionally not materialized.
+    let codes_fsl: FixedSizeListArray = storage
+        .unmasked_field_by_name(CODES_FIELD)?
+        .clone()
+        .execute(ctx)?;
+
     let len = storage.len();
     let struct_validity = storage.struct_validity();
     let norms_validity = norms.validity()?;
+    let codes_validity = codes_fsl.validity()?;
 
     let struct_mask = struct_validity.execute_mask(len, ctx)?;
     let norms_mask = norms_validity.execute_mask(len, ctx)?;
-    vortex_ensure!(
-        struct_mask.bitand_not(&norms_mask).all_false(),
-        "TurboQuant {NORMS_FIELD} row validity must cover storage validity"
-    );
+    let codes_mask = codes_validity.execute_mask(len, ctx)?;
+    validate_child_validity_covers_struct(&struct_mask, &norms_mask, &codes_mask)?;
 
     Ok(TurboQuantParsedNorms {
         vector_validity: struct_validity,

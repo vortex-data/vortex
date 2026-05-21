@@ -103,14 +103,19 @@ where
     let values = elements.as_slice::<T>();
     let norm_values = norms.as_slice::<T>();
 
-    // Reject non-finite norms up front. A `+inf` or `NaN` norm would either come from an input
-    // row whose sum of squares overflowed `T` or from a pre-existing `NaN` in the data. In
-    // either case the f32-precision SORF transform downstream cannot represent the row, and
-    // letting the division `value / norm` proceed silently corrupts encoded data: the
-    // normalized row becomes all zeros, encode infers a zero-norm row, and decode's in-flight
+    // Reject non-finite norms up front. A `+inf` or `NaN` norm comes from either an input
+    // row whose sum of squares overflowed `T` or a pre-existing `NaN` in the data. In either
+    // case the f32-precision SORF transform downstream cannot represent the row, and letting
+    // the division `value / norm` proceed silently corrupts encoded data: the normalized row
+    // becomes all zeros, encode infers a zero-norm row, and decode's in-flight
     // reciprocal-of-direction-norm correction disagrees with the non-finite stored norm.
     // Invalid-row norms can carry arbitrary placeholders so they are excluded from the check
     // via the row-validity mask.
+    //
+    // This rejection is the reason `TQEncode::is_fallible` returns `true` (see
+    // [`crate::scalar_fns::encode`]): a row of well-typed floats with a non-finite norm is a
+    // defined-behavior failure rather than an internal error, so optimizers must treat
+    // encode as fallible when reasoning about speculative evaluation.
     for (i, &norm) in norm_values.iter().enumerate() {
         if mask.value(i) && !norm.is_finite() {
             vortex_bail!(
