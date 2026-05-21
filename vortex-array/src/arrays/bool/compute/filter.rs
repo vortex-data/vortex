@@ -108,9 +108,9 @@ pub fn filter_bitbuffer_by_mask(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "bmi2,popcnt")]
 unsafe fn filter_pext_bmi2(src: &BitBuffer, mask_buf: &BitBuffer, true_count: usize) -> BitBuffer {
-    filter_inner(src, mask_buf, true_count, |src, mask| {
-        std::arch::x86_64::_pext_u64(src, mask)
-    })
+    use std::arch::x86_64::_pext_u64;
+
+    filter_inner(src, mask_buf, true_count, |src, mask| _pext_u64(src, mask))
 }
 
 /// Software fallback filter using byte-LUT PEXT.
