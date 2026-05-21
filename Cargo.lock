@@ -9745,6 +9745,7 @@ name = "vortex-fsst"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "fastlanes",
  "fsst-rs",
  "prost 0.14.3",
  "rand 0.10.1",
