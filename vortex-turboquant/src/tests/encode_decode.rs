@@ -200,6 +200,130 @@ fn decode_preserves_original_l2_norms_for_non_power_of_two_dimensions() -> Vorte
     Ok(())
 }
 
+/// Encode rejects rows whose L2 norm is non-finite. Without this guard, a row whose squared
+/// sum overflows would normalize to all-zero placeholders and decode-vs-kernel would silently
+/// diverge (`NaN` vs `+inf`).
+#[test]
+fn encode_rejects_non_finite_norms() -> VortexResult<()> {
+    let session = test_session();
+    let mut ctx = session.create_execution_ctx();
+
+    // A row of `1e30` repeated `dim=128` times has squared sum `128 * 1e60 ≈ 1.28e62`, which
+    // overflows `f32` (max ≈ 3.4e38) and produces `+inf` when `L2Norm` runs in `f32`.
+    let values = vec![1e30f32; 128];
+    let input = vector_array(128, &values, Validity::NonNullable)?;
+
+    let result = execute_tq_encode(input, &TurboQuantConfig::default(), &mut ctx);
+    assert!(
+        result.is_err(),
+        "encode must reject non-finite norms (overflow case)"
+    );
+    let error = result.err().unwrap().to_string();
+    assert!(
+        error.contains("non-finite"),
+        "expected non-finite error, got: {error}"
+    );
+    Ok(())
+}
+
+/// Encode rejects rows containing `NaN` values, which propagate through `L2Norm` to produce
+/// a `NaN` stored norm.
+#[test]
+fn encode_rejects_nan_input() -> VortexResult<()> {
+    let session = test_session();
+    let mut ctx = session.create_execution_ctx();
+
+    let mut values = vec![1.0f32; 128];
+    values[0] = f32::NAN;
+    let input = vector_array(128, &values, Validity::NonNullable)?;
+
+    let result = execute_tq_encode(input, &TurboQuantConfig::default(), &mut ctx);
+    assert!(result.is_err(), "encode must reject NaN input rows");
+    Ok(())
+}
+
+/// Decode preserves stored L2 norms across element ptypes and padded/unpadded dimensions.
+#[rstest]
+#[case::f16_dim_128(PType::F16, 128_u32, 1e-2_f32)]
+#[case::f16_dim_129(PType::F16, 129_u32, 1e-2_f32)]
+#[case::f32_dim_128(PType::F32, 128_u32, 1e-4_f32)]
+#[case::f32_dim_129(PType::F32, 129_u32, 1e-4_f32)]
+#[case::f32_dim_257(PType::F32, 257_u32, 1e-4_f32)]
+#[case::f64_dim_128(PType::F64, 128_u32, 1e-4_f32)]
+#[case::f64_dim_129(PType::F64, 129_u32, 1e-4_f32)]
+fn decode_preserves_original_l2_norms_across_ptypes_and_dims(
+    #[case] ptype: PType,
+    #[case] dim: u32,
+    #[case] tolerance: f32,
+) -> VortexResult<()> {
+    let session = tensor_test_session();
+    let mut ctx = session.create_execution_ctx();
+    let rows = 3;
+    let raw = (0..rows * dim as usize)
+        .map(|i| (i % 17) as f32 - 8.0)
+        .map(|v| v * 0.25)
+        .collect::<Vec<_>>();
+    let input = match ptype {
+        PType::F16 => {
+            let values: Vec<half::f16> = raw.iter().copied().map(half::f16::from_f32).collect();
+            vector_array(dim, &values, Validity::NonNullable)?
+        }
+        PType::F32 => vector_array(dim, &raw, Validity::NonNullable)?,
+        PType::F64 => {
+            let values: Vec<f64> = raw.iter().copied().map(f64::from).collect();
+            vector_array(dim, &values, Validity::NonNullable)?
+        }
+        _ => unreachable!("ptype must be float"),
+    };
+    let config = TurboQuantConfig::try_new(3, 42, 3)?;
+
+    let encoded = execute_tq_encode(input, &config, &mut ctx)?;
+    let decoded = execute_tq_decode(encoded, &mut ctx)?;
+    let decoded_norms: PrimitiveArray = L2Norm::try_new_array(decoded, rows)?
+        .into_array()
+        .execute(&mut ctx)?;
+
+    // L2Norm returns the element ptype; widen to f32 for comparison.
+    let actuals: Vec<f32> = match ptype {
+        PType::F16 => decoded_norms
+            .as_slice::<half::f16>()
+            .iter()
+            .map(|v| f32::from(*v))
+            .collect(),
+        PType::F32 => decoded_norms.as_slice::<f32>().to_vec(),
+        PType::F64 => decoded_norms
+            .as_slice::<f64>()
+            .iter()
+            .map(|v| {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "norms are bounded by the test's input magnitudes (~|raw| * dim^0.5), \
+                              well within f32 range"
+                )]
+                let widened = *v as f32;
+                widened
+            })
+            .collect(),
+        _ => unreachable!(),
+    };
+
+    // Recompute expected from the raw f32 input to avoid coupling to internal storage.
+    let expected: Vec<f32> = (0..rows)
+        .map(|i| {
+            let row = &raw[i * dim as usize..][..dim as usize];
+            row.iter().map(|v| v * v).sum::<f32>().sqrt()
+        })
+        .collect();
+
+    for (actual, exp) in actuals.iter().zip(expected.iter()) {
+        assert!(
+            (*actual - *exp).abs() <= tolerance * exp.max(1.0),
+            "decoded norm {actual} did not match expected {exp} (ptype {ptype:?}, dim {dim})"
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn normalize_as_l2_denorm_preserves_child_validity() -> VortexResult<()> {
     let session = test_session();

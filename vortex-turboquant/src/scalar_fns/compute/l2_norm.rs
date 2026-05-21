@@ -11,17 +11,18 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::ScalarFn;
 use vortex_array::arrays::scalar_fn::ExactScalarFn;
 use vortex_array::arrays::scalar_fn::ScalarFnArrayExt;
+use vortex_array::dtype::Nullability;
 use vortex_array::optimizer::kernels::ArrayKernelsExt;
 use vortex_array::optimizer::kernels::ExecuteParentFn;
 use vortex_array::scalar_fn::ScalarFnVTable;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure_eq;
 use vortex_session::VortexSession;
 use vortex_tensor::scalar_fns::l2_norm::L2Norm;
 
 use crate::TQDecode;
-use crate::vector::storage::parse_storage;
-use crate::vtable::TurboQuant;
+use crate::vector::storage::parse_storage_norms_only;
 
 /// Register the `L2Norm(TQDecode(_))` execute-parent kernel on the session.
 pub(super) fn register(session: &VortexSession) {
@@ -34,13 +35,14 @@ pub(super) fn register(session: &VortexSession) {
 
 /// Intercepts `L2Norm(TQDecode(tq_arr))` and returns the stored TurboQuant `norms` field.
 ///
-/// The kernel only fires when both the parent matches `ExactScalarFn<L2Norm>` and the child
-/// matches `ExactScalarFn<TQDecode>`. Returns `Ok(None)` for any other shape so the canonical
-/// `L2Norm` path runs unchanged.
-//
-// This is semantically correct because TurboQuant stores per-row inverse direction norms and
-// `TQDecode` applies that correction before re-applying the original row norm. In other words,
-// valid nonzero decoded rows preserve the stored L2 norm even though coordinates are lossy.
+/// Semantically valid because [`TQDecode`] renormalizes the lossy quantized direction with the
+/// stored inverse direction-norm before re-applying the original row norm, so decoded rows
+/// preserve the stored L2 norm. The kernel returns `Ok(None)` for any non-matching parent /
+/// child pair so the canonical `L2Norm` path runs unchanged.
+///
+/// The result's nullability is coerced to the parent's expected dtype because the stored
+/// `norms` child may be wider than the outer struct (a shape [`parse_storage_norms_only`]
+/// accepts).
 fn l2_norm_tq_decode_execute_parent(
     child: &ArrayRef,
     parent: &ArrayRef,
@@ -55,24 +57,16 @@ fn l2_norm_tq_decode_execute_parent(
     }
 
     let tq_array = child.as_::<ScalarFn>().child_at(0).clone();
+    let parsed = parse_storage_norms_only(tq_array, ctx)?;
 
-    // Defensive: TQDecode's signature already guarantees this, but a misregistration or a
-    // future TQDecode that takes a wrapped child should fall back to the canonical path.
-    if tq_array
-        .dtype()
-        .as_extension_opt()
-        .and_then(|d| d.metadata_opt::<TurboQuant>())
-        .is_none()
-    {
-        return Ok(None);
-    }
-
-    let parsed = parse_storage(tq_array, ctx)?;
-    let norms_validity = parsed.norms.validity()?;
+    let norms_validity = match parent.dtype().nullability() {
+        Nullability::NonNullable => Validity::NonNullable,
+        Nullability::Nullable => parsed.vector_validity,
+    };
     let norms = PrimitiveArray::from_buffer_handle(
         parsed.norms.buffer_handle().clone(),
         parsed.norms.ptype(),
-        norms_validity.and(parsed.vector_validity)?,
+        norms_validity,
     )
     .into_array();
 

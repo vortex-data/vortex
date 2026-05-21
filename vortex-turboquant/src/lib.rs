@@ -34,31 +34,24 @@
 //! )
 //! ```
 //!
-//! Stored norms are authoritative for future TurboQuant-aware scalar functions. Scalar quantization
-//! perturbs the transformed unit vector, and inverse SORF plus truncation can leave the decoded
-//! quantized direction with norm different from `1.0`. If decode only multiplied that direction by
-//! the original row norm, `L2Norm(TQDecode(_))` would not equal the norm of the vector returned by
-//! `TQDecode`. TurboQuant therefore stores `inv_direction_norms = 1 / ||decoded_direction||` so
-//! decode can first renormalize the lossy quantized direction and then apply the original norm.
-//!
-//! Storing the correction also keeps future query kernels cheap. Inner product and cosine kernels can
-//! rotate a query once and gather against centroids directly; the per-row scale they need is already
-//! available as `norms * inv_direction_norms` for inner product and `inv_direction_norms` for cosine.
-//! Without this field, those kernels would have to recompute the inverse SORF/truncated norm per row
-//! or give up the `TQDecode` norm-preservation invariant.
+//! Stored norms are authoritative for future TurboQuant-aware scalar functions. The rationale
+//! for the `inv_direction_norms` correction field lives next to the storage layout; see
+//! `vector/storage.rs`.
 //!
 //! # Source map
 //!
 //! Implementation details are documented next to the code that owns them:
 //!
-//! - `vector/storage.rs`: physical storage shape, full-length child arrays, and field-level
-//!   validity for null vectors.
-//! - `vector/normalize.rs`: TurboQuant-local normalization and how it differs from the tensor
-//!   crate's null-row zeroing helper.
-//! - `vector/quantize.rs`: SORF transform, centroid lookup, and why invalid rows are skipped rather
-//!   than quantized.
+//! - `vector/storage.rs`: physical storage shape and parsing.
+//! - `vector/normalize.rs`: TurboQuant-local normalization and the encode-time finite-norm
+//!   guard.
+//! - `vector/quantize.rs`: SORF transform, centroid lookup, and the per-row
+//!   `inv_direction_norm` computation.
+//! - `scalar_fns/compute/`: session-scoped optimizer kernels that intercept canonical scalar
+//!   functions over TurboQuant inputs (currently `L2Norm(TQDecode(_))`).
 //! - `centroids.rs`: deterministic Max-Lloyd centroid computation and process-local caching.
-//! - `sorf/`: the Walsh-Hadamard-based structured transform and the stable SplitMix64 sign stream.
+//! - `sorf/`: Walsh-Hadamard-based structured transform plus the stable SplitMix64 sign
+//!   stream.
 //!
 //! The current encoding is intentionally MSE-only. It does not yet implement the paper's QJL
 //! residual correction for unbiased inner-product estimation, and it still uses internal

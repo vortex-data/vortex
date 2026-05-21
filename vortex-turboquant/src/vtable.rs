@@ -140,6 +140,9 @@ pub(crate) fn tq_metadata(dtype: &DType) -> VortexResult<TurboQuantMetadata> {
     Ok(*metadata)
 }
 
+/// Compute the storage [`DType`] for a TurboQuant array with the given `metadata` and outer
+/// `row_nullability`. Returns the `Struct { norms, inv_direction_norms, codes }` shape
+/// documented in [`crate::vector::storage`].
 pub(crate) fn tq_storage_dtype(
     metadata: &TurboQuantMetadata,
     row_nullability: Nullability,

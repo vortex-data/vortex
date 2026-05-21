@@ -32,13 +32,20 @@ use crate::centroids::compute_or_get_centroids;
 use crate::centroids::find_nearest_centroid;
 use crate::sorf::SorfMatrix;
 
-/// Shared intermediate results from the quantization loop.
+/// Intermediate output from the quantization loop, consumed by `encode_vector` to assemble
+/// the storage struct. Invalid rows hold zero placeholders in both buffers.
 pub(crate) struct QuantizationResult {
+    /// Flat `padded_dim`-strided centroid indices, `num_vectors * padded_dim` entries.
     pub(crate) all_indices: Buffer<u8>,
+    /// Per-row reciprocal L2 norm of the decoded quantized direction. See the comment inside
+    /// [`turboquant_quantize_core`] for the `0.0` sentinel cases.
     pub(crate) inv_direction_norms: Buffer<f32>,
+    /// SORF padded dimension, `next_power_of_two(dimensions)`.
     pub(crate) padded_dim: usize,
 }
 
+/// Build an empty [`QuantizationResult`] for a zero-row input, so the SORF machinery does not
+/// run with a zero-length elements buffer.
 pub(crate) fn empty_quantization(padded_dim: usize) -> QuantizationResult {
     QuantizationResult {
         all_indices: Buffer::empty(),
@@ -112,11 +119,12 @@ pub(crate) unsafe fn turboquant_quantize_core(
                 *dst = centroids[usize::from(code)];
             }
 
-            // Quantization perturbs the unit direction. The exact norm that decode will return is
-            // the norm after dequantizing centroids, inverse-transforming, and truncating away any
-            // padded dimensions. Precomputing its reciprocal here lets `TQDecode` preserve the
-            // original row norm and lets future query kernels reuse the same per-row correction
-            // without repeating this inverse transform for every query.
+            // The all-zero `row_values` check fires only for valid zero-norm rows (the
+            // normalize step pushes zero placeholders for those; non-finite input norms are
+            // rejected earlier). The `is_normal` guard handles the remaining numerical edge:
+            // a denormal `norm_squared` would produce a huge-or-infinite `recip` that decode
+            // would propagate as `+inf` / `NaN`. Both cases store `0.0` so decode emits a
+            // zero row, matching the stored norm.
             let inv_direction_norm = if row_values.iter().all(|&value| value == 0.0) {
                 0.0
             } else {
@@ -125,10 +133,10 @@ pub(crate) unsafe fn turboquant_quantize_core(
                     .iter()
                     .map(|value| value * value)
                     .sum::<f32>();
-                if norm_squared == 0.0 {
-                    0.0
-                } else {
+                if norm_squared.is_normal() {
                     norm_squared.sqrt().recip()
+                } else {
+                    0.0
                 }
             };
 

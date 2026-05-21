@@ -32,7 +32,7 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 divan = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
-vortex-array = { path = "../vortex-array", features = ["_test-harness"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-file = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }

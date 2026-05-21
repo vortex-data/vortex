@@ -219,6 +219,8 @@ struct DecodeInputs<'a> {
     centroids: &'a [f32],
     /// Per-row stored L2 norm of the original input vector, in the element ptype.
     norms: &'a PrimitiveArray,
+    /// Per-row reciprocal of the decoded direction's L2 norm, always in f32. See
+    /// [`crate::vector::storage`] for the sentinel semantics.
     inv_direction_norms: &'a PrimitiveArray,
     /// Flat per-row centroid indices, `num_vectors * padded_dim` bytes.
     codes: &'a PrimitiveArray,
