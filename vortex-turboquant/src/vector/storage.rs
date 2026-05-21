@@ -64,6 +64,16 @@ pub(crate) struct TurboQuantParsedStorage {
     pub(crate) len: usize,
 }
 
+/// Subset of [`TurboQuantParsedStorage`] containing only the `norms` child plus the outer
+/// struct validity. Used by the `L2Norm(TQDecode(_))` execute-parent kernel, which has no
+/// need for the `codes` child.
+pub(crate) struct TurboQuantParsedNorms {
+    /// Authoritative row validity for the quantized vectors, taken from the outer struct.
+    pub(crate) vector_validity: Validity,
+    /// Per-row stored L2 norm of the original input vector, in `metadata.element_ptype`.
+    pub(crate) norms: PrimitiveArray,
+}
+
 /// Build the `codes: FixedSizeList<Primitive<u8>, padded_dim>` storage child.
 ///
 /// Each row of `padded_dim` u8 codes indexes into the deterministic centroid codebook derived
@@ -103,6 +113,11 @@ pub(crate) fn build_storage(
 }
 
 /// Parse a TurboQuant extension array into executed storage children.
+///
+/// Executes both storage children, validates that every child's row validity covers the outer
+/// struct validity, and returns the parsed result. Used by `TQDecode`, which needs every
+/// child. Kernels that only need a subset should use a narrower helper (for example
+/// [`parse_storage_norms_only`]) to avoid executing the children they will not consume.
 pub(crate) fn parse_storage(
     input: ArrayRef,
     ctx: &mut ExecutionCtx,
@@ -138,6 +153,39 @@ pub(crate) fn parse_storage(
         norms,
         codes,
         len,
+    })
+}
+
+/// Narrow form of [`parse_storage`] that returns only the `norms` child plus the outer
+/// struct validity. Used by the `L2Norm(TQDecode(_))` kernel so the fast path does not
+/// execute the `codes` child it has no use for. The `norms` child's validity is still
+/// validated against the struct's; the `codes` child is not touched.
+pub(crate) fn parse_storage_norms_only(
+    input: ArrayRef,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<TurboQuantParsedNorms> {
+    let ext: ExtensionArray = input.execute(ctx)?;
+    let storage: StructArray = ext.storage_array().clone().execute(ctx)?;
+
+    let norms: PrimitiveArray = storage
+        .unmasked_field_by_name(NORMS_FIELD)?
+        .clone()
+        .execute(ctx)?;
+
+    let len = storage.len();
+    let struct_validity = storage.struct_validity();
+    let norms_validity = norms.validity()?;
+
+    let struct_mask = struct_validity.execute_mask(len, ctx)?;
+    let norms_mask = norms_validity.execute_mask(len, ctx)?;
+    vortex_ensure!(
+        struct_mask.bitand_not(&norms_mask).all_false(),
+        "TurboQuant {NORMS_FIELD} row validity must cover storage validity"
+    );
+
+    Ok(TurboQuantParsedNorms {
+        vector_validity: struct_validity,
+        norms,
     })
 }
 

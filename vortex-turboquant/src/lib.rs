@@ -48,6 +48,8 @@
 //!   than quantized.
 //! - `centroids.rs`: deterministic Max-Lloyd centroid computation and process-local caching.
 //! - `sorf/`: the Walsh-Hadamard-based structured transform and the stable SplitMix64 sign stream.
+//! - `scalar_fns/compute/`: session-scoped optimizer kernels that intercept canonical scalar
+//!   functions over TurboQuant inputs (currently `L2Norm(TQDecode(_))`).
 //!
 //! The current encoding is intentionally MSE-only. It does not yet implement the paper's QJL
 //! residual correction for unbiased inner-product estimation, and it still uses internal
@@ -75,6 +77,8 @@ pub fn initialize(session: &vortex_session::VortexSession) {
 
     session.scalar_fns().register(TQEncode);
     session.scalar_fns().register(TQDecode);
+
+    scalar_fns::compute::register_kernels(session);
 }
 
 #[cfg(test)]

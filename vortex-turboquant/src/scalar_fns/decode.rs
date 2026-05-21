@@ -153,9 +153,13 @@ impl ScalarFnVTable for TQDecode {
 
 /// Decode a `TurboQuant` extension array back into a `Vector` extension array.
 ///
-/// The decoded directions are inverse-transformed, truncated to the original dimension, and
+/// The decoded directions are inverse-transformed, truncated to the original dimension,
+/// renormalized in flight by the reciprocal of the dequantized direction's L2 norm, and
 /// multiplied by the stored row norms. The conversion is lossy and does not roundtrip with
-/// [`TQEncode`](crate::TQEncode).
+/// [`TQEncode`](crate::TQEncode), but `|TQDecode(x)| == stored_norm[x]` to floating-point
+/// precision by construction. This is what makes the session-scoped `L2Norm(TQDecode(_))`
+/// kernel correct: its fast path returns the stored norm and the canonical slow path
+/// recomputes the same value (up to rounding) from the materialized decode.
 pub(crate) fn decode_vector(input: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
     let parsed = parse_storage(input, ctx)?;
     let metadata = parsed.metadata;
@@ -258,12 +262,25 @@ where
 
         decode.sorf_matrix.inverse_transform(&decoded, &mut inverse);
 
+        // Rescale the decoded direction to unit norm before re-applying the stored row norm,
+        // so that `|TQDecode(row)| == stored_norm[row]` to floating-point precision. Encode
+        // already rejects non-finite input norms, so `norm_squared` cannot be `NaN` or
+        // `+inf` here from legitimate stored data. The `is_normal` guard catches the rare
+        // case where every dequantized coordinate is zero (so the recip would be `+inf`) or
+        // where rounding produces a subnormal value, and falls back to an all-zero row.
+        let norm_squared = inverse.iter().take(dimensions).map(|v| v * v).sum::<f32>();
+        let inv_direction_norm = if norm_squared.is_normal() {
+            norm_squared.sqrt().recip()
+        } else {
+            0.0
+        };
+
         let norm = norms[i];
         for &value in inverse.iter().take(dimensions) {
             // `T::from_f32` is infallible for the supported float ptypes (`f16`, `f32`,
             // `f64`): values outside `f16` range saturate to `±inf` rather than returning
             // `None`.
-            let value = T::from_f32(value)
+            let value = T::from_f32(value * inv_direction_norm)
                 .vortex_expect("from_f32 is infallible for supported float types");
 
             // SAFETY: total pushes across all match arms equal `output_len`.

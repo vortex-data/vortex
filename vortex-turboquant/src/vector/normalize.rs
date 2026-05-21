@@ -24,6 +24,7 @@ use vortex_array::match_each_float_ptype;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
@@ -101,6 +102,22 @@ where
 
     let values = elements.as_slice::<T>();
     let norm_values = norms.as_slice::<T>();
+
+    // Reject non-finite norms up front. A `+inf` or `NaN` norm would either come from an input
+    // row whose sum of squares overflowed `T` or from a pre-existing `NaN` in the data. In
+    // either case the f32-precision SORF transform downstream cannot represent the row, and
+    // letting the division `value / norm` proceed silently corrupts encoded data: the
+    // normalized row becomes all zeros, encode infers a zero-norm row, and decode's in-flight
+    // reciprocal-of-direction-norm correction disagrees with the non-finite stored norm.
+    // Invalid-row norms can carry arbitrary placeholders so they are excluded from the check
+    // via the row-validity mask.
+    for (i, &norm) in norm_values.iter().enumerate() {
+        if mask.value(i) && !norm.is_finite() {
+            vortex_bail!(
+                "TurboQuant input row {i} has non-finite L2 norm; encode requires finite norms"
+            );
+        }
+    }
 
     let output_len = num_vectors
         .checked_mul(dimensions)
