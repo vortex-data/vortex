@@ -3,12 +3,12 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 #
 # One-time bootstrap of vortex-bench-server on a fresh EC2 host.
-# Idempotent — safe to re-run after editing units or to recover from
+# Idempotent - safe to re-run after editing units or to recover from
 # partial state. See ops/README.md for the full operator runbook.
 #
 # Run as a user with sudo (typically ec2-user). The script will:
-#   1. Create state and log directories under /var/lib/vortex-bench
-#      and /var/log/vortex-bench, owned by $RUN_USER.
+#   1. Create state directories under /var/lib/vortex-bench, owned by
+#      $RUN_USER. Logs go to journalctl, not to a file.
 #   2. Drop a sudoers fragment that lets $RUN_USER restart the server
 #      service without a password (so the deploy timer can run as the
 #      service user).
@@ -39,7 +39,6 @@ RUN_USER="ec2-user"
 RUN_GROUP="${RUN_USER}"
 REPO_DIR="${REPO_DIR:-$HOME/vortex}"
 STATE_DIR="/var/lib/vortex-bench"
-LOG_DIR="/var/log/vortex-bench"
 ENV_FILE="/etc/vortex-bench.env"
 SYSTEMD_DIR="/etc/systemd/system"
 SUDOERS_FILE="/etc/sudoers.d/vortex-bench"
@@ -50,9 +49,22 @@ if [ ! -d "$ops_dir" ]; then
     exit 2
 fi
 
+# Preflight: every external command the autopilot will call from this
+# point on. Fail loudly here with a one-line summary instead of producing
+# systemd units that 5xx silently in the journal hours later.
+missing=()
+for cmd in git cargo openssl jq flock aws tar gzip curl; do
+    command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
+done
+if [ "${#missing[@]}" -gt 0 ]; then
+    echo "ERROR: missing required commands: ${missing[*]}" >&2
+    echo "  (install per BOOTSTRAP.md Phase 2 before re-running install.sh)" >&2
+    exit 2
+fi
+
 # The deploy timer runs as ${RUN_USER} with no SSH agent, so an SSH
 # remote fails with "Permission denied (publickey)" on every fire.
-# Public-repo HTTPS reads need no auth — warn early so this is not the
+# Public-repo HTTPS reads need no auth - warn early so this is not the
 # first surprise out of the gate.
 if [ -d "${REPO_DIR}/.git" ]; then
     origin_url="$(git -C "$REPO_DIR" remote get-url origin 2>/dev/null || true)"
@@ -67,14 +79,13 @@ fi
 
 log() { printf '[install] %s\n' "$*"; }
 
-# --- 1. State + log directories ---
-log "creating ${STATE_DIR} and ${LOG_DIR} (owner ${RUN_USER}:${RUN_GROUP})"
+# --- 1. State directories ---
+log "creating ${STATE_DIR} (owner ${RUN_USER}:${RUN_GROUP})"
 sudo install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" \
     "$STATE_DIR" \
     "${STATE_DIR}/bin" \
     "${STATE_DIR}/snapshots" \
-    "${STATE_DIR}/duckdb-extensions" \
-    "$LOG_DIR"
+    "${STATE_DIR}/duckdb-extensions"
 
 # --- 2. Sudoers fragment ---
 # Let RUN_USER restart/start/stop/status the v3 systemd units without a
@@ -84,7 +95,18 @@ sudo install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" \
 # moving /var/lib/vortex-bench files) still require a full sudo session
 # the operator can audit.
 log "writing sudoers fragment to ${SUDOERS_FILE}"
-sudo tee "$SUDOERS_FILE" >/dev/null <<EOF
+# Write to a tempfile, validate with visudo, ONLY THEN move into place.
+# A broken sudoers fragment in /etc/sudoers.d/ breaks sudo system-wide
+# and removes the operator's repair path; the validate-before-rename
+# pattern below makes a syntax error fail safely.
+#
+# Sudoers matches argv exactly. Each authorized invocation must be a
+# SINGLE-unit `systemctl <verb> <unit>` call; multi-unit invocations
+# (`stop A B C`) would NOT be authorized by these per-unit lines, so
+# every caller (deploy.sh, restart.sh, migrate.sh, force-rebuild.sh)
+# splits its stops/starts into one call per unit.
+sudoers_tmp="$(sudo mktemp /etc/sudoers.d/.vortex-bench.XXXXXX)"
+sudo tee "$sudoers_tmp" >/dev/null <<EOF
 # Auto-deploy + manual migration helpers run as ${RUN_USER}; only the
 # systemctl calls into the v3 units need root. Both /bin/ and /usr/bin/
 # are listed because Amazon Linux 2023 ships systemctl at /usr/bin while
@@ -115,8 +137,13 @@ ${RUN_USER} ALL=(root) NOPASSWD: \\
     /usr/bin/systemctl stop vortex-bench-backup.service, \\
     /usr/bin/systemctl stop vortex-bench-backup.timer
 EOF
-sudo chmod 0440 "$SUDOERS_FILE"
-sudo visudo -cf "$SUDOERS_FILE" >/dev/null
+sudo chmod 0440 "$sudoers_tmp"
+if ! sudo visudo -cf "$sudoers_tmp" >/dev/null; then
+    sudo rm -f "$sudoers_tmp"
+    echo "ERROR: sudoers fragment failed visudo validation; refusing to install." >&2
+    exit 3
+fi
+sudo mv -f "$sudoers_tmp" "$SUDOERS_FILE"
 
 # --- 3. Env file ---
 if [ ! -f "$ENV_FILE" ]; then
@@ -126,14 +153,17 @@ if [ ! -f "$ENV_FILE" ]; then
         "$ENV_FILE"
     log "EDIT ${ENV_FILE} to set INGEST_BEARER_TOKEN, ADMIN_BEARER_TOKEN, REPO_DIR"
 else
-    log "${ENV_FILE} already present — leaving alone"
+    log "${ENV_FILE} already present - leaving alone"
 fi
 
 # --- 4. Symlink ops/ into the state dir ---
 # Gives systemd units a stable path that doesn't depend on the repo
-# checkout location moving.
+# checkout location moving. Stage-and-rename so the symlink is never
+# missing for a window where a concurrent timer fire's ExecStart could
+# ENOENT (matches the atomic-symlink pattern in deploy.sh).
 log "symlinking ${ops_dir} -> ${STATE_DIR}/ops"
-sudo ln -sfnT "$ops_dir" "${STATE_DIR}/ops"
+sudo ln -snT "$ops_dir" "${STATE_DIR}/ops.new"
+sudo mv -Tf "${STATE_DIR}/ops.new" "${STATE_DIR}/ops"
 
 # --- 5. systemd units ---
 log "installing systemd units to ${SYSTEMD_DIR}"
@@ -163,7 +193,7 @@ fi
 # Detect whether the operator has filled in the bearer tokens. An empty
 # INGEST_BEARER_TOKEN makes the server fail startup; an empty
 # ADMIN_BEARER_TOKEN leaves the admin listener unbound. Both cases mean
-# starting the units now would just produce noisy failures — enable but
+# starting the units now would just produce noisy failures - enable but
 # defer the start instead. Source the env file in a subshell and test
 # the runtime values: the prior `grep '^X=.+'` heuristic matched
 # explicitly-empty `X=""` lines (the two quote characters satisfy `.+`)
@@ -179,7 +209,7 @@ tokens_set=$(
 )
 
 if [ "$tokens_set" = "yes" ]; then
-    log "tokens present in ${ENV_FILE} — enabling + starting deploy/backup timers"
+    log "tokens present in ${ENV_FILE} - enabling + starting deploy/backup timers"
     # NB: we do NOT start vortex-bench-server.service here. The binary
     # at /var/lib/vortex-bench/bin/vortex-bench-server does not exist
     # until the deploy timer's first fire builds and installs one; the
@@ -190,7 +220,7 @@ if [ "$tokens_set" = "yes" ]; then
     sudo systemctl enable --now vortex-bench-backup.timer
     sudo systemctl enable vortex-bench-server.service
 else
-    log "tokens not set in ${ENV_FILE} — timers enabled but not started"
+    log "tokens not set in ${ENV_FILE} - timers enabled but not started"
     sudo systemctl enable vortex-bench-deploy.timer
     sudo systemctl enable vortex-bench-backup.timer
     sudo systemctl enable vortex-bench-server.service
@@ -202,20 +232,21 @@ fi
 
 log ""
 log "install complete. Next steps:"
-log "  1. Edit ${ENV_FILE} (chmod 0600, owned by ${RUN_USER})"
-log "     - INGEST_BEARER_TOKEN=$(openssl rand -hex 32)"
-log "     - ADMIN_BEARER_TOKEN=$(openssl rand -hex 32)"
+log "  1. Edit ${ENV_FILE} (chmod 0600, owned by ${RUN_USER}):"
+log "     - INGEST_BEARER_TOKEN=<run 'openssl rand -hex 32' and paste>"
+log "     - ADMIN_BEARER_TOKEN=<run 'openssl rand -hex 32' and paste>"
 log "     - confirm REPO_DIR points at the actual checkout"
 log "  2. After starting the timers, watch the first deploy fire build the"
 log "     binary and bring the server up with an empty DuckDB:"
 log "       journalctl -fu vortex-bench-deploy.service"
 log "       curl http://127.0.0.1:3000/health"
-log "  3. Populate the DB with the v2→v3 migration (server is stopped"
-log "     and restarted automatically):"
-log "       ${STATE_DIR}/ops/migrate.sh run --output \"${STATE_DIR}/bench.duckdb\""
+log "  3. Populate the DB with the v2 to v3 migration (server is stopped"
+log "     and restarted automatically; see BOOTSTRAP.md Phase 7.A for the"
+log "     migrator's CLI flag set):"
+log "       ${STATE_DIR}/ops/migrate.sh run --help"
 log "  4. (If preserving an existing \$HOME/bench.duckdb instead of"
 log "     re-migrating, copy it into place before step 3:"
 log "       sudo systemctl stop vortex-bench-server"
-log "       sudo -u ${RUN_USER} mv \$HOME/bench.duckdb ${STATE_DIR}/bench.duckdb"
+log "       mv \$HOME/bench.duckdb ${STATE_DIR}/bench.duckdb"
 log "       sudo systemctl start vortex-bench-server"
 log "     and skip step 3.)"

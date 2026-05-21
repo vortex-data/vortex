@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! `vortex-bench-server` — the v3 [`bench.vortex.dev`](https://bench.vortex.dev)
+//! `vortex-bench-server` - the v3 [`bench.vortex.dev`](https://bench.vortex.dev)
 //! server.
 //!
 //! A single Rust binary that owns one DuckDB file on local disk, accepts
@@ -18,26 +18,26 @@
 //!
 //! ## Routes
 //!
-//! - `GET /` — landing page, every group rendered as chart shells plus
+//! - `GET /` - landing page, every group rendered as chart shells plus
 //!   versioned shard metadata. Groups hydrate on intent/open.
-//! - `GET /chart/{slug}` — single-chart permalink. Defaults to the
+//! - `GET /chart/{slug}` - single-chart permalink. Defaults to the
 //!   materialized latest-100 window; `?n=all` uses the DB fallback.
-//! - `GET /group/{slug}` — every chart shell in one group on a single page,
+//! - `GET /group/{slug}` - every chart shell in one group on a single page,
 //!   opened by default and hydrated through the shard path.
-//! - `GET /static/...` — the bundled JS / CSS / logos.
-//! - `GET /api/groups` — flat list of every group with chart-link metadata.
+//! - `GET /static/...` - the bundled JS / CSS / logos.
+//! - `GET /api/groups` - flat list of every group with chart-link metadata.
 //!   Defaults to a materialized artifact.
-//! - `GET /api/chart/{slug}` — one chart's payload (`history`, `commits`,
+//! - `GET /api/chart/{slug}` - one chart's payload (`history`, `commits`,
 //!   `series`, `unit_kind`, ...). Defaults to a materialized latest-100
 //!   artifact; `?n=all` and non-default windows use the DB fallback.
-//! - `GET /api/group/{slug}` — every chart in one group. Defaults to a
+//! - `GET /api/group/{slug}` - every chart in one group. Defaults to a
 //!   materialized latest-100 compatibility artifact.
-//! - `GET /api/artifacts/{generation}/groups/{group_slug}/shards/{index}` —
+//! - `GET /api/artifacts/{generation}/groups/{group_slug}/shards/{index}` -
 //!   immutable versioned latest-100 group shard artifact for page hydration.
-//! - `GET /health` — liveness probe + per-table row counts.
-//! - `POST /api/ingest` — bearer-gated ingest. See [`ingest`] for the HTTP
+//! - `GET /health` - liveness probe + per-table row counts.
+//! - `POST /api/ingest` - bearer-gated ingest. See [`ingest`] for the HTTP
 //!   matrix and [`auth`] for the bearer middleware.
-//! - `POST /api/admin/snapshot`, `POST /api/admin/sql` — admin-bearer-gated
+//! - `POST /api/admin/snapshot`, `POST /api/admin/sql` - admin-bearer-gated
 //!   snapshot trigger and read-only SQL. Mounted only when
 //!   [`app::AppState::with_admin`] has been called. See [`admin`].
 //!
@@ -56,7 +56,7 @@
 //! | [`error`]     | [`error::IngestError`] and [`error::ApiError`] with their HTTP-status mapping.              |
 //! | [`slug`]      | [`slug::ChartKey`] / [`slug::GroupKey`] enums + base64url round-trip.                       |
 //! | [`api`]       | Read API. `mod.rs` mounts the handlers; submodules are listed on its module doc.            |
-//! | [`html`]      | HTML pages — `mod.rs` mounts the routes; submodules render the body.                        |
+//! | [`html`]      | HTML pages - `mod.rs` mounts the routes; submodules render the body.                        |
 //! | [`read_model`]| Materialized latest-100 generations and encoded artifact serving.                           |
 //! | [`query_cache`]| Single-flight cache for non-materialized fallback reads.                                    |
 //!

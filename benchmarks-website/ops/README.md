@@ -3,13 +3,13 @@ SPDX-License-Identifier: Apache-2.0
 SPDX-FileCopyrightText: Copyright the Vortex contributors
 -->
 
-# vortex-bench-server — operations runbook
+# vortex-bench-server - operations runbook
 
 This is the canonical guide for deploying and operating the v3 benchmarks site (`bench.vortex.dev`)
 on EC2. It targets a fresh admin who has SSH access to the box and never seen the system before.
 
 The contents of this directory are everything the EC2 host needs to build, run, deploy, back up, and
-inspect the server. There is no out-of-tree state — every script and unit lives in
+inspect the server. There is no out-of-tree state - every script and unit lives in
 `benchmarks-website/ops/` and gets installed onto the host by [`install.sh`](install.sh).
 
 ## TL;DR
@@ -22,7 +22,7 @@ inspect the server. There is no out-of-tree state — every script and unit live
   one `<table>.vortex` per table), `tar czf`s it, and uploads to
   `s3://vortex-benchmark-results-database/v3-backups/<UTC ts>.tar.gz`. The vortex DuckDB extension
   is auto-installed from the DuckDB core extension repo on first call. Vortex compresses the
-  BIGINT[] runtime arrays and string columns roughly an order of magnitude better than gzipped CSV —
+  BIGINT[] runtime arrays and string columns roughly an order of magnitude better than gzipped CSV -
   and dogfoods the project's own format.
 - For ad-hoc reads, `inspect.sh` calls a bearer-gated `/api/admin/sql` endpoint instead of stopping
   the server.
@@ -175,7 +175,7 @@ script POSTs to the loopback-only `/api/admin/snapshot` endpoint, which writes a
 snapshot (`schema.sql` plus one `<table>.vortex` per table) into
 `$VORTEX_BENCH_SNAPSHOT_DIR/<ts>/`. The script then tars and gzips that directory, uploads to
 `$S3_BACKUP_PREFIX/<ts>.tar.gz`, and deletes the local copies. The bucket lifecycle rule expires old
-objects (default 7 days, roughly 170 hourly snapshots).
+objects (default 7 days, 168 hourly snapshots).
 
 Vortex compresses our shape (BIGINT[] runtime arrays + short strings) about an order of magnitude
 better than gzipped CSV, and dogfoods the project's own format. The gzip on the tarball mostly
@@ -262,7 +262,7 @@ only `SELECT`/`WITH`/`PRAGMA`/`SHOW`/`DESCRIBE`/`EXPLAIN` and runs each statemen
 `BEGIN TRANSACTION READ ONLY`.
 
 The admin router is mounted only when `ADMIN_BEARER_TOKEN` is set. With the env unset (e.g. in local
-dev) no admin listener is bound at all — `backup.sh` and `inspect.sh` fail fast against
+dev) no admin listener is bound at all - `backup.sh` and `inspect.sh` fail fast against
 `$ADMIN_URL`, so there's no silent "backups disabled" mode. Hitting `/api/admin/*` on the **public**
 listener always 404s, regardless of whether admin is configured.
 
@@ -305,7 +305,7 @@ cargo run -p vortex-bench-server
 ```
 
 The admin endpoints work the same as in production. The hourly timer and the deploy timer are
-systemd-only — they have no local equivalent and don't need one.
+systemd-only - they have no local equivalent and don't need one.
 
 ## What's intentionally not here
 

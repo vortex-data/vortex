@@ -23,6 +23,25 @@ Group=ec2-user
 EnvironmentFile=/etc/vortex-bench.env
 WorkingDirectory=/var/lib/vortex-bench
 ExecStart=/var/lib/vortex-bench/ops/backup.sh
-PrivateTmp=true
 StandardOutput=journal
 StandardError=journal
+
+# Hardening - backup only needs to write snapshot scratch + tarballs in
+# the state dir and call `aws s3 cp` via the instance role.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/vortex-bench
+ProtectHome=read-only
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=

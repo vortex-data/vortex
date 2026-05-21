@@ -4,7 +4,7 @@
 //! Server-side commit-window cap used by every chart query.
 //!
 //! Visual downsampling is the *client's* job (see
-//! `static/chart-init.js`) — this module only decides how many of the
+//! `static/chart-init.js`) - this module only decides how many of the
 //! most recent commits to load from DuckDB.
 
 use std::num::NonZeroU32;

@@ -6,7 +6,7 @@
 #
 # Asks the running server to write a per-table Vortex snapshot via
 # /api/admin/snapshot (so the writer uses the same DuckDB process
-# that owns the file — no stop required), `tar czf`s the resulting
+# that owns the file - no stop required), `tar czf`s the resulting
 # directory into a single archive, uploads it to
 # $S3_BACKUP_PREFIX/<ts>.tar.gz, and deletes the local copies.
 #
@@ -36,8 +36,22 @@ set +a
 # `ADMIN_URL` points at the loopback-only admin listener; `SERVER_URL`
 # stays for /health checks on the public listener.
 : "${ADMIN_URL:=http://127.0.0.1:3001}"
+: "${STATE_DIR:=/var/lib/vortex-bench}"
+: "${BACKUP_LOCK_FILE:=${STATE_DIR}/.backup.lock}"
 
 log() { printf '[backup %s] %s\n' "$(date -u +%H:%M:%SZ)" "$*"; }
+
+# Serialise against ourselves: a manual `bash backup.sh` racing the timer
+# fires would otherwise both hit /api/admin/snapshot at the same ts (the
+# server returns 409 to the loser), then both race on `rm -rf "$local_dir"`
+# while the survivor is mid-tar. Quiet bail on contention so the timer
+# journal stays clean.
+mkdir -p "$(dirname "$BACKUP_LOCK_FILE")"
+exec 200>"$BACKUP_LOCK_FILE"
+if ! flock -n 200; then
+    log "another backup is in progress; bailing"
+    exit 0
+fi
 
 ts="$(date -u +%Y%m%dT%H%M%SZ)"
 local_dir="${VORTEX_BENCH_SNAPSHOT_DIR}/${ts}"
@@ -54,9 +68,13 @@ auth_header="${scratch}/auth.hdr"
 
 # Write the Authorization header to a 0600 file and pass via `-H @path`
 # so the bearer token never appears in argv (visible to anyone reading
-# `ps aux`). Same pattern in inspect.sh.
+# `ps aux`). Same pattern in inspect.sh. Wrap in `set +x; ...; set -x`
+# guard so an operator running `bash -x backup.sh` does not see the
+# bearer in the trace output.
 umask 077
+{ _xtrace="$(set +o | grep xtrace)"; set +x; } 2>/dev/null
 printf 'Authorization: Bearer %s\n' "${ADMIN_BEARER_TOKEN}" > "$auth_header"
+eval "$_xtrace" 2>/dev/null || true
 
 log "triggering /api/admin/snapshot?ts=${ts}"
 http_status=$(curl -sS -o "$response" -w '%{http_code}' \
@@ -71,6 +89,32 @@ fi
 
 if [ ! -d "$local_dir" ]; then
     echo "ERROR: server reported success but ${local_dir} does not exist" >&2
+    exit 4
+fi
+
+# Completeness check: the server writes schema.sql plus one .vortex file
+# per fact + dim table. If a deploy-timer restart interrupted the snapshot
+# write mid-stream, the directory may be partially populated; the only
+# completeness signal otherwise would be the presence of the dir, which
+# tar+s3 cp would happily pack and upload as a "valid" archive that
+# fails restore (`INSERT INTO ... silently no-op'd` per BOOTSTRAP 8.5).
+required_files=(
+    schema.sql
+    commits.vortex
+    query_measurements.vortex
+    compression_times.vortex
+    compression_sizes.vortex
+    random_access_times.vortex
+    vector_search_runs.vortex
+)
+missing=()
+for f in "${required_files[@]}"; do
+    [ -e "${local_dir}/${f}" ] || missing+=("$f")
+done
+if [ "${#missing[@]}" -gt 0 ]; then
+    echo "ERROR: snapshot ${local_dir} is incomplete; missing: ${missing[*]}" >&2
+    echo "  Most common cause: vortex-bench-server was restarted mid-snapshot." >&2
+    echo "  Leaving the partial directory in place for inspection." >&2
     exit 4
 fi
 
@@ -90,8 +134,19 @@ gz_bytes=$(stat -c %s "$archive")
 log "compressed ${orig_bytes} → ${gz_bytes} bytes ($(( orig_bytes / (gz_bytes > 0 ? gz_bytes : 1) ))x)"
 
 log "uploading ${archive} → s3://${remote#s3://}"
-if ! aws s3 cp --quiet "${archive}" "${remote}"; then
-    echo "ERROR: aws s3 cp failed; keeping ${archive} and ${local_dir} for manual recovery" >&2
+# Retry transient `aws s3 cp` failures (rate limit / ELB blip / IAM
+# role refresh hiccup) before giving up. Backoff 2s, 8s, 30s.
+upload_ok=0
+for delay in 0 2 8 30; do
+    [ "$delay" -gt 0 ] && sleep "$delay"
+    if aws s3 cp --quiet "${archive}" "${remote}"; then
+        upload_ok=1
+        break
+    fi
+    log "aws s3 cp failed; retrying after ${delay:-0}s (next attempt)"
+done
+if [ "$upload_ok" != "1" ]; then
+    echo "ERROR: aws s3 cp failed after retries; keeping ${archive} and ${local_dir} for manual recovery" >&2
     exit 6
 fi
 

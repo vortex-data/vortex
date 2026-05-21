@@ -14,6 +14,11 @@ Requires=vortex-bench-deploy.service
 OnBootSec=30s
 OnUnitActiveSec=60s
 AccuracySec=10s
+# Catch up after a reboot in case OnUnitActiveSec slot was missed while
+# the host was down. Matches vortex-bench-backup.timer's idiom; deploy
+# itself is idempotent (path-filter + SHA-stamp + hash-equal-skip) so
+# a missed-tick catch-up is at worst a no-op.
+Persistent=true
 Unit=vortex-bench-deploy.service
 
 [Install]

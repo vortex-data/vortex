@@ -41,19 +41,19 @@ pub(super) struct LandingGroup {
     pub(super) description: Option<String>,
     /// Optional v2-compatible summary card rendered above the chart grid.
     pub(super) summary: Option<Summary>,
-    /// Chart links for every chart in the group. Always present — we need
+    /// Chart links for every chart in the group. Always present - we need
     /// the slugs server-side so the chart-card shell can carry
     /// `data-chart-slug` for the lazy fetch.
     pub(super) chart_links: Vec<api::ChartLink>,
 }
 
-/// Render the landing-page body — one `<section>` per group, each wrapping a
+/// Render the landing-page body - one `<section>` per group, each wrapping a
 /// `<details>` disclosure. Each `<canvas>` carries a unique
 /// `data-chart-index` integer (used by `chart-init.js` to wire toolbar
 /// controls to canvases by id) and a `data-chart-slug` (used to resolve the
 /// per-chart payload via the enclosing `<section.group-details>`'s
 /// `data-group-shard-prefix`). The landing page emits NO inline JSON
-/// payloads — every chart hydrates from a versioned shard artifact on
+/// payloads - every chart hydrates from a versioned shard artifact on
 /// first intent/open. The `chart-data-N` inline-script id is permalink-page
 /// only and lives in `chart.rs`.
 pub(super) fn landing_body(groups: &[LandingGroup], universe: &api::FilterUniverse) -> Markup {

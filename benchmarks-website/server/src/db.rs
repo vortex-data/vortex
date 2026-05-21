@@ -245,7 +245,7 @@ pub fn measurement_id_random_access(r: &RandomAccessTime) -> i64 {
 }
 
 /// Hash for `vector_search_runs` rows. `iterations` is intentionally not
-/// part of the dim tuple — it is a side count, not a dimension.
+/// part of the dim tuple - it is a side count, not a dimension.
 pub fn measurement_id_vector_search(r: &VectorSearchRun) -> i64 {
     let mut h = hasher_for("vector_search_runs");
     write_str(&mut h, &r.commit_sha);

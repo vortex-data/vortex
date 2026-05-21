@@ -25,11 +25,11 @@ idempotency on `measurement_id`).
 Wire-contract pointers (kept in sync as a coordinated change per
 `benchmarks-website/AGENTS.md`):
 
-- `benchmarks-website/server/src/records.rs` — envelope + per-record wire
+- `benchmarks-website/server/src/records.rs` - envelope + per-record wire
   shapes that the server deserializes.
-- `vortex-bench/src/v3.rs` — bare-record producer that writes the JSONL this
+- `vortex-bench/src/v3.rs` - bare-record producer that writes the JSONL this
   script wraps.
-- `benchmarks-website/server/src/schema.rs` — `SCHEMA_VERSION` source of
+- `benchmarks-website/server/src/schema.rs` - `SCHEMA_VERSION` source of
   truth that the `SCHEMA_VERSION` constant below MUST equal at every bump.
 """
 
@@ -188,21 +188,64 @@ def chunk_envelopes(
         envelope = build_envelope(run_meta, commit, [])
         return [(envelope, encode_envelope(envelope))]
 
+    # Cost model: re-encoding the growing envelope per record was O(N^2) in
+    # the size of the JSONL on the CI hot path. Instead track each record's
+    # encoded size once (`json.dumps(record)`) and reason about the
+    # cumulative chunk size via that plus per-record separator overhead
+    # plus a one-time envelope shell. Cross-check at chunk flush time by
+    # encoding the actual chunk and `assert len(body) <= cap` so a
+    # mis-estimation surfaces here, not at the server.
+    shell = build_envelope(run_meta, commit, [])
+    shell_bytes = len(encode_envelope(shell))
+    # `,` between records inside the JSON array.
+    record_sep_bytes = 1
+
+    def encoded_size(records_chunk: list[dict]) -> int:
+        env = build_envelope(run_meta, commit, records_chunk)
+        return len(encode_envelope(env))
+
+    encoded_records: list[bytes] = [
+        json.dumps(r, separators=(",", ":")).encode("utf-8") for r in records
+    ]
+
     chunks: list[tuple[dict, bytes]] = []
     batch: list[dict] = []
-    for record in records:
-        candidate = [*batch, record]
-        envelope = build_envelope(run_meta, commit, candidate)
-        body = encode_envelope(envelope)
-        if batch and len(body) > max_envelope_bytes:
-            previous = build_envelope(run_meta, commit, batch)
-            chunks.append((previous, encode_envelope(previous)))
+    batch_payload_bytes = 0
+
+    def flush_batch() -> None:
+        env = build_envelope(run_meta, commit, batch)
+        body = encode_envelope(env)
+        assert len(body) <= max_envelope_bytes, (
+            f"chunk_envelopes invariant violated: {len(body)} > {max_envelope_bytes}"
+        )
+        chunks.append((env, body))
+
+    for i, record in enumerate(records):
+        record_bytes = len(encoded_records[i])
+        # First record in a fresh batch has no separator before it.
+        delta = record_bytes if not batch else record_bytes + record_sep_bytes
+        projected = shell_bytes + batch_payload_bytes + delta
+
+        if not batch and projected > max_envelope_bytes:
+            # First record in a fresh batch ALONE exceeds the cap. Refuse
+            # rather than ship an over-cap chunk that the server will 413.
+            raise SystemExit(
+                f"single record exceeds --max-envelope-bytes "
+                f"(record {i} encodes to {record_bytes} bytes; "
+                f"envelope shell adds {shell_bytes}; cap is {max_envelope_bytes}). "
+                f"Raise --max-envelope-bytes, or trim the record before posting."
+            )
+
+        if batch and projected > max_envelope_bytes:
+            flush_batch()
             batch = [record]
+            batch_payload_bytes = record_bytes
         else:
-            batch = candidate
+            batch.append(record)
+            batch_payload_bytes += delta
+
     if batch:
-        envelope = build_envelope(run_meta, commit, batch)
-        chunks.append((envelope, encode_envelope(envelope)))
+        flush_batch()
     return chunks
 
 

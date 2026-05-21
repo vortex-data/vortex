@@ -23,8 +23,9 @@ If a verification fails, the troubleshooting note below it points at the most li
 - The deploy timer cannot fetch over SSH. The repo's `origin` remote MUST be the HTTPS URL
   `https://github.com/vortex-data/vortex.git`. If you already cloned over SSH, fix it in place:
   `git -C ~/vortex remote set-url origin https://github.com/vortex-data/vortex.git`.
-- Every script path under `/var/lib/vortex-bench/ops/` is a symlink that `install.sh` creates
-  pointing at `<repo>/benchmarks-website/ops/`. The repo is the source of truth.
+- `/var/lib/vortex-bench/ops/` is a directory symlink that `install.sh` creates pointing at
+  `<repo>/benchmarks-website/ops/`. Every script under it lives in the repo; the symlink is the
+  source-of-truth pointer. Deleting `~/vortex` breaks all five systemd units atomically.
 
 ## Phase 1: AWS prerequisites (one-time, from the AWS console)
 
@@ -78,7 +79,7 @@ rule**:
 | Filter scope | Prefix `v3-backups/`                           |
 | Action       | Expire current versions, 7 days after creation |
 
-7 days at one snapshot per hour is roughly 170 tarballs. Tune up or down to taste.
+7 days at one snapshot per hour is 168 tarballs. Tune up or down to taste.
 
 ### 1.4 Verify
 
@@ -170,15 +171,16 @@ $ sudo ls -l /etc/vortex-bench.env
 -rw-------. 1 ec2-user ec2-user ... /etc/vortex-bench.env
 
 $ systemctl list-unit-files 'vortex-bench-*' --no-pager
-vortex-bench-backup.service        enabled
+vortex-bench-backup.service        static
 vortex-bench-backup.timer          enabled
 vortex-bench-deploy.service        static
 vortex-bench-deploy.timer          enabled
 vortex-bench-server.service        enabled
 ```
 
-`enabled` for the three timers and the server unit is the expected state. The deploy service is
-`static` because it is fired by the timer, not enabled directly.
+`enabled` for the two timers and the server unit is the expected state. The deploy and backup
+service units are `static` because they have no `[Install]` section and are fired by their
+respective timers, not enabled directly.
 
 ## Phase 5: Fill in the env file and start the timers
 
@@ -227,19 +229,19 @@ The server unit starts itself once the deploy timer's first fire produces a bina
 $ journalctl -fu vortex-bench-deploy.service
 ```
 
-The first fire takes about 60 to 90 seconds for a cold `cargo build --release`. Look for these
-milestones in the log:
+The first fire takes about 60 to 90 seconds for a cold `cargo build --release`. Every log line is
+prefixed with `[deploy <UTC-ts>]`. Look for these milestones (paraphrased; the literal substrings
+to grep are bolded):
 
-```
-[deploy] fetching origin
-[deploy] building <sha>
-[deploy] symlinking new binary
-[deploy] restarting vortex-bench-server
-[deploy] /health ok
-[deploy] deploy <sha> complete
-```
+- **`building <7-char-sha> (was <prev>)`** -- cargo build starts.
+- **`swapped symlink ->`** -- atomic binary swap landed; the next /health probe is imminent.
+- **`deploy ok: <7-char-sha> -> live (binary <ts>)`** -- /health passed and the deploy committed
+  the stamp. This is the success line.
 
-`Ctrl-C` out of `journalctl` once `deploy <sha> complete` appears.
+`Ctrl-C` out of `journalctl` once the `deploy ok:` line appears. If a deploy fails it will exit
+with one of the codes documented at the bottom of [`README.md`](README.md#failure-modes-conceptual)
+(1 lock contention, 2 git fetch, 3 git rev-parse, 4 cargo build, 5 systemctl restart, 6 /health
+failed but rolled back OK, 7 /health failed AND rollback also broken -- server is down).
 
 ## Phase 6: Verify the server is up
 
@@ -289,13 +291,17 @@ The SHA in `last-deployed-sha` must match the `build_sha` in the `/health` JSON.
 Pick **one** of 7.A or 7.B. Skip this entire phase if you are rebuilding from a backup (Phase 8
 supplies the data).
 
-### 7.A Run the v2→v3 migration
+### 7.A Run the v2 to v3 migration
 
-This is the canonical path for a brand-new install. The migrator reads the v2 PostgreSQL or DuckDB
-source and writes into the v3 DuckDB file.
+This is the canonical path for a brand-new install. The migrator reads the v2 source (the public
+S3 bucket of v2 result JSONs) and writes into the v3 DuckDB file.
 
 ```bash
 $ source /etc/vortex-bench.env
+# Check the migrator's own CLI for the up-to-date flag set. The wrapper passes args verbatim to
+# `cargo run -p vortex-bench-migrate -- "$@"`, so the v2 source flag lives in that crate:
+$ /var/lib/vortex-bench/ops/migrate.sh run --help
+# Typical invocation (substitute the v2 source flag the --help output names):
 $ /var/lib/vortex-bench/ops/migrate.sh run --output "$VORTEX_BENCH_DB"
 ```
 
@@ -313,14 +319,14 @@ If you already have a `bench.duckdb` from a previous host or a manual export:
 
 ```bash
 $ sudo systemctl stop vortex-bench-server
-$ sudo -u ec2-user cp /path/to/your/bench.duckdb /var/lib/vortex-bench/bench.duckdb
+$ cp /path/to/your/bench.duckdb /var/lib/vortex-bench/bench.duckdb
 $ sudo systemctl start vortex-bench-server
 $ curl -fsS http://127.0.0.1:3000/health | jq '.row_counts'
 ```
 
 Row counts in `/health` should match the source DB.
 
-### 7.1 Verify the data landed
+### 7.C Verify the data landed
 
 ```bash
 $ /var/lib/vortex-bench/ops/inspect.sh "
@@ -335,7 +341,7 @@ $ /var/lib/vortex-bench/ops/inspect.sh "
 
 All six tables should have non-zero row counts that match what you expect from the source.
 
-### 7.2 Verify the backup loop end-to-end
+### 7.D Verify the backup loop end-to-end
 
 Fire one snapshot by hand to prove the IAM role, the admin token, and the tarball pipeline all work:
 
@@ -403,10 +409,12 @@ earlier one.
 
 ```bash
 $ sudo systemctl stop vortex-bench-server
-$ sudo -u ec2-user rm -f \
+$ rm -f \
     /var/lib/vortex-bench/bench.duckdb \
     /var/lib/vortex-bench/bench.duckdb.wal
 ```
+
+(`bench.duckdb` is owned by `ec2-user` per the install layout; deleting it does not need sudo.)
 
 ### 8.4 Install the duckdb CLI matching the bundled engine
 
@@ -427,7 +435,12 @@ $ duckdb --version
 
 ### 8.5 Rehydrate the DB from the snapshot
 
+The block below uses `${ts}` from Phase 8.2; the guard re-derives it from `/tmp/` if a fresh shell
+lost the variable, so this step is safe to copy-paste into a new terminal.
+
 ```bash
+$ : "${ts:?ts is not set; \`ts=<the-timestamp>\` or re-source /etc/vortex-bench.env}"
+$ [ -d "/tmp/${ts}" ] || { echo "missing /tmp/${ts}; redo 8.2" >&2; exit 1; }
 $ duckdb /var/lib/vortex-bench/bench.duckdb <<EOF
 INSTALL vortex;
 LOAD vortex;
@@ -440,6 +453,14 @@ INSERT INTO random_access_times SELECT * FROM read_vortex('/tmp/${ts}/random_acc
 INSERT INTO vector_search_runs  SELECT * FROM read_vortex('/tmp/${ts}/vector_search_runs.vortex');
 EOF
 ```
+
+The server's startup applies `CREATE TABLE IF NOT EXISTS` idempotently against this populated DB,
+so 8.6 will not error on already-present tables.
+
+If `INSTALL vortex` fails with `extension not found` and `8.4` does not fix it, the upstream
+DuckDB community/core extension index is currently the only restore vector for v3 snapshots.
+File an issue: a cargo-driven restore fallback (`vortex-bench-migrate restore --input ...`) is
+worth building before the next disaster recovery if the extension goes intermittently missing.
 
 If `INSTALL vortex` fails with `extension not found`, the CLI is older than the release that
 publishes the vortex core extension. Upgrade per 8.4.
@@ -554,7 +575,8 @@ Three knobs, in increasing order of work done:
 ```bash
 # (a) Restart the binary in place. No rebuild. Use this after editing
 #     /etc/vortex-bench.env or recovering from a stuck connection.
-#     Prints before/after pid + build_sha so you can see it restarted.
+#     Prints before/after pid + binary path + /health JSON (which carries
+#     build_sha) so you can confirm the swap.
 $ /var/lib/vortex-bench/ops/restart.sh
 
 # (b) Run a deploy now if origin has moved (otherwise a no-op).
@@ -595,7 +617,7 @@ $ sudo systemctl stop vortex-bench-deploy.timer
 # ... investigate ...
 $ sudo systemctl start vortex-bench-deploy.timer
 
-# Stop hourly backups (rarely needed — they are safe under load).
+# Stop hourly backups (rarely needed - they are safe under load).
 $ sudo systemctl stop vortex-bench-backup.timer
 $ sudo systemctl start vortex-bench-backup.timer
 
@@ -676,12 +698,12 @@ Actions, not on the host.
 `du -sh /var/lib/vortex-bench/* | sort -h` to identify which):
 
 ```bash
-# `bin/vortex-bench-server.<ts>.<pid>` accumulation — deploy.sh keeps the
+# `bin/vortex-bench-server.<ts>.<pid>` accumulation - deploy.sh keeps the
 # last $KEEP_BINARIES (default 3). To prune harder:
 $ sudo $EDITOR /etc/vortex-bench.env                       # add KEEP_BINARIES=1
 $ /var/lib/vortex-bench/ops/force-rebuild.sh               # next deploy enforces the new cap
 
-# `snapshots/<ts>/` not deleted — backup.sh removes after a successful
+# `snapshots/<ts>/` not deleted - backup.sh removes after a successful
 # S3 upload, so leftover dirs imply the upload failed. Check:
 $ journalctl -u vortex-bench-backup.service --since '4 hours ago'
 
@@ -690,14 +712,14 @@ $ journalctl -u vortex-bench-backup.service --since '4 hours ago'
 $ ls -lt /var/lib/vortex-bench/bench.prev-*.duckdb
 $ rm /var/lib/vortex-bench/bench.prev-<old-ts>.duckdb{,.wal}
 
-# `bench.duckdb` itself growing — expected, hundreds of MB is normal.
+# `bench.duckdb` itself growing - expected, hundreds of MB is normal.
 ```
 
 ## What to do if a step fails
 
 | Symptom                                                                   | Likely cause                                                                   | Fix                                                                               |
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
-| `install.sh` exits with `ERROR: <ops_dir> not found`                      | Running from outside the repo root                                             | `cd ~/vortex && ./benchmarks-website/ops/install.sh`                              |
+| `install.sh` exits with `ERROR: <ops_dir> not found. Set REPO_DIR=<repo path>.` | Running from outside the repo root or with a non-default `REPO_DIR`            | `cd ~/vortex && ./benchmarks-website/ops/install.sh`                              |
 | `journalctl -u vortex-bench-deploy` shows `Permission denied (publickey)` | `origin` is the SSH remote                                                     | `git -C ~/vortex remote set-url origin https://github.com/vortex-data/vortex.git` |
 | `journalctl -u vortex-bench-deploy` shows `cargo: command not found`      | Rust toolchain not installed for `ec2-user`                                    | Re-run Phase 2.1; the timer runs as `ec2-user`, not as you                        |
 | First `curl /health` returns connection refused                           | Deploy timer has not produced a binary yet, or the build failed                | `journalctl -fu vortex-bench-deploy.service` and read the most recent failure     |
@@ -706,6 +728,10 @@ $ rm /var/lib/vortex-bench/bench.prev-<old-ts>.duckdb{,.wal}
 | `backup.sh` logs `aws s3 cp failed`                                       | IAM role missing or wrong                                                      | Re-run Phase 1.4 to debug                                                         |
 | `migrate.sh` exits with the rollback instructions                         | The migrator itself errored, the prev DB is intact                             | Follow the printed `mv` lines literally                                           |
 | Phase 8.5 `INSTALL vortex` fails                                          | DuckDB CLI is older than the bundled engine                                    | Upgrade the CLI per Phase 8.4                                                     |
+| `deploy.sh` exits 4 (`cargo build failed`)                                | Source-tree compile error                                                      | Read the build log in `journalctl -u vortex-bench-deploy.service`; fix and push   |
+| `deploy.sh` exits 5 (`systemctl restart failed`)                          | systemd or sudoers issue                                                       | `systemctl status vortex-bench-server`; check the sudoers fragment at `/etc/sudoers.d/vortex-bench` |
+| `deploy.sh` exits 6 (`/health failed, rolled back to prior binary`)       | New binary broken; prior binary healthy                                       | Fix the source and push the next commit; the live binary is the prior good one   |
+| `deploy.sh` exits 7 (`/health failed AND rollback also broken`)           | Server is DOWN; both new and prior binaries fail /health                       | Pick a known-good binary from `/var/lib/vortex-bench/bin/`, `sudo ln -snT <chosen> /var/lib/vortex-bench/bin/vortex-bench-server`, `sudo systemctl restart vortex-bench-server` |
 
-See [`README.md`](README.md) "Failure modes and recovery" for the full reference list. This file
-covers only the failure modes a bootstrap operator actually hits.
+See [`README.md`](README.md#failure-modes-conceptual) "Failure modes (conceptual)" for the full
+reference list. This file covers only the failure modes a bootstrap operator actually hits.

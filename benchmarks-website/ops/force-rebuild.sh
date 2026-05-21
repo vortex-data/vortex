@@ -17,7 +17,7 @@
 # For "build whatever I have locally checked out" rather than fetching
 # origin, edit /etc/vortex-bench.env to point DEPLOY_BRANCH at a
 # branch the local tip is already on, then run this. The deploy
-# script always builds origin's tip — there is no "use local HEAD"
+# script always builds origin's tip - there is no "use local HEAD"
 # mode by design; push to a branch first.
 
 set -euo pipefail
@@ -25,7 +25,7 @@ set -euo pipefail
 STATE_DIR="${STATE_DIR:-/var/lib/vortex-bench}"
 
 if [ ! -d "$STATE_DIR" ]; then
-    echo "ERROR: ${STATE_DIR} not found — has install.sh run?" >&2
+    echo "ERROR: ${STATE_DIR} not found - has install.sh run?" >&2
     exit 2
 fi
 
@@ -33,7 +33,7 @@ fi
 # service runs as. install.sh chowns STATE_DIR to that user, so this
 # works without sudo. If you're running as a different user, sudo.
 if ! touch "${STATE_DIR}/.force-rebuild" 2>/dev/null; then
-    echo "ERROR: cannot write ${STATE_DIR}/.force-rebuild — run as the install user or sudo" >&2
+    echo "ERROR: cannot write ${STATE_DIR}/.force-rebuild - run as the install user or sudo" >&2
     exit 2
 fi
 

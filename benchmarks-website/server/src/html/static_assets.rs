@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Static asset serving — bundled JS/CSS/PNG via [`include_bytes!`].
+//! Static asset serving - bundled JS/CSS/PNG via [`include_bytes!`].
 //!
 //! Every static asset is baked into the binary at build time so the v3 server
 //! is fully self-contained. Cache headers force the browser to revalidate on
@@ -22,7 +22,7 @@ const VORTEX_WHITE_PNG: &[u8] = include_bytes!("../../../public/Vortex_White_NoB
 // for light-mode tabs, dark = white sigil for dark-mode tabs. The
 // browser tab switches between them via `prefers-color-scheme` media
 // queries on the `<link rel="icon">` tags in `render::favicon_links`.
-// v2's `public/favicon-*.png` set is unsuitable — those have white
+// v2's `public/favicon-*.png` set is unsuitable - those have white
 // backgrounds baked in, so they render as a glaring white square on
 // dark-mode tabs.
 const ICON_LIGHT_PNG: &[u8] = include_bytes!("../../static/icon-light.png");

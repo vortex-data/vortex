@@ -59,7 +59,7 @@ pub struct Family {
 
     /// Slug prefix for individual charts in this family (e.g. `qm` for
     /// `query_measurements`). Paired with the JSON-encoded
-    /// [`ChartKey`] variant — see [`crate::slug`].
+    /// [`ChartKey`] variant - see [`crate::slug`].
     pub chart_slug_prefix: &'static str,
 
     /// Slug prefix for groups of this family's charts (e.g. `qmg`).

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Integration tests for `/api/admin/*` — round-trips the bearer check,
+//! Integration tests for `/api/admin/*` - round-trips the bearer check,
 //! the read-only SQL allow-list, the snapshot endpoint's path validation,
 //! and verifies that admin routes 404 when `ADMIN_BEARER_TOKEN` is unset.
 
@@ -94,7 +94,7 @@ impl Server {
     }
 
     /// URL for a path on the admin listener. Panics if admin was not
-    /// enabled — tests calling this should have used `start_with_admin`.
+    /// enabled - tests calling this should have used `start_with_admin`.
     fn admin_url(&self, path: &str) -> String {
         let addr = self
             .admin_addr
@@ -152,8 +152,13 @@ async fn admin_sql_table_format_renders_ascii() -> Result<()> {
         .to_string();
     assert!(ct.starts_with("text/plain"), "got content-type {ct:?}");
     let body = resp.text().await?;
+    // Header check explicitly anchors on the trailing `│` to symmetrically
+    // match the data-row check, so a regression that mangled the right
+    // boundary in the header row would not silently pass. The header text
+    // `y` is padded to the widest cell value (`hello`, 5 chars), hence
+    // the spaces. `│ x │ y     │` is the literal rendered shape.
     assert!(
-        body.contains("│ x │ y"),
+        body.contains("│ x │ y     │"),
         "missing column header row in:\n{body}"
     );
     assert!(
@@ -270,7 +275,7 @@ async fn admin_sql_rejects_writes() -> Result<()> {
 #[tokio::test]
 async fn admin_sql_read_only_blocks_explain_analyze_writes() -> Result<()> {
     // `validate_read_only` allow-lists `EXPLAIN`, which means
-    // `EXPLAIN ANALYZE` slips through the SQL allow-list — DuckDB actually
+    // `EXPLAIN ANALYZE` slips through the SQL allow-list - DuckDB actually
     // executes the wrapped statement. The defense in depth is the
     // `BEGIN TRANSACTION READ ONLY` wrapper in `run_select`. Pin that
     // behavior: if this test ever flips green by silently allowing the
@@ -438,8 +443,9 @@ async fn admin_routes_not_served_on_public_listener_when_admin_enabled() -> Resu
 // The snapshot endpoint INSTALLs and LOADs the vortex DuckDB core
 // extension on first call; that needs outbound network to
 // `extensions.duckdb.org`, which sandboxed CI environments generally
-// don't allow. Run manually before merge:
-//   cargo test -p vortex-bench-server --test admin -- --ignored
+// don't allow. Run manually before merge with the same invocation form
+// the CI workflow uses, so behaviour matches what gates the merge:
+//   cargo nextest run -p vortex-bench-server --test admin --run-ignored only
 #[tokio::test]
 #[ignore = "needs network to install the vortex DuckDB core extension"]
 async fn admin_snapshot_creates_export_directory() -> Result<()> {
@@ -466,7 +472,7 @@ async fn admin_snapshot_creates_export_directory() -> Result<()> {
         dir_path.join("schema.sql").exists(),
         "{dir}/schema.sql should exist"
     );
-    // One .vortex file per table — `commits` is the dim table and is
+    // One .vortex file per table - `commits` is the dim table and is
     // present even when the DB is otherwise empty (the schema was
     // applied at AppState::open).
     assert!(
@@ -580,7 +586,7 @@ async fn admin_snapshot_captures_committed_row_under_read_only_transaction() -> 
 
     // Round-trip through the read-only `/api/admin/sql` endpoint so the
     // verification uses the same DuckDB + Vortex extension the server
-    // produced the snapshot with — no separate process or path to keep
+    // produced the snapshot with - no separate process or path to keep
     // in sync.
     let resp = client
         .post(server.admin_url("/api/admin/sql"))
@@ -608,7 +614,20 @@ async fn admin_snapshot_validates_ts() -> Result<()> {
     let client = reqwest::Client::new();
 
     let too_long = "x".repeat(65);
-    for bad_ts in ["", "../oops", "with space", too_long.as_str()] {
+    for bad_ts in [
+        "",
+        "../oops",
+        "with space",
+        too_long.as_str(),
+        // ISO-8601-looking inputs that operators might paste but the
+        // regex `[A-Za-z0-9_-]+` does not accept (`.` for fractional
+        // seconds, `:` for time, `+` for offset). Pin the rejection so a
+        // future regex relaxation does not silently let through path
+        // characters that break the snapshot dir layout.
+        "2026-01-01T00:00:00Z",
+        "2026-01-01+00:00",
+        "20260101.000000Z",
+    ] {
         let url = server.admin_url(&format!("/api/admin/snapshot?ts={}", urlencoding(bad_ts)));
         let resp = client.post(&url).bearer_auth(ADMIN_TOKEN).send().await?;
         assert_eq!(resp.status(), 400, "expected 400 for ts={bad_ts:?}");

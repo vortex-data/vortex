@@ -14,6 +14,11 @@
 Description=Vortex bench v3 server (bench.vortex.dev)
 After=network-online.target
 Wants=network-online.target
+# A naive `systemctl start vortex-bench-server` before the deploy timer
+# has laid down a binary at the symlink would emit a confusing
+# `execve: No such file or directory` in the journal; gate on the
+# symlink so the unit reports "condition failed, not started" instead.
+ConditionPathExists=/var/lib/vortex-bench/bin/vortex-bench-server
 
 [Service]
 Type=simple
@@ -24,19 +29,33 @@ EnvironmentFile=/etc/vortex-bench.env
 ExecStart=/var/lib/vortex-bench/bin/vortex-bench-server
 Restart=on-failure
 RestartSec=2
+TimeoutStopSec=60s
 # `journalctl -u vortex-bench-server` is the canonical log. Keep stdout
 # unbuffered so `tail -f` works.
 Environment=RUST_BACKTRACE=1
 StandardOutput=journal
 StandardError=journal
 
-# Conservative hardening — server only needs DB writes and outbound TCP
+# Conservative hardening - server only needs DB writes and outbound TCP
 # (none in steady state, but cargo build's hyper would).
 ProtectSystem=strict
 ReadWritePaths=/var/lib/vortex-bench
 ProtectHome=read-only
 PrivateTmp=true
 NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
 
 [Install]
 WantedBy=multi-user.target

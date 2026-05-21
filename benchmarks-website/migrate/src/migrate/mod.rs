@@ -136,7 +136,7 @@ pub fn open_target_db(path: &Path) -> Result<Connection> {
     let conn =
         Connection::open(path).with_context(|| format!("opening DuckDB at {}", path.display()))?;
     // Apply the v3 schema. Drives off the per-fact-table `family::Family`
-    // registry the same way `vortex_bench_server::db::open` does — adding
+    // registry the same way `vortex_bench_server::db::open` does - adding
     // a sixth fact table only needs a new const there, not an edit here.
     conn.execute_batch(COMMITS_DDL)
         .context("applying commits dim DDL")?;

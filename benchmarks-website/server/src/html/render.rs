@@ -20,7 +20,7 @@ use crate::api;
 
 /// Which scripts the page wants pulled in.
 pub(super) enum PageScripts {
-    /// Empty database — skip Chart.js entirely.
+    /// Empty database - skip Chart.js entirely.
     Empty,
     /// Any page with at least one chart-card. Pulls Chart.js + zoom plugin.
     Chart,
@@ -75,7 +75,7 @@ pub(super) fn render_page(
 /// Bottom-of-page footer that surfaces the build's git SHA so operators
 /// (and curious visitors) can correlate what they're looking at to a
 /// specific commit. `VORTEX_BENCH_BUILD_SHA` is captured by `build.rs`
-/// — same source `/health` uses — so the footer and the health probe
+/// - same source `/health` uses - so the footer and the health probe
 /// are always in lockstep.
 ///
 /// When the binary was built outside a git checkout (shallow CI clone,
@@ -99,7 +99,7 @@ fn site_footer() -> Markup {
     }
 }
 
-/// External web-font links — Geist (sans + mono) from unpkg and Funnel
+/// External web-font links - Geist (sans + mono) from unpkg and Funnel
 /// Display from Google Fonts. Mirrors v2's `index.html` so the v3 site
 /// reads in the same typeface (Geist for body, Funnel Display for
 /// headings, Geist Mono for the monospaced metrics columns). The
@@ -115,8 +115,8 @@ fn web_font_links() -> Markup {
     }
 }
 
-/// Browser tab icon links. Two transparent square sigils — the black
-/// one for light-mode tabs, the white one for dark-mode tabs — picked
+/// Browser tab icon links. Two transparent square sigils - the black
+/// one for light-mode tabs, the white one for dark-mode tabs - picked
 /// via `prefers-color-scheme` media queries. A third unmediated link
 /// covers browsers that don't honour the media query (the dark version
 /// is used since GitHub-style developer audiences skew dark-mode); the
@@ -299,7 +299,7 @@ pub(super) fn error_page(status: StatusCode, message: &str) -> Response {
             head {
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
-                title { (status.as_u16()) " — Vortex Benchmarks" }
+                title { (status.as_u16()) " - Vortex Benchmarks" }
                 (favicon_links())
                 (web_font_links())
                 (theme_bootstrap_script())

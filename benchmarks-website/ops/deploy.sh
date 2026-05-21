@@ -22,7 +22,7 @@
 #      sudo systemctl restart vortex-bench-server.
 #   8. Wait for /health. On failure: revert symlink, restart the prior
 #      binary, re-probe /health (so a rollback to an also-broken
-#      binary is loud), do NOT update the stamp — next tick retries.
+#      binary is loud), do NOT update the stamp - next tick retries.
 #   9. On success: update stamp, prune binary versions older than $KEEP_BINARIES.
 #
 # The working-tree sync is `git checkout --force --detach <sha>`, not
@@ -38,7 +38,7 @@
 #   5  systemctl restart failed
 #   6  /health check failed; rolled back to previous binary successfully
 #   7  /health check failed AND rollback to the previous binary ALSO
-#      failed /health — server is down, manual intervention required.
+#      failed /health - server is down, manual intervention required.
 #      This is the worst-case path; the timer will retry on next tick
 #      but the prior binary is itself broken, so the retry will not
 #      heal the host.
@@ -130,7 +130,6 @@ fi
 filter_paths=(
     benchmarks-website/server
     benchmarks-website/migrate
-    benchmarks-website/Cargo.toml
     Cargo.lock
     Cargo.toml
 )
@@ -156,7 +155,7 @@ fi
 # --- Sync the working tree to origin/$DEPLOY_BRANCH ---
 # `git pull --ff-only` breaks the moment the tracked branch is
 # force-pushed (typical during PR iteration). The deploy worker's
-# checkout is build-only — no human edits live here — so a destructive
+# checkout is build-only - no human edits live here - so a destructive
 # `git checkout --force --detach $new_sha` is the right semantics.
 # Detached HEAD avoids any local-branch ref drift.
 if ! git checkout --quiet --force --detach "$new_sha"; then
@@ -166,7 +165,10 @@ fi
 
 if [ "$relevant_changed" = "0" ]; then
     log "no website-relevant paths changed in ${last_sha:0:7}..${new_sha:0:7}; skipping rebuild"
-    echo "$new_sha" > "$STAMP_FILE"
+    # Atomic stamp write so a kill mid-redirect cannot leave a truncated
+    # stamp the next tick would treat as a vanished commit.
+    printf '%s\n' "$new_sha" > "${STAMP_FILE}.tmp"
+    mv -f "${STAMP_FILE}.tmp" "$STAMP_FILE"
     exit 0
 fi
 
@@ -202,12 +204,13 @@ if [ -L "$BIN_SYMLINK" ] && [ -e "$BIN_SYMLINK" ]; then
 fi
 if [ "$force" = "0" ] && [ -n "$last_sha" ] && [ "$new_hash" = "$current_hash" ]; then
     log "binary unchanged (sha256 ${new_hash:0:12}); skipping restart"
-    echo "$new_sha" > "$STAMP_FILE"
+    printf '%s\n' "$new_sha" > "${STAMP_FILE}.tmp"
+    mv -f "${STAMP_FILE}.tmp" "$STAMP_FILE"
     exit 0
 fi
 
 # --- Install + atomic symlink swap ---
-# `ln -sfnT` is unlink+create — there is a brief window where $BIN_SYMLINK
+# `ln -sfnT` is unlink+create - there is a brief window where $BIN_SYMLINK
 # does not exist, and a concurrent reader (e.g. systemctl restart firing
 # from another timer fire) would see ENOENT. Do the swap in two steps so
 # the final transition is `rename(2)`, which IS atomic on POSIX: create
@@ -242,7 +245,27 @@ if ! sudo /bin/systemctl restart vortex-bench-server; then
     err "systemctl restart failed"
     if [ -n "$prev_target" ]; then
         atomic_symlink "$prev_target" "$BIN_SYMLINK"
+        # Rollback restart is best-effort; the worst case (rollback ALSO
+        # failed /health) escalates to exit 7 below via the same
+        # /health re-probe used by the /health-failure path. Without
+        # the re-probe, a doubly-broken host would silently exit 5 and
+        # the next timer tick would loop on the same broken binary.
         sudo /bin/systemctl restart vortex-bench-server || true
+        roll_deadline=$(( $(date +%s) + 30 ))
+        roll_healthy=0
+        while [ "$(date +%s)" -lt "$roll_deadline" ]; do
+            if curl -fsS --max-time 3 "${SERVER_URL}/health" >/dev/null 2>&1; then
+                roll_healthy=1
+                break
+            fi
+            sleep 1
+        done
+        if [ "$roll_healthy" = "1" ]; then
+            log "rolled back symlink to ${prev_target} (verified healthy after systemctl-restart failure)"
+            exit 5
+        fi
+        err "rollback to ${prev_target} ALSO failed /health - server is down; manual intervention required"
+        exit 7
     fi
     exit 5
 fi
@@ -258,7 +281,7 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
     sleep 1
 done
 if [ "$healthy" != "1" ]; then
-    err "/health did not respond within 30s — rolling back"
+    err "/health did not respond within 30s - rolling back"
     if [ -n "$prev_target" ]; then
         atomic_symlink "$prev_target" "$BIN_SYMLINK"
         sudo /bin/systemctl restart vortex-bench-server || true
@@ -278,7 +301,7 @@ if [ "$healthy" != "1" ]; then
             log "rolled back symlink to ${prev_target} (verified healthy)"
             exit 6
         fi
-        err "rollback to ${prev_target} ALSO failed /health — server is down; manual intervention required"
+        err "rollback to ${prev_target} ALSO failed /health - server is down; manual intervention required"
         exit 7
     else
         err "no previous binary to roll back to"
@@ -287,12 +310,16 @@ if [ "$healthy" != "1" ]; then
 fi
 
 # --- Success: update stamp, prune old binaries ---
-echo "$new_sha" > "$STAMP_FILE"
+printf '%s\n' "$new_sha" > "${STAMP_FILE}.tmp"
+mv -f "${STAMP_FILE}.tmp" "$STAMP_FILE"
 log "deploy ok: ${new_sha:0:7} → live (binary ${ts})"
 
 # Keep the most recent $KEEP_BINARIES versioned binaries, drop the rest.
-# Sort by name (timestamp prefix is sortable), keep the tail.
-mapfile -t binaries < <(ls -1 "${BIN_DIR}"/vortex-bench-server.* 2>/dev/null | sort)
+# Glob is restricted to the digit-prefix timestamp form so a stale staging
+# symlink (`vortex-bench-server.new.<pid>`) left over from a killed
+# `atomic_symlink` call cannot be picked up here and either inflate the
+# keep-N count or be selected for deletion as if it were an old binary.
+mapfile -t binaries < <(ls -1 "${BIN_DIR}"/vortex-bench-server.[0-9]* 2>/dev/null | sort)
 if [ "${#binaries[@]}" -gt "$KEEP_BINARIES" ]; then
     drop_count=$(( ${#binaries[@]} - KEEP_BINARIES ))
     for b in "${binaries[@]:0:$drop_count}"; do

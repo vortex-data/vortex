@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! DuckDB schema applied on server boot — one `commits` dim plus five fact
+//! DuckDB schema applied on server boot - one `commits` dim plus five fact
 //! tables, one per measurement family.
 //!
 //! ## Design principles
@@ -20,7 +20,7 @@
 //!    `measurement_id` is a deterministic 64-bit hash of `commit_sha` plus
 //!    that table's dimensional tuple, computed in
 //!    [`crate::db::measurement_id_query`] et al. Including `commit_sha`
-//!    makes every (commit, dim) pair a distinct row — that is exactly what
+//!    makes every (commit, dim) pair a distinct row - that is exactly what
 //!    the chart pages render as a time series. Re-emission of the same
 //!    (commit, dim) pair is the upsert case. The hash is **server-internal**
 //!    and never crosses a process boundary; the wire never carries it.
@@ -32,13 +32,13 @@
 //!
 //! ## Tables
 //!
-//! - **`commits`** — dim table. `commit_sha` is the PK. `timestamp`,
+//! - **`commits`** - dim table. `commit_sha` is the PK. `timestamp`,
 //!   `tree_sha`, and `url` are required (the server cannot render a chart
 //!   without them); `message` and the author/committer name + email pair are
 //!   nullable so v2-imported rows that lacked them survive. Populated on
 //!   every `/api/ingest` from the envelope's `commit` block, and on every
 //!   migrator run from `commits.json`.
-//! - **`query_measurements`** — SQL query suite measurements (TPC-H, TPC-DS,
+//! - **`query_measurements`** - SQL query suite measurements (TPC-H, TPC-DS,
 //!   ClickBench, StatPopGen, PolarSignals, Fineweb, GhArchive, Public-BI).
 //!   Natural key: `(commit_sha, dataset, dataset_variant, scale_factor,
 //!   query_idx, storage, engine, format)`. Memory columns
@@ -47,27 +47,27 @@
 //!   are NULL otherwise; the ingest path enforces "all four or none".
 //!   `dataset_variant` carries a categorical sub-name (Public-BI dataset,
 //!   ClickBench flavor); `scale_factor` is the TPC SF as a string.
-//! - **`compression_times`** — encode/decode timings from `compress-bench`.
+//! - **`compression_times`** - encode/decode timings from `compress-bench`.
 //!   Natural key: `(commit_sha, dataset, dataset_variant, format, op)`,
 //!   where `op ∈ {encode, decode}`. Encode and decode share a table because
 //!   they share dim and value shape; keeping them together makes the
 //!   per-format chart a single SQL query.
-//! - **`compression_sizes`** — on-disk sizes from `compress-bench`. One-shot
+//! - **`compression_sizes`** - on-disk sizes from `compress-bench`. One-shot
 //!   (no per-iteration data, no `all_runtimes_ns`). Natural key:
 //!   `(commit_sha, dataset, dataset_variant, format)`. Compression ratios
-//!   (e.g. `vortex:parquet-zstd`) are NOT stored — they are a SELECT over
+//!   (e.g. `vortex:parquet-zstd`) are NOT stored - they are a SELECT over
 //!   this table joined to itself, computed in `api/summary.rs`.
-//! - **`random_access_times`** — take-time timings from
+//! - **`random_access_times`** - take-time timings from
 //!   `random-access-bench`. Different dataset namespace from
-//!   `compression_times` (chimp, taxi, etc.) — kept in its own table so
+//!   `compression_times` (chimp, taxi, etc.) - kept in its own table so
 //!   dataset filters never have to disambiguate which suite a row belongs
 //!   to. Natural key: `(commit_sha, dataset, format)`.
-//! - **`vector_search_runs`** — cosine-similarity scans from
+//! - **`vector_search_runs`** - cosine-similarity scans from
 //!   `vector-search-bench`. The only family that emits a timing **plus**
 //!   side counters (`matches`, `rows_scanned`, `bytes_scanned`) for the
 //!   same scan; keeping them in one row avoids a 1:N split that has to be
 //!   re-joined on read. Natural key: `(commit_sha, dataset, layout,
-//!   flavor, threshold)`. `iterations` is not part of the dim hash — it is
+//!   flavor, threshold)`. `iterations` is not part of the dim hash - it is
 //!   a side count, like `matches`.
 //!
 //! ## Column conventions

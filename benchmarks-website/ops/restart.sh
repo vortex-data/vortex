@@ -18,10 +18,15 @@
 set -euo pipefail
 
 ENV_FILE="${ENV_FILE:-/etc/vortex-bench.env}"
-SERVER_URL="${SERVER_URL:-http://127.0.0.1:3000}"
+# Source the env file first so any SERVER_URL in /etc/vortex-bench.env is
+# picked up, THEN apply the local default if both env-file and caller env
+# left it unset. (Matches the sibling scripts; replaces the prior
+# `default-then-source-then-no-op-default` shape that was misleading.)
 if [ -f "$ENV_FILE" ]; then
+    set -a
     # shellcheck disable=SC1090
     . "$ENV_FILE"
+    set +a
 fi
 SERVER_URL="${SERVER_URL:-http://127.0.0.1:3000}"
 
@@ -78,7 +83,7 @@ if [ "$ok" = "1" ]; then
     exit 0
 else
     echo
-    echo "RESTART FAILED — /health did not respond within 30s" >&2
+    echo "RESTART FAILED - /health did not respond within 30s" >&2
     echo "Inspect with: journalctl -u vortex-bench-server --since '1 min ago' --no-pager" >&2
     exit 1
 fi

@@ -92,7 +92,7 @@ html, body {
   overflow-x: hidden;
   background: var(--page-bg);
   color: var(--fg);
-  /* Geist is loaded from unpkg by `render::web_font_links`; the
+  /* Geist is loaded from unpkg by `html::render::web_font_links`; the
    * fallback stack matches v2's `src/styles/index.css` so the site
    * remains legible if the CDN is blocked. */
   font-family: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -103,7 +103,7 @@ html, body {
 
 /* All headings use Funnel Display, mirroring v2's
  * `h1, h2, h3, h4, h5, h6` rule. Loaded from Google Fonts by
- * `render::web_font_links`. */
+ * `html::render::web_font_links`. */
 h1, h2, h3, h4, h5, h6 {
   font-family: "Funnel Display", sans-serif;
   letter-spacing: -0.02em;
@@ -382,7 +382,7 @@ main {
   list-style: none;
   cursor: pointer;
   display: block;
-  /* Elevated surface — v2's `.benchmark-header` uses `--bg-secondary`
+  /* Elevated surface - v2's `.benchmark-header` uses `--bg-secondary`
    * (`#121219` in dark mode); `--card-bg` is the v3 alias for that
    * elevated colour. Using `--code-bg` here flattened the disclosure
    * bar against the page in dark mode. */
@@ -472,7 +472,7 @@ main {
  * Anchored to the icon's left edge (not centred on the icon) so the tooltip
  * grows rightward into the page. Group titles in our layout are left-
  * aligned in the disclosure header, so the icon is always close to the
- * viewport's left edge — `left: 50%; transform: translateX(-50%)` would
+ * viewport's left edge - `left: 50%; transform: translateX(-50%)` would
  * push half of a wide tooltip off the screen and clip it. Anchoring to the
  * left keeps the description fully visible.
  */
@@ -627,7 +627,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 }
 
 /* ----------------------------------------------------------------------
- * Global filter dropdown — lives inside the sticky header. The trigger is
+ * Global filter dropdown - lives inside the sticky header. The trigger is
  * a `.control-btn` styled like the expand/collapse buttons; the panel is
  * absolutely positioned beneath it and shows two rows of `.filter-chip`
  * buttons that toggle whole engines / formats across every chart at once.
@@ -772,7 +772,7 @@ body.bench-prebuilding .group-disclosure:not([open]) ~ .chart-grid {
 }
 
 /* ----------------------------------------------------------------------
- * Per-group toolbar — sits between the group's score summary and the
+ * Per-group toolbar - sits between the group's score summary and the
  * chart grid. Y-axis buttons on the left, a centered "Filter series"
  * dropdown trigger, and a Reset button on the right. The dropdown panel
  * holds engine/format macro chips and a series row populated by JS as
@@ -1274,7 +1274,7 @@ main > .chart-card:not(.chart-grid .chart-card) .chart-wrap {
 /* ----------------------------------------------------------------------
  * Footer
  * ----------------------------------------------------------------------
- * Emitted by `render::site_footer` at the bottom of every page. The
+ * Emitted by `html::render::site_footer` at the bottom of every page. The
  * `build <sha>` text links the short SHA to the matching commit on
  * GitHub so the rendered page is always traceable to a source revision.
  * Kept small + muted so it sits below the content without competing.

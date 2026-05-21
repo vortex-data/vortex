@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Admin endpoints — bearer-gated DuckDB snapshot and read-only SQL.
+//! Admin endpoints - bearer-gated DuckDB snapshot and read-only SQL.
 //!
 //! Mounted at `/api/admin/*` only when `ADMIN_BEARER_TOKEN` is set on the
 //! server, surfaced through [`crate::app::AppState::with_admin`]. Both routes
-//! require an `Authorization: Bearer <ADMIN_BEARER_TOKEN>` header — the
+//! require an `Authorization: Bearer <ADMIN_BEARER_TOKEN>` header - the
 //! `INGEST_BEARER_TOKEN` will not work here, so the two can rotate
 //! independently. The operator workflow is documented in
 //! `benchmarks-website/ops/README.md`.
@@ -15,10 +15,10 @@
 //! ### `POST /api/admin/snapshot?ts=<id>`
 //!
 //! Writes a snapshot directory `<snapshot_dir>/<ts>/` containing:
-//! - `schema.sql` — concatenated DDL ([`crate::schema::COMMITS_DDL`] plus
+//! - `schema.sql` - concatenated DDL ([`crate::schema::COMMITS_DDL`] plus
 //!   every [`crate::family::FAMILIES`] entry's `schema_ddl`), so a
 //!   restore knows how to recreate the tables before bulk-loading.
-//! - `<table>.vortex` for every table in [`crate::schema::TABLES`] —
+//! - `<table>.vortex` for every table in [`crate::schema::TABLES`] -
 //!   each produced by a `COPY (SELECT * FROM <table>) TO …
 //!   (FORMAT vortex)`. The vortex DuckDB extension is auto-installed
 //!   from the DuckDB core extension repo on first call, then `LOAD`ed.
@@ -37,7 +37,7 @@
 //!
 //! Body: `{ "sql": "SELECT ..." }`. Query: `?format=json|table` (default
 //! `json`). Only `SELECT`, `WITH`, `PRAGMA`, `SHOW`, `DESCRIBE`, and
-//! `EXPLAIN` statements are allowed — anything else is rejected with 403.
+//! `EXPLAIN` statements are allowed - anything else is rejected with 403.
 //! Results are capped at `ADMIN_SQL_ROW_LIMIT` rows; responses past
 //! that cap include `"truncated": true`. The handler runs each query on
 //! its own cloned connection inside a `BEGIN TRANSACTION READ ONLY`
@@ -81,17 +81,17 @@ const ADMIN_SQL_ROW_LIMIT: usize = 10_000;
 /// [`require_admin_bearer`] and never reaches a handler.
 #[derive(Debug, Error)]
 pub enum AdminError {
-    /// 400 — request shape is malformed (bad `ts`, bad SQL JSON body, …).
+    /// 400 - request shape is malformed (bad `ts`, bad SQL JSON body, …).
     #[error("bad request: {0}")]
     BadRequest(String),
-    /// 403 — request is well-formed but the SQL statement is not on the
+    /// 403 - request is well-formed but the SQL statement is not on the
     /// read-only allow-list.
     #[error("forbidden: {0}")]
     Forbidden(String),
-    /// 409 — snapshot target directory already exists.
+    /// 409 - snapshot target directory already exists.
     #[error("conflict: {0}")]
     Conflict(String),
-    /// 500 — anything else (DB error, IO error, …).
+    /// 500 - anything else (DB error, IO error, …).
     #[error("internal server error")]
     Internal(#[from] anyhow::Error),
 }
@@ -188,7 +188,7 @@ pub async fn snapshot(
 
     // Process-local `ts` reservation. Two concurrent calls with the
     // same `ts` would otherwise both write tmp directories and then
-    // race at the `rename(2)` step — Linux silently overwrites an
+    // race at the `rename(2)` step - Linux silently overwrites an
     // existing destination, so the loser's snapshot disappears with no
     // signal. The reservation closes that race within a single
     // `vortex-bench-server` process (the supported deployment).
@@ -322,7 +322,7 @@ async fn write_snapshot(state: &AppState, target: &Path) -> Result<()> {
 }
 
 fn export_snapshot_tables(conn: &mut Connection, target: &Path) -> Result<()> {
-    // Idempotent — `INSTALL` is a no-op if the extension is already
+    // Idempotent - `INSTALL` is a no-op if the extension is already
     // present, `LOAD` is cheap once the binary is on disk. Vortex is a
     // DuckDB core extension (not community), so the unqualified `INSTALL`
     // hits the right repo on first call; subsequent calls are local.
@@ -333,7 +333,7 @@ fn export_snapshot_tables(conn: &mut Connection, target: &Path) -> Result<()> {
 
     // All per-table COPYs share one `READ ONLY` transaction. Otherwise an
     // ingest commit between the `commits` export and the
-    // `query_measurements` export yields an inconsistent backup — facts
+    // `query_measurements` export yields an inconsistent backup - facts
     // referencing a commit row that is not in the snapshot, or vice
     // versa. The transaction's READ ONLY guard also belts-and-braces
     // against the snapshot path accidentally writing.
@@ -434,10 +434,52 @@ pub async fn sql(
     })
 }
 
+/// Strips leading whitespace, parens, semicolons, and SQL comments (both `--`
+/// line comments and `/* ... */` block comments) from `sql`. Returns the byte
+/// offset of the first non-comment, non-whitespace token. Used by
+/// [`validate_read_only`] so a query like `-- justify the call\nSELECT 1` is
+/// not rejected with `only [...] are allowed; got ""`.
+fn skip_leading_noise(sql: &str) -> usize {
+    let bytes = sql.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b' ' || b == b'\t' || b == b'\n' || b == b'\r' || b == b'(' || b == b';' {
+            i += 1;
+            continue;
+        }
+        if b == b'-' && i + 1 < bytes.len() && bytes[i + 1] == b'-' {
+            // Line comment runs to end of line.
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            continue;
+        }
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            // Block comment, search for the matching `*/`.
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            if i + 1 < bytes.len() {
+                i += 2;
+            } else {
+                // Unterminated block comment; let the SQL parser surface
+                // the error rather than guessing.
+                return i;
+            }
+            continue;
+        }
+        break;
+    }
+    i
+}
+
 fn validate_read_only(sql: &str) -> Result<(), AdminError> {
     ensure_single_statement(sql)?;
-    let trimmed = sql.trim_start_matches(|c: char| c.is_whitespace() || c == '(' || c == ';');
-    let first_word: String = trimmed
+    let start = skip_leading_noise(sql);
+    let first_word: String = sql[start..]
         .chars()
         .take_while(|c| c.is_ascii_alphabetic())
         .collect::<String>()
@@ -476,10 +518,19 @@ fn ensure_single_statement(sql: &str) -> Result<(), AdminError> {
                     chars.next();
                     state = State::BlockComment;
                 }
-                ';' if !sql[idx + ch.len_utf8()..].trim().is_empty() => {
-                    return Err(AdminError::Forbidden(
-                        "admin SQL accepts a single statement only".into(),
-                    ));
+                ';' => {
+                    // Allow trailing whitespace and SQL comments after the
+                    // terminator (`SELECT 1; -- note` and `SELECT 1; /* a */`
+                    // are valid single statements). Only error if a
+                    // non-comment, non-whitespace token follows.
+                    let suffix_start = idx + ch.len_utf8();
+                    let after = skip_leading_noise(&sql[suffix_start..]);
+                    if !sql[suffix_start + after..].is_empty() {
+                        return Err(AdminError::Forbidden(
+                            "admin SQL accepts a single statement only".into(),
+                        ));
+                    }
+                    return Ok(());
                 }
                 _ => {}
             },
@@ -551,7 +602,7 @@ fn run_select_in_transaction(conn: &Connection, sql: &str) -> Result<QueryResult
     let mut stmt = conn.prepare(sql).context("prepare SQL")?;
     let mut rows_iter = stmt.query([]).context("execute SQL")?;
     // duckdb-rs panics on Statement::column_names() if the statement has not
-    // executed yet — schema is only populated after `query()` runs. Pull it
+    // executed yet - schema is only populated after `query()` runs. Pull it
     // off the live `Rows` iterator instead.
     let columns: Vec<String> = rows_iter
         .as_ref()
@@ -579,7 +630,21 @@ fn run_select_in_transaction(conn: &Connection, sql: &str) -> Result<QueryResult
     })
 }
 
+/// Coerce a DuckDB [`ValueRef`] into a JSON [`Value`] for the admin SQL API.
+///
+/// `String::from_utf8_lossy` is used for `Text`: non-UTF-8 bytes in a TEXT
+/// column are a misuse but not a reason to fail the request; the lossy
+/// replacement (U+FFFD) surfaces so the caller can see something is wrong.
+///
+/// `Decimal` and `Timestamp` are rendered explicitly (decimal via Display,
+/// timestamp via RFC 3339 from the (`TimeUnit`, `i64`) tuple) so they round
+/// trip as human-readable strings instead of Rust enum-variant Debug
+/// output. Other compound types (`List`, `Struct`, `Array`, `Map`, `Union`,
+/// `Enum`) are rare in this database's schema; they fall back to a
+/// best-effort Debug rendering tagged with the type name so the caller can
+/// see something printable and we can extend this match when we hit one.
 fn value_ref_to_json(v: ValueRef<'_>) -> Value {
+    use duckdb::types::TimeUnit;
     match v {
         ValueRef::Null => Value::Null,
         ValueRef::Boolean(b) => Value::Bool(b),
@@ -594,6 +659,22 @@ fn value_ref_to_json(v: ValueRef<'_>) -> Value {
         ValueRef::UBigInt(i) => Value::String(i.to_string()),
         ValueRef::Float(f) => f64::from(f).into(),
         ValueRef::Double(f) => f.into(),
+        ValueRef::Decimal(d) => Value::String(d.to_string()),
+        ValueRef::Timestamp(unit, raw) => {
+            // DuckDB stores timestamps as an integer count since
+            // 1970-01-01 UTC at the named precision. Surface them as a
+            // stable structured string keyed by the unit ("s:1700000000",
+            // "ms:1700000000000", etc.) so a future consumer can parse
+            // unambiguously without us reaching for chrono / time as a
+            // dependency in this slice.
+            let unit_str = match unit {
+                TimeUnit::Second => "s",
+                TimeUnit::Millisecond => "ms",
+                TimeUnit::Microsecond => "us",
+                TimeUnit::Nanosecond => "ns",
+            };
+            Value::String(format!("{unit_str}:{raw}"))
+        }
         ValueRef::Text(bytes) => Value::String(String::from_utf8_lossy(bytes).into_owned()),
         ValueRef::Blob(_) => Value::String("<blob>".into()),
         other => Value::String(format!("{other:?}")),
@@ -627,7 +708,7 @@ fn format_table(r: &QueryResult) -> String {
     }
     write_separator(&mut out, &widths, '└', '┴', '┘');
     // writeln! into a String only errors if the underlying Write impl
-    // returns one — fmt::Write for String is infallible — so the
+    // returns one - fmt::Write for String is infallible - so the
     // Result is discarded by design.
     let _ = writeln!(
         out,

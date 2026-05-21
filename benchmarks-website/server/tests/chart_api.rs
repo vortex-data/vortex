@@ -243,8 +243,15 @@ async fn chart_page_window_caps_commits() -> Result<()> {
     let all_count = all["commits"].as_array().map(|a| a.len()).unwrap_or(0);
     assert_eq!(all_count, full_count, "?n=all should match unbounded view");
 
-    // Very large numeric `?n` values are clamped. This small fixture is under
-    // the cap, so the visible count still matches the default response.
+    // Very large numeric `?n` values are clamped to MAX_NUMERIC_COMMIT_WINDOW
+    // at parse time (see the `commit_window_parse_floors_zero_and_clamps_large_values`
+    // unit test in `api/window.rs`, which is the strong contract). This
+    // integration test sanity-checks the round-trip on a small fixture: the
+    // clamp is well above the fixture's 3 commits, so the visible count
+    // matches the default response. The contract is "clamp is applied;
+    // huge_count is &lt;= MAX_NUMERIC_COMMIT_WINDOW AND equals
+    // min(MAX_NUMERIC_COMMIT_WINDOW, full_count)" rather than the prior
+    // tautological `huge_count == full_count`.
     let huge: Value = client
         .get(server.url(&format!("/api/chart/{slug}?n=99999")))
         .send()
@@ -252,9 +259,14 @@ async fn chart_page_window_caps_commits() -> Result<()> {
         .json()
         .await?;
     let huge_count = huge["commits"].as_array().map(|a| a.len()).unwrap_or(0);
+    assert!(
+        huge_count <= 1_000,
+        "?n=99999 should be clamped to <= MAX_NUMERIC_COMMIT_WINDOW (1000), got {huge_count}"
+    );
     assert_eq!(
-        huge_count, full_count,
-        "?n=99999 should clamp without changing this small fixture"
+        huge_count,
+        full_count.min(1_000),
+        "?n=99999 should equal min(MAX_NUMERIC_COMMIT_WINDOW, fixture)"
     );
 
     // Malformed ?n gracefully falls back to default.

@@ -174,8 +174,19 @@ fn accepts_encoding(raw: &str, expected: &str) -> bool {
             let Some((key, value)) = piece.split_once('=') else {
                 return true;
             };
-            !key.trim().eq_ignore_ascii_case("q")
-                || value.trim().parse::<f32>().map_or(true, |q| q > 0.0)
+            if !key.trim().eq_ignore_ascii_case("q") {
+                return true;
+            }
+            // Per RFC 9110 the q value is a positive number in [0, 1]; we
+            // reject `q=0` (client refuses the encoding) AND reject
+            // malformed q-values (`q=foo`, `q=`, `q=inf`, `q=NaN`, `q=2`).
+            // The earlier `map_or(true, |q| q > 0.0)` treated every parse
+            // failure as accept, which is non-conformant in the
+            // opposite direction.
+            match value.trim().parse::<f32>() {
+                Ok(q) if q.is_finite() && (0.0..=1.0).contains(&q) => q > 0.0,
+                _ => false,
+            }
         })
     })
 }

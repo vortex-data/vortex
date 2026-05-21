@@ -5,12 +5,12 @@
 //!
 //! The server serves two routers on two listeners in production:
 //!
-//! - **Public** ([`public_router`]) — `/api/groups`, `/api/chart/{slug}`,
+//! - **Public** ([`public_router`]) - `/api/groups`, `/api/chart/{slug}`,
 //!   `/api/group/{slug}`, `/api/ingest` (bearer-gated by
 //!   [`crate::auth::require_bearer`]), `/health`, plus HTML routes
 //!   contributed by [`crate::html::router`]. This is what
 //!   `VORTEX_BENCH_BIND` exposes (typically `0.0.0.0:3000`).
-//! - **Admin** ([`admin_router`]) — `/api/admin/snapshot`,
+//! - **Admin** ([`admin_router`]) - `/api/admin/snapshot`,
 //!   `/api/admin/sql`, both gated by [`crate::admin::require_admin_bearer`].
 //!   Only built when [`AppState::with_admin`] has been called. This is
 //!   what `VORTEX_BENCH_ADMIN_BIND` exposes (typically `127.0.0.1:3001`),
@@ -161,7 +161,7 @@ fn validate_bearer_token(name: &str, token: &str) -> Result<()> {
     Ok(())
 }
 
-/// Build the public router — `/api/ingest`, the read API, `/health`,
+/// Build the public router - `/api/ingest`, the read API, `/health`,
 /// and HTML routes. Does not include any `/api/admin/*` routes; those
 /// live on a separate listener built by [`admin_router`].
 pub fn public_router(state: AppState) -> Router {
@@ -214,42 +214,17 @@ pub fn admin_router(state: AppState) -> Option<Router> {
 /// tests that don't care about the listener split; production runs the
 /// two routers on separate listeners via [`public_router`] +
 /// [`admin_router`].
+///
+/// Reuses [`public_router`] and [`admin_router`] so a route added to
+/// either of those flows into the test surface here too. Previously this
+/// re-spelled both router bodies inline, which silently drifted from
+/// production whenever someone touched only `public_router`.
 pub fn router(state: AppState) -> Router {
-    let ingest_routes = Router::new()
-        .route("/api/ingest", post(ingest::handle))
-        .layer(DefaultBodyLimit::max(INGEST_BODY_LIMIT_BYTES))
-        .route_layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            require_bearer,
-        ));
-
-    let read_routes = Router::new()
-        .route("/api/groups", get(api::groups))
-        .route("/api/chart/{slug}", get(api::chart))
-        .route("/api/group/{slug}", get(api::group))
-        .route(
-            "/api/artifacts/{generation}/groups/{group_slug}/shards/{index}",
-            get(api::group_shard_artifact),
-        )
-        .route("/health", get(api::health));
-
-    let mut router = Router::new()
-        .merge(ingest_routes)
-        .merge(read_routes)
-        .merge(html::router());
-
-    if state.admin_bearer_token.is_some() {
-        let admin_routes = Router::new()
-            .route("/api/admin/snapshot", post(admin::snapshot))
-            .route("/api/admin/sql", post(admin::sql))
-            .route_layer(axum::middleware::from_fn_with_state(
-                state.clone(),
-                admin::require_admin_bearer,
-            ));
-        router = router.merge(admin_routes);
+    let public = public_router(state.clone());
+    match admin_router(state) {
+        Some(admin) => public.merge(admin),
+        None => public,
     }
-
-    router.layer(CompressionLayer::new()).with_state(state)
 }
 
 #[cfg(test)]
