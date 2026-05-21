@@ -6,6 +6,7 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 #[expect(deprecated)]
@@ -25,16 +26,11 @@ use crate::match_each_integer_ptype;
 use crate::scalar::Scalar;
 use crate::scalar_fn::fns::operators::Operator;
 
-/// The threshold below which we rebuild the elements of a listview.
+/// Density threshold to decide whether to rebuild a sparse `ListViewArray`.
 ///
-/// We don't touch `elements` on the metadata-only path since reorganizing it can be expensive.
-/// However, we also don't want to drag around a large amount of garbage data when the selection
-/// is sparse. Below this fraction of list rows retained, the rebuild is worth it.
-/// Rebuilding is needed when exporting the ListView's elements.
-///
-// TODO(connor)[ListView]: Ideally, we would only rebuild after all `take`s and `filter`
-//  compute functions have run, at the "top" of the operator tree. However, we cannot do this
-//  right now, so we will just rebuild every time (similar to [`ListArray`]).
+/// A `ListViewArray` can accumulate unreferenced bytes in its `elements` buffer after
+/// metadata-only operations like `take` and `filter`. When density (referenced fraction of `elements`)
+/// falls below this threshold, the benefits of a rebuild may outweigh its cost.
 const REBUILD_DENSITY_THRESHOLD: f32 = 0.1;
 
 /// Modes for rebuilding a [`ListViewArray`].
@@ -389,14 +385,14 @@ impl ListViewArray {
         }
     }
 
-    pub fn should_rebuild(&self, exact: bool) -> bool {
+    pub fn should_rebuild(&self, exact: bool, ctx: &mut ExecutionCtx) -> VortexResult<bool> {
         let density = if exact {
-            self.compute_density()
+            self.compute_density(ctx)?
         } else {
-            self.estimate_density().ok().flatten()
+            self.estimate_density(ctx)?
         };
 
-        density.unwrap_or(1.0) < REBUILD_DENSITY_THRESHOLD
+        Ok(density.unwrap_or(1.0) < REBUILD_DENSITY_THRESHOLD)
     }
 }
 

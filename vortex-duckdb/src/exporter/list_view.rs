@@ -52,7 +52,7 @@ pub(crate) fn new_exporter(
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let len = array.len();
 
-    let compact_array = if array.should_rebuild(false) {
+    let compact_array = if array.should_rebuild(false, ctx)? {
         array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
     } else {
         array
