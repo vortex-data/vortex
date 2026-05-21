@@ -349,7 +349,11 @@ pub fn query_measurement_record(
         dataset,
         dataset_variant,
         scale_factor,
-        query_idx: u32::try_from(qm.query_idx).unwrap_or(u32::MAX),
+        // Clamp at `i32::MAX`, not `u32::MAX`: the server's `query_idx`
+        // field is `i32`, so a saturated `u32::MAX` would fail serde
+        // deserialization. Real `query_idx` values are 0..200, so the
+        // saturation path is defensive rather than load-bearing.
+        query_idx: u32::try_from(qm.query_idx).unwrap_or(i32::MAX as u32),
         storage: qm.storage.clone(),
         engine: engine_label(qm.target.engine).to_string(),
         format: qm.target.format.name().to_string(),
@@ -447,7 +451,10 @@ pub fn vector_search_record(
     rows_scanned: u64,
     bytes_scanned: u64,
 ) -> V3Record {
-    let iterations = u32::try_from(all_runs_ns.len()).unwrap_or(u32::MAX);
+    // Clamp at `i32::MAX`: server-side `iterations` is `i32` (see the
+    // same-named field on `vortex_bench_server::records::VectorSearchRun`),
+    // so saturating to `u32::MAX` would 400 the envelope.
+    let iterations = u32::try_from(all_runs_ns.len()).unwrap_or(i32::MAX as u32);
     V3Record::VectorSearchRun(VectorSearchRunRecord {
         commit_sha: GIT_COMMIT_ID.clone(),
         dataset: dims.dataset.to_string(),
@@ -485,8 +492,16 @@ pub fn write_jsonl_to_path(path: &std::path::Path, records: &[V3Record]) -> std:
     write_jsonl(&mut file, records)
 }
 
+/// Convert a `Duration` to `u64` nanoseconds, clamping at the largest
+/// value the server-side `value_ns: i64` deserializer can accept.
+///
+/// The wire field is `u64` (see `value_ns` on every record type below),
+/// but the server's [`vortex_bench_server::records`] mirrors them as `i64`.
+/// Without the clamp, an overflowed measurement would land at `u64::MAX`
+/// here, fail serde deserialization on the server, and 400 the whole
+/// ingest envelope.
 fn duration_as_ns(d: std::time::Duration) -> u64 {
-    u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)
+    u64::try_from(d.as_nanos()).unwrap_or(i64::MAX as u64)
 }
 
 fn engine_label(engine: Engine) -> &'static str {

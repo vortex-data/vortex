@@ -8,6 +8,7 @@
 //! payloads once per database snapshot, stores identity/gzip/brotli bytes in
 //! memory, and lets handlers serve bytes directly on the hot path.
 
+use std::collections::VecDeque;
 use std::future::Future;
 use std::hash::Hasher as _;
 use std::io::Read as _;
@@ -49,6 +50,11 @@ use crate::slug::ChartKey;
 
 /// Number of charts included in one materialized group shard response.
 pub const GROUP_SHARD_CHARTS: usize = 8;
+
+/// Superseded read generations retained for pages opened before newer ingests
+/// completed. Each generation owns precompressed latest-100 artifacts, so keep
+/// this finite while covering ordinary CI bursts.
+const RETAINED_PREVIOUS_GENERATIONS: usize = 8;
 
 /// Cache policy for a materialized artifact route.
 #[derive(Debug, Clone, Copy)]
@@ -163,11 +169,24 @@ fn accepts_encoding(raw: &str, expected: &str) -> bool {
         if !name.eq_ignore_ascii_case(expected) {
             return false;
         }
-        !pieces.any(|piece| {
+        pieces.all(|piece| {
             let piece = piece.trim();
-            piece
-                .strip_prefix("q=")
-                .is_some_and(|q| q.trim().starts_with('0'))
+            let Some((key, value)) = piece.split_once('=') else {
+                return true;
+            };
+            if !key.trim().eq_ignore_ascii_case("q") {
+                return true;
+            }
+            // Per RFC 9110 the q value is a positive number in [0, 1]; we
+            // reject `q=0` (client refuses the encoding) AND reject
+            // malformed q-values (`q=foo`, `q=`, `q=inf`, `q=NaN`, `q=2`).
+            // The earlier `map_or(true, |q| q > 0.0)` treated every parse
+            // failure as accept, which is non-conformant in the
+            // opposite direction.
+            match value.trim().parse::<f32>() {
+                Ok(q) if q.is_finite() && (0.0..=1.0).contains(&q) => q > 0.0,
+                _ => false,
+            }
         })
     })
 }
@@ -202,7 +221,8 @@ fn brotli_bytes(bytes: &[u8]) -> Result<Vec<u8>> {
 type RebuildFuture = Pin<Box<dyn Future<Output = Result<ReadGeneration>> + Send>>;
 type RebuildTask = Arc<dyn Fn() -> RebuildFuture + Send + Sync>;
 
-/// Shared in-memory store for the active and previous read generations.
+/// Shared in-memory store for the active and recently superseded read
+/// generations.
 #[derive(Clone)]
 pub struct ReadStore {
     inner: Arc<RwLock<ReadStoreInner>>,
@@ -211,7 +231,7 @@ pub struct ReadStore {
 
 struct ReadStoreInner {
     active: Arc<ReadGeneration>,
-    previous: Option<Arc<ReadGeneration>>,
+    previous: VecDeque<Arc<ReadGeneration>>,
 }
 
 #[derive(Default)]
@@ -229,7 +249,7 @@ impl ReadStore {
         Ok(Self {
             inner: Arc::new(RwLock::new(ReadStoreInner {
                 active: generation,
-                previous: None,
+                previous: VecDeque::new(),
             })),
             rebuild: Arc::new(AsyncMutex::new(RebuildState::default())),
         })
@@ -248,8 +268,8 @@ impl ReadStore {
         }
         inner
             .previous
-            .as_ref()
-            .filter(|generation| generation.id == id)
+            .iter()
+            .find(|generation| generation.id == id)
             .map(Arc::clone)
     }
 
@@ -300,7 +320,10 @@ impl ReadStore {
         let mut inner = self.inner.write();
         let previous = Arc::clone(&inner.active);
         inner.active = Arc::new(generation);
-        inner.previous = Some(previous);
+        inner.previous.push_front(previous);
+        while inner.previous.len() > RETAINED_PREVIOUS_GENERATIONS {
+            inner.previous.pop_back();
+        }
     }
 }
 
@@ -588,7 +611,7 @@ mod tests {
         Ok(ReadStore {
             inner: Arc::new(RwLock::new(ReadStoreInner {
                 active: Arc::new(empty_generation(id)?),
-                previous: None,
+                previous: VecDeque::new(),
             })),
             rebuild: Arc::new(AsyncMutex::new(RebuildState::default())),
         })
@@ -654,6 +677,75 @@ mod tests {
     }
 
     #[test]
+    fn encoded_artifact_honors_nonzero_q_values() -> Result<()> {
+        let artifact = EncodedArtifact::new("abc123", br#"{"ok":true}"#.to_vec())?;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ACCEPT_ENCODING,
+            HeaderValue::from_static("br;q=0.8, gzip;q=0.5"),
+        );
+
+        let resp = artifact.response(&headers, ArtifactCachePolicy::Immutable);
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            resp.headers()
+                .get(header::CONTENT_ENCODING)
+                .and_then(|v| v.to_str().ok()),
+            Some("br")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn encoded_artifact_rejects_zero_q_values() -> Result<()> {
+        let artifact = EncodedArtifact::new("abc123", br#"{"ok":true}"#.to_vec())?;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ACCEPT_ENCODING,
+            HeaderValue::from_static("br;q=0, gzip;q=0"),
+        );
+
+        let resp = artifact.response(&headers, ArtifactCachePolicy::Immutable);
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(
+            resp.headers().get(header::CONTENT_ENCODING).is_none(),
+            "q=0 encodings should fall back to identity"
+        );
+        Ok(())
+    }
+
+    /// `accepts_encoding` rejects malformed q-values (parse failure, out
+    /// of range, non-finite). Previously the parser treated every
+    /// non-numeric q-value as `true` (accept), which was non-conformant
+    /// in the opposite direction from the original q=0 bug.
+    #[test]
+    fn accepts_encoding_rejects_malformed_q_values() {
+        // Malformed numeric inputs: not a number, empty, out of range,
+        // non-finite. Each should reject the encoding.
+        for raw in [
+            "gzip;q=foo",
+            "gzip;q=",
+            "gzip;q=2",
+            "gzip;q=1.5",
+            "gzip;q=-0.1",
+            "gzip;q=NaN",
+            "gzip;q=inf",
+        ] {
+            assert!(
+                !accepts_encoding(raw, "gzip"),
+                "should reject malformed q-value: {raw:?}"
+            );
+        }
+        // Valid edge q-values still accepted.
+        for raw in ["gzip", "gzip;q=1", "gzip;q=1.0", "gzip;q=0.001"] {
+            assert!(
+                accepts_encoding(raw, "gzip"),
+                "should accept valid q-value: {raw:?}"
+            );
+        }
+    }
+
+    #[test]
     fn encoded_artifact_returns_304_for_matching_etag() -> Result<()> {
         let artifact = EncodedArtifact::new("abc123", br#"{"ok":true}"#.to_vec())?;
         let mut headers = HeaderMap::new();
@@ -683,6 +775,28 @@ mod tests {
 
         assert_eq!(store.active().id(), "old");
         assert!(store.generation("old").is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn install_evicts_only_beyond_retained_generation_limit() -> Result<()> {
+        let store = test_store("gen0")?;
+        for idx in 1..=(RETAINED_PREVIOUS_GENERATIONS + 2) {
+            store.install(empty_generation(&format!("gen{idx}"))?);
+        }
+
+        assert_eq!(
+            store.active().id(),
+            &format!("gen{}", RETAINED_PREVIOUS_GENERATIONS + 2)
+        );
+        assert!(
+            store.generation("gen2").is_some(),
+            "oldest retained generation should stay addressable"
+        );
+        assert!(
+            store.generation("gen1").is_none(),
+            "generations beyond the retention window should be evicted"
+        );
         Ok(())
     }
 
@@ -717,7 +831,7 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 2);
         assert_eq!(store.active().id(), "gen2");
         assert!(store.generation("gen1").is_some());
-        assert!(store.generation("old").is_none());
+        assert!(store.generation("old").is_some());
         Ok(())
     }
 }

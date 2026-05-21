@@ -4,16 +4,16 @@
 //! HTML routes for the bench.vortex.dev v3 web UI.
 //!
 //! Three pages, all backed by the same per-chart UX:
-//! - `GET /` — landing page. Every group is a collapsible `<details>`,
+//! - `GET /` - landing page. Every group is a collapsible `<details>`,
 //!   all collapsed by default; the user picks which to expand. Every group
 //!   ships chart-card shells plus versioned shard metadata, and JS hydrates
 //!   the latest-100 payloads from materialized artifacts on intent/open.
-//! - `GET /chart/{slug}` — single chart page; permalink for sharing.
-//! - `GET /group/{slug}` — every chart shell in one group on a single page,
+//! - `GET /chart/{slug}` - single chart page; permalink for sharing.
+//! - `GET /group/{slug}` - every chart shell in one group on a single page,
 //!   opened by default and hydrated through the same shard path.
 //!
 //! Each chart card owns its own compact toolbar (scope slider + Y-axis). There
-//! is no page-level toolbar — every chart is independent. Scope is
+//! is no page-level toolbar - every chart is independent. Scope is
 //! **zoom-as-scope**: each chart fetches a generous window once, then the
 //! toolbar manipulates `chart.options.scales.x.min`/`max` to set the visible
 //! window. No refetches on scope change.
@@ -25,7 +25,7 @@
 //!
 //! URL query param `?n=` is accepted as a power-user override on the
 //! initial fetch but is not written back from the toolbar. Per-chart UI
-//! state is intentionally not persisted in the URL — the user feedback
+//! state is intentionally not persisted in the URL - the user feedback
 //! emphasised that this UX should feel local-and-immediate, not "share a
 //! perfect view via URL". Permalinks (`/chart/{slug}`, `/group/{slug}`)
 //! are the sharing mechanism, not query strings.
@@ -39,14 +39,14 @@
 //! binary is fully self-contained.
 //!
 //! Submodules (all crate-private):
-//! - `render`        — page chrome (header, theme bootstrap, error page,
+//! - `render`        - page chrome (header, theme bootstrap, error page,
 //!   `escape_json_for_script`).
-//! - `landing`       — landing-page body + chart-card shell rendering.
-//! - `chart`         — chart and group permalink page bodies.
-//! - `summary`       — group summary card rendering.
-//! - `filter`        — filter dropdown + on-page filter-state JSON.
-//! - `toolbar`       — per-chart scope slider, Y-axis switch, range strip.
-//! - `static_assets` — `include_bytes!`'d JS/CSS/PNG handlers.
+//! - `landing`       - landing-page body + chart-card shell rendering.
+//! - `chart`         - chart and group permalink page bodies.
+//! - `summary`       - group summary card rendering.
+//! - `filter`        - filter dropdown + on-page filter-state JSON.
+//! - `toolbar`       - per-chart scope slider, Y-axis switch, range strip.
+//! - `static_assets` - `include_bytes!`'d JS/CSS/PNG handlers.
 
 mod chart;
 mod filter;
@@ -75,6 +75,8 @@ use self::render::render_page;
 use self::static_assets::serve_chart_init_js;
 use self::static_assets::serve_chart_js;
 use self::static_assets::serve_chart_zoom_js;
+use self::static_assets::serve_icon_dark_png;
+use self::static_assets::serve_icon_light_png;
 use self::static_assets::serve_style_css;
 use self::static_assets::serve_vortex_black_png;
 use self::static_assets::serve_vortex_white_png;
@@ -101,16 +103,19 @@ pub fn router() -> Router<AppState> {
         .route("/static/style.css", get(serve_style_css))
         .route("/Vortex_Black_NoBG.png", get(serve_vortex_black_png))
         .route("/Vortex_White_NoBG.png", get(serve_vortex_white_png))
+        .route("/static/icon-light.png", get(serve_icon_light_png))
+        .route("/static/icon-dark.png", get(serve_icon_dark_png))
 }
 
 /// Query string for HTML routes. `?n=` overrides the commit window;
 /// `?engine=` and `?format=` carry the global filter bar's selection so a
 /// shared link or refresh preserves which engines/formats are visible. The
-/// per-chart toolbar (Y axis, scope slider) remains local-only — its state
+/// per-chart toolbar (Y axis, scope slider) remains local-only - its state
 /// is intentionally not in the URL.
 #[derive(Debug, Default, Deserialize)]
 pub struct UiQuery {
-    /// Override for the per-chart fetch size. Accepts `25|50|100|250|all`.
+    /// Override for the per-chart fetch size. Numeric values are clamped by
+    /// [`CommitWindow::parse`]; `all` opts into the full-history fallback.
     pub n: Option<String>,
     /// Comma-separated list of engines to keep visible across every chart.
     /// Empty / unset means no engine filter is active. Unknown engines are
@@ -183,7 +188,7 @@ async fn landing(State(state): State<AppState>, Query(ui): Query<UiQuery>) -> Re
         PageScripts::Chart
     };
     render_page(
-        "bench.vortex.dev",
+        "Vortex Benchmarks",
         "Vortex benchmarks (v3 alpha)",
         landing_body(&landing_groups, universe.as_ref()),
         scripts,
@@ -277,7 +282,7 @@ async fn chart_page(
         (chart, payload_json)
     };
 
-    let title = format!("{} — bench.vortex.dev", chart.display_name);
+    let title = format!("{} - Vortex Benchmarks", chart.display_name);
     let subtitle = chart.display_name.clone();
     let filter = ui.filter_state();
     let universe = api::cached_filter_universe(&state).await.ok();
@@ -310,7 +315,7 @@ async fn group_page(
     let Some(group) = groups.iter().find(|group| group.slug == group_slug) else {
         return error_page(StatusCode::NOT_FOUND, "group not found").into_response();
     };
-    let title = format!("{} — bench.vortex.dev", group.name);
+    let title = format!("{} - Vortex Benchmarks", group.name);
     let subtitle = group.name.clone();
     let filter = ui.filter_state();
     let universe = generation.filter_universe();

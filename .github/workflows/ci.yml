@@ -255,7 +255,7 @@ jobs:
               await github.rest.checks.update({
                 ...context.repo,
                 check_run_id: Number(url.split('/').pop()),
-                output: { title: `${failed.join(', ')} — failing`, summary: '' },
+                output: { title: `${failed.join(', ')} - failing`, summary: '' },
               });
             }
             core.setFailed(`Lint failed: ${failed.join(', ')}`);
@@ -370,6 +370,19 @@ jobs:
         if: matrix.os != 'windows-x64'
         run: |
           cargo nextest run --cargo-profile ci --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude xtask --exclude vortex-sqllogictest
+      - name: vortex-bench-server admin snapshot tests (Linux only - network-dependent)
+        # The /api/admin/snapshot tests INSTALL+LOAD the vortex DuckDB
+        # core extension from extensions.duckdb.org on first call. They
+        # are #[ignore]'d by default so `cargo test` works in offline
+        # environments (sandboxed CI, local dev without network). This
+        # step runs them explicitly on the Linux runners, which DO have
+        # outbound network, so the entire backup contract is covered
+        # in CI before merge. macOS/arm64 also exercises them - same
+        # extension, same network. Windows skipped (bench-server is
+        # excluded from Windows test matrix above).
+        if: matrix.os == 'linux-x64' || matrix.os == 'linux-arm64' || matrix.os == 'macos-arm64'
+        run: |
+          cargo nextest run --cargo-profile ci --locked -p vortex-bench-server --test admin --run-ignored only
       - uses: ./.github/actions/check-rebuild
         if: matrix.os != 'windows-x64'
         with:

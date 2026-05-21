@@ -147,10 +147,6 @@
   function defaultScopeForCard(_card) {
     return DEFAULT_VISIBLE;
   }
-  // Mirror of the server's default latest-window size. Latest-100 payloads now
-  // include `history` metadata, so this constant is only a fallback for older
-  // payloads and comments/tests that reason about the default window.
-  var LANDING_INLINE_N = 100;
   // Hard cap on how many points a single series can render at once. When
   // the visible commit range has more raw non-null points than this, we
   // LTTB-downsample to exactly this number; below it we render raw. So
@@ -1062,10 +1058,10 @@
     canvas.__bench_payload_window = FETCH_N;
     if (!chart) return;
     // Re-pick the display unit against the now-wider window. The first
-    // payload was the inlined slice (`LANDING_INLINE_N` commits); the
-    // refetch may surface older commits with a different magnitude, and
-    // we'd rather move the y-axis once at the refetch boundary than leave
-    // the chart on a stale unit. The axis title is updated to match.
+    // payload was the latest-100 slice; the refetch may surface older
+    // commits with a different magnitude, and we'd rather move the
+    // y-axis once at the refetch boundary than leave the chart on a
+    // stale unit. The axis title is updated to match.
     canvas.__bench_display_unit = pickDisplayUnit(
       payload.unit_kind, collectAllValues(payload),
     );
