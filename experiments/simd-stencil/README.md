@@ -9,17 +9,18 @@ A prototype that decodes three *stacked* Vortex encodings
 - `alp(delta(ffor(bitpacking)))` — `f64`
 - `rle(alp(delta(ffor(bitpacking))))` — `f64` run values + delta-bitpacked run ends
 
-using four composition strategies that all share the **same** pre-compiled SIMD
+using several composition strategies that share the **same** pre-compiled SIMD
 kernels ("stencils"). The only variable is *how the stencils are composed*, so
 the benchmark isolates the composition strategy rather than the kernels.
 
-## The four strategies
+## The strategies
 
 | Strategy | What it is | Where |
 |---|---|---|
 | `materialized` | Decode each encoding layer into a full-column heap buffer before the next layer reads it. Models Vortex's array-by-array `execute`, which canonicalises a `PrimitiveArray` per layer. | `src/strategies/materialized.rs` |
 | `fused` | Tiled L1-resident pipeline: per 1024-element tile, run every layer through register/L1 scratch, never touching DRAM for intermediates. Copy-and-patch with stencils kept as ordinary function pointers; runtime constants (bit-width, FoR reference, ALP scale) passed as arguments. | `src/strategies/fused.rs` |
-| `patched` | **Literal copy-and-patch**: the ALP-scale leaf is emitted as machine code at run time by copying a pre-compiled template into an executable page and patching the scale into a `movabs` immediate. Integer stages reuse the `fastlanes` per-width stencils, *selected* by bit-width. | `src/patched.rs` |
+| `patched` | Copy-and-patch with a *single* runtime-emitted leaf: the ALP-scale stage is machine code copied into an executable page with the scale patched into a `movabs` immediate; integer stages reuse the `fastlanes` per-width stencils, selected by bit-width. | `src/patched.rs` |
+| `stitched` | **Body-stitching copy-and-patch**: several op bodies are concatenated into *one* executable AVX-512 loop, with constants patched in and the loop back-edge relocated at build time. No per-op calls, no inter-op materialization. | `src/stitched.rs` |
 | `aot` | Ahead-of-time upper bound: a fully-inlined, const-generic pipeline monomorphised for the exact `(stack, bit-width)`, dispatched by a `match` over every width. Every combination compiled offline. | `src/strategies/aot.rs` |
 
 The integer kernels delegate to the `fastlanes` crate, whose per-bit-width
@@ -43,68 +44,109 @@ and copy-and-patch handles each differently:
    instruction stream as an immediate (`src/patched.rs`), so the inner loop folds
    it instead of carrying it in a register or reloading it from memory.
 
+## Why was Vortex faster than the prototype at first?
+
+An earlier version of this prototype reported that Vortex's production `execute`
+beat the stencil pipeline. Dumping the encoding trees (test `inspect_vortex_trees`)
+explained why — **Vortex's compressor stored uncompressed primitive children**:
+
+```text
+=== stack A: Vortex Delta of gen_u32 ===
+fastlanes.delta  len=65536
+  .deltas  vortex.primitive  nbytes=262144   <- raw u32, NOT bitpacked
+=== stack B: Vortex ALP of gen_f64 ===
+vortex.alp  len=65536
+  .encoded vortex.primitive  nbytes=524288    <- raw i64, NOT delta/for/bitpacked
+```
+
+So "Vortex" never decoded the 4-layer stack at all: its `execute` was essentially
+*just the last kernel over uncompressed memory* (undelta+untranspose for A; an
+i64→f64 scale for B), 1–2 passes versus the prototype's 3–4. It was faster
+because it did **less work**, on a shallower encoding. (A second bug compounded
+it: the prototype's stack-B FoR used an *unsigned* min, so wrapping-signed deltas
+bit-packed to width 64 — zero compression. Fixed to a signed reference; width is
+now ~17.)
+
+The fair question is: decode the **same** stack both ways. Two same-stack Vortex
+baselines (`src/vortex_baseline.rs`) build genuine `delta(bitpacking)` (stack A)
+and `delta(ffor(bitpacking))` (stack-B integer core) as real `DeltaArray` /
+`FoRArray` / `BitPackedArray` trees and decode them through Vortex's per-layer
+`execute`.
+
 ## Results
 
-Hardware: Intel Xeon (Skylake-class), AVX-512F/DQ/BW/VL/CD + BMI2, 4 cores.
-`RUSTFLAGS="-C target-cpu=native"`, `~1M` elements per column. Median decode
-throughput (higher is better); `xN` is speedup over `materialized`.
+Hardware: Intel Xeon (Skylake-class), AVX-512F/DQ/BW/VL/CD + BMI2, 4 shared vCPUs
+(a noisy cloud box — treat ratios, not absolutes, as the signal).
+`RUSTFLAGS="-C target-cpu=native"`, ~1M elements/column. Median items/s.
 
-| Stack | materialized | fused | aot | patched | vortex (real) |
-|---|---|---|---|---|---|
-| `delta(bitpack)` u32 | 812 M/s (1.0x) | 1.27 G/s (1.57x) | 1.36 G/s (1.68x) | — | **1.45 G/s** (1.79x) |
-| `alp(delta(ffor(bitpack)))` f64 | 259 M/s (1.0x) | 638 M/s (2.46x) | 640 M/s (2.47x) | 518 M/s (2.00x) | **1.11 G/s** (4.29x) |
-| `rle(alp(delta(ffor(bitpack))))` f64 | 406 M/s (1.0x) | 456 M/s (1.12x) | 441 M/s (1.08x) | 428 M/s (1.05x) | — |
+| Stack | materialized | **fused** | **aot** | patched | vortex (same stack) | vortex (shallow) |
+|---|---|---|---|---|---|---|
+| A `delta(bitpack)` u32 | 739 M | **1.16 G** | **1.22 G** | — | 1.01 G | 1.44 G¹ |
+| B core `delta(ffor(bitpack))`→i64 | — | **617 M** | **613 M** | — | 454 M | — |
+| B full `alp(delta(ffor(bitpack)))` f64 | 204 M | **534 M** | **541 M** | 433 M | — | 887 M¹ |
+| C `rle(alp(delta(ffor(bitpack))))` f64 | 352 M | **403 M** | **408 M** | ~367 M | — | — |
+
+¹ *shallow* = Vortex's own (uncompressed-child) encoding, i.e. **less work** — shown for context, not a same-stack comparison.
 
 ### What the numbers say
 
-1. **Tiled fusion beats per-layer materialization, same kernels.** With identical
-   stencils, the `fused` L1-tiled pipeline is 1.6x (A) to 2.5x (B) faster than
-   `materialized`, which writes a full-column buffer per layer. This is the core
-   result: the win comes from never spilling intermediates to DRAM, not from
-   better kernels. On stack C the RLE expand stage is memory-bound and dominates,
-   so the gap shrinks to 1.1x.
+1. **The prototype beats Vortex on the same stack.** `fused`/`aot` decode genuine
+   `delta(bitpacking)` 1.1–1.2× faster than Vortex's `execute` of the identical
+   array (A: 1.16–1.22 G vs 1.01 G), and the `delta(ffor(bitpacking))` integer
+   core 1.3–1.4× faster (B core: 617 M vs 454 M). The win is structural: Vortex
+   materialises a `PrimitiveArray` between every layer; the fused pipeline keeps
+   intermediates in L1. (Vortex's *shallow* encoding is still fastest where it
+   applies — but only because it decodes far less, and a planner could choose that
+   shallow encoding too.)
 
-2. **Cheap-to-build `fused` already matches AOT.** Const-generic monomorphisation
-   per bit-width (`aot`) is within noise of the runtime-width `fused` path
-   (A: 1.36 vs 1.27 G/s; B: 640 vs 638 M/s; C: tie). The `fastlanes` kernels are
-   `#[inline(never)]` either way and per-tile width dispatch is cheap, so the
-   combinatorial AOT build buys almost nothing here. A copy-and-patch planner that
-   *selects* pre-built stencils gets AOT-class throughput without AOT-class build
-   cost.
+2. **Tiled fusion beats per-layer materialization with identical kernels** —
+   2.0–2.6× on the deep f64 stack B (534 M vs 204 M), 1.15× on the
+   memory-bound RLE stack C.
 
-3. **A single-op patched leaf is slower than fused — copy-and-patch needs
-   body-stitching.** The `patched` path (B: 518 M/s) is *slower* than `fused`
-   (638 M/s) despite baking the ALP scale as an immediate. The cost is the
-   per-tile call boundary into the runtime-emitted stencil plus the lost
-   cross-stage inlining (untranspose can no longer fuse with the scale multiply).
-   The constant-folding win is real but smaller than what one indirect call per
-   1024 elements costs. **Conclusion: patching constants into a single op does not
-   pay; the technique only wins if op *bodies* are stitched into one loop so the
-   call boundaries disappear.** That is the body-stitching variant listed under
-   future work, and this negative result is the strongest argument for building
-   it.
+3. **`fused` matches `aot`.** Runtime-width fused is within noise of the
+   const-generic-per-width AOT build (A: 1.16 vs 1.22 G; B: 534 vs 541 M; C: tie).
+   The combinatorial AOT compile buys almost nothing — selecting pre-built
+   stencils at runtime already reaches AOT-class throughput.
 
-4. **vs real Vortex.** Vortex's production `execute` is fastest on A and B — but
-   it decodes its *own* encoding of the data, which its compressor made shallower
-   (≈2 layers: ALP/Delta over bitpacking) than the explicit 4-layer stacks here.
-   So the prototype does not beat Vortex's decode of *these* columns; it beats the
-   same-kernel `materialized` model of per-layer decode. The apples-to-apples
-   4-layer comparison Vortex's public API cannot construct is precisely
-   `materialized` vs `fused`, where fusion wins.
+4. **A single-op `patched` leaf still trails `fused`** (B: 433 vs 534 M): one
+   indirect call per tile plus a materialised `digits` buffer between untranspose
+   and scale costs more than baking the scale saves. This is the motivation for
+   body-stitching, below.
+
+### Body-stitching matches AOT (`--bench stitch`)
+
+The fix for (4): stitch op bodies into one loop. The `stitch` bench runs a 6-op
+affine tail (`x = x*a + b` chained — a stand-in for FoR-add → ALP-scale → …) four
+ways:
+
+| | items/s | vs stitched |
+|---|---|---|
+| `aot_const` (ops baked as constants, LLVM-vectorized) | 851 M | 1.08× |
+| **`stitched`** (bodies concatenated, constants hoisted into a patched pool) | **786 M** | 1.0× |
+| `per_op_materialized` (one pass per op) | 307 M | 0.39× |
+| `aot_dynamic` (ops in a runtime slice — can't vectorize) | 183 M | 0.23× |
+
+**Body-stitching reaches 92% of AOT** while beating per-op materialization 2.6×
+and a naive plan interpreter 4.3×. The build assembles one AVX-512 loop at run
+time: copy prologue + N op bodies + epilogue, patch the constant pool, and
+relocate the loop's back-edge `rel32` (the branch distance depends on how many
+bodies were stitched). Getting constants *hoisted out of the loop* (into a patched
+pool addressed via `r8`) rather than re-broadcast per iteration is what closes the
+gap to AOT — re-broadcasting per iteration left it at ~74%.
 
 ### Build ("compile") latency
 
 | Operation | Median |
 |---|---|
-| `build_patched_stencil` (mmap + copy + patch + mprotect) | 4.7 µs |
-| `build_and_run_one_tile` (build + decode 1024 elems) | 8.0 µs |
+| `build_patched_stencil` (mmap + copy + patch + mprotect) | 6.2 µs |
+| `build_stitched_6op` (mmap + 8 fragments + 2 relocations + pool + mprotect) | 4.6 µs |
+| `build_and_run_one_tile` | 11 µs |
 
-The copy + 8-byte patch is sub-microsecond; the ~4.7 µs is dominated by the
-`mmap`/`mprotect` syscalls that allocate and re-protect the page. Amortised over
-a multi-millisecond column decode this is negligible, and a real framework would
-pool executable pages to drive per-stencil build into the sub-µs "memcpy" regime.
-Either way it is many orders of magnitude below the seconds an LLVM recompile
-would need to reach the same code quality.
+The copy + patches are sub-microsecond; the few µs are the `mmap`/`mprotect`
+syscalls. Amortised over a multi-millisecond column decode this is negligible, and
+pooling executable pages would push per-stencil build into the sub-µs "memcpy"
+regime — orders of magnitude below the seconds an LLVM recompile needs for the
+same code quality.
 
 ## How this becomes a framework
 
@@ -139,20 +181,16 @@ data-driven instead of hand-written.
 - **Interpreted/fused backend** (`fused` here): walk the plan per tile, calling
   each selected stencil through a function pointer with constants as arguments.
   Robust, portable, already within a small factor of AOT.
-- **Patched backend** (true copy-and-patch): stitch the selected stencil
-  *bodies* into one executable buffer and patch immediates in. The result (3)
-  above shows why this must stitch bodies, not call per-op stencils: a patched
-  *single* op adds a call boundary per tile and loses cross-stage inlining, so it
-  ran slower than `fused`. The payoff only materialises once all the op bodies
-  live in one loop with no internal calls — then constants fold and there is no
-  dispatch, approaching AOT quality with `~memcpy`-cost "compilation". The
-  `patched` strategy in this prototype is the partial form (patched leaf +
-  selected integer stages); the full backend is future work.
+- **Stitched backend** (true copy-and-patch): concatenate the selected stencil
+  *bodies* into one executable loop and patch in constants + relocations. The
+  `stitched` prototype shows this reaches 92% of AOT and beats the per-op
+  `patched`/materialized form 2.6×, because the call boundaries and inter-op
+  buffers disappear and constants are hoisted out of the loop. This is the backend
+  for plans whose tight inner loops are dominated by data-dependent constants.
 
-The planner would pick the backend per column: cheap plans run interpreted;
-since `fused` already matches AOT here, body-stitched patching is only worth it
-for plans dominated by data-dependent constants in tight inner loops. Both
-backends share the identical stencil library, so correctness is established once.
+The planner picks the backend per column: cheap plans run interpreted (`fused`
+already matches AOT); constant-heavy tight loops get stitched. Both backends share
+the identical stencil library, so correctness is established once.
 
 ### 4. Where it plugs into Vortex
 
@@ -165,23 +203,27 @@ fall back to today's path, so it is incremental.
 
 ### Open questions / limits of the prototype
 
-- **Stitching real stencil bodies** (true Xu/Kjolstad copy-and-patch, fusing
-  multiple op bodies into one loop) is *not* done here: the `patched` backend
-  patches a single-op leaf and selects the rest. Fusing arbitrary bodies needs
-  relocation-aware extraction (a build-time `object`-crate pass), which is the
-  natural next step.
-- **FoR reference** is passed as an argument, not patched as an immediate; the
-  `unchecked_unfor_pack` stencil already accepts it at runtime.
+- **Stitching is demonstrated only for elementwise ops** (the affine tail). The
+  hand-authored fragments are AVX-512 written by hand, so the heavy permutation
+  kernels (bit-unpack, undelta, untranspose) are still *selected* pre-built
+  stencils, not stitched. Stitching arbitrary bodies needs relocation-aware
+  extraction of compiled stencils (a build-time `object`-crate pass) — the
+  natural next step to fold the whole tail (incl. untranspose) into one loop and
+  remove the `digits` round-trip that holds `patched` back on the full stack B.
+- The stitched engine caps at `MAX_OPS = 6` (zmm register budget) and patches a
+  back-edge `rel32` plus a constant pool by hand; a general stitcher would handle
+  arbitrary register allocation and relocation types.
 - **ALP exceptions / nullability / non-tile-aligned tails** are out of scope.
-- The Vortex baselines decode Vortex's own Delta / ALP encodings of the same
-  data (the public API doesn't expose a hand-built 4-deep cascade), so they are
-  an end-to-end anchor; the same-kernel `materialized` strategy is the
-  apples-to-apples model of Vortex's per-layer decode.
+- The same-stack Vortex baselines cover the integer cascades (stack A fully;
+  stack B's integer core). Wrapping the deep stack back in Vortex's ALP needs its
+  exact exponents+patches, so stack B's ALP scale is compared as the equal
+  constant overhead it is.
 
 ## Running
 
 ```bash
 cargo test  -p simd-stencil
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench stacks
+RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench stitch
 RUSTFLAGS="-C target-cpu=native" cargo bench -p simd-stencil --bench dispatch
 ```

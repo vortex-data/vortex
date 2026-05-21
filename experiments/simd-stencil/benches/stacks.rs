@@ -35,9 +35,19 @@ fn main() {
 
 // ---------------------------------------------------------------- stack A: delta(bitpacking) u32
 
-#[divan::bench(name = "a_delta_bitpack/vortex")]
-fn a_vortex(bencher: Bencher) {
+#[divan::bench(name = "a_delta_bitpack/vortex_shallow")]
+fn a_vortex_shallow(bencher: Bencher) {
+    // Vortex's own compressor leaves the deltas uncompressed (no bitpacking).
     let arr = vortex_baseline::build_a(&gen_u32(N, 1));
+    bencher
+        .counter(ItemsCount::new(N))
+        .bench(|| vortex_baseline::decode(&arr));
+}
+
+#[divan::bench(name = "a_delta_bitpack/vortex_same_stack")]
+fn a_vortex_same_stack(bencher: Bencher) {
+    // Genuine delta(bitpacking): the same stack the prototype decodes.
+    let arr = vortex_baseline::build_a_same_stack(&gen_u32(N, 1));
     bencher
         .counter(ItemsCount::new(N))
         .bench(|| vortex_baseline::decode(&arr));
@@ -107,6 +117,33 @@ fn b_aot(bencher: Bencher) {
     bencher
         .counter(ItemsCount::new(N))
         .bench(|| aot::decode_b(&enc));
+}
+
+// ------------------ stack B integer core: delta(ffor(bitpacking)) -> i64, same-work vs Vortex
+
+#[divan::bench(name = "b_core_delta_for_bitpack/vortex_same_stack")]
+fn b_core_vortex(bencher: Bencher) {
+    let enc = encode_b(&gen_f64(N, EXP, 2), EXP);
+    let arr = vortex_baseline::build_b_core_same_stack(&enc.digits);
+    bencher
+        .counter(ItemsCount::new(N))
+        .bench(|| vortex_baseline::decode(&arr));
+}
+
+#[divan::bench(name = "b_core_delta_for_bitpack/fused")]
+fn b_core_fused(bencher: Bencher) {
+    let enc = encode_b(&gen_f64(N, EXP, 2), EXP);
+    bencher
+        .counter(ItemsCount::new(N))
+        .bench(|| fused::decode_b_core(&enc));
+}
+
+#[divan::bench(name = "b_core_delta_for_bitpack/aot")]
+fn b_core_aot(bencher: Bencher) {
+    let enc = encode_b(&gen_f64(N, EXP, 2), EXP);
+    bencher
+        .counter(ItemsCount::new(N))
+        .bench(|| aot::decode_b_core(&enc));
 }
 
 // ------------------------------------------- stack C: rle(alp(delta(ffor(bitpacking)))) f64

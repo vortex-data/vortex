@@ -152,8 +152,12 @@ pub fn encode_b(values: &[f64], exponent: i32) -> EncodedB {
         <u64 as Transpose>::transpose(tile, &mut tv);
         <u64 as Delta>::delta::<LANES64>(&tv, &[0u64; LANES64], &mut td);
 
-        // FoR: subtract the per-tile minimum so the residuals bit-pack tightly.
-        let r = td.iter().copied().min().unwrap_or(0);
+        // FoR: the deltas are wrapping-signed, so the reference that minimises
+        // the bit-packed range is the *signed* minimum, not the unsigned one. A
+        // negative delta wraps to ~2^64 as a `u64`; subtracting the signed min
+        // (mod 2^64) maps the whole [min, max] span into [0, max-min].
+        let r_signed = td.iter().map(|&x| x as i64).min().unwrap_or(0);
+        let r = r_signed as u64;
         let mut resid = [0u64; TILE];
         let mut max = 0u64;
         for i in 0..TILE {

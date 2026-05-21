@@ -39,6 +39,7 @@
 pub mod encode;
 pub mod kernels;
 pub mod patched;
+pub mod stitched;
 pub mod strategies;
 pub mod vortex_baseline;
 

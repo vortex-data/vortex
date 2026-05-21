@@ -91,6 +91,41 @@ pub fn decode_b(enc: &EncodedB) -> Vec<f64> {
     out
 }
 
+/// Integer core of stack B: decode to `i64` digits (no ALP scale), monomorphised
+/// per width — the AOT counterpart to `fused::decode_b_core`.
+pub fn decode_b_core(enc: &EncodedB) -> Vec<i64> {
+    let n = enc.n;
+    let tiles = n / TILE;
+    let mut out = vec![0i64; n];
+    let mut td = [0u64; TILE];
+    let mut tu = [0u64; TILE];
+    let mut digits = [0u64; TILE];
+
+    for t in 0..tiles {
+        let w = enc.width[t] as usize;
+        let off = enc.offsets[t];
+        let reference = enc.reference[t];
+        seq_macro::seq!(W in 1..=64 {
+            match w {
+                #(
+                    W => {
+                        let inp: &[u64; 16 * W] =
+                            enc.packed[off..off + 16 * W].try_into().unwrap();
+                        <u64 as FoR>::unfor_pack::<W, { 16 * W }>(inp, reference, &mut td);
+                    }
+                )*
+                _ => unreachable!("u64 width out of range: {w}"),
+            }
+        });
+        undelta_u64(&td, &mut tu);
+        untranspose_u64(&tu, &mut digits);
+        for i in 0..TILE {
+            out[t * TILE + i] = digits[i] as i64;
+        }
+    }
+    out
+}
+
 pub fn decode_c(enc: &EncodedC) -> Vec<f64> {
     let ends = decode_a(&enc.ends);
     let vals = decode_b(&enc.vals);

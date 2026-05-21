@@ -31,6 +31,23 @@ mod patched_build {
 
     /// Build then run the stencil over a single 1024-element tile, the smallest
     /// useful unit of "compile + execute".
+    /// Build a 6-op stitched pipeline: mmap + copy prologue/bodies/epilogue +
+    /// patch immediates, back-edge relocation, and constant pool + mprotect.
+    #[divan::bench(name = "build_stitched_6op")]
+    fn build_stitched(bencher: Bencher) {
+        use simd_stencil::stitched::StitchedAffine;
+
+        let ops = [
+            (1.5, -3.25),
+            (0.5, 100.0),
+            (2.0, 0.125),
+            (-1.0, 7.0),
+            (1.25, -0.5),
+            (0.875, 4.0),
+        ];
+        bencher.bench(|| StitchedAffine::build(black_box(&ops)));
+    }
+
     #[divan::bench(name = "build_and_run_one_tile")]
     fn build_and_run(bencher: Bencher) {
         let digits = [12345i64; 1024];
