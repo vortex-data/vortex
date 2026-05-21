@@ -676,10 +676,8 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
 
         // Three full chunks plus a trailer, with values large enough to force patches at width 8.
-        let values: Vec<u16> = (0..3500u16)
-            .map(|i| if i % 137 == 0 { 5000 + i } else { i % 200 })
-            .collect();
-        let array = PrimitiveArray::from_iter(values.clone());
+        let values = (0..3500u16).map(|i| if i % 137 == 0 { 5000 + i } else { i % 200 });
+        let array = PrimitiveArray::from_iter(values);
         let bitpacked = encode(&array, 8);
         assert!(bitpacked.patches().is_some());
 

@@ -40,6 +40,8 @@ pub fn vortex_fastlanes::bitpack_decompress::apply_patches_to_uninit_range_fn<T:
 
 pub fn vortex_fastlanes::bitpack_decompress::count_exceptions(u8, &[usize]) -> usize
 
+pub fn vortex_fastlanes::bitpack_decompress::unpack_and_cast_into_builder<F, T>(vortex_array::array::view::ArrayView<'_, vortex_fastlanes::BitPacked>, &mut vortex_array::builders::primitive::PrimitiveBuilder<T>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<()> where F: vortex_fastlanes::unpack_iter::BitPacked + num_traits::cast::AsPrimitive<T>, T: vortex_array::dtype::ptype::NativePType
+
 pub fn vortex_fastlanes::bitpack_decompress::unpack_array(vortex_array::array::view::ArrayView<'_, vortex_fastlanes::BitPacked>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::vtable::PrimitiveArray>
 
 pub fn vortex_fastlanes::bitpack_decompress::unpack_primitive_array<T: vortex_fastlanes::unpack_iter::BitPacked>(vortex_array::array::view::ArrayView<'_, vortex_fastlanes::BitPacked>, &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::arrays::primitive::vtable::PrimitiveArray>
@@ -83,6 +85,8 @@ pub fn vortex_fastlanes::unpack_iter::UnpackedChunks<T, S>::trailer(&mut self) -
 pub fn vortex_fastlanes::unpack_iter::UnpackedChunks<T, S>::try_new_with_strategy(S, vortex_buffer::ByteBuffer, usize, usize, usize) -> vortex_error::VortexResult<Self>
 
 impl<T: vortex_fastlanes::unpack_iter::BitPacked> vortex_fastlanes::unpack_iter::UnpackedChunks<T, vortex_fastlanes::unpack_iter::BitPackingStrategy>
+
+pub fn vortex_fastlanes::unpack_iter::UnpackedChunks<T, vortex_fastlanes::unpack_iter::BitPackingStrategy>::decode_cast_into<U: core::marker::Copy>(&mut self, &mut [core::mem::maybe_uninit::MaybeUninit<U>], impl core::ops::function::Fn(T) -> U)
 
 pub fn vortex_fastlanes::unpack_iter::UnpackedChunks<T, vortex_fastlanes::unpack_iter::BitPackingStrategy>::full_chunks(&mut self) -> vortex_fastlanes::unpack_iter::BitUnpackIterator<'_, T>
 

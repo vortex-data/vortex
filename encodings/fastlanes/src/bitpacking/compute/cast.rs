@@ -30,7 +30,6 @@ fn is_widening_int_cast(src: PType, tgt: PType) -> bool {
         && (src.is_unsigned_int() || tgt.is_signed_int())
 }
 
-
 fn build_with_validity(
     array: ArrayView<'_, BitPacked>,
     dtype: &DType,

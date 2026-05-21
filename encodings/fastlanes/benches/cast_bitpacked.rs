@@ -16,7 +16,6 @@
 //!   for the technique, and `cast_execute` should track it once the kernel is wired in.
 
 #![expect(clippy::unwrap_used)]
-#![expect(clippy::cast_possible_truncation)]
 
 use std::sync::LazyLock;
 
