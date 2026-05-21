@@ -2388,6 +2388,93 @@ for the controlled experiment proving this.
 
 ---
 
+## 21. The SIMD-width gap: Cranelift AVX-128 vs LLVM wide-SIMD AOT
+
+Question: for the fully-fused `FoR → ALP` stack at a given intermediate
+type, how far is Cranelift's 128-bit JIT from an LLVM AOT build that's
+allowed to use wide SIMD? Measured both `u32→f32` and `u64→f64`.
+
+`vortex-jit/benches/width_gap.rs` runs the same fused decode as a
+Cranelift JIT and as a hand-written tight Rust loop (LLVM AOT). Run it
+twice — default (SSE2) and `RUSTFLAGS="-C target-cpu=native"` (AVX2/512).
+
+### Numbers (65k elements, medians)
+
+| Config | Build | Width | u32→f32 | u64→f64 |
+|--------|-------|-------|---------|---------|
+| AOT (LLVM) | default | SSE2 128 | 6.65 μs / 39.4 GB/s | 34.1 μs / 15.4 GB/s |
+| AOT (LLVM) | native | AVX2 256 | **6.13 μs / 42.8 GB/s** | **15.0 μs / 34.9 GB/s** |
+| JIT (Cranelift) | any | AVX-128 | 9.40 μs / 27.9 GB/s | 36.1 μs / 14.5 GB/s |
+
+JIT is invariant to `RUSTFLAGS` (Cranelift compiles at runtime) — proven
+by jit numbers being identical across both runs.
+
+**Gap to LLVM wide-SIMD AOT:**
+- `u32→f32`: JIT **1.53× slower** — pure lane-width (8 vs 4), partly
+  masked because AOT is already memory-bandwidth-bound (~42 GB/s ≈ L2
+  write ceiling, so going wide barely helped: 6.65 → 6.13 μs).
+- `u64→f64`: JIT **2.41× slower** — width *plus* a missing instruction.
+
+### The asm tells the whole story
+
+**u32→f32** — identical instruction kinds, differ only in width:
+
+```text
+JIT (Cranelift 128-bit):        AOT native (LLVM 256-bit, 4x unrolled):
+  vpaddd    xmm, xmm, xmm         vcvtdq2ps ymm2, [rdi+r8*4]
+  vcvtdq2ps xmm, xmm              vcvtdq2ps ymm3, [rdi+r8*4+0x20]
+  vmulps    xmm, xmm, xmm         ...
+  (4 lanes/op)                    vmulps ymm, ymm, ymm   (8 lanes/op)
+```
+
+**u64→f64** — the conversion diverges:
+
+```text
+JIT (Cranelift):                  AOT native (LLVM):
+  vpaddq    xmm, xmm, xmm   ok      vpaddq    ymm, [rdi+r9*8], ymm1   ok
+  vcvtsi2sd xmm, xmm, rcx   SCALAR  vcvtqq2pd ymm3, ymm3   ← AVX-512DQ vector!
+  vcvtsi2sd xmm, xmm, rcx   SCALAR  vcvtqq2pd ymm4, ymm4
+  vmulpd    xmm, xmm, xmm   ok      vmulpd    ymm, ymm, ymm
+```
+
+Cranelift has **no vector i64→f64** — it extracts each i64 lane,
+converts with scalar `vcvtsi2sd`, rebuilds. LLVM native emits
+`vcvtqq2pd` (AVX-512DQ, confirmed in the disasm), converting 4 i64s at
+once. That single missing instruction is most of the 2.4× u64 gap; it
+also explains why AOT u64 nearly halved going native (34→15 μs) while
+AOT u32 barely moved (already bandwidth-bound).
+
+### What would allow wider SIMD in Cranelift
+
+Cranelift is capped at 128-bit on x86_64 because its primary client
+(Wasmtime) targets the WebAssembly SIMD spec, which is defined as
+128-bit `v128`. The x86 backend's ISLE lowering rules only cover
+128-bit vector types. Four paths to close the gap:
+
+1. **Upstream: add ISLE lowering for `I32X8`/`I64X4` (AVX2) and
+   `I32X16` (AVX-512).** When it lands, our `simd_type()` returns the
+   wider type and *every stage widens automatically* — zero framework
+   change. Tracked upstream; not on us.
+2. **Manual N× unroll of 128-bit ops** (already done) — keeps the OOO
+   engine's ports busy, which is why u32 is only 1.53× behind instead
+   of the full 2× width ratio. Near diminishing returns at 16 xmm regs.
+3. **Hand-roll the missing op in the stage.** For u64→f64, emit the
+   SSE2 magic-constant bit-trick (split i64 into hi/lo 32-bit halves,
+   convert each, recombine) instead of scalar `vcvtsi2sd`. Closes the
+   u64 gap without touching Cranelift — most actionable on our side.
+4. **Swap backend to LLVM via inkwell.** Closes the gap to zero at
+   50-100× compile cost. Only `EmitCtx` changes; §9/10 trait surface
+   stays.
+
+**Bottom line:** the fully-vectorizable parts land within **1.5×** of
+LLVM's wide AOT, and that gap is pure lane width — recoverable the
+moment Cranelift adds AVX2 lowering, with no framework change. The
+`u64→f64` path is **2.4×** behind but half of that is one missing
+instruction we can emit ourselves. Neither gap is fundamental to the
+framework; both live in Cranelift's x86 backend.
+
+---
+
 ## Appendix A: research on the inter-module ABI
 
 What follows is what the surveys found about how today's encodings talk to each

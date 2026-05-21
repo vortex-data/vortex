@@ -62,7 +62,31 @@ fn dump_chain() {
     println!("4-stage chain: /tmp/jit_chain.bin  fn @ {:p}", compiled.raw_fn);
 }
 
+fn dump_foralp(ptype: PType, ftype: PType, path: &str, label: &str) {
+    let mut p = Pipeline::new(ptype, BLOCK);
+    p.push(Arc::new(LoadIn { ptype })).unwrap();
+    p.push(Arc::new(ForAdd {
+        ptype,
+        reference: 100,
+    }))
+    .unwrap();
+    p.push(Arc::new(AlpDecode {
+        in_ptype: ptype,
+        out_ptype: ftype,
+        scale: 0.01,
+    }))
+    .unwrap();
+    p.push(Arc::new(StoreOut { ptype: ftype })).unwrap();
+    let compiled = Compiler::new(vec![]).unwrap().compile(&p).unwrap();
+    let n = 4096;
+    let bytes: &[u8] = unsafe { std::slice::from_raw_parts(compiled.raw_fn, n) };
+    std::fs::write(path, bytes).expect("write");
+    println!("{label}: {path}  fn @ {:p}", compiled.raw_fn);
+}
+
 fn main() {
     dump_alp_only();
     dump_chain();
+    dump_foralp(PType::I32, PType::F32, "/tmp/jit_foralp_u32.bin", "FoR+ALP u32->f32");
+    dump_foralp(PType::I64, PType::F64, "/tmp/jit_foralp_u64.bin", "FoR+ALP u64->f64");
 }

@@ -246,6 +246,46 @@ fn bitpacked_load_chain_to_alp() {
 }
 
 #[test]
+fn alp_decode_i64_to_f64() {
+    // Verify the u64/i64 -> f64 path compiles and runs in Cranelift.
+    const BLOCK: usize = 16;
+    const N_BLOCKS: usize = 4;
+    const N: usize = BLOCK * N_BLOCKS;
+    let scale = 0.001f64;
+
+    let mut p = Pipeline::new(PType::I64, BLOCK);
+    p.push(Arc::new(LoadIn { ptype: PType::I64 })).unwrap();
+    p.push(Arc::new(ForAdd {
+        ptype: PType::I64,
+        reference: 5,
+    }))
+    .unwrap();
+    p.push(Arc::new(AlpDecode {
+        in_ptype: PType::I64,
+        out_ptype: PType::F64,
+        scale,
+    }))
+    .unwrap();
+    p.push(Arc::new(StoreOut { ptype: PType::F64 })).unwrap();
+
+    let compiled = fresh_compiler(vec![]).compile(&p).expect("compile i64 chain");
+
+    let input: Vec<i64> = (0..N as i64).collect();
+    let mut output = vec![0f64; N];
+    unsafe {
+        compiled.call_decompress_only(
+            input.as_ptr().cast(),
+            output.as_mut_ptr().cast(),
+            N_BLOCKS as u64,
+        );
+    }
+    let expected: Vec<f64> = input.iter().map(|x| ((x + 5) as f64) * scale).collect();
+    for (i, (a, b)) in output.iter().zip(expected.iter()).enumerate() {
+        assert!((*a - *b).abs() < 1e-9, "mismatch at {i}: {a} vs {b}");
+    }
+}
+
+#[test]
 fn alp_decode_i32_to_f32() {
     // BLOCK must be a multiple of simd_lanes for i32 (= 4 at 128-bit).
     const BLOCK: usize = 16;

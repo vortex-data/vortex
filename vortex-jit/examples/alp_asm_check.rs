@@ -70,7 +70,20 @@ pub fn idealized_alp_decode(input: &[i32], output: &mut [f32], scale: f32) {
     }
 }
 
+/// u64 -> f64 fused FoR+ALP, to inspect whether LLVM uses vcvtqq2pd (AVX-512DQ).
+#[inline(never)]
+#[unsafe(no_mangle)]
+pub fn aot_for_alp_u64(input: &[i64], output: &mut [f64], reference: i64, scale: f64) {
+    for i in 0..input.len() {
+        output[i] = (input[i].wrapping_add(reference) as f64) * scale;
+    }
+}
+
 fn main() {
+    let inp64: Vec<i64> = (0..1024).collect();
+    let mut out64 = vec![0f64; 1024];
+    aot_for_alp_u64(&inp64, &mut out64, 100, 0.01);
+    std::hint::black_box(&out64);
     // Force-link both symbols so neither gets DCE'd.
     let input: Vec<i32> = (0..1024).collect();
     let mut output = vec![0f32; 1024];
