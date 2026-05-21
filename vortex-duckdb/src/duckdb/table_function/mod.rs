@@ -145,6 +145,14 @@ pub enum Cardinality {
 }
 
 impl DatabaseRef {
+    pub fn register_optimizer_extension(&self) -> VortexResult<()> {
+        duckdb_try!(
+            unsafe { cpp::duckdb_vx_optimizer_extension_register(self.as_ptr()) },
+            "Failed to register optimizer extension"
+        );
+        Ok(())
+    }
+
     pub fn register_table_function<T: TableFunction>(&self, name: &CStr) -> VortexResult<()> {
         // Set up the parameters.
         let parameters = T::parameters();
