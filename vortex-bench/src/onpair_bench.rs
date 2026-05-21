@@ -764,11 +764,15 @@ struct GpuOnPairChunk {
     decoded_bytes: u64,
     total_tokens: usize,
     dict_max_len: u8,
+    /// Retained as a diagnostic; not currently consumed by `pick_auto_kernel`.
+    #[allow(dead_code)]
     dict_mean_len: f32,
     all_len_1: bool,
     all_len_2: bool,
     /// Token-weighted fraction of decoded tokens whose length is <= 8 bytes.
-    /// Drives split8read auto-selection (it wins when this is high).
+    /// Drove `split8read` auto-selection on Hopper; retained as a diagnostic now
+    /// that Blackwell prefers `wpb8_occ` regardless (see `pick_auto_kernel`).
+    #[allow(dead_code)]
     frac_le8: f32,
     codes: vortex::array::buffer::BufferHandle,
     codes_offsets: vortex::array::buffer::BufferHandle,
@@ -1381,12 +1385,16 @@ async fn stage_gpu_chunk(op: &OnPairArray, ctx: &mut CudaExecutionCtx) -> Result
         for (j, &l) in lens_table.iter().enumerate() {
             let b = bucket(l);
             let n = usize::from(l).min(strides[b]);
-            dict_lb[cursor[b]..cursor[b] + n]
-                .copy_from_slice(&dict_padded[j * 16..j * 16 + n]);
+            dict_lb[cursor[b]..cursor[b] + n].copy_from_slice(&dict_padded[j * 16..j * 16 + n]);
             cursor[b] += strides[b];
         }
         let meta = [
-            t1 as u32, t2 as u32, t3 as u32, base1 as u32, base2 as u32, base3 as u32,
+            t1 as u32,
+            t2 as u32,
+            t3 as u32,
+            base1 as u32,
+            base2 as u32,
+            base3 as u32,
         ];
         (dict_lb, meta)
     } else {
@@ -1667,30 +1675,25 @@ fn inapplicable_reason(variant: KernelVariant, chunks: &[GpuOnPairChunk]) -> Opt
             .iter()
             .any(|c| !c.all_len_2)
             .then(|| "not every dictionary entry is exactly 2 bytes".to_string()),
-        KernelLayout::PersistDict16 => chunks
-            .iter()
-            .find_map(|c| {
-                let shared = persist_dict16_shared_bytes(c.lens.len());
-                (shared > PERSIST_DICT16_SHARED_CAP).then(|| {
-                    format!(
-                        "padded dict needs {shared} B shared, over {PERSIST_DICT16_SHARED_CAP} B cap"
-                    )
-                })
-            }),
-        KernelLayout::PersistVDict => chunks
-            .iter()
-            .find_map(|c| {
-                let shared = persist_vdict_shared_bytes(c.dict_bytes.len());
-                (shared > PERSIST_DICT16_SHARED_CAP).then(|| {
-                    format!(
-                        "packed dict needs {shared} B shared, over {PERSIST_DICT16_SHARED_CAP} B cap"
-                    )
-                })
-            }),
-        KernelLayout::LenBucket => chunks
-            .iter()
-            .any(|c| c.lb_meta == [0u32; 6])
-            .then(|| "length-bucket dict not built (set ONPAIR_DICT_REORDER=lenbucket)".to_string()),
+        KernelLayout::PersistDict16 => chunks.iter().find_map(|c| {
+            let shared = persist_dict16_shared_bytes(c.lens.len());
+            (shared > PERSIST_DICT16_SHARED_CAP).then(|| {
+                format!(
+                    "padded dict needs {shared} B shared, over {PERSIST_DICT16_SHARED_CAP} B cap"
+                )
+            })
+        }),
+        KernelLayout::PersistVDict => chunks.iter().find_map(|c| {
+            let shared = persist_vdict_shared_bytes(c.dict_bytes.len());
+            (shared > PERSIST_DICT16_SHARED_CAP).then(|| {
+                format!(
+                    "packed dict needs {shared} B shared, over {PERSIST_DICT16_SHARED_CAP} B cap"
+                )
+            })
+        }),
+        KernelLayout::LenBucket => chunks.iter().any(|c| c.lb_meta == [0u32; 6]).then(|| {
+            "length-bucket dict not built (set ONPAIR_DICT_REORDER=lenbucket)".to_string()
+        }),
     }
 }
 
@@ -1736,24 +1739,20 @@ fn pick_auto_kernel(chunks: &[GpuOnPairChunk]) -> &'static str {
         return "onpair_shmem_s8_4tpt";
     }
 
-    // General case (entries up to 16 bytes). `split8read` reads 8 B from the
-    // 32 KB `dict_s8` for the common case and only touches the 64 KB padded dict
-    // for `len > 8`. Measured across columns: it beats plain `4tpt` only when the
-    // dict is small enough that `dict_s8` fits L1 (bits12, <= 4096 entries) AND
-    // most tokens are <= 8 B; otherwise (large dict, or long-token columns like
-    // ps_comment) it ties or regresses. `4tpt` is the robust default (faster
-    // than the previous `2tpt`).
-    let small_dict = chunks.iter().all(|c| c.lens.len() <= 4096);
-    let frac_le8 = if chunks.is_empty() {
-        0.0
-    } else {
-        chunks.iter().map(|c| c.frac_le8).sum::<f32>() / chunks.len() as f32
-    };
-    if small_dict && frac_le8 >= 0.90 {
-        "onpair_shmem_4tpt_split8read"
-    } else {
-        "onpair_shmem_4tpt"
-    }
+    // General case (entries up to 16 bytes). On Blackwell (sm_100) decode is no
+    // longer pinned to the L1/TEX request pipe the way it was on Hopper, so the
+    // occupancy-tuned `wpb8_occ` variant wins everywhere measured. It is the same
+    // 4-tokens/thread body as `4tpt` but built with `__launch_bounds__(256, 4)`
+    // (8 warps/block, 4 blocks/SM) instead of `(512, 2)`; the finer block
+    // granularity hides latency better across the B200's larger SM count.
+    //
+    // Re-fit on a 22-cell B200 sweep (2026-05): `wpb8_occ` was the fastest kernel
+    // in all 10 large columns, beating plain `4tpt` by +6–15% (bits12 and bits16
+    // alike) and also beating the old Hopper-era `split8read` special case — which
+    // previously won bits12 short-token text (fineweb/wikipedia) but no longer
+    // does on Blackwell. The `frac_le8` / small-dict heuristic that gated
+    // `split8read` is therefore retired here.
+    "onpair_shmem_4tpt_wpb8_occ"
 }
 
 /// Pin a device buffer in a reserved L2 persisting region via a stream
@@ -1764,7 +1763,8 @@ fn apply_l2_persist(ctx: &CudaExecutionCtx, ptr: u64, bytes: usize) -> Result<()
     let context = ctx.stream().context();
     let max_persist = context
         .attribute(sys::CUdevice_attribute_enum::CU_DEVICE_ATTRIBUTE_MAX_PERSISTING_L2_CACHE_SIZE)
-        .map_err(|e| anyhow::anyhow!("query max persisting L2: {e:?}"))? as usize;
+        .map_err(|e| anyhow::anyhow!("query max persisting L2: {e:?}"))?
+        as usize;
     let carve = bytes.min(max_persist);
     context
         .set_limit(sys::CUlimit_enum::CU_LIMIT_PERSISTING_L2_CACHE_SIZE, carve)
@@ -2114,9 +2114,8 @@ fn launch_variant(
             let dict_bytes = chunk.dict_bytes.cuda_view::<u8>()?;
             let chunk_offsets = chunk_offsets_for_variant(chunk, variant.chunk_size)?;
             let dict_bytes_len = u32::try_from(chunk.dict_bytes.len()).unwrap_or(u32::MAX);
-            let shared_bytes =
-                u32::try_from(persist_vdict_shared_bytes(chunk.dict_bytes.len()))
-                    .unwrap_or(u32::MAX);
+            let shared_bytes = u32::try_from(persist_vdict_shared_bytes(chunk.dict_bytes.len()))
+                .unwrap_or(u32::MAX);
 
             if shared_bytes > 48 * 1024 {
                 use cudarc::driver::sys::CUfunction_attribute_enum;

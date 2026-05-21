@@ -1,0 +1,52 @@
+platform,dataset,column,bits,decoder,preset,backend,ratio,compress_gib_s,decode_gib_s,kernel,note,decode_gb_s
+B200,clickbench,URL,12,OnPair,-,cuda,2.89,0.029,794.2,4tpt_wpb8_occ,,852.8
+B200,clickbench,URL,16,OnPair,-,cuda,3.86,0.032,955.9,4tpt_wpb8_occ,,1026.4
+B200,dbtext,email,12,OnPair,-,cuda,2.08,0.009,164.8,4tpt_wpb8_occ,,177.0
+B200,dbtext,email,16,OnPair,-,cuda,1.95,0.007,154.6,4tpt,,166.0
+B200,dbtext,hex,12,OnPair,-,cuda,1.22,0.005,74.4,s4l1_8tpt,,79.9
+B200,dbtext,hex,16,OnPair,-,cuda,1.12,0.004,72.0,4tpt_split8_wpb8_occ,,77.3
+B200,dbtext,l_comment,12,OnPair,-,cuda,3.82,0.018,206.5,2tpt,,221.7
+B200,dbtext,l_comment,16,OnPair,-,cuda,3.65,0.019,206.1,4tpt_wpb8_occ,,221.3
+B200,dbtext,ps_comment,12,OnPair,-,cuda,5.5,0.024,221.0,4tpt,,237.3
+B200,dbtext,ps_comment,16,OnPair,-,cuda,5.14,0.028,228.1,4tpt_ldcs,,244.9
+B200,dbtext,yago,12,OnPair,-,cuda,1.59,0.006,140.9,4tpt_split8_wpb8,,151.3
+B200,dbtext,yago,16,OnPair,-,cuda,1.62,0.007,137.0,4tpt_split8read,,147.1
+B200,fineweb,text,12,OnPair,-,cuda,2.24,0.021,613.7,4tpt_wpb8_occ,,659.0
+B200,fineweb,text,16,OnPair,-,cuda,2.89,0.014,630.0,4tpt_wpb8_occ,,676.5
+B200,tpch-sf10,l_comment,12,OnPair,-,cuda,4.17,0.04,1121.1,4tpt_wpb8_occ,,1203.8
+B200,tpch-sf10,l_comment,16,OnPair,-,cuda,4.19,0.031,933.3,4tpt_wpb8_occ,,1002.1
+B200,tpch-sf10,ps_comment,12,OnPair,-,cuda,6.23,0.072,1248.5,4tpt_wpb8_occ,,1340.6
+B200,tpch-sf10,ps_comment,16,OnPair,-,cuda,5.82,0.074,1042.6,4tpt_wpb8_occ,,1119.5
+B200,tpch-sf10,s_comment,12,OnPair,-,cuda,5.17,0.026,409.1,2tpt,,439.3
+B200,tpch-sf10,s_comment,16,OnPair,-,cuda,4.67,0.026,411.0,4tpt_wpb8_occ,,441.3
+B200,wikipedia,text,12,OnPair,-,cuda,2.15,0.014,587.7,4tpt_wpb8_occ,,631.0
+B200,wikipedia,text,16,OnPair,-,cuda,2.8,0.016,612.7,4tpt_wpb8_occ,,657.9
+B200,tpch-sf10,l_comment,,nvCOMP-Deflate,hi,hardware,4.56,0.4,293.0,DE,"deflate algo5,256KiB",314.6
+B200,tpch-sf10,l_comment,,nvCOMP-Deflate,fast,hardware,1.85,47.7,121.7,DE,"deflate algo0,256KiB",130.7
+B200,tpch-sf10,l_comment,,nvCOMP-LZ4,fast,hardware,2.17,13.0,224.1,DE,"deflate algo0,256KiB",240.6
+B200,fineweb,text,,nvCOMP-Deflate,hi,hardware,2.55,0.5,169.8,DE,"deflate algo5,256KiB",182.3
+B200,fineweb,text,,nvCOMP-Deflate,fast,hardware,1.71,64.4,125.6,DE,"deflate algo0,256KiB",134.9
+B200,fineweb,text,,nvCOMP-LZ4,fast,hardware,1.54,10.9,188.3,DE,"deflate algo0,256KiB",202.2
+B200,wikipedia,text,,nvCOMP-Deflate,hi,hardware,2.7,0.5,175.6,DE,"deflate algo5,256KiB",188.5
+B200,wikipedia,text,,nvCOMP-Deflate,fast,hardware,1.67,80.6,123.8,DE,"deflate algo0,256KiB",132.9
+B200,wikipedia,text,,nvCOMP-LZ4,fast,hardware,1.64,8.7,194.3,DE,"deflate algo0,256KiB",208.6
+B200,clickbench,URL,,nvCOMP-Deflate,hi,hardware,6.44,0.4,383.0,DE,"deflate algo5,256KiB",411.2
+B200,clickbench,URL,,nvCOMP-Deflate,fast,hardware,1.45,62.4,125.7,DE,"deflate algo0,256KiB",135.0
+B200,clickbench,URL,,nvCOMP-LZ4,fast,hardware,3.7,23.5,362.7,DE,"deflate algo0,256KiB",389.4
+B200,tpch-sf10,ps_comment,,nvCOMP-Deflate,hi,hardware,5.67,0.5,377.6,DE,"deflate algo5,256KiB",405.4
+B200,tpch-sf10,ps_comment,,nvCOMP-Deflate,fast,hardware,1.85,63.7,124.7,DE,"deflate algo0,256KiB",133.9
+B200,tpch-sf10,ps_comment,,nvCOMP-LZ4,fast,hardware,2.56,15.5,246.6,DE,"deflate algo0,256KiB",264.8
+B200,tpch-sf10,l_comment,,nvCOMP-Zstd,hi(L3),cuda,2.87,,84.5,cuda,"CUDA backend (no HW path), CPU-side compress",90.7
+B200,tpch-sf10,l_comment,,nvCOMP-Zstd,fast(L-10),cuda,1.79,,94.7,cuda,"CUDA backend (no HW path), CPU-side compress",101.7
+B200,clickbench,URL,,nvCOMP-Zstd,hi(L3),cuda,5.64,,112.1,cuda,"CUDA backend (no HW path), CPU-side compress",120.4
+B200,tpch-sf10,ps_comment,,nvCOMP-Zstd,hi(L3),cuda,4.16,,37.4,cuda,"CUDA backend (no HW path), CPU-side compress",40.2
+B200,fineweb,text,,nvCOMP-Zstd,hi(L3),cuda,2.57,,8.3,cuda,"frame-size artifact (long strings); CUDA backend (no HW path), CPU-side compress",8.9
+B200,wikipedia,text,,nvCOMP-Zstd,hi(L3),cuda,2.74,,1.0,cuda,"frame-size artifact (long strings); CUDA backend (no HW path), CPU-side compress",1.1
+B200,*,*,,nvCOMP-Zstd,hardware,hardware,,,,DE,UNSUPPORTED (DE has no Zstd; status 10),
+GH200,fineweb,text,12,OnPair,-,cuda,2.24,,567.0,4tpt_split8read,carried from handover §5,608.8
+GH200,fineweb,text,16,OnPair,-,cuda,2.89,,470.0,4tpt,carried from handover §5,504.7
+GH200,wikipedia,text,12,OnPair,-,cuda,2.15,,538.0,4tpt_split8read,carried from handover §5,577.7
+GH200,wikipedia,text,16,OnPair,-,cuda,2.8,,538.0,4tpt,carried from handover §5,577.7
+GH200,tpch-sf10,ps_comment,12,OnPair,-,cuda,6.23,,1117.0,4tpt,carried from handover §5,1199.4
+GH200,tpch-sf10,ps_comment,16,OnPair,-,cuda,5.82,,866.0,4tpt,carried from handover §5,929.9
+GH200,book-reviews,text,12,OnPair,-,cuda,,,607.0,4tpt_split8read,carried from handover §5,651.8
