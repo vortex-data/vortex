@@ -484,6 +484,8 @@ pub trait ListViewArrayExt: TypedArrayRef<ListView> {
             .as_::<u64>()
             .ok_or_else(|| vortex_err!("could not cast sum of sizes to u64"))?;
 
+        // if the same elements are referenced more than once the estimate may be
+        // greater than 1.0, so clamp
         let estimate = (sizes_sum as f32 / n_elts as f32).min(1.0);
 
         debug_assert!(estimate >= 0.0);
