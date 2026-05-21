@@ -93,6 +93,60 @@ pub struct UnpackedChunks<T: PhysicalPType, S: UnpackStrategy<T>> {
 
 pub type BitUnpackedChunks<T> = UnpackedChunks<T, BitPackingStrategy>;
 
+enum DecodeChunk<'a, T: PhysicalPType, S: UnpackStrategy<T>> {
+    Unpacked(&'a [T]),
+    PackedFull {
+        strategy: &'a S,
+        bit_width: usize,
+        chunk: &'a [T::Physical],
+        scratch: &'a mut [MaybeUninit<T>; CHUNK_SIZE],
+    },
+}
+
+impl<'a, T: PhysicalPType, S: UnpackStrategy<T>> DecodeChunk<'a, T, S> {
+    fn unpacked(self) -> &'a [T] {
+        match self {
+            Self::Unpacked(chunk) => chunk,
+            Self::PackedFull {
+                strategy,
+                bit_width,
+                chunk,
+                scratch,
+            } => unsafe {
+                // SAFETY: `scratch` is exactly one FastLanes chunk and `chunk` contains the
+                // corresponding packed words.
+                let dst: &mut [T::Physical] = mem::transmute(&mut scratch[..]);
+                strategy.unpack_chunk(bit_width, chunk, dst);
+                // SAFETY: `unpack_chunk` initialized the whole scratch chunk above.
+                mem::transmute::<&[MaybeUninit<T>], &[T]>(&scratch[..])
+            },
+        }
+    }
+
+    fn write_identity_to(self, dst: &mut [MaybeUninit<T>]) {
+        match self {
+            Self::Unpacked(chunk) => {
+                // TODO(connor): use `maybe_uninit_write_slice` feature when it gets stabilized.
+                // https://github.com/rust-lang/rust/issues/79995
+                // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
+                let initialized: &[MaybeUninit<T>] = unsafe { mem::transmute(chunk) };
+                dst.copy_from_slice(initialized);
+            }
+            Self::PackedFull {
+                strategy,
+                bit_width,
+                chunk,
+                ..
+            } => unsafe {
+                // SAFETY: `dst` is exactly one FastLanes chunk and `chunk` contains the
+                // corresponding packed words.
+                let dst: &mut [T::Physical] = mem::transmute(dst);
+                strategy.unpack_chunk(bit_width, chunk, dst);
+            },
+        }
+    }
+}
+
 impl<T: BitPacked> BitUnpackedChunks<T> {
     pub fn try_new(array: &BitPackedData, len: usize) -> VortexResult<Self> {
         Self::try_new_with_strategy(
@@ -190,19 +244,17 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
         })
     }
 
-    /// Decode all chunks (initial, full, and trailer), calling `write_chunk` for each concrete
-    /// unpacked chunk and its corresponding output range.
-    pub(crate) fn decode_chunks_into<U>(
+    fn decode_chunks_into<U>(
         &mut self,
         output: &mut [MaybeUninit<U>],
-        mut write_chunk: impl FnMut(&[T], &mut [MaybeUninit<U>]),
+        mut write_chunk: impl FnMut(DecodeChunk<'_, T, S>, &mut [MaybeUninit<U>]),
     ) {
         debug_assert_eq!(output.len(), self.len);
         let mut local_idx = 0;
 
         if let Some(initial) = self.initial() {
             let chunk_len = initial.len();
-            write_chunk(initial, &mut output[..chunk_len]);
+            write_chunk(DecodeChunk::Unpacked(initial), &mut output[..chunk_len]);
             local_idx += chunk_len;
         }
 
@@ -217,23 +269,25 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
             for i in full_chunks_range {
                 let chunk = &packed_slice[i * elems_per_chunk..][..elems_per_chunk];
 
-                unsafe {
-                    let dst: &mut [MaybeUninit<T>] = &mut self.buffer;
-                    // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
-                    let dst: &mut [T::Physical] = mem::transmute(dst);
-                    self.strategy.unpack_chunk(self.bit_width, chunk, dst);
-                }
-
-                // SAFETY: `unpack_chunk` initialized the whole scratch chunk above.
-                let unpacked: &[T] = unsafe { mem::transmute(&self.buffer[..]) };
-                write_chunk(unpacked, &mut output[local_idx..local_idx + CHUNK_SIZE]);
+                write_chunk(
+                    DecodeChunk::PackedFull {
+                        strategy: &self.strategy,
+                        bit_width: self.bit_width,
+                        chunk,
+                        scratch: &mut self.buffer,
+                    },
+                    &mut output[local_idx..local_idx + CHUNK_SIZE],
+                );
                 local_idx += CHUNK_SIZE;
             }
         }
 
         if let Some(trailer) = self.trailer() {
             let chunk_len = trailer.len();
-            write_chunk(trailer, &mut output[local_idx..local_idx + chunk_len]);
+            write_chunk(
+                DecodeChunk::Unpacked(trailer),
+                &mut output[local_idx..local_idx + chunk_len],
+            );
             local_idx += chunk_len;
         }
 
@@ -247,6 +301,7 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
         mut f: impl FnMut(T) -> U,
     ) {
         self.decode_chunks_into(output, |chunk, dst| {
+            let chunk = chunk.unpacked();
             for (dst, &src) in dst.iter_mut().zip(chunk.iter()) {
                 dst.write(f(src));
             }
@@ -254,15 +309,8 @@ impl<T: PhysicalPType, S: UnpackStrategy<T>> UnpackedChunks<T, S> {
     }
 
     /// Decode all chunks (initial, full, and trailer) into the output range.
-    /// This is the identity mapping of [`decode_map_into`](Self::decode_map_into).
     pub fn decode_into(&mut self, output: &mut [MaybeUninit<T>]) {
-        self.decode_chunks_into(output, |chunk, dst| {
-            // TODO(connor): use `maybe_uninit_write_slice` feature when it gets stabilized.
-            // https://github.com/rust-lang/rust/issues/79995
-            // SAFETY: &[T] and &[MaybeUninit<T>] have the same layout.
-            let initialized: &[MaybeUninit<T>] = unsafe { mem::transmute(chunk) };
-            dst.copy_from_slice(initialized);
-        });
+        self.decode_chunks_into(output, |chunk, dst| chunk.write_identity_to(dst));
     }
 
     /// Access last chunk of the array if the last chunk has fewer than 1024 due to slicing
