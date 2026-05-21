@@ -240,11 +240,12 @@ to grep are bolded):
   the stamp. This is the success line.
 
 `Ctrl-C` out of `journalctl` once the `deploy ok:` line appears. If a deploy fails it will exit
-with one of the exit codes documented at the head of [`deploy.sh`](deploy.sh) and surfaced row
-by row in [the symptom table](#what-to-do-if-a-step-fails) below: 1 lock contention, 2 config
-error, 3 git fetch or checkout, 4 cargo build, 5 systemctl restart (with rollback re-probed),
-6 /health failed but rolled back OK, 7 /health failed AND rollback also broken -- server is
-down.
+with one of the exit codes documented at the head of [`deploy.sh`](deploy.sh): 1 lock contention,
+2 config error, 3 git fetch or checkout, 4 cargo build, 5 systemctl restart (with rollback
+re-probed), 6 /health failed but rolled back OK, 7 /health failed AND rollback also broken --
+server is down. The four exit codes a bootstrap operator typically hits (4 through 7) have rows
+in [the symptom table](#what-to-do-if-a-step-fails) below; exit codes 1-3 are self-explanatory
+in the journal output.
 
 ## Phase 6: Verify the server is up
 

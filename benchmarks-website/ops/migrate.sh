@@ -147,7 +147,7 @@ echo "ERROR: server did not respond on /health within 30s" >&2
 # Bail loudly so the operator fixes the stop path before any mv.
 if ! sudo /bin/systemctl stop vortex-bench-server; then
     echo "CRITICAL: 'sudo systemctl stop vortex-bench-server' failed." >&2
-    echo "  Do NOT run the rollback mv lines below until the server is" >&2
+    echo "  Do NOT execute the documented rollback 'mv' commands until the server is" >&2
     echo "  verifiably stopped (check 'systemctl status vortex-bench-server')." >&2
     echo "  The autopilot timers stay paused; debug the stop first." >&2
     exit 4
