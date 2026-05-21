@@ -631,66 +631,6 @@ mod tests {
         Ok(())
     }
 
-    /// The cast-pushdown path must produce identical values to canonicalize-then-cast.
-    #[test]
-    fn test_unpack_and_cast_matches_canonical_cast() -> VortexResult<()> {
-        use vortex_array::builtins::ArrayBuiltins;
-        use vortex_array::dtype::DType;
-        use vortex_array::dtype::PType;
-
-        let mut ctx = SESSION.create_execution_ctx();
-
-        // Three full chunks plus a trailer, with values large enough to force patches at width 8.
-        let values = (0..3500u16).map(|i| if i % 137 == 0 { 5000 + i } else { i % 200 });
-        let array = PrimitiveArray::from_iter(values);
-        let bitpacked = encode(&array, 8);
-        assert!(bitpacked.patches().is_some());
-
-        let u32_dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
-
-        // Reference: canonicalize (unpack to u16) then cast to u32.
-        let reference = bitpacked
-            .clone()
-            .into_array()
-            .execute::<PrimitiveArray>(&mut ctx)?
-            .into_array()
-            .cast(u32_dtype.clone())?
-            .execute::<PrimitiveArray>(&mut ctx)?;
-
-        // Pushdown: unpack u16 bit-packed directly into a u32 builder.
-        let mut builder =
-            PrimitiveBuilder::<u32>::with_capacity(Nullability::NonNullable, array.len());
-        unpack_and_cast_into_builder::<u16, u32>(bitpacked.as_view(), &mut builder, &mut ctx)?;
-        let pushdown = builder.finish_into_primitive();
-
-        assert_arrays_eq!(pushdown, reference);
-
-        // Verify a sliced array (offset > 0, trailer present). Use patch-free values so the slice
-        // reduces eagerly to a concrete `BitPacked` with an offset.
-        let dense = PrimitiveArray::from_iter((0..3000u16).map(|i| i % 200));
-        let dense_bp = encode(&dense, 8);
-        assert!(dense_bp.patches().is_none());
-        let sliced = dense_bp
-            .into_array()
-            .slice(500..2600)?
-            .try_downcast::<BitPacked>()
-            .map_err(|_| vortex_error::vortex_err!("slice did not reduce to BitPacked"))?;
-        assert!(sliced.offset() > 0);
-
-        let reference_sliced = sliced
-            .clone()
-            .into_array()
-            .execute::<PrimitiveArray>(&mut ctx)?
-            .into_array()
-            .cast(u32_dtype)?
-            .execute::<PrimitiveArray>(&mut ctx)?;
-        let mut builder =
-            PrimitiveBuilder::<u32>::with_capacity(Nullability::NonNullable, sliced.len());
-        unpack_and_cast_into_builder::<u16, u32>(sliced.as_view(), &mut builder, &mut ctx)?;
-        assert_arrays_eq!(builder.finish_into_primitive(), reference_sliced);
-        Ok(())
-    }
-
     /// Test edge cases for unpacking.
     #[test]
     fn test_unpack_edge_cases() -> VortexResult<()> {

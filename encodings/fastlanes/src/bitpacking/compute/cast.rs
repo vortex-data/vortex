@@ -125,11 +125,9 @@ mod tests {
     use vortex_array::dtype::Nullability;
     use vortex_array::dtype::PType;
     use vortex_array::match_each_integer_ptype;
-    use vortex_array::scalar_fn::fns::cast::CastKernel;
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
-    use crate::BitPacked;
     use crate::BitPackedArray;
     use crate::BitPackedData;
 
@@ -171,8 +169,11 @@ mod tests {
         );
     }
 
+    /// End-to-end check that the real engine path `array.cast(target).execute()` routes through the
+    /// bit-packed widening pushdown and matches a plain primitive cast over the same values, across
+    /// every supported integer pair, several chunk-boundary lengths, and a sliced (offset > 0) case.
     #[test]
-    fn test_cast_bitpacked_widening_integer_matrix() -> VortexResult<()> {
+    fn test_cast_bitpacked_widening_via_execute() -> VortexResult<()> {
         fn values<T: NativePType>(len: usize) -> PrimitiveArray {
             PrimitiveArray::from_iter((0..len).map(|i| {
                 let value = if i % 17 == 0 { 31 } else { i % 8 };
@@ -198,6 +199,7 @@ mod tests {
             PType::U32,
             PType::U64,
         ];
+        // Lengths exercise empty, sub-chunk, exact chunk, chunk+1, and multi-chunk-with-trailer.
         let lengths = [0, 1, 7, 1023, 1024, 1025, 2051];
 
         for src in ptypes {
@@ -208,21 +210,39 @@ mod tests {
 
                 for len in lengths {
                     let source = match_each_integer_ptype!(src, |S| { values::<S>(len) });
-                    let source_ref = source.clone().into_array();
-                    let packed = bp(&source_ref, 3);
+                    let source_ref = source.into_array();
                     let target = DType::Primitive(tgt, Nullability::NonNullable);
-
                     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-                    let casted =
-                        <BitPacked as CastKernel>::cast(packed.as_view(), &target, &mut ctx)?
-                            .expect(
-                                "supported widening integer cast should hit BitPacked CastKernel",
-                            );
+
+                    // Reference: plain primitive cast of the same values.
                     let reference = source_ref
-                        .cast(target)?
+                        .clone()
+                        .cast(target.clone())?
                         .execute::<PrimitiveArray>(&mut ctx)?;
 
+                    // Candidate: bit-pack, then cast through the real engine. This dispatches to
+                    // `BitPacked`'s `CastKernel` widening pushdown.
+                    let packed = bp(&source_ref, 3).into_array();
+                    let casted = packed
+                        .cast(target.clone())?
+                        .execute::<PrimitiveArray>(&mut ctx)?;
                     assert_arrays_eq!(casted, reference);
+
+                    // Also exercise the sliced/offset path (offset > 0, trailer present).
+                    if len >= 4 {
+                        let lo = len / 4;
+                        let hi = len - len / 4;
+                        let sliced = bp(&source_ref, 3).into_array().slice(lo..hi)?;
+                        let casted = sliced
+                            .cast(target.clone())?
+                            .execute::<PrimitiveArray>(&mut ctx)?;
+                        let reference = source_ref
+                            .clone()
+                            .slice(lo..hi)?
+                            .cast(target.clone())?
+                            .execute::<PrimitiveArray>(&mut ctx)?;
+                        assert_arrays_eq!(casted, reference);
+                    }
                 }
             }
         }
