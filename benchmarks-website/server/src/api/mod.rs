@@ -53,7 +53,6 @@ pub use self::dto::HealthResponse;
 pub use self::dto::NamedChartResponse;
 pub use self::dto::QueryRanking;
 pub use self::dto::RandomAccessRanking;
-pub use self::dto::RowCounts;
 pub use self::dto::SeriesTag;
 pub use self::dto::Summary;
 pub use self::dto::UnitKind;
@@ -248,14 +247,15 @@ fn collect_health(conn: &Connection, db_path: String) -> Result<HealthResponse> 
         let n: i64 = conn.query_row(&sql, [], |r| r.get(0))?;
         Ok(n)
     };
-    let row_counts = RowCounts {
-        commits: count("commits")?,
-        query_measurements: count("query_measurements")?,
-        compression_times: count("compression_times")?,
-        compression_sizes: count("compression_sizes")?,
-        random_access_times: count("random_access_times")?,
-        vector_search_runs: count("vector_search_runs")?,
-    };
+    let mut row_counts: std::collections::BTreeMap<&'static str, i64> =
+        std::collections::BTreeMap::new();
+    // `commits` dim table first; every fact family then surfaces via its
+    // registry entry. Adding a sixth fact table appends one entry to
+    // [`crate::family::FAMILIES`] and `/health` picks it up automatically.
+    row_counts.insert("commits", count("commits")?);
+    for family in crate::family::FAMILIES {
+        row_counts.insert(family.table_name, (family.row_count)(conn)?);
+    }
     let latest_commit_timestamp: Option<String> = conn
         .query_row(
             "SELECT CAST(timestamp AS VARCHAR) FROM commits ORDER BY timestamp DESC LIMIT 1",

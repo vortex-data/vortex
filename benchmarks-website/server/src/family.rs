@@ -17,16 +17,32 @@
 //! deserializes, and [`crate::slug`] for the slug variants each Family
 //! claims (via [`Family::chart_slug_prefix`] / [`Family::group_slug_prefix`]).
 //!
-//! # Phase 1 status
+//! # The "spine" contract
 //!
-//! This module currently coexists with the per-family free functions in
-//! [`mod@crate::api::charts`], [`mod@crate::api::groups`], [`crate::db`],
-//! and [`crate::ingest`]; each [`Family`]'s function-pointer fields point
-//! at those free functions. Phase 2 of the refactor migrates call sites
-//! (`apply_record` in [`crate::ingest`], `chart_payload` in
-//! [`mod@crate::api::charts`], `collect_groups` and `collect_health` in
-//! [`crate::api`]) to dispatch via this registry. Phase 3 moves the free-
-//! function bodies into the family wrappers and deletes the originals.
+//! Every call site that varies per-fact-table dispatches through this
+//! registry instead of hand-listing the families:
+//!
+//! - `crate::db::open` and `crate::ingest::apply_record` iterate
+//!   [`FAMILIES`] for DDL apply and per-record dispatch.
+//! - `crate::api::charts::chart_payload` and
+//!   `crate::api::groups::collect_groups` dispatch through
+//!   [`family_for_chart_key`] / per-family `collect_groups`.
+//! - `crate::api::collect_health` iterates [`FAMILIES`] for `/health`'s
+//!   `row_counts` map. The wire shape uses a `BTreeMap` so a new family
+//!   appears in the response automatically; consumers index by table
+//!   name (`row_counts["query_measurements"]`) just as before.
+//! - `crate::slug::ChartKey::prefix` and `GroupKey::prefix` consult the
+//!   registry rather than maintaining a parallel `PREFIX_*` const table.
+//! - `crate::schema::TABLES` is derived from this registry at first use
+//!   so the snapshot endpoint, the restore docs, and any future caller
+//!   that needs the table-name set see the registry as the single source
+//!   of truth.
+//!
+//! Per-family adapter functions in this file still trampoline into free
+//! functions in [`mod@crate::api::charts`], [`mod@crate::api::groups`],
+//! [`crate::db`], and [`crate::ingest`]. Inlining those bodies into the
+//! adapters is mechanical and tracked as future cleanup; it does not
+//! affect the spine contract above.
 
 use anyhow::Result;
 use duckdb::Connection;
@@ -159,8 +175,9 @@ pub fn family_for_group_key(key: &GroupKey) -> &'static Family {
 // that pattern-match the outer Record / ChartKey enums against the
 // family's variant and delegate to the existing free functions in
 // `crate::api::charts`, `crate::api::groups`, `crate::db`, and
-// `crate::ingest`. Phase 3 will move those free-function bodies INTO the
-// adapters and delete the originals.
+// `crate::ingest`. Inlining those bodies into the adapters is mechanical
+// future cleanup; the registry above is already the spine for the call
+// sites that vary per-family.
 // -----------------------------------------------------------------------
 
 /// Family for `query_measurements`.
@@ -444,19 +461,20 @@ fn count_rows(conn: &Connection, table: &'static str) -> Result<i64> {
 mod tests {
     use super::*;
 
-    /// Every Family's `table_name` must match the seed used by the
-    /// `hasher_for(...)` call in [`crate::db`]; a mismatch silently
-    /// re-namespaces the hash domain and collides previously-distinct
-    /// `measurement_id`s.
+    /// `schema::TABLES` is derived from `FAMILIES` (see [`crate::schema`]),
+    /// so the order MUST be `commits` followed by every family in
+    /// declaration order. This test pins the derivation rule explicitly
+    /// in case someone replaces `TABLES` with a hand-written list again.
     #[test]
-    fn table_names_match_schema_tables() {
-        let registry: Vec<&'static str> = FAMILIES.iter().map(|f| f.table_name).collect();
-        let schema: Vec<&'static str> = crate::schema::TABLES
-            .iter()
-            .copied()
-            .filter(|t| *t != "commits")
-            .collect();
-        assert_eq!(registry, schema, "family registry order vs schema TABLES");
+    fn schema_tables_derived_from_families() {
+        let mut expected: Vec<&'static str> = Vec::with_capacity(1 + FAMILIES.len());
+        expected.push("commits");
+        expected.extend(FAMILIES.iter().map(|f| f.table_name));
+        let actual: Vec<&'static str> = crate::schema::TABLES.iter().copied().collect();
+        assert_eq!(
+            actual, expected,
+            "schema::TABLES must be derived from FAMILIES (commits + each family's table_name)"
+        );
     }
 
     /// Slug prefixes are how the client and migrate path distinguish

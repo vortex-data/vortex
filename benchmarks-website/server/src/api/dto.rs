@@ -372,22 +372,11 @@ pub struct HealthResponse {
     /// Most recent `commits.timestamp`, or `None` if the table is empty.
     pub latest_commit_timestamp: Option<String>,
     /// Per-fact-table row counts for smoke tests.
-    pub row_counts: RowCounts,
-}
-
-/// Per-fact-table row counts surfaced by `/health`.
-#[derive(Debug, Serialize)]
-pub struct RowCounts {
-    /// `commits` dim table.
-    pub commits: i64,
-    /// `query_measurements` fact table.
-    pub query_measurements: i64,
-    /// `compression_times` fact table.
-    pub compression_times: i64,
-    /// `compression_sizes` fact table.
-    pub compression_sizes: i64,
-    /// `random_access_times` fact table.
-    pub random_access_times: i64,
-    /// `vector_search_runs` fact table.
-    pub vector_search_runs: i64,
+    /// Per-table row counts surfaced for smoke tests. Keys are table names
+    /// (`commits` plus one entry per [`crate::family::Family::table_name`]).
+    /// Serialized as a JSON object so the wire shape (`row_counts.commits`,
+    /// `row_counts.query_measurements`, etc.) is unchanged from the
+    /// fixed-struct version this map replaced; consumers that index in by
+    /// key keep working. `BTreeMap` preserves a stable key order in JSON.
+    pub row_counts: std::collections::BTreeMap<&'static str, i64>,
 }

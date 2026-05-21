@@ -355,7 +355,7 @@ fn export_snapshot_tables(conn: &mut Connection, target: &Path) -> Result<()> {
 }
 
 fn copy_each_table(conn: &Connection, target: &Path) -> Result<()> {
-    for table in schema::TABLES {
+    for table in schema::TABLES.iter() {
         let path = target.join(format!("{table}.vortex"));
         let path_str = path
             .to_str()

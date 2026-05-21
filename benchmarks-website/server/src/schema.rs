@@ -225,12 +225,13 @@ pub const SCHEMA_VERSION: i32 = 1;
 /// Every table in the schema, in the order a fresh boot creates them.
 /// Used by the snapshot endpoint to drive a per-table `COPY ... TO`
 /// across the whole DB and by the restore docs to document the same
-/// list. `commits` is the dim table; the rest are facts.
-pub const TABLES: &[&str] = &[
-    "commits",
-    "query_measurements",
-    "compression_times",
-    "compression_sizes",
-    "random_access_times",
-    "vector_search_runs",
-];
+/// list. `commits` is the dim table; the rest are facts, derived from
+/// the registry so adding a new fact table is one entry in
+/// [`crate::family::FAMILIES`] and the snapshot endpoint + restore docs
+/// pick it up automatically.
+pub static TABLES: std::sync::LazyLock<Vec<&'static str>> = std::sync::LazyLock::new(|| {
+    let mut v: Vec<&'static str> = Vec::with_capacity(1 + crate::family::FAMILIES.len());
+    v.push("commits");
+    v.extend(crate::family::FAMILIES.iter().map(|f| f.table_name));
+    v
+});

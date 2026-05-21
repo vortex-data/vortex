@@ -75,8 +75,8 @@ pub(super) fn render_page(
 /// Bottom-of-page footer that surfaces the build's git SHA so operators
 /// (and curious visitors) can correlate what they're looking at to a
 /// specific commit. `VORTEX_BENCH_BUILD_SHA` is captured by `build.rs`
-/// - same source `/health` uses - so the footer and the health probe
-/// are always in lockstep.
+/// (same source `/health` uses), so the footer and the health probe are
+/// always in lockstep.
 ///
 /// When the binary was built outside a git checkout (shallow CI clone,
 /// source tarball) the SHA is the literal `"unknown"`; we render the
