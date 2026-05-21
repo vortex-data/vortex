@@ -428,7 +428,7 @@ pub(crate) fn insta_settings() -> insta::Settings {
     // footer's `class="site-footer-sha"` attribute so it does NOT also
     // match `<a href="https://github.com/vortex-data/vortex/commit/...">`
     // URLs that come from ingested COMMITS rows (the fixtures use
-    // 1111..., 2222..., 3333... so a regression that mis-renders those
+    // 1111..., 2222..., 3333... so a regression that misrenders those
     // links is still pinned). The hex match is `{7,40}` so an extended
     // disambiguating short-SHA (git auto-extends to 8-12 chars when the
     // 7-char prefix is ambiguous) is also caught.

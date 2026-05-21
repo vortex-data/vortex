@@ -194,7 +194,7 @@ def chunk_envelopes(
     # cumulative chunk size via that plus per-record separator overhead
     # plus a one-time envelope shell. Cross-check at chunk flush time by
     # encoding the actual chunk and `assert len(body) <= cap` so a
-    # mis-estimation surfaces here, not at the server.
+    # misestimation surfaces here, not at the server.
     shell = build_envelope(run_meta, commit, [])
     shell_bytes = len(encode_envelope(shell))
     # `,` between records inside the JSON array.
@@ -204,9 +204,7 @@ def chunk_envelopes(
         env = build_envelope(run_meta, commit, records_chunk)
         return len(encode_envelope(env))
 
-    encoded_records: list[bytes] = [
-        json.dumps(r, separators=(",", ":")).encode("utf-8") for r in records
-    ]
+    encoded_records: list[bytes] = [json.dumps(r, separators=(",", ":")).encode("utf-8") for r in records]
 
     chunks: list[tuple[dict, bytes]] = []
     batch: list[dict] = []
