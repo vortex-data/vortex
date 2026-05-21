@@ -11,6 +11,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::listview::ListViewDataParts;
+use vortex::array::arrays::listview::ListViewRebuildMode;
 use vortex::array::match_each_integer_ptype;
 use vortex::array::validity::Validity;
 use vortex::dtype::IntegerPType;
@@ -50,13 +51,20 @@ pub(crate) fn new_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let len = array.len();
+
+    let compact_array = if array.should_rebuild(false) {
+        array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
+    } else {
+        array
+    };
+
     let ListViewDataParts {
         elements_dtype,
         elements,
         offsets,
         sizes,
         validity,
-    } = array.into_data_parts();
+    } = compact_array.into_data_parts();
     // Cache an `elements` vector up front so that future exports can reference it.
     let num_elements = elements.len();
 

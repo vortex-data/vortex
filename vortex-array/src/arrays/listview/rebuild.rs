@@ -389,7 +389,7 @@ impl ListViewArray {
         }
     }
 
-    fn should_rebuild(&self, exact: bool) -> bool {
+    pub fn should_rebuild(&self, exact: bool) -> bool {
         let density = if exact {
             self.compute_density()
         } else {

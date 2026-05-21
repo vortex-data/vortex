@@ -23966,6 +23966,8 @@ impl vortex_array::Array<vortex_array::arrays::ListView>
 
 pub fn vortex_array::Array<vortex_array::arrays::ListView>::rebuild(&self, vortex_array::arrays::listview::ListViewRebuildMode) -> vortex_error::VortexResult<vortex_array::arrays::ListViewArray>
 
+pub fn vortex_array::Array<vortex_array::arrays::ListView>::should_rebuild(&self, bool) -> bool
+
 impl vortex_array::Array<vortex_array::arrays::Masked>
 
 pub fn vortex_array::Array<vortex_array::arrays::Masked>::try_new(vortex_array::ArrayRef, vortex_array::validity::Validity) -> vortex_error::VortexResult<Self>
