@@ -6,13 +6,14 @@
 //!
 //! Three strategies are compared:
 //!
-//! - `canonical_cast`: the current path. `cast(bit_packed)` has no pushdown, so it canonicalizes to
-//!   a full-length `u16` `PrimitiveArray` and then casts that to `u32`. Two full-length buffers are
-//!   allocated and the `u16` intermediate is written to RAM and read back.
-//! - `chunked_canonical_cast`: the same, but over a `ChunkedArray` of bit-packed chunks, i.e.
-//!   `chunked(cast(bit_packed))`. This is the shape produced by a scan over a chunked column.
-//! - `pushdown`: unpacks each 1024-element FastLanes chunk into a cache-resident scratch buffer and
-//!   cast-copies straight into the `u32` output. Only the `u32` output is allocated/touched in RAM.
+//! - `cast_execute`: the real public path, `array.cast(u32).execute()`. With the bit-packed cast
+//!   pushdown wired into `BitPacked`'s `CastKernel`, this unpacks-and-casts in a single pass.
+//! - `canonicalize_then_cast`: explicitly canonicalizes to a full-length `u16` `PrimitiveArray` and
+//!   then casts that to `u32`. This reproduces the behaviour before the pushdown existed (two
+//!   full-length buffers, the `u16` intermediate written to RAM and read back, plus the generic
+//!   primitive cast kernel's bounds-check scan), and serves as the in-run baseline.
+//! - `pushdown_helper`: calls the `unpack_and_cast_into_builder` helper directly. This is the floor
+//!   for the technique, and `cast_execute` should track it once the kernel is wired in.
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::cast_possible_truncation)]
@@ -99,9 +100,10 @@ fn single(chunks: &[BitPackedArray]) -> ArrayRef {
     }
 }
 
+/// The real public path: `array.cast(u32).execute()`. Hits the bit-packed cast pushdown kernel.
 #[cfg(not(codspeed))]
 #[divan::bench(args = ARGS)]
-fn canonical_cast(bencher: Bencher, (chunk_len, chunk_count, frac): (usize, usize, f64)) {
+fn cast_execute(bencher: Bencher, (chunk_len, chunk_count, frac): (usize, usize, f64)) {
     let chunks = make_chunks(chunk_len, chunk_count, frac);
     bencher
         .with_inputs(|| (single(&chunks), SESSION.create_execution_ctx()))
@@ -115,9 +117,28 @@ fn canonical_cast(bencher: Bencher, (chunk_len, chunk_count, frac): (usize, usiz
         });
 }
 
+/// Baseline: canonicalize to a full-length `u16` array, then cast that primitive array to `u32`.
+/// Reproduces the pre-pushdown behaviour.
 #[cfg(not(codspeed))]
 #[divan::bench(args = ARGS)]
-fn pushdown(bencher: Bencher, (chunk_len, chunk_count, frac): (usize, usize, f64)) {
+fn canonicalize_then_cast(bencher: Bencher, (chunk_len, chunk_count, frac): (usize, usize, f64)) {
+    let chunks = make_chunks(chunk_len, chunk_count, frac);
+    bencher
+        .with_inputs(|| (single(&chunks), SESSION.create_execution_ctx()))
+        .bench_refs(|(array, ctx)| {
+            let canonical = array.clone().execute::<PrimitiveArray>(ctx).unwrap();
+            canonical
+                .into_array()
+                .cast(U32)
+                .unwrap()
+                .execute::<PrimitiveArray>(ctx)
+                .unwrap()
+        });
+}
+
+#[cfg(not(codspeed))]
+#[divan::bench(args = ARGS)]
+fn pushdown_helper(bencher: Bencher, (chunk_len, chunk_count, frac): (usize, usize, f64)) {
     let chunks = make_chunks(chunk_len, chunk_count, frac);
     let total = chunk_len * chunk_count;
     bencher

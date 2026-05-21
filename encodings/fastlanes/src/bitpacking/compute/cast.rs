@@ -5,8 +5,11 @@ use vortex_array::ArrayRef;
 use vortex_array::ArrayView;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::dtype::DType;
+use vortex_array::dtype::PType;
+use vortex_array::match_each_integer_ptype;
 use vortex_array::scalar_fn::fns::cast::CastKernel;
 use vortex_array::scalar_fn::fns::cast::CastReduce;
 use vortex_array::validity::Validity;
@@ -14,6 +17,19 @@ use vortex_error::VortexResult;
 
 use crate::bitpacking::BitPacked;
 use crate::bitpacking::array::BitPackedArrayExt;
+use crate::bitpacking::array::bitpack_decompress::unpack_and_cast_into_builder;
+
+/// Returns `true` if casting `src` to `tgt` is a widening integer cast for which every value a
+/// bit-packed array can hold is guaranteed to be representable in `tgt` (so no per-value bounds
+/// check is needed). This holds when `tgt` is strictly wider and either the source is unsigned
+/// (always non-negative, fits in any wider type) or the target is also signed (sign-extension).
+fn is_widening_int_cast(src: PType, tgt: PType) -> bool {
+    src.is_int()
+        && tgt.is_int()
+        && tgt.byte_width() > src.byte_width()
+        && (src.is_unsigned_int() || tgt.is_signed_int())
+}
+
 
 fn build_with_validity(
     array: ArrayView<'_, BitPacked>,
@@ -56,14 +72,41 @@ impl CastKernel for BitPacked {
         dtype: &DType,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        if !array.dtype().eq_ignore_nullability(dtype) {
+        // Nullability-only change: keep the values bit-packed, just adjust validity.
+        if array.dtype().eq_ignore_nullability(dtype) {
+            let new_validity =
+                array
+                    .validity()?
+                    .cast_nullability(dtype.nullability(), array.len(), ctx)?;
+            return build_with_validity(array, dtype, new_validity).map(Some);
+        }
+
+        // Widening integer cast: unpack each FastLanes chunk into a cache-resident scratch buffer
+        // and cast-copy straight into the wide output, avoiding a full-length intermediate buffer
+        // and the generic cast kernel's bounds-check scan (unnecessary when widening).
+        let DType::Primitive(tgt, tgt_nullability) = dtype else {
+            return Ok(None);
+        };
+        let (tgt, tgt_nullability) = (*tgt, *tgt_nullability);
+        let src = array.dtype().as_ptype();
+        if !is_widening_int_cast(src, tgt) {
             return Ok(None);
         }
-        let new_validity =
-            array
-                .validity()?
-                .cast_nullability(dtype.nullability(), array.len(), ctx)?;
-        build_with_validity(array, dtype, new_validity).map(Some)
+
+        // Surface the standard error if a nullable source with nulls is cast to a non-nullable
+        // type; on success the per-value validity is handled inside the unpack below.
+        array
+            .validity()?
+            .cast_nullability(tgt_nullability, array.len(), ctx)?;
+
+        let result = match_each_integer_ptype!(tgt, |T| {
+            let mut builder = PrimitiveBuilder::<T>::with_capacity(tgt_nullability, array.len());
+            match_each_integer_ptype!(src, |F| {
+                unpack_and_cast_into_builder::<F, T>(array, &mut builder, ctx)?;
+            });
+            builder.finish_into_primitive().into_array()
+        });
+        Ok(Some(result))
     }
 }
 
