@@ -4446,7 +4446,13 @@ pub vortex_array::arrays::listview::ListViewDataParts::validity: vortex_array::v
 
 pub trait vortex_array::arrays::listview::ListViewArrayExt: vortex_array::TypedArrayRef<vortex_array::arrays::ListView>
 
+pub fn vortex_array::arrays::listview::ListViewArrayExt::compute_density(&self) -> core::option::Option<f32>
+
+pub fn vortex_array::arrays::listview::ListViewArrayExt::compute_referenced_elements_mask(&self) -> core::option::Option<vortex_mask::Mask>
+
 pub fn vortex_array::arrays::listview::ListViewArrayExt::elements(&self) -> &vortex_array::ArrayRef
+
+pub fn vortex_array::arrays::listview::ListViewArrayExt::estimate_density(&self) -> vortex_error::VortexResult<core::option::Option<f32>>
 
 pub fn vortex_array::arrays::listview::ListViewArrayExt::list_elements_at(&self, usize) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
@@ -4466,7 +4472,13 @@ pub fn vortex_array::arrays::listview::ListViewArrayExt::verify_is_zero_copy_to_
 
 impl<T: vortex_array::TypedArrayRef<vortex_array::arrays::ListView>> vortex_array::arrays::listview::ListViewArrayExt for T
 
+pub fn T::compute_density(&self) -> core::option::Option<f32>
+
+pub fn T::compute_referenced_elements_mask(&self) -> core::option::Option<vortex_mask::Mask>
+
 pub fn T::elements(&self) -> &vortex_array::ArrayRef
+
+pub fn T::estimate_density(&self) -> vortex_error::VortexResult<core::option::Option<f32>>
 
 pub fn T::list_elements_at(&self, usize) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 
