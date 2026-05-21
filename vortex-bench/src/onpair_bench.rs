@@ -767,6 +767,9 @@ struct GpuOnPairChunk {
     dict_mean_len: f32,
     all_len_1: bool,
     all_len_2: bool,
+    /// Token-weighted fraction of decoded tokens whose length is <= 8 bytes.
+    /// Drives split8read auto-selection (it wins when this is high).
+    frac_le8: f32,
     codes: vortex::array::buffer::BufferHandle,
     codes_offsets: vortex::array::buffer::BufferHandle,
     dict_padded: vortex::array::buffer::BufferHandle,
@@ -787,6 +790,12 @@ struct GpuOnPairChunk {
     chunk_offsets_1024: vortex::array::buffer::BufferHandle,
     output: vortex::array::buffer::BufferHandle,
     expected_bytes: Vec<u8>,
+    /// Variable-stride length-bucket dict (built only when
+    /// `ONPAIR_DICT_REORDER=lenbucket`; else a 16-byte dummy).
+    dict_lenbucket: vortex::array::buffer::BufferHandle,
+    /// [t1,t2,t3,base1,base2,base3] for the length-bucket kernel; zero unless
+    /// the length-bucket layout was built.
+    lb_meta: [u32; 6],
 }
 
 #[cfg(feature = "cuda")]
@@ -798,6 +807,29 @@ enum KernelLayout {
     Stride4,
     Const1,
     Const2,
+    /// Persistent grid-stride block with the 16-byte padded dict resident in
+    /// shared memory. Only applicable when the padded dict fits the per-block
+    /// shared carveout (i.e. small `bits12`-style dictionaries).
+    PersistDict16,
+    /// Persistent grid-stride block with the variable-length (un-padded) dict
+    /// bytes resident in shared memory; (off,len) read from global dict_table.
+    /// Smaller shared footprint than `PersistDict16`. bits12 only.
+    PersistVDict,
+    /// Standard grid; common-case token bytes read from the 32 KB `dict_s8`
+    /// (uint2), rare `len>8` high bytes from `dict_padded`. Shrinks the hot
+    /// dict working set to raise L1 hit rate. Always applicable.
+    SplitRead8,
+    /// Standard grid; variable-stride length-bucket dict (stride 4/8/12/16).
+    /// Requires the entries to be bucket-sorted, i.e. only valid under
+    /// `ONPAIR_DICT_REORDER=lenbucket`.
+    LenBucket,
+    /// Standard grid; 32-entry register hot-code cache served via `__shfl`.
+    /// Correct for any ordering; best under `ONPAIR_DICT_REORDER=freq`.
+    RegCache,
+    /// Like `SplitRead8` but split at 4 B: common case from the 16 KB `dict_s4`,
+    /// `len>4` high bytes from `dict_padded`. Wins when most tokens are <=4 B
+    /// (bits12 text). Always applicable.
+    SplitRead4,
 }
 
 #[cfg(feature = "cuda")]
@@ -864,6 +896,48 @@ const GPU_KERNELS: &[KernelVariant] = &[
         layout: KernelLayout::Stride16,
         chunk_size: 128,
         block_warps: 8,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_pdict",
+        layout: KernelLayout::PersistDict16,
+        chunk_size: 128,
+        block_warps: 8,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_vdict",
+        layout: KernelLayout::PersistVDict,
+        chunk_size: 128,
+        block_warps: 8,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_split8read",
+        layout: KernelLayout::SplitRead8,
+        chunk_size: 128,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_ldcs",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_lenbucket",
+        layout: KernelLayout::LenBucket,
+        chunk_size: 128,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_regcache",
+        layout: KernelLayout::RegCache,
+        chunk_size: 128,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_split4read",
+        layout: KernelLayout::SplitRead4,
+        chunk_size: 128,
+        block_warps: 16,
     },
     KernelVariant {
         name: "onpair_shmem_s8",
@@ -1070,6 +1144,65 @@ async fn run_gpu_kernel_bench(
     })
 }
 
+/// Decode-side dict relabeling for cache-layout experiments. Env-gated; a code
+/// permutation is a consistent relabeling so decoded output is unchanged. Does
+/// NOT touch the compressor or on-disk layout.
+///
+/// * `ONPAIR_DICT_REORDER=freq`      — entries by descending in-stream frequency
+/// * `ONPAIR_DICT_REORDER=lenbucket` — entries grouped by width bucket {1-4,5-8,9-12,13-16}
+#[cfg(feature = "cuda")]
+fn maybe_reorder_dict(
+    codes: Vec<u16>,
+    dict_padded: Vec<u8>,
+    lens: Vec<u8>,
+    dict_table: Vec<u64>,
+) -> (Vec<u16>, Vec<u8>, Vec<u8>, Vec<u64>) {
+    let stride = vortex_onpair::MAX_TOKEN_SIZE;
+    let n = lens.len();
+    let mode = std::env::var("ONPAIR_DICT_REORDER").unwrap_or_default();
+    if n == 0 || n > (u16::MAX as usize + 1) {
+        return (codes, dict_padded, lens, dict_table);
+    }
+    // old_of_new[new] = old index for the entry now placed at `new`.
+    let old_of_new: Vec<u32> = match mode.as_str() {
+        "freq" => {
+            let mut freq = vec![0u64; n];
+            for &c in &codes {
+                freq[c as usize] += 1;
+            }
+            let mut order: Vec<u32> = (0..n as u32).collect();
+            order.sort_unstable_by(|&a, &b| freq[b as usize].cmp(&freq[a as usize]));
+            order
+        }
+        "lenbucket" => {
+            let bucket = |l: u8| ((l.saturating_sub(1)) / 4).min(3);
+            let mut order: Vec<u32> = (0..n as u32).collect();
+            order.sort_by_key(|&i| (bucket(lens[i as usize]), i));
+            order
+        }
+        _ => return (codes, dict_padded, lens, dict_table),
+    };
+    let mut new_of_old = vec![0u32; n];
+    for (new, &old) in old_of_new.iter().enumerate() {
+        new_of_old[old as usize] = new as u32;
+    }
+    let new_codes: Vec<u16> = codes
+        .iter()
+        .map(|&c| new_of_old[c as usize] as u16)
+        .collect();
+    let mut new_padded = vec![0u8; dict_padded.len()];
+    let mut new_lens = vec![0u8; n];
+    let mut new_table = vec![0u64; n];
+    for (new, &old) in old_of_new.iter().enumerate() {
+        let (o, ni) = (old as usize, new);
+        new_padded[ni * stride..ni * stride + stride]
+            .copy_from_slice(&dict_padded[o * stride..o * stride + stride]);
+        new_lens[ni] = lens[o];
+        new_table[ni] = dict_table[o];
+    }
+    (new_codes, new_padded, new_lens, new_table)
+}
+
 #[cfg(feature = "cuda")]
 async fn stage_gpu_chunk(op: &OnPairArray, ctx: &mut CudaExecutionCtx) -> Result<GpuOnPairChunk> {
     let codes_arr = op
@@ -1162,6 +1295,50 @@ async fn stage_gpu_chunk(op: &OnPairArray, ctx: &mut CudaExecutionCtx) -> Result
     });
     let validity = vec![0xFFu8; op.len().div_ceil(8)];
 
+    // EXPERIMENTAL, env-gated, decode-side only: relabel dict codes to study
+    // cache-layout effects. A code permutation is a consistent relabeling, so
+    // decoded bytes are unchanged — this does NOT touch the compressor or the
+    // on-disk layout. `ONPAIR_DICT_REORDER=freq` orders entries by descending
+    // in-stream frequency (hot codes first → hot dict region clusters in L1).
+    let (codes_u16, dict_padded, lens_table, dict_table) =
+        maybe_reorder_dict(codes_u16, dict_padded, lens_table, dict_table);
+
+    // Token-weighted fraction of tokens with length <= 8 (drives split8read
+    // auto-selection). One pass over the codes; cheap relative to decode.
+    let frac_le8 = if codes_u16.is_empty() {
+        0.0
+    } else {
+        let le8 = codes_u16
+            .iter()
+            .filter(|&&c| lens_table[c as usize] <= 8)
+            .count();
+        le8 as f32 / codes_u16.len() as f32
+    };
+
+    // Token-weighted length histogram (env `ONPAIR_LEN_HIST`) — informs whether
+    // a different split-read point (4/8/12) than split8read's 8 B has headroom.
+    if std::env::var("ONPAIR_LEN_HIST").is_ok() {
+        let mut hist = [0u64; 17];
+        for &c in &codes_u16 {
+            hist[usize::from(lens_table[c as usize]).min(16)] += 1;
+        }
+        let total: u64 = hist.iter().sum();
+        let cum = |hi: usize| -> f64 {
+            hist[..=hi].iter().sum::<u64>() as f64 * 100.0 / total.max(1) as f64
+        };
+        eprintln!(
+            "LEN_HIST tokens={total} mean={:.2} | <=4: {:.1}%  <=8: {:.1}%  <=12: {:.1}%  per-len%={:?}",
+            lens_table.iter().map(|&l| u64::from(l)).sum::<u64>() as f64
+                / lens_table.len().max(1) as f64,
+            cum(4),
+            cum(8),
+            cum(12),
+            (1..=16)
+                .map(|l| (hist[l] as f64 * 100.0 / total.max(1) as f64 * 10.0).round() / 10.0)
+                .collect::<Vec<_>>()
+        );
+    }
+
     let mut dict_s8 = vec![0u8; lens_table.len() * 8];
     let mut dict_s4 = vec![0u8; lens_table.len() * 4];
     let mut dict_const1 = vec![0u8; lens_table.len()];
@@ -1178,6 +1355,43 @@ async fn stage_gpu_chunk(op: &OnPairArray, ctx: &mut CudaExecutionCtx) -> Result
         let n2 = usize::from(len).min(2);
         dict_const2[i * 2..i * 2 + n2].copy_from_slice(&dict_padded[src..src + n2]);
     }
+
+    // Variable-stride length-bucket dict — only meaningful when entries were
+    // bucket-sorted (`ONPAIR_DICT_REORDER=lenbucket`); else a 16-byte dummy.
+    let lb_mode = std::env::var("ONPAIR_DICT_REORDER").as_deref() == Ok("lenbucket");
+    let (dict_lenbucket_host, lb_meta) = if lb_mode {
+        let bucket = |l: u8| usize::from((l.saturating_sub(1)) / 4).min(3);
+        let strides = [4usize, 8, 12, 16];
+        let mut counts = [0usize; 4];
+        for &l in &lens_table {
+            counts[bucket(l)] += 1;
+        }
+        let t1 = counts[0];
+        let t2 = t1 + counts[1];
+        let t3 = t2 + counts[2];
+        // Align bucket bases to their read width: stride-8 (uint2) needs 8-byte,
+        // stride-16 (uint4) needs 16-byte alignment. stride-4 / stride-12 read
+        // 4-byte words so 4-byte alignment suffices.
+        let base1 = (counts[0] * 4).next_multiple_of(8);
+        let base2 = base1 + counts[1] * 8;
+        let base3 = (base2 + counts[2] * 12).next_multiple_of(16);
+        let total = base3 + counts[3] * 16;
+        let mut dict_lb = vec![0u8; total + 16];
+        let mut cursor = [0usize, base1, base2, base3];
+        for (j, &l) in lens_table.iter().enumerate() {
+            let b = bucket(l);
+            let n = usize::from(l).min(strides[b]);
+            dict_lb[cursor[b]..cursor[b] + n]
+                .copy_from_slice(&dict_padded[j * 16..j * 16 + n]);
+            cursor[b] += strides[b];
+        }
+        let meta = [
+            t1 as u32, t2 as u32, t3 as u32, base1 as u32, base2 as u32, base3 as u32,
+        ];
+        (dict_lb, meta)
+    } else {
+        (vec![0u8; 16], [0u32; 6])
+    };
 
     let chunk_offsets_32 = chunk_offsets(&codes_u16, &lens_table, 32, decoded_bytes);
     let chunk_offsets_64 = chunk_offsets(&codes_u16, &lens_table, 64, decoded_bytes);
@@ -1218,6 +1432,9 @@ async fn stage_gpu_chunk(op: &OnPairArray, ctx: &mut CudaExecutionCtx) -> Result
             .copy_to_device::<u8, _>(vec![0u8; decoded_bytes as usize + 16])?
             .await?,
         expected_bytes,
+        dict_lenbucket: ctx.copy_to_device::<u8, _>(dict_lenbucket_host)?.await?,
+        lb_meta,
+        frac_le8,
     })
 }
 
@@ -1429,7 +1646,11 @@ fn chunk_offsets(codes: &[u16], lens: &[u8], chunk_size: usize, expected_total: 
 #[cfg(feature = "cuda")]
 fn inapplicable_reason(variant: KernelVariant, chunks: &[GpuOnPairChunk]) -> Option<String> {
     match variant.layout {
-        KernelLayout::Ref | KernelLayout::Stride16 => None,
+        KernelLayout::Ref
+        | KernelLayout::Stride16
+        | KernelLayout::SplitRead8
+        | KernelLayout::SplitRead4
+        | KernelLayout::RegCache => None,
         KernelLayout::Stride8 => chunks
             .iter()
             .any(|c| c.dict_max_len > 8)
@@ -1446,8 +1667,56 @@ fn inapplicable_reason(variant: KernelVariant, chunks: &[GpuOnPairChunk]) -> Opt
             .iter()
             .any(|c| !c.all_len_2)
             .then(|| "not every dictionary entry is exactly 2 bytes".to_string()),
+        KernelLayout::PersistDict16 => chunks
+            .iter()
+            .find_map(|c| {
+                let shared = persist_dict16_shared_bytes(c.lens.len());
+                (shared > PERSIST_DICT16_SHARED_CAP).then(|| {
+                    format!(
+                        "padded dict needs {shared} B shared, over {PERSIST_DICT16_SHARED_CAP} B cap"
+                    )
+                })
+            }),
+        KernelLayout::PersistVDict => chunks
+            .iter()
+            .find_map(|c| {
+                let shared = persist_vdict_shared_bytes(c.dict_bytes.len());
+                (shared > PERSIST_DICT16_SHARED_CAP).then(|| {
+                    format!(
+                        "packed dict needs {shared} B shared, over {PERSIST_DICT16_SHARED_CAP} B cap"
+                    )
+                })
+            }),
+        KernelLayout::LenBucket => chunks
+            .iter()
+            .any(|c| c.lb_meta == [0u32; 6])
+            .then(|| "length-bucket dict not built (set ONPAIR_DICT_REORDER=lenbucket)".to_string()),
     }
 }
+
+/// Shared-memory bytes required by `onpair_shmem_4tpt_vdict`: [packed dict |
+/// per-warp staging]. `dict_bytes_len` includes the 16-byte trailing pad.
+#[cfg(feature = "cuda")]
+fn persist_vdict_shared_bytes(dict_bytes_len: usize) -> usize {
+    ((dict_bytes_len + 15) & !15) + PERSIST_DICT16_WARPS * PERSIST_DICT16_WARP_BUF
+}
+
+/// Shared-memory bytes required by `onpair_shmem_4tpt_pdict` for a dict with
+/// `dict_entries` entries: [padded dict | lens | per-warp staging].
+#[cfg(feature = "cuda")]
+fn persist_dict16_shared_bytes(dict_entries: usize) -> usize {
+    let dict_and_lens = (dict_entries * 16 + dict_entries + 15) & !15;
+    dict_and_lens + PERSIST_DICT16_WARPS * PERSIST_DICT16_WARP_BUF
+}
+
+#[cfg(feature = "cuda")]
+const PERSIST_DICT16_WARPS: usize = 8;
+#[cfg(feature = "cuda")]
+const PERSIST_DICT16_WARP_BUF: usize = 2080;
+/// Hopper supports up to ~227 KB shared/SM with opt-in; cap below that so two
+/// resident blocks/SM stay feasible.
+#[cfg(feature = "cuda")]
+const PERSIST_DICT16_SHARED_CAP: usize = 100 * 1024;
 
 #[cfg(feature = "cuda")]
 fn pick_auto_kernel(chunks: &[GpuOnPairChunk]) -> &'static str {
@@ -1459,20 +1728,70 @@ fn pick_auto_kernel(chunks: &[GpuOnPairChunk]) -> &'static str {
     }
 
     let dict_max_len = chunks.iter().map(|c| c.dict_max_len).max().unwrap_or(16);
-    let mean_bpt = if chunks.is_empty() {
-        0.0
-    } else {
-        chunks.iter().map(|c| c.dict_mean_len).sum::<f32>() / chunks.len() as f32
-    };
-    let _ = mean_bpt;
 
     if dict_max_len <= 4 {
-        "onpair_shmem_s4l1_16tpt"
-    } else if dict_max_len <= 8 {
-        "onpair_shmem_s8_4tpt"
-    } else {
-        "onpair_shmem_2tpt"
+        return "onpair_shmem_s4l1_16tpt";
     }
+    if dict_max_len <= 8 {
+        return "onpair_shmem_s8_4tpt";
+    }
+
+    // General case (entries up to 16 bytes). `split8read` reads 8 B from the
+    // 32 KB `dict_s8` for the common case and only touches the 64 KB padded dict
+    // for `len > 8`. Measured across columns: it beats plain `4tpt` only when the
+    // dict is small enough that `dict_s8` fits L1 (bits12, <= 4096 entries) AND
+    // most tokens are <= 8 B; otherwise (large dict, or long-token columns like
+    // ps_comment) it ties or regresses. `4tpt` is the robust default (faster
+    // than the previous `2tpt`).
+    let small_dict = chunks.iter().all(|c| c.lens.len() <= 4096);
+    let frac_le8 = if chunks.is_empty() {
+        0.0
+    } else {
+        chunks.iter().map(|c| c.frac_le8).sum::<f32>() / chunks.len() as f32
+    };
+    if small_dict && frac_le8 >= 0.90 {
+        "onpair_shmem_4tpt_split8read"
+    } else {
+        "onpair_shmem_4tpt"
+    }
+}
+
+/// Pin a device buffer in a reserved L2 persisting region via a stream
+/// access-policy window. The streaming codes/output then cannot evict the dict.
+#[cfg(feature = "cuda")]
+fn apply_l2_persist(ctx: &CudaExecutionCtx, ptr: u64, bytes: usize) -> Result<()> {
+    use cudarc::driver::sys;
+    let context = ctx.stream().context();
+    let max_persist = context
+        .attribute(sys::CUdevice_attribute_enum::CU_DEVICE_ATTRIBUTE_MAX_PERSISTING_L2_CACHE_SIZE)
+        .map_err(|e| anyhow::anyhow!("query max persisting L2: {e:?}"))? as usize;
+    let carve = bytes.min(max_persist);
+    context
+        .set_limit(sys::CUlimit_enum::CU_LIMIT_PERSISTING_L2_CACHE_SIZE, carve)
+        .map_err(|e| anyhow::anyhow!("set persisting L2 limit: {e:?}"))?;
+    let max_win = context
+        .attribute(sys::CUdevice_attribute_enum::CU_DEVICE_ATTRIBUTE_MAX_ACCESS_POLICY_WINDOW_SIZE)
+        .map_err(|e| anyhow::anyhow!("query max access window: {e:?}"))? as usize;
+    let win = sys::CUaccessPolicyWindow_st {
+        base_ptr: ptr as *mut std::ffi::c_void,
+        num_bytes: bytes.min(max_win),
+        hitRatio: 1.0,
+        hitProp: sys::CUaccessProperty_enum::CU_ACCESS_PROPERTY_PERSISTING,
+        missProp: sys::CUaccessProperty_enum::CU_ACCESS_PROPERTY_NORMAL,
+    };
+    let mut val: sys::CUstreamAttrValue = unsafe { std::mem::zeroed() };
+    val.accessPolicyWindow = win;
+    let stream = ctx.stream().cu_stream();
+    unsafe {
+        sys::cuStreamSetAttribute(
+            stream,
+            sys::CUlaunchAttributeID_enum::CU_LAUNCH_ATTRIBUTE_ACCESS_POLICY_WINDOW,
+            &val,
+        )
+    }
+    .result()
+    .map_err(|e| anyhow::anyhow!("set access policy window: {e:?}"))?;
+    Ok(())
 }
 
 #[cfg(feature = "cuda")]
@@ -1489,6 +1808,22 @@ fn time_kernel_variant(
     } else {
         ctx.load_function(variant.name, &[])?
     };
+
+    // EXPERIMENTAL (env `ONPAIR_L2_PERSIST`): pin this variant's dict in a
+    // reserved L2 region via an access-policy window so the streaming codes /
+    // output cannot evict it. Targets the gather bottleneck on large (bits16)
+    // dicts. Single-chunk benchmarks only (window covers chunks[0]'s dict).
+    if std::env::var("ONPAIR_L2_PERSIST").is_ok() {
+        if let Some(c) = chunks.first() {
+            let (dict, dict_len) = match variant.layout {
+                KernelLayout::SplitRead8 => (&c.dict_s8, c.dict_s8.len()),
+                KernelLayout::LenBucket => (&c.dict_lenbucket, c.dict_lenbucket.len()),
+                _ => (&c.dict_padded, c.dict_padded.len()),
+            };
+            let ptr = dict.cuda_device_ptr()?;
+            apply_l2_persist(&ctx, ptr, dict_len)?;
+        }
+    }
 
     for _ in 0..2 {
         for chunk in chunks {
@@ -1655,6 +1990,171 @@ fn launch_variant(
             let cfg = launch_config(chunk.total_tokens, variant.chunk_size, variant.block_warps);
             ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
                 args.arg(&codes).arg(&dict).arg(&output).arg(&total_tokens);
+            })?;
+        }
+        KernelLayout::PersistDict16 => {
+            let dict_padded = chunk.dict_padded.cuda_view::<u8>()?;
+            let lens = chunk.lens.cuda_view::<u8>()?;
+            let chunk_offsets = chunk_offsets_for_variant(chunk, variant.chunk_size)?;
+            let dict_entries = u32::try_from(chunk.lens.len()).unwrap_or(u32::MAX);
+            let shared_bytes =
+                u32::try_from(persist_dict16_shared_bytes(chunk.lens.len())).unwrap_or(u32::MAX);
+
+            // Opt into the larger dynamic-shared carveout on Hopper.
+            if shared_bytes > 48 * 1024 {
+                use cudarc::driver::sys::CUfunction_attribute_enum;
+                function
+                    .set_attribute(
+                        CUfunction_attribute_enum::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                        shared_bytes as i32,
+                    )
+                    .map_err(|e| anyhow::anyhow!("set max dynamic shared mem: {e:?}"))?;
+            }
+
+            // Persistent grid: ~2 resident blocks per SM, capped by the work.
+            let sm_count = ctx
+                .stream()
+                .context()
+                .attribute(
+                    cudarc::driver::sys::CUdevice_attribute_enum::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
+                )
+                .map_err(|e| anyhow::anyhow!("query SM count: {e:?}"))?
+                .max(1) as usize;
+            let blocks_needed = chunk
+                .total_tokens
+                .div_ceil(variant.chunk_size)
+                .div_ceil(variant.block_warps as usize)
+                .max(1);
+            let grid = blocks_needed.min(sm_count * 2);
+            let cfg = LaunchConfig {
+                grid_dim: (u32::try_from(grid).unwrap_or(u32::MAX), 1, 1),
+                block_dim: (variant.block_warps * 32, 1, 1),
+                shared_mem_bytes: shared_bytes,
+            };
+            ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
+                args.arg(&codes)
+                    .arg(&chunk_offsets)
+                    .arg(&dict_padded)
+                    .arg(&lens)
+                    .arg(&output)
+                    .arg(&total_tokens)
+                    .arg(&dict_entries);
+            })?;
+        }
+        KernelLayout::SplitRead8 => {
+            let dict_s8 = chunk.dict_s8.cuda_view::<u8>()?;
+            let dict_padded = chunk.dict_padded.cuda_view::<u8>()?;
+            let lens = chunk.lens.cuda_view::<u8>()?;
+            let chunk_offsets = chunk_offsets_for_variant(chunk, variant.chunk_size)?;
+            let cfg = launch_config(chunk.total_tokens, variant.chunk_size, variant.block_warps);
+            ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
+                args.arg(&codes)
+                    .arg(&chunk_offsets)
+                    .arg(&dict_s8)
+                    .arg(&dict_padded)
+                    .arg(&lens)
+                    .arg(&output)
+                    .arg(&total_tokens);
+            })?;
+        }
+        KernelLayout::RegCache => {
+            let dict_padded = chunk.dict_padded.cuda_view::<u8>()?;
+            let lens = chunk.lens.cuda_view::<u8>()?;
+            let chunk_offsets = chunk_offsets_for_variant(chunk, variant.chunk_size)?;
+            let cfg = launch_config(chunk.total_tokens, variant.chunk_size, variant.block_warps);
+            ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
+                args.arg(&codes)
+                    .arg(&chunk_offsets)
+                    .arg(&dict_padded)
+                    .arg(&lens)
+                    .arg(&output)
+                    .arg(&total_tokens);
+            })?;
+        }
+        KernelLayout::SplitRead4 => {
+            let dict_s4 = chunk.dict_s4.cuda_view::<u8>()?;
+            let dict_padded = chunk.dict_padded.cuda_view::<u8>()?;
+            let lens = chunk.lens.cuda_view::<u8>()?;
+            let chunk_offsets = chunk_offsets_for_variant(chunk, variant.chunk_size)?;
+            let cfg = launch_config(chunk.total_tokens, variant.chunk_size, variant.block_warps);
+            ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
+                args.arg(&codes)
+                    .arg(&chunk_offsets)
+                    .arg(&dict_s4)
+                    .arg(&dict_padded)
+                    .arg(&lens)
+                    .arg(&output)
+                    .arg(&total_tokens);
+            })?;
+        }
+        KernelLayout::LenBucket => {
+            let dict_lb = chunk.dict_lenbucket.cuda_view::<u8>()?;
+            let lens = chunk.lens.cuda_view::<u8>()?;
+            let chunk_offsets = chunk_offsets_for_variant(chunk, variant.chunk_size)?;
+            let m = chunk.lb_meta;
+            let (t1, t2, t3, b1, b2, b3) = (m[0], m[1], m[2], m[3], m[4], m[5]);
+            let cfg = launch_config(chunk.total_tokens, variant.chunk_size, variant.block_warps);
+            ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
+                args.arg(&codes)
+                    .arg(&chunk_offsets)
+                    .arg(&dict_lb)
+                    .arg(&lens)
+                    .arg(&output)
+                    .arg(&total_tokens)
+                    .arg(&t1)
+                    .arg(&t2)
+                    .arg(&t3)
+                    .arg(&b1)
+                    .arg(&b2)
+                    .arg(&b3);
+            })?;
+        }
+        KernelLayout::PersistVDict => {
+            let dict_table = chunk.dict_table.cuda_view::<u64>()?;
+            let dict_bytes = chunk.dict_bytes.cuda_view::<u8>()?;
+            let chunk_offsets = chunk_offsets_for_variant(chunk, variant.chunk_size)?;
+            let dict_bytes_len = u32::try_from(chunk.dict_bytes.len()).unwrap_or(u32::MAX);
+            let shared_bytes =
+                u32::try_from(persist_vdict_shared_bytes(chunk.dict_bytes.len()))
+                    .unwrap_or(u32::MAX);
+
+            if shared_bytes > 48 * 1024 {
+                use cudarc::driver::sys::CUfunction_attribute_enum;
+                function
+                    .set_attribute(
+                        CUfunction_attribute_enum::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
+                        shared_bytes as i32,
+                    )
+                    .map_err(|e| anyhow::anyhow!("set max dynamic shared mem: {e:?}"))?;
+            }
+
+            let sm_count = ctx
+                .stream()
+                .context()
+                .attribute(
+                    cudarc::driver::sys::CUdevice_attribute_enum::CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT,
+                )
+                .map_err(|e| anyhow::anyhow!("query SM count: {e:?}"))?
+                .max(1) as usize;
+            let blocks_needed = chunk
+                .total_tokens
+                .div_ceil(variant.chunk_size)
+                .div_ceil(variant.block_warps as usize)
+                .max(1);
+            let grid = blocks_needed.min(sm_count * 2);
+            let cfg = LaunchConfig {
+                grid_dim: (u32::try_from(grid).unwrap_or(u32::MAX), 1, 1),
+                block_dim: (variant.block_warps * 32, 1, 1),
+                shared_mem_bytes: shared_bytes,
+            };
+            ctx.launch_kernel_config(function, cfg, chunk.total_tokens, |args| {
+                args.arg(&codes)
+                    .arg(&chunk_offsets)
+                    .arg(&dict_table)
+                    .arg(&dict_bytes)
+                    .arg(&output)
+                    .arg(&total_tokens)
+                    .arg(&dict_bytes_len);
             })?;
         }
     }

@@ -336,7 +336,8 @@ def main() -> int:
     p.add_argument("--chunk-mb", type=lambda s: [float(x) for x in s.split(",")],
                    default=[1, 10, 100, 1000], help="per-chunk uncompressed MB budgets")
     p.add_argument("--threshold", type=lambda s: [float(x) for x in s.split(",")],
-                   default=[0.2])
+                   default=[0.2, 0.5],
+                   help="OnPair dynamic frequency thresholds (smaller = larger dict)")
     p.add_argument("--sample-bytes", type=int, default=1_000_000_000)
     p.add_argument("--file-target-mb", type=float, default=200.0)
     p.add_argument("--gpu-decode", action="store_true",
