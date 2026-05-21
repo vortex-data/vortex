@@ -29,7 +29,7 @@ const DEFAULT_STREAM_POOL_CAPACITY: usize = 4;
 /// CUDA session for GPU accelerated execution.
 ///
 /// Maintains a registry of CUDA kernel implementations for array encodings.
-/// Holds the CUDA context for all GPU operations and caches compiled PTX modules.
+/// Holds the CUDA context for all GPU operations and caches loaded CUDA modules.
 #[derive(Clone, Debug)]
 pub struct CudaSession {
     context: Arc<CudaContext>,
@@ -113,12 +113,12 @@ impl CudaSession {
     ///
     /// # Arguments
     ///
-    /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
+    /// * `module_name` - Name of the module (`kernels/{module_name}.fatbin`)
     /// * `type_suffixes` - List of type suffix strings to generate kernel name
     ///
     /// # Errors
     ///
-    /// Returns an error if PTX file cannot be read or kernel cannot be loaded.
+    /// Returns an error if the CUDA module file cannot be read or kernel cannot be loaded.
     pub fn load_function_with_suffixes(
         &self,
         module_name: &str,

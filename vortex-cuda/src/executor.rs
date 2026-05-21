@@ -187,7 +187,7 @@ impl CudaExecutionCtx {
     ///
     /// # Arguments
     ///
-    /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
+    /// * `module_name` - Name of the module (`kernels/{module_name}.fatbin`)
     /// * `ptypes` - List of ptype strings for the kernel name
     ///
     /// # Errors
@@ -212,7 +212,7 @@ impl CudaExecutionCtx {
     ///
     /// # Arguments
     ///
-    /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
+    /// * `module_name` - Name of the module (`kernels/{module_name}.fatbin`)
     /// * `type_suffixes` - List of type suffix strings for the kernel name
     ///
     /// # Errors

@@ -194,6 +194,9 @@ benchmarks/.out
 *.parquet
 !docs/_static/example.parquet
 
+# Generated CUDA kernel artifacts
+*.fatbin
+
 # TPC-H benchmarking data
 /data/
 

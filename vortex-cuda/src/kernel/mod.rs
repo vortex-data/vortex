@@ -191,9 +191,9 @@ pub(crate) fn launch_cuda_kernel_with_config(
     }
 }
 
-/// Loader for CUDA kernels with PTX caching.
+/// Loader for CUDA kernels with module caching.
 ///
-/// Handles loading PTX files, compiling modules, and loading functions.
+/// Handles loading CUDA module files and functions.
 #[derive(Debug)]
 pub(crate) struct KernelLoader {
     /// Cache of loaded CUDA modules, keyed by module name
@@ -215,7 +215,7 @@ impl KernelLoader {
     ///
     /// # Arguments
     ///
-    /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
+    /// * `module_name` - Name of the module (`kernels/{module_name}.fatbin`)
     /// * `type_suffixes` - List of type suffix strings for the kernel name (`kernel_i128`)
     /// * `cuda_context` - CUDA context for loading the module
     pub fn load_function(
@@ -235,16 +235,16 @@ impl KernelLoader {
         let module = if let Some(entry) = self.modules.get(module_name) {
             Arc::clone(entry.value())
         } else {
-            let ptx_path = Self::ptx_path_for_module(module_name);
+            let module_path = Self::path_for_module(module_name);
 
-            // Compile and load the CUDA module.
+            // Load the CUDA module.
             let module = cuda_context
-                .load_module(Ptx::from_file(&ptx_path))
+                .load_module(Ptx::from_file(&module_path))
                 .map_err(|e| {
                     vortex_err!(
-                        "Failed to load CUDA module {}, ptx path {}: {}",
+                        "Failed to load CUDA module {}, module path {}: {}",
                         module_name,
-                        ptx_path.display(),
+                        module_path.display(),
                         e
                     )
                 })?;
@@ -262,7 +262,7 @@ impl KernelLoader {
             .map_err(|e| vortex_err!("Failed to load kernel function '{}': {}", kernel_name, e))
     }
 
-    /// Returns the PTX file path for a given module name.
+    /// Returns the CUDA module file path for a given module name.
     ///
     /// Checks for `VORTEX_CUDA_KERNELS_DIR` environment variable at runtime first,
     /// falling back to the path baked in at compile time by build.rs.
@@ -273,11 +273,11 @@ impl KernelLoader {
     ///
     /// # Returns
     ///
-    /// The full path to the PTX file
-    fn ptx_path_for_module(module_name: &str) -> PathBuf {
+    /// The full path to the CUDA module file
+    fn path_for_module(module_name: &str) -> PathBuf {
         let kernels_dir = std::env::var("VORTEX_CUDA_KERNELS_DIR")
             .unwrap_or_else(|_| env!("VORTEX_CUDA_KERNELS_DIR").to_string());
-        Path::new(&kernels_dir).join(format!("{}.ptx", module_name))
+        Path::new(&kernels_dir).join(format!("{}.fatbin", module_name))
     }
 }
 

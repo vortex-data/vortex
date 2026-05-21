@@ -7,7 +7,6 @@
 
 use std::env;
 use std::fs;
-use std::fs::File;
 use std::io;
 use std::path::Path;
 use std::path::PathBuf;
@@ -21,8 +20,6 @@ use crate::bit_unpack_gen::generate_cuda_unpack_lanes;
 #[path = "src/bit_unpack_gen.rs"]
 pub mod bit_unpack_gen;
 
-const NVIDIA_GPU_INFO_DIR: &str = "/proc/driver/nvidia/gpus";
-
 fn main() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
     // https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
@@ -30,13 +27,13 @@ fn main() {
 
     // Source directory for kernels (hand-written and generated .cu/.cuh files)
     let kernels_src = Path::new(&manifest_dir).join("kernels/src");
-    // Output directory for compiled .ptx files - separate by profile.
+    // Output directory for compiled CUDA module files - separate by profile.
     let kernels_gen = Path::new(&manifest_dir).join("kernels/gen").join(&profile);
 
     fs::create_dir_all(&kernels_gen).expect("Failed to create kernels/gen directory");
 
     // Always emit the kernels output directory path as a compile-time env var so any binary
-    // linking against vortex-cuda can find the PTX files. This must be set regardless
+    // linking against vortex-cuda can find the CUDA module files. This must be set regardless
     // of CUDA availability since the code using env!() is always compiled.
     // At runtime, VORTEX_CUDA_KERNELS_DIR can be set to override this path.
     println!(
@@ -45,11 +42,6 @@ fn main() {
     );
 
     println!("cargo:rerun-if-env-changed=PROFILE");
-    // Re-run if the user changes which GPUs are visible to CUDA between builds.
-    println!("cargo:rerun-if-env-changed=CUDA_VISIBLE_DEVICES");
-    // CI stale-rebuild checks require deterministic Cargo inputs, so skip volatile
-    // NVIDIA procfs watches when the standard CI marker is set.
-    println!("cargo:rerun-if-env-changed=CI");
 
     // Regenerate bit_unpack kernels only when the generator changes
     println!(
@@ -72,11 +64,7 @@ fn main() {
         return;
     }
 
-    if env::var_os("CI").is_none() {
-        watch_nvidia_gpu_info_files();
-    }
-
-    // Watch and compile .cu and .cuh files from kernels/src to PTX in kernels/gen
+    // Watch and compile .cu and .cuh files from kernels/src to CUDA modules in kernels/gen
     if let Ok(entries) = fs::read_dir(&kernels_src) {
         for path in entries.flatten().map(|entry| entry.path()) {
             let is_generated = path
@@ -98,8 +86,8 @@ fn main() {
                     if !is_generated {
                         println!("cargo:rerun-if-changed={}", path.display());
                     }
-                    // Compile all .cu files to PTX in gen directory
-                    nvcc_compile_ptx(&kernels_src, &kernels_gen, &path, &profile)
+                    // Compile all .cu files to CUDA fatbins in gen directory
+                    nvcc_compile_fatbin(&kernels_src, &kernels_gen, &path, &profile)
                         .map_err(|e| {
                             format!("Failed to compile CUDA kernel {}: {}", path.display(), e)
                         })
@@ -111,36 +99,23 @@ fn main() {
     }
 }
 
-fn watch_nvidia_gpu_info_files() {
-    let Ok(entries) = fs::read_dir(NVIDIA_GPU_INFO_DIR) else {
-        return;
-    };
-
-    for entry in entries.flatten() {
-        let info_path = entry.path().join("information");
-        if info_path.is_file() {
-            println!("cargo:rerun-if-changed={}", info_path.display());
-        }
-    }
-}
-
 fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::Result<PathBuf> {
     // Generate the lanes header (.cuh) — device functions only, no __global__ kernels.
     // This is what dynamic_dispatch.cu includes (via bit_unpack.cuh).
     let cuh_path = output_dir.join(format!("bit_unpack_{}_lanes.cuh", T::T));
-    let mut cuh_file = File::create(&cuh_path)?;
+    let mut cuh_file = fs::File::create(&cuh_path)?;
     generate_cuda_unpack_lanes::<T>(&mut cuh_file)?;
 
     // Generate the standalone kernels (.cu) — includes the lanes header,
-    // adds _device template + __global__ wrappers. Compiled to its own PTX.
+    // adds _device template + __global__ wrappers. Compiled to its own CUDA module.
     let cu_path = output_dir.join(format!("bit_unpack_{}.cu", T::T));
-    let mut cu_file = File::create(&cu_path)?;
+    let mut cu_file = fs::File::create(&cu_path)?;
     generate_cuda_unpack_kernels::<T>(&mut cu_file, thread_count)?;
 
     Ok(cu_path)
 }
 
-fn nvcc_compile_ptx(
+fn nvcc_compile_fatbin(
     include_dir: &Path,
     output_dir: &Path,
     cu_path: &Path,
@@ -173,23 +148,24 @@ fn nvcc_compile_ptx(
         cmd.arg("-O3");
     }
 
-    // Output PTX file goes to output_dir with same base name
-    let ptx_path = output_dir
+    // Output CUDA fatbin file goes to output_dir with same base name.
+    let fatbin_path = output_dir
         .join(cu_path.file_name().unwrap())
-        .with_extension("ptx");
+        .with_extension("fatbin");
 
+    // Embed a single PTX image for Ampere and newer GPUs. The driver JIT-compiles
+    // PTX to the target GPU's SASS at runtime.
     cmd.arg("-std=c++20")
-        .arg("-arch=native")
+        .arg("-gencode=arch=compute_80,code=compute_80")
         // Flags forwarded to Clang.
         .arg("--compiler-options=-Wall -Wextra -Wpedantic -Werror")
         .arg("--restrict")
-        .arg("--ptx")
+        .arg("--fatbin")
         .arg("--include-path")
         .arg(include_dir)
-        .arg("-c")
         .arg(cu_path)
         .arg("-o")
-        .arg(&ptx_path);
+        .arg(&fatbin_path);
 
     let res = cmd.output()?;
 
