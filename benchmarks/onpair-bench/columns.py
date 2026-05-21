@@ -34,6 +34,10 @@ SRC_DIR = DATA_DIR / "onpair-bench-src"
 CLICKBENCH_URL = "https://datasets.clickhouse.com/hits_compatible/hits.parquet"
 FINEWEB_URL = ("https://huggingface.co/datasets/HuggingFaceFW/fineweb/"
                "resolve/v1.4.0/sample/10BT/000_00000.parquet")
+# Wikipedia (English, 2023-11-01 snapshot) — long encyclopaedic free text.
+# One ~420 MB parquet shard; columns id/url/title/text.
+WIKIPEDIA_URL = ("https://huggingface.co/datasets/wikimedia/wikipedia/"
+                 "resolve/main/20231101.en/train-00000-of-00041.parquet")
 DBTEXT_URL_BASE = "https://raw.githubusercontent.com/cwida/fsst/master/paper/dbtext"
 
 # Optional pre-existing local copies to reuse instead of downloading (machine
@@ -150,6 +154,9 @@ COLUMNS: list[Column] = [
     # FineWeb 10BT sample — long free text + URLs + low-cardinality categoricals.
     *_parquet_cols("fineweb", ["text", "url", "file_path", "dump", "language"],
                    url=FINEWEB_URL, cache="fineweb_10BT_000.parquet"),
+    # Wikipedia (en, 2023-11-01) — long encyclopaedic free text, titles, URLs.
+    *_parquet_cols("wikipedia", ["text", "title", "url"],
+                   url=WIKIPEDIA_URL, cache="wikipedia_20231101_en_000.parquet"),
     # FSST paper's dbtext corpus: 23 raw text columns under cwida/fsst.
     *_dbtext_cols(_DBTEXT_COLS),
     # OnPair paper's book-reviews corpus (single `text` column). No public URL —
