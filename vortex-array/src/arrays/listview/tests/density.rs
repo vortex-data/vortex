@@ -4,7 +4,6 @@
 //! Tests for `compute_referenced_elements_mask`, `compute_density`, and
 //! `estimate_density` on `ListViewArray`.
 
-use vortex_buffer::buffer;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -12,14 +11,12 @@ use super::common::create_basic_listview;
 use super::common::create_empty_lists_listview;
 use super::common::create_large_listview;
 use super::common::create_overlapping_listview;
-use crate::IntoArray;
-use crate::arrays::ListViewArray;
-use crate::arrays::PrimitiveArray;
+use super::common::create_sparse_overlapping_listview;
 use crate::arrays::listview::ListViewArrayExt;
+use crate::arrays::listview::tests::common::create_empty_elements_listview;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::scalar::ScalarValue;
-use crate::validity::Validity;
 
 const EPS: f32 = 1e-6;
 
@@ -29,8 +26,8 @@ fn full_density_no_overlap() -> VortexResult<()> {
     let exact = lv.compute_density().expect("non-empty elements");
     let est = lv.estimate_density()?.expect("non-empty elements");
 
-    assert!((exact - 1.0).abs() < EPS, "exact density {exact}");
-    assert!((est - 1.0).abs() < EPS, "estimate density {est}");
+    assert!((exact - 1.0).abs() < EPS);
+    assert!((est - 1.0).abs() < EPS);
     Ok(())
 }
 
@@ -40,8 +37,8 @@ fn sparse_no_overlap_matches_exact() -> VortexResult<()> {
     let exact = lv.compute_density().expect("non-empty");
     let est = lv.estimate_density()?.expect("non-empty");
 
-    assert!((exact - 0.5).abs() < EPS, "exact density {exact}");
-    assert!((est - 0.5).abs() < EPS, "estimate density {est}");
+    assert!((exact - 0.5).abs() < EPS);
+    assert!((est - 0.5).abs() < EPS);
     Ok(())
 }
 
@@ -62,36 +59,26 @@ fn overlap_full_coverage_clamps_estimate() -> VortexResult<()> {
     let exact = lv.compute_density().expect("non-empty");
     let est = lv.estimate_density()?.expect("non-empty");
 
-    assert!((exact - 1.0).abs() < EPS, "exact density {exact}");
-    assert!((est - 1.0).abs() < EPS, "estimate density {est}");
+    assert!((exact - 1.0).abs() < EPS);
+    assert!((est - 1.0).abs() < EPS);
     Ok(())
 }
 
 #[test]
 fn overlap_differential_exact_lower_than_estimate() -> VortexResult<()> {
-    // Two rows both pointing at elements[0..5) over a 20-element buffer.
-    // Unique referenced = 5  → exact = 0.25
-    // sum(sizes) = 10        → estimate = 0.50
-    let elements = PrimitiveArray::from_iter(0i32..20).into_array();
-    let offsets = buffer![0u32, 0].into_array();
-    let sizes = buffer![5u32, 5].into_array();
-    let lv = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)?;
+    let lv = create_sparse_overlapping_listview();
 
     let exact = lv.compute_density().expect("non-empty");
     let est = lv.estimate_density()?.expect("non-empty");
 
-    assert!((exact - 0.25).abs() < EPS, "exact density {exact}");
-    assert!((est - 0.50).abs() < EPS, "estimate density {est}");
-    assert!(est > exact, "estimate must overcount overlapping views");
+    assert!((exact - 0.25).abs() < EPS);
+    assert!((est - 0.40).abs() < EPS);
     Ok(())
 }
 
 #[test]
 fn empty_elements_returns_none() -> VortexResult<()> {
-    let elements = PrimitiveArray::from_iter::<[i32; 0]>([]).into_array();
-    let offsets = buffer![0u32; 0].into_array();
-    let sizes = buffer![0u32; 0].into_array();
-    let lv = ListViewArray::try_new(elements, offsets, sizes, Validity::NonNullable)?;
+    let lv = create_empty_elements_listview();
 
     assert!(lv.compute_density().is_none());
     assert!(lv.estimate_density()?.is_none());
@@ -108,35 +95,27 @@ fn estimate_uses_cached_sum_stat() -> VortexResult<()> {
         .set(Stat::Sum, Precision::Exact(ScalarValue::from(5u64)));
 
     let est = lv.estimate_density()?.expect("non-empty");
-    assert!(
-        (est - 0.5).abs() < EPS,
-        "estimate {est} should reflect cached Sum=5, not computed Sum=10",
-    );
+    assert!((est - 0.5).abs() < EPS);
     Ok(())
 }
 
 #[test]
 fn referenced_mask_set_bits_match_views() -> VortexResult<()> {
-    // create_large_listview: 10 lists of size 50 at offsets [0,100,200,...,900].
-    // Bits [i*100 .. i*100+50) set, the rest unset.
-    let lv = create_large_listview();
+    let lv = create_sparse_overlapping_listview();
     let mask = lv
         .compute_referenced_elements_mask()
         .expect("non-empty elements");
     let bits = match mask {
         Mask::Values(v) => v,
-        other => panic!("expected Values mask for partial coverage, got {other:?}"),
+        _ => panic!("expected Values mask"),
     };
 
-    assert_eq!(bits.true_count(), 500);
-    // Spot-check the boundaries of the first and last views.
+    assert_eq!(bits.true_count(), 5);
     let bb = bits.bit_buffer();
-    assert!(bb.value(0));
-    assert!(bb.value(49));
-    assert!(!bb.value(50));
-    assert!(!bb.value(99));
-    assert!(bb.value(100));
-    assert!(bb.value(949));
-    assert!(!bb.value(950));
+    for i in 0..3 {
+        assert!(bb.value(i));
+    }
+    assert!(bb.value(18));
+    assert!(bb.value(19));
     Ok(())
 }
