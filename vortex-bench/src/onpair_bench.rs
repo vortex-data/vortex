@@ -187,6 +187,19 @@ pub struct GpuCellResult {
     pub chunks: usize,
     /// Auto-selected kernel based on dictionary lengths.
     pub auto_kernel: String,
+    /// Selector inputs (token-weighted fraction of tokens <= 8 bytes, mean/max
+    /// dict entry length, max dict entry count across chunks, and whether every
+    /// chunk's dict has <= 4096 entries). Surfaced so kernel-selection gates can
+    /// be tuned from observed per-column statistics.
+    pub frac_le8: f32,
+    /// Mean dict entry length, averaged across chunks.
+    pub dict_mean_len: f32,
+    /// Maximum dict entry length across chunks.
+    pub dict_max_len: u8,
+    /// Maximum dict entry count across chunks.
+    pub dict_entries_max: usize,
+    /// Whether every chunk's dict has <= 4096 entries (the `small_dict` gate).
+    pub small_dict: bool,
     /// Fastest measured kernel among all applicable variants.
     pub best_kernel: String,
     /// Auto-selected kernel average time across all chunks.
@@ -770,9 +783,7 @@ struct GpuOnPairChunk {
     all_len_1: bool,
     all_len_2: bool,
     /// Token-weighted fraction of decoded tokens whose length is <= 8 bytes.
-    /// Drove `split8read` auto-selection on Hopper; retained as a diagnostic now
-    /// that Blackwell prefers `wpb8_occ` regardless (see `pick_auto_kernel`).
-    #[allow(dead_code)]
+    /// Gates `split8read` auto-selection on Hopper (sm_90) in `pick_auto_kernel`.
     frac_le8: f32,
     codes: vortex::array::buffer::BufferHandle,
     codes_offsets: vortex::array::buffer::BufferHandle,
@@ -883,6 +894,56 @@ const GPU_KERNELS: &[KernelVariant] = &[
         chunk_size: 128,
         block_warps: 8,
     },
+    // Track B: block-granularity + forced-occupancy sweep on the 4tpt body.
+    KernelVariant {
+        name: "onpair_shmem_4tpt_b128",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 4,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_o6",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 8,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_b512o3",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_b128o12",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 4,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_b64",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 2,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_b64o24",
+        layout: KernelLayout::Stride16,
+        chunk_size: 128,
+        block_warps: 2,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_split8read_b128o12",
+        layout: KernelLayout::SplitRead8,
+        chunk_size: 128,
+        block_warps: 4,
+    },
+    // Track B": split8read at finer granularity (256-thread blocks).
+    KernelVariant {
+        name: "onpair_shmem_4tpt_split8read_occ",
+        layout: KernelLayout::SplitRead8,
+        chunk_size: 128,
+        block_warps: 8,
+    },
     KernelVariant {
         name: "onpair_shmem_4tpt_split8",
         layout: KernelLayout::Stride16,
@@ -930,6 +991,12 @@ const GPU_KERNELS: &[KernelVariant] = &[
         layout: KernelLayout::LenBucket,
         chunk_size: 128,
         block_warps: 16,
+    },
+    KernelVariant {
+        name: "onpair_shmem_4tpt_lenbucket_b128",
+        layout: KernelLayout::LenBucket,
+        chunk_size: 128,
+        block_warps: 4,
     },
     KernelVariant {
         name: "onpair_shmem_4tpt_regcache",
@@ -1031,10 +1098,31 @@ async fn run_gpu_kernel_bench(
     setup_ctx.synchronize_stream()?;
 
     let decoded_bytes = chunks.iter().map(|c| c.decoded_bytes).sum::<u64>();
-    let auto_kernel = pick_auto_kernel(&chunks).to_string();
+    let auto_kernel = pick_auto_kernel(&chunks, device_cc_major(&setup_ctx)).to_string();
+    let frac_le8 = if chunks.is_empty() {
+        0.0
+    } else {
+        chunks.iter().map(|c| c.frac_le8).sum::<f32>() / chunks.len() as f32
+    };
+    let dict_mean_len = if chunks.is_empty() {
+        0.0
+    } else {
+        chunks.iter().map(|c| c.dict_mean_len).sum::<f32>() / chunks.len() as f32
+    };
+    let dict_max_len = chunks.iter().map(|c| c.dict_max_len).max().unwrap_or(0);
+    let dict_entries_max = chunks.iter().map(|c| c.lens.len()).max().unwrap_or(0);
+    let small_dict = chunks.iter().all(|c| c.lens.len() <= 4096);
     let mut kernels = Vec::with_capacity(GPU_KERNELS.len());
 
+    // Fast mode (`ONPAIR_FAST=1`): skip the slow reference `onpair` kernel and the
+    // bundled nvCOMP comparison so kernel-tuning sweeps iterate quickly. These are
+    // the dominant wall-time costs and are irrelevant when comparing OnPair kernels.
+    let fast = std::env::var("ONPAIR_FAST").is_ok_and(|v| v != "0");
+
     for variant in GPU_KERNELS {
+        if fast && matches!(variant.layout, KernelLayout::Ref) {
+            continue;
+        }
         if let Some(reason) = inapplicable_reason(*variant, &chunks) {
             kernels.push(GpuKernelResult {
                 kernel: variant.name.to_string(),
@@ -1075,61 +1163,71 @@ async fn run_gpu_kernel_bench(
         .filter(|r| r.applicable && (!config.validate || r.verified == Some(true)))
         .min_by(|a, b| a.decode_ms.total_cmp(&b.decode_ms))
         .context("no applicable verified CUDA OnPair kernels")?;
-    let nvcomp_zstd_hw = run_nvcomp_zstd_bench(
-        onpairs,
-        iterations,
-        NVCOMP_ZSTD_LEVEL,
-        nvcomp_zstd::DecompressBackend::Hardware,
-    )
-    .await
-    .unwrap_or_else(|error| NvcompZstdGpuResult {
-        supported: false,
-        error: Some(format!("{error:#}")),
-        iterations,
-        backend: "hardware".to_string(),
-        zstd_level: NVCOMP_ZSTD_LEVEL,
-        values_per_frame: NVCOMP_ZSTD_VALUES_PER_FRAME,
-        raw_bytes: decoded_bytes,
-        compressed_bytes: 0,
-        frames: 0,
-        compression_ratio: 0.0,
-        decode_ms: 0.0,
-        decode_gib_s: 0.0,
-        compressed_gib_s: 0.0,
-    });
-    let mut nvcomp_zstd = Vec::with_capacity(NVCOMP_ZSTD_LEVELS.len());
-    for &level in NVCOMP_ZSTD_LEVELS {
-        nvcomp_zstd.push(
-            run_nvcomp_zstd_bench(
-                onpairs,
-                iterations,
-                level,
-                nvcomp_zstd::DecompressBackend::Default,
-            )
-            .await
-            .unwrap_or_else(|error| NvcompZstdGpuResult {
-                supported: false,
-                error: Some(format!("{error:#}")),
-                iterations,
-                backend: "default".to_string(),
-                zstd_level: level,
-                values_per_frame: NVCOMP_ZSTD_VALUES_PER_FRAME,
-                raw_bytes: decoded_bytes,
-                compressed_bytes: 0,
-                frames: 0,
-                compression_ratio: 0.0,
-                decode_ms: 0.0,
-                decode_gib_s: 0.0,
-                compressed_gib_s: 0.0,
-            }),
-        );
-    }
+    let (nvcomp_zstd_hw, nvcomp_zstd) = if fast {
+        (None, Vec::new())
+    } else {
+        let hw = run_nvcomp_zstd_bench(
+            onpairs,
+            iterations,
+            NVCOMP_ZSTD_LEVEL,
+            nvcomp_zstd::DecompressBackend::Hardware,
+        )
+        .await
+        .unwrap_or_else(|error| NvcompZstdGpuResult {
+            supported: false,
+            error: Some(format!("{error:#}")),
+            iterations,
+            backend: "hardware".to_string(),
+            zstd_level: NVCOMP_ZSTD_LEVEL,
+            values_per_frame: NVCOMP_ZSTD_VALUES_PER_FRAME,
+            raw_bytes: decoded_bytes,
+            compressed_bytes: 0,
+            frames: 0,
+            compression_ratio: 0.0,
+            decode_ms: 0.0,
+            decode_gib_s: 0.0,
+            compressed_gib_s: 0.0,
+        });
+        let mut z = Vec::with_capacity(NVCOMP_ZSTD_LEVELS.len());
+        for &level in NVCOMP_ZSTD_LEVELS {
+            z.push(
+                run_nvcomp_zstd_bench(
+                    onpairs,
+                    iterations,
+                    level,
+                    nvcomp_zstd::DecompressBackend::Default,
+                )
+                .await
+                .unwrap_or_else(|error| NvcompZstdGpuResult {
+                    supported: false,
+                    error: Some(format!("{error:#}")),
+                    iterations,
+                    backend: "default".to_string(),
+                    zstd_level: level,
+                    values_per_frame: NVCOMP_ZSTD_VALUES_PER_FRAME,
+                    raw_bytes: decoded_bytes,
+                    compressed_bytes: 0,
+                    frames: 0,
+                    compression_ratio: 0.0,
+                    decode_ms: 0.0,
+                    decode_gib_s: 0.0,
+                    compressed_gib_s: 0.0,
+                }),
+            );
+        }
+        (Some(hw), z)
+    };
 
     Ok(GpuCellResult {
         iterations,
         decoded_bytes,
         chunks: chunks.len(),
         auto_kernel,
+        frac_le8,
+        dict_mean_len,
+        dict_max_len,
+        dict_entries_max,
+        small_dict,
         best_kernel: best.kernel.clone(),
         auto_decode_ms: auto.decode_ms,
         best_decode_ms: best.decode_ms,
@@ -1143,7 +1241,7 @@ async fn run_gpu_kernel_bench(
         auto_decode_gib_s: auto.decode_gib_s,
         best_decode_gib_s: best.decode_gib_s,
         kernels,
-        nvcomp_zstd_hw: Some(nvcomp_zstd_hw),
+        nvcomp_zstd_hw,
         nvcomp_zstd,
     })
 }
@@ -1721,8 +1819,23 @@ const PERSIST_DICT16_WARP_BUF: usize = 2080;
 #[cfg(feature = "cuda")]
 const PERSIST_DICT16_SHARED_CAP: usize = 100 * 1024;
 
+/// Compute-capability major of the active CUDA device (9 = Hopper/sm_90,
+/// 10 = Blackwell/sm_100). Used to keep the best kernel per architecture.
 #[cfg(feature = "cuda")]
-fn pick_auto_kernel(chunks: &[GpuOnPairChunk]) -> &'static str {
+fn device_cc_major(ctx: &CudaExecutionCtx) -> i32 {
+    use cudarc::driver::sys;
+    ctx.stream()
+        .context()
+        .attribute(sys::CUdevice_attribute_enum::CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR)
+        .unwrap_or(0)
+}
+
+/// Pick the fastest validated kernel for the active GPU. The optimum is
+/// architecture-dependent, so the choice branches on compute capability:
+/// kernels measured best on Hopper (sm_90) are kept for Hopper, and the
+/// Blackwell (sm_100) winners are used on B200 — neither overwrites the other.
+#[cfg(feature = "cuda")]
+fn pick_auto_kernel(chunks: &[GpuOnPairChunk], cc_major: i32) -> &'static str {
     if chunks.iter().all(|c| c.all_len_1) {
         return "onpair_shmem_const1";
     }
@@ -1739,20 +1852,48 @@ fn pick_auto_kernel(chunks: &[GpuOnPairChunk]) -> &'static str {
         return "onpair_shmem_s8_4tpt";
     }
 
-    // General case (entries up to 16 bytes). On Blackwell (sm_100) decode is no
-    // longer pinned to the L1/TEX request pipe the way it was on Hopper, so the
-    // occupancy-tuned `wpb8_occ` variant wins everywhere measured. It is the same
-    // 4-tokens/thread body as `4tpt` but built with `__launch_bounds__(256, 4)`
-    // (8 warps/block, 4 blocks/SM) instead of `(512, 2)`; the finer block
-    // granularity hides latency better across the B200's larger SM count.
-    //
-    // Re-fit on a 22-cell B200 sweep (2026-05): `wpb8_occ` was the fastest kernel
-    // in all 10 large columns, beating plain `4tpt` by +6–15% (bits12 and bits16
-    // alike) and also beating the old Hopper-era `split8read` special case — which
-    // previously won bits12 short-token text (fineweb/wikipedia) but no longer
-    // does on Blackwell. The `frac_le8` / small-dict heuristic that gated
-    // `split8read` is therefore retired here.
-    "onpair_shmem_4tpt_wpb8_occ"
+    // General case (entries up to 16 bytes).
+    let small_dict = chunks.iter().all(|c| c.lens.len() <= 4096);
+    let frac_le8 = if chunks.is_empty() {
+        0.0
+    } else {
+        chunks.iter().map(|c| c.frac_le8).sum::<f32>() / chunks.len() as f32
+    };
+
+    if cc_major >= 10 {
+        // Blackwell (sm_100). A B200 granularity sweep (2026-05) found the decode
+        // limiter shifted off the Hopper L1/TEX-request saturation; 128-thread
+        // blocks are the lever (the forced 75% occupancy in `__launch_bounds__(128,
+        // 12)` buys ~nothing on its own). Both winning kernels use 128-thread blocks:
+        //   * `split8read_b128o12` — for small (bits12) dicts with mostly short
+        //     tokens it reads 8 B (uint2) from `dict_s8`, halving L1/TEX request
+        //     width; at 128-thread granularity this compounds to a large win
+        //     (fineweb/wikipedia +22–26%, clickbench/URL +5.5% over `b128o12`).
+        //   * `b128o12` — the robust default everywhere else (bits16, long-token
+        //     or low-`frac_le8` columns), where split8read's fallback path costs more
+        //     than it saves.
+        //
+        // The `frac_le8` gate is lower on Blackwell (0.70) than Hopper (0.90): a
+        // B200 sweep showed split8read wins down to clickbench/URL (frac_le8 0.81)
+        // while l_comment (0.58) and ps_comment (0.33) still regress, so 0.70 sits
+        // centered between the win and regression bands. Hopper is left at 0.90
+        // (not re-measured for this gate; no GH200 access this session).
+        const B200_SPLIT8READ_FRAC_LE8: f32 = 0.70;
+        if small_dict && frac_le8 >= B200_SPLIT8READ_FRAC_LE8 {
+            "onpair_shmem_4tpt_split8read_b128o12"
+        } else {
+            "onpair_shmem_4tpt_b128o12"
+        }
+    } else {
+        // Hopper (sm_90) and earlier. Decode is L1/TEX-request bound; `split8read`
+        // (8 B reads from the 32 KB dict_s8) wins for small bits12 dicts with mostly
+        // short tokens, otherwise plain `4tpt` is the robust default.
+        if small_dict && frac_le8 >= 0.90 {
+            "onpair_shmem_4tpt_split8read"
+        } else {
+            "onpair_shmem_4tpt"
+        }
+    }
 }
 
 /// Pin a device buffer in a reserved L2 persisting region via a stream
