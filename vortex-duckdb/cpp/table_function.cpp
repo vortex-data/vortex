@@ -408,7 +408,7 @@ extern "C" duckdb_state duckdb_vx_tfunc_register(duckdb_database ffi_db, const d
     tf.filter_prune = true;
     tf.sampling_pushdown = false;
 
-    //tf.type_pushdown = type_pushdown;
+    tf.type_pushdown = type_pushdown;
     tf.pushdown_complex_filter = c_pushdown_complex_filter;
     tf.cardinality = c_cardinality;
     tf.get_partition_info = get_partition_info;

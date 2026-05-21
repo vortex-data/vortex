@@ -30,6 +30,7 @@ use vortex::array::arrays::scalar_fn::ScalarFnArrayExt;
 use vortex::array::optimizer::ArrayOptimizer;
 use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
+use vortex::dtype::FieldName;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -37,7 +38,9 @@ use vortex::error::vortex_err;
 use vortex::error::vortex_panic;
 use vortex::expr::Expression;
 use vortex::expr::and_collect;
+use vortex::expr::cast;
 use vortex::expr::col;
+use vortex::expr::get_item;
 use vortex::expr::merge;
 use vortex::expr::pack;
 use vortex::expr::root;
@@ -60,6 +63,7 @@ use vortex::scalar_fn::fns::pack::Pack;
 use vortex::scan::DataSource;
 use vortex::scan::ScanRequest;
 use vortex::scan::selection::Selection;
+use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 use vortex_utils::parallelism::get_available_parallelism;
 
@@ -118,6 +122,7 @@ struct DuckdbField {
     name: String,
     logical_type: LogicalType,
     dtype: DType,
+    casted: bool,
 }
 
 /// Bind data produced by a [`DataSourceTableFunction`].
@@ -128,7 +133,6 @@ pub struct DataSourceBindData {
     // There exists at least one non-optional table filter or at least one
     // complex filter is pushed down.
     has_non_optional_filter: AtomicBool,
-    //column_casts: Vec<(usize, DType)>,
 }
 
 impl Clone for DataSourceBindData {
@@ -646,7 +650,6 @@ impl<T: DataSourceTableFunction> TableFunction for T {
         if column_id >= bind_data.column_fields.len() {
             vortex_panic!("column_id {column_id} >= {}", bind_data.column_fields.len());
         }
-        // TODO casting?
         let field = &mut bind_data.column_fields[column_id];
         let old_dtype = field.dtype.clone();
         // TODO we don't need a copy?
@@ -655,6 +658,7 @@ impl<T: DataSourceTableFunction> TableFunction for T {
             .try_into()
             .vortex_expect("logical type -> dtype conversion failed");
         println!("Cast {} -> {}", old_dtype, field.dtype);
+        field.casted = true;
     }
 }
 
@@ -673,6 +677,7 @@ fn extract_schema_from_dtype(dtype: &DType) -> VortexResult<Vec<DuckdbField>> {
             name: field_name.to_string(),
             logical_type,
             dtype: field_dtype,
+            casted: false,
         });
     }
     Ok(fields)
@@ -682,6 +687,17 @@ struct ProjectionWithVirtualColumns {
     projection: Expression,
     file_index_column_pos: Option<usize>,
     file_row_number_column_pos: Option<usize>,
+}
+
+fn with_file_row_number(select: Expression, has_file_row_number_column: bool) -> Expression {
+    // file_index column will be filled later when exporting the chunk.
+    if has_file_row_number_column {
+        // row_idx will be moved to correct position in scan(), prepend here
+        let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
+        merge([row_idx_struct, select])
+    } else {
+        select
+    }
 }
 
 fn extract_projection_expr(
@@ -702,7 +718,7 @@ fn extract_projection_expr(
     let mut real_column_count = 0;
 
     // DuckDB uses u64 as column indices but Rust uses usize
-    for (column_pos, &column_id) in ids.iter().enumerate() {
+    for (column_pos, (&column_id, column_field)) in ids.iter().zip(column_fields.as_ref()).enumerate() {
         let column_id = if has_projection_ids {
             let column_id: usize = column_id.as_();
             column_ids[column_id]
@@ -719,6 +735,7 @@ fn extract_projection_expr(
             continue;
         }
 
+        is_star &= !column_field.casted;
         // In SELECT * DuckDB requests all columns from 0 to column_fields in
         // increasing order. After removing virtual columns, compare column_id
         // with (0..column_fields.len()) range.
@@ -729,37 +746,51 @@ fn extract_projection_expr(
     // 5 columns total.
     is_star &= real_column_count == column_fields.len() as u64;
 
-    let select = if is_star {
-        root()
-    } else {
-        let names = ids
-            .iter()
-            .map(|&column_id| {
-                if has_projection_ids {
-                    let column_id: usize = column_id.as_();
-                    column_ids[column_id]
-                } else {
-                    column_id
-                }
-            })
-            .filter(|&col_id| !is_virtual_column(col_id))
-            .map(|column_id| {
-                let column_id: usize = column_id.as_();
-                Arc::from(column_fields[column_id].name.as_str())
-            })
-            .collect::<FieldNames>();
+    if is_star {
+        let projection = with_file_row_number(root(), file_row_number_column_pos.is_some());
+        return ProjectionWithVirtualColumns {
+            projection,
+            file_index_column_pos,
+            file_row_number_column_pos,
+        };
+    }
 
-        select(names, root())
+    let mut uncasted_fields = Vec::new();
+    let mut casted_fields = Vec::new();
+
+    for (&column_id, column_field) in ids.iter().zip(column_fields.as_ref()) {
+        let column_id = if has_projection_ids {
+            let column_id: usize = column_id.as_();
+            column_ids[column_id]
+        } else {
+            column_id
+        };
+        if is_virtual_column(column_id) {
+            continue;
+        }
+        let column_id: usize = column_id.as_();
+        let field_name = FieldName::from(Arc::from(column_fields[column_id].name.as_str()));
+        if column_field.casted {
+            casted_fields.push((field_name, column_field.dtype.clone()));
+        } else {
+            uncasted_fields.push(field_name);
+        }
+    }
+
+    let projection = if casted_fields.is_empty() {
+        select(uncasted_fields, root())
+    } else {
+        let mut fields = Vec::new();
+        for field in uncasted_fields {
+            fields.push(get_item(field, root()));
+        }
+        for (field, dtype) in casted_fields {
+            fields.push(cast(get_item(field, root()), dtype));
+        }
+        merge(fields)
     };
 
-    // file_index column will be filled later when exporting the chunk.
-    let projection = if file_row_number_column_pos.is_some() {
-        // row_idx will be moved to correct position in scan(), prepend here
-        let row_idx_struct = pack([("file_row_number", row_idx())], false.into());
-        merge([row_idx_struct, select])
-    } else {
-        select
-    };
+    let projection = with_file_row_number(projection, file_row_number_column_pos.is_some());
 
     ProjectionWithVirtualColumns {
         projection,
@@ -873,21 +904,24 @@ mod tests {
     #[test]
     fn test_select_star() {
         let ids = [0, 1, 2];
-        let fields = [
+        let mut fields = [
             DuckdbField {
                 name: "".to_owned(),
                 logical_type: LogicalType::null(),
                 dtype: DType::Null,
+                casted: false,
             },
             DuckdbField {
                 name: "".to_owned(),
                 logical_type: LogicalType::null(),
                 dtype: DType::Null,
+                casted: false,
             },
             DuckdbField {
                 name: "".to_owned(),
                 logical_type: LogicalType::null(),
                 dtype: DType::Null,
+                casted: false,
             },
         ];
 
@@ -926,6 +960,12 @@ mod tests {
         let ids = [2, 1, 0];
         assert_ne!(
             extract_projection_expr(None, &ids, &fields).projection,
+            root()
+        );
+
+        fields[0].casted = true;
+        assert_ne!(
+            extract_projection_expr(None, &[0, 1, 2], &fields).projection,
             root()
         );
     }
