@@ -15,6 +15,7 @@ use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::datasource::listing::ListingTableUrl;
+use datafusion::execution::cache::file_statistics_cache::DefaultFileStatisticsCache;
 use datafusion::parquet::arrow::ParquetRecordBatchStreamBuilder;
 use datafusion::prelude::SessionContext;
 use datafusion_bench::format_to_df_format;
@@ -278,7 +279,14 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
                     None => config.infer_schema(&session.state()).await?,
                 };
 
-                let listing_table = Arc::new(ListingTable::try_new(config)?);
+                let listing_table = Arc::new(
+                    ListingTable::try_new(config)?.with_cache(
+                        session
+                            .runtime_env()
+                            .cache_manager
+                            .get_file_statistic_cache(),
+                    ),
+                );
 
                 session.register_table(table.name, listing_table)?;
             }
