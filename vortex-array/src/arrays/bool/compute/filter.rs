@@ -369,7 +369,10 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn test_pext_fallback_matches_hardware() {
+        use std::arch::x86_64::_pext_u64;
+
         use super::pext_fallback;
+
         if !std::arch::is_x86_feature_detected!("bmi2") {
             return;
         }
@@ -387,7 +390,7 @@ mod tests {
             (0x8000_0000_0000_0001, 0x8000_0000_0000_0001),
         ];
         for (src, mask) in test_cases {
-            let hw = unsafe { std::arch::x86_64::_pext_u64(src, mask) };
+            let hw = unsafe { _pext_u64(src, mask) };
             let sw = pext_fallback(src, mask);
             assert_eq!(hw, sw, "mismatch for src={src:#018x} mask={mask:#018x}");
         }
@@ -401,7 +404,7 @@ mod tests {
             rng ^= rng >> 7;
             rng ^= rng << 17;
             let mask = rng;
-            let hw = unsafe { std::arch::x86_64::_pext_u64(src, mask) };
+            let hw = unsafe { _pext_u64(src, mask) };
             let sw = pext_fallback(src, mask);
             assert_eq!(hw, sw, "mismatch for src={src:#018x} mask={mask:#018x}");
         }
