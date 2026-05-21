@@ -21,11 +21,7 @@ use crate::dtype::i256;
 use crate::match_each_decimal_value;
 use crate::match_each_decimal_value_type;
 
-/// Performs a checked binary operation at the wider of the two operand types.
-///
-/// Both operands are first widened to the larger of their two decimal types
-/// before the operation is applied. The widening cast cannot fail because
-/// every `DecimalValue` variant losslessly fits into any wider variant.
+/// Widens both operands to the larger of their two decimal types, then applies the checked op.
 macro_rules! checked_widening_binary_op {
     ($self:expr, $other:expr, $op:path) => {{
         let target = $self.decimal_type().max($other.decimal_type());
