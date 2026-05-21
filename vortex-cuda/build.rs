@@ -6,6 +6,7 @@
 #![expect(clippy::use_debug)]
 
 use std::env;
+use std::fs;
 use std::fs::File;
 use std::io;
 use std::path::Path;
@@ -20,6 +21,8 @@ use crate::bit_unpack_gen::generate_cuda_unpack_lanes;
 #[path = "src/bit_unpack_gen.rs"]
 pub mod bit_unpack_gen;
 
+const NVIDIA_GPU_INFO_DIR: &str = "/proc/driver/nvidia/gpus";
+
 fn main() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
     // https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
@@ -30,7 +33,7 @@ fn main() {
     // Output directory for compiled .ptx files - separate by profile.
     let kernels_gen = Path::new(&manifest_dir).join("kernels/gen").join(&profile);
 
-    std::fs::create_dir_all(&kernels_gen).expect("Failed to create kernels/gen directory");
+    fs::create_dir_all(&kernels_gen).expect("Failed to create kernels/gen directory");
 
     // Always emit the kernels output directory path as a compile-time env var so any binary
     // linking against vortex-cuda can find the PTX files. This must be set regardless
@@ -42,6 +45,11 @@ fn main() {
     );
 
     println!("cargo:rerun-if-env-changed=PROFILE");
+    // Re-run if the user changes which GPUs are visible to CUDA between builds.
+    println!("cargo:rerun-if-env-changed=CUDA_VISIBLE_DEVICES");
+    // CI stale-rebuild checks require deterministic Cargo inputs, so skip volatile
+    // NVIDIA procfs watches when the standard CI marker is set.
+    println!("cargo:rerun-if-env-changed=CI");
 
     // Regenerate bit_unpack kernels only when the generator changes
     println!(
@@ -64,8 +72,12 @@ fn main() {
         return;
     }
 
+    if env::var_os("CI").is_none() {
+        watch_nvidia_gpu_info_files();
+    }
+
     // Watch and compile .cu and .cuh files from kernels/src to PTX in kernels/gen
-    if let Ok(entries) = std::fs::read_dir(&kernels_src) {
+    if let Ok(entries) = fs::read_dir(&kernels_src) {
         for path in entries.flatten().map(|entry| entry.path()) {
             let is_generated = path
                 .file_name()
@@ -95,6 +107,19 @@ fn main() {
                 }
                 _ => {}
             }
+        }
+    }
+}
+
+fn watch_nvidia_gpu_info_files() {
+    let Ok(entries) = fs::read_dir(NVIDIA_GPU_INFO_DIR) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let info_path = entry.path().join("information");
+        if info_path.is_file() {
+            println!("cargo:rerun-if-changed={}", info_path.display());
         }
     }
 }
