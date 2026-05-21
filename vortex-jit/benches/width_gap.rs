@@ -152,6 +152,65 @@ fn aot_u64(bencher: Bencher) {
         });
 }
 
+// ---------------- UNFUSED (Vortex-style: each kernel autovec'd, but
+// materializing a canonical buffer between stages) ----------------
+//
+// This models how Vortex actually executes a chain: each encoding decodes to
+// a canonical buffer, the parent reads it. Two tight autovec'd loops with a
+// 256/512 KiB intermediate buffer in between. With target-cpu=native LLVM
+// vectorizes each loop to AVX2/512 — wide SIMD, but 2x the memory passes of
+// the fused kernel.
+
+#[divan::bench]
+fn unfused_u32(bencher: Bencher) {
+    let input: Vec<i32> = (0..NUM_VALUES as i32).collect();
+    let scale = SCALE as f32;
+    let reference = REF_U32 as i32;
+    tp32(bencher)
+        .with_inputs(|| {
+            (
+                input.clone(),
+                vec![0i32; NUM_VALUES], // intermediate
+                vec![0f32; NUM_VALUES], // output
+            )
+        })
+        .bench_local_values(|(input, mut tmp, mut out)| {
+            // Stage 1: FoR add -> canonical i32 buffer (autovec'd).
+            for i in 0..NUM_VALUES {
+                tmp[i] = input[i].wrapping_add(reference);
+            }
+            // Stage 2: ALP decode -> f32 output (autovec'd).
+            for i in 0..NUM_VALUES {
+                out[i] = (tmp[i] as f32) * scale;
+            }
+            divan::black_box((tmp, out))
+        });
+}
+
+#[divan::bench]
+fn unfused_u64(bencher: Bencher) {
+    let input: Vec<i64> = (0..NUM_VALUES as i64).collect();
+    let scale = SCALE;
+    let reference = REF_U64;
+    tp64(bencher)
+        .with_inputs(|| {
+            (
+                input.clone(),
+                vec![0i64; NUM_VALUES],
+                vec![0f64; NUM_VALUES],
+            )
+        })
+        .bench_local_values(|(input, mut tmp, mut out)| {
+            for i in 0..NUM_VALUES {
+                tmp[i] = input[i].wrapping_add(reference);
+            }
+            for i in 0..NUM_VALUES {
+                out[i] = (tmp[i] as f64) * scale;
+            }
+            divan::black_box((tmp, out))
+        });
+}
+
 fn main() {
     divan::main();
 }
