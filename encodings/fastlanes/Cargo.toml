@@ -63,3 +63,7 @@ required-features = ["_test-harness"]
 [[bench]]
 name = "bitpack_compare"
 harness = false
+
+[[bench]]
+name = "u32_unpack_cast"
+harness = false
