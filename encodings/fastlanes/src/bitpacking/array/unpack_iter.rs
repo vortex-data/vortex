@@ -104,6 +104,50 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
         )
     }
 
+    /// Decode all chunks (initial, full, and trailer), mapping each value through `f` and writing
+    /// the result into a differently-typed `output`.
+    ///
+    /// Unlike [`decode_into`](Self::decode_into), full chunks cannot be unpacked directly into the
+    /// output because the output element type `U` differs from the packed type `T`. Each chunk is
+    /// unpacked into the small internal scratch buffer (which stays resident in cache) and then
+    /// mapped value-by-value into `output`. This avoids materializing a full-length `T`-typed
+    /// intermediate buffer, which is the win for cast-on-decompression (e.g. bit-packed `u16` cast
+    /// to `u32`).
+    pub fn decode_cast_into<U: Copy>(&mut self, output: &mut [MaybeUninit<U>], f: impl Fn(T) -> U) {
+        let mut local_idx = 0;
+
+        if let Some(initial) = self.initial() {
+            for (dst, &src) in output[..initial.len()].iter_mut().zip(initial.iter()) {
+                dst.write(f(src));
+            }
+            local_idx += initial.len();
+        }
+
+        // `initial` already handled the only chunk when `num_chunks == 1`; mirror the guard in
+        // `decode_full_chunks_into_at` so we don't decode chunk 0 twice.
+        if self.num_chunks != 1 {
+            let mut chunks = self.full_chunks();
+            while let Some(chunk) = chunks.next() {
+                for (dst, &src) in output[local_idx..][..CHUNK_SIZE]
+                    .iter_mut()
+                    .zip(chunk.iter())
+                {
+                    dst.write(f(src));
+                }
+                local_idx += CHUNK_SIZE;
+            }
+        }
+
+        if let Some(trailer) = self.trailer() {
+            for (dst, &src) in output[local_idx..][..trailer.len()]
+                .iter_mut()
+                .zip(trailer.iter())
+            {
+                dst.write(f(src));
+            }
+        }
+    }
+
     pub fn full_chunks(&mut self) -> BitUnpackIterator<'_, T> {
         let elems_per_chunk = self.elems_per_chunk();
         let last_chunk_is_sliced = self.last_chunk_is_sliced() as usize;

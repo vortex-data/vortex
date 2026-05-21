@@ -79,6 +79,85 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPackedUnpack>(
     Ok(())
 }
 
+/// Unpack a bit-packed array of physical type `F` directly into a wider primitive type `T`,
+/// casting each value during decompression.
+///
+/// This is the "cast pushdown" path: rather than canonicalizing to a full-length `F`-typed
+/// `PrimitiveArray` and then casting it to `T` (two full-length buffers, with the `F` intermediate
+/// written out to RAM), we unpack each 1024-element FastLanes chunk into a small cache-resident
+/// scratch buffer and cast-copy straight into the `T` output. Only the `T` output buffer is
+/// allocated and touched in RAM.
+///
+/// The caller must ensure all valid values are representable in `T` (it is intended for widening
+/// casts such as `u16 -> u32`); narrowing or sign-changing casts are not validated here.
+pub fn unpack_and_cast_into_builder<F, T>(
+    array: ArrayView<'_, BitPacked>,
+    builder: &mut PrimitiveBuilder<T>,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()>
+where
+    F: BitPackedUnpack + AsPrimitive<T>,
+    T: NativePType,
+{
+    if array.is_empty() {
+        return Ok(());
+    }
+
+    let len = array.len();
+    let mut uninit_range = builder.uninit_range(len);
+
+    // SAFETY: We initialize all `len` values below via `decode_cast_into` and the patch loop.
+    unsafe {
+        uninit_range.append_mask(array.validity()?.execute_mask(len, ctx)?);
+    }
+
+    // SAFETY: `decode_cast_into` writes a value to every slot in this range.
+    let uninit_slice = unsafe { uninit_range.slice_uninit_mut(0, len) };
+
+    let mut chunks = array.unpacked_chunks::<F>()?;
+    chunks.decode_cast_into(uninit_slice, |v: F| v.as_());
+
+    if let Some(patches) = array.patches() {
+        apply_cast_patches_to_uninit_range::<F, T>(&mut uninit_range, &patches, ctx)?;
+    }
+
+    // SAFETY: A correct validity mask of `len` values was set via `append_mask`, and the same
+    // number of values was initialized via `decode_cast_into` (and overwritten by patches).
+    unsafe {
+        uninit_range.finish();
+    }
+    Ok(())
+}
+
+/// Like [`apply_patches_to_uninit_range`], but the stored patch values have physical type `F` and
+/// are cast to the wider output type `T` before being written.
+fn apply_cast_patches_to_uninit_range<F, T>(
+    dst: &mut UninitRange<T>,
+    patches: &Patches,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()>
+where
+    F: NativePType + AsPrimitive<T>,
+    T: NativePType,
+{
+    assert_eq!(patches.array_len(), dst.len());
+
+    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+    let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
+    assert!(values.all_valid(ctx)?, "Patch values must be all valid");
+    let values = values.as_slice::<F>();
+
+    match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
+        for (index, &value) in indices.as_slice::<P>().iter().zip_eq(values) {
+            dst.set_value(
+                <P as AsPrimitive<usize>>::as_(*index) - patches.offset(),
+                value.as_(),
+            );
+        }
+    });
+    Ok(())
+}
+
 pub fn apply_patches_to_uninit_range<T: NativePType>(
     dst: &mut UninitRange<T>,
     patches: &Patches,
@@ -584,6 +663,64 @@ mod tests {
             1000,
             "sliced executed primitive length should be 1000"
         );
+        Ok(())
+    }
+
+    /// The cast-pushdown path must produce identical values to canonicalize-then-cast.
+    #[test]
+    fn test_unpack_and_cast_matches_canonical_cast() -> VortexResult<()> {
+        use vortex_array::builtins::ArrayBuiltins;
+        use vortex_array::dtype::DType;
+        use vortex_array::dtype::PType;
+
+        let mut ctx = SESSION.create_execution_ctx();
+
+        // Three full chunks plus a trailer, with values large enough to force patches at width 8.
+        let values: Vec<u16> = (0..3500u16)
+            .map(|i| if i % 137 == 0 { 5000 + i } else { i % 200 })
+            .collect();
+        let array = PrimitiveArray::from_iter(values.clone());
+        let bitpacked = encode(&array, 8);
+        assert!(bitpacked.patches().is_some());
+
+        let u32_dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
+
+        // Reference: canonicalize (unpack to u16) then cast to u32.
+        let reference = bitpacked
+            .clone()
+            .into_array()
+            .cast(u32_dtype.clone())?
+            .execute::<PrimitiveArray>(&mut ctx)?;
+
+        // Pushdown: unpack u16 bit-packed directly into a u32 builder.
+        let mut builder =
+            PrimitiveBuilder::<u32>::with_capacity(Nullability::NonNullable, array.len());
+        unpack_and_cast_into_builder::<u16, u32>(bitpacked.as_view(), &mut builder, &mut ctx)?;
+        let pushdown = builder.finish_into_primitive();
+
+        assert_arrays_eq!(pushdown, reference);
+
+        // Verify a sliced array (offset > 0, trailer present). Use patch-free values so the slice
+        // reduces eagerly to a concrete `BitPacked` with an offset.
+        let dense = PrimitiveArray::from_iter((0..3000u16).map(|i| i % 200));
+        let dense_bp = encode(&dense, 8);
+        assert!(dense_bp.patches().is_none());
+        let sliced = dense_bp
+            .into_array()
+            .slice(500..2600)?
+            .try_downcast::<BitPacked>()
+            .map_err(|_| vortex_error::vortex_err!("slice did not reduce to BitPacked"))?;
+        assert!(sliced.offset() > 0);
+
+        let reference_sliced = sliced
+            .clone()
+            .into_array()
+            .cast(u32_dtype)?
+            .execute::<PrimitiveArray>(&mut ctx)?;
+        let mut builder =
+            PrimitiveBuilder::<u32>::with_capacity(Nullability::NonNullable, sliced.len());
+        unpack_and_cast_into_builder::<u16, u32>(sliced.as_view(), &mut builder, &mut ctx)?;
+        assert_arrays_eq!(builder.finish_into_primitive(), reference_sliced);
         Ok(())
     }
 
